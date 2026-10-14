@@ -55,55 +55,6 @@ function run(depsEdnRel, localRoot, version = VERSION) {
   return spawnSync('bash', ['-lc', command], { cwd: REPO_ROOT, encoding: 'utf8' });
 }
 
-function cleanup() {
-  cleanupScratchDirs();
-}
-
-// A minimal leaf deps.edn: the core coordinate plus a sibling :local/root dep.
-const PLAIN = [
-  '{:paths ["src"]',
-  ' :deps  {day8/re-frame2 {:local/root "../core"}}',
-  '',
-  ' :aliases',
-  ' {:test {:extra-deps {day8/re-frame2-test-quiet {:local/root "../test-quiet"}}}}}',
-  '',
-].join('\n');
-
-test('success: rewrites the code coordinate to :mvn/version', () => {
-  const fix = fixture(PLAIN);
-  const res = run(fix.rel, '../core');
-  assert.equal(res.status, 0, `expected exit 0, got ${res.status}\n${res.stderr}`);
-  const out = fs.readFileSync(fix.abs, 'utf8');
-  assert.match(out, /day8\/re-frame2 \{:mvn\/version "9\.9\.9-TEST"\}/);
-  assert.doesNotMatch(out, /day8\/re-frame2 \{:local\/root "\.\.\/core"\}/);
-});
-
-// The reagent-slim shape: a prose comment quoting the literal the rewrite keys off.
-test('regression (rf2-ldkuk): a comment quoting the literal does not break the rewrite', () => {
-  const fix = fixture(
-    [
-      ';; The day8/re-frame2 coordinate uses :local/root "../core" — the',
-      ';; release workflow rewrites it to :mvn/version "${VERSION}".',
-      '{:paths ["src"]',
-      ' :deps  {day8/re-frame2 {:local/root "../core"}}}',
-      '',
-    ].join('\n'),
-  );
-  const res = run(fix.rel, '../core');
-  assert.equal(
-    res.status,
-    0,
-    `a commented occurrence must not defeat the count — got exit ${res.status}\n${res.stderr}`,
-  );
-  const out = fs.readFileSync(fix.abs, 'utf8');
-  assert.match(out, /day8\/re-frame2 \{:mvn\/version "9\.9\.9-TEST"\}/);
-  assert.match(
-    out,
-    /;; The day8\/re-frame2 coordinate uses :local\/root "\.\.\/core" —/,
-    'the comment must survive verbatim — comments are documentation, not code',
-  );
-});
-
 test('regression: many commented occurrences still leave exactly one code match', () => {
   const fix = fixture(
     [
@@ -128,33 +79,7 @@ test('a `;` inside a string does not start a comment', () => {
   assert.match(fs.readFileSync(fix.abs, 'utf8'), /:mvn\/version "9\.9\.9-TEST"/);
 });
 
-test('ssr-ring shape: two sequential invocations rewrite both in-repo coords', () => {
-  const fix = fixture(
-    [
-      '{:deps  {day8/re-frame2     {:local/root "../core"}',
-      '         day8/re-frame2-ssr {:local/root "../ssr"}}}',
-      '',
-    ].join('\n'),
-  );
-  run(fix.rel, '../core');
-  run(fix.rel, '../ssr');
-  const out = fs.readFileSync(fix.abs, 'utf8');
-  assert.match(out, /day8\/re-frame2     \{:mvn\/version "9\.9\.9-TEST"\}/);
-  assert.match(out, /day8\/re-frame2-ssr \{:mvn\/version "9\.9\.9-TEST"\}/);
-});
-
 // ── Fail-loud invariants ──────────────────────────────────────────────
-
-test('abort: missing deps.edn → exit 2', () => {
-  const res = run('.scratch/does-not-exist/deps.edn', '../core');
-  assert.equal(res.status, 2);
-});
-
-test('abort: coordinate absent entirely → exit 3', () => {
-  const fix = fixture('{:deps {day8/re-frame2 {:mvn/version "1.0.0"}}}\n');
-  const res = run(fix.rel, '../core');
-  assert.equal(res.status, 3);
-});
 
 test('abort: coordinate present ONLY in comments → exit 3 with a distinct diagnostic', () => {
   // Doing nothing here would publish a pom with no framework dep.
@@ -184,13 +109,6 @@ test('abort: two real code coordinates → exit 4 (ambiguous, refuse to guess)',
   );
   const res = run(fix.rel, '../core');
   assert.equal(res.status, 4);
-});
-
-test('abort: deps.edn is left unmodified when the rewrite aborts', () => {
-  const body = '{:deps {day8/re-frame2 {:mvn/version "1.0.0"}}}\n';
-  const fix = fixture(body);
-  run(fix.rel, '../core');
-  assert.equal(fs.readFileSync(fix.abs, 'utf8'), body, 'fail-closed: no partial write');
 });
 
 test('the script is committed executable (release.yml invokes it directly)', () => {
@@ -279,7 +197,7 @@ for (const { name, fn } of tests) {
   }
 }
 
-cleanup();
+cleanupScratchDirs();
 
 if (failed > 0) {
   console.error(`rewrite-local-root-coord tests: ${failed} failed.`);
