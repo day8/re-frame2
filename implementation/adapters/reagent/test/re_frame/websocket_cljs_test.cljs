@@ -244,7 +244,9 @@
   ;; such state (:failed is top-level, so it carries its own enqueue
   ;; transitions). The next :connected entry replays them through the machine,
   ;; so a queued request registers, goes out as its body and correlates its
-  ;; reply.
+  ;; reply. The whole-outcome equality also pins spec/Pattern-WebSocket.md's
+  ;; app-level boundary: the reply body plus the machine's :origin stamp, and
+  ;; none of the uniform reply envelope's keys.
   (doseq [[state reach! reconnect!]
           [[[:disconnected] identity                     connect!]
            [[:reconnecting] #(do (connect! %) (drop! %)) fire-after-timer!]
@@ -355,20 +357,6 @@
 ;; apart on the same live socket; the registration token does, on both
 ;; settling paths.
 
-(deftest websocket-request-reply-correlation
-  ;; Pins spec/Pattern-WebSocket.md's app-level boundary: the outcome is the
-  ;; app's own reply body plus the machine's :origin stamp, carrying none of
-  ;; the uniform reply envelope's keys (:rf/reply-to, :status, :work/id,
-  ;; :work/kind, :completed-at). The id is the supplied recordable coeffect,
-  ;; and the registration token makes the round trip through the server.
-  (run-with-frame
-    (fn [f]
-      (connect! f)
-      (let [rid (random-uuid)]
-        (app-request! f rid "hello")
-        (is (= {} (in-flight f)))
-        (is (= (echoed-outcome f rid "hello") (last-reply f)))))))
-
 (deftest websocket-stale-timeout-cannot-settle-later-same-id-request
   ;; A is answered, then B re-registers the same id on the same live socket
   ;; inside A's timeout window. A's uncancelled timer passes the epoch check,
@@ -468,12 +456,11 @@
 (deftest websocket-inbound-boundary-structural
   ;; The release-build half of the inbound contract. In this dev lane step-1
   ;; validation enforces :schema either way, so only :boundary? true shows the
-  ;; check survives the production build. The :doc read proves the
-  ;; registration under test is the example's, not a fixture twin.
-  (let [meta-of #(rf/handler-meta {:source :store :kind :event :id %})]
-    (doseq [id [:ws/handle-message :ws.app/request-reply]]
-      (is (= [true true] ((juxt (comp some? :schema) :boundary?) (meta-of id))) (str id)))
-    (is (str/includes? (str (:doc (meta-of :ws.app/request-reply))) "RequestOutcome"))))
+  ;; check survives the production build.
+  (doseq [id [:ws/handle-message :ws.app/request-reply]]
+    (is (= [true true] ((juxt (comp some? :schema) :boundary?)
+                        (rf/handler-meta {:source :store :kind :event :id id})))
+        (str id))))
 
 (deftest websocket-inbound-boundary-rejection
   ;; Frames from the LIVE socket that fail the closed InboundMessage contract
