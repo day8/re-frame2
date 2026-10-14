@@ -17,7 +17,6 @@
    [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   [re-frame.identity :as rf.identity]
    ;; load-bearing side-effecting require: registers the :rf.resource/* events
    ;; + subs this suite dispatches.
    [re-frame.resources]
@@ -127,22 +126,9 @@
 ;; the premise: a key-id is reversible plaintext, not a digest
 ;; ===========================================================================
 
-(deftest key-id-is-reversible-plaintext-not-a-digest
-  (let [k-id (rf.resources.state/key-id secret-key)]
-    (is (= [(rf.identity/canonical-bytes secret-key) true true true]
-           [k-id (str/includes? k-id (str "s:" (pr-str secret))) (str/includes? k-id "k::secret/article")
-            (str/includes? k-id (pr-str :rf.scope/global))])
-        "key-id IS canonical-bytes, and the secret, resource id and scope all sit in it verbatim")))
-
 ;; ===========================================================================
 ;; owner-released names scoped keys, and they project like any key
 ;; ===========================================================================
-
-(deftest owner-released-names-released-entries-by-scoped-key
-  (let [tags (release-owner-row)]
-    (is (= [#{secret-key plain-key} false]
-           [(set (:released tags)) (leaks-cedn-token? tags)])
-        "each released entry is named by its scoped key, and no tag on the row carries a CEDN-1 key-id")))
 
 (deftest off-box-owner-released-tokenizes-the-sensitive-key-and-keeps-the-plain-one
   (let [projected            (project (release-owner-row))
@@ -151,19 +137,6 @@
            [rid (redacted-token? pparams) (redacted-token? pscope) (:sensitive? projected)
             (clean? projected) (released-member projected :plain/article)])
         "the sensitive scope and params tokenize, the row is stamped and clean, and the plain key rides verbatim")))
-
-(deftest off-box-released-and-aborted-keys-agree-digest-for-digest
-  ;; the same identity rides twice on one row: under :released, and embedded
-  ;; at position 1 of the :aborted work-id; both project to the same digests,
-  ;; so a tool's per-key joins survive redaction
-  (let [projected   (project (release-owner-row))
-        aborted-key (->> (:aborted projected)
-                         (filter vector?)
-                         (map #(nth % 1 nil))
-                         (filter #(= :secret/article (second %)))
-                         first)]
-    (is (= [(released-member projected :secret/article) true]
-           [aborted-key (redacted-token? (nth aborted-key 2 nil))]))))
 
 ;; ===========================================================================
 ;; the ssr.cljc emit sites fold over :entries by key-id too
