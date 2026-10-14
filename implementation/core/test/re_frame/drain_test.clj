@@ -1,9 +1,10 @@
 (ns re-frame.drain-test
   "Run-to-completion drain semantics (Spec 002 §Run-to-completion dispatch):
   `:fx` dispatches drain in the same cycle, a `:drain-depth` of N admits
-  exactly N events and halts the next, a terminating cascade of exactly N
-  settles, a nested `dispatch-sync` is rejected, and a dispatch to another
-  frame takes that frame's own drain.
+  exactly N events and halts the next, a nested `dispatch-sync` is rejected,
+  and a dispatch to another frame takes that frame's own drain.
+  `re-frame.router-lanes-test` pins that a family of exactly N settles with
+  no halt.
 
   ## Posture split
 
@@ -95,25 +96,6 @@
            (select-keys (some #(when (= :rf.error/drain-depth-exceeded (:error %)) %) @records)
                         [:frame :depth :queue-size :rollback? :recovery
                          :last-event-id :tail-event-ids :reason :last-event])))))
-
-(deftest drain-of-exactly-drain-depth-events-settles-with-no-halt
-  ;; `depth` counts settled events, so a cascade that terminates after exactly
-  ;; N events reaches depth N with an empty queue. A halt there would name an
-  ;; event that had settled :ok; a halt presupposes a next event.
-  (let [records (atom [])]
-    (rf.error-emit/register-error-listener! ::exact (fn [rec] (swap! records conj rec)))
-    (rf/make-frame {:id :drain.test/exact :drain-depth 4})
-    (rf/reg-event :tick
-      (fn [{:keys [db]} _]
-        (let [n (inc (:n db 0))]
-          (cond-> {:db (assoc db :n n)}
-            (< n 4) (assoc :fx [[:dispatch [:tick]]])))))
-    (rf/dispatch-sync [:tick] {:frame :drain.test/exact})
-    (rf.error-emit/unregister-error-listener! ::exact)
-    (is (= 4 (:n (rf/app-db-value :drain.test/exact)))
-        "the cascade ran exactly :drain-depth events")
-    (is (empty? (filter #(= :rf.error/drain-depth-exceeded (:error %)) @records))
-        "a clean cascade of exactly :drain-depth events does not halt")))
 
 ;; ---- dispatch-sync in a handler -------------------------------------------
 
