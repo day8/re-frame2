@@ -1193,12 +1193,12 @@ jobs:
       # a bare `mkdocs` console script to `python -m mkdocs` for the
       # `pip install --user` checkouts where the console script is off PATH.
       # This runner installs requirements.txt, so a bare `mkdocs` IS on PATH
-      # here and the host-consulting case takes the console-script branch —
-      # deleting the module fallback outright would stay green remotely
-      # and open the fail-open on exactly the contributor installs it is
-      # written for. The harness carries hermetic cases (AC-AE) that
-      # CONSTRUCT a module-only PATH instead of asking this host what it has,
-      # and running it here is what makes breaking that fallback red a REQUIRED
+      # here and a case asking this host what it has would take the
+      # console-script branch — deleting the module fallback outright would
+      # stay green remotely and open the fail-open on exactly the contributor
+      # installs it is written for. The harness's hermetic cases (AC2, AD, AE)
+      # CONSTRUCT their PATH instead of asking this host what it has, and
+      # running it here is what makes breaking that fallback red a REQUIRED
       # check.
       #
       # Belongs in this always-on job for the same reason the steps above
