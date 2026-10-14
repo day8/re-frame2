@@ -544,7 +544,8 @@
     [top]))
 
 (defn install-managed-request-stubs!
-  "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
+  "Test-time helper. `stubs` is `{[method url] {:reply r}}`, `r` being `{:ok v}`
+  (optionally with `:meta`) or `{:failure m}`.
   Registers the `:rf.http/managed-test-stub` fx — a route-map-consulting
   override target that synthesises the configured reply.
 
@@ -672,7 +673,8 @@
   "Install stubs, route `:rf.http/managed` through them for the dynamic
   extent of `thunk`, run `thunk`. Test-time helper.
 
-  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. The wrapper binds the
+  `stubs` is `{[method url] {:reply r}}`, `r` being `{:ok v}`
+  (optionally with `:meta`) or `{:failure m}`. The wrapper binds the
   route map onto the dynamic var `*scope-stubs*` and binds the lexical-scope
   fx-override `{:rf.http/managed <scope-stub-fx-id>}`
   (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides` seam)

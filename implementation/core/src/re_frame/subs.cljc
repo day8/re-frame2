@@ -107,7 +107,7 @@
     :rf.error/reg-sub-bad-args
     'rf/reg-sub
     reason
-    {:recovery :fix-registration
+    {:recovery :no-recovery
      :extra    {:id       id
                 :received received}}))
 
