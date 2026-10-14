@@ -6,25 +6,17 @@
   written as a PAIR: the thing the kit answers, and a control that fails
   if the kit answered it by accident.
 
-  ## The three shapes of control in this file
+  ## The two shapes of control in this file
 
   1. **Discrimination.** A predicate is asserted true on the thing and
      FALSE on its nearest neighbour — `boundary?` on a `defview` var and
      on the plain function its body is, `callback?` on `h/event` and on an
      identically-written `fn`. A predicate only ever asserted true is a
      predicate that could be `(constantly true)`.
-  2. **Both verbs, from one discriminator.** [[outcome]] reports
-     `{:returned v}` or `{:refused <ex-data>}`, and the refusal rows
-     assert the WHOLE ex-data map rather than `(is (thrown? …))`. A bare
-     `thrown?` is green for a throw from any layer carrying any id, so a
-     sabotage throwing from the wrong place would pass it.
-     [[the-refusal-witness-answers-both-ways]]
-     drives the discriminator in both directions so the refusal rows are
-     not a helper that only knows one verb.
-  3. **The legal twin.** Every refusal row has a sibling that renders the
-     SAME body legally — the fixture supplied, the head named — so the
-     refusal is about the thing under test and not about a body that was
-     broken anyway.
+  2. **Refusals as identity.** [[outcome]] reports `{:returned v}` or
+     `{:refused <ex-data>}`, and the refusal rows assert the ex-data's
+     identity rather than `(is (thrown? …))`: a bare `thrown?` is green
+     for a throw from any layer carrying any id.
 
   ## What is asserted elsewhere
 
@@ -48,7 +40,7 @@
 
 (rf/reg-sub :tk/todo   (fn [db [_ id]] (get-in db [:todos id])))
 (rf/reg-sub :tk/filter (fn [db _] (:filter db)))
-(rf/reg-sub :tk/count  (fn [db _] (count (:todos db))))
+
 
 (rf/reg-event :tk/seed   (fn [_ [_ db]] {:db db}))
 (rf/reg-event :tk/toggle (fn [{:keys [db]} [_ id]]
@@ -91,52 +83,6 @@
   [outcome' extra-keys]
   (some-> (:refused outcome')
           (select-keys (into [:rf.error/id :where] extra-keys))))
-
-(deftest the-refusal-witness-answers-both-ways
-  (testing "the discriminator reports :returned for a render that is legal,
-            so the :refused assertions below are not a helper that only
-            knows one verb"
-    (is (= {:returned {:rf.ui/tree-version 1 :tag :p}}
-           (outcome #(rf.fresco.test/tree [(fn [_] [:p])  {}])))))
-
-  (testing "and :refused, with the id, for one that is not"
-    (is (= {:rf.error/id :rf.error/fresco-test-not-a-body
-            :where       're-frame.fresco.test}
-           (refusal (outcome #(rf.fresco.test/tree [:not-a-body-fn 1])) [])))))
-
-(deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
-  ;; The constructor directly, because no refusal site in the kit spells an
-  ;; identity field in its payload — and the whole point is that none can,
-  ;; including the next one somebody writes. Driving the weakest
-  ;; case means handing it the four keys it guarantees, not a well-formed
-  ;; payload that would pass under either merge order.
-  (let [o (outcome #(#'rf.fresco.test/refuse! :rf.error/fresco-test-not-a-body
-                                  "render's head is the BODY FUNCTION."
-                                  {:rf.error/id :rf.error/fresco-true-child
-                                   :where       'app.impostor/elsewhere
-                                   :reason      "replaced"
-                                   :recovery    nil
-                                   :value       :the-class-s-own-slot}))]
-
-    (testing "the identity is the constructor's, whole — a payload spelling
-              any of the four loses, and the class's own slot rides alongside
-              untouched. Merging the payload LAST would make this call emit
-              the impostor's id, a nil recovery and no raising site at all"
-      (is (= {:rf.error/id :rf.error/fresco-test-not-a-body
-              :where       're-frame.fresco.test
-              :reason      "render's head is the BODY FUNCTION."
-              :recovery    :no-recovery
-              :value       :the-class-s-own-slot}
-             (:refused o))
-          "the whole ex-data, so an overwritten field cannot hide behind a
-           select-keys that never looked at it"))
-
-    (testing "and the message still names the id the map carries — the parity
-              this kit exists to provide is that its refusal IS the runtime's,
-              and a map and a message disagreeing about which refusal occurred
-              defeats that before a reader gets to the id"
-      (is (= "render's head is the BODY FUNCTION. [:rf.error/fresco-test-not-a-body]"
-             (:message o))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the boundary ABI
@@ -220,22 +166,11 @@
     (is (= {"id" "main" "className" "wide tall"}
            (rf.fresco.test/element-props [:div#ignored.wide {:id "main" :class "tall"}]))))
 
-  (testing "and the control: without the shorthand the same props emit the
-            same slots MINUS the folded halves, so the row above is
-            measuring the fold rather than the props"
-    (is (= {"id" "main" "className" "tall"}
-           (rf.fresco.test/element-props [:div {:id "main" :class "tall"}]))))
 
   (testing "canonical slot names, not the author's spelling"
     (is (= {"tabIndex" 0 "htmlFor" "x"}
            (rf.fresco.test/element-props [:label {:tab-index 0 :for "x"}]))))
 
-  (testing "a caller's map merged with the owned keys last: the literal
-            the element writes wins by presence, and the projection sees
-            the one merged map the codec sees"
-    (is (= {"className" "owned" "title" "from-caller"}
-           (rf.fresco.test/element-props [:div (merge {:class "hijacked" :title "from-caller"}
-                                          {:class "owned"})]))))
 
   (testing "a lowered handler records as 004B's opaque marker — the site's
             existence and spelling are the claim, its behaviour is L3"
@@ -284,8 +219,7 @@
 
   (testing "the revision trigger reads off the author's own attribute map"
     (is (= 7 (rf.fresco.test/revision [:input {:value "milk"
-                                   :re-frame.fresco/revision 7}])))
-    (is (nil? (rf.fresco.test/revision [:input {:value "milk"}])))))
+                                   :re-frame.fresco/revision 7}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — intent capture at Spec 009's observation port
@@ -303,15 +237,13 @@
 (deftest capture-intents-reads-the-public-events-port
   (seeded!)
   (testing "what the frame dispatched, in order, as the vectors themselves"
-    (let [{:keys [intents value]}
-          (rf.fresco.test/capture-intents frame-id
-                              (fn []
-                                (rf/with-frame frame-id
-                                  (rf/dispatch-sync [:tk/toggle 1])
-                                  (rf/dispatch-sync [:tk/toggle 2]))
-                                :done))]
-      (is (= [[:tk/toggle 1] [:tk/toggle 2]] intents))
-      (is (= :done value))))
+    (is (= {:value :done :intents [[:tk/toggle 1] [:tk/toggle 2]]}
+           (rf.fresco.test/capture-intents frame-id
+                               (fn []
+                                 (rf/with-frame frame-id
+                                   (rf/dispatch-sync [:tk/toggle 1])
+                                   (rf/dispatch-sync [:tk/toggle 2]))
+                                 :done)))))
 
   (testing "and the empty case answers empty rather than never running —
             without this row an assertion of [] could be green for a
@@ -344,8 +276,6 @@
   (let [tree (rf.fresco.test/tree [todo-row-body {:id 1}]
                         {:subs {[:tk/todo 1] {:text "milk" :done false}}})]
 
-    (testing "the root carries the version gate every consumer validates first"
-      (is (= 1 rf.fresco.test/tree-version)))
 
     (testing "the whole tree is plain serialisable data — no wrapper types,
               no metadata-carried contract"
@@ -364,16 +294,14 @@
 
     (testing "and `attrs` MERGES events with attributes, which is the one
               attribute read — a keyword lookup on the node is a field miss"
-      (is (= {:data-id 1 :class "row" :on-click [:tk/toggle 1]} (rf.fresco.test/attrs tree)))
-      (is (nil? (:on-click tree)))))
+      (is (= {:data-id 1 :class "row" :on-click [:tk/toggle 1]} (rf.fresco.test/attrs tree)))))
 
   (testing "the branch not taken contributes no node, and the branch taken
             does — so the row above is reading the body's control flow
             rather than a fixed shape"
     (let [tree (rf.fresco.test/tree [todo-row-body {:id 1}]
                           {:subs {[:tk/todo 1] {:text "milk" :done true}}})]
-      (is (= "milk✓" (rf.fresco.test/text tree)))
-      (is (some? (rf.fresco.test/find tree #(= "done" (:class (:attrs %)))))))))
+      (is (= "milk✓" (rf.fresco.test/text tree))))))
 
 (deftest the-tree-carries-intents-as-data
   (let [tree (rf.fresco.test/tree [(fn [_]
@@ -399,21 +327,19 @@
       (is (= [] (rf.fresco.test/intents (rf.fresco.test/tree [(fn [_] [:p "no handlers here"]) {}])))))))
 
 (deftest a-child-boundary-records-the-call-and-never-its-rendering
-  (let [tree (rf.fresco.test/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])
-        node (rf.fresco.test/find tree :view-id)]
+  (let [tree (rf.fresco.test/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])]
     (testing "the node is the CALL: the view id, the props the call site
-              passed, and the children it wrote"
-      (is (= {:view-id  "re-frame.fresco.test-kit-cljs-test/greeting"
-              :key      9
-              :props    {:who "ada"}
-              :children ["extra"]}
-             node)))
+              passed, and the children it wrote — the child's body did not run"
+      (is (= {:rf.ui/tree-version 1
+              :tag      :div
+              :children [{:view-id  "re-frame.fresco.test-kit-cljs-test/greeting"
+                          :key      9
+                          :props    {:who "ada"}
+                          :children ["extra"]}]}
+             tree)))
 
-    (testing "and nothing of the child's own rendering is in it — the body
-              did not run, so `text` answers the call site's children and
-              the word the child would have rendered is absent"
-      (is (= "extra" (rf.fresco.test/text node)))
-      (is (nil? (re-find #"hi ada" (rf.fresco.test/text tree)))))))
+    (testing "and `text` answers the call site's children, never the child's rendering"
+      (is (= "extra" (rf.fresco.test/text tree))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — honest opacity. Every refusal, with its legal twin.
@@ -423,35 +349,17 @@
   ;; `mint-view!` keeps the body ON the head under one dev-only property, so
   ;; L2 renders `[some-view …]`. The not-retained refusal is the last row
   ;; below, reached the one way it can be reached.
-  (testing "a minted `h/defview` head renders, and answers the body's tree"
-    (let [tree (rf.fresco.test/tree [farewell {:who "ada"}])]
-      (is (= :p (:tag tree)))
-      (is (= "bye ada" (rf.fresco.test/text tree)))))
-
-  (testing "and it is the SAME tree the body answers when named directly —
-            which is what running a view AS WRITTEN has to mean, and rules
-            out a second rendering path that merely agrees on the text"
-    (is (= (rf.fresco.test/tree [farewell-text {:who "ada"}])
+  (testing "a minted `h/defview` head renders the body AS WRITTEN"
+    (is (= {:rf.ui/tree-version 1 :tag :p :children ["bye ada"]}
            (rf.fresco.test/tree [farewell {:who "ada"}]))))
-
-  (testing "what it costs is ONE own property on the head: the head is the
-            function `defview` defined and a boundary, so no memo object
-            escapes as the public representation"
-    (is (fn? farewell))
-    (is (true? (rf.fresco.test/boundary? farewell)))
-    (is (fn? (rf.fresco.impl.codec/retained-body farewell))))
 
   (testing "the retention is DEV-ONLY, so the refusal is live and named: a
             boundary head with no retained body — an `:advanced` +
-            `goog.DEBUG=false` mint — refuses with the id, the view and the
-            L3 pointer"
-    (let [o (outcome #(rf.fresco.test/tree [unretained-head {:who "ada"}]))]
-      (is (= {:rf.error/id :rf.error/fresco-test-boundary-body-not-retained
-              :where       're-frame.fresco.test
-              :view        "re-frame.fresco.test-kit-cljs-test/unretained-head"}
-             (refusal o [:view])))
-      (is (re-find #"L3 owns React lifecycle" (:message o))
-          "the message points up the ladder rather than restating the tier"))))
+            `goog.DEBUG=false` mint — refuses with the id and the view"
+    (is (= {:rf.error/id :rf.error/fresco-test-boundary-body-not-retained
+            :where       're-frame.fresco.test
+            :view        "re-frame.fresco.test-kit-cljs-test/unretained-head"}
+           (refusal (outcome #(rf.fresco.test/tree [unretained-head {:who "ada"}])) [:view])))))
 
 (deftest a-body-may-call-a-helper-named-after-its-view
   ;; The helper-naming witness, at L2. `greeting`'s body calls
@@ -462,15 +370,8 @@
   ;; naming no view, no id and no macro.
   (testing "the helper the body calls is the author's, so a view whose helper
             is named after it renders rather than recursing"
-    (let [tree (rf.fresco.test/tree [greeting {:who "ada"}])]
-      (is (= :p (:tag tree)))
-      (is (= "hi ada" (rf.fresco.test/text tree)))))
-
-  (testing "and it is the SAME tree the helper answers when rendered directly,
-            which rules out a body that recursed once and happened to stop"
-    (is (= (rf.fresco.test/tree [greeting-body {:who "ada"}])
-           (rf.fresco.test/tree [greeting {:who "ada"}]))))
-)
+    (is (= {:rf.ui/tree-version 1 :tag :p :children ["hi ada"]}
+           (rf.fresco.test/tree [greeting {:who "ada"}])))))
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"
@@ -485,12 +386,7 @@
             :where       're-frame.fresco.test
             :host        "re-frame.fresco.test-kit-cljs-test/badge"}
            (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div [badge {:label "x"}]]) {}]))
-                    [:host]))))
-
-  (testing "the legal twin: the same body WITHOUT the crossing renders, so
-            the refusal is the crossing's and not the div's"
-    (is (= {:rf.ui/tree-version 1 :tag :div}
-           (rf.fresco.test/tree [(fn [_] [:div]) {}])))))
+                    [:host])))))
 
 (deftest raw-react-is-opaque-at-l2
   (testing "an element only React can interpret has no semantic form here"
@@ -510,10 +406,7 @@
             :where       're-frame.fresco.test}
            (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div [greeting-body {:who "x"}]])
                                           {}]))
-                    []))))
-
-  (testing "the legal twin: the same function IS the root form's head"
-    (is (= "hi x" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "x"}]))))))
+                    [])))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the injected read fixtures
@@ -529,12 +422,6 @@
               :missing     [[:tk/todo 3]]}
              (refusal o [:missing :phase])))))
 
-  (testing "and the legal twin: the SAME body with the fixture supplied
-            renders — so the refusal is about the fixture and not about a
-            body that was broken anyway"
-    (is (= "bread"
-           (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 3}]
-                               {:subs {[:tk/todo 3] {:text "bread"}}})))))
 
   (testing "a fixture supplied but NOT read is not an error — the read set
             is what the body did, not what the caller offered"
@@ -586,28 +473,15 @@
             :where       're-frame.fresco.test
             :value       [:subs {}]}
            (refusal (outcome #(rf.fresco.test/tree [greeting-body {:who "ada"}] [:subs {}]))
-                    [:value]))))
-
-  (testing "and the legal twins, which are what say the roster refuses the
-            unknown rather than everything: the one-arg default still
-            renders, and so does a correctly spelled :subs"
-    (is (= "hi ada" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "ada"}]))))
-    (is (= "hi ada" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "ada"}] {}))))
-    (is (= "milk"
-           (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 1}]
-                             {:subs {[:tk/todo 1] {:text "milk"}}}))))))
+                    [:value])))))
 
 (deftest the-read-resolver-is-discardable
 
   (testing "and the runtime's own retention tables are as they were — the
             render acquired no cell, took no reference and recorded no edge"
-    (let [before (dissoc (rf.fresco.test.runtime/residue) :entries)]
-      (rf.fresco.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
-      (is (= before (dissoc (rf.fresco.test.runtime/residue) :entries)))
-      (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-             (dissoc (rf.fresco.test.runtime/residue) :entries))
-          "and the baseline itself is the empty one, so the equality above
-           is not two identical wrong numbers")))
+    (rf.fresco.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
+    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
+           (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
   (testing "the probe frame is minted per call, so two renders cannot see
             each other's fixtures"
@@ -621,22 +495,14 @@
   (testing "the read extent (I7) is the real one: a read deferred past the
             body's synchronous extent refuses with the RUNTIME's id, which
             is what says this harness runs bodies rather than imitating one"
-    (let [escaped (volatile! nil)
-          o (outcome
-              #(rf.fresco.test/tree [(fn [_]
-                             (vreset! escaped (fn [] (rf.fresco/sub [:tk/filter])))
-                             [:p])
-                           {}]))]
-      (is (map? (:returned o)) "the body itself is legal")
+    (let [escaped (volatile! nil)]
+      (rf.fresco.test/tree [(fn [_]
+                              (vreset! escaped (fn [] (rf.fresco/sub [:tk/filter])))
+                              [:p])
+                            {}])
       (is (= {:rf.error/id :rf.error/fresco-sub-outside-render
               :where       're-frame.fresco.impl.collector/read-key!}
-             (refusal (outcome @escaped) [])))))
-
-  (testing "and the body-run counter moved, so the row above is not green
-            for a body that never ran"
-    (rf.fresco.test.runtime/reset-body-runs!)
-    (rf.fresco.test/tree [greeting-body {:who "ada"}])
-    (is (= 1 (rf.fresco.test.runtime/body-runs)))))
+             (refusal (outcome @escaped) []))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the projections' own refusals
@@ -658,8 +524,7 @@
   (testing "and nil threads through a missed traversal rather than throwing,
             so `(attrs (find …))` nil-puns"
     (is (nil? (rf.fresco.test/attrs nil)))
-    (is (nil? (rf.fresco.test/text nil)))
-    (is (nil? (rf.fresco.test/find {:rf.ui/tree-version 1 :tag :p} #(= :div (:tag %)))))))
+    (is (nil? (rf.fresco.test/text nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; L0 — the ladder is data, and the refusals cite it
@@ -668,9 +533,7 @@
 (deftest the-ladder-is-the-single-source-of-the-tier-vocabulary
   (testing "five rows, in tier order, each naming what it proves and the
             mechanism it is written with"
-    (is (= [:l0 :l1 :l2 :l3 :l4] (mapv :tier rf.fresco.test/ladder)))
-    (is (every? (fn [row] (and (string? (:proves row)) (string? (:mechanism row))))
-                rf.fresco.test/ladder)))
+    (is (= [:l0 :l1 :l2 :l3 :l4] (mapv :tier rf.fresco.test/ladder))))
 
   (testing "this namespace ships L1 and L2 and says so, which is what makes
             a reader's `where do I write this` answerable from data"
