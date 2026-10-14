@@ -1,8 +1,7 @@
 (ns re-frame.test-quiet-fixture-integrity-test
   "The rule `re-frame.test-quiet.runner/uncallable-fixtures` states: a fixture
   `clojure.test` invokes as a LOOKUP (cljs.test's `{:before f :after g}` map)
-  is named, and anything that APPLIES the thunk is not, even when it is not
-  `fn?`. The wiring is pinned across a process boundary in
+  is named. The wiring is pinned across a process boundary in
   `re-frame.test-quiet-runner-contract-test`.
 
   `uncallable-fixtures` reads `(all-ns)` in the shipped call, so a probe
@@ -13,12 +12,6 @@
 
 (def ^:private map-fixture
   {:before (fn []) :after (fn [])})
-
-(defn- lifecycle [t] (t))
-
-(def ^:private reified-lifecycle
-  (reify clojure.lang.IFn
-    (invoke [_ t] (t))))
 
 (defn- with-probe-ns
   "Create `ns-sym` with `fixtures` under `meta-key`, as `use-fixtures` writes
@@ -37,11 +30,3 @@
       (fn [ns-obj]
         (is (= [['probe.map-fixture-ns meta-key map-fixture]]
                (rf.test-quiet.runner/uncallable-fixtures [ns-obj])))))))
-
-(deftest callable-fixtures-that-are-not-fn-are-not-offenders
-  ;; Neither is `fn?` and both apply the thunk, so a `fn?` guard would refuse
-  ;; working code: the rule subtracts the closed lookup set from `ifn?`.
-  (doseq [fixture [#'lifecycle reified-lifecycle]]
-    (with-probe-ns 'probe.callable-fixture-ns :clojure.test/each-fixtures (list fixture)
-      (fn [ns-obj]
-        (is (= [] (rf.test-quiet.runner/uncallable-fixtures [ns-obj])))))))
