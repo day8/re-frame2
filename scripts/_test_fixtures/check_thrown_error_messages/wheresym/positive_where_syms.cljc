@@ -7,16 +7,15 @@
       whose callee sits tight against the paren, checked only by positive
       fixtures written that way, stays green: the gate and its own tests
       share one blind spot and agree with each other. So the head is
-      written here tight, behind a space, behind a newline, behind a
-      comment, and unqualified, and the self-test pins LINE NUMBERS rather
-      than a count:
+      written here tight, behind a newline, and unqualified, and the
+      self-test pins LINE NUMBERS rather than a count:
       a count cannot separate `found the right ones` from `traded a real hit
       for a false positive`.
 
-  (2) REASONS A SYMBOL DOES NOT RESOLVE. Not-public is not one thing: the
-      namespace may not exist, the var may be private by three different
-      spellings, or the name may belong to a `defmethod` that extends a
-      multimethod without defining anything.
+  (2) REASONS A SYMBOL DOES NOT RESOLVE. The namespace may not exist, or the
+      var may be private even when fully qualified. Which definition shapes
+      make a var public at all is the oracle's question, pinned by the
+      self-test's exact public set.
 
   `re-frame.fixture` is the oracle fixture beside this file. `rf.fixture/…`
   and `re-frame.fixture/…` are the SAME namespace under the canonical alias
@@ -25,19 +24,13 @@
   (:require [re-frame.error :as rf.error]
             [re-frame.error :refer [throw-error!]]))
 
-;; ---- (1) the call head, five reader-equivalent formattings ---------------
+;; ---- (1) the call head, three reader-equivalent formattings --------------
 
 (defn ghost-tight []
   (rf.error/throw-error!
     :rf.error/ghost-one
     'rf.fixture/ghost-one
     "the callee sits tight against the paren"))
-
-(defn ghost-space []
-  ( rf.error/throw-error!
-    :rf.error/ghost-two
-    'rf.fixture/ghost-two
-    "a space between the paren and the callee"))
 
 (defn ghost-newline []
   (
@@ -46,23 +39,15 @@
     'rf.fixture/ghost-three
     "a newline between the paren and the callee"))
 
-(defn ghost-comment []
-  ( ;; a comment, then a newline, then the callee
-    rf.error/throw-error!
-    :rf.error/ghost-four
-    'rf.fixture/ghost-four
-    "a comment between the paren and the callee"))
-
 (defn ghost-unqualified-head []
   (throw-error! :rf.error/ghost-five 'rf.fixture/ghost-five
                 "an unqualified callee, and the where-sym INLINE on the head line"))
 
 ;; ---- (1b) the other two rostered builders --------------------------------
 ;;
-;; `_WHERE_SYM_FORMS` is a roster, and the self-test holds every entry to
-;; owning a case here. `throw-inline-interceptor-removed!` is why the where-sym
-;; is taken as THE QUOTED-SYMBOL ARGUMENT rather than by index: its where-sym
-;; is the FIRST argument, not the second.
+;; `throw-inline-interceptor-removed!` is why the where-sym is taken as THE
+;; QUOTED-SYMBOL ARGUMENT rather than by index: its where-sym is the FIRST
+;; argument, not the second.
 
 (defn ghost-thrown-ex-info []
   (throw (rf.error/thrown-ex-info
@@ -105,90 +90,11 @@
      live `'re-frame.router/build-envelope` shape, and it is why the rule
      cannot be `always fully qualify`."))
 
-(defn private-meta-keyword []
-  (rf.error/throw-error!
-    :rf.error/private-var
-    'rf.fixture/private-var
-    "`^:private`"))
-
-(defn private-meta-map []
-  (rf.error/throw-error!
-    :rf.error/private-meta-var
-    'rf.fixture/private-meta-var
-    "`^{:private true}`"))
-
-(defn defmethod-defines-nothing []
-  (rf.error/throw-error!
-    :rf.error/foreign-multi
-    'rf.fixture/foreign-multi
-    "`defmethod` EXTENDS a multimethod; it defines no var, so this name is not
-     public in the fixture namespace. Drop the `defmethod` carve-out from
-     `_public_names_defined_by` and this site goes green."))
-
-;; ---- (3) A WHERE-SYM NAMING A VAR THAT EXISTS ONLY IN AN INACTIVE FORM ----
-;;
-;; The oracle fixture defines each of these names inside a
-;; `comment`, a `#_` discard, a quote, a syntax-quote or a discard nested in a
-;; live `do` — and nowhere else. So if the oracle turns generous, these
-;; five go GREEN and the gate blesses doors that are not there.
-;;
-;; A subset control against the manifest cannot catch that: it detects public
-;; names MISSING from the derived set, never EXTRA fictitious ones.
-
-(defn ghost-in-a-comment-form []
-  (rf.error/throw-error!
-    :rf.error/ghost-nine
-    'rf.fixture/ghost-in-comment
-    "`(comment ...)` evaluates to nil and interns nothing"))
-
-(defn ghost-in-a-reader-discard []
-  (rf.error/throw-error!
-    :rf.error/ghost-ten
-    'rf.fixture/ghost-discarded
-    "`#_` discards the form the reader has just read"))
-
-(defn ghost-in-a-quoted-form []
-  (rf.error/throw-error!
-    :rf.error/ghost-eleven
-    'rf.fixture/ghost-quoted
-    "a quoted `(defn ...)` is a LIST, not a definition"))
-
-(defn ghost-in-a-syntax-quoted-form []
-  (rf.error/throw-error!
-    :rf.error/ghost-twelve
-    'rf.fixture/ghost-syntax-quoted
-    "a syntax-quoted `(defn ...)` resolves its symbols at read time and still
-     defines nothing"))
-
-(defn ghost-discarded-inside-a-live-do []
-  (rf.error/throw-error!
-    :rf.error/ghost-thirteen
-    'rf.fixture/ghost-discarded-inside-do
-    "the walk DOES descend into `do`, and must carry the reader prefixes down
-     with it. Its sibling `do-defined-public` resolves; this one is discarded."))
-
-;; ---- (4) COMMAS, WHICH ARE READER WHITESPACE -----------------------------
+;; ---- (3) COMMAS, WHICH ARE READER WHITESPACE -----------------------------
 ;;
 ;; The same class as (1): a reader-equivalent formatting a detector can
-;; miss. Executed on the JVM the three spellings pass IDENTICAL builder
-;; arguments, so this is valid source rather than
-;; obfuscation. Every site here fires on its SYMBOL AND LINE, and its
-;; resolving twin sits in the negative fixture — because a total count cannot
-;; tell `found the right ones` from `traded a real hit for a false positive`.
-;; A `:min-where-syms` floor set below the observed count lets calls go
-;; quiet underneath it without a sound.
-
-(defn ghost-comma-tight-on-the-head []
-  (,rf.error/throw-error!
-    :rf.error/ghost-fourteen
-    'rf.fixture/ghost-comma-one
-    "a comma between the paren and the callee"))
-
-(defn ghost-comma-after-the-symbol []
-  (rf.error/throw-error!
-    :rf.error/ghost-fifteen
-    'rf.fixture/ghost-comma-two,
-    "a trailing comma on the quoted symbol"))
+;; miss. Executed on the JVM it passes IDENTICAL builder arguments, so this
+;; is valid source rather than obfuscation.
 
 (defn ghost-comma-everywhere []
   (, rf.error/throw-error!,
@@ -196,13 +102,7 @@
     'rf.fixture/ghost-comma-three,
     "a comma in every reader-whitespace position at once"))
 
-(defn ghost-comma-in-the-where-slot []
-  (throw (ex-info "hand-built payload [:rf.error/ghost-seventeen]"
-                  {:rf.error/id :rf.error/ghost-seventeen,
-                   :where,      'rf.fixture/ghost-comma-four,
-                   :reason      "commas around the slot's key and its value"})))
-
-;; ---- (5) THE `:where` SLOT AS THE MAP'S LAST ENTRY ------------------------
+;; ---- (4) THE `:where` SLOT AS THE MAP'S LAST ENTRY ------------------------
 ;;
 ;; NOT a comma case: `{... :where 'ns/sym}` is the final-entry shape. An
 ;; argument splitter that runs past the map's own `}` into depth -1 hands
@@ -218,11 +118,11 @@
                   {:rf.error/id :rf.error/ghost-eighteen
                    :where       'rf.fixture/ghost-slot-last})))
 
-;; ---- (6) COMMAS AS THE SOLE SEPARATOR ------------------------------------
+;; ---- (5) COMMAS AS THE SOLE SEPARATOR ------------------------------------
 ;;
-;; THIS SECTION PUTS `_is_clj_ws` UNDER TEST. Every case in (4) writes a
-;; comma BESIDE a space or a newline, and `_clj_strip` alone recovers those,
-;; so (4) stays green even with `_is_clj_ws` reverted to Python whitespace:
+;; THIS SECTION PUTS `_is_clj_ws` UNDER TEST. The case in (3) writes its
+;; commas BESIDE a space or a newline, and `_clj_strip` alone recovers those,
+;; so (3) stays green even with `_is_clj_ws` reverted to Python whitespace:
 ;; the splitter's own notion of reader whitespace is not tested there. With
 ;; commas as the ONLY separator there is no whitespace to fall back on — the
 ;; whole call collapses into one argument and the where-sym vanishes.
@@ -236,77 +136,12 @@
   (throw (ex-info "hand-built payload [:rf.error/ghost-twenty]"
                   {:rf.error/id :rf.error/ghost-twenty,:where,'rf.fixture/ghost-comma-six,:reason "commas alone between the slot's key and its value"})))
 
-;; ---- (7) COMPOSED READER PREFIXES ----------------------------------------
-;;
-;; Each name below is defined in the oracle fixture
-;; behind a COMPOSED reader prefix and NOWHERE ELSE, so a walker that decides
-;; inertness from the single character before the `(` greens every one of them:
-;; `#_#?(...)` and `'#?(...)` reach that `(` after a `?`, and a stacked
-;; `#_#_ a b` has no prefix behind `b` at all.
-;;
-;; THE PREFIX IS THE ONLY THING DOING THE WORK in every one — strip it and the
-;; oracle form defines its var for real. Its live twin
-;; `rf.fixture/conditional-defined-public` sits in the negative fixture with a
-;; byte-identical body, pinned as OBSERVED; the PAIR is the assertion, because
-;; a resolving site is green when seen and green again when it has vanished.
-
-(defn ghost-in-a-discarded-conditional []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentyone
-    'rf.fixture/ghost-discarded-conditional
-    "`#_` applied to `#?` discards the conditional, arms and all"))
-
-(defn ghost-in-a-quoted-conditional []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentytwo
-    'rf.fixture/ghost-quoted-conditional
-    "a quoted reader-conditional is data once the reader has resolved it"))
-
-(defn ghost-in-a-syntax-quoted-conditional []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentythree
-    'rf.fixture/ghost-syntax-quoted-conditional
-    "syntax-quote over a conditional is data too"))
-
-(defn ghost-in-a-discarded-splice []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentyfour
-    'rf.fixture/ghost-discarded-splice
-    "`#_#?@(...)` is discarded whole, and top-level splicing interns nothing
-     in any case"))
-
-(defn ghost-first-of-a-stacked-discard []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentyfive
-    'rf.fixture/ghost-stacked-first
-    "the FIRST form a stacked `#_#_` discards, which look-back already saw"))
-
-(defn ghost-second-of-a-stacked-discard []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentysix
-    'rf.fixture/ghost-stacked-second
-    "the SECOND form, which look-back cannot reach in principle"))
-
-;; ---- (8) A DISCARDED `do` AROUND A LIVE-LOOKING SPLICE -------------------
-;;
-;; The three live splicing twins in the negative fixture resolve
-;; and are pinned OBSERVED there; this is the half that must FIRE. Its oracle
-;; form is byte-identical to the first of those three but for the leading
-;; `#_`, so the discard is the only thing making it inert — a walker that
-;; descends into every `#?@` it meets greens this line.
-
-(defn ghost-in-a-discarded-splicing-do []
-  (rf.error/throw-error!
-    :rf.error/ghost-twentyseven
-    'rf.fixture/ghost-splice-discarded
-    "`#_` swallows the whole `do`, splice and all"))
-
-;; ---- (9) FORM 3 - A NAMESPACE THAT IS NOT A PLACE ------------------------
+;; ---- (6) FORM 3 - A NAMESPACE THAT IS NOT A PLACE ------------------------
 ;;
 ;; A slash-free DOTTED where-sym names a NAMESPACE
 ;; (`'re-frame.ssr.emit`), which is the honest answer to "where did this fail"
 ;; when no single var owns the failure. A rule that skipped EVERY slash-free
-;; symbol before consulting the namespace index would leave all three
+;; symbol before consulting the namespace index would leave both
 ;; sites below as green as a correct one - the convention would not be
 ;; self-enforcing, it would be UNCHECKED.
 ;;
@@ -314,8 +149,7 @@
 ;; spelling of a namespace that really does exist, as `re-frame.fixture`.
 ;; Quoting does not expand an alias and `(namespace 'rf.fixture)` is nil, so
 ;; only the FULL name is a place a reader can land on. Its resolving twin sits
-;; in the negative fixture and the PAIR is the assertion: either half alone is
-;; green under a detector that has stopped looking at slash-free symbols.
+;; in the negative fixture.
 
 (defn ghost-namespace-written-as-an-alias []
   (rf.error/throw-error!

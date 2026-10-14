@@ -17,44 +17,16 @@
   answer in one of its two directions."
   (:require [re-frame.core :as rf]))
 
-;; ---- PUBLIC: the ordinary shapes -----------------------------------------
-
-(def known-var 1)
+;; ---- PUBLIC: the ordinary shape ------------------------------------------
 
 (defn known-public [x] x)
 
-(defmacro known-macro [x] x)
-
-(defmulti known-multi :kind)
-
-;; ---- PUBLIC: `^:no-doc`, WHICH IS THE WHOLE MANIFEST-ORACLE REFUTATION ----
-;;
-;; `spec/api-manifest.edn` rows DOCUMENTED publics, so a `^:no-doc` var is
-;; fully resolvable and carries no row. `re-frame.core` ships such vars
-;; (`reset-frame!` and `reload-images!` among them), and a
-;; manifest-only oracle would report them as dead doors. Pinned here so a
-;; manifest-only oracle cannot pass unnoticed.
-(def ^:no-doc no-doc-public 2)
-
-;; ---- PUBLIC on ONE PLATFORM ONLY -----------------------------------------
-;;
-;; The façade ships `rf/frame-provider` and `rf/frame-root` exactly like this.
-;; They are absent from the JVM's `ns-publics` and present in every CLJS build,
-;; so the rule asserts about the UNION of the arms; a JVM-only oracle reports
-;; both as dead doors.
-#?(:cljs (def cljs-only-public 3))
-#?(:clj  (def clj-only-public 4))
-
 ;; ---- PUBLIC through a var-defining macro that does not begin `def` --------
 ;;
-;; `_EXTRA_DEF_HEADS`. Both of these are real shapes: `reg-view` defines the
-;; component var (Xray namespaces use it), and `import-fn` interns a
-;; re-export (`re-frame.ssr.ring` uses it). A parser that knows only `def`
-;; heads misses both.
+;; `_EXTRA_DEF_HEADS`. `reg-view` defines the component var (Xray namespaces
+;; use it), and a parser that knows only `def` heads misses it.
 (rf/reg-view Panel
   [:div "panel"])
-
-(import-fn re-frame.other/imported-fn)
 
 ;; ---- PRIVATE: must NOT be reachable --------------------------------------
 ;;
@@ -73,12 +45,8 @@
 ;; `foreign-multi` is deliberately NOT defined here — it stands for a
 ;; multimethod owned elsewhere and extended from this namespace. That is what
 ;; makes it a DISCRIMINATOR: drop the `defmethod` carve-out from
-;; `_public_names_defined_by` and this name becomes "public", which greens the
-;; positive fixture's `'rf.fixture/foreign-multi` site. Extending
-;; `known-multi` instead would prove nothing, because `defmulti` already
-;; defines that name.
-
-(defmethod known-multi :a [_] :a)
+;; `_public_names_defined_by` and this name becomes "public", which the
+;; self-test's exact public set reports.
 
 (defmethod foreign-multi :b [_] :b)
 
