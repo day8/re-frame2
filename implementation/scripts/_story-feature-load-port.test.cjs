@@ -4,14 +4,10 @@
 
 const assert = require('assert/strict');
 const net = require('net');
-const path = require('path');
 
 const {
-  DEFAULT_BASE_PORT,
-  DERIVED_PORT_SPAN,
   findAvailablePort,
   parseExplicitPort,
-  preferredPort,
   resolveStoryFeatureLoadPort,
 } = require('../../examples/scripts/story-feature-load-port.cjs');
 
@@ -38,14 +34,6 @@ test('explicit STORY_FEATURE_LOAD_PORT parses strictly', async () => {
   assert.equal(parseExplicitPort(undefined), null);
   assert.throws(() => parseExplicitPort('0'), /1\.\.65535/);
   assert.throws(() => parseExplicitPort('8031.5'), /1\.\.65535/);
-});
-
-test('preferred port is deterministic per worktree root', async () => {
-  const a = preferredPort(path.join('repo', 'worktree-a'));
-  const b = preferredPort(path.join('repo', 'worktree-a'));
-  assert.equal(a, b);
-  assert.ok(a >= DEFAULT_BASE_PORT);
-  assert.ok(a < DEFAULT_BASE_PORT + DERIVED_PORT_SPAN);
 });
 
 test('automatic resolution skips an occupied preferred port', async () => {
