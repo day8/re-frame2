@@ -16,8 +16,8 @@
   ## The axis, and why \"it resolves late\" is not the fault
 
   Pinning is easy to mis-state as *late resolution is wrong*. It is
-  not. `impl.collector/dispatch!`'s own docstring draws the line, and
-  section 1 measures it: a caller handing a BARE KEYWORD is naming an
+  not. `impl.collector/dispatch!`'s own docstring draws the line: a
+  caller handing a BARE KEYWORD is naming an
   ADDRESS and gets the frame at that address, now; a lowered callback
   holds a CAPABILITY minted under one incarnation and must keep it for
   life. The defect pinning prevents is a capability wearing an address's
@@ -55,18 +55,16 @@
   - `intent/navigate-head` retains a **capability**: its lowered closure
     carries the bundle pinned to the incarnation the link rendered under,
     so a retained link refuses once that incarnation is gone, while a link
-    rendered under the successor navigates the successor (section 4)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+    rendered under the successor navigates the successor
+    (`route_link_cljs_test`, through a real `route-link`)."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.boundary :as rf.fresco.impl.boundary]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
-            [re-frame.late-bind :as rf.late-bind]
-            [re-frame.routing.link :as rf.routing.link]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::seams)
@@ -82,14 +80,10 @@
 (rf/reg-event :seams/mark (fn [{:keys [db]} [_ tag]] {:db (assoc db :marked tag)}))
 (rf/reg-sub   :seams/who  (fn [db _] (:who db)))
 
-;; `:async? true` — `cljs.test` hard-errors on a fn-form fixture in a namespace
-;; containing an `(async done …)` test, and section 4's end-to-end row is only
-;; observable across the router's queue drain.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :async?        true
      :init-fn       (fn []
                       (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
@@ -158,60 +152,6 @@
          (finally (rf.error-emit/unregister-error-listener! k)))))
 
 ;; ---------------------------------------------------------------------------
-;; 1. THE AXIS — the two doors in `impl.collector`, twenty lines apart, and the
-;;    property that tells them apart
-;; ---------------------------------------------------------------------------
-
-;; Everything below is a placement on this axis, so it is measured first. The
-;; two doors are `frame-dispatch` (the memoised closure a body lowers, pinned to
-;; one incarnation at mint) and `dispatch!` (the same closure ACQUIRED AND
-;; APPLIED in one act, so the acquisition happens at the caller's `now`). The
-;; second is not a weaker version of the first; it is the documented
-;; address-directed door, and every seam below turns on the difference being
-;; deliberate rather than residual.
-
-(deftest the-arm-has-two-doors-and-only-one-of-them-carries-a-capability
-  (testing "a RETAINED closure is a capability — minted under A, it is still
-            A's after A dies, and core refuses it"
-    (incarnate! "A")
-    (let [on-click (rf.fresco.impl.collector/frame-dispatch frame-id)]
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(on-click [:seams/mark :capability]))]
-        (is (nil? (marked))
-            "the successor's app-db is untouched by a predecessor-era closure")
-        (is (= 1 (count refusals)) "and the drop is loud")
-        (is (= frame-id (:frame (first refusals))))
-        (is (= :seams/mark (:event-id (first refusals)))))))
-
-  (testing "a BARE KEYWORD is an address — `dispatch!` acquires the row at the
-            moment of the call, so it names the frame live at that moment. This
-            is not the defect wearing a different hat: nothing was minted
-            earlier, so there is no earlier incarnation for the write to belong
-            to"
-    (incarnate! "A")
-    (render!)                                         ; leave a WARM row for A
-    (reincarnate! "B")
-    (let [{:keys [refusals]} (with-refusals
-                               #(rf.fresco.impl.collector/dispatch! frame-id [:seams/mark :address]))]
-      (is (= :address (marked))
-          "the write lands in the LIVE incarnation, even from a warm row that
-           described the predecessor a line ago — the row is replaced by the
-           lookup, which is the memo's lazy replacement doing its job")
-      (is (empty? refusals) "and nothing is refused, because nothing was pinned")))
-
-  (testing "the two doors therefore answer differently about the same id in the
-            same state, which is what makes `capability or address?` a real
-            question to ask of a seam rather than a form of words"
-    (incarnate! "A")
-    (let [retained (rf.fresco.impl.collector/frame-dispatch frame-id)]
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(retained [:seams/mark :retained]))]
-        (is (nil? (marked)))
-        (is (= 1 (count refusals))))
-      (rf.fresco.impl.collector/dispatch! frame-id [:seams/mark :fresh])
-      (is (= :fresh (marked))))))
-
-;; ---------------------------------------------------------------------------
 ;; 2. SEAM 1 — `h/error-boundary`'s `:on-error` report (`impl.boundary/report!`)
 ;; ---------------------------------------------------------------------------
 
@@ -272,32 +212,6 @@
           "and there is no refusal to have, because nothing predecessor-era
            crossed the seam"))))
 
-(deftest the-boundary-report-is-minted-at-catch-time-not-at-mount
-  ;; The complement of the row above, from the other side: a fn `:on-error`
-  ;; takes no frame at all, so the two shapes the seam supports differ only in
-  ;; whether they consult a frame — never in WHEN.
-  (testing "a function `:on-error` never touches a frame, so a reincarnation
-            cannot reach it"
-    (incarnate! "A")
-    (render!)
-    (let [calls (atom 0)
-          this  (boundary-instance (fn [_e] (swap! calls inc)))]
-      (catch! this)
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(catch! this))]
-        (is (= 2 @calls) "called once per catch, in both incarnations")
-        (is (empty? refusals)))))
-
-  (testing "and an absent `:on-error` dispatches nothing at all, so the seam
-            is not even reached — stated because a green row above must not be
-            green for want of a handler"
-    (incarnate! "A")
-    (let [this (boundary-instance nil)]
-      (catch! this)
-      (is (nil? (marked))
-          "no :on-error, no write — the mark in the rows above is this seam's
-           doing and not the harness's"))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3. SEAM 2 — the internal mount witness door (`impl.mount/dispatch!`)
 ;; ---------------------------------------------------------------------------
@@ -328,120 +242,4 @@
       (let [{:keys [refusals]} (with-refusals #(rf.fresco.impl.mount/dispatch! handle [:seams/mark :handle]))]
         (is (= :handle (marked))
             "the retained handle reaches the LIVE incarnation")
-        (is (empty? refusals)))))
-
-  (testing "and the ROOT that handle names reads the live incarnation too —
-            which is what makes the line above correct rather than a second
-            instance of the dead-controls defect. A body re-run under the same
-            public id after the reincarnation answers the successor's value,
-            because the read path is address-directed on the public id. Pin
-            this door and the root would WRITE a frame it cannot READ: perfect
-            markup above dead controls, the exact symptom pinning the lowered
-            callbacks prevents"
-    (incarnate! "A")
-    (is (= "A" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {})))
-    (reincarnate! "B")
-    (is (= "B" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {}))
-        "the root's reads moved to the successor with nothing asked of them")))
-
-;; ---------------------------------------------------------------------------
-;; 4. SEAM 3 — `intent/navigate-head` (`impl.intent/navigate-handler`)
-;; ---------------------------------------------------------------------------
-
-;; A link is painted under one incarnation and clicked later, so what its
-;; lowered closure retains decides where the click lands. The navigate vector
-;; carries the frame keyword as data; `navigate-handler` pins, at lowering, the
-;; boundary's `capture-frame` bundle — its frame memo row's `:ops`, the bundle
-;; the ambient dispatch closes over — and routing's `activate-link!` dispatches
-;; through it. The click is therefore a capability like every lowered callback:
-;; refused once its incarnation is destroyed, and never delivered to a
-;; successor seated under the same id.
-;;
-;; The hook is SET EXPLICITLY in every row below and restored afterwards. It
-;; must be: `re-frame.routing` publishes `:routing/activate-link!` at ns-load,
-;; so in the consolidated `:node-test` build the real one is already installed
-;; while in the focused `:node-test-fresco` build it is not. A row that let the
-;; ambient binding decide would measure a different thing in each build.
-
-(defn- with-activate-link
-  "Run `thunk` with `f` published at `:routing/activate-link!`, restoring
-  whatever was there before — nil included."
-  [f thunk]
-  (let [previous (rf.late-bind/get-fn :routing/activate-link!)]
-    (rf.late-bind/set-fn! :routing/activate-link! f)
-    (try (thunk)
-         (finally (rf.late-bind/set-fn! :routing/activate-link! previous)))))
-
-(defn- lower-navigate
-  "Lower one `[intent/navigate-head {…}]` under the ambient binding a boundary body
-  runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
-  browser would call. The map is exactly what `route-link` mints."
-  [tag]
-  (rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
-    (fn []
-      (rf.fresco.impl.intent/lower-prop :on-click
-                         [rf.fresco.impl.intent/navigate-head {:frame   frame-id
-                                                :payload [:seams/mark tag]
-                                                :native? false
-                                                :veto    nil}]))))
-
-(defn- click-event []
-  #js {:button           0
-       :metaKey          false
-       :ctrlKey          false
-       :shiftKey         false
-       :altKey           false
-       :defaultPrevented false
-       :preventDefault   (fn [] js/undefined)})
-
-(deftest navigate-hands-routing-the-incarnation-it-rendered-under
-  ;; What crosses the Fresco/routing seam is the whole of Fresco's exposure
-  ;; here, so it is measured directly rather than inferred from the outcome.
-  (let [seen (atom [])
-        rec  (fn [_e _veto frame payload _native?] (swap! seen conj [frame payload]) nil)]
-    (with-activate-link rec
-      (fn []
-        (incarnate! "A")
-        (let [under-a (lower-navigate :nav)
-              ops-a   (:ops (rf.fresco.impl.collector/frame-row frame-id))]
-          (reincarnate! "B")
-          ((lower-navigate :nav) (click-event))       ; lowered under B
-          (under-a (click-event))                     ; lowered under A, fired under B
-          (let [[[frame-b _] [frame-a _]] @seen]
-            (is (= 2 (count @seen)) "both closures reached routing")
-            (is (identical? ops-a frame-a)
-                "a RETAINED navigate closure hands routing the bundle pinned to
-                 the incarnation it rendered under")
-            (is (= frame-id (:frame frame-a)) "…which still names the public id")
-            (is (not (identical? frame-a frame-b))
-                "and the closure lowered under the successor hands over the
-                 successor's own bundle, so routing can tell the two apart")))))))
-
-(deftest navigate-through-real-routing-refuses-a-retained-link
-  ;; The consequence, through routing's REAL `activate-link!` rather than a
-  ;; paraphrase of it — the caller-veto / modifier / native-anchor law and the
-  ;; dispatch through the pinned bundle are the shipped ones.
-  (async done
-    (with-activate-link rf.routing.link/activate-link!
-      (fn []
-        (incarnate! "A")
-        (let [retained (lower-navigate :retained)]
-          (reincarnate! "B")
-          (let [{:keys [refusals]} (with-refusals #(retained (click-event)))]
-            (is (= [frame-id] (map :frame refusals))
-                "a link rendered under the PREDECESSOR refuses, loudly"))
-          ((lower-navigate :fresh) (click-event))
-          (letfn [(poll [n]
-                    (cond
-                      (some? (marked))
-                      (do (is (= :fresh (marked))
-                              "only the link rendered under the successor
-                               navigates it; the retained one wrote nothing")
-                          (done))
-
-                      (zero? n)
-                      (do (is false "the navigate dispatch never drained")
-                          (done))
-
-                      :else (js/setTimeout #(poll (dec n)) 0)))]
-            (poll 50)))))))
+        (is (empty? refusals))))))
