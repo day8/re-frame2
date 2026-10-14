@@ -95,10 +95,8 @@
                       #(= 1 (:n (rf/app-db-value target)))
                       {:label      "reagent-slim injected dispatch advances the render frame to {:n 1}"
                        :timeout-ms 1000})
-                    (.then (fn [_]
-                             (is (= 1 (:n (rf/app-db-value target)))
-                                 "the injected dispatch landed after the render boundary")
-                             nil))
+                    ;; Resolves only once the injected dispatch has landed; a
+                    ;; timeout rejects into the `.catch` below.
                     ;; Reports and does NOT finalize: `done` runs the rest of
                     ;; the run synchronously, so a handler that also finished
                     ;; would claim a LATER namespace's throw as this row's.
