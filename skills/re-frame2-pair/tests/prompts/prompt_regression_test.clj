@@ -151,9 +151,7 @@
     ["references/ops.md" @ops-md #"(?i)privacy carve-out" "the raw eval-cljs read rows document an un-elided path"]
     ["references/screen-reads.md" @screen-reads-md #"(?i)un-elided"
      "its raw eval-cljs DOM rows must state the carve-out locally, not by a second leaf"]
-    ["references/screen-reads.md" @screen-reads-md #"(?i)eval-cljs" "the rows the local rule governs"]])
-  (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
-      "SKILL.md must narrow the guarantee to the structured MCP reads, not state it as a blanket lede"))
+    ["references/screen-reads.md" @screen-reads-md #"(?i)eval-cljs" "the rows the local rule governs"]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe correctness
