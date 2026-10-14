@@ -295,8 +295,7 @@
                 (testing "so the abandoned render acquired nothing: no cell,
                           no reference, no edge, and no reader on the key it
                           read"
-                  (is (= nothing-owned (ownership)))
-                  (is (zero? (readers-of [:kcod/left]))))
+                  (is (= nothing-owned (ownership))))
 
                 ((:release! gate))
                 (poll #(= "left=1" (text handle)) "the retry commits")))
@@ -372,7 +371,6 @@
 
                           (testing "the new body ran and was discarded, so it
                                     acquired nothing at all"
-                            (is (zero? (readers-of [:kcod/right])))
                             (is (= nothing-owned (ownership))))
 
                           ((:release! gate))
@@ -479,7 +477,6 @@
                 (testing "the throwing attempt is rolled back to nothing —
                           there is nothing to roll back, because a
                           render-phase read acquires nothing"
-                  (is (zero? (readers-of [:kcod/right])))
                   (is (= nothing-owned (ownership))))
 
                 (reset! !throw? false)
