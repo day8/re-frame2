@@ -133,6 +133,8 @@ routes `[:> C props & kids]` through `vec-to-elem`'s `:>` case into `native-elem
 
 *(4 columns; 14 body rows; hand-counted.)*
 
+> **Amended:** the `:&` row no longer diverges. The codec's `:&` merge is cut (HD-023's amendment in `decisions.md`), so Fresco also emits a `:&` key as a prop named `"&"`.
+
 Six rows say **silent divergence**, and those six are the whole reason a tool exists. Two of
 them are already in the guide's troubleshooting table — which is to say they are taught to
 the reader who has already shipped the bug.
@@ -341,6 +343,8 @@ They fall into three kinds, and the kind is what tells a reader how urgent the l
 | `:amp-key` | a literal `:&` key in a props map | a prop named `"&"` under Reagent, the one attribute merge under Fresco; intent is unrecoverable |
 
 *(3 columns; 6 body rows; hand-counted.)*
+
+> **Amended:** `:amp-key` still refuses, for a different reason. With the codec's `:&` merge cut (HD-023's amendment in `decisions.md`), both sides emit a prop named `"&"`, which is rarely what was meant.
 
 ### 5.3 · Decidable, and the destination refuses at runtime
 
