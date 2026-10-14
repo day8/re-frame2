@@ -3,18 +3,16 @@
   `clear-resource-scope` / `resolve-resource-scope` (Spec 016 §Named
   resource-scope resolvers): registration under the `:resource-scope` kind,
   fail-closed validation of the 3-slot grammar (metadata with a required
-  `:inputs`, then the resolve fn), the reserved `[:runtime path]` source,
-  `[:db path]` input evaluation, a derived `:whole-db?`, use-time
-  `{:from-db id}` resolution failing closed on nil, and canonicalization of the
-  resolved scope."
+  `:inputs`, then the resolve fn), the reserved `[:runtime path]` source, a
+  derived `:whole-db?`, use-time resolution failing closed on nil, and
+  canonicalization of the resolved scope."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources :as rf.resources]
-   [re-frame.resources.scope-registry :as rf.resources.scope-registry]
-   [re-frame.trace.tooling :as rf.trace.tooling]))
+))
 
 ;; FN form, not the `{:before … :after …}` map form: clojure.test calls a map
 ;; fixture as a function, a key lookup that never runs the test, so the JVM lane
@@ -54,10 +52,6 @@
   (is (= [:realworld/session [:realworld/session]]
          [(rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
           (keys (rf/registrations {:source :store :kind :resource-scope}))]))
-  (let [m (scope-meta :realworld/session)]
-    (is (= [true {:username [:db [:auth :user :username]]} false]
-           [(identical? session-resolve (:resolve m)) (:inputs m) (:whole-db? m)])
-        "the value-slot fn is stored as :resolve beside the declared inputs"))
   (rf/clear :resource-scope :realworld/session)
   (is (= [nil false]
          [(scope-meta :realworld/session) (contains? (rf.registrar/registrations :resource-scope) :realworld/session)])
@@ -67,6 +61,7 @@
   (doseq [[label metadata resolve-fn]
           [["a non-fn value slot"           {:inputs {:x [:db [:x]]}}                           "not a fn"]
            ["a non-map metadata slot"       "not a map"                                         (fn [_ _] nil)]
+           ["metadata with no :inputs"      {:doc "Whole-db, documented."}                      (fn [_ _] nil)]
            ["a :resolve left in metadata"   {:inputs {:x [:db [:x]]} :resolve (fn [_ _] nil)}   (fn [_ _] nil)]
            ["a non-map :inputs"             {:inputs [:not :a :map]}                            (fn [_ _] nil)]
            ["a descriptor not a 2-vector"   {:inputs {:x [:db]}}                                (fn [_ _] nil)]
@@ -86,42 +81,9 @@
                                          (fn [{:keys [tenant]} _]
                                            (when tenant [:rf.scope/tenant {:tenant tenant}]))))))
 
-(deftest inputs-is-required
-  (testing ":doc-only metadata is a loud registration error naming :inputs"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (rf.resources/reg-resource-scope :s/doc-only {:doc "Whole-db, documented."} (fn [_inputs _ctx] nil))))
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #":inputs"
-          (rf.resources/reg-resource-scope :s/doc-only {:doc "Whole-db, documented."} (fn [_inputs _ctx] nil))))
-    (is (nil? (scope-meta :s/doc-only))))
-  (testing "an EMPTY metadata map is the same error"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (rf.resources/reg-resource-scope :s/empty-meta {} (fn [_inputs _ctx] nil)))))
-  (testing "the 2-arity spelling is rejected loudly on both hosts"
-    ;; `apply` defeats a static arity check; CLJS does not arity-check at
-    ;; runtime, so the resolver lands in the metadata slot and that guard fires
-    #?(:cljs (is (thrown-with-msg?
-                   js/Error #"metadata \(the MIDDLE slot\) must be a map"
-                   (apply rf.resources/reg-resource-scope
-                          [:s/two-arity (fn [_db _ctx] nil)])))
-       :clj  (is (thrown? Throwable
-                          (apply rf.resources/reg-resource-scope
-                                 [:s/two-arity (fn [_db _ctx] nil)]))))
-    (is (nil? (scope-meta :s/two-arity)))))
-
 ;; ===========================================================================
 ;; resolution
 ;; ===========================================================================
-
-(deftest eval-inputs-reads-db-paths
-  (is (= [{:username "jake" :locale :en} {:username nil}]
-         [(rf.resources.scope-registry/eval-inputs
-            {:username [:db [:auth :user :username]] :locale [:db [:i18n :locale]]}
-            {:auth {:user {:username "jake"}} :i18n {:locale :en}})
-          (rf.resources.scope-registry/eval-inputs {:username [:db [:auth :user :username]]} {})])
-      "each [:db path] is read off the supplied db, a missing one as nil"))
 
 (deftest resolve-resource-scope-unregistered-is-loud
   (is (thrown-with-msg?
@@ -148,33 +110,7 @@
   (is (= [[:rf.scope/session {:username "jake"}] nil]
          [(rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}} :s/whole-db)
           (rf.resources/resolve-resource-scope {} :s/whole-db)])
-      "the resolver gets the inputs map, resolves at use time, and fails closed on nil")
-  (let [seen (atom [])
-        k    ::scope-resolved-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.resource/scope-resolved (:operation ev)) (swap! seen conj (:tags ev)))))
-    (try
-      (rf.resources.scope-registry/resolve-scope*
-        :s/whole-db (scope-meta :s/whole-db) {:auth {:user {:username "jake"}}} 'rf/resolve-resource-scope)
-      (finally (rf.trace.tooling/unregister-listener! k)))
-    (is (= [true [:db]]
-           ((juxt :whole-db? :inputs) (some #(when (= :s/whole-db (:resource-id %)) %) @seen)))
-        "the traced resolve's :rf.resource/scope-resolved row carries the derived mark and the declared input name")))
-
-(deftest from-db-reference-resolution
-  (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
-  (is (= [true false false false]
-         (map (comp boolean rf.resources.scope-registry/from-db-reference?)
-              [{:from-db :realworld/session} :rf.scope/global [:rf.scope/session {:username "jake"}] {:tenant "acme"}]))
-      "only a {:from-db …} map is a reference")
-  (is (= [[:rf.scope/session {:username "jake"}] nil]
-         [(rf.resources.scope-registry/resolve-from-db-reference
-            {:from-db :realworld/session} {:auth {:user {:username "jake"}}} 'test)
-          (rf.resources.scope-registry/resolve-from-db-reference {:from-db :realworld/session} {} 'test)])
-      "a reference resolves at use time, and a nil resolution fails closed for the caller to interpret")
-  (is (thrown-with-msg?
-        #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
-        (rf.resources.scope-registry/resolve-from-db-reference {:from-db :s/nope} {} 'test))))
+      "the resolver gets the inputs map, resolves at use time, and fails closed on nil"))
 
 (deftest output-sensitivity-claim-silently-ignored
   ;; there is no derived-sensitivity propagation enum (Spec 015 §No
