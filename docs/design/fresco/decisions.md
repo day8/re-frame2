@@ -1663,6 +1663,13 @@ to make that reopening non-breaking.
 
 ## HD-023 — One attribute merge: a reserved `:&` key, owned-literal law unconditional
 
+**Amended 2026-08-29 (rf2-6c12m.12).** The `:&` merge is cut from the codec:
+there is no reserved `:&` key, so a `:&` key is an ordinary prop, and a caller's
+attributes are forwarded with an ordinary merge, owned keys last. (c′) and (c″)
+stand — the codec still resolves every prop to its canonical slot and folds the
+tag shorthand on the emitted slot. The rest of the ruling below stands as the v0
+record.
+
 **Ruling.** Fresco has **one** attribute merge, spelled as data in the attribute
 map, with one unconditional law.
 
