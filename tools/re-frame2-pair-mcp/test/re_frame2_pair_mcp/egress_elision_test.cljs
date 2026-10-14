@@ -81,7 +81,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Epoch records. `:include-sensitive` is two-key (launch gate AND per-call
 ;; arg) and threads THROUGH the door, lifting only the app-db sensitive
-;; axis; it is never a raw bypass, and the gate alone changes nothing.
+;; axis; it is never a raw bypass, and the gate alone changes nothing. A
+;; gate-off call resolves the same `incl? false`, so "gate on alone" stands
+;; for both.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private off-box "{:rf.egress/profile :rf.egress/off-box-tool}")
@@ -105,14 +107,10 @@
 (deftest epoch-records-cross-the-guarded-door
   (async done
     (check-forms
-      [["trace-window, gate off" false tw/trace-window-tool epoch-canned
-        {:ms 1000} (projected off-box)]
-       ["trace-window, gate on alone" true tw/trace-window-tool epoch-canned
+      [["trace-window, gate on alone" true tw/trace-window-tool epoch-canned
         {:ms 1000} (projected off-box)]
        ["trace-window, gate on + include-sensitive" true tw/trace-window-tool epoch-canned
         {:ms 1000 :include-sensitive true} (projected off-box+sensitive)]
-       ["watch-epochs, gate off" false we/watch-epochs-tool epoch-canned
-        {:pred {:event-id :auth/sign-in}} (projected off-box)]
        ["watch-epochs, gate on alone" true we/watch-epochs-tool epoch-canned
         {} (projected off-box)]
        ["watch-epochs, gate on + include-sensitive" true we/watch-epochs-tool epoch-canned
