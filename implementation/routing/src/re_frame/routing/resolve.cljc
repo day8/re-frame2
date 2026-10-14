@@ -444,7 +444,11 @@
   [url]
   (if-not (string? url)
     url
-    (let [route-id   (:route-id (:match (rf.routing.registry/match-url-fail-closed url)))
+    (let [;; Total, and quiet: a URL whose match throws has no declaration to
+          ;; project by, and the navigation that resolves it is what reports
+          ;; the throw — an ambiguous route among them — once.
+          route-id   (try (:route-id (rf.routing.registry/match-url url))
+                          (catch #?(:clj Throwable :cljs :default) _ nil))
           route-meta (when (some? route-id) (rf.registrar/lookup :route route-id))
           decls      (when (some? route-meta) (url-declarations route-id route-meta))
           compiled   (when decls

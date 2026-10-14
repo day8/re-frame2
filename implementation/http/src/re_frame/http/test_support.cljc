@@ -594,36 +594,35 @@
   nil)
 
 ;; The scoped wrapper's override target is registered at
-;; NAMESPACE-LOAD time (below), NOT minted per scope, so it is present in the
-;; SEALED image generation of every frame created after this ns is required.
+;; NAMESPACE-LOAD time (below), NOT minted per scope, so every frame created
+;; after this ns is required resolves it — a frame that seals an image
+;; generation as well as one that resolves the store live.
 ;;
-;; A fresh fx-id minted per invocation and registered INSIDE
-;; `with-request-stubs` would be registered AFTER a pre-created frame had
-;; already sealed its image generation: `make-frame {}` resolves + seals a
-;; generation at construction, and a no-id/direct frame is deliberately
-;; EXCLUDED from `reg-*` auto-reprojection (`re-frame.frame/image-loaded-frame-ids`
-;; drops the reserved `:rf.frame/<gensym>` ids). So the bound
-;; `{:rf.http/managed <scope-id>}` override would redirect to an fx-id the
-;; sealed generation could NOT resolve (`registrar/lookup` routes through the
-;; frame's generation, not the global registrar): the redirect would fall
-;; through (`:rf.error/override-fallthrough`) and the REAL `:rf.http/managed`
-;; transport would run. The exact tutorial nesting
-;; `(with-new-frame [f (make-frame {})]
-;;    (with-request-stubs … (fn [] (dispatch-sync …)))))`
-;; would escape to the wire.
+;; A frame made without `:images` resolves the registration store live, so it
+;; would see an fx-id registered mid-scope. A frame made WITH `:images` does
+;; not: it seals its generation at construction, and a no-id/direct frame is
+;; deliberately EXCLUDED from `reg-*` auto-reprojection
+;; (`re-frame.frame/image-loaded-frame-ids` drops the reserved
+;; `:rf.frame/<gensym>` ids). A fresh fx-id minted per invocation and
+;; registered INSIDE `with-request-stubs` would be invisible to such a frame
+;; made before the scope: the bound `{:rf.http/managed <scope-id>}` override
+;; would redirect to an fx-id the sealed generation could NOT resolve
+;; (`registrar/lookup` routes through the frame's generation, not the global
+;; registrar), the redirect would fall through
+;; (`:rf.error/override-fallthrough`), and the REAL `:rf.http/managed`
+;; transport would run — escaping to the wire.
 ;;
 ;; So ONE stable override target is registered at load time — the same
-;; explicit-test-support-require gate the canned-stub fxs ride — and it
-;; lands in the sealed generation of every frame created after this ns is
-;; required. The per-scope route map is carried by the dynamic var
-;; `*scope-stubs*` instead of by a per-scope fx-id: an inner scope's binding
-;; SHADOWS the outer's for its dynamic extent and restores it on exit, so nested
-;; scopes compose — an inner-scope dispatch
-;; keys off the inner route map; after the inner scope exits an outer-scope
-;; dispatch keys off the outer route map again — WITHOUT a per-scope registrar
-;; write the sealed generation cannot see. The lower-level install/uninstall
-;; surface above has its own separate stable `:rf.http/managed-test-stub` id
-;; (the documented hardcodable `:fx-overrides` target).
+;; explicit-test-support-require gate the canned-stub fxs ride. The per-scope
+;; route map is carried by the dynamic var `*scope-stubs*` instead of by a
+;; per-scope fx-id: an inner scope's binding SHADOWS the outer's for its
+;; dynamic extent and restores it on exit, so nested scopes compose — an
+;; inner-scope dispatch keys off the inner route map; after the inner scope
+;; exits an outer-scope dispatch keys off the outer route map again — WITHOUT
+;; a per-scope registrar write a sealed generation cannot see. The lower-level
+;; install/uninstall surface above has its own separate stable
+;; `:rf.http/managed-test-stub` id (the documented hardcodable `:fx-overrides`
+;; target).
 
 (def ^:private ^:dynamic *scope-stubs*
   "The route map (`{[method url] {:reply …}}`) the load-time scope-stub fx

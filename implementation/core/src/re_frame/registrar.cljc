@@ -1153,6 +1153,29 @@
          (filter (fn [[_id meta]] (pred-fn meta)))
          (registrations kind))))
 
+(defn ambiguous-registrations
+  "The ids of `kind` that [[registrations]] leaves out because using them
+  raises `:rf.error/ambiguous-registration`: under a bound [[*live-view*]], the
+  `{id {provenance-ns descriptor}}` of every id more than one namespace
+  registers, as the source store holds them. `{}` under a sealed generation or
+  the registrar atom, which hold one registration per id.
+
+  For a consumer that matches against a whole kind rather than looking up one
+  id — the route table — so it can keep an ambiguous id in view and raise when
+  that id is the one it would use, instead of silently using another."
+  [kind]
+  (if (generation-resolver)
+    {}
+    (if-let [view *live-view*]
+      (let [shared (into {}
+                         (filter (fn [[_id ns->desc]] (< 1 (count ns->desc))))
+                         (get @(rf.source-store/active-source-store) kind))]
+        (if (seq shared)
+          (let [runnable (view kind)]
+            (into {} (remove (fn [[id _]] (contains? runnable id))) shared))
+          {}))
+      {})))
+
 (defn handler-meta
   "Public alias for lookup. Used by tooling."
   [kind id]
