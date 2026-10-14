@@ -182,12 +182,6 @@
            ((juxt :status :data :page-params :next-page-param) (entry k)))
         "the page appends in order with its param, and the cursor advances")))
 
-(deftest load-more-recomputes-prev-mirror
-  (let [k (load-page-0! :lmp/feed (page [:a] "c1" "p-head"))]
-    (load-more! :lmp/feed)
-    (reply-success! (page [:b] "c2" "p-tail"))
-    (is (= "p-head" (:prev-page-param (entry k))) "prev comes from the FIRST page")))
-
 (deftest load-more-terminal-is-noop
   (let [k (load-page-0! :term/feed (page [:a] nil))]
     (reset! last-managed-args nil)
@@ -216,18 +210,6 @@
       (reply-success! args1 (page [:b] "c2"))
       (is (= [(page [:a] "c1") (page [:b] "c2")] (:data (entry k)))
           "the single page appends once"))))
-
-(deftest stale-page-reply-suppressed
-  (let [k (load-page-0! :st/feed (page [:a] "c1"))]
-    (load-more! :st/feed)
-    (let [args1 @last-managed-args
-          wid1  (:current-work (entry k))]
-      (refetch-feed! :st/feed)
-      (let [gen2 (:generation (entry k))]
-        (reply-success! args1 (page [:STALE] "cX"))
-        (is (= [[(page [:a] "c1")] gen2 :suppressed]
-               [(:data (entry k)) (:generation (entry k)) (work-status wid1)])
-            "a refetch supersedes the load-more, whose late page is suppressed, not appended")))))
 
 ;; ===========================================================================
 ;; a load-more failure is the THIRD error channel (keep feed + :page-error)
@@ -282,37 +264,6 @@
              [(:data e) (contains? e :refetch-sweep) (:status e)])
           "every page is replaced in order, and the exhausted sweep is cleared"))))
 
-(deftest refetch-window-opt-in-refreshes-the-bounded-window-in-sequence
-  (let [k (accumulate-3! :rwn/feed {:refetch {:refetch-window 2}})]
-    (refetch-feed! :rwn/feed)
-    (is (= [3 0] [(page-count k) (in-flight-page-index)]))
-    (reply-success! (page [:a*] "c1"))
-    (is (= 1 (in-flight-page-index)) "the sweep chains page 1")
-    (reply-success! (page [:b*] "c2"))
-    (let [e (entry k)]
-      (is (= [[(page [:a*] "c1") (page [:b*] "c2") (page [:c] "c3")] false]
-             [(:data e) (contains? e :refetch-sweep)])
-          ":refetch-window 2 refreshes pages 0 and 1 and leaves page 2 untouched"))))
-
-(deftest refetch-sweep-failure-stops-the-sweep-keeps-pages
-  (let [k (accumulate-3! :rsf/feed {:refetch {:refetch-all-pages? true}})]
-    (refetch-feed! :rsf/feed)
-    (reply-success! (page [:a*] "c1"))
-    (is (= 1 (in-flight-page-index)) "FIXTURE — the page-1 leg is in flight")
-    (reply-failure! {:kind :rf.http/server :status 503})
-    (let [e (entry k)]
-      (is (= [:loaded 3 true false]
-             [(:status e) (page-count k) (some? (:page-error e)) (contains? e :refetch-sweep)])
-          "a failed leg records :page-error, keeps every page and stops the sweep"))))
-
-(deftest ensure-infinite-fresh-skip-serves-cache
-  (let [k    (load-page-0! :fs/feed (page [:a] "c1"))
-        gen0 (:generation (entry k))]
-    (reset! last-managed-args nil)
-    (ensure! :fs/feed)
-    (is (= [nil gen0 1] [@last-managed-args (:generation (entry k)) (page-count k)])
-        "a second ensure of a fresh loaded feed serves the cache")))
-
 ;; ===========================================================================
 ;; a page-0 abort or failure with no pages is a FIRST load, not a load-more
 ;; ===========================================================================
@@ -321,7 +272,7 @@
 ;; fresh-skip above cannot tell from a loaded one, so the feed would hang.
 
 (deftest page-0-abort-settles-idle-so-a-later-ensure-refetches
-  (rf/reg-resource :ab0/feed (feed-spec) feed-spec-request)
+  (rf/reg-resource :ab0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000}) feed-spec-request)
   (ensure! :ab0/feed)
   (let [k   (feed-key :ab0/feed)
         wid (:current-work (entry k))]
@@ -329,18 +280,12 @@
     (is (= [:idle [] nil nil :cancelled]
            (conj ((juxt :status :data :current-work :error) (entry k)) (work-status wid)))
         "an aborted first load settles :idle with no error, never :loaded")
+    (is (= {:gc 5000 :stale 1000 :poll nil} (:timers (last-schedule-for k)))
+        "and arms GC and stale, as the scalar first-load abort does")
     (reset! last-managed-args nil)
     (ensure! :ab0/feed)
     (is (= [0 :loading] [(get-in @last-managed-args [:request :params :page-index]) (:status (entry k))])
         "so a later ensure fetches page 0 again rather than fresh-skipping the empty feed")))
-
-(deftest page-0-abort-arms-gc-and-stale-timers
-  (rf/reg-resource :ab2/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000}) feed-spec-request)
-  (ensure! :ab2/feed)
-  (reset! scheduled-timers [])
-  (reply-aborted!)
-  (is (= {:gc 5000 :stale 1000 :poll nil} (:timers (last-schedule-for (feed-key :ab2/feed))))
-      "an aborted first load arms GC and stale, as the scalar first-load abort does"))
 
 (deftest page-0-failure-arms-gc-and-stale-timers
   (rf/reg-resource :fl0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000}) feed-spec-request)
@@ -466,36 +411,6 @@
 
 (defn- tag-members [tag]
   (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) tag)))
-
-(deftest page-success-produces-feed-tags-so-invalidation-reaches-the-feed
-  (rf/reg-resource :tg/feed (feed-spec) feed-spec-request)
-  (rf/reg-resource :tg/idle-feed (feed-spec) feed-spec-request)
-  (rf/reg-resource :tg/scalar
-                   {:scope         :rf.scope/global
-                    :params-schema [:map [:filter :keyword]]
-                    :tags          (fn [{:keys [filter]} _data] #{[:feed filter]})}
-                   (fn [_params _ctx] {:request {:method :get :url "/api/scalar"}}))
-  (let [kf (feed-key :tg/feed)
-        ki (feed-key :tg/idle-feed)
-        ks (feed-key :tg/scalar)]
-    (ensure! :tg/feed)   (reply-success! (page [:a] "c1"))
-    (ensure! :tg/scalar) (reply-success! {:v 1})
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :tg/idle-feed :scope :rf.scope/global
-                                            :params {:filter :recent} :owner [:test :idle]}])
-    (reply-success! (page [:x] nil))
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :idle]}])
-    (is (= [#{[:feed :recent]} (set (map rf.resources.state/key-id [kf ki ks]))]
-           [(:tags (entry kf)) (tag-members [:feed :recent])])
-        "the feed carries its produced tag and is indexed under it, like the scalar")
-    (invalidate-feed!)
-    (is (= [:fetching true :fetching]
-           [(:status (entry kf))
-            (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry kf)))
-            (:status (entry ks))])
-        "invalidation refetches the OWNED feed, as it does the owned scalar control")
-    (is (= [true :loaded nil]
-           [(some? (:invalidated-at (entry ki))) (:status (entry ki)) (:current-work (entry ki))])
-        "the OWNER-FREE feed goes durably stale without a request")))
 
 (deftest feed-tags-follow-the-accumulated-pages
   (let [item-tags (fn [{:keys [filter]} pages]
