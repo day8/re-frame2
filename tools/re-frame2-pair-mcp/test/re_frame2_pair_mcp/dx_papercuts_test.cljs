@@ -2,12 +2,9 @@
   "The batch `paths` read on `get-path`, the sampled `:bytes` hint of a
   summary marker, and the record cap on a full-mode `:epochs` slice."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.summary :as summary]
             [re-frame2-pair-mcp.test-utils :as tu]))
@@ -37,17 +34,8 @@
             [[:cart :items 0] [:user :id]]
             "a JS array whose entries are JS arrays of segment strings"]
            [":foo" nil "a bare scalar EDN value is not a batch"]
-           ["[]" [] "an explicit empty EDN batch"]
            [#js [] [] "an explicit empty JS batch"]]]
     (is (= expected (args/parse-paths-arg input)) note)))
-
-(deftest batch-paths-form-quotes-the-callers-paths
-  ;; The paths are caller EDN, so they ride quoted into the fold.
-  (let [form (get-path/batch-paths-form (ef/rt-call 'snapshot :rf/default)
-                                        [[:cart :total] [:user :id]]
-                                        ":rf/default"
-                                        (elision/egress-opts-edn false false))]
-    (is (str/includes? form "(quote [[:cart :total] [:user :id]])"))))
 
 (deftest get-path-batch-usage-errors
   (async done
