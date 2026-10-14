@@ -47,9 +47,8 @@
   [[::edit]] and [[::set-published]] are therefore POSITIONAL and the
   other three handlers are not, which is the whole shape of the
   collision: a payload map is available to every handler that does not
-  carry a marker, and to none that does. `editor.l2-cljs-test`
-  asserts both spellings through the runtime's own substitution rather
-  than describing them.
+  carry a marker, and to none that does. `re-frame.fresco.intent-cljs-test`
+  asserts the top-level-only substitution both spellings turn on.
 
   ## The revision counter is the author's to invent
 

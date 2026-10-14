@@ -110,10 +110,9 @@
     value.
 
   The text is CONTENT and is not translated. That boundary is already
-  the application's — see
-  `re-frame.fresco.examples.slice.i18n-dom-cljs-test`'s row on it — and
-  the digest's chrome (its heading, its failure sentence, its retry) is
-  read through `[::subs/t …]` like every other string."
+  the application's, and the digest's chrome (its heading, its failure
+  sentence, its retry) is read through `[::subs/t …]` like every other
+  string."
   [{:block/id "intro" :block/kind :block/prose
     :block/text "Three ideas the archive keeps coming back to."}
    {:block/id   "reading" :block/kind :block/list

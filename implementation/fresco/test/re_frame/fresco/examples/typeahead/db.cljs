@@ -107,11 +107,7 @@
 
   Split out and named because it is the half of `::events/suggestions`
   that a reply-handling application genuinely needs; the `if` around it in
-  that handler is the whole of stale-reply suppression. The witness's
-  defect demonstration registers this function as a handler of its own
-  rather than editing the application, so the mutation under test is
-  exactly one form — the guard — and neither copy can drift from the
-  other."
+  that handler is the whole of stale-reply suppression."
   [db {:keys [term rows]}]
   (-> db
       (assoc-in [:search :shown] {:term term :rows rows})

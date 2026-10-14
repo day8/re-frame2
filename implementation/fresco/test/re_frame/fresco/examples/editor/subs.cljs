@@ -26,10 +26,7 @@
   registration rather than four registrations. A parametric subscription
   is keyed by its whole query vector, so `[::field :title]` and
   `[::field :body]` are separate cells with separate equality gates,
-  which is the property the budget rests on. `editor.l2-cljs-test` proves
-  it the only way a structural tier can — by handing each body a fixture
-  map answering exactly the reads it makes, and letting the kit refuse
-  any read the map does not answer.
+  which is the property the budget rests on.
 
   Nothing here is a view-model. Each subscription answers the value its
   control shows, one `get-in` deep, because that is what a controlled

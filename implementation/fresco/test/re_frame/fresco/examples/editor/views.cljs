@@ -17,9 +17,8 @@
   controlled keystroke). [[editor]] itself reads NOTHING: it is a layout
   body that runs at mount and, thereafter, only when a prop of its own
   changes. That absence is the load-bearing part, and
-  `editor.l2-cljs-test` asserts it the only way it can be asserted — by
-  handing the body an EMPTY fixture map and letting the kit refuse any
-  read it makes.
+  `editor.flow-dom-cljs-test`'s per-keystroke body count holds it: a
+  layout body that read a moving address would run on the keystroke too.
 
   ## What is NOT needed here
 
@@ -105,8 +104,8 @@
   checkbox written idiomatically has none. Nor does it want one — there
   is no free draft between the click and the dispatch, so
   `[::events/discard]` moving `:published?` back always moves the value
-  React compares. Both halves are asserted in
-  `editor.flow-dom-cljs-test`: the refusal and the restore."
+  React compares. The restore is asserted in `editor.flow-dom-cljs-test`
+  and the refusal in `re-frame.fresco.revision-dom-cljs-test`."
   [{:keys [label]}]
   [:p.field
    [:label {:for "published"} label]
