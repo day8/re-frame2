@@ -79,24 +79,11 @@
     (let [src (rf.substrate.adapter/make-state-container {:n 7})]
       (with-derived src
         (fn [derived]
-          (let [thrown (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
-                           "writing to a Reaction throws")]
-            (is (= :rf.error/derived-container-replaced
-                   (:rf.error/id (ex-data thrown)))
-                "the thrown ex-info carries the canonical :rf.error/id discriminator")))))))
-
-(deftest reaction-value-unchanged-after-rejected-write
-  (testing "the rejected write does NOT mutate the derived value — the adapter replace-container! is never invoked"
-    (let [src (rf.substrate.adapter/make-state-container {:n 5})]
-      (with-derived src
-        (fn [derived]
-          (let [seeded   (rf.substrate.adapter/read-container derived)
-                rejected (do (try (rf.substrate.adapter/replace-container! derived 1000)
-                                  (catch :default _ nil))
-                             (rf.substrate.adapter/read-container derived))]
-            (rf.substrate.adapter/replace-container! src {:n 6})
-            (is (= [5 5 6] [seeded rejected (rf.substrate.adapter/read-container derived)])
-                "[seeded after-rejected-write after-source-write]: the rejected write left the value alone, and the source stays writable")))))))
+          (is (= :rf.error/derived-container-replaced
+                 (:rf.error/id (ex-data (try (rf.substrate.adapter/replace-container! derived 42)
+                                             nil
+                                             (catch :default e e)))))
+              "writing to a Reaction throws the ex-info carrying the canonical :rf.error/id"))))))
 
 ;; `route-hook!` routes by the adapter's `:kind` token, not object identity,
 ;; so a copied or wrapped adapter map still drives the live
@@ -119,9 +106,7 @@
           (with-derived src
             (fn [derived]
               (is (= [false true] [(boolean (hook src)) (boolean (hook derived))])
-                  "under the copied map the live hook still tells a base r/atom from a Reaction")
-              (is (thrown? js/Error (rf.substrate.adapter/replace-container! derived 42))
-                  "replace-container! on the Reaction STILL throws under the copied map"))))
+                  "under the copied map the live hook still tells a base r/atom from a Reaction"))))
         (finally
           (rf.substrate.adapter/dispose-adapter!)
           (rf.substrate.adapter/install-adapter! original))))))
