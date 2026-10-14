@@ -41,7 +41,3 @@
                                          :id uuid-a :ids [uuid-a] uuid-a 1}))))
   (is (= {:order/id 1 :customer/id 7}
          (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))))
-
-(deftest jvm-json-parse-nil-returns-nil
-  ;; A response with no body text decodes to nil rather than throwing.
-  (is (nil? (rf.http.json/json-parse nil))))

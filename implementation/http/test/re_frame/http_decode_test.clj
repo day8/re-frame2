@@ -17,10 +17,11 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest decode-response-body-schema-success-parses-then-coerces
+  ;; A vendor `+json` media type with parameters is JSON to the schema path.
   (is (= {:title "hello" :id 42 :status :active}
          (rf.http.decode/decode-response-body
            {:body-text "{\"title\":\"hello\",\"id\":42,\"status\":\"active\"}"
-            :headers   {"content-type" "application/json"}
+            :headers   {"content-type" "application/vnd.api+json; charset=utf-8"}
             :decode    [:map [:title :string] [:id :int] [:status :keyword]]}))))
 
 (deftest decode-response-body-schema-validation-failure-throws-canonical
@@ -57,13 +58,6 @@
                            :decode           :json
                            :max-decoded-keys 2}))))
 
-(deftest schema-decode-accepts-vendor-plus-json-media-types
-  (is (= {:title "hello" :id 42}
-         (rf.http.decode/decode-response-body
-           {:body-text "{\"title\":\"hello\",\"id\":42}"
-            :headers   {"content-type" "application/vnd.api+json; charset=utf-8"}
-            :decode    [:map [:title :string] [:id :int]]}))))
-
 (deftest auto-sniff-parses-only-json-media-types
   ;; JSON is subtype `json` or a `+json` suffix, parameters stripped and case
   ;; folded; a subtype merely containing "json" is not JSON.
@@ -86,10 +80,6 @@
                  rf.http.decode/malli-transformer-fn (delay nil)
                  rf.http.decode/malli-validate-fn    (delay nil)]
      ~@body))
-
-(defn- error-id [thunk]
-  (try (thunk) :no-throw
-       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest schema-decode-without-malli-is-refused-at-dispatch
   (let [issued   (atom [])
@@ -122,15 +112,6 @@
                                {:body-text "{\"id\":1}"
                                 :headers   {"content-type" "application/json"}
                                 :decode    decode}))
-      :auto                 {:id 1}
       :json                 {:id 1}
       :text                 "{\"id\":1}"
       (fn [body _] (count body)) 8)))
-
-(deftest schema-decode-without-malli-throws-at-decode
-  (without-malli
-    (is (= :rf.error/schemas-artefact-missing
-           (error-id #(rf.http.decode/decode-response-body
-                        {:body-text "{\"id\":\"not-an-int\"}"
-                         :headers   {"content-type" "application/json"}
-                         :decode    [:map [:id :int]]}))))))

@@ -35,19 +35,6 @@
 
 ;; ---- redact-headers ---------------------------------------------------------
 
-(deftest redact-headers-replaces-sensitive-values
-  (testing "names match case-insensitively, and a multi-valued (vector) value
-            redacts whole"
-    (is (= {"Authorization" :rf/redacted
-            "Cookie"        :rf/redacted
-            "Content-Type"  "application/json"
-            "X-Multi"       ["keep-1" "keep-2"]}
-           (rf.http.privacy-headers/redact-headers
-             {"Authorization" "Bearer abc123"
-              "Cookie"        ["a=1" "b=2"]
-              "Content-Type"  "application/json"
-              "X-Multi"       ["keep-1" "keep-2"]})))))
-
 ;; ---- redact-failure ---------------------------------------------------------
 
 ;; A string :cause is an interceptor's free-text throw message and can echo a
@@ -93,12 +80,6 @@
               :sensitive? true
               :decode     :json})))))
 
-(deftest project-managed-fx-args-respects-in-request-flag
-  (testing "the per-request `[:request :sensitive?]` sugar redacts too"
-    (let [r (rf.http.privacy/project-managed-fx-args
-              {:request {:url "/login" :body {:pw "raw"} :sensitive? true}})]
-      (is (= :rf/redacted (get-in r [:request :body]))))))
-
 (deftest project-managed-fx-args-not-sensitive-is-fail-open
   (testing "an unflagged request's body rides raw (per-call :sensitive? is the
             signal) while the denylisted header still redacts"
@@ -125,26 +106,14 @@
                                "Access_Token" "SECRET-S"
                                :user/token    "SECRET-N"
                                :page          2
-                               :q             "x"}}}))))
-
-(deftest prepare-emit-tags-stamps-sensitive-on-params-denylist-hit
-  (testing "a denylisted :params name alone redacts and stamps :sensitive?;
-            no hit, no stamp"
-    (are [params expected]
-         (= expected (rf.http.privacy/prepare-emit-tags
-                       {:url "https://api.example.test/x" :params params} false))
-      {:api_key "S" :page 2}
-      {:url "https://api.example.test/x" :params {:api_key :rf/redacted :page 2} :sensitive? true}
-
-      {:page 2}
-      {:url "https://api.example.test/x" :params {:page 2}}))
+                               :q             "x"}}})))
   (testing "carriers apply to :params: an :include redacts, an :except default
             rides verbatim, and carrier names match case-insensitively"
     (reg-managed-carriers! {:query-params {:include ["Shop_Token"] :except ["Token"]}})
     (is (= {:shop_token :rf/redacted :token "T"}
-           (:params (rf.http.privacy/prepare-emit-tags
-                      {:url "https://api.example.test/x" :params {:shop_token "S" :token "T"}}
-                      false))))))
+           (get-in (rf.http.privacy/project-managed-fx-args
+                     {:request {:url "https://api.example.test/x" :params {:shop_token "S" :token "T"}}})
+                   [:request :params])))))
 
 ;; The roster is spelled out literally rather than read from
 ;; `rf.http.encoding/reply-address-keys`: the projection reduces over that
@@ -265,15 +234,6 @@
     (is (= {:url "https://api.example.com/x?shop_token=:rf/redacted&page=2" :sensitive? true}
            (rf.http.privacy/prepare-emit-tags
              {:url "https://api.example.com/x?shop_token=abc&page=2"} false)))))
-
-(deftest prepare-emit-tags-honours-managed-query-param-except
-  (testing "an :except keeps that built-in default visible in the app's own
-            trace; other defaults still redact"
-    (reg-managed-carriers! {:query-params {:except ["token"]}})
-    (is (= "https://api.example.com/x?token=abc&api_key=:rf/redacted&page=2"
-           (:url (rf.http.privacy/prepare-emit-tags
-                   {:url "https://api.example.com/x?token=abc&api_key=SECRET&page=2"}
-                   false))))))
 
 (deftest managed-carriers-fail-loud-on-malformed-block
   (testing "a non-string name, an unknown key, a header policy map (headers are

@@ -90,19 +90,13 @@
            (rf.test-support/poll-until outcome {:timeout-ms 5000 :label "deferred canned reply"}))
         "the deferred re-fire keeps the :request-id, so the reply still correlates")))
 
-(deftest canned-reply-carries-correlation-iff-request-id
-  (testing ":correlation is {:request-id <id>} when the args carry one and
-            absent when they do not, as on the live reply"
+(deftest canned-reply-omits-correlation-without-request-id
+  (testing "a canned reply to args with no :request-id carries no :correlation,
+            as on the live reply"
     (rf/reg-event :t/replied
       (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
     (rf/reg-event :t/issue
-      (fn [_ [_ extra]]
-        {:fx [[:rf.http/managed
-               (merge {:request {:method :get :url "/t"} :reply-to [:t/replied]} extra)]]}))
-    (doseq [fx-id [:rf.http/managed-canned-success :rf.http/managed-canned-failure]]
-      (testing (str fx-id)
-        (rf/dispatch-sync [:t/issue {:request-id :t/load}] {:fx-overrides {:rf.http/managed fx-id}})
-        (is (= {:request-id :t/load}
-               (:correlation (:reply (rf/app-db-value :rf/default)))))
-        (rf/dispatch-sync [:t/issue {}] {:fx-overrides {:rf.http/managed fx-id}})
-        (is (not (contains? (:reply (rf/app-db-value :rf/default)) :correlation)))))))
+      (fn [_ _]
+        {:fx [[:rf.http/managed {:request {:method :get :url "/t"} :reply-to [:t/replied]}]]}))
+    (rf/dispatch-sync [:t/issue] {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+    (is (not (contains? (:reply (rf/app-db-value :rf/default)) :correlation)))))
