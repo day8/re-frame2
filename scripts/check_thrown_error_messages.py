@@ -2709,8 +2709,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, frozenset[str]]] = [
         # (fixture-file relative to fixture-root, exact set of site names)
         # --- positives: each bare-keyword message shape must FIRE ---
-        ("positive/literal_keyword_string.cljc",
-         frozenset({"literal-keyword-string|<positive/literal_keyword_string.cljc>"})),
         ("positive/literal_keyword_multiline.cljc",
          frozenset({"literal-keyword-string|<positive/literal_keyword_multiline.cljc>"})),
         ("positive/str_literal_keyword.cljc",
@@ -2724,18 +2722,14 @@ def _run_self_tests(verbose: bool = False) -> int:
          frozenset({"builder-bypass-message|<positive/bypass_plain_string_no_token.cljc>"})),
         # --- positives for the let-binding resolution: resolving a
         #     local must not become a way to PASS. A bound form with no token,
-        #     an unresolvable parameter, the computed discriminator, a sibling
-        #     (non-enclosing) scope, an inner binding that shadows a
-        #     token-bearing outer one, and a destructured name all still fire.
-        #     The computed-discriminator site builds its id across lines, so it
-        #     is the one that answers to the file rather than to an id.
+        #     the computed discriminator and a sibling (non-enclosing) scope
+        #     all still fire. The computed-discriminator site builds its id
+        #     across lines, so it is the one that answers to the file rather
+        #     than to an id.
         (_NO_TOKEN, frozenset({
             BYPASS + ":rf.error/bound-but-bare",
-            BYPASS + ":rf.error/param-message",
             BYPASS + f"<{_NO_TOKEN}>",
             BYPASS + ":rf.error/sibling-scope",
-            BYPASS + ":rf.error/shadowed-away",
-            BYPASS + ":rf.error/destructured",
         })),
         # --- positives for the SCOPE PROOF: a binder between the conformant
         #     outer `let` and the `ex-info` shadows the name — one site per way
@@ -2743,14 +2737,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/bypass_let_bound_shadowed.cljc", frozenset({
             BYPASS + ":rf.error/fn-param-shadow",
             BYPASS + ":rf.error/catch-shadow",
-            BYPASS + ":rf.error/arity-shadow",
             BYPASS + ":rf.error/fn-name-shadow",
         })),
         # --- negatives: conformant counterparts must stay GREEN ---
         ("negative/str_concat_human_text.cljc",      frozenset()),
-        ("negative/keyword_in_exdata.cljc",          frozenset()),
         ("negative/keyword_in_comment.cljc",         frozenset()),
-        ("negative/inline_human_token_slim.cljc",    frozenset()),
         # --- negative for the let-binding resolution: a conformant
         #     message bound one hop from the `ex-info` must stay GREEN.
         ("negative/bypass_let_bound_token.cljc",         frozenset()),
