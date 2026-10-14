@@ -1185,17 +1185,9 @@
   ;; rather than merely recording it, and landing reuses that block's
   ;; epoch walk verbatim. See the comment above that registration.
 
-  (rf/reg-event :rf.xray/clear-machine-selection
-    (fn [{:keys [db]} _event]
-      {:db (dissoc db :selected-machine-id)}))
-
   (rf/reg-event :rf.xray/machine-state-clicked
     (fn [{:keys [db]} [_ _payload]]
       {:db db}))
-
-  (rf/reg-event :rf.xray/machine-chart-layout-pulse
-    (fn [{:keys [db]} _event]
-      {:db (update db :machine-inspector/elk-pulse-tick (fnil inc 0))}))
 
   ;; ---- per-machine prev/next nav ----------------------------------
   ;;

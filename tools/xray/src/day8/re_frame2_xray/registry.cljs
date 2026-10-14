@@ -872,16 +872,6 @@
                                                         show-ungrouped?)]
           (spine/focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
-    ;; Programmatic clear of the focused event-bundle. Resets the spine
-    ;; focus back to LIVE (head-tracking).
-    ;; A multi-panel consumer alongside the select event above.
-    (rf/reg-event :rf.xray/clear-selected-dispatch-id
-      (fn [{:keys [db]} _event]
-        {:db (update db :focus (fnil assoc {})
-                :dispatch-id nil
-                :epoch-id    nil
-                :mode        :live
-                :previewing? false)}))
 
     ;; ---- 4-layer chrome events (spec/018) -------------------------
 

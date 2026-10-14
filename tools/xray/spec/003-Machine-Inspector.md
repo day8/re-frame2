@@ -2197,10 +2197,9 @@ time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
   once (rf2-2es2x8), and each keeps its own ring.
 
 **The timer detail popover is NOT built.** Hovering a ring shows a
-native SVG `<title>` tooltip; the hover is also written to a
-`:rf.xray/timer-hover` slot, plumbed so a follow-on can lift it into a
-rich tooltip, but nothing reads it for display and clicking a ring does
-nothing. The popover's intended fields were `:scheduled-at`, `:delay`,
+native SVG `<title>` tooltip; the `:rf.xray/timer-hover` event also
+writes the hover to an app-db slot, but no sub reads it and clicking a
+ring does nothing. The popover's intended fields were `:scheduled-at`, `:delay`,
 `:epoch`, `:source` (`:literal` / `:sub` / `:timeout-config` / `:fn`).
 
 **Affordance:** `:after` countdown rings + scrubber-aware retro-replay
