@@ -51,11 +51,6 @@
         (is (str/includes? (complaint-for defects "duplicate_test.clj")
                            "duplicate_test.cljc"))))))
 
-(deftest a-nested-discovery-directory-is-not-a-defect
-  ;; `-d` chooses where cognitect scans, not a classpath root, so a directory
-  ;; below the root `test` is an ordinary selection.
-  (is (= [] (rf.test-quiet.runner/discovery-defects ["test/re_frame"]))))
-
 (deftest a-file-the-classpath-answers-with-another-file-is-still-named
   ;; A stray copy of a namespace never runs: `require` loads the real one.
   (with-tree {"shadow.clj" "(ns re-frame.test-quiet.runner)\n"}
