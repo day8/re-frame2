@@ -10,14 +10,6 @@
 ;; extract-project-home
 ;; ===========================================================================
 
-(deftest extract-project-home-pulls-canonical-payload
-  ;; The live `/api/project-info` shape.
-  (let [body (str "[\"^ \","
-                  "\"~:project-config\",\"C:\\\\Users\\\\me\\\\proj\\\\shadow-cljs.edn\","
-                  "\"~:project-home\",\"C:\\\\Users\\\\me\\\\proj\","
-                  "\"~:version\",\"3.4.10\"]")]
-    (is (= "C:\\Users\\me\\proj" (sd/extract-project-home body)))))
-
 (deftest extract-project-home-returns-nil-for-every-other-body
   ;; Every other shape collapses to nil, never a throw, so the discovery
   ;; cascade falls through.
@@ -129,12 +121,17 @@
                  (done))))))
 
 (deftest discover-project-home-threads-args-and-resolves-the-path
+  ;; The fetched body is the live `/api/project-info` shape.
   (async done
-    (let [seen (atom nil)]
+    (let [seen (atom nil)
+          body (str "[\"^ \","
+                    "\"~:project-config\",\"C:\\\\Users\\\\me\\\\proj\\\\shadow-cljs.edn\","
+                    "\"~:project-home\",\"C:\\\\Users\\\\me\\\\proj\","
+                    "\"~:version\",\"3.4.10\"]")]
       (-> (sd/discover-project-home* "10.0.0.5" 9700
                                      (fn [host port]
                                        (reset! seen [host port])
-                                       (js/Promise.resolve "[\"^ \",\"~:project-home\",\"/x\"]")))
+                                       (js/Promise.resolve body)))
           (.then (fn [v]
-                   (is (= ["/x" ["10.0.0.5" 9700]] [v @seen]))
+                   (is (= ["C:\\Users\\me\\proj" ["10.0.0.5" 9700]] [v @seen]))
                    (done)))))))
