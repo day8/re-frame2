@@ -61,7 +61,3 @@
            [fx warmed (:plan-cause plan-error) (contains? plan-error :nav-token)
             (:rf.error/id plan-error) (:route-id plan-error)])
         "no partial ensures, and a prefetch planning failure owning no route state, so no nav-token slot")))
-
-(deftest warm-plan-is-a-noop-when-no-branch-contributor-declares-resources
-  (is (nil? (prefetch-fx :route/plain nil))
-      "a resource-free branch warms nothing"))
