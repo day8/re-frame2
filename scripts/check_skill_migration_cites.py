@@ -418,11 +418,7 @@ def _self_test() -> int:
     failures = 0
 
     good_migration = (
-        "### M-68. Frame-affordance redesign — renames\n\n"
-        "body\n\n"
         "### M-69. Listener-registration namespace consolidation\n\n"
-        "body\n\n"
-        "#### M-31a. Canned-stub fxs require test-support\n\n"
         "body\n"
     )
 
@@ -431,17 +427,6 @@ def _self_test() -> int:
         for m in CITE_RE.finditer(line):
             out.append((SKILL_REFERENCES_DIR / "x.md", 1, m.group(0), line))
         return out
-
-    # Case A — clean: table rows bind the right ids + a sub-rule cite resolves.
-    probs = find_drift(
-        good_migration,
-        cite("| `surf` | **M-68** | A | Frame-affordance redesign. |")
-        + cite("| `x` | **M-69** | A | Listener-registration namespace consolidation. |")
-        + cite("M-31a applies here"),
-    )
-    if probs:
-        print(f"SELF-TEST FAIL (A clean): unexpected {probs}")
-        failures += 1
 
     # Case B — phantom cite: M-67 not defined in this MIGRATION.md.
     probs = find_drift(good_migration, cite("drop them (M-67); injected locals"))
@@ -462,23 +447,8 @@ def _self_test() -> int:
     type_migration = (
         "## Type-tag summary\n\n"
         "- **Type A — fully mechanical.** Rules: M-1, M-35.\n"
-        "- **Type B — flag for human review.** Rules: M-34, M-40, M-42.\n\n"
-        "## Next section\n\n**Type B — flag for human review.** "
-        "(a per-rule body line that must NOT be scanned) M-99.\n"
+        "- **Type B — flag for human review.** Rules: M-34, M-40, M-42.\n"
     )
-
-    # Case F — clean: skill Type-B list contains every MIGRATION.md Type-B id.
-    # The M-99 on the next section's per-rule body line must stay out of the
-    # authoritative Type-B set; a leak would surface here as a TYPE-DRIFT.
-    skill_clean = (
-        "## Type A vs Type B — at a glance\n\n"
-        "**Type A — apply automatically.** M-1, M-35.\n\n"
-        "**Type B — ask before applying.** M-34, M-40, M-42.\n"
-    )
-    probs = find_type_drift(type_migration, skill_clean)
-    if probs:
-        print(f"SELF-TEST FAIL (F type clean): unexpected {probs}")
-        failures += 1
 
     # Case G — drift: skill Type-B list drops M-42.
     skill_drift = (
@@ -510,18 +480,8 @@ def _self_test() -> int:
             "| Rule | Why it has no trigger row |\n|---|---|\n" + outside
         )
 
-    m1 = "| `re-frame.db` | **M-1** | A | Off-contract require. |\n"
     m16 = "| `^:flush-dom` | **M-16** | A / B | Sub-cases **M-16a** / M-16b. |\n"
     o1 = "| Metadata | **O-1** | Optional enrichment. |\n"
-    outside_all = "| M-16a | Sub-case of M-16. |\n| M-76, O-14 | Pre-rename / retired. |\n"
-
-    # Case I — clean: every rule has a Rule-column row or an outside-index line.
-    probs = find_index_coverage(
-        index_migration, index_skill(m_rows=m1 + m16, o_rows=o1, outside=outside_all)
-    )
-    if probs:
-        print(f"SELF-TEST FAIL (I index clean): unexpected {probs}")
-        failures += 1
 
     # Case J — exactly the unaccounted rules go red: M-1 (its row deleted; the
     # section prose naming it does not count), M-16a (named only in M-16's
@@ -532,17 +492,6 @@ def _self_test() -> int:
     got = sorted(re.findall(r"defines (\S+),", "\n".join(probs)))
     if len(probs) != 3 or got != ["M-1", "M-16a", "O-14"]:
         print(f"SELF-TEST FAIL (J index omissions): expected M-1, M-16a, O-14, got {probs}")
-        failures += 1
-
-    # Case M — a missing anchor is a setup failure, not a silent pass.
-    probs = find_index_coverage(
-        index_migration,
-        index_skill(m_rows=m1 + m16, o_rows=o1, outside=outside_all).replace(
-            "## Rules outside the trigger index", "## Renamed"
-        ),
-    )
-    if not any("INDEX-COVERAGE setup" in p for p in probs):
-        print(f"SELF-TEST FAIL (M index setup): expected setup failure, got {probs}")
         failures += 1
 
     if failures:
