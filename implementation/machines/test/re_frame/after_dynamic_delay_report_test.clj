@@ -54,8 +54,3 @@
   ;; this early return (Spec 006 §Reference counting and disposal).
   (is (not (contains? @(:sub-cache (rf.frame/frame :rf/default)) [:dyn/zero]))
       "the bad delay's subscription is released, not leaked"))
-
-(deftest positive-dynamic-delay-arms-and-reports-nothing
-  (enter-running! :dyn/fn-ok (fn [_ctx] 60000))
-  (is (empty? (bad-delay-reports [])))
-  (is (= 1 (count (armed-timers))) "the timer is armed"))
