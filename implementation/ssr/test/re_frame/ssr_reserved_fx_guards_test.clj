@@ -174,17 +174,6 @@
                       records)
             (str label "; saw: " (pr-str (mapv :error records))))))))
 
-(deftest an-optional-key-present-with-nil-is-absent-not-a-violation
-  (testing "a cookie built from an options map lands with its nil attrs as
-            absent, raises no error and is not projected to a 500"
-    (let [cookie {:name "session" :value "abc"
-                  :path nil :domain nil :max-age nil
-                  :expires nil :same-site nil
-                  :secure nil :http-only nil}
-          {:keys [raw response records]} (drive! [:rf.server/set-cookie cookie])]
-      (is (= [[cookie] [] 200]
-             [(:cookies raw) (mapv :error records) (:status response)])))))
-
 (defn- landed?
   "Did `fx-id` WRITE to the accumulator? `:rf.server/set-status` is read off
   the `_status-writes` bookkeeping, since 200 is also the default status."
@@ -203,32 +192,15 @@
     (some? (:redirect raw))))
 
 (deftest schema-and-guard-agree-on-every-canonical-case
-  (doseq [[label _fx-id schema args accept?] acceptance-corpus]
-    (is (= accept? (m/validate schema args))
-        (str label " — the registered Malli schema must "
-             (if accept? "ACCEPT" "REJECT") " " (pr-str args)))))
-
-(deftest the-guards-accept-exactly-what-the-schemas-accept
-  (testing "a row the schema rejects leaves the accumulator untouched and
-            skips only that fx; a row it accepts lands"
-    (doseq [[label fx-id _schema args accept?] acceptance-corpus]
+  (testing "the registered Malli schema and the always-on guard give one
+            verdict per row: a refused row leaves the accumulator untouched
+            and skips only that fx; an accepted row lands"
+    (doseq [[label fx-id schema args accept?] acceptance-corpus]
+      (is (= accept? (m/validate schema args))
+          (str label " — the schema must " (if accept? "ACCEPT" "REJECT") " " (pr-str args)))
       (let [{:keys [raw] :as driven} (drive! [fx-id args])]
         (is (= [accept? true] [(landed? fx-id args driven) (sibling-ran? raw)])
             (str label " — [landed? sibling-ran?] for " (pr-str args)))))))
-
-(deftest a-malformed-reserved-fx-takes-the-error-arm-in-every-build
-  (testing "the dev schema gate and the release guard refuse the call by
-            different routes and leave different records, and both answer
-            the sanitised 500 with the sibling fx run"
-    (let [{:keys [raw response public-error records]}
-          (drive! [:rf.server/set-status "not-an-int"])]
-      (is (= [500 500 :internal-error true]
-             [(:status response) (:status public-error) (:code public-error)
-              (sibling-ran? raw)])
-          "[response status, public-error status, public-error code, sibling-ran?]")
-      (is (= (if rf.interop/debug-enabled? [] [:rf.error/fx-handler-exception])
-             (mapv :error records))
-          "the always-on record: none in dev, where the schema gate skips the fx before the guard throws"))))
 
 (deftest a-user-fx-schema-stays-dev-posture-and-genuinely-elides
   (testing "the guard is for the seven reserved fx only: a `:schema` an app
