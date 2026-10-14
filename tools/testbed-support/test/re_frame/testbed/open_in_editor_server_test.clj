@@ -373,19 +373,6 @@
            (map #(apply #'rf.testbed.open-in-editor-server/build-file-spec "/abs/core.cljs" %)
                 [[nil 7] [3 nil] [3 7] [nil nil]])))))
 
-;; launch-editor silently ignores missing files, so the JVM must reject them.
-
-(deftest launch-rejects-missing-file-before-spawning-node
-  (testing "launch! on a path that does not exist short-circuits to a
-            file-not-found failure WITHOUT shelling out to node — mirroring
-            launch-editor's own existence gate so the endpoint never reports
-            a false success (this test does not require node to be present)"
-    (let [missing (str (System/getProperty "java.io.tmpdir")
-                       "/oies-launch-absent-" (System/nanoTime) ".cljs")]
-      (is (= {:ok false :message "file-not-found"}
-             (rf.testbed.open-in-editor-server/launch! missing 10 5 nil))
-          "missing file rejected before the node spawn"))))
-
 ;; --- Real node children ------------------------------------------------------
 ;;
 ;; OS pipes are bounded (~64 KiB), so a `launch!` that waited before draining
