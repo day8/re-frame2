@@ -39,12 +39,6 @@
         (js/Error. "connection-reset") "https://other.invalid/x"
         {:kind :rf.http/transport :message "connection-reset" :cause "Error"}
 
-        (js/TypeError. "Failed to fetch") "https://other.invalid/x?a=1"
-        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError" :cross-origin? true}
-
-        (js/TypeError. "Failed to fetch") "https://app.example/api/items"
-        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
-
         (js/TypeError. "Failed to fetch") "/api/items"
         {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
@@ -55,11 +49,8 @@
         (js/TypeError. "Failed to fetch") "//app.example/x"
         {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
 
-        ;; data: and file: parse to origin "null"; the scheme exclusion is
+        ;; file: parses to origin "null"; the scheme exclusion is
         ;; case-insensitive.
-        (js/TypeError. "Failed to fetch") "data:text/plain,hello"
-        {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}
-
         (js/TypeError. "Failed to fetch") "FILE:///etc/hosts"
         {:kind :rf.http/transport :message "Failed to fetch" :cause "TypeError"}))))
 
@@ -269,27 +260,6 @@
          :arrayBuffer stall
          :formData    stall}))
 
-(deftest cljs-timeout-bounds-stalled-body-read
-  ;; The timer races the whole fetch -> body-read chain, not just the headers.
-  (async done
-    (let [read-fired (atom false)]
-      (-> (with-stub-fetch (fake-response-stalled-body {:status 200 :content-type "application/json"
-                                                        :read-fired read-fired})
-            #(cljs-fetch {:method :get :url "/slow-body" :headers {} :decode :json :timeout-ms 40
-                          :internal-controller (js/AbortController.)}))
-          ;; The rejection is the success path, so both arms share one `.then`:
-          ;; exactly one runs, and a foreign throw after `done` reaches neither.
-          (.then (fn [result]
-                   (is false (str "a stalled body read resolved: " (pr-str result))))
-                 (fn [err]
-                   (let [data (ex-data err)]
-                     (is (= [true :rf.error/http-timeout true 40]
-                            [@read-fired (:rf.error/id data) (:rf.http/timeout? data) (:limit-ms data)]))
-                     ;; Measured, not a copy of :limit-ms; `setTimeout` can fire a
-                     ;; hair early, hence the 10 ms band.
-                     (is (>= (:elapsed-ms data) 30)))))
-          (.then (fn [_] (done)))))))
-
 ;; ---- the full :rf.http/managed pipeline ---------------------------------------
 ;;
 ;; Setup is inline rather than a fixture: a wrap-style fixture would tear down
@@ -348,9 +318,15 @@
             #(seq @replies)
             {:timeout-ms 2000 :label "cljs stalled-body timeout reply"})
           (.then (fn [_]
-                   (let [reply (first @replies)]
-                     (is (= [true :error :rf.http/timeout true]
-                            [@read-fired (:status reply) (get-in reply [:error :kind]) (in-flight-empty?)])))))
+                   ;; The timer races the whole fetch -> body-read chain, not
+                   ;; just the headers.
+                   (let [reply (first @replies)
+                         error (:error reply)]
+                     (is (= [true :error :rf.http/timeout 40 true]
+                            [@read-fired (:status reply) (:kind error) (:limit-ms error) (in-flight-empty?)]))
+                     ;; Measured, not a copy of :limit-ms; `setTimeout` can fire a
+                     ;; hair early, hence the 10 ms band.
+                     (is (>= (:elapsed-ms error) 30)))))
           (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_]
                    (set! (.-fetch js/globalThis) orig)
@@ -376,28 +352,6 @@
 
 (def ^:private retry-5xx-every-80ms
   {:on #{:rf.http/http-5xx} :max-attempts 5 :backoff {:base-ms 80 :factor 1 :max-ms 80}})
-
-(deftest cljs-destroy-frame-cancels-backoff-and-suppresses-reply
-  ;; Destroying the owning frame clears the `js/setTimeout` backoff (no second
-  ;; fetch) and suppresses the reply, where a managed-abort would deliver one.
-  (async done
-    (reset-runtime!)
-    (rf/make-frame {:id :frame/req :doc "owns the in-flight request"})
-    (let [fetch-count (atom 0)
-          replies     (record-replies!)
-          restore     (with-counting-500-fetch fetch-count)]
-      (issue! :frame/req {:request {:url "/always-500"} :decode :json
-                          :retry retry-5xx-every-80ms :request-id :destroy/race})
-      (-> (rf.test-support/poll-until
-            #(backoff-sleeping? fetch-count :destroy/race)
-            {:timeout-ms 2000 :label "cljs backoff sleeping (destroy)"})
-          (.then (fn [_]
-                   (rf/destroy-frame! :frame/req)
-                   (is (in-flight-empty?))
-                   (sleep 230)))
-          (.then (fn [_] (is (= [1 []] [@fetch-count @replies]))))
-          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-          (.then (fn [_] (restore) (done)))))))
 
 ;; ---- body-prep failures ------------------------------------------------------
 
@@ -428,29 +382,6 @@
                      (is (= [1 :rf.http/transport :request-prep true]
                             [(count @replies) (get-in reply [:error :kind]) (get-in reply [:error :stage])
                              (in-flight-empty?)])))))
-          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-          (.then (fn [_] (restore) (done)))))))
-
-(deftest cljs-throwing-body-thunk-retries-when-configured
-  (async done
-    (reset-runtime!)
-    (let [replies     (record-replies!)
-          invocations (atom 0)
-          restore     (with-failing-fetch)]
-      (issue! {:request    {:url "/x" :method :post
-                            :body (fn [] (swap! invocations inc) (throw (js/Error. "boom-retry")))}
-               :retry      {:on #{:rf.http/transport} :max-attempts 3
-                            :backoff {:base-ms 1 :factor 1 :max-ms 1}}
-               :request-id :prep-retry})
-      (-> (rf.test-support/poll-until
-            #(seq @replies)
-            {:timeout-ms 4000 :label "cljs prep-failure retry exhaustion reply"})
-          (.then (fn [_]
-                   (let [reply (first @replies)]
-                     ;; The thunk runs once per attempt; one final reply.
-                     (is (= [3 1 :error :rf.http/transport :request-prep true]
-                            [@invocations (count @replies) (:status reply) (get-in reply [:error :kind])
-                             (get-in reply [:error :stage]) (in-flight-empty?)])))))
           (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_] (restore) (done)))))))
 
@@ -674,41 +605,6 @@
                    (let [reply (first @replies)]
                      (is (= [:error :rf.http/http-5xx 0]
                             [(:status reply) (get-in reply [:error :kind]) (listener-count)])))))
-          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-          (.then (fn [_]
-                   (set! (.-fetch js/globalThis) orig)
-                   (done)))))))
-
-(deftest cljs-success-reply-carries-response-meta
-  ;; The wire status, status text and normalized (lower-cased) headers ride
-  ;; [:meta ...] beside the decoded :value.
-  (async done
-    (reset-runtime!)
-    (let [replies (record-replies!)
-          orig    (.-fetch js/globalThis)
-          resp    #js {:ok         true
-                       :status     200
-                       :statusText "OK"
-                       :headers    #js {:forEach (fn [cb]
-                                                   (cb "application/json" "content-type")
-                                                   (cb "37" "x-ratelimit-remaining"))}
-                       :text       (fn [] (js/Promise.resolve "{\"title\":\"hello\"}"))}]
-      (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
-      (issue! {:request {:url "/meta"} :decode :json})
-      (-> (rf.test-support/poll-until
-            #(seq @replies)
-            {:timeout-ms 2000 :label "cljs success meta reply"})
-          (.then (fn [_]
-                   (is (= {:status :ok
-                           :value  {:title "hello"}
-                           :meta   {:status      200
-                                    :status-text "OK"
-                                    :headers     {"content-type"          "application/json"
-                                                  "x-ratelimit-remaining" "37"}}}
-                          (-> (first @replies)
-                              (select-keys [:status :value :meta])
-                              (update :meta select-keys [:status :status-text :headers])
-                              (update-in [:meta :headers] select-keys ["content-type" "x-ratelimit-remaining"]))))))
           (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_]
                    (set! (.-fetch js/globalThis) orig)

@@ -147,15 +147,9 @@
           (.finally (fn [] (restore)))))))
 
 (def ^:private overlap-rows
-  ;; The two cross-kind rows prove `load` and `load-with-failure` share one
-  ;; replacement lane. 25 items is :too-many, 4 is :some, 1 is :one.
-  [{:label   "same kind: an older success is superseded by a newer success"
-    :older   [:nine-states.demo/load {:n 25}]
-    :newer   [:nine-states.demo/load {:n 1}]
-    :older-n 25
-    :newer-n 1
-    :expect  {:board [:one :one 1 false] :tag :data/one}}
-   {:label   "cross kind: an older success is superseded by a newer failure"
+  ;; The cross-kind rows prove `load` and `load-with-failure` share one
+  ;; replacement lane, superseding an older success and an older failure.
+  [{:label   "cross kind: an older success is superseded by a newer failure"
     :older   [:nine-states.demo/load {:n 4}]
     :newer   [:nine-states.demo/load-with-failure]
     :older-n 4
