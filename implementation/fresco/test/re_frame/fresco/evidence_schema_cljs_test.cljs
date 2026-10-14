@@ -46,8 +46,13 @@
 
 (deftest a-capped-envelope-carries-its-loss
   (let [e (rf.fresco.evidence/envelope :intents false {:reason :cap :dropped rf.fresco.evidence/unknown} {:intents []})]
-    (is (false? (:complete? e)))
-    (is (= {:reason :cap :dropped rf.fresco.evidence/unknown} (:loss e)))
+    (is (= {:schema    rf.fresco.evidence/schema
+            :producer  rf.fresco.evidence/producer
+            :read      :intents
+            :complete? false
+            :loss      {:reason :cap :dropped rf.fresco.evidence/unknown}
+            :intents   []}
+           e))
     (testing "and a counted drop is legal too"
       (is (contains? (outcome #(rf.fresco.evidence/envelope :intents false {:reason :cap :dropped 4} {}))
                      :emitted)))))
