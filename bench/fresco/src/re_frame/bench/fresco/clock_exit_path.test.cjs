@@ -618,7 +618,7 @@ for (const { tag, file, mod } of DRIVERS) {
   const CENSUS = DRIVERS[1].mod;
   const {
     summarise, summariseRow, verdict, destination, datasetFor, rowPublication,
-    controlBlocks, controlAdjudication, CHECK_STANDARD: STD,
+    controlBlocks, controlAdjudication, checkStandardVerdict, CHECK_STANDARD: STD,
   } = CENSUS;
   const t = (what, fn) => test(`census refusal scope: ${what}`, fn);
 
@@ -739,6 +739,7 @@ for (const { tag, file, mod } of DRIVERS) {
   t('NO row of a run that is not the published shape is citable, whatever its own gates did', () => {
     const data = written(fullShape(), destination(shape({ noBuild: true })));
     assert.deepStrictEqual([data.canonical, data.rowsRefused], [false, ['large-template', 'feed', 'ordinary']]);
+    assert.match(data.notCanonicalWhy, /--no-build/);
     for (const r of data.rows) assert.match(r.notCanonicalWhy, /the run itself is not the published evidence: --no-build/);
   });
 
@@ -1405,8 +1406,8 @@ function fixtureRoundsTask(over) {
 // Both drivers take `--self-test` and no alias. A retirement is only safe if
 // the driver validates its arguments: otherwise the old spelling is silently
 // ignored and falls through into an `:advanced` release build and a headless
-// Chromium. So the closed vocabulary, and the refusal wired ahead of
-// everything the driver would otherwise spend.
+// Chromium. So the argv definition, the closed vocabulary, and the refusal
+// wired ahead of everything the driver would otherwise spend.
 {
   for (const d of [
     { name: 'clock_run.cjs', mod: require('./clock_run.cjs'), flags: ['--no-build', '--self-test'] },
@@ -1414,6 +1415,10 @@ function fixtureRoundsTask(over) {
   ]) {
     const SRC = fs.readFileSync(path.join(__dirname, d.name), 'utf8');
     const t = (what, fn) => test(`${d.name}: ${what}`, fn);
+
+    t('the self-test flag is spelt `--self-test` where argv is read', () => {
+      assert.match(SRC, /const SELFTEST_ONLY = process\.argv\.includes\('--self-test'\);/);
+    });
 
     t('an argument outside the vocabulary is refused, the retired spelling included', () => {
       // No positional argument either: these drivers take their knobs from the environment.
@@ -1520,6 +1525,7 @@ function fixtureRoundsTask(over) {
   const { checkStandardSelfTest } = require('./clock_check_standard.cjs');
   const { effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
   const CLOCKSRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
+  const RJSRC2 = fs.readFileSync(path.join(__dirname, 'clock_readjudicate.cjs'), 'utf8');
   const t = (what, fn) => test(`rf2-8a746: ${what}`, fn);
   const BULK = 'bulk300';
 
