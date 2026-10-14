@@ -346,7 +346,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Per-test frames (`make-frame` / `destroy-frame!`), synchronous trigger (`dispatch-sync`), per-test stubbing (`:fx-overrides`, `:interceptor-overrides`), framework adapter (per [008](008-Testing.md)).
 - **Options by host.**
-    - **CLJS** — `cljs.test` / `clojure.test` re-exports plus `re-frame.test` helpers.
+    - **CLJS** — `cljs.test` / `clojure.test` re-exports plus `re-frame.test-support` / `re-frame.test-helpers` helpers.
     - **TypeScript** — Vitest, Jest, or Playwright (for browser + DOM).
     - **Melange / ReScript / Reason** — Jest via the `bs-jest` or `melange-jest` bindings; Vitest also works.
     - **Fable (F#)** — Fable.Mocha or Fable.Jester.
