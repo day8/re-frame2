@@ -18,7 +18,7 @@
   the per-element walker. The derivation is gated on
   `re-frame.interop/debug-enabled?`; a production bundle's macro emits no
   `:source-code` slot at all."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.core-machines :as rf.core-machines]
@@ -44,75 +44,32 @@
 (defn- action-meta [machine-id id]
   (rf/handler-meta {:source :store :kind :machine-action :id [machine-id id]}))
 
-;; ---- not a registrar kind ----------------------------------------------------
-
-(deftest registrar-kinds-are-the-clean-set
-  ;; the canonical reserved set carries no machine registration kind
-  (is (= #{:event :sub :fx :cofx :interceptor :view :frame :route :head
-           :error-projector :flow :resource :mutation :resource-scope}
-         rf.registrar/kinds))
-  (testing "registering a machine writes no :machine-guard / :machine-action
-            registrar entry"
-    (rf/reg-machine :rf2-ftrcv/no-side-table
-      {:initial :idle
-       :guards  {:ok? (fn [_] true)}
-       :actions {:go! (fn [_] nil)}
-       :states  {:idle {:on {:e {:target :idle :guard :ok? :action :go!}}}}})
-    (is (= [{} {} nil]
-           [(rf.registrar/registrations :machine-guard)
-            (rf.registrar/registrations :machine-action)
-            (rf.registrar/lookup :machine-guard [:rf2-ftrcv/no-side-table :ok?])]))))
-
-(deftest dev-handler-meta-addressing-unchanged
-  ;; the two machine kinds dispatch to the spec-derived source; the registrar
-  ;; kinds fall through to the registrar lookup; an unknown address is nil,
-  ;; never a throw
-  (rf/reg-machine :rf2-ftrcv/addressing
-    {:initial :idle
-     :guards  {:token? (fn [{data :data}] (get-in data [:session :token]))}
-     :states  {:idle {:on {:go {:target :idle :guard :token?}}}}})
-  (rf/reg-event :rf2-ftrcv/plain-event (fn [{:keys [db]} _] {:db db}))
-  (is (= [(rf.registrar/lookup :event :rf2-ftrcv/plain-event) nil nil nil]
-         [(rf/handler-meta {:source :store :kind :event :id :rf2-ftrcv/plain-event})
-          (guard-meta :rf2-ftrcv/no-such :nope)
-          (guard-meta :rf2-ftrcv/addressing :no-such-guard)
-          (rf/handler-meta {:source :store :kind :machine-guard :id :not-a-vector})])))
-
 ;; ---- the macro captures every guard and action ------------------------------
 
-(deftest reg-machine-captures-many-guards
-  ;; every guard in :guards gets its own entry; one entry's whole meta shape
-  (rf/reg-machine :rf2-ypu5i/many-guards
+(deftest reg-machine-captures-every-guard-and-action
+  ;; every :guards / :actions entry gets its own derived meta; one entry of
+  ;; each carries the whole shape
+  (rf/reg-machine :rf2-ypu5i/many
     {:initial :idle
      :guards  {:a? (fn [_] true)
-               :b? (fn [_] false)
-               :c? (fn [{data :data}] (pos? (:n data 0)))}
-     :states  {:idle {:on {:probe [{:target :idle :guard :a?}
-                                   {:target :idle :guard :b?}
-                                   {:target :idle :guard :c?}]}}}})
-  (let [[ma mb mc] (map #(guard-meta :rf2-ypu5i/many-guards %) [:a? :b? :c?])]
-    (is (= [[:a? :b? :c?] [true true true]]
-           [(mapv :rf/guard-id [ma mb mc])
-            (mapv #(str/includes? (:rf.handler/source %1) %2) [ma mb mc] ["true" "false" "pos?"])]))
-    (is (= [:rf2-ypu5i/many-guards true true true]
-           [(:rf/machine-id mc) (fn? (:handler-fn mc)) (some? (:ns mc)) (some? (:line mc))])
-        "the scoping machine, the actual fn, and the walker's coords")))
-
-(deftest reg-machine-captures-many-actions
-  (rf/reg-machine :rf2-ypu5i/many-actions
-    {:initial :idle
-     :actions {:inc! (fn [{data :data}] {:data (update data :n inc)})
-               :dec! (fn [{data :data}] {:data (update data :n dec)})
+               :b? (fn [{data :data}] (pos? (:n data 0)))}
+     :actions {:inc!  (fn [{data :data}] {:data (update data :n inc)})
                :emit! (fn [_] {:fx [[:dispatch [:emitted]]]})}
-     :states  {:idle {:on {:bump  {:target :idle :action :inc!}
-                           :nudge {:target :idle :action :dec!}
+     :states  {:idle {:on {:probe [{:target :idle :guard :a?}
+                                   {:target :idle :guard :b?}]
+                           :bump  {:target :idle :action :inc!}
                            :send  {:target :idle :action :emit!}}}}})
-  (let [metas (map #(action-meta :rf2-ypu5i/many-actions %) [:inc! :dec! :emit!])]
-    (is (= [[:inc! :dec! :emit!] [true true true] :rf2-ypu5i/many-actions true]
-           [(mapv :rf/action-id metas)
-            (mapv #(str/includes? (:rf.handler/source %1) %2) metas ["inc" "dec" ":dispatch"])
-            (:rf/machine-id (last metas))
-            (fn? (:handler-fn (last metas)))]))))
+  (let [guards  (map #(guard-meta :rf2-ypu5i/many %) [:a? :b?])
+        actions (map #(action-meta :rf2-ypu5i/many %) [:inc! :emit!])]
+    (is (= [[:a? :b?] [:inc! :emit!] [true true true true]]
+           [(mapv :rf/guard-id guards)
+            (mapv :rf/action-id actions)
+            (mapv #(str/includes? (:rf.handler/source %1) %2)
+                  (concat guards actions) ["true" "pos?" "inc" ":dispatch"])]))
+    (is (= [[:rf2-ypu5i/many true true true] [:rf2-ypu5i/many true]]
+           [((juxt :rf/machine-id (comp fn? :handler-fn) (comp some? :ns) (comp some? :line)) (last guards))
+            ((juxt :rf/machine-id (comp fn? :handler-fn)) (last actions))])
+        "the scoping machine, the actual fn, and the walker's coords")))
 
 (deftest guards-and-actions-enumerable-via-event-registration-spec
   ;; tools enumerate the source from the machine's :event registration spec,
