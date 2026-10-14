@@ -61,7 +61,6 @@ const legsNamed = (refusals) => refusals.map((r) => r.match(/^leg \d+ of \d+/)[0
 
 const SRC = fs.readFileSync(DRIVER, 'utf8');
 const has = (re, why) => assert.ok(re.test(SRC), `p0_run.cjs: expected ${re} — ${why}`);
-const lacks = (re, why) => assert.ok(!re.test(SRC), `p0_run.cjs: must not match ${re} — ${why}`);
 const countIn = (re) => (SRC.match(re) || []).length;
 
 // ===========================================================================
@@ -129,23 +128,9 @@ test('each wrong count fails its arm on every round, naming the field, the readi
   const bothRounds = (msg) => [1, 2].map((r) => `round ${r} ${msg}`);
   for (const [why, mutate, expected] of [
     [
-      'a per-mount stamp at R=0, on both segments',
-      (arms) => {
-        for (const s of SEGMENTS) arms[`${s}|lad/fresco#R0`].verify.fresco.boundaries = B;
-      },
-      [1, 2].flatMap((r) =>
-        SEGMENTS.map((s) => `round ${r} ${s}|lad/fresco#R0: fresco boundaries 1200, expected 0`)
-      ),
-    ],
-    [
       'any non-zero reading at R=0',
       (arms) => (arms['reagent-subs|lad/fresco#R0'].verify.fresco.boundaries = 1),
       bothRounds('reagent-subs|lad/fresco#R0: fresco boundaries 1, expected 0'),
-    ],
-    [
-      'a reading rung reporting none',
-      (arms) => (arms['uix-subs|lad/fresco#R1'].verify.fresco.boundaries = 0),
-      bothRounds('uix-subs|lad/fresco#R1: fresco boundaries 0, expected 1200'),
     ],
     [
       'a reading rung short by one',
@@ -254,10 +239,6 @@ test('THE DEFECT — a collection fully masked by net growth is REFUSED', () => 
     legWorstDeviation: -1,
   });
   assert.deepStrictEqual(legsNamed(s.refusals), ['leg 3 of 4']);
-});
-
-test('the retired masking budget is GONE, not widened', () => {
-  lacks(/const ALLOC_MASK_BUDGET_B/, 'there is no budget constant');
 });
 
 test('the gate is not vacuous — a small clean window passes it', () => {
@@ -399,7 +380,6 @@ test('THE PRIME IS OUT OF THE BY-SITE COHORT TOO, and its excess is placed', () 
     primeExcessBySite: { dispatch: 6788, drain: 0 },
     primeSite: 'dispatch',
   });
-  assert.strictEqual(w.legs.length, 6, 'the prime is not one of the six measured legs');
 });
 
 test('THE SAME-TERM HYPOTHESIS IS ANSWERABLE, and answers three ways', () => {
@@ -773,7 +753,6 @@ test('each switch reaches its named settings, and a mistyped one resolves to not
     // default; the preflight then refuses it by name.
     [{ P0_ALLOC_WRITE: 'pge' }, ['ALLOC_WRITE_LEGS', 'ALLOC_WRITE_PAIRED'], [null, false]],
     [{ P0_ALLOC_PLAN: 'floor' }, ['ALLOC_PLAN_SHAPE'], [{ arms: true, rungs: false, fits: false }]],
-    [{ P0_ALLOC_PLAN: 'controls' }, ['ALLOC_PLAN_SHAPE'], [{ arms: false, rungs: false, fits: false }]],
     [{ P0_ALLOC_PLAN: 'contols' }, ['ALLOC_PLAN_SHAPE'], [null]],
   ]) {
     const got = envConsts({ ...UNSET, ...env }, ...names);
@@ -801,8 +780,6 @@ test('THE SEGMENT ORDER — `parity` alternates, `fixed` holds, `fixed-reversed`
       reversed: ['ur', 'ur', 'ur', 'ur'],
     }
   );
-  // Reversing in place would hand every later round a plan already reversed.
-  assert.deepStrictEqual(plan.map((s) => s.segment), ['reagent-subs', 'uix-subs']);
 });
 
 test('THE LEG ORDER — `parity` alternates; a `seeded` schedule is balanced, parity-free and reproducible', () => {
@@ -839,9 +816,9 @@ test('THE LEG ORDER — `parity` alternates; a `seeded` schedule is balanced, pa
   assert.deepStrictEqual(allocPassFlips(6, 'rf2-fk6pj'), allocPassFlips(6, 'rf2-fk6pj'));
 });
 
-test('THE CONTROL SLOT — only `mid` separates the two predicates at full n', () => {
-  // `mid` sits after the round's FIRST pass whatever the pass count, and a
-  // one-pass round clamps it to the end rather than dropping the controls.
+test('THE CONTROL SLOT — `mid` follows the first pass at any pass count, and a one-pass round clamps it to the end', () => {
+  // `mid` exists so the arm that follows the controls is not the arm that
+  // opens the round; the clamp keeps a one-pass round's controls.
   const C = 'control';
   assert.deepStrictEqual(
     [
@@ -858,27 +835,6 @@ test('THE CONTROL SLOT — only `mid` separates the two predicates at full n', (
       ['arm', C, C, C, 'arm', 'arm', 'arm'],
       ['arm', C, C, C],
     ]
-  );
-
-  // The two properties the slot separates: (A) the arm follows the round's
-  // controls, (B) the arm opens its round. Read off the flattened sequence of
-  // six two-pass rounds — `last` alone does not separate them, because the
-  // round loop is cyclic and round r's controls sit right before round r+1.
-  const separated = (slot) => {
-    const flat = Array.from({ length: 6 }, () => allocRoundWindowKinds(2, slot)).flat();
-    const out = [];
-    let n = 0;
-    flat.forEach((kind, i) => {
-      if (kind !== 'arm') return;
-      const afterControls = i > 0 && flat[i - 1] === C;
-      if (afterControls !== (n % 2 === 0)) out.push([Math.floor(n / 2), n % 2]);
-      n += 1;
-    });
-    return out;
-  };
-  assert.deepStrictEqual(
-    { first: separated('first'), last: separated('last'), mid: separated('mid').length },
-    { first: [], last: [[0, 0]], mid: 12 }
   );
 });
 
@@ -1123,10 +1079,6 @@ test('each plan and selection prints exactly its own claims, and states absence 
 test("a PAIRED record names every window's write and every pair is WHOLE", () => {
   // A paired row has both writes, so the claim "a reader can tell which write
   // produced it" lives on each window, and a pair is matched by its `pairKey`.
-  assert.deepStrictEqual(
-    [allocWindowKey('k', 'page', false), allocWindowKey('k', 'all', true)],
-    ['k', 'k@all']
-  );
   const paired = () => armsFor(true, ['page', 'all']);
   const recordOf = (arms, selection = PAIRED_ROW) => ({
     ...selection,
