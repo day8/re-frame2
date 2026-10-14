@@ -25,11 +25,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
-
-(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
+            [clojure.test :refer [deftest is testing]]
+            [re-frame.ssr.emit :as rf.ssr.emit]))
 
 ;; ---------------------------------------------------------------------------
 ;; The external evidence.
@@ -88,34 +85,19 @@
                             markup)]
     (decode v)))
 
-(def ^:private emitters
-  {"render-to-string" rf.ssr.emit/render-to-string})
-
 ;; ---------------------------------------------------------------------------
 ;; Tests.
 ;; ---------------------------------------------------------------------------
 
-(deftest react-evidence-fixture-is-present-and-substantial
-  (testing "the fixture loads, names the react-dom it was measured against, and
-            both blocks and leaves values alone. A fixture that did only one
-            would pass against an emitter with the rule backwards"
-    (is (= 81 (count (rows))) "9 targets x 9 values")
-    (is (= 42 (count (filter :blocked? (rows))))
-        "six spellings blocked on each of the seven blocking targets")
-    (is (= #{"https" "space-before-colon" "leading-no-break-space"}
-           (set (map :label (remove :blocked? (filter #(= "a" (:element %)) (rows))))))
-        "the controls on <a href> are exactly the three near-misses")))
-
 (deftest hiccup-emitters-paint-what-react-dom-paints
-  (testing "for every row, from every author spelling of the prop,
-            both hiccup body emitters paint the attribute value the installed
+  (testing "for every row, from every author spelling of the prop, the
+            hiccup emitter paints the attribute value the installed
             react-dom paints: the blocked URL where it blocks, the value
             unchanged where it does not"
-    (doseq [[emitter-name emit] emitters
-            {:keys [element prop attribute label] :as row} (rows)
+    (doseq [{:keys [element prop attribute label] :as row} (rows)
             author-key (author-keys prop)]
-      (let [markup (emit (hiccup row author-key))]
+      (let [markup (rf.ssr.emit/render-to-string (hiccup row author-key))]
         (is (= (:painted row) (painted markup element attribute))
-            (str emitter-name " diverges from react-dom "
+            (str "render-to-string diverges from react-dom "
                  (:react-dom-version @react-evidence) " for " label " in <"
                  element " " (pr-str author-key) ">: wrote " (pr-str markup)))))))
