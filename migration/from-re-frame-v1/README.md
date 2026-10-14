@@ -1266,22 +1266,34 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 ### M-25. `re-frame.test` helpers renamed to `re-frame.test-support`
 
-**Type A** (mechanical).
+**Type A** (mechanical) for the require and helper rewrites. A runner reference (the table's last row) is recorded and flagged, not rewritten.
 
-v1's test helpers come from the `day8.re-frame/test` library, whose only namespace is `day8.re-frame.test`. It ships three helpers, `run-test-sync`, `run-test-async` and `wait-for`, and no assertion helper: v1 has no `re-frame.test` namespace and no `assert-state`. v2's test helpers live in `re-frame.test-support`, which ships in the core artefact: `make-reset-runtime-fixture`, `snapshot-registrar` / `restore-registrar!`, `assert-path-equals` and `poll-until`. None of the three v1 helpers survives under its own name:
+v1's test helpers come from the `day8.re-frame/test` library, and what it ships depends on its version, so read the pinned version off the dependency file first. Releases 0.1.3 through 0.1.5 hold one namespace, `day8.re-frame.test`; releases v0.1.6 and 0.1.7 add a second, `day8.chrome-shadow-test-runner`. (0.1.0 predates this API.) Neither namespace has an assertion helper: v1 has no `re-frame.test` namespace and no `assert-state`. v2's test helpers live in `re-frame.test-support`, which ships in the core artefact: `make-reset-runtime-fixture`, `snapshot-registrar` / `restore-registrar!`, `assert-path-equals` and `poll-until`. No v1 public surface survives under its own name:
 
-- `run-test-sync` is **dropped** — hoist its body to inline `dispatch-sync` calls under the per-test fixture, per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture).
-- `run-test-async` becomes the stock `cljs.test/async` macro, whose `done` fn the test calls once its awaited assertions have run. An async suite installs the map-form fixture, `(ts/make-reset-runtime-fixture {:adapter … :async? true})`.
-- `wait-for` has no v2 symbol. Await an event with a one-shot `(rf/register-listener! :trace id f)` whose `f` matches the awaited event's `:rf.event/run-end` record (the id rides `[:tags :rf.trace/event-id]`) and then unregisters itself; await a state with `ts/poll-until`, which returns a `js/Promise` on CLJS.
+| v1 public surface | Ships in | v2 disposition |
+|---|---|---|
+| `run-test-sync` (and its fn form `run-test-sync*`) | 0.1.3 – 0.1.7 | **Dropped.** Hoist its body to inline `dispatch-sync` calls under the per-test fixture, per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). |
+| `run-test-async` (`run-test-async*`), and the `*test-timeout*` var that bounds it on the JVM | 0.1.3 – 0.1.7 | The stock `cljs.test/async` macro, whose `done` fn the test calls once its awaited assertions have run. An async suite installs the map-form fixture, `(ts/make-reset-runtime-fixture {:adapter … :async? true})`, and `cljs.test` runs that fixture's `:after` teardown only once the test has called `done`. On the JVM the test is synchronous in v2: `ts/poll-until` blocks, and takes its bound as `:timeout-ms`. |
+| `wait-for` (`wait-for*`) | 0.1.3 – 0.1.7 | No v2 symbol. Await an event with a one-shot `(rf/register-listener! :trace id f)` whose `f` matches the awaited event's `:rf.event/run-end` record (the id rides `[:tags :rf.trace/event-id]`) and then unregisters itself; await a state with `ts/poll-until`, which returns a `js/Promise` on CLJS. |
+| `with-temp-re-frame-state` | 0.1.3 – 0.1.7 | Synchronous cleanup: it runs its body, then restores re-frame state in a `finally`. Drop the wrapper and install the per-test fixture `(ts/make-reset-runtime-fixture {:adapter …})`, whose teardown also runs in a `finally` once the test body returns. A bracket narrower than one test composes `ts/snapshot-registrar` / `ts/restore-registrar!` in a `try` / `finally`, which restores registrations only; frames and app-db are reset by the fixture alone ([Spec 008 §Fixture-granularity ladder](../../spec/008-Testing.md#fixture-granularity-ladder)). Neither the macro nor a bracket cleans up an async test, because the cleanup runs before the async body resumes. |
+| `test-context*`, `set-test-context`, `clear-test-context` | v0.1.6, 0.1.7 | Plumbing between `run-test-async` and `wait-for`; it goes with them. |
+| `day8.chrome-shadow-test-runner/run` (and its `-main`) | v0.1.6, 0.1.7 | **Not a re-frame surface, and v2 ships no runner.** It serves a compiled shadow-cljs browser-test build to headless Chrome and parses the report, and it requires no re-frame namespace. Keep it, or move its alias or CI job to another `cljs.test` runner, before the dependency is retired (below). |
 
-**What to look for** in the codebase:
+**What to look for** in the codebase, and in the dependency, alias and CI files:
 
 ```clojure
 (:require [day8.re-frame.test :as rf-test])
-(:require [day8.re-frame.test :refer [run-test-sync run-test-async wait-for]])
+(:require [day8.re-frame.test :refer [run-test-sync run-test-async wait-for with-temp-re-frame-state]])
+(rf-test/with-temp-re-frame-state body…)            ;; synchronous cleanup bracket
+
+;; deps.edn / project.clj: the pinned version decides the inventory
+day8.re-frame/test {:mvn/version "0.1.7"}
+;; runner references in aliases, bb.edn and CI scripts (v0.1.6 and 0.1.7 only)
+{:aliases {:test {:exec-fn day8.chrome-shadow-test-runner/run}}}
+clojure -M:test -m day8.chrome-shadow-test-runner
 ```
 
-**What to do:** rewrite each helper call as above, then replace the `day8.re-frame.test` require with `re-frame.test-support` where the rewritten namespace uses one of its helpers, and drop it otherwise.
+**What to do:** rewrite each v1 surface as the table says, then replace the `day8.re-frame.test` require with `re-frame.test-support` where the rewritten namespace uses one of its helpers, and drop it otherwise.
 
 ```clojure
 ;; before
@@ -1294,9 +1306,38 @@ v1's test helpers come from the `day8.re-frame/test` library, whose only namespa
 (:require [re-frame.test-support :as ts])
 (rf/dispatch-sync [:auth/login creds])
 (ts/assert-path-equals [:auth :state] :validating)
+
+;; before — with-temp-re-frame-state restores re-frame state in a finally
+(deftest login-validates
+  (rf-test/with-temp-re-frame-state
+    (rf/dispatch-sync [:auth/login creds])
+    (is (= :validating (get-in @re-frame.db/app-db [:auth :state])))))
+
+;; after — the per-test fixture restores it in a finally once the test returns
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter …}))
+(deftest login-validates
+  (rf/dispatch-sync [:auth/login creds])
+  (ts/assert-path-equals [:auth :state] :validating))
+
+;; before — run-test-async restores re-frame state, then completes the test
+(deftest fetches-user
+  (rf-test/run-test-async
+    (rf/dispatch [:user/fetch 2])
+    (rf-test/wait-for [:user/fetched]
+      (is (= "johnny" (get-in @re-frame.db/app-db [:user :name]))))))
+
+;; after — assert, then call done; cljs.test runs the fixture's :after after done
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter … :async? true}))
+(deftest fetches-user
+  (async done
+    (rf/dispatch [:user/fetch 2])
+    (-> (ts/poll-until #(get-in (rf/app-db-value :rf/default) [:user :name]))
+        (.then (fn [user-name] (is (= "johnny" user-name))))
+        (.catch (fn [e] (is false (ex-message e)) nil))
+        (.then (fn [_] (done))))))
 ```
 
-If the project depended on `day8.re-frame/test` as a Maven coordinate, drop the dependency — v2 ships its test helpers in the core artefact (no separate coordinate to require).
+**Retire the dependency last.** Drop the `day8.re-frame/test` coordinate once no namespace requires `day8.re-frame.test` and no alias, script or CI job names `day8.chrome-shadow-test-runner`; at 0.1.3 – 0.1.5 the first condition is the whole check. v2 ships its test helpers in the core artefact, so no coordinate replaces it. A suite that keeps the runner keeps the coordinate on the runner's alias alone, with `re-frame/re-frame` excluded (`day8.re-frame/test {:mvn/version "0.1.7" :exclusions [re-frame/re-frame]}`), because the library depends on v1 re-frame and v1 cannot share a classpath with v2 ([M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2)). Record the pinned version, and each entry point kept or moved, in the migration report.
 
 ### M-26. Drift-sweep drops — v1 surfaces with no v2 equivalent or absorbed by canonical surfaces
 
@@ -2633,7 +2674,7 @@ Per audit-of-audits testing #14, the per-test fixture builder is renamed from `r
 |---|---|---|
 | `re-frame.test-support/reset-runtime-fixture-factory` | `re-frame.test-support/make-reset-runtime-fixture` | the public fixture-builder fn |
 
-**Detect.** v2-pre-rename codebases trip this. v1 had no equivalent builder (its test helpers were `day8.re-frame.test`'s `run-test-sync` / `run-test-async` / `wait-for`, per [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) + [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)); v1-→-v2 migrations land directly on the new name.
+**Detect.** v2-pre-rename codebases trip this. v1 had no equivalent builder (its test helpers were `day8.re-frame.test`'s macros `run-test-sync` / `run-test-async` / `wait-for` / `with-temp-re-frame-state`, per [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) + [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)); v1-→-v2 migrations land directly on the new name.
 
 ```clojure
 ;; before
