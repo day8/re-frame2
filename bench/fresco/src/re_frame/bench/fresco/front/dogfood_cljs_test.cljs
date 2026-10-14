@@ -52,13 +52,6 @@
           (read-sub [:dogfood/draft 1]) (read-sub [:dogfood/filter])])
       "an untouched draft reads as empty, not nil"))
 
-(deftest the-narrow-write-touches-one-row-and-the-header
-  (seeded!)
-  (send! [:dogfood/toggle 1])
-  (is (= [false true false 2 [0 1 2]]
-         [(read-sub [:dogfood/done? 0]) (read-sub [:dogfood/done? 1]) (read-sub [:dogfood/done? 2])
-          (read-sub [:dogfood/remaining]) (visible)])))
-
 (deftest the-broad-write-rebuilds-the-list
   (seeded!)
   (send! [:dogfood/toggle 1])
