@@ -43,19 +43,14 @@
          (select-keys (ex-data-of #(deref (rf/subscribe [:soa/val])))
                       [:rf.error/id :operation :where :event-id]))))
 
-(deftest opts-map-frame-targets-the-named-frame
+(deftest subscribe-reads-the-named-frame-else-the-carried-scope
+  ;; `:frame` is the only frame-targeting key: opts without it resolve the
+  ;; carried scope exactly as the 1-arity does, and fail loud absent one.
   (setup!)
-  (is (= [:A :B] [@(rf/subscribe [:soa/val] {:frame :soa/t1})
-                  @(rf/subscribe [:soa/val] {:frame :soa/t2})])))
-
-(deftest ambient-1-arity-resolves-the-carried-scope
-  (setup!)
-  (is (= [:A :B] [(rf/with-frame :soa/t1 @(rf/subscribe [:soa/val]))
-                  (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))])))
-
-(deftest opts-without-frame-falls-to-ambient
-  ;; `:frame` is the only frame-targeting key.
-  (setup!)
-  (is (= [:A :rf.error/no-frame-context]
-         [(rf/with-frame :soa/t1 @(rf/subscribe [:soa/val] {:other true}))
+  (is (= [:A :B :A :B :A :rf.error/no-frame-context]
+         [@(rf/subscribe [:soa/val] {:frame :soa/t1})
+          @(rf/subscribe [:soa/val] {:frame :soa/t2})
+          (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val]))
+          (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))
+          (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val] {:other true}))
           (:rf.error/id (ex-data-of #(deref (rf/subscribe [:soa/val] {:other true}))))])))
