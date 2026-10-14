@@ -133,12 +133,10 @@
             (fn []
               (try
                 (testing "identifier prefix"
-                  (is (= prefix (some-> (fiber-root el) .-identifierPrefix))
-                      "the root was created with the prefix as identifierPrefix")
-                  (is (some-> (last @probe-ids) (.includes prefix))
-                      (str "a client useId carries the prefix. Ids: " (pr-str @probe-ids)))
                   (is (= server-id (last @probe-ids))
-                      "the client's useId equals the server's: the root's own wrapping moved no tree position"))
+                      (str "the client's useId equals the server's prefixed one: the prefix reached"
+                           " React, and the root's own wrapping moved no tree position. Ids: "
+                           (pr-str @probe-ids))))
                 (testing "a clean hydration reports nothing"
                   (is (empty? @mismatches) (str "no trace for a clean root. Saw: " (pr-str @mismatches)))
                   (is (empty? @host-calls) "no host call for a clean root"))
