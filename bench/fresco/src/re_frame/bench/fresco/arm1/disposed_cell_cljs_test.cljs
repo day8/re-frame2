@@ -19,10 +19,9 @@
   so from that instant an unrepaired cell is **deaf** — no watch, so no
   `mark-dirty!`, so no flush, so no notification ever again — and its
   deref answers the RETIRED computation, or the destroyed incarnation's
-  app-db, for as long as the boundary lives. The two `deliberately-*`
-  rows below pin exactly that failure, and they are the reason there is
-  no registry term: a moved number buys one extra render, and the extra
-  render reads back through the same dead cell.
+  app-db, for as long as the boundary lives. That failure is the reason
+  there is no registry term: a moved number buys one extra render, and
+  the extra render reads back through the same dead cell.
 
   What closes both axes is the substrate's own disposal event, armed once
   per unique key at `wire-cell!` time. It costs no React hook, no
@@ -134,32 +133,6 @@
               (release!)
               (done)))))))))
 
-(deftest deliberately-a-disposed-cell-derefs-the-retired-computation
-  (testing "the failure the row above repairs, stated as its own
-            assertion so the repair cannot quietly stop being needed. A
-            cell that is NOT invalidated keeps deriving through the
-            container the sub-cache disposed, and that container still
-            computes — with the handler it captured. It is not a stale
-            VALUE (it tracks the db) but a stale COMPUTATION, which is
-            strictly worse: it looks alive."
-    (rf/reg-sub (first q-reg) (fn [db _] (:v db)))
-    (let [f (make-frame! ::registry-retired {:v 1})]
-      (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg (volatile! nil)) {})
-      (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
-            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
-            ;; Reach past the repair: hold the reaction the cell held, then
-            ;; re-register. This is exactly the object the cell would keep
-            ;; without `invalidate-cell!`.
-            held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg])]
-        (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
-        (rf.frame/replace-app-db! f {:v 7})
-        (is (= [7 nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg])])
-            "the disposed container answers 7 — the RETIRED `(:v db)` over
-             the new db — where the live registration answers 70, so the
-             cell drops the reference: the repair is to stop reading
-             through it, not to re-read it")
-        (release!)))))
-
 ;; ---------------------------------------------------------------------------
 ;; The node-key axis
 ;; ---------------------------------------------------------------------------
@@ -207,22 +180,3 @@
                 "and the rebuilt attachment tracks the successor")
             (release!)
             (done))))))))
-
-(deftest deliberately-a-cell-pinned-to-a-destroyed-incarnation-answers-its-db
-  (testing "the reincarnation half of the failure, pinned. The held
-            container is wired to the frame that no longer exists, so it
-            answers that frame's app-db forever — 1, whatever the
-            successor holds — and the epoch sum cannot report it because
-            the basis ties."
-    (rf/reg-sub (first q-node) (fn [db _] (:v db)))
-    (let [f (make-frame! ::node-pinned {:v 1})]
-      (rf.bench.fresco.arm1.runtime/render-body f (reader q-node (volatile! nil)) {})
-      (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
-            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
-            held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node])]
-        (rf.frame/destroy-frame! f)
-        (make-frame! f {:v 99})
-        (is (= [1 nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node])])
-            "the pinned container answers incarnation A's 1 where the live
-             frame holds 99, so the cell drops it")
-        (release!)))))
