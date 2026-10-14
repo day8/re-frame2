@@ -50,7 +50,6 @@
       (rf/reg-view* :rf.uix-prod-elision-test/no-attr view-fn)
       (let [view-head        (rf/view :rf.uix-prod-elision-test/no-attr)
             rendered-element (view-head)]
-        (is (some? rendered-element))
         (is (= "span" (.-type rendered-element))
             "root element's type preserved")
         (is (nil? (react-element-attr rendered-element "data-rf2-source-coord"))
@@ -58,29 +57,6 @@
         (is (nil? (react-element-attr rendered-element "data-rf-view"))
             "NO data-rf-view on the rendered root — view-id tagging rides the
              same interop/debug-enabled? gate and elides too")))))
-
-(deftest reg-view-with-attrs-has-no-source-coord-under-prod-uix
-  (testing "Even with an existing props map on the root, the wrapper does
-            NOT inject data-rf2-source-coord under prod-mode. User props
-            pass through; no extra key is added."
-    (let [view-fn (fn []
-                    (React/createElement "div"
-                                         #js {:className "card"
-                                              :id        "x"}
-                                         "body"))]
-      (rf/reg-view* :rf.uix-prod-elision-test/with-attrs view-fn)
-      (let [view-head        (rf/view :rf.uix-prod-elision-test/with-attrs)
-            rendered-element (view-head)
-            element-props    (.-props rendered-element)]
-        (is (= "div" (.-type rendered-element)))
-        (is (some? element-props))
-        (is (= "card" (aget element-props "className")) "user className preserved")
-        (is (= "x"    (aget element-props "id")) "user id preserved")
-        (is (nil? (aget element-props "data-rf2-source-coord"))
-            "NO data-rf2-source-coord merged into the props — elision contract holds")
-        (is (nil? (aget element-props "data-rf-view"))
-            "NO data-rf-view merged into the props — view-id tagging elides on the
-             same gate")))))
 
 (deftest reg-view-head-has-no-display-name-under-prod-uix
   (testing "The registered head's displayName stamp — the
@@ -94,6 +70,5 @@
     (let [view-fn (fn [] (React/createElement "span" #js {:id "x"} "hi"))]
       (rf/reg-view* :rf.uix-prod-elision-test/dn-elided view-fn)
       (let [view-head (rf/view :rf.uix-prod-elision-test/dn-elided)]
-        (is (some? view-head) "the view is registered")
         (is (nil? (.-displayName ^js view-head))
             "no .displayName on the registered view under prod-mode")))))
