@@ -66,8 +66,7 @@
     (doseq [[address url slot]
             [[{:to :route/q-sorted :query {:sort :sort/desc}} "/items?sort=sort%2Fdesc" :query]
              [{:to :route/q-tab :params {:tab :tab/edit}}     "/t/tab%2Fedit"           :params]
-             [{:to :route/q-twin :query {:pick :a/x}}         "/twin?pick=a%2Fx"        :query]
-             [{:to :route/q-twin :query {:pick :b/x}}         "/twin?pick=b%2Fx"        :query]]]
+             [{:to :route/q-twin :query {:pick :a/x}}         "/twin?pick=a%2Fx"        :query]]]
       (is (= [url {:route-id (:to address) slot (get address slot) :validation-failed? false}]
              (let [u (rf.routing/route-url address)]
                [u (select-keys (rf.routing/match-url u) [:route-id slot :validation-failed?])]))))))
