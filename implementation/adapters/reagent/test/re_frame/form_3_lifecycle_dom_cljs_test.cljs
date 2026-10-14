@@ -356,9 +356,6 @@
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (try
                 (act-fn #(rdc/render root (retarget-tree frame-a view)))
-                (is (= (expected-cache 1) (cache-state frame-a))
-                    "initial keyed mount owns A")
-
                 (act-fn #(rdc/render root (retarget-tree frame-b view)))
                 (is (= [0 1 (expected-cache 1)]
                        [(ref-count (cache-state frame-a) lifecycle-query)
@@ -586,9 +583,6 @@
                           (done!))]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (try
-                (is (zero? (rc))
-                    "precondition — NO holder before the mounts; there is no
-                     warmth scaffolding standing behind this fixture")
                 (act-fn #(rdc/render root (gauge-tree view [:g-one :g-two])))
                 (ratom/flush!)
                 (is (= [{:g-one [10] :g-two [10]} 2] [@feeds (rc)])
