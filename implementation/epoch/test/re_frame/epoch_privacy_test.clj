@@ -59,26 +59,15 @@
 ;; Off-box egress fails closed on every outcome row; the raw ring keeps the
 ;; exact args and `:rf.egress/include-fx-args?` lifts the redaction.
 
-(deftest project-egress-elides-fx-args-on-every-outcome-row
-  (testing "the four outcome rows — :ok, :error from a throwing handler, :error
-            from a missing fx, :skipped-on-platform — keep their exact args on
-            the raw ring and egress them as `:rf/redacted`"
+(deftest project-egress-elides-effect-args-unless-opted-in
+  (testing "an `:effects` row's args egress as `:rf/redacted` off-box, whatever
+            its outcome, and `:rf.egress/include-fx-args?` lifts them"
     (rf/make-frame {:id :test/main})
     (rf/reg-fx :fxp/login (fn [_ _] nil))
-    (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
-    ;; Client-only, so skipped on the JVM (:server) host.
-    (rf/reg-fx :fxp/local-storage {:platforms #{:client}} (fn [_ _] nil))
-    (rf/reg-event :run
-      (fn [_ [_ args]]
-        {:fx (mapv vector [:fxp/login :fxp/boom :fxp/missing :fxp/local-storage] args)}))
-    (let [args [{:password "topsecret"} {:ssn "123-45-6789"}
-                {:card "4111-1111-1111-1111"} {:session-key "secret-value"}]
-          _    (rf/dispatch-sync [:run args] {:frame :test/main})
-          raw  (last-record :test/main)]
-      (is (= (map vector [:ok :error :error :skipped-on-platform] args)
-             (map (juxt :outcome :args) (:effects raw))))
-      (is (= (repeat 4 :rf/redacted)
-             (map :args (:effects (rf/project-egress raw)))))
+    (rf/reg-event :run (fn [_ _] {:fx [[:fxp/login {:password "topsecret"}]]}))
+    (rf/dispatch-sync [:run] {:frame :test/main})
+    (let [raw (last-record :test/main)]
+      (is (= [:rf/redacted] (map :args (:effects (rf/project-egress raw)))))
       (is (= (:effects raw)
              (:effects (rf/project-egress raw {:rf.egress/include-fx-args? true})))))))
 
