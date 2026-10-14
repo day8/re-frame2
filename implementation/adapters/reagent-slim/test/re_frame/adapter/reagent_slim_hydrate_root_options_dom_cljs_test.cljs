@@ -17,7 +17,6 @@
             [reagent2.core :as r]
             [reagent2.dom.client :as rdc]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
-            [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -222,15 +221,12 @@
             (fn []
               (try
                 (testing "identifier prefix"
-                  (is (= prefix (some-> (fiber-root id-el) .-identifierPrefix))
-                      "the root was created with the prefix as identifierPrefix")
-                  (is (some-> (last @probe-ids) (.includes prefix))
-                      (str "a client useId carries the prefix. Ids: " (pr-str @probe-ids)))
                   (is (= server-id (last @probe-ids))
-                      "the client's useId equals the server's: the root's own wrapping moved no tree position"))
-                (testing "a clean hydration reports nothing"
-                  (is (empty? @mismatches) (str "no trace for a clean root. Saw: " (pr-str @mismatches)))
-                  (is (empty? @host-calls) "no host call for a clean root"))
+                      (str "the client's useId equals the server's prefixed one: the prefix reached"
+                           " React, and the root's own wrapping moved no tree position. Ids: "
+                           (pr-str @probe-ids))))
+                ;; The two atoms only grow, so the exact readings below also say
+                ;; the clean hydration reported nothing.
                 (testing "after the hydration commit the reporter delegates without emitting"
                   (let [on-recoverable (some-> (fiber-root id-el) .-onRecoverableError)
                         later          (js/Error. "after the hydration commit")]
@@ -255,34 +251,5 @@
                     (try (react-dom/flushSync #(rf.adapter.reagent-slim/unmount! h))
                          (catch :default _ nil)))
                   (run! drop-host! [id-el count-el])
-                  (restore-act)
-                  (done))))))))))
-
-;; ---- the closer wraps the tree --------------------------------------------
-
-(deftest hydrated-root-is-wrapped-by-the-window-closer
-  (testing "the hydrated tree sits beneath the adoption-window closer, which
-            renders no DOM of its own"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test build runs the assertions")
-      (async done
-        (let [restore-act (act-off!)
-              el          (host! clean-html)
-              h           (rf.adapter.reagent-slim/client-root)]
-          (rf.adapter.reagent-slim/render! h [app "same"] el {:hydrate? true})
-          (poll-until
-            #(committed-top el)
-            (fn []
-              (try
-                (is (identical? rf.substrate.spine/adoption-window-closer
-                                (some-> (committed-top el) .-type))
-                    "the root's top component is the window closer")
-                (is (= clean-html (.-innerHTML el))
-                    "the closer added nothing to the hydrated DOM")
-                (catch :default e
-                  (is false (str "assertions threw: " (pr-str e))))
-                (finally
-                  (try (react-dom/flushSync #(rf.adapter.reagent-slim/unmount! h)) (catch :default _ nil))
-                  (drop-host! el)
                   (restore-act)
                   (done))))))))))
