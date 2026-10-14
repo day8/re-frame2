@@ -59,7 +59,7 @@
 (deftest initial-events-cascade-does-not-reproject-onto-the-previous-pool
   (rf.events/register-set-db-standard!)
   ;; a standing image-loaded frame, so the registration hook does not skip
-  (rf/make-frame {:id :pool-window/decoy})
+  (rf/make-frame {:id :pool-window/decoy :images [(rf.image/image {:id :pool-window/empty})]})
   (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v1)
   (is (= ::inc-v1 (inc-impl :pool-window/target))
       "control: the pools resolve differently")

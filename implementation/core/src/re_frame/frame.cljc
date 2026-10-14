@@ -1598,6 +1598,20 @@
                              (clojure.string/starts-with? ns prefix)))))
            @frames))))
 
+(defn live-store-frame-ids
+  "The ids of every registered, non-destroyed frame visible to the current
+  actor that resolves the registration store live — a frame `make-frame` built
+  without `:images` (the record's `:live-store?` slot). No-id frames are
+  included: they resolve live too, and their sub-caches follow the store the
+  same way."
+  []
+  (into #{}
+        (comp (filter (fn [[id f]]
+                        (and (:live-store? f)
+                             (frame-record-visible-to-current-actor? id f))))
+              (map (fn [[_ f]] (:id f))))
+        @frames))
+
 (defn- image-loaded-frame-record?
   "True for a frame record that is image-loaded AND publicly enumerable: it
   carries a resolved image `:generation`, is visible to the current actor, and
@@ -2471,13 +2485,20 @@
     ;; frame value owns its resolved generation directly on the single
     ;; `frames`-registry record (Term: Frame value — "owns … resolved image
     ;; generation"); there is no second live-frame registry holding it. nil for
-    ;; an ordinary configured frame (no `:images` selection) — the
-    ;; absence-is-default signal that resolution falls through to the registrar
-    ;; atom path. Threaded in via the reserved `:rf.frame/generation` config key
-    ;; so it is live BEFORE `:initial-events` run; a same-`:id` `make-frame`
-    ;; re-construction and reprojection swap it in place via `set-generation!`,
-    ;; preserving every other (state-bearing) slot by identity.
+    ;; a frame with no `:images` selection. Threaded in via the reserved
+    ;; `:rf.frame/generation` config key so it is live BEFORE `:initial-events`
+    ;; run; a same-`:id` `make-frame` re-construction and reprojection swap it
+    ;; in place via `set-generation!`, preserving every other (state-bearing)
+    ;; slot by identity.
     :generation  (get config :rf.frame/generation)
+    ;; True for a frame `make-frame` built WITHOUT `:images`: it carries no
+    ;; generation and resolves the registration store live, raising
+    ;; `:rf.error/ambiguous-registration` for an id more than one namespace
+    ;; registers (Spec 002 §Image resolution and composition). False for every
+    ;; other frame without a generation (the test fixture's ambient frame),
+    ;; which resolves the registrar's latest registration. Threaded in via the
+    ;; reserved `:rf.frame/live-store?` config key, like `:generation`.
+    :live-store? (true? (get config :rf.frame/live-store?))
     :frame-state frame-state
     ;; app-db / runtime-db are READ-ONLY projection reactions over the one
     ;; physical container — `make-derived-value` memoises on `=`, so a
@@ -2527,7 +2548,8 @@
     ;; can re-dispatch the recorded setup. The reserved
     ;; `:rf.frame/initial-db` key is dissoc'd defensively (nothing threads
     ;; it; `:initial-db` fails loud upstream).
-    :config     (dissoc config :rf.frame/generation :rf.frame/initial-db)}))
+    :config     (dissoc config :rf.frame/generation :rf.frame/live-store?
+                        :rf.frame/initial-db)}))
 
 (declare destroy-frame!)
 
@@ -3077,7 +3099,7 @@
   "Roll back construction-owned fields while `id` still names this exact
   provisional revision.
 
-  Surgical re-registration stages `:config`, `:generation`,
+  Surgical re-registration stages `:config`, `:generation`, `:live-store?`,
   `:trace-policy-token`, and `:construction`, but `:generation` also has a valid
   generation-only writer (`set-generation!`) used by live-frame reprojection.
   Preserve the current record and restore the failed constructor's config,
@@ -3096,6 +3118,7 @@
         (let [restored
               (cond-> (assoc f
                              :config (:config prior)
+                             :live-store? (:live-store? prior)
                              :trace-policy-token (:trace-policy-token prior)
                              :construction (:construction prior))
                 (identical? (:generation f) (:generation staged))
@@ -3460,6 +3483,7 @@
                 (run-setup-events! id setup-steps {} 'rf/make-frame installed-token)
                 (rf.trace/emit! :rf.frame :rf.frame/created
                              {:frame id :config (dissoc config :rf.frame/generation
+                                                        :rf.frame/live-store?
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
                 (if (finalize-frame-construction! id owner policy-token)
@@ -3515,6 +3539,7 @@
           (let [observed      existing
                 stored-config (dissoc config
                                       :rf.frame/generation
+                                      :rf.frame/live-store?
                                       :rf.frame/initial-db)
                 [old new]
                 (swap-vals!
@@ -3530,6 +3555,8 @@
                                       :config stored-config
                                       :generation
                                       (get config :rf.frame/generation)
+                                      :live-store?
+                                      (true? (get config :rf.frame/live-store?))
                                       :trace-policy-token policy-token
                                       :construction
                                       (provisional-construction

@@ -3,8 +3,9 @@
   §Test-support): bundle co-load hygiene.
 
   A CLJS test bundle loads every namespace before any test runs, so two example
-  apps registering the same per-app id leave two provenance rows and default-image
-  assembly fails with `:rf.error/image-duplicate-id`. `:app-ns` names the suite's
+  apps registering the same per-app id leave two provenance rows, and a frame
+  made without `:images` raises `:rf.error/ambiguous-registration` when it uses
+  that id. `:app-ns` names the suite's
   OWN app: the fixture hides those rows when it is built and reinstates them for
   each test. Captures are unioned per prefix and read at test time, because CLJS
   loads a namespace once, so a second suite for the same app captures nothing.
@@ -98,6 +99,14 @@
   (reg! :event shared-event (str prefix "settings") tag)
   (reg! :sub   (keyword (str "kuky27." tag) "own") (str prefix "subs") tag))
 
+(defn- collision
+  "The error a frame made without `:images` raises when it reads the two
+  shared-vocabulary ids, or nil when each has one owner."
+  []
+  (let [frame (rf/make-frame {})]
+    (err-id #(do (rf/handler-meta {:frame frame :kind :route :id shared-route})
+                 (rf/handler-meta {:frame frame :kind :event :id shared-event})))))
+
 (deftest second-suite-for-one-app-still-sees-the-whole-app
   (register-app! "kuky27a." "a")
   (let [first-suite  (app-fixture "kuky27a.")
@@ -111,7 +120,7 @@
           (is (= "a" (slot-tag :route shared-route)) label)
           (is (= "a" (slot-tag :event shared-event)) label)
           (is (some? (src-row :sub :kuky27.a/own "kuky27a.subs")) label)
-          (is (nil? (err-id #(rf/make-frame {}))) label))))))
+          (is (nil? (collision)) label))))))
 
 (deftest a-late-loading-part-of-an-app-reaches-a-fixture-built-before-it
   (register-app! "kuky27b." "b")
@@ -125,14 +134,14 @@
           (fn []
             (is (some? (reg-slot :sub :kuky27.b/own)) label)
             (is (some? (reg-slot :sub :kuky27.b/late)) label)
-            (is (nil? (err-id #(rf/make-frame {}))) label)))))))
+            (is (nil? (collision)) label)))))))
 
 (deftest rival-apps-really-do-collide-without-the-option
   ;; positive control: the clash the option prevents is real
   (register-app! "kuky27x." "x")
-  (is (nil? (err-id #(rf/make-frame {}))))
+  (is (nil? (collision)))
   (register-app! "kuky27y." "y")
-  (is (= :rf.error/image-duplicate-id (err-id #(rf/make-frame {})))))
+  (is (= :rf.error/ambiguous-registration (collision))))
 
 (deftest two-rival-apps-each-hiding-itself-both-assemble
   (register-app! "kuky27c." "c")
@@ -146,7 +155,7 @@
           (is (= own (slot-tag :route shared-route)))
           (is (= own (slot-tag :event shared-event)))
           (is (nil? (src-row :route shared-route rival)) "the rival's row is hidden")
-          (is (nil? (err-id #(rf/make-frame {})))))))))
+          (is (nil? (collision))))))))
 
 (deftest a-throwing-test-still-leaves-no-app-row-behind
   (register-app! "kuky27h." "h")
@@ -164,7 +173,7 @@
     (is (= :kuky27/deliberate thrown))
     (is (= "h" @seen) "the app was live inside the body")
     (is (= [] (src-rows-under "kuky27h.")) "the fixture's finally removed the rows")
-    (is (nil? (err-id #(rf/make-frame {}))))))
+    (is (nil? (collision)))))
 
 (deftest sibling-live-registration-is-not-clobbered
   ;; the registrar slot is the LAST writer's (here app j's); hiding app i

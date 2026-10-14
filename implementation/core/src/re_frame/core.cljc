@@ -1845,6 +1845,16 @@
          :extra    {:frame          frame-target
                     :live-frame-ids (vec (rf.live-frame/live-frame-ids))}}))))
 
+(defn- resolve-frame-query-target
+  "Resolve the target of a `{:frame f …}` registrar query: a frame made without
+  `:images` (it resolves the registration store live, so the query reports
+  what that frame runs) is returned as is; anything else must be a live frame
+  carrying a generation (`resolve-live-frame-object`, which fails loud)."
+  [frame-target where-sym]
+  (if (rf.live-frame/live-store-frame? frame-target)
+    frame-target
+    (resolve-live-frame-object frame-target where-sym)))
+
 (defn- assert-registrar-query-source!
   "Fail loud (`:rf.error/registrar-query-needs-source`) when a registrar query
   (`rf/registrations` / `rf/handler-meta`) does not name EXACTLY ONE source.
@@ -1948,7 +1958,7 @@
       (do (assert-queryable-kind! (:kind arg) where-sym)
           (if has-source?
             [:store nil]
-            [:frame (resolve-live-frame-object (:frame arg) where-sym)])))))
+            [:frame (resolve-frame-query-target (:frame arg) where-sym)])))))
 
 (defn frame-generation
   "Return the SEALED, resolved image GENERATION a live frame is running — the
@@ -2045,10 +2055,12 @@
         the `{id metadata}` for `k` resolved through live frame `f`'s OWN sealed
         image generation — only the ids that frame's image carries, with the
         `:rf.provenance/ns` + inline/image + replacement/standard facts the
-        resolved descriptors carry. `f` is a REGISTERED frame id (keyword) OR a
-        direct live frame OBJECT (the same target shapes `rf/frame-generation`
-        accepts). FAILS LOUD when `f` does not resolve to a live frame
-        generation (`:rf.error/frame-no-generation` — NO default fallback).
+        resolved descriptors carry. For a frame made without `:images` it is
+        the ids that frame can run from the live registration store (an id
+        more than one namespace registers is not one of them). `f` is a
+        REGISTERED frame id (keyword) OR a direct live frame OBJECT. FAILS
+        LOUD when `f` names neither kind of frame
+        (`:rf.error/frame-no-generation` — NO default fallback).
 
   Filtering is `filter` over the returned map — there is no `:pred` key and no
   predicate arity:
@@ -2090,11 +2102,13 @@
       the metadata for `[k id]` resolved through live frame `f`'s
       OWN sealed image generation (surfacing `:rf.provenance/ns` + inline/image +
       replacement/standard facts the resolved descriptor carries), or `nil` when
-      that frame's image carries no such `[k id]`. `f` is a REGISTERED frame
-      id (keyword) OR a direct live frame OBJECT (the same target shapes
-      `rf/frame-generation` accepts). FAILS LOUD when `f` does not resolve to a
-      live frame generation (`:rf.error/frame-no-generation` — NO default
-      fallback).
+      that frame's image carries no such `[k id]`. For a frame made without
+      `:images` it is what that frame runs from the live registration store,
+      and an id more than one namespace registers throws the
+      `:rf.error/ambiguous-registration` the frame raises when it uses the id.
+      `f` is a REGISTERED frame id (keyword) OR a direct live frame OBJECT.
+      FAILS LOUD when `f` names neither kind of frame
+      (`:rf.error/frame-no-generation` — NO default fallback).
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
   registrar kinds — `:id` is

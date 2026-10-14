@@ -475,8 +475,14 @@
   images' implementations of one id each report their own. With no frame, or
   the hook unbound, the lookup reads whatever resolution is in scope."
   [kind id frame-id]
-  (let [read       #(rf.source-coords/registration-coords (rf.registrar/lookup kind id))
-        own-scope? (and (some? rf.registrar/*generation*)
+  (let [read       #(try
+                       (rf.source-coords/registration-coords (rf.registrar/lookup kind id))
+                       (catch #?(:clj Throwable :cljs :default) e
+                         ;; An id more than one namespace registers ran
+                         ;; neither implementation, so no coordinate is its.
+                         (when-not (rf.registrar/ambiguous-registration? e)
+                           (throw e))))
+        own-scope? (and (rf.registrar/frame-resolution-bound?)
                         (= (rf.frame/frame-value->id frame-id)
                            (rf.frame/frame-value->id
                              (rf.frame/current-event-owner-frame-id))))]

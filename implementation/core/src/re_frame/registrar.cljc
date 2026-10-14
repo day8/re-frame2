@@ -227,12 +227,53 @@
   "The active resolved image GENERATION (a sealed `re-frame.image-assembly`
   generation value), or nil for the registrar-atom path. Bound by
   `re-frame.live-frame/call-with-frame-resolution` around a dispatch /
-  subscribe / fx / cofx / view / resource resolution targeting an EP-0023 frame
-  OBJECT, so `(kind, id)` lookups resolve through the frame's OWN image
-  generation rather than the global/default registrar (EP-0023 §Frame-derived
-  live registration resolution). nil ⇒ the absence-is-default
-  registrar-atom path, taken by every caller not resolving against a frame."
+  subscribe / fx / cofx / view / resource resolution targeting a frame made
+  with explicit `:images`, so `(kind, id)` lookups resolve through the frame's
+  OWN image generation rather than the registration store (EP-0023
+  §Frame-derived live registration resolution). nil ⇒ the [[*live-view*]] when
+  one is bound, else the registrar-atom path."
   nil)
+
+;; ---- the LIVE view of a frame made without `:images` ----------------------
+;;
+;; A frame `make-frame` builds without `:images` carries no generation: it
+;; resolves the registration store as the store stands (Spec 002 §Image
+;; resolution and composition). `*live-view*` is that resolution, bound ONCE
+;; per cascade by `re-frame.live-frame/call-with-record-resolution`, so an
+;; event, its interceptors and its `:fx` resolve against one snapshot of the
+;; store and a registration landing mid-event cannot split them. The value is
+;; the resolver fn `re-frame.live-frame/live-view` builds over that snapshot:
+;;
+;;     (view kind id) — the one descriptor, nil for an unregistered id, or a
+;;                      throw of `:rf.error/ambiguous-registration` when more
+;;                      than one namespace registers `[kind id]`;
+;;     (view kind)    — the `{id descriptor}` map of the ids of `kind` the
+;;                      frame can run (an ambiguous id is not one of them).
+;;
+;; It is a fn rather than data because the rules it applies — framework
+;; standards first, a superseded framework default dropped — belong to
+;; `re-frame.image-assembly`, which this ns cannot require.
+
+(def ^:dynamic *live-view*
+  "The live-store resolver of a frame made without `:images` (see the section
+  comment above), or nil. Consulted by `lookup` / `registrations` when no
+  [[*generation*]] is bound."
+  nil)
+
+(defn frame-resolution-bound?
+  "True while a frame's own resolution — a sealed [[*generation*]] or a
+  [[*live-view*]] — is bound around the current call."
+  []
+  (or (some? *generation*) (some? *live-view*)))
+
+(defn ambiguous-registration?
+  "True when `e` is the `:rf.error/ambiguous-registration` throw a
+  [[*live-view*]] raises for an id more than one namespace registers. A read
+  that only wants to know about an id (a trace gate, an error record's source
+  coordinate) treats that id as having no single registration, so the
+  ambiguity is reported once, where the id is used."
+  [e]
+  (= :rf.error/ambiguous-registration (:rf.error/id (ex-data e))))
 
 (defn- generation-resolver
   "The `{[kind id] descriptor}` resolver map of the currently-bound
@@ -256,6 +297,49 @@
                    acc))
                (transient {})
                resolver)))
+
+;; ---- framework standards refuse an application registration -------------
+;;
+;; A framework STANDARD (`re-frame.image-assembly/register-standard!`) encodes
+;; an execution invariant, so an application registration of its `[kind id]`
+;; is refused when it is made, rather than left to shadow — or be shadowed by —
+;; the standard at resolution. The framework seeds its own registrar copy of a
+;; standard through the fn path, which records no source namespace, so
+;; "application" here means a registration with namespace provenance.
+
+(defonce ^:private standard-keys
+  ;; The `[kind id]` pairs of the framework standards. Written only by
+  ;; `re-frame.image-assembly`, which owns the standard registry.
+  (atom #{}))
+
+(defn ^:no-doc set-standard-keys!
+  "Record the `[kind id]` pairs of the framework standard registrations, so
+  `register!` can refuse an application registration of one. Called by
+  `re-frame.image-assembly/register-standard!` and `clear-standards!`, which
+  keep it equal to the standard registry's keys. Returns nil."
+  [ks]
+  (reset! standard-keys (set ks))
+  nil)
+
+(defn- refuse-standard-replacement!
+  "Throw `:rf.error/image-standard-replacement-forbidden` when `metadata` is an
+  application registration (it carries namespace provenance) of a framework
+  standard's `[kind id]`. Runs before anything is written."
+  [kind id metadata]
+  (when (contains? @standard-keys [kind id])
+    (when-let [provenance (rf.source-store/provenance-ns metadata)]
+      (rf.error/throw-error!
+        :rf.error/image-standard-replacement-forbidden
+        'rf/register-handler
+        (str (pr-str [kind id]) " is a FRAMEWORK STANDARD registration, so the "
+             "registration of it from namespace " provenance " is refused. A "
+             "standard encodes an execution invariant and is not an application "
+             "extension point. Rename the application's id.")
+        {:recovery :rename-the-app-id-or-deselect-it
+         :extra    {:kind                kind
+                    :id                  id
+                    :standard-coordinate {:standard true}
+                    :app-coordinate      {:ns provenance}}}))))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -616,6 +700,7 @@
       {:recovery :fix-registration
        :extra    {:kind kind
                   :id   id}}))
+  (refuse-standard-replacement! kind id metadata)
   ;; The process-wide `[kind id]` coord index tooling reads (§Production
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
@@ -891,10 +976,11 @@
   generation's resolver is keyed `[kind id]`; the descriptor is the same
   registration-metadata shape `register!` stores (the source store records it
   verbatim), so the return value is byte-shape-identical to the registrar path.
-  When `*generation*` is unbound — the absence-is-default path, taken by every
-  caller not resolving against a frame object (single-realm + the realm-routed
-  dispatch) — resolution targets the `active-registrar` atom, one `nil?` branch
-  on the read.
+  With no generation bound, a bound `*live-view*` (a frame made without
+  `:images`) resolves the id against its snapshot of the registration store,
+  throwing `:rf.error/ambiguous-registration` for an id more than one namespace
+  registers. With neither bound — every caller not resolving against a frame —
+  resolution targets the `active-registrar` atom.
 
   The REGISTRAR-ATOM branch uses paired `get` calls rather than
   `(get-in ... [kind id])` — `get-in` allocates a path vector per call, and
@@ -913,7 +999,9 @@
   [kind id]
   (if-let [resolver (generation-resolver)]
     (get resolver [kind id])
-    (-> @(active-registrar) (get kind) (get id))))
+    (if-let [view *live-view*]
+      (view kind id)
+      (-> @(active-registrar) (get kind) (get id)))))
 
 (defn handler
   "Return just the handler fn from the metadata, or nil. The handler is
@@ -951,17 +1039,18 @@
   the generation's resolver for `kind` — only the ids the frame's OWN image
   carries, so a generation-scoped query (a per-frame fx walk, a view-id
   resolution) sees the frame's registration universe, not the global
-  registrar's. Unbound ⇒ the registrar atom path."
+  registrar's. A bound `*live-view*` projects the ids the live frame can run
+  (an ambiguous id is not one of them). Unbound ⇒ the registrar atom path."
   ([kind]
    (if-let [resolver (generation-resolver)]
      (kind-registrations-from-resolver resolver kind)
-     (get @(active-registrar) kind {})))
+     (if-let [view *live-view*]
+       (view kind)
+       (get @(active-registrar) kind {}))))
   ([kind pred-fn]
    (into {}
          (filter (fn [[_id meta]] (pred-fn meta)))
-         (if-let [resolver (generation-resolver)]
-           (kind-registrations-from-resolver resolver kind)
-           (get @(active-registrar) kind {})))))
+         (registrations kind))))
 
 (defn handler-meta
   "Public alias for lookup. Used by tooling."

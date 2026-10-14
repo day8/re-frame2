@@ -190,9 +190,18 @@
 
   The returned shape is `{:sensitive [paths] :large [paths] :large? bool}` —
   slots are present only when the registration declared them. EP-0025: there is
-  no derived-output sensitivity (no propagation)."
+  no derived-output sensitivity (no propagation).
+
+  An id more than one namespace registers, read inside a frame made without
+  `:images`, has no single declaration to follow, so it fails closed: the
+  whole value is `:sensitive`."
   [kind id]
-  (normalise-classification (rf.registrar/handler-meta kind id)))
+  (try
+    (normalise-classification (rf.registrar/handler-meta kind id))
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.registrar/ambiguous-registration? e)
+        {:sensitive [[]]}
+        (throw e)))))
 
 ;; ---- emit-time projection ------------------------------------------------
 
