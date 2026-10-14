@@ -28,6 +28,9 @@
    [re-frame.interop :as rf.interop]
    [re-frame.routing :as rf.routing]
    [re-frame.routing.address :as rf.routing.address]
+   ;; `:rf.route/navigate`'s recordable coeffect declares a `:schema`, so a
+   ;; navigation throws unless the schemas artefact is loaded.
+   [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
