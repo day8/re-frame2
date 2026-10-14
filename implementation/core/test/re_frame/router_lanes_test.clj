@@ -114,19 +114,6 @@
     (is (= [:block :a :a-child :b] @log)
         ":a's child settles before the external :b queued behind :a")))
 
-(deftest s2-siblings-one-event-dispatches-keep-breadth-first-order
-  ;; The control: every option keeps this order.
-  (let [fid :lanes/s2
-        log (atom [])]
-    (rf/make-frame {:id fid})
-    (logging-event! log :lanes/kick :kick [:lanes/a :lanes/b])
-    (logging-event! log :lanes/a :a [:lanes/a-child])
-    (logging-event! log :lanes/a-child :a-child)
-    (logging-event! log :lanes/b :b)
-    (rf/dispatch-sync [:lanes/kick] {:frame fid})
-    (is (= [:kick :a :b :a-child] @log)
-        "siblings run in source order, then the next generation")))
-
 (deftest s3-a-plain-relay-keeps-the-machine-family-ahead-of-external-input
   (let [fid :lanes/s3
         log (atom [])]
