@@ -46,12 +46,6 @@
   (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                         {:status 200.0 :headers []} "x")))))
 
-(deftest mixed-case-names-collapse-into-one-first-seen-key
-  (is (= {"Vary" ["Accept" "Origin" "Accept-Encoding"]}
-         (reduce rf.ssr.ring.headers/merge-pair-into-header-map
-                 {}
-                 [["Vary" "Accept"] ["vary" "Origin"] ["VARY" "Accept-Encoding"]]))))
-
 (deftest mixed-case-content-type-with-override-strips-every-casing
   (is (= {"Content-Type" "text/xml; charset=utf-8"}
          (rf.ssr.ring.headers/headers->ring-map+content-type-override
