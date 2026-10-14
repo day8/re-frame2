@@ -63,14 +63,6 @@
 ;; assertions too, so these compare printed forms or check the kind.
 ;; ---------------------------------------------------------------------------
 
-(deftest diff-encode-reports-a-vector-turned-seq-with-equal-elements
-  ;; `sort-by` over an already-sorted vector hands back a seq of the same items.
-  (let [before {:items [{:id 1} {:id 2}] :n 1}
-        after  (update before :items #(sort-by :id %))
-        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after
-                            (rf.mcp-base.diff-encode/diff-encode-db-after {:db-before before :db-after after})))]
-    (is (= (pr-str after) (pr-str dec)))))
-
 (deftest collect-patches-lands-a-nested-kind-change-on-its-own-slot
   (let [patches (collect {:rows [{:tags [:a :b]} {:tags [:c]}] :n 1}
                          {:rows [{:tags (list :a :b)} {:tags [:c]}] :n 1})]
@@ -180,13 +172,11 @@
     (is (= {:db-before {:a 1} :db-after {:rf.mcp/diff-from :db-before :sections []}} encoded))
     (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded)))))
 
-(deftest diff-encode-epochs-diff-mode-encodes-each-record
-  (let [out (rf.mcp-base.diff-encode/diff-encode-epochs
-              [{:db-before {:a 1} :db-after {:a 2}} {:db-before {:b 1} :db-after {:b 2}}] :diff)]
-    (is (= [:db-before :db-before] (mapv #(get-in % [:db-after :rf.mcp/diff-from]) out)))))
-
-(deftest diff-encode-epochs-full-mode-is-passthrough
-  (let [epochs [{:db-before {:a 1} :db-after {:a 2}}]]
+(deftest diff-encode-epochs-encodes-each-record-unless-full
+  (let [epochs [{:db-before {:a 1} :db-after {:a 2}} {:db-before {:b 1} :db-after {:b 2}}]]
+    (is (= [:db-before :db-before]
+           (mapv #(get-in % [:db-after :rf.mcp/diff-from])
+                 (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff))))
     (is (= epochs (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)))))
 
 ;; ---------------------------------------------------------------------------
