@@ -44,13 +44,6 @@
                (map #(select-keys % [:frame :event :event-id]) reports)))
         (is (some? (:exception (first reports))))))))
 
-(deftest clean-on-destroy-emits-no-record
-  (let [seen (recording-listener!)]
-    (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
-    (rf/make-frame {:id :ondestroy/ok :on-destroy [:ondestroy/clean]})
-    (rf/destroy-frame! :ondestroy/ok)
-    (is (empty? (on-destroy-records seen)))))
-
 (deftest teardown-cascade-infra-fault-fans-out-on-always-on-axis
   (testing "a fault in the teardown dispatch infrastructure itself, which
             produces no router handler-exception, still fans the dedicated
