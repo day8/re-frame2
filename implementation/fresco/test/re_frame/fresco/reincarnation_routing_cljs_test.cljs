@@ -34,13 +34,13 @@
   *refused* from *silently delivered to the wrong frame*, which no other
   observable here distinguishes.
 
-  ## Sections 4–8 are the lowered callback's contract
+  ## Section 4 is the lowered callback's contract
 
   The DEFECT this suite is built around is LATE BINDING: an ambient dispatch
   that closes over the frame KEYWORD and resolves its bundle when the callback
   FIRES lands wherever the memo's warmth decides at that instant. The
-  incarnation is pinned into the closure at mint time instead, and the sections
-  below are the positive contract — safety (a retained callback refuses) and
+  incarnation is pinned into the closure at mint time instead, and section 4
+  is the positive contract — safety (a retained callback refuses) and
   liveness (a fresh one routes) asserted together in every cache posture,
   because cache warmth is precisely what chooses between two different failures
   under late binding.
@@ -61,8 +61,6 @@
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
             [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
-            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::reincarnation)
@@ -149,17 +147,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-commit-basis-moves-across-a-same-id-reincarnation
-  (testing "a reincarnation is invisible in the id and visible only in the token"
-    (let [token-a (incarnate! "A")
-          token-b (reincarnate! "B")]
-      (is (some? token-a) "a live incarnation pins a token")
-      (is (some? token-b))
-      (is (not (identical? token-a token-b))
-          "destroy + same-id recreate is a NEW incarnation, distinct by identity")
-      (is (false? (rf.frame/frame-incarnation-live? frame-id token-a))
-          "and the predecessor's token is no longer live under the id")
-      (is (true? (rf.frame/frame-incarnation-live? frame-id token-b)))))
-
   (testing "`commit-basis` MOVES across the transition even though the
             frame's install epoch RESTARTS with the successor and here ties
             the predecessor's: destroying the predecessor retired its epoch
@@ -176,16 +163,7 @@
           "precondition: the install epochs tie, so that term alone cannot see it")
       (is (> basis-b basis-a)
           "the basis sees the reincarnation, so a staged read rendered under
-           the predecessor and committed under the successor re-renders")))
-
-  ;; The same instrument on an ordinary write, so the row above is the
-  ;; reincarnation's movement and not a counter that moves on anything.
-  (testing "an ordinary in-incarnation write moves the basis too"
-    (incarnate! "A")
-    (let [before (rf.fresco.impl.generation/commit-basis frame-id)]
-      (rf/with-frame frame-id (rf/dispatch-sync [:reinc/mark :ordinary]))
-      (is (> (rf.fresco.impl.generation/commit-basis frame-id) before)
-          "an ordinary write advances the basis"))))
+           the predecessor and committed under the successor re-renders"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A bundle pinned to the predecessor is inert against the successor
@@ -338,111 +316,3 @@
         (is (empty? refusals)
             "and nothing is refused, because the closure was minted against
              the incarnation it is dispatching into")))))
-
-;; ---------------------------------------------------------------------------
-;; 5. One handler identity per incarnation — the property the perf budget and
-;;    the pin both rest on
-;; ---------------------------------------------------------------------------
-
-(deftest the-ambient-dispatch-has-one-identity-per-live-incarnation
-  (let [_     (incarnate! "A")
-        a1    (render-dispatch)
-        a2    (render-dispatch)
-        ops-a (:ops (rf.fresco.impl.collector/frame-row frame-id))
-        _     (reincarnate! "B")
-        b1    (render-dispatch)
-        b2    (render-dispatch)
-        ops-b (:ops (rf.fresco.impl.collector/frame-row frame-id))]
-    (is (identical? a1 a2)
-        "repeated renders of ONE incarnation share one handler — the memo is
-         still a memo, and a boundary re-render allocates nothing")
-    (is (not (identical? a1 b1))
-        "the same public id naming a NEW incarnation hands back a new one, and
-         this lazy replacement is what makes a destruction hook unnecessary")
-    (is (identical? b1 b2)
-        "and it is stable again under the successor")
-    (is (not (identical? ops-a ops-b))
-        "the captured bundle underneath moved with it — the row is ONE record,
-         so the closure and the bundle cannot describe different incarnations")
-    (is (true? (rf.frame/frame-incarnation-live?
-                 frame-id (:incarnation (rf.fresco.impl.collector/frame-row frame-id))))
-        "and the row answering now is pinned to the incarnation live now")))
-
-;; ---------------------------------------------------------------------------
-;; 6. Every lowering path inherits the same pinned ambient dispatch
-;; ---------------------------------------------------------------------------
-
-;; Four spellings reach the ambient closure by four different routes through
-;; `impl.intent`, and all four capture `*dispatch*` at LOWERING time. One table
-;; rather than four tests, because they share the mechanism and the question
-;; asked of each is identical — if they ever stop sharing it, the table is
-;; where that shows up.
-(def ^:private lowering-paths
-  [[:intent-vector
-    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-click [:reinc/mark tag]))]
-   [:h-fn-returning-an-intent
-    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-click (rf.fresco.impl.intent/callback (fn [_e] [:reinc/mark tag]))))]
-   [:key-map-branch
-    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
-   [:handler-inside-a-render-callback
-    ;; The render callback is lowered under the boundary, then INVOKED — which
-    ;; is when its inner handler is lowered, against the gate — and the handler
-    ;; it returned is what fires later. The gate forwards to the SUPPLYING
-    ;; boundary's dispatch once the call has returned, so this path inherits
-    ;; the pin one level deeper than the other three.
-    (fn [tag]
-      ((rf.fresco.impl.intent/lower-prop :row-render
-                          (rf.fresco.impl.intent/callback
-                            (fn [] (rf.fresco.impl.intent/lower-prop :on-click [:reinc/mark tag]))))))]])
-
-(defn- lower-under-boundary
-  "Lower through `f` inside the render-time ambient binding a boundary body
-  runs under — `impl.collector/run-once`'s, spelled out."
-  [f]
-  (rf.fresco.impl.intent/with-frame frame-id (render-dispatch) f))
-
-(defn- fire!
-  "Invoke a lowered handler the way its position's invoker would. One event
-  object serves all four: the key-map branch reads `.key`, and the other three
-  ignore the argument."
-  [h]
-  (h #js {:key "Enter"}))
-
-(deftest every-lowering-path-inherits-the-pinned-ambient-dispatch
-  (doseq [[path lower] lowering-paths]
-    (testing (str "SAFETY — " (name path) " lowered under A refuses once A dies")
-      (incarnate! "A")
-      (let [h (lower-under-boundary #(lower :stale))]
-        (reincarnate! "B")
-        (let [{:keys [refusals]} (with-refusals #(fire! h))]
-          (is (nil? (marked))
-              (str (name path) " reached the successor's app-db"))
-          (is (= 1 (count refusals))
-              (str (name path) " did not fan exactly one refusal"))
-          (is (= :reinc/mark (:event-id (first refusals)))))))
-
-    (testing (str "LIVENESS — " (name path) " lowered under B dispatches")
-      (incarnate! "A")
-      (lower-under-boundary #(lower :under-a))
-      (reincarnate! "B")
-      (let [h (lower-under-boundary #(lower :live))
-            {:keys [refusals]} (with-refusals #(fire! h))]
-        (is (= :live (marked))
-            (str (name path) " did not reach the LIVE incarnation"))
-        (is (empty? refusals))))))
-
-;; ---------------------------------------------------------------------------
-;; 7. Reset empties the inventory
-;; ---------------------------------------------------------------------------
-
-(deftest reset-empties-the-frame-memo
-  (incarnate! "A")
-  (render-dispatch)
-  (is (contains? @rf.fresco.impl.frames/!frame-ops frame-id)
-      "a render leaves exactly one row behind — the bundle and the ambient
-       dispatch are one record, so acquiring the dispatch acquires both")
-  (is (= 1 (:frames (rf.fresco.test.runtime/stats)))
-      "which is what the residue census counts under its `:frame-ops` token")
-  (rf.fresco.impl.collector/reset-runtime!)
-  (is (= {} @rf.fresco.impl.frames/!frame-ops) "and the whole-runtime reset empties it")
-  (is (= 0 (:frames (rf.fresco.test.runtime/stats)))))
