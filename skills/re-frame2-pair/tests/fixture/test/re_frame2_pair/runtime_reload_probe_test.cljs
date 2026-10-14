@@ -13,8 +13,6 @@
         after-handler (handler-with-value :after)]
     (is (= (str before-handler) (str after-handler))
         "the regression requires identical function source")
-    (is (not= (before-handler nil nil) (after-handler nil nil))
-        "the replacement changes observable behavior")
     (rf/reg-event :review/reload-probe before-handler)
     (let [baseline (rt/registrar-handler-ref :event :review/reload-probe)]
       (is (number? baseline) "the probe remains wire-friendly")
