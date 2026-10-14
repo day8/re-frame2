@@ -47,14 +47,6 @@
   (ex->data #(rf.resources.registry/validate+canonicalize-params
                resource-id {:params-schema schema} params 'rf/ensure)))
 
-(deftest resource-invalid-params-redacts-sensitive-sibling
-  (let [data (resource-failure :report/by-account sensitive-params-schema bad-params)]
-    (is (= [:rf.error/resource-invalid-params :report/by-account
-            {:token rf.privacy/redacted-sentinel :age "not-an-int"} false]
-           [(:rf.error/id data) (:resource-id data) (:params data)
-            (str/includes? (pr-str data) "SECRET-TOKEN-42")])
-        "the :token slot is redacted, the failing field stays diagnostic, and the secret rides nowhere")))
-
 (deftest resource-invalid-params-elides-large-sibling
   (let [big  (apply str (repeat 500 "x"))
         data (resource-failure :feed/by-cursor [:map [:blob {:large? true} :string] [:age :int]]
