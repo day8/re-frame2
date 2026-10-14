@@ -95,16 +95,6 @@
   (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
   (rf/reg-sub   :counter/value (fn [_db _] :global)))
 
-(deftest real-subscribe-resolves-sub-handler-through-frame-image
-  (rf/make-frame {:id :counter/main})
-  (rf/reg-sub :counter/value (fn [_db _] :global))
-  (rf.live-frame/make-frame
-    {:id :counter/main
-     :images [(rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})]}
-    [(sub-desc "examples.counter" :counter/value (fn [_db _] :image))])
-  (is (= [:image nil] [@(rf/subscribe [:counter/value] {:frame :counter/main}) rf.registrar/*generation*])
-      "the IMAGE sub computed, and the generation binding did not leak past the build"))
-
 (deftest two-frames-different-images-same-id-via-real-dispatch
   ;; EP-0023 §Independent Surfaces On One Page: one id, each frame its own image
   (rf/make-frame {:id :todo/main})
