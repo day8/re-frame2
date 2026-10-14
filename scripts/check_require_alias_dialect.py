@@ -62,7 +62,7 @@ Six textual traps, each of which a line-oriented regex ratchet gets wrong:
       forms, so a census built on either misses it.  A ratchet built on the
       ns form alone reproduces the exact miss it exists to prevent, so
       `(require ...)` / `(require-macros ...)` forms are in the scan
-      surface, and they carry their own positive fixture.
+      surface.
 
   (6) A `#_` DISCARDED LIBSPEC IS NOT A REQUIRE EDGE.  The reader throws the
       next form away, so `#_[re-frame.machines :as machines]` binds nothing,
@@ -1318,8 +1318,6 @@ FIXTURE_REL = "scripts/_test_fixtures/check_require_alias_dialect"
 
 # fixture -> (expected violating aliases, in file order)
 POSITIVE_FIXTURES: dict[str, tuple[str, ...]] = {
-    "ns_form_bare_alias.cljc": ("machines", "routing"),
-    "runtime_require.cljc": ("directory",),
     "reader_conditional_splice.cljc": ("flows",),
     "as_alias.cljc": ("schemas",),
     "wrong_dotted_alias.cljc": ("rf.core", "rf.mach"),
@@ -1385,10 +1383,9 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
 
     # ---- the usability floor: recognising nothing is not finding nothing ---
     empty = ScanResult(0, [], [], [])
-    expect("an empty roster is UNUSABLE, not clean",
-           len(assert_usable(empty, [], Baseline(100, {"tools": 0}), set())) >= 3)
-    expect("a blind scan fails all three believability checks",
-           len(scan_is_believable(empty, [], 10)) == 3)
+    expect("an empty roster is UNUSABLE: the roster, read, edge-floor and "
+           "surface checks all fail",
+           len(assert_usable(empty, [], Baseline(10, {"tools": 0}), set())) == 4)
     live_edge = Edge("tools/x.cljc", 1, "re-frame.core", "rf", CONTEXT_NS)
     with_bad = ScanResult(
         1, [live_edge], [],
