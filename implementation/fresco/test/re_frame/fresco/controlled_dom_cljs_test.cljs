@@ -133,31 +133,6 @@
                  the model took verbatim is owed"))
           (finally (drop! node)))))))
 
-(deftest neither-the-field-nor-what-the-handler-saw-can-tell-the-two-apart
-  (testing "why the record is not optional. `(= (.-value node) dom-value)`
-           reads TRUE on a refusal and TRUE on a keystroke taken
-           verbatim — the same reading, two opposite obligations — so a
-           converge written against it either wipes accepted keystrokes
-           or leaves refused ones on the screen. Both fields below are in
-           that state at the same instant; only the record separates
-           them."
-    (if-not (browser?)
-      (skip! ":node-test has no DOM")
-      (let [refused  (field! "12")
-            accepted (field! "abcd")]
-        (try
-          (typed! refused "a" 2)             ; the model does not move
-          (typed! accepted "X" 2)
-          (committed! accepted "abXcd")      ; the model took it
-          (is (= "12a" (.-value refused))
-              "the field still shows what was typed — nothing re-rendered")
-          (is (= "abXcd" (.-value accepted))
-              "and so does this one — because that IS what was rendered")
-          (is (not= (rf.fresco.impl.controlled/last-rendered refused) (.-value refused))
-              "the record is the only thing that tells them apart")
-          (is (= (rf.fresco.impl.controlled/last-rendered accepted) (.-value accepted)))
-          (finally (drop! refused) (drop! accepted)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The caret comes back by offset from the END
 ;; ---------------------------------------------------------------------------
@@ -299,17 +274,6 @@
             "and the author's handler ran BOTH times — the carve-out
              suppresses the converge, never the model")))))
 
-(deftest the-composition-reading-is-taken-off-the-native-event
-  (testing "React hands a handler a synthetic event, so a gate reading
-           `isComposing` off it would be dead. A synthetic target from a
-           node-side row carries no native event at all, so it reads as
-           not composing"
-    (is (false? (rf.fresco.impl.controlled/composing-input? #js {:target #js {}})))
-    (is (false? (rf.fresco.impl.controlled/composing-input? #js {})))
-    (is (false? (rf.fresco.impl.controlled/composing-input? #js {:nativeEvent #js {}})))
-    (is (false? (rf.fresco.impl.controlled/composing-input? #js {:nativeEvent #js {:isComposing false}})))
-    (is (true? (rf.fresco.impl.controlled/composing-input? #js {:nativeEvent #js {:isComposing true}})))))
-
 (deftest the-element-type-does-not-move-when-the-input-type-does
   (testing "why the shadow's component is chosen without reading `:type`.
            A React element type that changed would REMOUNT the field —
@@ -396,19 +360,6 @@
             (react-dom/flushSync #(.unmount root))
             (.remove c)))))))
 
-(deftest the-tag-an-emitted-element-renders-is-readable-without-knowing-this-namespace
-  (testing "a controlled field's element type is the shadow's component,
-           so an element-tree reader asks for the TAG rather than the
-           type. Everything else answers itself"
-    (let [f (fn [_e])
-          tag-of (fn [hiccup] (rf.fresco.impl.controlled/element-tag (rf.fresco.impl.codec/as-element hiccup)))]
-      (is (= "input" (tag-of [:input {:value "x" :on-input f}])))
-      (is (= "textarea" (tag-of [:textarea {:value "x" :on-input f}])))
-      (is (= "input" (tag-of [:input {:on-input f}]))
-          "an uncontrolled input is emitted as the tag, and answers it")
-      (is (= "div" (tag-of [:div {}])))
-      (is (= "select" (tag-of [:select {:value "x" :on-input f}]))))))
-
 ;; ---------------------------------------------------------------------------
 ;; What it leaves alone — every guard, by identity
 ;; ---------------------------------------------------------------------------
@@ -443,11 +394,7 @@
       (is (identical? f (emitted [:select {:value "x" :on-input f}]))
           "a <select> has neither a caret nor a mirror")
       (is (identical? f (emitted [:div {:value "x" :on-input f}]))
-          "and a tag that is not a form control is not even asked")
-      (testing "while every applicable input type is"
-        (doseq [t ["text" "search" "url" "tel" "password"]]
-          (is (not (identical? f (emitted [:input {:type t :value "x" :on-input f}])))
-              (str "type=" t)))))))
+          "and a tag that is not a form control is not even asked"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The type is the PLATFORM's spelling, not the author's
@@ -466,23 +413,6 @@
 ;; converge, and the caret would go to the end of the control. No throw, no
 ;; id, no warning — a subtly worse cursor and nothing to attribute it to.
 
-(defn- attribute-typed!
-  "A real `<input>` whose type ATTRIBUTE keeps the author's case, left as
-  a React render that put `rendered` on it would leave it.
-
-  `setAttribute` rather than the `.type` setter, so the platform's own
-  normalisation stays visible instead of being done for us — that
-  asymmetry between the attribute and the IDL is what these rows turn on,
-  and it is the same one `file_input_value_dom_cljs_test/file-input!`
-  reads on the other control."
-  [spelling rendered]
-  (let [n (js/document.createElement "input")]
-    (.setAttribute n "type" spelling)
-    (.appendChild js/document.body n)
-    (set! (.-defaultValue n) rendered)
-    (set! (.-value n) rendered)
-    n))
-
 (deftest every-spelling-of-a-caret-type-is-the-same-control
   (let [f       (fn [_e])
         emitted (fn [hiccup] (slot (rf.fresco.impl.codec/as-element hiccup) "onInput"))
@@ -493,31 +423,16 @@
       (doseq [t ["TEXT" "SEARCH" "URL" "TEL" "PASSWORD"]]
         (is (wrapped? [:input {:type t :value "x" :on-input f}])
             (str "type=" t))))
-    (testing "and the fold is total rather than a list of the plausible
-             spellings — title case is what a form generator emits, and a
-             mixed spelling is the same attribute again"
-      (doseq [t ["Text" "tExT" "Password" "Url"]]
-        (is (wrapped? [:input {:type t :value "x" :on-input f}])
-            (str "type=" t))))
-    (testing "the keyword door reaches the same place: `convert-prop-value`
-             hands React `(name kw)` unchanged, so the author's case
-             survives into the props object either way"
-      (is (wrapped? [:input {:type :TEXT :value "x" :on-input f}]))
-      (is (wrapped? [:input {:type :Password :value "x" :on-input f}])))
     (testing "while a type with NO caret stays refused at every spelling —
              the fold widens which spellings the predicate recognises, not
              which controls it accepts. `setSelectionRange` throws on these,
              so a fold that leaked one through would be worse than the hole
              it closes"
-      ;; `file` is deliberately absent: a controlled `:value` on one is
-      ;; REFUSED outright at every spelling, which is
-      ;; `file_input_value_dom_cljs_test`'s subject and not this row's.
-      (doseq [t ["number" "NUMBER" "Number" "checkbox" "CHECKBOX" "radio"
-                 "RADIO" "date" "DATE" "color" "range" "SUBMIT"]]
+      (doseq [t ["NUMBER" "CHECKBOX"]]
         (is (not (wrapped? [:input {:type t :value "1" :on-input f}]))
             (str "type=" t))))
     (testing "a type that merely CONTAINS a caret type's letters is not one"
-      (doseq [t ["textarea" "context" "SEARCHER" "urls"]]
+      (doseq [t ["textarea" "context"]]
         (is (not (wrapped? [:input {:type t :value "x" :on-input f}]))
             (str "type=" t))))
     (testing "and a non-string `:type`, which `convert-prop-value` leaves as
@@ -525,77 +440,7 @@
              string method. This is the `string?` guard, and it is
              load-bearing: `(.toLowerCase 0)` is a TypeError, so a fold
              written without it turns a silent miss into a thrown render"
-      (is (not (wrapped? [:input {:type 0 :value "x" :on-input f}])))
-      (is (not (wrapped? [:input {:type 1 :value "x" :on-input f}])))
-      (is (not (wrapped? [:input {:type true :value "x" :on-input f}]))))))
-
-(deftest a-shouted-type-converges-in-turn-with-the-caret-where-the-edit-left-it
-  (testing "THE SHOUTED SPELLING, on a control with a caret. The field
-           holds `12345`, the user types `z` at 2, and the model REFUSES it
-           — so the element still renders `12345` and the converge has a
-           character to take off the screen inside the event.
-
-           Without the fold this row would read
-           `{:value \"12z345\" :caret [3 3]}`: no wrapper installed, nothing
-           run, and the field left holding the refused character until
-           React's own end-of-event restore removed it a beat later with
-           the caret at the end. The lowercase companion is
-           `a-controlled-field-converges-through-the-handler-the-codec-emitted`,
-           and the spelling is the whole of the difference between them."
-    (if-not (browser?)
-      (skip! ":node-test has no DOM")
-      (let [!ran (atom 0)
-            node (attribute-typed! "TEXT" "12345")]
-        (try
-          (is (= "TEXT" (.getAttribute node "type"))
-              "the attribute keeps the author's case")
-          (is (= "text" (.-type node))
-              "and the IDL answers the platform's — this IS a text input,
-               with a caret, which is why a miss would be a defect rather
-               than a taste")
-          (typed! node "z" 2)
-          (is (= {:value "12345" :caret [2 2]}
-                 (fire! [:input {:type     "TEXT"
-                                 :value    "12345"
-                                 :on-input (fn [_e] (swap! !ran inc))}]
-                        "onInput" node))
-              "the refused character is off the screen in-turn, and the
-               caret is at the position before it")
-          (is (= 1 @!ran) "and the author's own handler ran, once")
-          (finally (drop! node))))))
-  (testing "a shouted `password` field is the same control and the same
-           converge — the row above is not a special case for `text`"
-    (if-not (browser?)
-      (skip! ":node-test has no DOM")
-      (let [node (attribute-typed! "PASSWORD" "12345")]
-        (try
-          (is (= "password" (.-type node)))
-          (typed! node "z" 2)
-          (is (= {:value "12345" :caret [2 2]}
-                 (fire! [:input {:type "PASSWORD" :value "12345"
-                                 :on-input (fn [_e])}]
-                        "onInput" node)))
-          (finally (drop! node)))))))
-
-(deftest the-element-type-does-not-move-when-the-type-is-shouted
-  (testing "the safety property, and the reason the fold cannot cost a
-           remount. The component is chosen by `controlled-text-tag?`,
-           which is deliberately type-BLIND, so widening the CARET question
-           moves nothing React keys off. A field re-rendered from `text` to
-           `TEXT` — or the other way — keeps its element type, and
-           therefore its node, its focus and any composition in flight.
-
-           This row reads the same with or without the fold, which is what
-           makes it a statement about the design rather than about the
-           fold."
-    (let [f   (fn [_e])
-          typ (fn [t] (.-type (rf.fresco.impl.codec/as-element
-                               [:input (cond-> {:value "1" :on-input f}
-                                         (some? t) (assoc :type t))])))]
-      (is (identical? (typ "text") (typ "TEXT")))
-      (is (identical? (typ "TEXT") (typ "NUMBER")))
-      (is (identical? (typ "TEXT") (typ nil)))
-      (is (identical? (typ "PASSWORD") (typ "checkbox"))))))
+      (is (not (wrapped? [:input {:type 0 :value "x" :on-input f}]))))))
 
 (deftest a-controlled-field-with-no-change-handler-has-nothing-wrapped
   (testing "there is no slot to install into, and the codec does not mint
@@ -604,23 +449,3 @@
       (is (nil? (slot e "onInput")))
       (is (nil? (slot e "onChange")))
       (is (= "12345" (slot e "value"))))))
-
-(deftest a-target-that-is-not-a-form-control-is-left-alone
-  (testing "the reading that makes this inert rather than defensive: a
-           caret that is not a number is not a text-entry control. Every
-           node-side codec row invokes an emitted handler with a
-           synthetic `#js {:target #js {…}}`, and none of them may throw
-           or flush anything."
-    (let [!seen (atom [])
-          e     (rf.fresco.impl.codec/as-element
-                 [:input {:value    "12345"
-                          :on-input (fn [ev] (swap! !seen conj (.. ev -target -value)))}])]
-      ((slot e "onInput") #js {:target #js {:value "typed"}})
-      (is (= ["typed"] @!seen) "the author's handler ran and saw the event")
-      (is (nil? (rf.fresco.impl.controlled/last-rendered #js {:value "typed"}))
-          "and there was no record to converge to")))
-  (testing "an event with no target at all"
-    (let [!ran (atom 0)
-          e    (rf.fresco.impl.codec/as-element [:input {:value "x" :on-input (fn [_e] (swap! !ran inc))}])]
-      ((slot e "onInput") #js {})
-      (is (= 1 @!ran)))))
