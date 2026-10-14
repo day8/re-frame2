@@ -11,9 +11,6 @@
             [re-frame.core :as rf]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
             [reagent2.core :as r2]
-            ;; ns-load wires the hiccup -> React-element `as-element` seam that
-            ;; the class's `render` method delegates through (lifecycle test).
-            [reagent2.impl.template]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
@@ -42,46 +39,25 @@
 ;; ---- one-shot non-DOM-root warning, truthful ------------------------------
 
 (deftest slim-form-3-warns-non-dom-root-once
-  (testing "a Form-3 class root is a non-DOM root: the wrapper emits the
-            documented one-shot warning per id and injects NO attribute. The
-            warning fires EXACTLY ONCE across repeated renders (truthful,
-            one-shot — the warned-set is a process-wide defonce cleared between
-            tests by the reset-runtime fixture)."
+  (testing "a Form-3 class root is a non-DOM root: the wrapper hands the class
+            back UNCHANGED, so its React lifecycle is reagent2's own, and emits
+            the documented one-shot warning per id. The warning fires EXACTLY
+            ONCE across repeated renders (truthful, one-shot — the warned-set
+            is a process-wide defonce cleared between tests by the
+            reset-runtime fixture)."
     (let [slim-class (r2/create-class {:reagent-render (fn [] [:div])})
+          outs       (atom [])
           warnings   (with-captured-console-warn
                        (fn []
                          (dotimes [_ 5]
-                           (rf.views.source-coord-annotation/inject-source-coord-attr
-                             :rf.slim-src-coord/warn-once-f3
-                             "rf.slim-src-coord:warn-once-f3:1:1"
-                             slim-class))))]
-      (is (= [1 true] [(count warnings) (str/includes? (str (first warnings)) "rf.slim-src-coord/warn-once-f3")])
-          (str "exactly one warning across 5 passes, naming the view-id; got " (pr-str warnings))))))
-
-;; ---- render + lifecycle intact on the survived class ----------------------
-
-(deftest slim-form-3-survivor-retains-react-lifecycle
-  (testing "the class that survives the wrapper still mounts as a React class:
-            its `render` produces a React element and its `componentDidMount`
-            lifecycle fires — the representative behaviour Form-2
-            wrapping would destroy."
-    (let [mounted?   (atom false)
-          slim-class (r2/create-class
-                       {:reagent-render      (fn [] [:p "lifecycle-intact"])
-                        :component-did-mount (fn [_this] (reset! mounted? true))
-                        :display-name        "SlimForm3Lifecycle"})
-          out        (rf.views.source-coord-annotation/inject-source-coord-attr
-                       :rf.slim-src-coord/lifecycle-f3
-                       "rf.slim-src-coord:lifecycle-f3:1:1"
-                       slim-class)
-          ;; React.Component's constructor sets `this.props`, so the synthesised
-          ;; instance reads its argv the same way a mounted instance would.
-          inst       (new out #js {:__rfArgv [:form-3]})]
-      (is (= [true "p"]
-             [(identical? slim-class out) (.-type (.call (.. out -prototype -render) inst))])
-          "the class passes through unchanged and still renders its hiccup head")
-      (.call (.. out -prototype -componentDidMount) inst)
-      (is (true? @mounted?)
-          "componentDidMount fired the user :component-did-mount fn (lifecycle intact)")
-      ;; Tidy: dispose the per-instance render Reaction created during render.
-      (.call (.. out -prototype -componentWillUnmount) inst))))
+                           (swap! outs conj
+                                  (rf.views.source-coord-annotation/inject-source-coord-attr
+                                    :rf.slim-src-coord/warn-once-f3
+                                    "rf.slim-src-coord:warn-once-f3:1:1"
+                                    slim-class)))))]
+      (is (= [1 true true]
+             [(count warnings)
+              (str/includes? (str (first warnings)) "rf.slim-src-coord/warn-once-f3")
+              (every? #(identical? slim-class %) @outs)])
+          (str "the class passes through unchanged, with exactly one warning across 5"
+               " passes naming the view-id; got " (pr-str warnings))))))
