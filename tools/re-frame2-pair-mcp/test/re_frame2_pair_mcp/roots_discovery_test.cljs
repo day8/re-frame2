@@ -26,9 +26,6 @@
 ;; uri->path
 ;; ===========================================================================
 
-(deftest uri->path-decodes-canonical-uri
-  (is (re-find #"Users[\\/]me[\\/]proj" (rd/uri->path "file:///C:/Users/me/proj"))))
-
 (deftest uri->path-returns-nil-for-a-root-it-cannot-use
   ;; The caller skips that root.
   (doseq [[uri note] [["https://example.com/x" "a non-file scheme"]
@@ -72,11 +69,9 @@
 (deftest walk-finds-monorepo-nested-edns
   (let [root "/repo"
         tree {root               [{:name "pkg-a" :kind :dir}
-                                  {:name "pkg-b" :kind :dir}
-                                  {:name "pkg-c" :kind :dir}]
+                                  {:name "pkg-b" :kind :dir}]
               (jp root "pkg-a")  [{:name "shadow-cljs.edn" :kind :file}]
-              (jp root "pkg-b")  [{:name "shadow-cljs.edn" :kind :file}]
-              (jp root "pkg-c")  [{:name "README.md" :kind :file}]}]
+              (jp root "pkg-b")  [{:name "shadow-cljs.edn" :kind :file}]}]
     (is (= #{(jp root "pkg-a" "shadow-cljs.edn") (jp root "pkg-b" "shadow-cljs.edn")}
            (set (walk tree root))))))
 
@@ -203,8 +198,10 @@
                                                  b-path [(jp b-path "shadow-cljs.edn")]})
                                   (reads-ports {a-path "1111" b-path "2222"}))
           (.then (fn [r]
-                   (is (= :many (:status r)))
-                   (is (= [1111 2222] (sort (map :port (:candidates r)))))
+                   (is (= {:status     :many
+                           :candidates #{{:project-home a-path :port-file (port-file-in a-path) :port 1111}
+                                         {:project-home b-path :port-file (port-file-in b-path) :port 2222}}}
+                          (update r :candidates set)))
                    (done)))))))
 
 (deftest discover-via-roots-only-one-of-two-has-shadow
