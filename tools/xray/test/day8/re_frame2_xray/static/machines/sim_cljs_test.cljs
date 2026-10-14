@@ -243,13 +243,6 @@
                        {:machine-id :auth/login :text ""}])
     (is (= :idle (get-in (sim-state) [:snapshot :state])))))
 
-(deftest body-renders-no-machine-hint-when-missing
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [tree (sim/body rf/dispatch (assoc (sim-body-values) :machine-id nil))]
-      (is (some? (find-by-testid tree
-                                 "rf-xray-static-machines-sim-no-machine"))))))
-
 (deftest sim-plain-fns-do-not-self-subscribe-without-a-frame
   ;; body / SimRail / SimChart render in their own React cycle, where a bare
   ;; `subscribe` throws `:rf.error/no-frame-context` (Spec 000 §Plain Reagent

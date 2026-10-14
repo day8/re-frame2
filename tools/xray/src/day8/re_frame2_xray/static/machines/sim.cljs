@@ -953,15 +953,6 @@
                {:machine-id machine-id
                 :definition definition}]))
   (cond
-    ;; No machine to drive sim against.
-    (nil? machine-id)
-    [:section {:data-testid "rf-xray-static-machines-sim-no-machine"
-               :style {:padding "16px"
-                       :color (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size (:body type-scale)}}
-     "No machine selected."]
-
     ;; Machine selected but no introspectable definition — Sim can't
     ;; clone what isn't there.
     (nil? definition)
