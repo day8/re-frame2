@@ -1404,9 +1404,6 @@
   ;; ---- `:after` countdown rings ---------------------------------
   (after-rings/install!)
 
-  ;; ---- Interactive viewport adapter -----------------------------
-  (machine-canvas/install!)
-
   ;; Register the Dynamic Machines tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!

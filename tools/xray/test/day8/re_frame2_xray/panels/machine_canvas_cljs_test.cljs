@@ -2,16 +2,10 @@
   "CLJS-side wiring tests for the Machines canvas adapter.
 
   xyflow owns zoom/pan/fit internally; the Xray side owns the `Chart`
-  hiccup wrapper + the chart-collapsed slot. There is no Canvas/List
-  view-mode toggle.
+  hiccup wrapper. There is no Canvas/List view-mode toggle.
 
-  Covers:
-
-    1. Registration of the canvas subs, events and fx — pinned by
-       `registry_cljs_test`'s registry snapshot rows rather than here.
-    2. The chart-collapsed slot mutates + persists per machine.
-    3. The `Chart` view's after-rings mount and the extent of the
-       `as-child` seam in `chart-tree`."
+  Covers the `Chart` view's after-rings mount and the extent of the
+  `as-child` seam in `chart-tree`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
@@ -33,69 +27,7 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- 2. Chart-collapsed slot ------------------------------------------
-
-(deftest chart-collapsed-set-collapsed-and-toggle
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-chart-collapsed
-       {:machine-id :m :mode :collapsed}])
-    (is (= true @(rf/subscribe
-                   [:rf.xray.machine-canvas/chart-collapsed-for :m]))
-        ":mode :collapsed flips the slot to true")
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-chart-collapsed
-       {:machine-id :m :mode :toggle}])
-    (is (= false @(rf/subscribe
-                    [:rf.xray.machine-canvas/chart-collapsed-for :m]))
-        ":mode :toggle inverts the slot")
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-chart-collapsed
-       {:machine-id :m :mode :toggle}])
-    (is (= true @(rf/subscribe
-                   [:rf.xray.machine-canvas/chart-collapsed-for :m]))
-        "second :toggle inverts again")
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-chart-collapsed
-       {:machine-id :m :mode :expanded}])
-    (is (= false @(rf/subscribe
-                    [:rf.xray.machine-canvas/chart-collapsed-for :m]))
-        ":mode :expanded flips the slot to false")))
-
-(deftest persist-chart-collapsed-fx-actually-fires-rf2-04tx
-  (testing "the set-chart-collapsed handler must REACH the persist fx,
-            not merely have one registered. A handler returning the fx-id
-            as a TOP-LEVEL effect key beside `:db` would have the key
-            policed as `:rf.error/effect-map-shape` and dropped, because
-            the effect map is closed — the `:db` write would land, the
-            toggle would look like it worked, and the operator's choice
-            would never reach localStorage. A registration check cannot
-            see that: a registered fx nobody routes to satisfies it
-            perfectly. This one observes the do-fx plane, which is the
-            only place the drop is visible."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [persisted (atom [])]
-        (rf/dispatch-sync
-          [:rf.xray.machine-canvas/set-chart-collapsed
-           {:machine-id :auth/login :mode :collapsed}]
-          {:fx-overrides
-           {:rf.xray.machine-canvas/persist-chart-collapsed
-            (fn [_ctx by-id] (swap! persisted conj by-id))}})
-        (rf/dispatch-sync
-          [:rf.xray.machine-canvas/set-chart-collapsed
-           {:machine-id :checkout/flow :mode :collapsed}]
-          {:fx-overrides
-           {:rf.xray.machine-canvas/persist-chart-collapsed
-            (fn [_ctx by-id] (swap! persisted conj by-id))}})
-        (is (= [{:auth/login true} {:auth/login true :checkout/flow true}]
-               @persisted)
-            "the persist fx ran once per dispatch — it reached the :fx walk —
-             each time carrying the WHOLE post-mutation by-id map, not just
-             the machine that moved: the reload-restore contract")))))
-
-;; ---- 3. Chart view hiccup shape ---------------------------------------
+;; ---- Chart view hiccup shape ------------------------------------------
 
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq tree))

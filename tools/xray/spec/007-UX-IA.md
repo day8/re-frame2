@@ -735,11 +735,8 @@ Xray's `--rf-xray-motion-scale` seam — no extra wiring here;
 motion shrinks to ~0 under `prefers-reduced-motion: reduce` along
 with the rest of Xray's surface.
 
-**State (app-db slots under `:rf.xray/machine-canvas`):**
-
-| Slot | Shape | Purpose |
-|---|---|---|
-| `:chart-collapsed-by-id {<machine-id> boolean}` | per-machine boolean | operator's choice to hide the chart real-estate (default expanded); persisted to localStorage and rehydrated on load |
+**State.** The chart widget keeps no Xray app-db state and registers no
+subs, events or fx.
 
 **Viewport state is NOT an Xray app-db slot (rf2-gpzb4 — 2026-05-21
 xyflow migration).** xyflow owns zoom / pan / fit internally; the
@@ -752,10 +749,6 @@ gave way to `MachineChart`. Fit re-frames ride the orthogonal
 `:fit-signal` nonce (rf2-6tw7t), not a stored viewport. rf2-48fwsi
 likewise removed the `:view-mode-by-id` slot + its `view-mode-for` /
 `view-mode-by-id` subs along with the dead Canvas/List toggle.
-
-Subscriptions exposed for tools / tests:
-`:rf.xray.machine-canvas/chart-collapsed-for`,
-`:rf.xray.machine-canvas/chart-collapsed-by-id`.
 
 ## IN/OUT filter pills
 
