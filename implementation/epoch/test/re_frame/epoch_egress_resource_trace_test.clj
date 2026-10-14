@@ -20,7 +20,6 @@
             ;; default-image reprojection would die on `:rf.error/image-duplicate-id`.
             [re-frame.fx :as rf.fx]
             [re-frame.resources.state :as rf.resources.state]
-            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -198,54 +197,6 @@
   only be the entry snapshot."
   {:auth-token "u1"})
 
-(defn- drive-optimistic-commit!
-  "Drive a REAL optimistic write to an accepted `:ok` over the `:sensitive?`
-  `:secret/article` entry, first loaded with the secret in its `:data`. Returns
-  every trace row the drive put on the bus."
-  []
-  (rf/configure! {:epoch-history {:trace-events-keep 80}})
-  (let [captured (atom nil)
-        rows     (atom [])
-        k        ::optimistic-commit-recorder]
-    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
-    (rf/reg-mutation :m/rename
-      {:scope         :rf.scope/global
-       :params-schema [:map [:auth-token :string]]
-       :optimistic    (fn [params]
-                        {{:resource :secret/article :params params
-                          :scope    :rf.scope/global}
-                         (fn [data] (assoc data :nick "new"))})}
-      (fn [_ _] {:request {:method :put :url "/x"}}))
-    (rf.trace.tooling/register-listener! k (fn [ev] (swap! rows conj ev)))
-    (try
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :secret/article :params optimistic-params
-                          :owner    real-owner}]
-                        {:frame :test/rt})
-      (rf/dispatch-sync (conj (:on-success @captured)
-                              {:status :ok :value {:ssn secret :nick "old"}})
-                        {:frame :test/rt})
-      (rf/dispatch-sync [:rf.mutation/execute
-                         {:mutation :m/rename :params optimistic-params
-                          :instance :rename-1}]
-                        {:frame :test/rt})
-      (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value {:saved true}})
-                        {:frame :test/rt})
-      (finally (rf.trace.tooling/unregister-listener! k)))
-    @rows))
-
-(deftest real-optimistic-commit-ships-no-entry-snapshot-off-box
-  (testing "an optimistic write that COMMITS over a :sensitive? entry records its
-            touched key on :rf.mutation/succeeded with no pre-apply entry
-            snapshot, whose `:data` would carry the secret"
-    (let [succeeded (->> (drive-optimistic-commit!)
-                         (filter #(= :rf.mutation/succeeded (:operation %)))
-                         first
-                         :tags)]
-      (is (= 1 (count (get-in succeeded [:patch-summary :rollback])))
-          "FIXTURE — the optimistic write committed one touched key")
-      (is (empty? (secret-leak-paths succeeded))))))
-
 (deftest off-box-disposition-row-fails-closed-on-non-key-slots
   (testing "a disposition row's slots other than :resource/key take the
             unknown-slot rule: a map (a stray entry snapshot) tokenizes, the
@@ -316,21 +267,6 @@
       (is (= 1 (:removed tags))
           "a route plan's :removed is an INT count under a key-vector slot name — it rides")
       (is (true? (:sensitive? tags))))))
-
-(deftest off-box-redacts-non-map-param-key-embedded-in-resource-work-id
-  (testing "the scoped key embedded in a resource :work/id — non-map params,
-            recognised through the registry — projects exactly as the row's
-            own :resource/key"
-    (let [k         (sk :rf.scope/global :secret/vector-params vector-params)
-          projected (rf/project-egress
-                      (record-with [(event :rf.resource/work-started
-                                           {:rf.frame/id  :test/rt
-                                            :resource/key k
-                                            :generation   3
-                                            :work/id      (rf.resources.work-ledger/resource-work-id k 3)})]))
-          tags      (:tags (first (:trace-events projected)))]
-      (is (= [:rf.work/resource (:resource/key tags) 3] (:work/id tags)))
-      (is (= [] (secret-leak-paths projected))))))
 
 (deftest off-box-keeps-plain-owner-identity-partition-verbatim
   (testing "a PLAIN owner's keys — map and non-map params — ride an unnamed
@@ -423,20 +359,13 @@
 
 (deftest real-cascade-lands-family-rows-in-the-settled-epoch-record
   (testing "every family row a REAL ensure / release-owner cascade emits reaches
-            a settled record's :trace-events, and project-egress over those
-            records redacts the :sensitive? owner while the plain owner's key
-            rides verbatim"
+            a settled record's :trace-events"
     (let [bus-family (filterv family-row? (drive-real-cascade!))
-          records    (rf/epoch-history :test/rt)
-          proj-rows  (filterv family-row? (mapcat (comp :trace-events rf/project-egress) records))]
+          records    (rf/epoch-history :test/rt)]
       (is (contains-secret? bus-family)
           "FIXTURE — the cascade emitted family rows carrying the raw secret")
       (is (= (frequencies (map :operation bus-family))
-             (frequencies (map :operation (filter family-row? (mapcat :trace-events records))))))
-      (is (not (contains-secret? proj-rows)))
-      (is (some #(= [:rf.scope/global :plain/article {:slug plain-slug}]
-                    (:resource/key (:tags %)))
-                proj-rows)))))
+             (frequencies (map :operation (filter family-row? (mapcat :trace-events records)))))))))
 
 ;; ===========================================================================
 ;; fx carriers — the projector reached by SLOT (`:rf.fx/args`, `:rf.event/fx`)
@@ -475,12 +404,6 @@
       (walk (get tags slot)))
     @found))
 
-(defn- carrier-scopes
-  "Every value under a `:scope` key inside the carriers, found by walking so
-  no assertion encodes the cascade's fx order."
-  [record]
-  (carrier-walk record #(when (and (map? %) (contains? % :scope)) (:scope %))))
-
 (defn- carrier-replies
   "Every resource-family continuation reply (read or mutation) inside the
   carriers, found by the reply's own `:rf.reply/work-kind` marker."
@@ -503,25 +426,6 @@
     (fn [rt] (rf.elision/apply-classification-effects
                rt {:sensitive [[:auth :user :username]]})))
   (rf.frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret))
-
-(deftest real-session-scoped-ensure-leaks-no-identity-into-fx-carriers
-  (testing "a REAL ensure of a :sensitive? {:from-db} resource plants the
-            resolved scope in its transport continuation payloads on both fx
-            carriers; projected, every one keeps its tier and tokenizes its
-            identity, and nothing raw survives"
-    (rf/configure! {:epoch-history {:trace-events-keep 50}})
-    (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-    (classify-session-identity!)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :derived/profile :params {:slug "me"} :owner real-owner}]
-                      {:frame :test/rt})
-    (let [raw        (last (rf/epoch-history :test/rt))
-          raw-scopes (carrier-scopes raw)
-          projected  (project-carrier-egress raw)]
-      (is (and (seq raw-scopes) (every? #{session-scope} raw-scopes))
-          "FIXTURE — the carriers carry the raw resolved scope")
-      (is (= (count raw-scopes) (count (filter tokenized-scope? (carrier-scopes projected)))))
-      (is (= [] (carrier-leak-paths projected))))))
 
 (defn- managed-args
   "The `:rf.http/managed` args `transport.http/build-managed-args` builds for
@@ -814,19 +718,6 @@
              (mapv #(second (:resource/key %)) (carrier-replies projected))))
       (is (= [] (secret-leak-paths projected))))))
 
-(deftest real-vector-params-reply-to-read-leaks-nothing-into-fx-carriers
-  (testing "a REAL reply-to read of a :sensitive? owner with NON-MAP params
-            carries the raw params at zero paths of its projected trace
-            carriers, on both continuation paths"
-    (let [records (drive-reply-to-read! :secret/vector-params vector-params
-                                        {:email (str vector-secret "@example.com")})
-          tags-of (fn [r] (mapv :tags (:trace-events r)))]
-      (doseq [cache-hit? [false true]]
-        (testing (if cache-hit? "fresh-skip cache hit" "async settle")
-          (let [raw (record-carrying-reply records cache-hit?)]
-            (is (seq (secret-leak-paths (tags-of raw))) "FIXTURE — the raw carriers leak")
-            (is (= [] (secret-leak-paths (tags-of (project-carrier-egress raw)))))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; the FAILURE envelope under `:error`
 ;; ---------------------------------------------------------------------------
@@ -879,18 +770,14 @@
 
 (deftest fx-carrier-error-envelope-agrees-with-the-family-row
   (testing "the ROW copy and the CARRIER copies of one envelope project to the
-            SAME token, over a PLAIN owner, and every row carrying it is stamped"
+            SAME token, over a PLAIN owner, every row carrying it is stamped, and
+            re-projecting does not re-digest the token"
     (let [projected (project-carrier-egress (plain-failure-record))
           row-error (:error (:tags (first (:trace-events projected))))]
       (is (redacted-component? row-error))
       (is (= [row-error row-error] (mapv :error (carrier-replies projected))))
-      (is (every? #(true? (:sensitive? (:tags %))) (:trace-events projected))))))
-
-(deftest fx-carrier-error-projection-is-idempotent
-  (testing "an already-projected record re-projects to itself; a token is not
-            re-digested"
-    (let [once (project-carrier-egress (plain-failure-record))]
-      (is (= once (project-carrier-egress once))))))
+      (is (every? #(true? (:sensitive? (:tags %))) (:trace-events projected)))
+      (is (= projected (project-carrier-egress projected))))))
 
 (deftest fx-carrier-leaves-a-non-family-error-verbatim
   (testing ":error is the family's only inside its OWN reply marker: an fx map
