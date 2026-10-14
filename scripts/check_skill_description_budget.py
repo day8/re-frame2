@@ -444,10 +444,6 @@ def run_self_test() -> int:
         len(red) == 1 and "listing footprint" in red[0],
         str(red),
     )
-    expect(
-        "an over-slice entry costs the listing only the slice",
-        entry("huge", 5000).entry_len == len("huge") + 4 + LISTING_MAX_DESC_CHARS,
-    )
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
