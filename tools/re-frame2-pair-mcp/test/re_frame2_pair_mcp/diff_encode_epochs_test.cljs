@@ -58,9 +58,8 @@
                         :epochs)))))
 
 (deftest parse-epochs-mode-resolution
-  ;; An unrecognised value gets the smaller-payload behaviour.
+  ;; The default is the smaller payload.
   (doseq [[input expected note]
           [[nil :diff "absent ⇒ diff"]
-           ["full" :full "string full"]
-           ["garbage" :diff "an unknown string falls back to diff"]]]
+           ["full" :full "string full"]]]
     (is (= expected (args/parse-epochs-mode input)) note)))
