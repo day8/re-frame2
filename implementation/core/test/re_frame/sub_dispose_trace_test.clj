@@ -48,14 +48,16 @@
   (filterv #(= :rf.sub/dispose (:operation %)) traces))
 
 (defn- dispose-tags
-  "The frequencies of each dispose event's canonical tags."
+  "The frequencies of each dispose event's op-type and canonical tags."
   [acc]
-  (frequencies (map #(select-keys (:tags %) [:frame :rf.sub/id :rf.sub/query-v :rf.sub/reason])
+  (frequencies (map #(assoc (select-keys (:tags %) [:frame :rf.sub/id :rf.sub/query-v :rf.sub/reason])
+                            :op-type (:op-type %))
                     (dispose-events @acc))))
 
 (defn- tags-for [reason & query-vs]
   (frequencies (for [q query-vs]
-                 {:frame :rf/default :rf.sub/id (first q) :rf.sub/query-v q :rf.sub/reason reason})))
+                 {:op-type :rf.sub :frame :rf/default :rf.sub/id (first q) :rf.sub/query-v q
+                  :rf.sub/reason reason})))
 
 (defn- reg-sum-subs! []
   (rf/reg-event :init (fn [_ _] {:db {:a 2 :b 3}}))
@@ -72,20 +74,6 @@
   (into {}
         (map (fn [q] [q (some-> (get @cache q) :ref-count)]))
         [[:sub/sum] [:sub/a] [:sub/b]]))
-
-(deftest ^:requires-debug dispose-emits-on-last-unsubscribe
-  (rf/reg-event :init (fn [_ _] {:db {:a 42}}))
-  (rf/reg-sub :sub/a (fn [db _] (:a db)))
-  (rf/dispatch-sync [:init])
-  (let [acc (collect-traces! ::layer-1-no-derefers)]
-    (try
-      (let [r (rf/subscribe [:sub/a])]
-        @r
-        (rf/unsubscribe r))
-      (is (= [:rf.sub] (mapv :op-type (dispose-events @acc))))
-      (is (= (tags-for :no-more-derefers [:sub/a]) (dispose-tags acc)))
-      (finally
-        (rf/unregister-listener! :trace ::layer-1-no-derefers)))))
 
 (deftest ^:requires-debug dispose-hot-reload-fires-per-evicted-slot
   ;; Re-registering a sub evicts every cached query-arg variant of it.
