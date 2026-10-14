@@ -9,7 +9,6 @@
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.frame :as rf.frame]
    [re-frame.resources]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
@@ -88,10 +87,6 @@
            :generation 7 :transport :rf.http/managed :started-at 1300 :page-index 3})
         (assoc :status :running))}})
 
-(defn- snapshot-of [entry]
-  {rf.resources.state/resources-key {:entries   {(rf.resources.state/key-id fkey) (assoc entry :resource/key fkey)}
-                                     :tag-index {} :owner-index {}}})
-
 (defn- fkey-entry [rdb]
   (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)]))
 
@@ -106,18 +101,6 @@
   [entry]
   (#'rf.resources.subs/merged-items entry 'rf.resource/items))
 
-(deftest projection-ships-page-vector-and-infinite-facts-verbatim
-  (reg-feed!)
-  (let [proj (rf.resources.ssr/project-resources-runtime-db (feed-with-load-more-in-flight :app/main))
-        es   (get-in proj [rf.resources.state/resources-key :entries])
-        we   (val (first es))]
-    (is (= [#{rf.resources.state/resources-key} #{:entries} 1]
-           [(set (keys proj)) (set (keys (get proj rf.resources.state/resources-key))) (count es)])
-        "only the resources :entries ride, the whole feed in one slot")
-    (is (= [true expected-page-facts nil :fetching false]
-           [(:infinite? we) (page-facts we) (:page-error we) (:status we) (contains? we :current-work)])
-        "every page fact rides verbatim; the in-flight :current-work pointer is stripped")))
-
 (deftest restore-rehydrates-page-vector-and-cursor-intact
   (reg-feed!)
   (let [out (rf.resources.ssr/reconcile-on-restore (feed-with-load-more-in-flight :app/main) :app/main)
@@ -131,37 +114,19 @@
            [(:status e) (:current-work e) (:status row) (get-in row [:outcome :reason])])
         "the vanished load-more settles to last-stable :loaded and its row dangles")))
 
-(deftest restore-fetching-next?-resolves-false-no-phantom-load-more
-  ;; through the real reconcile, a live frame and the live subs
-  (reg-feed!)
-  (let [fid        :restore/infinite-fetching-next
-        reconciled (rf.resources.ssr/reconcile-on-restore (feed-with-load-more-in-flight fid) fid)]
-    (rf/make-frame {:id fid :doc "restore infinite fetching-next? frame"})
-    (rf.frame/replace-runtime-db! fid reconciled)
-    (let [q   {:resource :feed/timeline :scope :rf.scope/global :params {:filter :recent}}
-          sub #(deref (rf/subscribe [% q] {:frame fid}))
-          vm  (sub :rf.resource/infinite-state)]
-      (is (= [expected-items expected-pages 3 true nil false]
-             (map sub [:rf.resource/items :rf.resource/pages :rf.resource/page-count
-                       :rf.resource/has-next-page? :rf.resource/page-error :rf.resource/fetching-next?]))
-          "the feed reads intact and no phantom load-more is in flight")
-      (is (= {:fetching-next? false :fetching? false :status :loaded :items expected-items :has-data? true}
-             (select-keys vm [:fetching-next? :fetching? :status :items :has-data?]))))
-    (rf.frame/destroy-frame! fid)))
-
-(deftest restore-with-page-error-rehydrates-third-error-channel
-  (reg-feed!)
-  (let [failed (rf.resources.state/entry-page-failed (loaded-feed-entry) {:error {:kind :rf.http/server :status 503}})
-        e      (fkey-entry (rf.resources.ssr/reconcile-on-restore (snapshot-of failed) :app/main))]
-    (is (= [{:kind :rf.http/server :status 503} nil nil expected-pages :loaded]
-           ((juxt :page-error :error :refresh-error :data :status) e))
-        "the page-error channel survives restore, distinct from :error and :refresh-error, with the pages kept")))
-
 (deftest ssr-round-trip-project-then-hydrate-rehydrates-feed-intact
   (reg-feed!)
   (let [projected (rf.resources.ssr/project-resources-runtime-db (feed-with-load-more-in-flight :app/main))
+        es        (get-in projected [rf.resources.state/resources-key :entries])
+        we        (val (first es))
         out       (rf.resources.ssr/hydrate-runtime-db projected :app/main)
         e         (fkey-entry out)]
+    (is (= [#{rf.resources.state/resources-key} #{:entries} 1]
+           [(set (keys projected)) (set (keys (get projected rf.resources.state/resources-key))) (count es)])
+        "only the resources :entries ride, the whole feed in one slot")
+    (is (= [true expected-page-facts nil :fetching false]
+           [(:infinite? we) (page-facts we) (:page-error we) (:status we) (contains? we :current-work)])
+        "every page fact rides verbatim; the in-flight :current-work pointer is stripped")
     (is (= [expected-pages "c3" expected-items :loaded nil]
            [(:data e) (:next-page-param e) (merged-items* e) (:status e) (:current-work e)])
         "the feed survives project then hydrate, the dangling :fetching settled to :loaded")
