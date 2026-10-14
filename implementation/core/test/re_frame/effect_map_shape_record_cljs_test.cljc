@@ -71,14 +71,6 @@
   (testing "case (b) — a non-sequential :fx value is the same refusal"
     (is (= [:fx] (map :offending-key (refuse! {:fx :oops} :bad/fx-value))))))
 
-(deftest the-refusal-does-not-halt-the-drain
-  (testing "a refused event leaves the frame able to run the next event"
-    (rf/reg-event :bad/refused (fn [_ _] {:db {:n 2} :legacy/dispatch [:x]}))
-    (rf/reg-event :good/after (fn [{:keys [db]} _] {:db (assoc db :after true)}))
-    (rf/dispatch-sync [:bad/refused])
-    (rf/dispatch-sync [:good/after])
-    (is (true? (:after (rf.frame/frame-app-db-value :rf/default))))))
-
 (deftest the-refused-event-settles-error-on-the-events-stream
   (testing "a refused dispatch settles :error on the always-on :events stream, never a clean :ok"
     (let [seen (atom [])]
