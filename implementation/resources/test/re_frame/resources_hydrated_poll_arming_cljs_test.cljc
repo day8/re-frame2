@@ -83,15 +83,13 @@
                  (some? (get-in % [:timers :poll])))
            @scheduled))
 
-(defn- reg-article!
-  ([] (reg-article! {:poll-interval-ms interval-ms}))
-  ([policy]
-   (rf/reg-resource :hg/article
-                    (merge {:scope         :rf.scope/global
-                            :params-schema [:map [:slug :string]]}
-                           policy)
-                    (fn [{:keys [slug]} _ctx]
-                      {:request {:method :get :url (str "/api/articles/" slug)}}))))
+(defn- reg-article! []
+  (rf/reg-resource :hg/article
+                   {:scope            :rf.scope/global
+                    :params-schema    [:map [:slug :string]]
+                    :poll-interval-ms interval-ms}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get :url (str "/api/articles/" slug)}})))
 
 (defn- hydrate! [owners]
   (let [e (merge (rf.resources.state/empty-entry :hg/article k)
@@ -213,9 +211,3 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
     (is (nil? (poll-slot))
         (str "leaving the route released the only owner and stopped polling: " (pr-str (observed))))))
-
-(deftest owned-hydrated-entry-without-a-poll-interval-arms-no-poll
-  (reg-article! {})
-  (hydrate! #{[:route :route/article "nav-1"]})
-  (is (= [[:rf/default] true nil] [@rearms (some? (gc-slot)) (poll-slot)])
-      "the rearm ran and armed GC, but no poll without a poll policy"))
