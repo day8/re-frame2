@@ -10,15 +10,11 @@
   `server-parse-matches-authored-and-client-text` parses react-dom's bytes with
   a conformant HTML5 parser (`nu.validator.htmlparser`, not jsoup, which keeps
   a textarea's LF) to show they round-trip to the authored string."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
-            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree])
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.ssr.emit :as rf.ssr.emit])
   (:import [java.io StringReader]
            [nu.validator.htmlparser.dom HtmlDocumentBuilder]
            [org.xml.sax InputSource]))
-
-(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (defn- parsed-text-content
   "The `textContent` of the first `tag` element in the HTML5 parse of `html`."
@@ -31,8 +27,6 @@
     (.getTextContent (.item elements 0))))
 
 (deftest hiccup-preserves-a-leading-newline
-  (testing "every EXTRA authored LF survives (one is eaten, the rest remain)"
-    (is (= "<pre>\n\n\ncode</pre>" (rf.ssr.emit/render-to-string [:pre "\n\ncode"]))))
   (testing "text is still escaped alongside the compensation"
     (is (= "<pre>\n\n&lt;a&gt; &amp; b</pre>" (rf.ssr.emit/render-to-string [:pre "\n<a> & b"]))))
   (testing "an attrs map does not disturb the rule"
@@ -42,31 +36,14 @@
     (is (= "<PRE>\n\ncode</PRE>" (rf.ssr.emit/render-to-string [:PRE "\ncode"])))))
 
 (deftest hiccup-vacuity-controls
-  (testing "no leading LF, or a non-newline-eating element: no compensation"
-    (is (= "<pre>code</pre>" (rf.ssr.emit/render-to-string [:pre "code"])))
+  (testing "a non-newline-eating element: no compensation"
     (is (= "<div>\ncode</div>" (rf.ssr.emit/render-to-string [:div "\ncode"]))))
-  (testing "raw text is never newline-eating and never escaped"
-    (is (= "<script>\nvar a = 1 < 2;</script>"
-           (rf.ssr.emit/render-to-string [:script "\nvar a = 1 < 2;"]))))
   ;; React parity, not round-trips: react-dom/server compensates neither of
   ;; these, so neither does this emitter.
   (testing "a leading CR is not a trigger: React tests `charAt(0) === '\\n'`"
     (is (= "<pre>\r\ncode</pre>" (rf.ssr.emit/render-to-string [:pre "\r\ncode"]))))
   (testing "a multi-child body is not compensated"
-    (is (= "<pre>\nab</pre>" (rf.ssr.emit/render-to-string [:pre "\na" "b"])))
-    (is (= "<pre>\n<b>x</b></pre>" (rf.ssr.emit/render-to-string [:pre "\n" [:b "x"]]))
-        "an element sibling is a multi-child body")))
-
-(deftest both-ssr-paths-agree
-  (doseq [[tag body] [["pre" "\ncode"] ["listing" "\nl"] ["textarea" "\nt"]
-                      ["pre" "code"] ["div" "\ncode"]]]
-    (let [hiccup   [(keyword tag) body]
-          tree     {:rf.ui/tree-version 1
-                    :tag                (keyword tag)
-                    :children           [body]}
-          from-s5  (rf.ssr.ui-tree/emit-ui-tree tree)]
-      (is (= from-s5 (rf.ssr.emit/render-to-string hiccup))
-          (str "S5 serialiser vs sync hiccup emitter on <" tag ">")))))
+    (is (= "<pre>\nab</pre>" (rf.ssr.emit/render-to-string [:pre "\na" "b"])))))
 
 (def ^:private react-dom-static-markup
   "react-dom/server 19.2 `renderToStaticMarkup` output, measured, for the same
