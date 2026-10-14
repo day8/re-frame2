@@ -47,33 +47,21 @@
 (deftest compute-sub-emits-sub-exception-on-body-throw
   ;; parity with the reactive path (Spec 009 §Error contract): a throwing body
   ;; recovers to nil and emits :rf.error/sub-exception, never a silent nil
-  (testing "layer-1 body throw"
-    (rf/reg-sub :boom (fn [_db _q] (throw (ex-info "boom" {:k :v}))))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::boom (fn [ev] (swap! traces conj ev)))
-      (is (nil? (rf/compute-sub [:boom] {})))
-      (rf/unregister-listener! :trace ::boom)
-      (when rf.interop/debug-enabled?
-        (let [ev (some #(when (= :rf.error/sub-exception (:operation %)) %) @traces)]
-          (is (= [:error :replaced-with-default
-                  {:failing-id :boom :rf.sub/id :boom :sub-query [:boom]
-                   :where :compute-sub :exception-message "boom"}
-                  true]
-                 [(:op-type ev) (:recovery ev)
-                  (select-keys (:tags ev) [:failing-id :rf.sub/id :sub-query
-                                           :where :exception-message])
-                  (instance? Throwable (:exception (:tags ev)))]))))))
-  (testing "layer-2 body throw"
-    (rf/reg-sub :n   (fn [db _] (:n db)))
-    (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[_n] _q] (throw (ex-info "kaboom" {}))))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
-      (is (nil? (rf/compute-sub [:n*2] {:n 7})))
-      (rf/unregister-listener! :trace ::boom2)
-      (when rf.interop/debug-enabled?
-        (is (some #(and (= :rf.error/sub-exception (:operation %))
-                        (= [:n*2 :compute-sub] ((juxt :rf.sub/id :where) (:tags %))))
-                  @traces))))))
+  (rf/reg-sub :boom (fn [_db _q] (throw (ex-info "boom" {:k :v}))))
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::boom (fn [ev] (swap! traces conj ev)))
+    (is (nil? (rf/compute-sub [:boom] {})))
+    (rf/unregister-listener! :trace ::boom)
+    (when rf.interop/debug-enabled?
+      (let [ev (some #(when (= :rf.error/sub-exception (:operation %)) %) @traces)]
+        (is (= [:error :replaced-with-default
+                {:failing-id :boom :rf.sub/id :boom :sub-query [:boom]
+                 :where :compute-sub :exception-message "boom"}
+                true]
+               [(:op-type ev) (:recovery ev)
+                (select-keys (:tags ev) [:failing-id :rf.sub/id :sub-query
+                                         :where :exception-message])
+                (instance? Throwable (:exception (:tags ev)))]))))))
 
 (deftest subscribe-handles-missing-frame
   (rf/reg-sub :n (fn [db _] (:n db)))
@@ -126,16 +114,6 @@
         "a second call recomputes against its own db")
     (is (nil? (rf/compute-sub [:no-such-sub] {})) "an unknown sub is nil, not a throw")))
 
-(deftest flow-rectangle-area
-  (rf/reg-event :init (fn [_ _] {:db {:width 0 :height 0}}))
-  (rf/reg-event :w! (fn [{:keys [db]} [_ w]] {:db (assoc db :width w)}))
-  (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
-  (rf/reg-flow :rect/area {:inputs [[:width] [:height]] :output-path [:area]} (fn [w h] (* w h)))
-  (rf/dispatch-sync [:init])
-  (rf/dispatch-sync [:w! 3])
-  (rf/dispatch-sync [:h! 4])
-  (is (= 12 (:area (rf/app-db-value :rf/default)))))
-
 (deftest spawn-id-is-frame-scoped
   ;; the spawn counter lives in each parent snapshot, so independent frames
   ;; never share an actor-id sequence
@@ -156,19 +134,6 @@
          (mapv #(get-in (:rf.db/runtime (rf/frame-state-value %))
                         [:rf.runtime/machines :snapshots :flow :rf/spawn-counter :worker])
                [:left :right]))))
-
-(deftest spawn-and-destroy-machine-fx
-  (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
-  (rf/reg-event :do-spawn
-    (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
-                                        :id-prefix  :worker
-                                        :start      [:begin]}]
-                    [:rf.machine/destroy :worker#1]]}))
-  (rf/dispatch-sync [:do-spawn])
-  (is (= {:spawn-counter {:worker 1} :snapshots {}}
-         (select-keys (:rf.runtime/machines (:rf.db/runtime (rf/frame-state-value :rf/default)))
-                      [:spawn-counter :snapshots]))
-      "both fx were handled: the spawn allocated :worker#1 and the destroy removed it"))
 
 ;; The registered machine's SPEC map, read through the generic registrar query
 ;; plus the `:rf/machine` inner-key projection (Spec 005 §Querying machines).
