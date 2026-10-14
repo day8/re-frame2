@@ -130,39 +130,22 @@ function it(label, f) {
 
 console.log('dev-testbed arg-resolution tests');
 
-it('duplicate explicit build-ids are deduped, order preserved', () => {
+it('duplicate explicit build-ids are deduped, order preserved; flags pass verbatim', () => {
   assert.deepStrictEqual(
-    resolveArgs([
-      ':examples/login-form',
-      ':examples/standard-epochs',
-      ':examples/login-form',
-    ]),
-    [':examples/login-form', ':examples/standard-epochs'],
+    resolveArgs([':examples/login-form', '--verbose', ':examples/standard-epochs', ':examples/login-form', '--verbose']),
+    [':examples/login-form', '--verbose', ':examples/standard-epochs', '--verbose'],
   );
 });
 
-it('non-build flags are NOT deduped (passed verbatim)', () => {
+it('urlsForBuild: the live URL, plus /#/stories for a Story build, and [] with no dev-http port', () => {
   assert.deepStrictEqual(
-    resolveArgs([':testbeds/panel-gallery', '--verbose', '--verbose']),
-    [':testbeds/panel-gallery', '--verbose', '--verbose'],
+    [':examples/standard-epochs', ':examples/login-form', ':examples/counter'].map(urlsForBuild),
+    [
+      ['http://localhost:8031/'],
+      ['http://localhost:8043/', 'http://localhost:8043/#/stories'],
+      [],
+    ],
   );
-});
-
-it('urlsForBuild prints the live URL for a plain build', () => {
-  assert.deepStrictEqual(urlsForBuild(':examples/standard-epochs'), [
-    'http://localhost:8031/',
-  ]);
-});
-
-it('urlsForBuild prints the live + /#/stories URLs for a Story build', () => {
-  assert.deepStrictEqual(urlsForBuild(':examples/login-form'), [
-    'http://localhost:8043/',
-    'http://localhost:8043/#/stories',
-  ]);
-});
-
-it('urlsForBuild returns [] for a build with no dev-http port', () => {
-  assert.deepStrictEqual(urlsForBuild(':examples/counter'), []);
 });
 
 // Exact in both directions: a served build missing from DEV_HTTP prints no URL,
