@@ -56,21 +56,15 @@
   (let [res (rt/read-sub! [:review/inline-sub] frame-id)]
     (is (true? (:ok? res))
         "an inline-image sub is a valid id for the frame that carries it")
-    (is (not= :unknown-id (:reason res))
-        "and is NOT refused as unregistered")
     (is (= [:review/inline-sub] (:query-v res)) "the query-v echoes back")))
 
 (deftest image-only-event-dispatches-through-the-typed-tool
   (ensure-frame!)
   (let [before (:value (rt/read-sub! [:review/inline-sub] frame-id))
-        res    (rt/dispatch-consequence! [:review/inline-event] {:frame frame-id})
+        _      (rt/dispatch-consequence! [:review/inline-event] {:frame frame-id})
         after  (:value (rt/read-sub! [:review/inline-sub] frame-id))]
-    (is (not= :unknown-id (:reason res))
-        "an inline-image event is not refused as unregistered")
-    (is (not (false? (:dispatched? res)))
-        "and the dispatch is not suppressed")
     (is (= (inc (or before 0)) after)
-        "the handler actually ran — the frame's app-db advanced")))
+        "the inline-image event was accepted and its handler ran — the frame's app-db advanced")))
 
 (deftest store-only-id-is-refused-against-a-frame-that-excludes-it
   ;; The opposite mismatch of the same lookup. Validating against the
