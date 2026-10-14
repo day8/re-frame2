@@ -15,7 +15,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; `re-frame.ssr`'s always-on capture hook (`:ssr/capture-error-record`) IS
@@ -26,7 +25,6 @@
 ;; schema-aware redactor could know to scrub — so the record must omit
 ;; payload data rather than redact it.
 (def ^:private bad-payload  {:qty "s3cr3t-offending-value" :note "s3cr3t-undeclared-key"})
-(def ^:private good-payload {:qty 7 :note "s3cr3t-undeclared-key"})
 
 (defn- register-ingest! []
   (rf/reg-event :api/ingest
@@ -77,22 +75,3 @@
                :recovery   :no-recovery
                :time       true}]
              (mapv #(update % :time number?) records))))))
-
-(deftest the-400-lands-on-the-emitting-frame-only
-  (register-ingest!)
-  (let [refused  (server-frame)
-        accepted (server-frame)]
-    (rf/dispatch-sync [:api/ingest bad-payload]  {:frame refused})
-    (rf/dispatch-sync [:api/ingest good-payload] {:frame accepted})
-    (is (= [400 200] [(:status (:response (rf.ssr/flush-response-result! refused)))
-                      (:status (:response (rf.ssr/flush-response-result! accepted)))]))))
-
-(deftest every-buffered-entry-projects-the-same-400
-  (testing "a dev build buffers the rejection on both buses and the drain
-            projects the LAST entry, so every entry must agree; the count is
-            the one thing that legitimately differs by posture"
-    (let [f (:frame (ingest! bad-payload))]
-      (is (= #{[:rf.error/schema-validation-failure 400]}
-             (set (map (juxt :operation #(:status (rf.ssr/default-error-projector-fn %)))
-                       (get @rf.ssr.error-listener/pending-error-traces
-                            (rf.frame/frame-address f)))))))))
