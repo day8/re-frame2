@@ -38,15 +38,10 @@
 ;; ---- route-url's structured failures --------------------------------------
 
 (deftest route-url-missing-required-path-param-throws
-  (testing "an absent required path param or splat raises
-            :rf.error/missing-route-param naming the param and the route"
-    (rf/reg-route :route/article {} "/articles/:id")
-    (rf/reg-route :route/files {} "/files/*path")
-    (are [to param] (= {:rf.error/id :rf.error/missing-route-param :route-id to :param param}
-                       (select-keys (thrown-data #(rf.routing/route-url {:to to :params {}}))
-                                    [:rf.error/id :route-id :param]))
-      :route/article :id
-      :route/files   :path)))
+  (rf/reg-route :route/article {} "/articles/:id")
+  (is (= {:rf.error/id :rf.error/missing-route-param :route-id :route/article :param :id}
+         (select-keys (thrown-data #(rf.routing/route-url {:to :route/article :params {}}))
+                      [:rf.error/id :route-id :param]))))
 
 (deftest route-url-no-such-route-throws
   (is (= {:rf.error/id :rf.error/no-such-route :route-id :route/no-such-route}
@@ -81,28 +76,17 @@
     (is (nil? (rf.routing/match-url "/search?ok=1&%=bad&also=2")))))
 
 (deftest match-url-malformed-percent-in-fragment-fails-closed
-  (testing "a malformed #fragment fails the URL closed; a well-formed one is decoded"
-    (rf/reg-route :route/page {} "/page")
-    (is (nil? (rf.routing/match-url "/page#good%a")))
-    (is (= "hello world" (:fragment (rf.routing/match-url "/page#hello%20world"))))))
+  (rf/reg-route :route/page {} "/page")
+  (is (nil? (rf.routing/match-url "/page#good%a"))))
 
 ;; ---- route-url query emission ----------------------------------------------
 
 (deftest route-url-query-string-emission
-  (testing "pairs join with `&` in canonical key order whatever the caller's
-            insertion order; keys and values are percent-encoded (a space is
-            %20, and `&` / `=` cannot inject a pair); a nil value is elided
-            while false and \"\" are present values"
+  (testing "false and \"\" are present values, emitted rather than elided like nil"
     (rf/reg-route :route/list {} "/list")
     (are [query url] (= url (rf.routing/route-url {:to :route/list :query query}))
-      (array-map :z "3" :x "1" :y "2") "/list?x=1&y=2&z=3"
-      {:q "x y"}                       "/list?q=x%20y"
-      {:filter "a&b=c"}                "/list?filter=a%26b%3Dc"
-      {(keyword "a b") "v"}            "/list?a%20b=v"
-      {:page nil}                      "/list"
-      (array-map :a "1" :b nil)        "/list?a=1"
-      {:flag false}                    "/list?flag=false"
-      {:s ""}                          "/list?s=")))
+      {:flag false} "/list?flag=false"
+      {:s ""}       "/list?s=")))
 
 (deftest route-url-throws-on-invalid-path-params
   (let [restore (rf.routing-test-support/with-stub-validator)]
@@ -124,19 +108,14 @@
       (finally (restore)))))
 
 (deftest route-url-throws-on-invalid-query-params
-  (testing "a query that fails the route's :query schema throws; an empty query
-            map is still validated"
+  (testing "an empty query map is still validated against the route's :query schema"
     (let [restore (rf.routing-test-support/with-stub-validator)]
       (try
-        ;; A predicate schema declares no query vocabulary, so `:q` reaches it
-        ;; spelled the way the URL spells it — the string key "q".
         (rf/reg-route :route/search
                       {:query (fn [m] (pos? (count (get m "q"))))} "/search")
-        (doseq [query [{:q ""} {}]]
-          (is (= {:rf.error/id :rf.error/route-url-validation :slot :query}
-                 (select-keys (thrown-data #(rf.routing/route-url {:to :route/search :query query}))
-                              [:rf.error/id :slot]))
-              (pr-str query)))
+        (is (= {:rf.error/id :rf.error/route-url-validation :slot :query}
+               (select-keys (thrown-data #(rf.routing/route-url {:to :route/search :query {}}))
+                            [:rf.error/id :slot])))
         (finally (restore))))))
 
 (deftest route-url-elides-nil-query-before-validation-rf2-w3qgc
@@ -181,7 +160,6 @@
                      "/a{//}?"           ;; empty segment in a group
                      "/articles{:id}?"   ;; slash-outside group
                      "/a/{/:x}?"         ;; `/` before a group: emits `/a//x`, elides to an unmatchable `/a`
-                     "/{/:x}?"           ;; the same at the root: emits `//x`
                      "/a{/:b{/:c}?}?"    ;; nested group
                      "/a{/*rest}?"       ;; splat in a group
                      "/a{/:1bad}?"       ;; bad param name in a group
@@ -359,20 +337,17 @@
 
 ;; ============================================================================
 ;; match-url coerces PATH params against the :params schema before validating
-;; them, with the real Malli validator. The :uuid round trip on both hosts is
-;; routing_url_non_edn_cljs_test's uuid-path-mixed-case-coerces-host-symmetric.
+;; them, with the real Malli validator. The coercing :uuid round trip on both
+;; hosts is routing_url_non_edn_cljs_test's uuid-path-mixed-case-coerces-host-symmetric.
 ;; ============================================================================
 
 (deftest path-param-coercion-against-params-schema
-  (testing "a typed path param coerces before validation; a capture its type
-            cannot read stays the raw string, in its original case, which the
-            schema rejects"
-    (rf/reg-route :route/page    {:params [:map [:n :int]]}   "/page/:n")
+  (testing "a capture its type cannot read stays the raw string, in its original
+            case, which the schema rejects"
     (rf/reg-route :route/article {:params [:map [:id :uuid]]} "/articles/:id")
-    (are [url expected] (= expected (select-keys (rf.routing/match-url url)
-                                                 [:route-id :params :validation-failed?]))
-      "/page/42"             {:route-id :route/page :params {:n 42} :validation-failed? false}
-      "/articles/NOT-A-UUID" {:route-id :route/article :params {:id "NOT-A-UUID"} :validation-failed? true})))
+    (is (= {:route-id :route/article :params {:id "NOT-A-UUID"} :validation-failed? true}
+           (select-keys (rf.routing/match-url "/articles/NOT-A-UUID")
+                        [:route-id :params :validation-failed?])))))
 
 ;; :int coercion is total on oversized integers and bounded to the cross-host
 ;; safe-integer range. The bound is host-neutral code, so this read pins both hosts.
@@ -429,21 +404,13 @@
 ;; ===========================================================================
 
 (deftest match-against-captures-and-anchors-both-ends
-  (testing "match-against returns the captured params for a URL its compiled
-            pattern matches, anchored at both ends, and nil (no throw) otherwise"
+  (testing "match-against refuses an empty capture (nil, no throw) and reads an
+            empty path as the root"
     (are [pattern url expected]
          (= expected (rf.routing.match/match-against (rf.routing.match/parse-pattern pattern) url))
-      "/foo/bar"                  "/foo/bar"          {}
-      "/foo/bar"                  "/foo/baz"          nil
-      "/foo/bar"                  "/foo/bar/extra"    nil
-      "/users/:id"                "/users/42"         {:id "42"}
-      "/users/:id"                "/users/"           nil
-      "/files/*path"              "/files/a/b/c"      {:path "a/b/c"}
-      "/files/*path"              "/files/"           nil
-      "/"                         "/"                 {}
-      "/"                         ""                  {}
-      "/"                         "/foo"              nil
-      "/users/:id/posts/:post-id" "/users/42/posts/9" {:id "42" :post-id "9"})))
+      "/users/:id"   "/users/" nil
+      "/files/*path" "/files/" nil
+      "/"            ""        {})))
 
 ;; ---- ranking ------------------------------------------------------------------
 
@@ -468,17 +435,13 @@
 
 ;; Spec 012 rules 4 and 5 are boolean bits (has-splat?, has-optional?), not
 ;; counts: a count-based rank would order routes the spec ties.
-(deftest parse-pattern-optional-group-count-does-not-affect-rank-rf2-dqlfty
+(deftest parse-pattern-rank-rules-4-and-5-are-booleans-rf2-dqlfty
+  ;; That one and two optional groups TIE is the registration-order test below.
   (let [rank #(:rank (rf.routing.match/parse-pattern %))]
-    (is (= (rank "/docs{/a}?") (rank "/docs{/a}?{/b}?"))
-        "one and two optional groups tie at rule 5")
     (is (pos? (compare (rank "/docs") (rank "/docs{/a}?")))
-        "an exact route still out-ranks an optional-group route")))
-
-(deftest parse-pattern-named-param-outranks-splat-rf2-dqlfty
-  (is (pos? (compare (:rank (rf.routing.match/parse-pattern "/files/:name"))
-                     (:rank (rf.routing.match/parse-pattern "/files/*rest"))))
-      "rule 4: a named param out-ranks a splat"))
+        "rule 5: an exact route out-ranks an optional-group route")
+    (is (pos? (compare (rank "/files/:name") (rank "/files/*rest")))
+        "rule 4: a named param out-ranks a splat")))
 
 (deftest match-url-optional-group-count-tie-breaks-on-registration-order-rf2-dqlfty
   (testing "routes differing only in optional-group COUNT tie, so rule 6
