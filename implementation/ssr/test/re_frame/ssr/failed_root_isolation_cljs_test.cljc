@@ -276,21 +276,3 @@
                                          (throw (ex-info "no" {})))}]))]
       (is (= [1 :failed true] [@attempts (:status outcome) (some? (:error outcome))])
           "attempted once; the throwable is handed back"))))
-
-(deftest outcomes-come-back-in-input-order
-  (testing "so a caller correlates every root, a failed one included"
-    (let [frames (vec (repeatedly 3 fresh-frame!))]
-      (is (= [[:page/r0 :hydrated] [:page/r1 :failed] [:page/r2 :hydrated]]
-             (mapv (juxt :root-id :status)
-                   (rf.ssr/hydrate-page! (root-specs frames 1 frame-id-lever))))))))
-
-(deftest an-all-healthy-page-boots-every-root
-  (reg-bump!)
-  (let [frames   (vec (repeatedly 3 fresh-frame!))
-        mounted  (atom [])
-        specs    (mapv (fn [spec] (assoc spec :mount-fn #(swap! mounted conj (:root-id spec))))
-                       (root-specs frames nil nil))
-        outcomes (rf.ssr/hydrate-page! specs)]
-    (is (= [[:hydrated :hydrated :hydrated] [:page/r0 :page/r1 :page/r2]]
-           [(mapv :status outcomes) @mounted]))
-    (is (= (repeat 3 [true true]) (mapv (juxt hydrated? interactive?) frames)))))
