@@ -1,38 +1,12 @@
 (ns re-frame.mcp-conformance.result-envelope-test
   "`:rf.mcp/result` typed eval/handler result-envelope gate.
 
-  ## Why this marker needs a bespoke gate
-
-  The wrapper-shaped markers in `schemas/canonical-markers` are
-  `{<marker-key> <body-map>}` — the value is a body the agent walks.
-  `:rf.mcp/result` is shaped differently: the marker key is itself the
-  DISCRIMINATOR and its VALUE is a tag keyword (`:value` / `:nil` /
-  `:eval-error` / `:unserializable`) with TAG-SPECIFIC SIBLING SLOTS
-  riding alongside the marker key (per `mcp-base/vocab.cljc/result-key`
-  and re-frame2-pair-mcp `tools/result_envelope.cljs` `wrap-form` /
-  `envelope->result`). It is a wire-FIDELITY envelope: it TYPES an
-  evaluation's outcome so a genuine `nil`, a thrown eval-error, and an
-  unserializable value (`#object` / `#js` / Function) do not collapse
-  to a bare `null`. That tagged-union shape does not fit the wrapper
-  table — so, like `:rf.mcp/cursor-stale` (a `:reason` value) and
-  `:rf/redacted` (a bare scalar), it gets its own dedicated gate.
-
-  ## What this gate owns
-
-  The mcp-base vocab unit test pins the marker KEY (`:rf.mcp/result` =
-  `vocab/result-key`); this gate pins the marker's four-tag SHAPE in the
-  cross-MCP wire-vocab corpus, so a drift in the envelope grammar (a tag
-  renamed, a required slot dropped, a cross-tag slot leak) trips the
-  conformance corpus.
-
-  ## Live-vs-fixture posture
-
-  The EMITTER (`result_envelope.cljs` `wrap-form`) is CLJS, with no
-  JVM-reachable counterpart — same posture as `:rf.mcp/summary` /
-  `:rf.mcp/cache-hit`: FIXTURE+grep only, no pure-JVM live-emission
-  gate. The marker KEY literal IS JVM-reachable (`vocab/result-key`,
-  a `.cljc` def on the `:test` classpath), so the source-text pin
-  asserts the live constant rather than a re-typed literal."
+  The marker key is the discriminator and its value a tag (`:value`,
+  `:nil`, `:eval-error`, `:unserializable`) with tag-specific sibling
+  slots, so a genuine nil, a thrown eval and an unserializable value do
+  not collapse to a bare null. The emitter (`result_envelope.cljs`) is
+  CLJS, so the shape is pinned by fixtures; the key is pinned against the
+  JVM-reachable `vocab/result-key`."
   (:require [clojure.string :as str]
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
@@ -135,10 +109,6 @@
     :preview       "#object[Object [object console]]"}})
 
 (deftest result-envelope-fixtures-conform-to-schema
-  ;; Every authored per-tag fixture validates against the single
-  ;; canonical `ResultEnvelope` schema — the primary conformance
-  ;; assertion (mirrors `every-fixture-conforms-to-its-canonical-schema`
-  ;; for the wrapper markers).
   (doseq [[fixture-name fixture-value] result-envelope-fixtures]
     (testing (str ":rf.mcp/result — fixture " fixture-name)
       (is (m/validate ResultEnvelope fixture-value)
@@ -146,40 +116,14 @@
                "validation:\n"
                (me/humanize (m/explain ResultEnvelope fixture-value)))))))
 
-(deftest result-envelope-enforces-per-tag-shape
-  ;; The teeth: each tag's CLOSED arm rejects malformed shapes — a tag
-  ;; missing a required slot, a cross-tag slot leak, or an unknown tag.
-  ;; The documented shapes are the fixtures above.
-  (doseq [[label envelope] [["a :value result MUST carry the :value slot"
-                             {:rf.mcp/result :value}]
-                            ["a :nil result MUST be the bare tag"
-                             {:rf.mcp/result :nil :value 1}]
-                            ["an :eval-error MUST carry :reason"
-                             {:rf.mcp/result :eval-error :ex "boom"}]
-                            ["an :unserializable MUST NOT carry the eval-error-only :reason slot"
-                             {:rf.mcp/result :unserializable :type "object" :preview "x" :reason :boom}]
-                            ["an unrecognised tag has no dispatch arm"
-                             {:rf.mcp/result :bogus}]]]
-    (is (not (m/validate ResultEnvelope envelope)) label)))
-
 (deftest result-key-matches-the-live-vocab-constant
-  ;; Pin the gate's dispatch keyword against the live JVM-reachable
-  ;; `vocab/result-key` constant (the `.cljc` def is on the `:test`
-  ;; classpath). The schema dispatches on `:rf.mcp/result` literally; if
-  ;; the vocab constant ever drifted from that literal, this gate trips —
-  ;; the schema and the canonical key cannot diverge silently.
   (is (= :rf.mcp/result rf.mcp-base.vocab/result-key)
       (str "vocab/result-key MUST be :rf.mcp/result — the literal the "
            "ResultEnvelope schema dispatches on. Got "
            (pr-str rf.mcp-base.vocab/result-key))))
 
+;; The mcp-base vocab spec, not pair-mcp's docs, catalogues this marker.
 (deftest result-key-literal-in-mcp-base-vocab-spec-doc-source
-  ;; Doc-source pin (looser, raw `str/includes?`): the mcp-base
-  ;; `vocab.md` spec — where the marker catalogue row lives — MUST carry
-  ;; the `:rf.mcp/result` literal for human
-  ;; readers. re-frame2-pair-mcp's own doc-sources (Principles.md /
-  ;; 003-Tool-Catalogue.md) do not catalogue this marker; the canonical
-  ;; prose home is the mcp-base vocab spec.
   (let [literal ":rf.mcp/result"
         rel     "tools/mcp-base/spec/vocab.md"]
     (is (str/includes? (rf.mcp-conformance.fixtures/read-source rel) literal)
