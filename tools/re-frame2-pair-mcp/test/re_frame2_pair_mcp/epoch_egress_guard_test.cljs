@@ -25,12 +25,12 @@
 
 (def ^:private unstamped (dissoc stamped :kind))
 
-(defn- sources
-  "Both render sites' source under posture `incl?`: the page `mapv` (record
-  bound to `r#`) and the dispatch result (epoch bound to `e#`)."
-  [incl?]
-  [(egress/project-page-src "page" incl?)
-   (egress/project-dispatch-result-src "(rf/dispatch-and-collect)" incl?)])
+(def ^:private sources
+  "Both render sites' source: the page `mapv` (record bound to `r#`) and the
+  dispatch result (epoch bound to `e#`). The sensitive posture changes only
+  the door's opts, never the guard, so one posture serves."
+  [(egress/project-page-src "page" false)
+   (egress/project-dispatch-result-src "(rf/dispatch-and-collect)" false)])
 
 (defn- find-form
   "Depth-first: the first sub-form of `form` whose head is `head`."
@@ -67,23 +67,22 @@
 
 (deftest the-guard-throws-before-the-door-at-both-render-sites
   ;; A guard that fires only once the record has been projected has leaked.
-  (doseq [incl? [false true]
-          [src sym] (map vector (sources incl?) ["r#" "e#"])]
+  (doseq [[src sym] (map vector sources ["r#" "e#"])]
     (is (< -1
            (.indexOf src "(throw (ex-info")
            (.indexOf src (str "(re-frame.core/project-egress " sym " {:rf.egress/profile")))
-        (str sym ", include-sensitive " incl?))))
+        sym)))
 
 (deftest an-absent-epoch-slot-stays-legitimate
   ;; A degraded runtime and the `:ok? false` envelope carry no `:epoch`, so
   ;; the guard must sit inside the presence check or every such dispatch throws.
-  (let [when-form (find-form 'when (reader/read-string (second (sources false))))]
+  (let [when-form (find-form 'when (reader/read-string (second sources)))]
     (is (= '(contains? r# :epoch) (second when-form)))
     (is (some? (find-form 'when-not when-form)))))
 
 (deftest the-thrown-ex-info-carries-the-discriminator
   ;; Both slots the error envelope reads, so an agent can branch on the skew.
-  (doseq [src (sources false)]
+  (doseq [src sources]
     (let [[_ _ [op [ctor _ data]]] (guard-of src)]
       (is (= ['throw 'ex-info] [op ctor]))
       (is (= [egress/unstamped-epoch-record-error-id egress/unstamped-epoch-record-error-id]
@@ -92,7 +91,7 @@
 (deftest the-rendered-guard-passes-a-stamped-record-and-throws-on-an-unstamped-one
   ;; `when-not` throws when the predicate is FALSE. The other-kind row fails
   ;; a guard that only checks that SOME `:kind` is present.
-  (doseq [src (concat (sources false) (sources true))]
+  (doseq [src sources]
     (let [pred (second (guard-of src))]
       (is (true? (eval-kind-pred pred stamped)))
       (is (false? (eval-kind-pred pred unstamped)))
