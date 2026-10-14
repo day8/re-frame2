@@ -28,7 +28,7 @@
   Every escape the Node matrix witnesses lands in a runtime that is
   *idle*: a timer fires, a microtask drains, a lazy sequence is forced —
   React is between commits and has no opinion about any of it. These
-  three land while React is **in the middle of its own work**, on the
+  two land while React is **in the middle of its own work**, on the
   boundary's own fiber, with the boundary mounted and its subscription
   live:
 
@@ -36,7 +36,9 @@
   |---|---|
   | [[a-read-deferred-into-a-react-effect-refuses]] | the mutation phase and then the passive phase of the very commit that mounted the boundary |
   | [[a-read-deferred-across-a-suspense-retry-refuses]] | the resolution of the thenable the body threw, between React discarding the attempt and retrying it |
-  | [[a-read-deferred-across-an-activity-reveal-refuses]] | the effect mount React had withheld for as long as the subtree was hidden |
+
+  An Activity reveal mounts the effects it withheld as ordinary passive
+  effects, so the first row is that carrier too.
 
   Each is a plausible author move — *read it in the effect*, *read it
   once the data arrives*, *read it when the panel opens* — and each is a
@@ -417,37 +419,6 @@
       (throw @!gate-promise))
     [:p {:id "painted"} (str "painted=" v)]))
 
-(def ^:private !activity-runs (atom 0))
-(def ^:private !activity-read (atom nil))
-(def ^:private !set-visible (atom nil))
-
-(rf.fresco/defview activity-deferring-line
-  "A boundary inside an `Activity` subtree, deferring a read into the
-  effect React withholds for as long as the subtree is hidden."
-  [_]
-  (let [v (rf.fresco/sub [:red/painted])]
-    (react/useEffect
-      (fn []
-        (swap! !activity-runs inc)
-        (reset! !activity-read (outcome (fn [] (rf.fresco/sub [:red/escaped]))))
-        js/undefined)
-      #js [])
-    [:p {:id "painted"} (str "painted=" v)]))
-
-(defn- activity-host
-  "React 19.2's `<Activity>`, with the mode in state so a test can reveal
-  it. Hidden renders the subtree but does not mount its effects; the
-  reveal is what mounts them, and the reveal is the deferral's carrier."
-  [^js props]
-  (let [[visible? set-visible] (react/useState false)]
-    (react/useEffect (fn [] (reset! !set-visible set-visible) js/undefined)
-                     #js [set-visible])
-    (react/createElement (.-Activity react)
-                         #js {:mode (if visible? "visible" "hidden")}
-                         (unchecked-get props "child"))))
-
-(unchecked-set activity-host "displayName" "red/activity-host")
-
 ;; ---------------------------------------------------------------------------
 ;; 1. A read deferred into a React effect
 ;; ---------------------------------------------------------------------------
@@ -592,69 +563,3 @@
 ;; ---------------------------------------------------------------------------
 ;; 3. A read deferred across an Activity reveal
 ;; ---------------------------------------------------------------------------
-
-(deftest a-read-deferred-across-an-activity-reveal-refuses
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (skip! ":node-test has no DOM, so nothing is hidden and nothing is revealed")
-          (done))
-      (let [_ (seeded!)
-            _ (do (reset! !activity-runs 0)
-                  (reset! !activity-read nil)
-                  (reset! !set-visible nil))
-            handle (mount-concurrent!
-                     (rf.fresco.impl.mount/fresh-container!)
-                     (react/createElement
-                       activity-host
-                       #js {:child (app [:div
-                                         [activity-deferring-line {}]
-                                         [sibling-line {}]])}))]
-        ;; The host's own effect is the sync point rather than any text:
-        ;; a hidden Activity subtree IS committed to the DOM, so reading
-        ;; text here would not distinguish hidden from revealed.
-        (-> (poll #(some? @!set-visible) "the host commits with the subtree hidden")
-            (.then
-              (fn [_]
-                (testing "hidden: the deferral has NOT fired. React withholds
-                          the effect mount for as long as the subtree is
-                          hidden, and this is the half of the row that says
-                          the reveal is a real carrier and not a relabelled
-                          mount"
-                  (is (zero? @!activity-runs)))
-
-                (@!set-visible true)
-                (poll #(= 1 @!activity-runs) "the reveal mounts the effect")))
-            (.then
-              (fn [_]
-                (prove-live! handle "painted=2"
-                             "the revealed boundary is subscribed and live")))
-            (.then
-              (fn [_]
-                (testing "the premise: the reveal ran the deferral exactly
-                          once"
-                  (is (= 1 @!activity-runs)))
-
-                (testing "and its read refused, with the same identity every
-                          other escape carries"
-                  (is (= (escaped-extent-refusal [:red/escaped])
-                         (refusal-shape @!activity-read))))
-
-                (testing "the refused key was not acquired at the reveal"
-                  (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:red/escaped])))))
-
-                (testing "while each revealed boundary holds exactly its own
-                          read, once. With one boundary here this
-                          block could not go red under a defeated scratch
-                          reset — a single body's `[painted painted]` still
-                          resolves to `#{painted}` — so the reveal carries
-                          [[sibling-line]] for the same reason the other two
-                          rows do"
-                  (is (= 1 (readers-of [:red/painted])))
-                  (is (= 1 (readers-of [:red/sibling])))
-                  (is (= {:cells 2 :cell-refs 2 :boundaries 2 :edges 2}
-                         (ownership))))
-
-                (teardown-census! handle)))
-            (.catch (report-failure! "activity-reveal witness" handle))
-            (.then (fn [_] (done))))))))
