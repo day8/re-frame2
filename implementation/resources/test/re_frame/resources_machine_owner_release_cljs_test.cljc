@@ -98,16 +98,6 @@
   [k]
   [(nil? (machine-snapshot :reader/proc)) (empty? (:active-owners (entry k))) (nil? (get (owner-index) owner))])
 
-(deftest explicit-actor-destroy-releases-machine-owned-resource-owner
-  (let [k (slug-key "resources-101")]
-    (start-reader! "resources-101" {:idle {}} {:stop :idle})
-    (is (= [true true true]
-           [(some? (machine-snapshot :reader/proc)) (contains? (:active-owners (entry k)) owner)
-            (contains? (get (owner-index) owner) k)])
-        "precondition: the live actor owns the entry")
-    (destroy-reader!)
-    (is (= [true true true] (released? k)) "the owner does not outlive the actor")))
-
 (deftest final-state-auto-destroy-releases-machine-owned-resource-owner
   ;; the other teardown path: finalize-machine appends the release to its :fx
   (let [k (slug-key "owners-vs-causes")]
@@ -121,6 +111,10 @@
         kb      (slug-key "b")
         sibling [:machine :other/proc]]
     (start-reader! "a" {:idle {}} {:stop :idle})
+    (is (= [true true true]
+           [(some? (machine-snapshot :reader/proc)) (contains? (:active-owners (entry ka)) owner)
+            (contains? (get (owner-index) owner) ka)])
+        "precondition: the live actor owns the entry")
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :art/by-slug :scope scope :params {:slug "b"} :owner sibling}])
     (succeed! kb {:title "B"})
