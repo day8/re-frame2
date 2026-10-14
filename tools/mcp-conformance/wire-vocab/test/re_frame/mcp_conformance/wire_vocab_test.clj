@@ -274,7 +274,8 @@
                    "If story-mcp emits this marker, update "
                    "`canonical-markers` to include :story-mcp in "
                    ":servers, add a story-mcp fixture, and extend "
-                   "`server-source-files`.")))))))
+                   "`emit-source-files` (wire_vocab/source_pins.clj) if it "
+                   "does not already pin the marker's owner.")))))))
 
 ;; Envelope indicator slots (Conventions §Cross-MCP indicator-field
 ;; vocabulary). The omit-when-zero MUST makes a present slot always a

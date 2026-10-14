@@ -108,7 +108,9 @@ For a generic wrapper marker:
 
 1. add its schema and `canonical-markers` entry to
    `wire_vocab/schemas.clj`
-2. include a fixture for every contracted server
+2. include a fixture for every contracted server (advice: the fixture
+   sweep validates the fixtures present, and no test requires one per
+   server)
 3. extend the emit/doc source inventories when the existing sets do not
    cover its owners
 4. add a live-builder assertion when the canonical builder is available
