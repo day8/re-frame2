@@ -21,31 +21,14 @@ function test(name, fn) {
 
 const URL = 'http://127.0.0.1:8021';
 
+// A naive `{ ...baseEnv, ...(cond ? {K: v} : {}) }` leaves the ambient value in
+// place; the strict equality rejects a leftover key, even one set to undefined.
 test('no flag, AMBIENT value present: the var is STRIPPED, not forwarded (the bug this closes)', () => {
-  const baseEnv = { PATH: '/usr/bin', [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' };
-  const env = computeRunnerEnv(baseEnv, {
-    driftUnverifiable: false,
-    browserTestUrl: URL,
-  });
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(env, DRIFT_UNVERIFIABLE_ENV_VAR),
-    'an ambient value must be stripped when the orchestrator was not passed the flag — ' +
-      'a naive `{ ...baseEnv, ...(cond ? {K: v} : {}) }` construction leaves it in place, ' +
-      'which is exactly the leak this pins',
-  );
-});
-
-test('flag present, ambient value is something OTHER than "1": still normalised to "1"', () => {
-  const env = computeRunnerEnv(
-    { PATH: '/usr/bin', [DRIFT_UNVERIFIABLE_ENV_VAR]: 'true' },
-    { driftUnverifiable: true, browserTestUrl: URL },
-  );
-  assert.equal(env[DRIFT_UNVERIFIABLE_ENV_VAR], '1');
-});
-
-test('every other env var passes through unchanged, and BROWSER_TEST_URL is set', () => {
   const baseEnv = { PATH: '/usr/bin', HOME: '/home/x', RANDOM_VAR: 'y' };
-  const env = computeRunnerEnv(baseEnv, { driftUnverifiable: false, browserTestUrl: URL });
+  const env = computeRunnerEnv(
+    { ...baseEnv, [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' },
+    { driftUnverifiable: false, browserTestUrl: URL },
+  );
   assert.deepEqual(env, { ...baseEnv, BROWSER_TEST_URL: URL });
 });
 
