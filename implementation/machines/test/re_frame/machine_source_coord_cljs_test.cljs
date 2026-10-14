@@ -26,50 +26,32 @@
 
 ;; ---- reference-site stamping (transition / state-node / inline-fn) --------
 
-(deftest reg-machine-co-locates-vector-of-transitions-cljs
-  (testing "vector :on transitions co-locate a coord per transition map index"
-    (rf/reg-machine :rf2-8bp3/vec
-      {:initial :idle
-       :guards  {:a? (fn [_] true)
-                 :b? (fn [_] false)}
-       :states
-       {:idle
-        {:on
-         {:tick [{:guard :a? :target :one}
-                 {:guard :b? :target :two}
-                 {:target :three}]}}
-        :one   {}
-        :two   {}
-        :three {}}})
-    (is (some? (node-coords :rf2-8bp3/vec [:states :idle :on :tick 0])))
-    (is (some? (node-coords :rf2-8bp3/vec [:states :idle :on :tick 1])))
-    (is (some? (node-coords :rf2-8bp3/vec [:states :idle :on :tick 2])))))
-
-(deftest reg-machine-co-locates-always-cljs
-  (testing ":always vector — each transition map co-locates a coord per index"
-    (rf/reg-machine :rf2-8bp3/always
-      {:initial :a
-       :guards  {:enough? (fn [_] true)}
-       :states
-       {:a {:always [{:guard :enough? :target :b}]}
-        :b {}}})
-    (is (some? (node-coords :rf2-8bp3/always [:states :a :always 0])))))
-
-(deftest reg-machine-co-locates-hierarchical-states-cljs
-  (testing "nested :states recurse — state-node coords co-locate at the
-  full leaf-prefixed path"
-    (rf/reg-machine :rf2-8bp3/hier
-      {:initial :outer
-       :states
-       {:outer {:initial :inner
-                :states  {:inner   {:on {:go {:target :sibling}}}
-                          :sibling {}}}}})
-    (is (some? (node-coords :rf2-8bp3/hier [:states :outer]))
-        "outer state-node co-locates its coord")
-    (is (some? (node-coords :rf2-8bp3/hier [:states :outer :states :inner]))
-        "inner state-node co-locates its coord at the recursive path")
-    (is (some? (node-coords :rf2-8bp3/hier [:states :outer :states :inner :on :go]))
-        "transition map inside hierarchical inner state co-locates its coord")))
+(deftest reg-machine-co-locates-a-coord-on-every-transition-and-state-node-cljs
+  ;; Each index of an :on / :always transition vector, and each node of a
+  ;; nested :states tree at its full recursive path.
+  (rf/reg-machine :rf2-8bp3/nodes
+    {:initial :idle
+     :guards  {:a? (fn [_] true)
+               :b? (fn [_] false)}
+     :states
+     {:idle  {:on {:tick [{:guard :a? :target :one}
+                          {:guard :b? :target :two}
+                          {:target :three}]}}
+      :one   {:always [{:guard :a? :target :outer}]}
+      :two   {}
+      :three {}
+      :outer {:initial :inner
+              :states  {:inner   {:on {:go {:target :sibling}}}
+                        :sibling {}}}}})
+  (is (= [] (remove #(node-coords :rf2-8bp3/nodes %)
+                    [[:states :idle :on :tick 0]
+                     [:states :idle :on :tick 1]
+                     [:states :idle :on :tick 2]
+                     [:states :one :always 0]
+                     [:states :outer]
+                     [:states :outer :states :inner]
+                     [:states :outer :states :inner :on :go]]))
+      "every listed node carries co-located :source-coords"))
 
 ;; ---- inline-fn :source-code co-location -----------------------------------
 
