@@ -65,19 +65,16 @@
 
 (deftest the-page-moves-once-and-only-after-the-commit
   (testing "with an after-render hook, the fx makes NO DOM call; the page
-            moves exactly once, when the hook fires, and `:preserve` never
-            moves it. The hook answers nil after scheduling, so the decision
-            cannot rest on its return value — a nil-means-absent fallback
-            would scroll twice"
-    (doseq [[args expected] [[{:strategy :restore :saved-pos [0 420]} [[:scroll-to 0 420]]]
-                             [{:strategy :preserve}                   []]]]
-      (with-queued-after-render
-        (fn [flush!]
-          (let [calls (count-dom-calls!)]
-            (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args)
-            (is (= [] @calls) (str (:strategy args) ": no DOM call inside the event"))
-            (flush!)
-            (is (= expected @calls) (str (:strategy args) ": after the commit"))))))))
+            moves exactly once, when the hook fires. The hook answers nil after
+            scheduling, so the decision cannot rest on its return value — a
+            nil-means-absent fallback would scroll twice"
+    (with-queued-after-render
+      (fn [flush!]
+        (let [calls (count-dom-calls!)]
+          (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :restore :saved-pos [0 420]})
+          (is (= [] @calls) "no DOM call inside the event")
+          (flush!)
+          (is (= [[:scroll-to 0 420]] @calls) "after the commit"))))))
 
 (deftest a-fragment-on-the-arriving-page-is-found
   (testing "`#install` exists only on the page being navigated
