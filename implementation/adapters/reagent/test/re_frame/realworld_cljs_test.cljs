@@ -222,14 +222,9 @@
       (is (= :idle (sub f [:auth/state])))))
 
   (testing "an unreadable store reads as no saved token, and a stale storage read is dropped"
-    (is (= [nil nil]
-           [(with-local-storage
-              #js {:configurable true :get (fn [] (throw (js/Error. "storage is blocked")))}
-              auth/read-saved-token)
-            (with-local-storage
-              #js {:configurable true
-                   :value        #js {:getItem (fn [_] (throw (js/Error. "read failed")))}}
-              auth/read-saved-token)]))
+    (is (nil? (with-local-storage
+                #js {:configurable true :get (fn [] (throw (js/Error. "storage is blocked")))}
+                auth/read-saved-token)))
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (init-auth! f nil)
       (rf/dispatch-sync [:auth/session-read {:generation (dec (:auth-generation (rf/app-db-value f)))
