@@ -104,24 +104,13 @@
   nil)
 
 (defn set-frameless-ring-depth!
-  "Set the frameless secondary ring's depth (in events). Test fixtures
-  use this to drive overflow behaviour without churning a full
-  framework runtime. Production tuning is via the Settings UX once the
-  knob is wired through.
-
-  Shrinking the depth below the current ring's contents drops the head
-  (oldest) entries immediately so the snapshot reflects the new depth
-  on the next read."
+  "Set the frameless secondary ring's depth (in events). A test seam:
+  fixtures and the feature-matrix perf scenario use it to drive overflow
+  without churning a full framework runtime; there is no production
+  knob. The next push trims the ring to the new depth."
   [depth]
   (when (and (number? depth) (not (neg? depth)))
-    (reset! frameless-ring-depth depth)
-    (swap! frameless-ring
-           (fn [ring]
-             (let [n (count ring)]
-               (cond
-                 (zero? depth) []
-                 (> n depth)   (into [] (subvec ring (- n depth)))
-                 :else         ring)))))
+    (reset! frameless-ring-depth depth))
   nil)
 
 (defn- outside-frame-rings?
