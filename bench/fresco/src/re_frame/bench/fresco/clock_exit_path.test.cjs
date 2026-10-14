@@ -758,11 +758,11 @@ for (const { tag, file, mod } of DRIVERS) {
   // centre certified as in control would publish truncated evidence. The
   // precondition is exactly the declared evidence: one short, one over.
 
-  t('ONE, SEVENTEEN and NINETEEN blocks at the frozen centre REFUSE the row, where eighteen hold', () => {
+  t('ONE and SEVENTEEN blocks at the frozen centre REFUSE the row, where eighteen hold', () => {
     const whole = resultRow('ordinary', { blocks: EXPECTED });
     assert.deepStrictEqual([whole.adjudication.ctl.standard.ok, whole.adjudication.ctl.ok], [true, true], 'the twin must PASS');
     assert.strictEqual(verdict(summarise(null, [whole])).code, 0);
-    for (const n of [1, EXPECTED - 1, EXPECTED + 1]) {
+    for (const n of [1, 17]) {
       const r = resultRow('ordinary', { blocks: n });
       const { ok, measured, location, dispersion } = r.adjudication.ctl.standard;
       assert.deepStrictEqual(
@@ -773,6 +773,12 @@ for (const { tag, file, mod } of DRIVERS) {
       assert.strictEqual(r.adjudication.ctl.ok, false, 'the standard adjudicates a calibrated row, so the row does not hold');
       assert.strictEqual(verdict(summarise(null, [r])).code, 5);
     }
+  });
+
+  t('EXTRA blocks refuse too, and the refusal counts them', () => {
+    const v = checkStandardVerdict('ordinary', controlBlocks(centreBlocks(EXPECTED + 1)));
+    assert.deepStrictEqual([v.ok, v.measured.n, v.measured.expected, v.location], [false, EXPECTED + 1, EXPECTED, null]);
+    assert.match(v.why, /1 EXTRA/);
   });
 }
 
@@ -1536,8 +1542,10 @@ function fixtureRoundsTask(over) {
     assert.deepStrictEqual(bad.map((c) => `${c.name}: ${c.detail}`), []);
   });
 
-  t('criterion 1: the driver reads the three-point statistic into no decision', () => {
+  t('criterion 1: neither program reads the three-point statistic into a decision', () => {
+    // `ctl3Parity` stays: it is a canonical-DOM refusal, not the statistic.
     assert.ok(!/ctl3\.ok|ctl3Layout\.ok|ctl3Net\.ok/.test(CLOCKSRC.replace(/^\s*\/\/.*$/gm, '')), 'the driver reads no ctl3 verdict');
+    assert.ok(!/r\.ctl3\b(?!Parity)/.test(RJSRC2.replace(/^\s*\/\/.*$/gm, '')), 'the readjudicator reads no ctl3 field but parity');
     assert.match(CLOCKSRC, /const ctlBad = \(o\) => !\(o\.verdict\.checkStandard && o\.verdict\.checkStandard\.ok\);/);
   });
 
