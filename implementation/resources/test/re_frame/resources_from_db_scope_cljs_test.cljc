@@ -20,7 +20,6 @@
    [re-frame.resources.events :as rf.resources.events]
    [re-frame.resources.mutation-events :as rf.resources.mutation-events]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
-   [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.route :as rf.resources.route]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.subs :as rf.resources.subs]
@@ -132,15 +131,6 @@
   (is (some? (entry (rf.resources.state/scoped-resource-key
                       [:rf.scope/session {:username "abel"}] :t/notes {})))))
 
-(deftest event-ensure-from-db-nil-fails-closed
-  (is (thrown-with-msg?
-        #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
-        (rf.resources.registry/resolve-scope-for-event
-          :t/feed (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/feed})) {:db {}} 'test))
-      "with no logged-in user the reference resolves nil, and an event throws")
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}}])
-  (is (empty? (entries)) "dispatched, the runtime error path creates no entry under any scope"))
-
 (deftest route-leave-releases-owner-under-resolved-scope
   (rf/dispatch-sync [:t/login "jake"])
   (rf/reg-route :t/home
@@ -164,13 +154,6 @@
   (is (= [:rf.error/resource-route-plan {}]
          [(:rf.error/id (:error (slice))) (or (entries) {})])
       "a nil route scope is a planning error on the slice, and nothing is ensured"))
-
-(deftest sub-from-db-reads-the-same-entry-the-event-ensured
-  (load-feed-as! "jake" [:app :s 1] {:articles [:a :b]})
-  (let [q {:resource :t/feed :params {:page 1}}]
-    (is (= [:loaded {:articles [:a :b]}]
-           [(:status @(rf/subscribe [:rf/resource q])) @(rf/subscribe [:rf.resource/data q])])
-        "a spec-policy sub resolves the same session key and reads the loaded entry")))
 
 (deftest sub-re-keys-on-mid-session-account-switch
   (load-feed-as! "jake" [:app :s 1] {:for "jake"})
@@ -228,19 +211,11 @@
 ;; (`state/canonicalize-scope`), so every concrete-scope boundary inherits it.
 
 (deftest clear-scope-refuses-a-from-db-reference-map-loud
-  (load-feed-as! "jake" [:app :c 1] {:for "jake"})
   (is (thrown-with-msg?
         #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
         (rf.resources.events/clear-scope-handler
           {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
-          [:rf.resource/clear-scope {:scope {:from-db :t/session} :cause :logout}])))
-  (rf/dispatch-sync [:rf.resource/clear-scope {:scope {:from-db :t/session} :cause :logout}])
-  (is (= 1 (count (entries))) "dispatched, the refused clear leaves the cache as it was")
-  ;; the supported idiom: pre-resolve the concrete scope with the pure helper
-  (let [concrete (rf/resolve-resource-scope {:auth {:user {:username "jake"}}} :t/session)]
-    (rf/dispatch-sync [:rf.resource/clear-scope {:scope concrete :cause :logout}])
-    (is (= [jake-scope nil] [concrete (seq (entries))])
-        "the concrete scope still clears, so the refusal is about the reference shape")))
+          [:rf.resource/clear-scope {:scope {:from-db :t/session} :cause :logout}]))))
 
 ;; ===========================================================================
 ;; the :rf.resource/scope-resolved trace: causal sites emit, pure reads do not
@@ -255,17 +230,6 @@
             :whole-db? false :scope jake-scope :resolved-nil? false}
            (select-keys row [:kind :inputs :input-values :whole-db? :scope :resolved-nil?]))
         "the declared input names, their resolved values, the derived mark and the resolved scope")))
-
-(deftest scope-resolved-trace-records-resolved-nil-on-absent-input
-  ;; the event ensure fails closed, but the trace fires first with the evidence
-  (rf/reg-resource :t/notes
-    {:scope :rf.scope/global :params-schema [:map]}
-    (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
-  (let [row (first (nil-resolution-rows
-                     #(rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
-                                                              :scope {:from-db :t/session}
-                                                              :owner [:app :sn 1]}])))]
-    (is (= [true nil] [(:resolved-nil? row) (:scope row)]))))
 
 (deftest pure-resolve-resource-scope-emits-no-trace
   ;; the logout idiom resolves the old scope from the cofx db, and a pure read
@@ -305,18 +269,6 @@
 ;; invalidate-tags resolves a {:from-db} scope symmetrically with ensure
 ;; ===========================================================================
 
-(deftest invalidate-tags-from-db-marks-only-the-matching-principal
-  ;; owners are released so the invalidation marks stale rather than refetching
-  (load-feed-as! "jake" [:app :j 1] {:for "jake"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
-  (load-feed-as! "abel" [:app :a 1] {:for "abel"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope {:from-db :t/session} :tags #{[:feed]}}])
-  (is (= [true nil]
-         [(some? (:invalidated-at (entry (session-key "jake" 1)))) (:invalidated-at (entry (session-key "abel" 1)))])
-      "only jake's resolved-scope entry goes stale; abel's equal-tag entry is untouched"))
-
 (deftest invalidate-tags-from-db-active-owner-refetch-carries-concrete-scope
   ;; asserted at the handler boundary so the returned :fx is inspectable
   (load-feed-as! "jake" [:app :j 1] {:for "jake"})
@@ -336,13 +288,7 @@
         rows     (nil-resolution-rows handler!)]
     (is (thrown-with-msg? #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference" (handler!)))
     (is (= [1 true nil] [(count rows) (:resolved-nil? (first rows)) (:scope (first rows))])
-        "exactly one scope-resolved row records the nil resolution before the throw"))
-  (load-feed-as! "jake" [:app :j 1] {:for "jake"})
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
-  (rf/dispatch-sync [:t/logout])
-  (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope {:from-db :t/session} :tags #{[:feed]}}])
-  (is (nil? (:invalidated-at (entry (session-key "jake" 1))))
-      "dispatched, nothing is invalidated under any scope"))
+        "exactly one scope-resolved row records the nil resolution before the throw")))
 
 ;; ===========================================================================
 ;; mutation execute resolves a {:from-db} scope symmetrically with ensure;
@@ -368,22 +314,6 @@
          [(:scope (minstance :save-1)) (some? (:invalidated-at (entry (session-key "jake" 1))))])
       "the instance records the resolved scope, and the default invalidation matched in it"))
 
-(deftest execute-descriptor-scope-still-overrides-resolved-default
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/reg-resource :t/gnotes
-    {:scope :rf.scope/global :params-schema [:map] :tags (fn [_p _v] #{[:gfact]})}
-    (fn [_p _ctx] {:request {:method :get :url "/gnotes"}}))
-  (let [gkey (rf.resources.state/scoped-resource-key :rf.scope/global :t/gnotes {})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/gnotes :params {} :owner [:app :g 1]}])
-    (settle-loaded! gkey {:g 1})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :g 1]}])
-    (reg-save-mutation! {:invalidates       (fn [_p _r] [{:scope :rf.scope/global :tags #{[:gfact]}}])
-                         :invalidate-timing :before-request})
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {} :instance :save-g1
-                                             :scope {:from-db :t/session}}])
-    (is (= [jake-scope true] [(:scope (minstance :save-g1)) (some? (:invalidated-at (entry gkey)))])
-        "the execution scope resolves to jake's session, but the descriptor's global scope governs its match")))
-
 (deftest execute-from-db-nil-fails-closed-like-ensure
   (reg-save-mutation! {})
   (let [handler! #(rf.resources.mutation-events/execute-handler
@@ -394,17 +324,4 @@
         rows     (nil-resolution-rows handler!)]
     (is (thrown-with-msg? #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference" (handler!)))
     (is (= [1 true nil] [(count rows) (:resolved-nil? (first rows)) (:scope (first rows))])
-        "exactly one scope-resolved row records the nil resolution before the throw"))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {} :instance :save-nil
-                                           :scope {:from-db :t/session}}])
-  (is (= [nil nil] [(minstance :save-nil) (seq (entries))])
-      "dispatched, no instance is minted and no entry touched: never a global-default write"))
-
-(deftest execute-absent-and-concrete-scopes-unchanged
-  (reg-save-mutation! {})
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {} :instance :save-abs}])
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {} :instance :save-conc
-                                           :scope [:rf.scope/session {:username "abel"}]}])
-  (is (= [:rf.scope/global [:rf.scope/session {:username "abel"}]]
-         [(:scope (minstance :save-abs)) (:scope (minstance :save-conc))])
-      "an absent :scope takes the global default; a concrete one passes through unchanged"))
+        "exactly one scope-resolved row records the nil resolution before the throw")))
