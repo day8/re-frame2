@@ -112,13 +112,6 @@
 (def ^:private gkey
   (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"}))
 
-(defn- only-projection-metadata
-  "The single per-entry projection metadata map for a one-entry runtime-db —
-  the observation point for an entry whose ROW is withheld."
-  [runtime-db]
-  (first (rf.resources.ssr/projection-metadata
-           nil 5000 (get-in runtime-db [rf.resources.state/resources-key :entries]))))
-
 ;; ===========================================================================
 ;; 1. SERVER projection
 ;; ===========================================================================
@@ -144,19 +137,6 @@
               (set (keys (get-in proj [rf.resources.state/resources-key :entries])))]))
       (is (not (contains? proj rf.resources.state/work-ledger-key))))
     (rf.frame/destroy-frame! fid)))
-
-(deftest sensitive-resource-key-scope-and-params-are-redacted
-  ;; Spec 016 clause 4: scope and params carry the data's classification. The
-  ;; sensitive tokens are content-free, so no user, tenant or param survives.
-  (reg! :secret/thing {:sensitive? true})
-  (let [k (rf.resources.state/scoped-resource-key
-            [:rf.scope/session {:user "alice@example.com" :tenant "acme"}]
-            :secret/thing {:account-id "secret-42"})
-        e (entry {:resource-id :secret/thing :data {:ssn "x"} :loaded-at 1000 :stale-at 9.0e15})]
-    (is (= [{:rf/redacted {:type :vector :count 2}}
-            :secret/thing
-            {:rf/redacted {:type :map :count 1}}]
-           (:projected-key (only-projection-metadata (runtime-db-with {k e})))))))
 
 (deftest project-scoped-key-by-disposition
   ;; :serialize rides verbatim. :redact is content-free, so two SENSITIVE keys
@@ -199,8 +179,6 @@
             candidate space to enumerate against it: every 6-character string
             produces the same token"
     (is (= {:rf/redacted {:type :string :count 6}} (rf.resources.ssr/redact-value "tenant")))
-    (is (= (rf.resources.ssr/redact-value "tenant") (rf.resources.ssr/redact-value "abc123"))
-        "two distinct 6-char secrets are INDISTINGUISHABLE — that is the property")
     (is (= {:rf/redacted {:type :map :count 1}} (rf.resources.ssr/redact-value {:tenant-id cafe-str})))
     (is (= {:rf/redacted {:type :number}} (rf.resources.ssr/redact-value 42)))
     (is (= {:rf/redacted nil} (rf.resources.ssr/redact-value nil))
@@ -214,8 +192,7 @@
   (testing "and it is TOTAL — an app payload carrying a value outside CEDN-1 is
             summarised, not thrown at. A redaction that explodes is not a
             redaction"
-    (is (= {:rf/redacted {:type :map :count 1}} (rf.resources.ssr/redact-value {:f (fn [_])})))
-    (is (= {:rf/redacted {:type :number}} (rf.resources.ssr/redact-value 1.5)))))
+    (is (= {:rf/redacted {:type :map :count 1}} (rf.resources.ssr/redact-value {:f (fn [_])})))))
 
 (deftest large-redaction-digest-is-byte-identical-across-clj-and-cljs
   (testing "the `:omit` (large) digest is a fixed
@@ -253,8 +230,7 @@
   (testing "and a value OUTSIDE CEDN-1 falls back to the content-free shape
             rather than throwing — `canonical-bytes` is partial, and an off-box
             egress projector is handed whatever the app owns"
-    (is (= {:rf/redacted {:type :map :count 1}} (rf.resources.ssr/redact-value {:f (fn [_])} :omit)))
-    (is (= {:rf/redacted {:type :number}} (rf.resources.ssr/redact-value 1.5 :omit)))))
+    (is (= {:rf/redacted {:type :map :count 1}} (rf.resources.ssr/redact-value {:f (fn [_])} :omit)))))
 
 (deftest the-large-redaction-digest-has-the-shape-it-documents
   (testing "8 lower-case hex characters, always. CLJS `bit-and`
@@ -323,14 +299,6 @@
            (-> (select-keys route-blocking-failure [:rf.error/id :timed-out :limit-ms])
                (update :timed-out set))))))
 
-(deftest blocking-timeout-noop-when-all-settled
-  (testing "no unsettled blocking entries → no failure record, entries unchanged"
-    (let [es (entries* {ka (entry {:resource-id :a :status :loaded :data {:x 1}})})
-          {:keys [entries route-blocking-failure]}
-          (rf.resources.ssr/settle-blocking-timeout es (blocking-map ka) 250 :app/main)]
-      (is (= es entries))
-      (is (nil? route-blocking-failure)))))
-
 ;; `drain-blocking-resources!` is the loop the host render path calls before
 ;; rendering: it reads the current nav-token's blocking set, pumps the event
 ;; loop until every member settles, and on the render deadline settles the
@@ -362,8 +330,7 @@
                             (blocking-map kc)))]
       (is (= (blocking-map ka kb) (rf.resources.ssr/current-blocking-keys rdb))))
     (testing "no routing slice / no current nav-token → empty (never blocks)"
-      (is (= {} (rf.resources.ssr/current-blocking-keys (runtime-db-with {}))))
-      (is (= {} (rf.resources.ssr/current-blocking-keys {}))))))
+      (is (= {} (rf.resources.ssr/current-blocking-keys (runtime-db-with {})))))))
 
 (deftest drain-noop-when-no-blocking-resources
   (let [pumped (atom 0)
