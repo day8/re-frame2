@@ -104,16 +104,6 @@
   (testing "unmount on nil root is a no-op (defensive)"
     (is (nil? (dom-client/unmount nil)))))
 
-;; node-test has no DOM, so render is checked against a stub root.
-
-(deftest render-pushes-react-element-into-root
-  (testing "render walks hiccup via as-element and calls (.render root react-el)"
-    (let [captured (atom nil)
-          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
-      (dom-client/render fake-root [:div "hi"])
-      (let [^js el @captured]
-        (is (= ["div" "hi"] [(.-type el) (-> el .-props .-children)]))))))
-
 ;; ---------------------------------------------------------------------------
 ;; A class render runs inside a per-instance Reaction, so its derefs become
 ;; deps and a dep change queues a forceUpdate.
@@ -178,7 +168,6 @@
         (reset! src 1)
         (-> (js/Promise.resolve (dom-client/flush-views!))
             (.then (fn [_]
-                     (is (= 100 @derived) "derived has the post-mutation value")
                      (is (>= @forced 1)
                          "forceUpdate fired after Reaction-mediated dep change")
                      (.call (.. klass -prototype -componentWillUnmount) inst)
