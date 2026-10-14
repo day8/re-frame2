@@ -379,30 +379,29 @@ _HUMAN_MESSAGE_MSG_RE = re.compile(r"^\(\s*(?:[\w.*+!?<>=-]+/)?human-message\b")
 # bundle-isolated reagent-slim shape: it cannot `:require re-frame.error`, so it
 # hand-rolls the human sentence + the token inline. A message carrying the
 # literal token IS conformant to rule 4, so it does not fire.
-_INLINE_TOKEN_MSG_RE = re.compile(r"\[:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+\]")
-
-# The same token ASSEMBLED across a `(str …)` concatenation — the open/close
-# brackets are string-literal pieces and the keyword sits between them, e.g.
-# `(str "… [" :rf.error/<id> "]")`. The runtime message is `[…:rf.<ns>/…]`,
-# so it is equally conformant to rule 4; statically the bracket is not
-# contiguous with the keyword, so this matches the assembled form: a `[` then
-# (across quotes/whitespace) a `:rf.<ns>/…` keyword then a `]`.
 #
-# Both token regexes need the `:rf.<ns>/<id>` keyword and the human text to be
-# LITERAL in the form they are handed. Two conformant shapes are not (the
+# The same token may be ASSEMBLED across a `(str …)` concatenation — the
+# open/close brackets are string-literal pieces and the keyword sits between
+# them, e.g. `(str "… [" :rf.error/<id> "]")`. The runtime message is
+# `[…:rf.<ns>/…]`, so it is equally conformant to rule 4. One regex reads both
+# spellings: a `[`, any run of quotes/whitespace (an empty run is the contiguous
+# literal), a `:rf.<ns>/…` keyword, any run of quotes/whitespace, then a `]`.
+#
+# The token regex needs the `:rf.<ns>/<id>` keyword and the human text to be
+# LITERAL in the form it is handed. Two conformant shapes are not (the
 # first is resolved):
 #
 #   (a) a let-BOUND message —  (let [msg (str "… [:rf.error/x]")] (ex-info msg …))
 #       `re-frame.story/configure!` (tools/story/src/re_frame/story.cljc) does
 #       exactly this, under a comment citing Spec 009. RESOLVED —
-#       `_resolve_let_binding` below hands the BOUND form to these same
-#       regexes, so the token is found one hop from the call.
+#       `_resolve_let_binding` below hands the BOUND form to this same
+#       regex, so the token is found one hop from the call.
 #   (b) a COMPUTED discriminator — (ex-info (str reason " [" error-kw "]") …)
 #       where `error-kw` is derived (`(keyword "rf.error" (str (name kind)
 #       "-shape"))`) or arrives as a parameter of a shared throw helper. The
 #       runtime message carries the token; the source text cannot. NOT
 #       resolved, deliberately — see `_resolve_let_binding`'s note.
-_ASSEMBLED_TOKEN_MSG_RE = re.compile(
+_TOKEN_MSG_RE = re.compile(
     r'\[["\s]*:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+["\s]*\]'
 )
 
@@ -414,8 +413,7 @@ def _message_is_conformant(form: str) -> bool:
     `(str …)`)?"""
     return bool(
         _HUMAN_MESSAGE_MSG_RE.match(form)
-        or _INLINE_TOKEN_MSG_RE.search(form)
-        or _ASSEMBLED_TOKEN_MSG_RE.search(form)
+        or _TOKEN_MSG_RE.search(form)
     )
 
 
@@ -580,7 +578,7 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 #     (throw (ex-info msg {:rf.error/id :rf.error/x …})))
 #
 # The runtime message DOES carry the token, but the first `ex-info` argument is
-# the bare symbol `msg`, so both token regexes see nothing and, unresolved, the
+# the bare symbol `msg`, so the token regex sees nothing and, unresolved, the
 # site would be reported as a builder bypass. That false red is not free: it
 # costs a round trip under the standing rule that a failing gate on a touched
 # surface is never a flake, and the tempting "fix" is to DE-conformise working

@@ -771,8 +771,9 @@ PRODUCT_EXCLUDE_PATHS = (
 # in the open, which is the same standard `PRODUCT_EXCLUDE_PATHS` is held to.
 #
 #   * `.log` — a captured run transcript, never source. `*.log` is gitignored
-#     repo-wide (`.gitignore:14`), and NO tracked file wears the suffix, so
-#     nothing this gate exists to grade can arrive as one.
+#     repo-wide (`.gitignore:14`); the tracked ones are run transcripts kept as
+#     evidence under `findings/` audit trees, which quote a run's output rather
+#     than teach a name, so nothing this gate exists to grade arrives as one.
 #
 #     The subtraction is load-bearing rather than tidy, because this repo
 #     MANUFACTURES these files by its own standing convention: every gate is run

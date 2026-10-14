@@ -547,13 +547,13 @@ CONTEXTTYPE_ATTRIB_RE = re.compile(
 # 6b(ii) — semantic reversal: steering hooks authors to the Reagent reg-view macro.
 REVERSAL_DISCOURAGE_RE = re.compile(
     r"\b(?:do not|don'?t|never|avoid)\s+us(?:e|ing)\b"
-    r"[^.\n]{0,40}\buse-(?:frame|subscribe)\b",
+    r"[^.\n]{0,40}\buse-(?:frame|sub)\b",
     re.IGNORECASE,
 )
 REVERSAL_STEER_RE = re.compile(
     r"\buse\b[^.\n]{0,12}\breg-view\b(?!\*)[^.\n]{0,15}\binstead\b"
     r"|\breg-view\b(?!\*)[^.\n]{0,20}\binstead\s+of\b"
-    r"[^.\n]{0,24}\buse-(?:frame|subscribe)\b",
+    r"[^.\n]{0,24}\buse-(?:frame|sub)\b",
     re.IGNORECASE,
 )
 
@@ -1750,6 +1750,10 @@ def _self_test() -> int:
     for label, sentence, dirty in (
         ("S1 semantic reversal (both tokens present, still red)",
          "Do not use use-frame or use-sub; use reg-view instead.", True),
+        ("S1a discouraging `use-sub` alone",
+         "Never use `use-sub` in a UIx view.", True),
+        ("S1b steering to `reg-view` instead of `use-sub`",
+         "Reach for `reg-view` instead of `use-sub` in a UIx view.", True),
         ("S2 :contextType attributed under a stray far 'not'",
          "UIx is not special: reg-view* gives it :contextType.", True),
         ("S3 valid Reagent :contextType comparison stays green",
