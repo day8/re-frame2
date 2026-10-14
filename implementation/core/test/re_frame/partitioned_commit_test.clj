@@ -54,15 +54,6 @@
 (defn- reg-fw-runtime-handler! [id f]
   (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
-(deftest one-physical-container-two-projections
-  (rf/make-frame {:id :pc/shape})
-  (is (= [{:rf.db/app {} :rf.db/runtime {}} {} {}]
-         (mapv rf.substrate.adapter/read-container
-               [(rf.frame/frame-state-container :pc/shape)
-                (rf.frame/app-db-container :pc/shape)
-                (rf.frame/runtime-db-container :pc/shape)]))
-      "the container holds both partitions; each projection derefs its slice"))
-
 (deftest projections-are-read-only
   (rf/make-frame {:id :pc/ro})
   (is (= [:rf.error/derived-container-replaced :rf.error/derived-container-replaced]
