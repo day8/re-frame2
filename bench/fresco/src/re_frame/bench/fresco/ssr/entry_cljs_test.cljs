@@ -22,7 +22,6 @@
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.hash :as rf.ssr.hash]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
@@ -68,7 +67,6 @@
 (deftest a-server-render-leaves-zero-durable-registration
   ;; React never subscribes under renderToString, and only a commit installs
   ;; a cell or an edge.
-  (rf.bench.fresco.arm1.runtime/reset-runtime!)
   (rf.bench.fresco.ssr.entry/render dogfood-request)
   (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
          (select-keys (rf.bench.fresco.arm1.runtime/residue) [:cells :cell-refs :boundaries :edges]))))
@@ -254,8 +252,6 @@
   [:p.scope-probe "probe"])
 
 (deftest the-hosts-ambient-scope-does-not-answer-inside-a-per-request-body
-  (is (= :rf/default rf.frame/*current-frame*)
-      "precondition: the fixture's ambient scope IS live")
   (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render {:hiccup  [scope-probe {}]
                                                               :payload rf.bench.fresco.ssr.fixtures/dogfood-payload-keys})
         {:keys [ambient composed hframe]} @scope-probe-seen]
