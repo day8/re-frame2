@@ -1,8 +1,7 @@
 (ns re-frame.flows-test
   "JVM coverage for Spec 013 — Flows: registration validation and its error
-  ids, the clear lifecycle's registry and app-db effects, hot-reload,
-  frame-value targets, and the drain ordering `:fx` and the `:db` install
-  observe.
+  ids, the clear lifecycle's registry and app-db effects, frame-value
+  targets, and the drain ordering `:fx` and the `:db` install observe.
 
   The canonical flow shapes (dirty-check, topological order, hot-reload, frame
   scoping, teardown) run as data in spec/conformance/fixtures/flow-*.edn via
@@ -55,23 +54,16 @@
 ;; ---- clear-flow ----------------------------------------------------------
 
 (deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
-  ;; Clearing a flow whose leaf never materialised must not install a fresh,
-  ;; value-equal db: that would invalidate every subscription for nothing.
-  (rf/reg-event :seed (fn [_ _] {:db {:other 1}}))
-  (rf/dispatch-sync [:seed])
-  (rf/reg-flow :pending {:inputs [[:n]] :output-path [:step-2 :result]} (fn [_] :never-runs))
-  (let [before (rf/app-db-value :rf/default)]
-    (rf/clear :flow :pending)
-    (is (identical? before (rf/app-db-value :rf/default)))))
-
-(deftest clear-flow-non-map-intermediate-is-noop
-  ;; A scalar at an intermediate output-path step cannot hold the leaf: the
-  ;; clear leaves it alone rather than throwing.
-  (rf/reg-event :seed (fn [_ _] {:db {:step-2 1 :foo 3}}))
-  (rf/dispatch-sync [:seed])
-  (rf/reg-flow :pending {:inputs [[:foo]] :output-path [:step-2 :result]} (fn [_] :never-stored))
-  (rf/clear :flow :pending)
-  (is (= {:step-2 1 :foo 3} (rf/app-db-value :rf/default))))
+  ;; A leaf that never materialised, under a missing parent or a scalar one,
+  ;; leaves the very db it found: no throw, and no fresh value-equal install
+  ;; that would invalidate every subscription for nothing.
+  (doseq [seed [{:other 1} {:step-2 1 :foo 3}]]
+    (rf/reg-event :seed (fn [_ _] {:db seed}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-flow :pending {:inputs [[:n]] :output-path [:step-2 :result]} (fn [_] :never-runs))
+    (let [before (rf/app-db-value :rf/default)]
+      (rf/clear :flow :pending)
+      (is (identical? before (rf/app-db-value :rf/default)) (pr-str seed)))))
 
 ;; ---- registration validation ---------------------------------------------
 
@@ -183,20 +175,6 @@
            (:rf.error/id (ex-data (reg-flow-throwing {:id :double :inputs [[:derived :doubled]]
                                                       :derive inc :output-path [:derived :doubled]})))))
     (is (= before (state)))))
-
-;; ---- hot-reload ----------------------------------------------------------
-
-(deftest flow-hot-reload-invalidates-last-inputs
-  ;; Re-registering a flow drops its dirty-check row, so the next drain
-  ;; evaluates the new body even though its inputs are unchanged.
-  (rf/reg-event :init (fn [_ _] {:db {:n 5}}))
-  (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
-  (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-  (rf/dispatch-sync [:init])
-  (is (= 10 (:doubled (rf/app-db-value :rf/default))))
-  (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 100 n)))
-  (rf/dispatch-sync [:tick])
-  (is (= 500 (:doubled (rf/app-db-value :rf/default)))))
 
 ;; ---- frame-value targets -------------------------------------------------
 
