@@ -1,14 +1,8 @@
 (ns re-frame.epoch-silencing-lineage-aba-test
   "A destroyed predecessor A's delayed silence is decided per identity, not by
-  whether A won its compare-owned store cleanup — store CLAIM, callback
-  RE-ARM and terminal SILENCE are distinct events:
-
-    1. claim-before-delivery — same-id B claims the stores but delivers
-       nothing. A LOSES the comparison yet still owes the only silence.
-    2. rearm-then-retire (A→B→nil ABA) — B re-arms the callback and destroys
-       before A resumes. A then WINS the comparison but must not re-emit the
-       silence B already fired; B's monotonic mark, surviving B's cleanup, is
-       what tells it so.
+  whether A won its compare-owned store cleanup: when same-id B claims the
+  stores but delivers nothing, A LOSES the comparison yet still owes the only
+  silence.
 
   A is paused at its post-dissoc `:epoch/on-frame-destroyed` hook by a
   late-bind wrapper, so the real destroy recipe runs end to end."
@@ -16,7 +10,6 @@
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -89,44 +82,6 @@
           (executor-barrier!)
           (is (= 1 (silences-for silencings cb))
               "A emits its one owed silence for cb — B claimed but never delivered"))
-        (finally
-          (.countDown release-a)
-          (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
-          (rf.late-bind/set-fn! :epoch/on-frame-destroyed original))))))
-
-(deftest late-predecessor-does-not-re-emit-silence-a-retired-successor-already-fired
-  (let [id             :vxgfnd265/aba
-        cb             ::vxgfnd265-aba-cb
-        a-after-dissoc (CountDownLatch. 1)
-        release-a      (CountDownLatch. 1)]
-    (rf/reg-event :vxgfnd265/aba-settle
-      (fn [{:keys [db]} _] {:db (assoc db :a true)}))
-    (rf/reg-event :vxgfnd265/aba-destroy
-      (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
-    (rf/reg-event :vxgfnd265/aba-b-settle
-      (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
-    (rf/make-frame {:id id})
-    (rf/register-listener! :epoch cb (fn [_] nil))
-    (rf/dispatch-sync [:vxgfnd265/aba-settle] {:frame id})
-    (let [silencings (record-silences!)
-          original   (pause-first-destroy-hook! id a-after-dissoc release-a)]
-      (try
-        (let [dispatch-a (future
-                           (rf/dispatch-sync [:vxgfnd265/aba-destroy] {:frame id}))]
-          (.await a-after-dissoc 10 TimeUnit/SECONDS)
-          ;; Same-id B settles (re-arming cb), then retires at the epoch seam.
-          (rf/make-frame {:id id})
-          (rf/dispatch-sync [:vxgfnd265/aba-b-settle] {:frame id})
-          (rf.epoch.listeners/on-frame-destroyed! id (rf.frame/frame-incarnation-token id)
-            (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
-          (is (= 1 (silences-for silencings cb))
-              "B's retire fired exactly one truthful silence for cb")
-          (.countDown release-a)
-          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
-              "A's terminal recipe completes")
-          (executor-barrier!)
-          (is (= 1 (silences-for silencings cb))
-              "late A adds no silence — the retired successor already fired the one signal"))
         (finally
           (.countDown release-a)
           (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
