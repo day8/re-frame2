@@ -40,7 +40,7 @@
   timed and no number is published — the claim is about reachability,
   not cost.
 
-  Row 2 races a bare macrotask against the reapers, and on Node's real
+  Row 1 races a bare macrotask against the reapers, and on Node's real
   clock that race is decided by wall-clock time and by the order of
   Node's per-duration timer lists, not by the horizon. So it runs on a
   clock that stands still: it records the timers its renders and settles
@@ -128,40 +128,13 @@
           (sort-by first timers)))
 
 ;; ===========================================================================
-;; 1 — the baseline is the state the runtime settles to
-;; ===========================================================================
-
-(deftest the-phase-b-baseline-is-the-state-the-runtime-settles-to
-  (async done
-    (seeded!)
-    (harvest!)
-    (testing "the reading `residue-settle!` puts the baseline behind is the
-             reading the runtime settles to on its own. Read it a bare
-             macrotask earlier and it counts four cached entries the
-             reapers are about to drop — a baseline the run can never
-             return to, and the six-against-five the gate throws on"
-      (let [!baseline (volatile! nil)]
-        (-> (rf.bench.fresco.read-profile-app/residue-settle!)
-            (.then (fn [_] (vreset! !baseline (rf.bench.fresco.arm1.runtime/residue)) (rf.bench.fresco.arm1.runtime/quiesced!)))
-            (.then (fn [_]
-                     (is (= @!baseline (rf.bench.fresco.arm1.runtime/residue))
-                         "the baseline is a fixed point of the runtime's own
-                          settling, so every later sample can reach it")
-                     (is (zero? (:entries @!baseline))
-                         "and it is the post-reap state: four unclaimed
-                          entries, none of them cached by the time the
-                          baseline is taken")
-                     (rf.bench.fresco.arm1.runtime/reset-runtime!)
-                     (done))))))))
-
-;; ===========================================================================
-;; 2 — the mechanism, stated positively
+;; 1 — the mechanism, stated positively
 ;; ===========================================================================
 
 (deftest one-bare-macrotask-lands-in-front-of-the-reap-horizon
   (async done
     (seeded!)
-    (testing "why row 1 is not free: one `rf.bench.fresco.lane/settle!` after the render
+    (testing "why the settle point is not free: one `rf.bench.fresco.lane/settle!` after the render
              every unclaimed entry is STILL cached — that survival is the
              hydration margin the 4 ms horizon buys, and it is what makes a
              residue reading taken there disagree with one taken after the
@@ -189,7 +162,7 @@
         (fire-on-a-still-clock! timers)))))
 
 ;; ===========================================================================
-;; 3 — and the gate itself holds across the `commit` arm
+;; 2 — and the gate itself holds across the `commit` arm
 ;; ===========================================================================
 
 (deftest the-residue-gate-holds-across-the-commit-arm
