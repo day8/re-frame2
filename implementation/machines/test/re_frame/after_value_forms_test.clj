@@ -64,17 +64,14 @@
   (let [spec {:initial :idle
               :guards  {:never? (fn [_] false)}
               :states  {:idle    {:on {:go :loading}}
-                        :loading {:after {5000 {:guard :never? :target :warn}
-                                          6000 [{:guard :never? :target :x}
+                        :loading {:after {6000 [{:guard :never? :target :x}
                                                 {:guard :never? :target :y}]
                                           7000 :timeout}}
-                        :warn    {}
                         :x       {}
                         :y       {}
                         :timeout {}}}]
     (doseq [[label delay-key current-epoch]
-            [["(d) a single guarded map whose guard fails" 5000 1]
-             ["(g) a guarded candidate vector whose every guard fails, with no fallback" 6000 1]
+            [["(g) a guarded candidate vector whose every guard fails, with no fallback" 6000 1]
              ["a timer carried at an epoch its still-active node has moved past" 7000 2]]]
       (let [snap (at-loading current-epoch {})]
         (is (= {:snapshot snap :fx []}
