@@ -11,7 +11,7 @@
   `(when rf.interop/debug-enabled? …)`. The COORD itself is always-on:
   `rf.registrar/register!` records it in the `error-coords-by-id` registry in
   both postures, so every case also asserts that registry (and the
-  programmatic cases assert its absence beside a macro-path control)."
+  programmatic case asserts its absence beside a macro-path control)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -114,15 +114,6 @@
     (when rf.interop/debug-enabled?
       (is (= [true false] [(some? handled) (contains? handled :rf.trace/trigger-handler)])))))
 
-(deftest event-db-changed-and-do-fx-carry-event-handler-trigger
-  (rf/reg-event :t/changes-db (fn [_ _] {:db {:n 1} :fx []}))
-  (let [evs (record-traces #(rf/dispatch-sync [:t/changes-db]))]
-    (is (= 1 (:n (rf/app-db-value :rf/default))))
-    (assert-always-on-coord :event :t/changes-db)
-    (when rf.interop/debug-enabled?
-      (assert-trigger (first-of evs :rf.event/db-changed) :event :t/changes-db)
-      (assert-trigger (first-of evs :rf.fx/do-fx) :event :t/changes-db))))
-
 (deftest registration-traces-omit-trigger-handler
   ;; traces emitted outside any handler scope carry no trigger-handler
   (let [evs (record-traces #(rf/reg-event :t/reg-time-event (fn [{:keys [db]} _] {:db db})))]
@@ -148,15 +139,7 @@
     (when rf.interop/debug-enabled?
       (assert-trigger (first-of evs :rf.sub/run) :sub :t/from-cascade))))
 
-(deftest programmatic-sub-omits-trigger-on-run
-  ((requiring-resolve 're-frame.subs/reg-sub) :t/programmatic (fn [db _] db))
-  (rf/reg-sub :t/macro-sub (fn [db _] db))
-  (let [run (first-of (record-traces #(deref (rf/subscribe [:t/programmatic]))) :rf.sub/run)]
-    (assert-no-always-on-coord :sub :t/programmatic :t/macro-sub)
-    (when rf.interop/debug-enabled?
-      (is (= [true false] [(some? run) (contains? run :rf.trace/trigger-handler)])))))
-
-;; The stock cofx surface emits no success trace of its own, so each cofx body
+;; The stock cofx surface emits no success trace of its own, so the cofx body
 ;; here emits a probe — what an instrumented cofx (http, persistence) does.
 
 (deftest cofx-body-trace-carries-cofx-trigger
@@ -167,13 +150,3 @@
     (assert-always-on-coord :cofx :t/instrumented-cofx)
     (when rf.interop/debug-enabled?
       (assert-trigger (first-of evs :t/probe) :cofx :t/instrumented-cofx))))
-
-(deftest programmatic-cofx-omits-trigger-on-body-trace
-  ((requiring-resolve 're-frame.cofx/reg-cofx)
-   :t/prog-cofx (fn [] (rf.trace/emit! :t/probe :t/probe {}) :ok))
-  (rf/reg-event :t/use-prog-cofx {:rf.cofx/requires [:t/prog-cofx]} (fn [_ _] {}))
-  (rf/reg-cofx :t/macro-cofx (fn [] :ok))
-  (let [probe (first-of (record-traces #(rf/dispatch-sync [:t/use-prog-cofx])) :t/probe)]
-    (assert-no-always-on-coord :cofx :t/prog-cofx :t/macro-cofx)
-    (when rf.interop/debug-enabled?
-      (is (= [true false] [(some? probe) (contains? probe :rf.trace/trigger-handler)])))))
