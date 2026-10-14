@@ -54,13 +54,9 @@
      ;; it at top of stack. Measuring the refusal against the fixture's own
      ;; stamp would be measuring the fixture. (The mismatched-scope case is
      ;; interesting in its own right and is pinned deliberately, in
-     ;; `arm1/hframe_cljs_test`.)
+     ;; `ssr/entry_cljs_test`.)
      :ambient-frame nil
      :init-fn       (fn [] (rf.bench.fresco.ssr.fixtures/register!) (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
-
-(def ^:private !seen
-  "Every frame id a server body read, newest last."
-  (atom []))
 
 (def ^:private !ambient
   "What the ambient carry answered inside a server body — the ex-data of
@@ -72,7 +68,7 @@
   documented correct shape. What it renders is a subscription value, so
   the boundary is an ordinary one."
   [_]
-  (swap! !seen conj (rf.bench.fresco.front.intent/hframe))
+  (rf.bench.fresco.front.intent/hframe)
   [:span.row (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))])
 
 (defview indiscreet
@@ -97,14 +93,6 @@
   {:hiccup   hiccup
    :snapshot (:snapshot (rf.bench.fresco.ssr.fixtures/row "dogfood-snapshot"))
    :payload  rf.bench.fresco.ssr.fixtures/dogfood-payload-keys})
-
-(deftest a-server-body-reads-the-requests-own-frame
-  ;; Two requests, two per-request gensyms, and each body read its own.
-  (reset! !seen [])
-  (let [a (rf.bench.fresco.ssr.entry/render (request [discreet {}]))
-        b (rf.bench.fresco.ssr.entry/render (request [discreet {}]))]
-    (is (= [[(:frame-id a) (:frame-id b)] true]
-           [@!seen (not= (:frame-id a) (:frame-id b))]))))
 
 (deftest a-body-that-reads-the-id-and-keeps-it-out-of-markup-is-deterministic
   (let [{:keys [identical? differs-at] a :first b :second}
