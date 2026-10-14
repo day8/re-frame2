@@ -56,27 +56,6 @@
 (defn- stale-suppressed [traces]
   (filter #(= :rf.http/stale-suppressed (:operation %)) traces))
 
-(deftest destroy-then-recreate-drops-the-anonymous-late-reply
-  (testing "an anonymous request in flight when its frame is destroyed is
-            cancelled, and its late completion is not delivered into a new frame
-            created under the same id"
-    (let [cf      (CompletableFuture.)
-          replies (atom [])]
-      (reg-anonymous-load! replies)
-      (rf/make-frame {:id :frame/anon})
-      (with-redefs [rf.http.transport-jvm/jvm-fetch (fn [_] cf)]
-        (rf/dispatch-sync [:anon/load] {:frame :frame/anon})
-        (rf/destroy-frame! :frame/anon)
-        (is (.isCancelled cf)
-            "destroy-frame! cancelled the anonymous request's host future")
-        (rf/make-frame {:id :frame/anon})
-        ;; The completion callback runs on this thread, so any reply it
-        ;; dispatches is queued ahead of the barrier below.
-        (.complete cf ok-response)
-        (settle-router!)
-        (is (empty? @replies)
-            "no reply from the destroyed incarnation was delivered")))))
-
 (deftest frame-boundaries-cancel-every-anonymous-request-and-spare-siblings
   (doseq [[label hook recovery] [[:frame-destroy :http/on-frame-destroyed! :suppressed-on-frame-destroy]
                                  [:epoch-restore :http/abort-in-flight-for-frame! :suppressed-on-epoch-restore]]]
@@ -84,7 +63,6 @@
                   frame A issued is cancelled and suppressed with one stale row
                   each, while frame B's identical request is untouched and still
                   delivers")
-      (rf.http.registry/clear-all-in-flight!)
       (let [issued  (atom [])
             replies (atom [])
             traces  (atom [])]

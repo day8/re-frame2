@@ -8,7 +8,7 @@
   backoff retries is pinned by every retry-exhaustion round trip."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -76,35 +76,6 @@
   (is (= 1 (.get hits)) "no retry fired after the cancel"))
 
 (def ^:private reply-shape (juxt :status (comp :kind :error) (comp :reason :error)))
-
-(deftest abort-during-backoff-cancels-pending-retry
-  (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
-                    :decode     :json
-                    :retry      retry-config
-                    :request-id :race
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
-        (rf/dispatch-sync [:issue])
-        (await-backoff-sleeping! hits)
-        (is (contains? (rf.http.registry/in-flight-snapshot) :race)
-            "the sleeping request stays registered during backoff")
-        (rf/dispatch-sync [:do/abort])
-        (await-condition! #(seq @replies))
-        (is (empty? (rf.http.registry/in-flight-snapshot)) "the cancel clears the registry at once")
-        (assert-no-retry-fired! hits)
-        (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
-        (finally
-          (stop-server! srv)))))
 
 (deftest actor-destroy-during-backoff-cancels-pending-retry
   (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)

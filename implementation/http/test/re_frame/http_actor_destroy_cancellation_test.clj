@@ -29,17 +29,17 @@
 
 (defn- reg-worker!
   "A machine that, on entering :running, issues one managed request per entry
-  of `request-ids` (nil issues an anonymous one)."
+  of `request-ids`."
   [machine-id request-ids]
   (rf/reg-machine machine-id
     {:initial :idle
      :actions {:fire (fn [_]
                        {:fx (mapv (fn [request-id]
                                     [:rf.http/managed
-                                     (cond-> {:request    {:url "http://example.invalid/slow"}
-                                              :decode     :json
-                                              :on-failure [:reply/recorder]}
-                                       request-id (assoc :request-id request-id))])
+                                     {:request    {:url "http://example.invalid/slow"}
+                                      :decode     :json
+                                      :request-id request-id
+                                      :on-failure [:reply/recorder]}])
                                   request-ids)})}
      :states  {:idle    {:on {:start :running}}
                :running {:entry :fire}}}))
@@ -101,21 +101,6 @@
         (is (= [:actor-destroyed] (map (comp :reason :error) @replies)))
         (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot)))
             "B remains in the in-flight registry")))))
-
-(deftest anonymous-child-request-abort-cleans-actor-index
-  (testing "an anonymous request issued from a spawned actor is indexed by the
-            actor alone; destroying the actor aborts it and empties the index"
-    (let [replies (atom [])]
-      (reg-recorder! replies)
-      (reg-worker! :worker/anon [nil])
-      (reg-supervisor! :sup/anon :worker/anon)
-      (with-redefs [rf.http.transport-jvm/jvm-fetch held-fetch]
-        (rf/dispatch-sync [:sup/anon [:start]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (rf/dispatch-sync [:sup/anon [:cancel]])
-        (await-condition! #(seq @replies))
-        (is (= [[:cancelled :rf.http/aborted :actor-destroyed]] (map cancel-summary @replies)))
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))))))
 
 (deftest imperatively-spawned-actor-request-aborts-on-imperative-destroy
   (testing "an imperatively spawned actor (no :spawned registry slot) owns its

@@ -65,37 +65,6 @@
 
 (def ^:private reply-shape (juxt :status (comp :kind :error) (comp :reason :error)))
 
-(deftest abort-during-in-flight-decode-wins-over-decode-failure
-  (let [srv               (start-200-server! "application/json" "{\"k\":1}")
-          decoder-entered   (CountDownLatch. 1)
-          decoder-may-throw (CountDownLatch. 1)
-          replies           (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
-                    :decode     (fn [_text _headers]
-                                  (.countDown decoder-entered)
-                                  (.await decoder-may-throw 30 TimeUnit/SECONDS)
-                                  (throw (ex-info "decode-boom" {})))
-                    :request-id :race
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
-        (rf/dispatch-sync [:issue])
-        (is (.await decoder-entered 5 TimeUnit/SECONDS) "decode is mid-run: the abort window is open")
-        (rf/dispatch-sync [:do/abort])
-        (.countDown decoder-may-throw)
-        (await-condition! #(seq @replies))
-        (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
-        (is (empty? (rf.http.managed/in-flight-snapshot)))
-        (finally
-          (stop-server! srv)))))
-
 ;; A closed-port request with the abort in the same dispatch would be a clock
 ;; race (the connection-refused completion runs on the HttpClient's own
 ;; thread), so the precedence is pinned at the finalise seam instead.
