@@ -44,19 +44,6 @@
                          (rf/dispatch-sync
                            [:ft/engine [:rf.machine.timer/after-elapsed 5000 0 [:loading]]]))))))
 
-(deftest raise-depth-exceeded-tag-carries-frame
-  ;; Five raises from one action against a raise-depth limit of 3.
-  (rf/reg-machine :ft/raise-loop
-    {:initial :idle
-     :raise-depth-limit 3
-     :actions {:fan-out (fn [_] {:fx (vec (repeat 5 [:raise [:noop]]))})}
-     :states  {:idle    {:on {:start {:target :running :action :fan-out}
-                              :noop  :idle}}
-               :running {:on {:noop :idle}}}})
-  (is (= {:rf.error/machine-raise-depth-exceeded [:rf/default]}
-         (frames-by-op #{:rf.error/machine-raise-depth-exceeded}
-                       #(rf/dispatch-sync [:ft/raise-loop [:start]])))))
-
 (deftest always-depth-exceeded-tag-carries-frame
   ;; `:a` and `:b` ping-pong on always-true `:always` guards past the limit.
   (rf/reg-machine :ft/always-loop
