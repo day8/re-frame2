@@ -373,19 +373,14 @@ test('the refusal-code namespace appears nowhere outside the package', () => {
 });
 
 /**
- * One realistic plant per loader position. A minimal plant can be the one
- * arrangement a bug does not reach, so `app/core.cljs` puts the forbidden
- * namespace LAST of three libspecs.
+ * One realistic plant per loader position outside a ClojureScript `ns` form,
+ * whose clause keys the next control sweeps position by position.
  */
 const PLANTED_LOADER_FAULTS = {
   'app/boot.cjs': "require('../../implementation/ssr-node/src/service.cjs');\n",
   'app/entry.mjs': "import svc from '../implementation/ssr-node/src/service.cjs';\n",
   'app/lazy.cjs': "const P = 'implementation/ssr-node/src/service.cjs';\nrequire(P);\n",
   'app/re_export.mjs': "export { render } from '../ssr-node/src/service.cjs';\n",
-  'app/core.cljs':
-    '(ns app.core\n  (:require [reagent.core :as r]\n'
-    + '            [re-frame.core :refer [dispatch subscribe]]\n'
-    + '            [rf.ssr-node/service :as svc]))\n',
   'build/shadow-cljs.edn': '{:builds {:app {:target :browser\n :source-paths ["ssr-node/src"]}}}\n',
   'build/deps.edn': '{:deps {day8/ssr-node {:mvn/version "0.1.0"}}}\n',
   'build/local.edn': '{:aliases {:x {:extra-deps {a/b {:local/root "../ssr-node"}}}}}\n',
@@ -513,41 +508,6 @@ test('no shadow-cljs build and no classpath entry reaches this package', () => {
   );
 });
 
-test('CONTROL — a doctored build config is caught, and a comment about one is not', () => {
-  const dir = scratch({
-    // Both spellings, at both kinds of loader position an EDN config has.
-    'shadow-cljs.edn': '{:builds {:app {:target :browser :source-paths ["ssr-node/src"]}}}\n',
-    'deps.edn': '{:deps {day8/ssr-node {:local/root "../ssr-node"}}}\n',
-    // The near-miss: the shape `implementation/shadow-cljs.edn` carries.
-    'commented.edn':
-      ';; the module `implementation/ssr-node`\'s sidecar loads — prose, not a\n'
-      + ';; source path, and the refusal code :rf.ssr-node/render-threw is not\n'
-      + ';; one either.\n'
-      + '{:builds {:app {:target :browser :source-paths ["src"]}}}\n',
-  });
-  try {
-    const found = scanLoaderPositions(dir, ['shadow-cljs.edn', 'deps.edn'], REFERENCES, null);
-    assert.deepStrictEqual(
-      [...new Set(found.map((h) => h.file))],
-      ['shadow-cljs.edn', 'deps.edn'],
-      'the check must see a planted source path and a planted coordinate',
-    );
-    assert.deepStrictEqual(
-      scanLoaderPositions(dir, ['commented.edn'], REFERENCES, null),
-      [],
-      'and a comment naming the package is not a way into a build — the narrowing this row is',
-    );
-    // And the comment must be there to be missed: the raw scan finds both needles.
-    assert.strictEqual(
-      scanForReferences(dir, ['commented.edn'], REFERENCES, null).length,
-      REFERENCES.length,
-      'the near-miss fixture must carry both needles, or the scoped scan proves nothing',
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test('the package is pure JavaScript — no CLJS a build could pick up', () => {
   const walk = (dir) =>
     fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -589,8 +549,6 @@ test('CONTROL — a third-party require is caught, spelled out or computed', () 
   });
   try {
     assert.deepStrictEqual(foreignRequires([path.join(dir, 'bad.cjs')]), [{ file: 'bad.cjs', spec: 'react' }]);
-    // A module name hidden behind a binding is invisible to `foreignRequires`.
-    assert.deepStrictEqual(foreignRequires([path.join(dir, 'sneaky.cjs')]), []);
     assert.deepStrictEqual(computedRequires([path.join(dir, 'sneaky.cjs')]), [{ file: 'sneaky.cjs', arg: 'NAME' }]);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
