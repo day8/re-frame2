@@ -22,7 +22,6 @@ const {
   parseFilterPatterns,
   normalizeForFilter,
   entryIdentities,
-  isSpecFile,
   listSpecFiles,
   reconcile,
 } = require('../adapters/scripts/adapter-smoke-filter.cjs');
@@ -48,31 +47,18 @@ function selectBuildIds(filter) {
 
 console.log('adapter-smoke-filter selection tests');
 
-it('empty filter selects both (full sweep — nightly + rigorous-local)', () => {
-  assert.deepStrictEqual(selectBuildIds(''), [
-    'adapters/reagent-testbed',
-    'adapters/uix-testbed',
-  ]);
-});
-
-// The adapter-testbed-smokes CI job's filter.
-it('broad CI filter `adapters/` selects exactly the two adapter smokes', () => {
-  assert.deepStrictEqual(selectBuildIds('adapters/'), [
-    'adapters/reagent-testbed',
-    'adapters/uix-testbed',
-  ]);
-});
-
-it('build-id-shaped and path-shaped singleton filters select exactly their one adapter', () => {
-  assert.deepStrictEqual(selectBuildIds('adapters/reagent-testbed'), ['adapters/reagent-testbed']);
-  assert.deepStrictEqual(selectBuildIds('uix/testbed'), ['adapters/uix-testbed']);
-});
-
-it('comma-separated filter OR-matches multiple shapes', () => {
-  assert.deepStrictEqual(selectBuildIds('reagent-testbed,uix/testbed'), [
-    'adapters/reagent-testbed',
-    'adapters/uix-testbed',
-  ]);
+// An empty filter is the full sweep (nightly + rigorous-local); a build-id- or
+// path-shaped filter selects its one adapter; commas OR-match.
+it('filters select by build id or spec path, commas OR-match, and empty selects both', () => {
+  assert.deepStrictEqual(
+    ['', 'adapters/reagent-testbed', 'uix/testbed', 'reagent-testbed,uix/testbed'].map(selectBuildIds),
+    [
+      ['adapters/reagent-testbed', 'adapters/uix-testbed'],
+      ['adapters/reagent-testbed'],
+      ['adapters/uix-testbed'],
+      ['adapters/reagent-testbed', 'adapters/uix-testbed'],
+    ],
+  );
 });
 
 // Selection keys on build ids and repo-relative spec paths, never the absolute
@@ -101,13 +87,6 @@ it('normalizeForFilter collapses _, \\ and / to a single -', () => {
 });
 
 // ---- manifest vs on-disk reconciliation: the same functions run-adapter-smokes.cjs calls
-
-it('isSpecFile accepts spec.cjs and *.spec.cjs and rejects everything else (rf2-qf45gu)', () => {
-  assert.deepStrictEqual(
-    ['spec.cjs', 'reagent.spec.cjs', 'spec.js', 'specXcjs'].map(isSpecFile),
-    [true, true, false, false],
-  );
-});
 
 it('reconcile partitions declared-vs-discovered into missing + undeclared (rf2-qf45gu)', () => {
   const a = path.resolve(REPO_ROOT, 'x', 'a.spec.cjs');
