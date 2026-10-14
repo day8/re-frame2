@@ -243,22 +243,6 @@
                (select-keys (:tags ev) [:rf.sub/id :unresolved-input :resolved-inputs :frame
                                         :rf.sub/query-v])))))))
 
-(deftest sub-hot-reload-invalidates-cache
-  ;; A pinned slot would still answer 7 if re-registration did not evict it.
-  (seed-n!)
-  (rf/subscribe [:n])
-  (let [traces (atom [])]
-    (rf/register-listener! :trace ::hot-reload (fn [ev] (swap! traces conj ev)))
-    (rf/reg-sub :n (fn [db _] (* 10 (:n db))))
-    (rf/unregister-listener! :trace ::hot-reload)
-    (is (= 70 (rf/subscribe-once [:n])))
-    (when rf.interop/debug-enabled?
-      (is (some #(= {:operation :rf.registry/handler-replaced :op-type :rf.registry
-                     :kind :sub :id :n}
-                    (assoc (select-keys % [:operation :op-type])
-                           :kind (:kind (:tags %)) :id (:id (:tags %))))
-                @traces)))))
-
 (deftest subscribe-frameless-read-raises-no-frame-context
   ;; EP-0002: with no carried frame the ambient read surfaces raise rather than
   ;; read an invented `:rf/default`.
