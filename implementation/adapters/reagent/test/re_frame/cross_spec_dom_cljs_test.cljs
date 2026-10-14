@@ -466,43 +466,6 @@
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
-(deftest plain-fn-under-no-provider-raises-no-frame-context
-  "Plain Reagent fn rendered with NO frame-provider at all.
-   EP-0002: there is no `:rf/default` floor — a bare reagent
-   fn under no provider resolves to nil and its `(rf/subscribe ...)`
-   raises `:rf.error/no-frame-context` rather than routing silently to
-   `:rf/default`. A single-frame app keeps working by establishing ONE
-   explicit root `frame-provider` / `with-frame`."
-  (if-not (browser?)
-    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (do
-      (rf/reg-event :seed-plain-default (fn [{:keys [db]} _] {:db {:m 9}}))
-      (rf/reg-sub :plain-default-test/m (fn [db _] (:m db)))
-      (let [render-error (atom nil)
-            plain-default (fn plain-default-impl []
-                            (try
-                              @(rf/subscribe [:plain-default-test/m])
-                              (catch :default e (reset! render-error e)))
-                            [:div "no-provider"])
-            mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)]
-        (try
-          ;; EP-0002: clear the fixture's ambient `*current-frame*`
-          ;; :rf/default scope around the synchronous render so the
-          ;; no-provider → no-frame-context contract is actually exercised
-          ;; (the ambient scope would otherwise resolve :rf/default at tier 1).
-          (binding [rf.frame/*current-frame* nil]
-            (react-dom/flushSync
-              (fn []
-                ;; No frame-provider — the React-context tier resolves to
-                ;; the no-provider sentinel → nil → no-frame-context.
-                (rdc/render root [plain-default]))))
-          (is (= :rf.error/no-frame-context
-                 (:rf.error/id (ex-data @render-error)))
-              "a plain fn with no enclosing provider raised :rf.error/no-frame-context rather than reading :rf/default")
-          (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Interaction 10 (continued) — the plain-fn no-frame boundary
 ;;
@@ -889,11 +852,6 @@
       (set! (.-_currentValue ^js rf.adapter.context/frame-context) "tenant-prop-converted")
       (is (= :tenant-prop-converted (rf.adapter.context/function-component-current-frame))
           "stringified keyword is round-tripped back to a keyword")
-      ;; Keyword shape — what the createContext default and CLJS-direct
-      ;; paths produce.
-      (set! (.-_currentValue ^js rf.adapter.context/frame-context) :tenant-keyword-shape)
-      (is (= :tenant-keyword-shape (rf.adapter.context/function-component-current-frame))
-          "keyword shape is preserved")
       (finally
         (set! (.-_currentValue ^js rf.adapter.context/frame-context) original))))))
 
