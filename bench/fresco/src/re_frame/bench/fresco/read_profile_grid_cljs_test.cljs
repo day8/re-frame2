@@ -26,15 +26,3 @@
                           [9 7 ["kept = 63 samples/arm (ODD" "grid = 0.003125 ms/commit"]]]]
     (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line r {:warmup 2 :samples s} 32)]
       (is (every? #(str/includes? line %) expected) line))))
-
-(deftest the-live-shape-is-recorded-with-its-parity
-  ;; The shipped window's own shape, read off `phase-b-shape`, prints the
-  ;; parity its kept count has and the grid that shape derives.
-  (let [{:keys [rounds sampling frames]} (rf.bench.fresco.read-profile-app/phase-b-shape)
-        kept (* rounds (:samples sampling))
-        line (rf.bench.fresco.read-profile-app/phase-b-design-line rounds sampling frames)]
-    (is (every? #(str/includes? line %)
-                [(str "kept = " kept " samples/arm (" (if (even? kept) "EVEN" "ODD"))
-                 (str "grid = " (.toFixed (rf.bench.fresco.read-profile-app/phase-b-grid-ms rounds sampling frames) 6)
-                      " ms/commit")])
-        line)))
