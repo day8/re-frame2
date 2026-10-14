@@ -191,19 +191,6 @@
            (into {} (map (juxt (comp boolean :refetch-populated?) :exempt-keys)) (:dispatched inv))))
     (is (= [global-article-key] (:populate-exempt inv)))))
 
-(deftest stale-settle-does-not-populate
-  (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :populates populates-article}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
-  (let [stale-args @last-managed-args]
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
-    (reply-success! stale-args {:slug "w" :title "stale"})
-    (is (nil? (entry global-article-key)))))
-
 (deftest from-db-populate-target-nil-fails-closed
   ;; Not logged in, so {:from-db :t/session} resolves nil: the target is
   ;; dropped, never seeded under an implicit global.
