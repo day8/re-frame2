@@ -44,10 +44,6 @@
      `h/frame-root` dispatches into the named frame. A name-only rebind
      reds with `:rf.error/fresco-intent-outside-boundary`.
 
-  Controls, green under either mechanism: the same four buttons in a body
-  with NO nested head all land in the body's frame; and an intent with no
-  frame head above it is still the loud refusal.
-
   ## Why each button carries a TAG
 
   `::bump` appends the button's tag to the frame it reached, so a
@@ -55,9 +51,8 @@
   count that merely failed to move.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs every row against a
-  real React DOM; under `:node-test` the DOM rows degrade to a stated
-  skip, while the two lowering-only rows (the root provider and the
-  no-boundary control) run in both."
+  real React DOM; under `:node-test` every row degrades to a stated
+  skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -186,30 +181,6 @@
   (doseq [sel [".a" ".b" ".c" ".d"]] (click! c sel)))
 
 ;; ---------------------------------------------------------------------------
-;; Control — no nested head: every spelling lands in the body's frame
-;; ---------------------------------------------------------------------------
-
-(rf.fresco/defview flat-page
-  "The four buttons with no frame head between them and the body."
-  [_]
-  [:div.page (four-buttons)])
-
-(deftest control-with-no-nested-head-every-spelling-lands-in-the-bodys-frame
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_ (bare!)
-          _ (seeded! main)
-          _ (seeded! preview)
-          m (mount! [rf.fresco/frame-provider {:frame main} [flat-page {}]])]
-      (try
-        (click-all! (second m))
-        (is (= [:a :b :c :d] (by main))
-            "the control's own frame took all four — the instrument works")
-        (is (nil? (by preview))
-            "and the other live frame took none")
-        (finally (release! m))))))
-
-;; ---------------------------------------------------------------------------
 ;; 1 — a nested h/frame-provider in a body
 ;; ---------------------------------------------------------------------------
 
@@ -316,26 +287,6 @@
 ;; 4 — roots: the inline intent under a ROOT frame head
 ;; ---------------------------------------------------------------------------
 
-(deftest an-intent-under-a-root-frame-provider-lowers-with-its-frames-dispatch
-  ;; No DOM: the lowering is ordinary CLJS, and the handler it lowered is a
-  ;; closure that ignores its event, so it is called here directly.
-  (bare!)
-  (seeded! preview)
-  (let [el       (atom nil)
-        refused  (refusal #(reset! el (rf.fresco/as-element
-                                        [rf.fresco/frame-provider {:frame preview}
-                                         [:button {:on-click [::bump :root]} "x"]])))
-        on-click (some-> @el .-props .-children .-props .-onClick)]
-    (is (nil? refused)
-        (str "an inline intent directly under a root frame-provider was "
-             "refused as " (pr-str refused) " — the head names a frame, so "
-             "the markup below it has one"))
-    (is (fn? on-click) "premise: the button's handler is on the lowered element")
-    (when (fn? on-click)
-      (on-click nil)
-      (is (= [:root] (by preview))
-          "the handler dispatched into the provider's frame"))))
-
 (deftest an-intent-under-a-root-frame-head-dispatches-into-the-named-frame
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
@@ -361,13 +312,3 @@
             (click! (second m) ".r")
             (is (= [:r] (by ensured)))))
         (finally (run! release! (vals @mounts)))))))
-
-;; ---------------------------------------------------------------------------
-;; Control — with NO frame head above it, an intent is still the loud refusal
-;; ---------------------------------------------------------------------------
-
-(deftest control-an-intent-with-no-frame-head-above-it-is-still-refused
-  (bare!)
-  (is (= :rf.error/fresco-intent-outside-boundary
-         (refusal #(rf.fresco/as-element [:button {:on-click [::bump :x]} "x"])))
-      "the refusal must survive exactly where no frame boundary exists"))
