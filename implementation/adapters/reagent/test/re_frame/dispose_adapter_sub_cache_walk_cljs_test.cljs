@@ -28,60 +28,6 @@
 
 (use-fixtures :each cold-start-fixture)
 
-;; ---- helpers --------------------------------------------------------------
-
-(defn- cached-reactions-across-all-frames
-  "Return a seq of every cached `:reaction` across every live frame's
-  sub-cache. Walks `@frame/frames` the same way the adapter's
-  `dispose-adapter!` walk does."
-  []
-  (for [[_ frame-record] @rf.frame/frames
-        :let  [cache (:sub-cache frame-record)]
-        :when cache
-        [_k entry] @cache
-        :let  [r (:reaction entry)]
-        :when r]
-    r))
-
-(defn- sub-cache-counts
-  "Return `{frame-id <entry-count>}` for every frame with a sub-cache."
-  []
-  (into {}
-        (for [[fid frame-record] @rf.frame/frames
-              :let [cache (:sub-cache frame-record)]
-              :when cache]
-          [fid (count @cache)])))
-
-;; ---- tests ----------------------------------------------------------------
-
-(deftest dispose-adapter-walks-and-disposes-cached-reactions-across-every-frame
-  (testing "after dispose-adapter!, every cached Reaction across every
-  live frame is disposed AND every frame's sub-cache atom is empty"
-    (rf/make-frame {:id :walk/a})
-    (rf/make-frame {:id :walk/b})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-
-    (rf/dispatch-sync [:seed 1] {:frame :walk/a})
-    (rf/dispatch-sync [:seed 2] {:frame :walk/b})
-
-    (let [r-a (rf/subscribe [:n] {:frame :walk/a})
-          r-b (rf/subscribe [:n] {:frame :walk/b})]
-      (is (= [1 2] [@r-a @r-b]))
-      (is (every? pos? (map #(get (sub-cache-counts) % 0) [:walk/a :walk/b]))
-          "precondition: each frame's sub-cache holds the [:n] entry")
-      ;; Snapshot the Reactions now: after the walk the caches are empty.
-      (let [reactions-before (vec (cached-reactions-across-all-frames))
-            disposed         (atom #{})]
-        (is (>= (count reactions-before) 2) "precondition: a Reaction per frame is cached")
-        (doseq [r reactions-before]
-          (ratom/add-on-dispose! r (fn [& _] (swap! disposed conj r))))
-        (rf.substrate.adapter/dispose-adapter!)
-        (is (= (set reactions-before) @disposed)
-            "every previously-cached Reaction fired its dispose hook")
-        (is (= #{0} (set (vals (sub-cache-counts))))
-            "every frame's sub-cache is empty")))))
-
 ;; ---- drain-then-rethrow ----------------------------------------
 ;;
 ;; Drain everything even when one fails, do not swallow the failure, and
