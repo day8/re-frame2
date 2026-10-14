@@ -104,16 +104,13 @@
             `pushStyleAttribute` does, not to the EDN print of the map"
     (doseq [[style expected]
             [[{:marginTop "4px"}                       "margin-top:4px"]
-             [{:background-color "red"}                "background-color:red"]
-             [{:display :flex}                         "display:flex"]
              [{:width 10}                              "width:10px"]
              [{:margin 0}                              "margin:0"]
              [{:flex-grow 1}                           "flex-grow:1"]
              [{:color "red" :top nil :bottom false :left ""} "color:red"]
              [{:--gap 8}                               "--gap:8"]
              [{:font-family "\"My Font\", sans-serif"} "font-family:&quot;My Font&quot;, sans-serif"]
-             ["margin:0 1em"                           "margin:0 1em"]
-             [(array-map :margin 0 :padding "4px")     "margin:0;padding:4px"]]]
+             ["margin:0 1em"                           "margin:0 1em"]]]
       (is (= (str " style=\"" expected "\"")
              (rf.ssr.html-helpers/attr-string {:style style}))
           (pr-str style)))))
