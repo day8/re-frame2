@@ -11,9 +11,8 @@
   whose reader then rejects the duplicate.
 
   The per-class verdicts belong to `wire/portable-number?` and are pinned
-  in `re-frame.ssr.wire-cljs-test`, beside the bytes that show the browser
-  rejecting a collapsed map; NaN, infinities, `#inst` and `#uuid` read back
-  as what they were and ride."
+  in `re-frame.ssr.wire-cljs-test`; NaN, infinities, `#inst` and `#uuid`
+  read back as what they were and ride."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
