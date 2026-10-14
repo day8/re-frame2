@@ -156,18 +156,15 @@
    :stale   [:stale :suppressed]})
 
 (deftest every-reply-is-a-canonical-envelope-for-its-situation
-  (doseq [[family situation build] (cells)
-          :let [reply (build {})]]
+  (doseq [[family situation build {:keys [work-head]}] (cells)
+          :let [reply (build {})
+                wid   (:rf.reply/work-id reply)]]
     (testing (str family " / " situation)
       (is (rf.reply/valid-reply? reply) (pr-str (rf.reply/validate-reply reply)))
       (is (= (situation-statuses situation)
-             ((juxt :status :rf.reply/work-status) reply))))))
-
-(deftest every-work-id-is-a-comparable-edn-tuple
-  (doseq [[family situation build {:keys [work-head]}] (cells)
-          :let [wid (:rf.reply/work-id (build {}))]]
-    (is (= [true work-head wid] [(vector? wid) (first wid) (edn-roundtrip wid)])
-        (str family " " situation))))
+             ((juxt :status :rf.reply/work-status) reply)))
+      (is (= [true work-head wid] [(vector? wid) (first wid) (edn-roundtrip wid)])
+          "the work is named by a comparable EDN tuple"))))
 
 ;; Completion time is causal evidence: a builder supplied one carries it as
 ;; `:completed-at`, and a builder supplied none omits the key rather than
