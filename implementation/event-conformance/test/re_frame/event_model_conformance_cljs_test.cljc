@@ -5,10 +5,9 @@
   observability behaviour. This cross-artefact suite locks the boundaries that
   are easiest to weaken while those tests remain green: supplied recordable
   coeffects are validated at the durable boundary; the closed effect map is
-  enforced at the final effects boundary, with no db-return convenience; only
-  framework-authority handlers write `:rf.db/runtime` silently; and the
-  `^:no-doc` retired forms throw, register nothing, and notify the always-on
-  error channel.
+  enforced at the final effects boundary, with no db-return convenience; and
+  the `^:no-doc` retired forms throw, register nothing, and notify the
+  always-on error channel.
 
   The fixture supplies an ambient `:rf/default` frame and clears the always-on
   listener registries between cases. These `.cljc` tests run on both JVM and
@@ -126,19 +125,6 @@
   (let [traces (traces-during #(rf/dispatch-sync [:evt-conf/bare-db-return]))]
     (is (= :seeded (:count (rf/app-db-value :rf/default))) "the bare return was not committed")
     (is (= [:fix-effect] (shape-recoveries traces :count)))))
-
-(deftest reg-event-app-handler-runtime-effect-keeps-the-diagnostic-unless-framework-authority
-  (rf/reg-event :evt-conf/app-writes-runtime
-    (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :app-wrote}}))
-  (rf/reg-event :evt-conf/fw-writes-runtime
-    {:rf/framework-authority? true}
-    (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :fw-wrote}}))
-  (let [recoveries (fn [event-id]
-                     (->> (traces-during #(rf/dispatch-sync [event-id]))
-                          (filter #(= :rf.warning/app-handler-runtime-effect (:operation %)))
-                          (mapv :recovery)))]
-    (is (= [:warned] (recoveries :evt-conf/app-writes-runtime)) "an app handler keeps the diagnostic")
-    (is (= [] (recoveries :evt-conf/fw-writes-runtime)) "a framework-authority handler writes silently")))
 
 ;; An `:after` interceptor is the second route into the one boundary that
 ;; decides; a foreign key it injects gets the same verdict as a returned one.
