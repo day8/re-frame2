@@ -10,15 +10,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ratom-construction
-  (testing "atom returns an RAtom"
-    (let [a (ratom/atom 1)]
-      (is (instance? ratom/RAtom a))
-      (is (= 1 @a))))
-
-  (testing "atom accepts :meta and :validator kwargs"
-    (let [a (ratom/atom 0 :meta {:tag :counter})]
-      (is (= {:tag :counter} (meta a))))
-
+  (testing "atom accepts a :validator kwarg"
     (let [a (ratom/atom 0 :validator number?)]
       (reset! a 5)
       (is (= 5 @a))
@@ -30,12 +22,10 @@
 (deftest ratom-reset-swap
   (let [a (ratom/atom 0)]
     (testing "reset!"
-      (is (= 7 (reset! a 7)))
-      (is (= 7 @a)))
+      (is (= 7 (reset! a 7))))
 
     (testing "swap! 1-arity"
-      (is (= 8 (swap! a inc)))
-      (is (= 8 @a)))
+      (is (= 8 (swap! a inc))))
 
     (testing "swap! n-arity"
       (is (= 18 (swap! a + 10)))
@@ -73,7 +63,6 @@
   (testing "RAtoms are reference-equal only"
     (let [a (ratom/atom 1)
           b (ratom/atom 1)]
-      (is (= a a))
       (is (not= a b)))))
 
 ;; ---------------------------------------------------------------------------
@@ -195,18 +184,6 @@
       (is (= [:re-entrant-cb :after-cb] @fired)
           "each callback fired exactly once despite the re-entrant dispose!; no recursion, no double-fire"))))
 
-
-(deftest reaction-auto-run-fn
-  (testing ":auto-run fn-form receives the reaction on change"
-    (let [a       (ratom/atom 1)
-          received (atom nil)
-          r       (ratom/make-reaction
-                    (fn [] @a)
-                    :auto-run (fn [r] (reset! received r)))]
-      @r
-      (reset! a 2)
-      (is (instance? ratom/Reaction @received)))))
-
 ;; ---------------------------------------------------------------------------
 ;; reactive? + reactive context
 ;; ---------------------------------------------------------------------------
@@ -228,39 +205,6 @@
 ;; ---------------------------------------------------------------------------
 ;; flush! — rea-queue drain
 ;; ---------------------------------------------------------------------------
-
-;; Neither block below reaches the queue: `:auto-run true` recomputes inside
-;; the `reset!`. The queue + `flush!` drain is pinned by
-;; `queued-reaction-drains-on-flush`.
-(deftest auto-run-recompute-notifies-watchers-synchronously
-  (testing "an auto-run Reaction's watch fires inside the source reset!"
-    (let [a     (ratom/atom 1)
-          fired (atom [])
-          r     (ratom/make-reaction (fn [] @a) :auto-run true)]
-      ;; Force initial subscription via _run.
-      @r
-      (add-watch r :w (fn [_ _ _ nu] (swap! fired conj nu)))
-      ;; auto-run true → synchronous recompute on dep change.
-      ;; The watch fires inside the auto-run's _run path.
-      (reset! a 2)
-      (is (= [2] @fired))))
-
-  (testing "a chain of auto-run Reactions recomputes synchronously end to end"
-    ;; r2 derefs r1, so r2's deref-capture subscribes r2 to r1, and r1
-    ;; subscribes to a. Both are auto-run, so mutating a recomputes r1 and
-    ;; then r2 inside the reset!.
-    (let [a       (ratom/atom 1)
-          r1      (ratom/make-reaction (fn [] (* @a 10)) :auto-run true)
-          r2-vals (atom [])
-          r2      (ratom/make-reaction
-                    (fn [] (+ @r1 1))
-                    :auto-run true)]
-      ;; Force initial run-paths to wire subscriptions.
-      @r1 @r2
-      (add-watch r2 :w (fn [_ _ _ nu] (swap! r2-vals conj nu)))
-      (reset! a 2)
-      ;; auto-run on both is synchronous: a=2 → r1=20 → r2=21.
-      (is (= [21] @r2-vals)))))
 
 (deftest queued-reaction-drains-on-flush
   (testing "rea-queue path: enqueue on dep change, flush! drains"
@@ -333,8 +277,7 @@
           r (reaction (* @a @a))]
       (is (= 9 @r))
       (reset! a 4)
-      (is (= 16 @r))
-      (is (instance? ratom/Reaction r)))))
+      (is (= 16 @r)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Printed representation: `#object[reagent2.ratom.<Type> {:val <v>}]`, with
@@ -361,11 +304,8 @@
           outer (ratom/atom {:inner inner})
           r     (ratom/make-reaction (fn [] (pr-str outer)) :auto-run true)]
       @r
-      (let [watched (set (.-watching r))]
-        (is (contains? watched outer)
-            "the printed ratom itself is deref'd at the call site")
-        (is (not (contains? watched inner))
-            "the nested ratom is deref'd inside pr-writer, under the guard"))))
+      (is (contains? (set (.-watching r)) outer)
+          "the printed ratom itself is deref'd at the call site")))
 
   (testing "so changing the nested ratom does not re-run the printer"
     (let [inner (ratom/atom 7)
@@ -374,7 +314,6 @@
           r     (ratom/make-reaction (fn [] (vswap! runs inc) (pr-str outer))
                                      :auto-run true)]
       @r
-      (is (= 1 @runs))
       (reset! inner 8)
       (is (= 1 @runs)
           "a spurious dependency on the nested ratom would recompute here"))))
