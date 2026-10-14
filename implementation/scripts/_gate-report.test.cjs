@@ -11,7 +11,7 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
-test('green details are buffered while PASS stays one line', () => {
+test('green details are buffered while PASS stays one line, and a failure flush emits them to stderr', () => {
   const stdout = [];
   const stderr = [];
   const report = createGateReporter({
@@ -23,24 +23,12 @@ test('green details are buffered while PASS stays one line', () => {
   report.detail('sentinel table line 1\nsentinel table line 2');
   report.pass('demo-gate', '2 sentinels checked; bundle=out/demo');
 
-  assert.deepEqual(stdout, [
-    'PASS demo-gate: 2 sentinels checked; bundle=out/demo',
-  ]);
-  assert.deepEqual(stderr, []);
-});
-
-test('failure flush emits buffered diagnostics to stderr', () => {
-  const stderr = [];
-  const report = createGateReporter({
-    env: {},
-    stdout: () => {},
-    stderr: (line) => stderr.push(line),
+  assert.deepEqual({ stdout, stderr }, {
+    stdout: ['PASS demo-gate: 2 sentinels checked; bundle=out/demo'],
+    stderr: [],
   });
-
-  report.detail('[FAIL] sentinel expected ABSENT, was PRESENT');
   report.flushDetails();
-
-  assert.deepEqual(stderr, ['[FAIL] sentinel expected ABSENT, was PRESENT']);
+  assert.deepEqual(stderr, ['sentinel table line 1', 'sentinel table line 2']);
 });
 
 test('RF2_VERBOSE_TESTS=1 streams details immediately', () => {
@@ -56,8 +44,7 @@ test('RF2_VERBOSE_TESTS=1 streams details immediately', () => {
   report.flushDetails();
   report.pass('demo-gate', 'ok');
 
-  assert.deepEqual(stdout, ['verbose table line', 'PASS demo-gate: ok']);
-  assert.deepEqual(stderr, []);
+  assert.deepEqual({ stdout, stderr }, { stdout: ['verbose table line', 'PASS demo-gate: ok'], stderr: [] });
 });
 
 let failed = 0;
