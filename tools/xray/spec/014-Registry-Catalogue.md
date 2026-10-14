@@ -358,7 +358,6 @@ which was also a consumer.)
 | Event | Vector shape | Behaviour |
 |---|---|---|
 | `:rf.xray/select-dispatch-id` | `[_ dispatch-id]` | Sets selection (writes through the spine via `spine/focus-event-bundle-reducer`). |
-| `:rf.xray/clear-selected-dispatch-id` | `[_]` | Drops selection (resets spine focus to LIVE per rf2-s0s5x Phase A). |
 
 ## Time-travel scrubber
 
@@ -647,7 +646,6 @@ which is why several ids below are named "for-focused-event" /
 | `:rf.xray/machine-tab-fit-signal` | Monotonic counter (default `0`) bumped by `:rf.xray/select-tab :machines` **and** `:rf.xray.static/select-tab :machines`. Forwarded as `MachineChart`'s `:fit-signal` so tab entry re-fits the topology; the layout-key auto-fit deliberately preserves manual zoom/pan, and this is the orthogonal entry-fit escape hatch. Registered in `registry.cljs`, read by both the Dynamic and Static machine surfaces. |
 | `:rf.xray/active-timers-for-focused-machine` | Vector of timer records — `:armed` for live rings, `:cancelled` for fading/crossed-out ones. Inputs: `:rf.xray/trace-buffer`, `:rf.xray/machine-transitions-for-focused-event`, `:rf.xray/target-frame`, `:rf.xray/selected-machine-id`. The machine is picked by `pick-focused-transition`, the same rule the chart picks its record by, so rings and chart cannot drift (rf2-y8doi.23). **`:rf.xray/selected-machine-id` is an input for exactly that reason** (rf2-mj4jp): the rule takes the operator's explicit selection as an argument, so a consumer that calls the shared fn without it has not shared the rule — it has only shared the function name, and would fold rings for one machine while the chart drew another. **`:rf.xray/now-ms` is deliberately NOT an input** — with the clock as an input the whole-buffer fold re-ran at ~60 Hz; the now-keyed filter now runs in `overlay-tree` where the clock already is, which also makes retro-mode eviction honest. |
 | `:rf.xray/now-ms` | Wall-clock ms from the `:rings/now-ms` slot — the reactive driver for ring animation, written by `:rf.xray/timer-tick`. |
-| `:rf.xray/timer-hover` | The hovered timer's payload, or `nil`. Plumbed for a follow-on rich tooltip; v1 uses native SVG `<title>`. Shares its name with the event below. |
 | `:rf.xray/cancellation-cascade-for-focused-machine` | The cancellation cascade for the selected machine, or a `:no-trigger` shape when nothing is selected. Inputs: `:rf.xray/trace-buffer`, `:rf.xray/selected-machine-id`. Registered in `cancellation_cascade_subs.cljs`. |
 
 ### Events
@@ -655,14 +653,12 @@ which is why several ids below are named "for-focused-event" /
 | Event | Vector shape | Behaviour |
 |---|---|---|
 | `:rf.xray/select-machine-id` | `[_ machine-id]` | Writes the picker slot **and LANDS the selection** — moves the spine focus to the newest epoch touching `machine-id` through the same walk Prev/Next uses, so the move sticks against `compose-focus`'s LIVE head-tracking (rf2-y8doi.23). A machine with no epoch in the window is a no-op. |
-| `:rf.xray/clear-machine-selection` | `[_]` | Drops the picker slot. |
 | `:rf.xray/machine-focus-prev` | `[_]` | Steps the spine focus back to the adjacent epoch whose cascade targets the currently-viewed machine, skipping epochs that touched only other machines. |
 | `:rf.xray/machine-focus-next` | `[_]` | As above, forwards. |
 | `:rf.xray/machine-state-clicked` | `[_ payload]` | Click-on-state in the topology view. Registered no-op slot — it exists so the chart's dispatch lands on a known handler instead of emitting a `:rf.warning/no-handler` trace. |
-| `:rf.xray/machine-chart-layout-pulse` | `[_]` | Bumps `:machine-inspector/elk-pulse-tick`, re-driving the ELK layout pass. |
 | `:rf.xray/set-scrubber-position` | `[_ position]` | Sets the scrubber slot. `:present` and integers are stored; the companion read defaults to `:present`. |
 | `:rf.xray/timer-tick` | `[_ t]` | `:rf.trace/no-emit? true` (rf2-qsjda — the rAF tick would otherwise bomb Xray's own trace buffer 60×/second). Writes `t`, or `(.now js/Date)`, into `:rings/now-ms`. |
-| `:rf.xray/timer-hover` | `[_ payload]` | Sets or (on `nil`) clears the hovered-timer slot. Shares its name with the sub above. |
+| `:rf.xray/timer-hover` | `[_ payload]` | Sets or (on `nil`) clears the hovered-timer slot `:rings/hover`. No sub reads it. |
 | `:rf.xray/filter-by-machine` | `[_ machine-id]` | Appends an `:in` filter pill scoped to `machine-id`; a duplicate add collapses to a no-op. Registered in `filters.cljs`. |
 
 ### Test-only override seam

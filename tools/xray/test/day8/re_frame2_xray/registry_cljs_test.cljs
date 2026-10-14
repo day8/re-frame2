@@ -197,7 +197,6 @@
    :rf.xray/target-frame
    :rf.xray/target-frame-db
    :rf.xray/target-frame-runtime-db
-   :rf.xray/timer-hover
    :rf.xray/trace-buffer
    :rf.xray/trace-expanded-row-ids
    :rf.xray/trace-feed
@@ -217,9 +216,7 @@
    :rf.xray/cancellation-cascade-close
    :rf.xray/cancellation-cascade-open
    :rf.xray/cancellation-cascade-toggle-expand
-   :rf.xray/clear-machine-selection
    :rf.xray/clear-reset-flash
-   :rf.xray/clear-selected-dispatch-id
    :rf.xray/clear-trace-buffer
    :rf.xray/clear-trace-expand
    :rf.xray/close-edit-popup
@@ -265,7 +262,6 @@
    :rf.xray/open-row-context-menu
    :rf.xray/unmute-event-id
    :rf.xray/managed-fx-toggle-section
-   :rf.xray/machine-chart-layout-pulse
    :rf.xray/machine-state-clicked
    :rf.xray/note-sensitive-suppressed
    :rf.xray/open-edit-popup
@@ -980,17 +976,17 @@
     (seed-buffer-with-ungrouped-head!)
     (rf/dispatch-sync [:rf.xray/select-dispatch-id :routed-b :rf/default])
     (is (= :retro (:mode @(rf/subscribe [:rf.xray/focus]))))
-    (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
+    (rf/dispatch-sync [:rf.xray/follow-head])
     (rf/dispatch-sync [:rf.xray/focus-event :routed-b :rf/default])
     (is (= :retro (:mode @(rf/subscribe [:rf.xray/focus]))))))
 
 (deftest event-select-machine-id-and-clear
-  (testing ":rf.xray/select-machine-id + clear round-trip"
+  (testing ":rf.xray/select-machine-id sets the slot, and nil clears it"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-machine-id :traffic-light])
       (is (= :traffic-light @(rf/subscribe [:rf.xray/selected-machine-id])))
-      (rf/dispatch-sync [:rf.xray/clear-machine-selection])
+      (rf/dispatch-sync [:rf.xray/select-machine-id nil])
       (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id]))))))
 
 ;; ---- (8) frame isolation ------------------------------------------------

@@ -50,14 +50,12 @@
                                                      counter on app-db
                                                      to drive a re-
                                                      render.
-    `:rf.xray/timer-hover`                        — set the hovered
-                                                     timer for tooltip
-                                                     state (the rings
-                                                     use native SVG
-                                                     <title>, so the
-                                                     slot is plumbed
-                                                     for a richer
-                                                     tooltip).
+    `:rf.xray/timer-hover`                        — EVENT: write the
+                                                     hovered timer to
+                                                     `:rings/hover` (the
+                                                     rings use native
+                                                     SVG <title>; no sub
+                                                     reads the slot).
     `:rf.xray/now-ms`                             — current wall-clock,
                                                      bumped per tick so
                                                      subscribers re-fire
@@ -250,16 +248,7 @@
                                                         selected-machine-id)
             machine-id    (:machine-id record)
             display-frame (or (:frame-id record) target-frame)]
-        (rings-h/timers-for-machine buffer machine-id display-frame))))
-
-  ;; ---- timer-hover slot ----------------------------------------------
-  ;;
-  ;; The hovered timer, so a rich side-rail tooltip can surface it
-  ;; without touching subscriber wiring; the rings themselves use native
-  ;; SVG <title>.
-  (rf/reg-sub :rf.xray/timer-hover
-    (fn [db _query]
-      (get db :rings/hover))))
+        (rings-h/timers-for-machine buffer machine-id display-frame)))))
 
 ;; ---- events -------------------------------------------------------------
 
