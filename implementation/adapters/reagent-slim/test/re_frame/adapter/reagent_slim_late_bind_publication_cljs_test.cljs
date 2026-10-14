@@ -52,11 +52,6 @@
   (let [p (:producer-ns entry)]
     (if (sequential? p) p [p])))
 
-(defn- directory-entry
-  [k]
-  (some (fn [entry] (when (= k (:key entry)) entry))
-        rf.late-bind.directory/hooks))
-
 (defn- directory-hook-keys-for
   [producer-ns]
   (->> rf.late-bind.directory/hooks
@@ -80,12 +75,4 @@
             directory (`re-frame.late-bind.directory/hooks`)."
     (is (= expected-hook-keys
            (directory-hook-keys-for 're-frame.adapter.reagent-slim))
-        "directory producer entries for re-frame.adapter.reagent-slim must match the pinned hook set")
-    (doseq [k expected-hook-keys
-            :let [entry (directory-entry k)]]
-      (is (some? entry)
-          (str "no directory entry for " k))
-      (is (some #{'re-frame.adapter.reagent-slim} (producers entry))
-          (str "directory entry for " k
-               " does not list re-frame.adapter.reagent-slim as a producer; "
-               "producers: " (pr-str (producers entry)))))))
+        "directory producer entries for re-frame.adapter.reagent-slim must match the pinned hook set")))
