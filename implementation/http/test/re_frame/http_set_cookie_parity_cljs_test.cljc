@@ -41,21 +41,15 @@
 (deftest single-set-cookie-is-string-cross-host
   (is (= "only=1; Path=/" (get (decode-headers {"Set-Cookie" ["only=1; Path=/"]}) "set-cookie"))))
 
-(deftest multi-set-cookie-is-vector-of-verbatim-lines-cross-host
-  ;; The comma inside Expires must not split a line, and no line may be lost.
-  (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
-                 "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
-        v       (get (decode-headers {"Set-Cookie" cookies}) "set-cookie")]
-    (is (vector? v))
-    (is (= cookies v))))
-
 (deftest repeated-header-folds-except-set-cookie-cross-host
   ;; Fetch delivers a repeated header comma-folded and offers no unfold, so
-  ;; the JVM folds it too (RFC 9110 §5.3); Set-Cookie alone stays a vector.
-  (let [m (decode-headers {"Vary"       ["Accept" "Origin"]
-                           "Set-Cookie" ["a=1; Path=/" "b=2; Path=/"]})]
-    (is (= "Accept, Origin" (get m "vary")))
-    (is (= ["a=1; Path=/" "b=2; Path=/"] (get m "set-cookie")))))
+  ;; the JVM folds it too (RFC 9110 §5.3); Set-Cookie alone stays a vector of
+  ;; its verbatim lines, and the comma inside Expires must not split one.
+  (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
+                 "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
+        m       (decode-headers {"Vary" ["Accept" "Origin"] "Set-Cookie" cookies})]
+    (is (= {"vary" "Accept, Origin" "set-cookie" cookies} m))
+    (is (vector? (get m "set-cookie")))))
 
 (deftest no-set-cookie-leaves-map-untouched-cross-host
   (is (= {"content-type" "application/json"}

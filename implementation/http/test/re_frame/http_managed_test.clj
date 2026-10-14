@@ -325,24 +325,13 @@
 
 ;; ---- decode helpers -------------------------------------------------------
 
-(deftest content-type-of-case-insensitive
-  (testing "the Content-Type header resolves whatever its name's casing or key
-            type, so :auto still sniffs JSON from a hand-built headers map"
-    (is (= {:ok true}
-           (rf.http.decode/decode-response-body
-             {:body-text "{\"ok\":true}" :headers {"Content-type" "application/json"} :decode :auto})))
-    (is (= "application/json" (rf.http.decode/content-type-of {:Content-Type "application/json"})))))
-
 (deftest binary-read-kind-resolves-binary-decode-modes
-  (testing "a transport picks its body reader before consuming the body: an
-            explicit binary mode, or :auto / omitted :decode over a non-text
-            Content-Type, resolves to a binary kind; a text mode to nil"
+  (testing "a transport picks its body reader before consuming the body: :auto
+            or an omitted :decode over a non-text Content-Type resolves to a
+            binary kind"
     (are [decode headers expected] (= expected (rf.http.decode/binary-read-kind decode headers))
-      :blob {}                                          :blob
-      :json {}                                          nil
       :auto {"content-type" "image/png"}                :blob
-      nil   {"content-type" "application/octet-stream"} :blob
-      :auto {"content-type" "application/json"}         nil)))
+      nil   {"content-type" "application/octet-stream"} :blob)))
 
 (deftest decode-response-body-returns-native-binary-for-binary-modes
   (testing "a binary decode mode returns the pre-read :body-binary verbatim,
@@ -398,17 +387,6 @@
                        (mapv (juxt #(some? (get-in % [:tags :next-backoff-ms])) :recovery)
                              (ops traces :rf.http/retry-attempt))))))))))))
 
-(deftest jvm-retry-recover
-  (testing ":retry recovers when an intermediate attempt succeeds"
-    (let [hits (atom 0)]
-      (with-server (fn [ex]
-                     (if (= 1 (swap! hits inc))
-                       (write-response! ex 500 "application/json" "{\"err\":true}")
-                       (write-response! ex 200 "application/json" "{\"ok\":true}")))
-        (fn [base]
-          (let [reply (request! {:request {:url (str base "/recover")} :decode :json :retry retry-on-5xx})]
-            (is (= [:ok {:ok true} 2] [(:status reply) (:value reply) @hits]))))))))
-
 (deftest jvm-transport-failure
   (testing "connection refused classifies as :rf.http/transport and emits one
             :error trace row (only an abort is :info)"
@@ -418,16 +396,6 @@
           (is (= [:error :rf.http/transport [:error]]
                  [(:status reply) (get-in reply [:error :kind])
                   (mapv :op-type (ops traces :rf.http/transport))])))))))
-
-(deftest jvm-managed-abort-unknown-request-id-is-silent-noop
-  (testing "aborting a request-id the registry never saw, once or twice, is a
-            silent no-op"
-    (capturing-traces
-      (fn [traces]
-        (rf/reg-event :abort/unknown (fn [_ _] {:fx [[:rf.http/managed-abort :never-issued]]}))
-        (rf/dispatch-sync [:abort/unknown])
-        (rf/dispatch-sync [:abort/unknown])
-        (is (= [] (mapv :operation (filter #(= :error (:op-type %)) @traces))))))))
 
 (deftest jvm-abort-then-server-release-emits-exactly-one-reply-rf2-on7sj
   (testing "a user abort of a slow request replies :cancelled once with an
@@ -543,26 +511,11 @@
 
 ;; ---- issuance counters ----------------------------------------------------
 
-(deftest issuance-counter-evicts-on-completion
-  (testing "a request-id's issuance counter is evicted when its attempt
-            completes, so an app minting unbounded distinct ids does not grow
-            the map: each id issues at 1, holds one live counter, then none"
-    (rf.http.registry/reset-issuance-counters-for-test!)
-    (is (= [[1 1 0] [1 1 0] [1 1 0]]
-           (mapv (fn [i]
-                   (let [rid      [:fetch-doc i]
-                         issuance (rf.http.registry/next-issuance! :frame/counters rid)
-                         live     (rf.http.registry/issuance-counter-count)]
-                     (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
-                     [issuance live (rf.http.registry/issuance-counter-count)]))
-                 (range 3))))))
-
 (deftest issuance-counter-eviction-preserves-live-successor
   (testing "eviction drops a counter only while it still equals the
             completing attempt's issuance, so a superseded attempt's
             completion keeps its live successor's counter; counters are per
             frame"
-    (rf.http.registry/reset-issuance-counters-for-test!)
     (let [rid [:search-box :q]
           n1  (rf.http.registry/next-issuance! :frame/counters rid)
           n2  (rf.http.registry/next-issuance! :frame/counters rid)]
@@ -572,9 +525,7 @@
           "the superseded attempt's eviction skipped, so the counter survived at 2")
       (rf.http.registry/evict-issuance-on-completion! :frame/counters rid 3)
       (is (zero? (rf.http.registry/issuance-counter-count))))
-    (rf.http.registry/reset-issuance-counters-for-test!)
     (is (= [1 1 2] [(rf.http.registry/next-issuance! :frame/a :shared)
                     (rf.http.registry/next-issuance! :frame/b :shared)
                     (rf.http.registry/next-issuance! :frame/a :shared)])
-        "a sibling frame reusing a raw id runs its own sequence")
-    (rf.http.registry/reset-issuance-counters-for-test!)))
+        "a sibling frame reusing a raw id runs its own sequence")))

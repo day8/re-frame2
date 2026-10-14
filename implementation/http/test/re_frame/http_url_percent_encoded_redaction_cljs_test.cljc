@@ -12,20 +12,11 @@
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.http.url :as rf.http.url]))
 
-(deftest redact-url-encoded-frame-extra-name-value-redacted
-  (testing "a registration-declared carrier name, percent-encoded, has its value redacted"
-    (let [extras #{"shop_token"}
-          [redacted any?] (rf.http.url/redact-url-query-string
-                            "https://api.example.com/x?shop%5Ftoken=SECRET&page=2"
-                            false extras)]
-      (is (= "https://api.example.com/x?shop%5Ftoken=:rf/redacted&page=2" redacted))
-      (is (true? any?)))))
-
-(deftest redact-url-malformed-escape-on-other-param-still-redacts-real-denylist-hit
-  (testing "a malformed escape elsewhere in the URL does not stop an encoded
-            default-denylist name from being redacted"
-    (let [[redacted any?] (rf.http.url/redact-url-query-string
-                            "https://api.example.com/x?weird%5=v&api%5Fkey=SECRET"
-                            false)]
-      (is (= "https://api.example.com/x?weird%5=v&api%5Fkey=:rf/redacted" redacted))
-      (is (true? any?)))))
+(deftest percent-encoded-param-names-meet-the-policy
+  (testing "an encoded default-denylist name and an encoded carrier name both
+            redact, and a malformed escape elsewhere neither throws nor stops
+            them"
+    (is (= ["https://api.example.com/x?weird%5=v&api%5Fkey=:rf/redacted&shop%5Ftoken=:rf/redacted&page=2" true]
+           (rf.http.url/redact-url-query-string
+             "https://api.example.com/x?weird%5=v&api%5Fkey=SECRET&shop%5Ftoken=S&page=2"
+             false #{"shop_token"})))))

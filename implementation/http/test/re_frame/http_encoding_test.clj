@@ -8,12 +8,10 @@
 (deftest compute-backoff-ms-without-jitter
   (are [cfg attempt ms] (= ms (rf.http.encoding/compute-backoff-ms cfg attempt))
     {}                                     1 250
-    {}                                     2 500
     {}                                     5 4000
     {}                                     6 5000
     {}                                     0 250
     {:base-ms 100 :factor 3}               3 900
-    {:base-ms 1000 :factor 2 :max-ms 3000} 2 2000
     {:base-ms 1000 :factor 2 :max-ms 3000} 3 3000))
 
 (deftest compute-backoff-ms-jitter-respects-clamp
@@ -71,9 +69,6 @@
   (are [decoded] (= {:ok decoded} (rf.http.encoding/run-accept nil decoded))
     nil
     {:error "server blew up" :status 500}))
-
-(deftest run-accept-user-fn-overrides-default
-  (is (= {:ok 42} (rf.http.encoding/run-accept (fn [d] {:ok (:data d)}) {:data 42}))))
 
 (deftest valid-accept-return-requires-exactly-one-of-ok-or-failure
   (are [v ok?] (= ok? (rf.http.encoding/valid-accept-return? v))

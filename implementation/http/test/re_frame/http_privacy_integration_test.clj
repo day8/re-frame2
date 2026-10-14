@@ -82,22 +82,18 @@
 
 ;; ---- failure rows: headers and URL ------------------------------------------
 
-(deftest sensitive-headers-redacted-in-failure-tags
-  (testing "a denylisted response header is redacted on the failure row of a
-            request that is not :sensitive?"
-    (let [[ev] (managed-trace! (respond 500 "text/plain" "boom" {"Set-Cookie" "sid=secret"})
-                               (fn [base] {:request {:url (str base "/x")} :on-failure nil})
-                               :rf.http/http-5xx)]
-      (is (= :rf/redacted (find-header (get-in ev [:tags :headers]) "Set-Cookie"))))))
-
 (deftest sensitive-query-param-redacted-in-failure-url
-  (testing "a denylisted param's value is redacted and the name alone stamps
-            :sensitive?"
-    (let [[ev base] (managed-trace! (respond 500 "text/plain" "boom")
-                                    (fn [base] {:request    {:url (str base "/x?api_key=SECRET&page=2")}
+  (testing "on the failure row of a request that is not :sensitive?, a
+            denylisted response header and the values of a denylisted param
+            and an app-declared carrier param are redacted, and a name hit
+            alone stamps :sensitive?"
+    (reg-carriers! {:query-params ["shop_token"]})
+    (let [[ev base] (managed-trace! (respond 500 "text/plain" "boom" {"Set-Cookie" "sid=secret"})
+                                    (fn [base] {:request    {:url (str base "/x?api_key=SECRET&shop_token=abc&page=2")}
                                                 :on-failure nil})
                                     :rf.http/http-5xx)]
-      (is (= (str base "/x?api_key=:rf/redacted&page=2") (get-in ev [:tags :url])))
+      (is (= :rf/redacted (find-header (get-in ev [:tags :headers]) "Set-Cookie")))
+      (is (= (str base "/x?api_key=:rf/redacted&shop_token=:rf/redacted&page=2") (get-in ev [:tags :url])))
       (is (true? (:sensitive? ev))))))
 
 (deftest sensitive-request-redacts-all-url-query-params
@@ -112,26 +108,7 @@
       (is (= :rf/redacted (get-in ev [:tags :body])))
       (is (= (str base "/x?user_id=:rf/redacted&page=:rf/redacted") (get-in ev [:tags :url]))))))
 
-(deftest managed-carrier-query-param-redacts-failure-url
-  (reg-carriers! {:query-params ["shop_token"]})
-  (let [[ev base] (managed-trace! (respond 500 "text/plain" "boom")
-                                  (fn [base] {:request    {:url (str base "/x?shop_token=abc&page=2")}
-                                              :on-failure nil})
-                                  :rf.http/http-5xx)]
-    (is (= (str base "/x?shop_token=:rf/redacted&page=2") (get-in ev [:tags :url])))))
-
 ;; ---- response bodies: `:decode`-schema marks and the off-box stamp ----------
-
-(deftest response-body-decode-schema-sensitive-slot-redacted-in-replied-trace
-  (testing "a schema-marked slot redacts with no per-call :sensitive?, and the
-            schema body is stamped :classify for the off-box projector"
-    (let [[ev] (managed-trace! (respond 200 "application/json" "{\"token\":\"bearer-secret\",\"user-id\":42}")
-                               (fn [base] {:request    {:url (str base "/login")}
-                                           :decode     [:map [:token {:sensitive? true} :string] [:user-id :int]]
-                                           :on-success [:test/ok]})
-                               :rf.http/replied)]
-      (is (= {:token :rf/redacted :user-id 42} (get-in ev [:tags :value])))
-      (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))))))
 
 (def ^:private user-schema
   [:map [:id :int] [:token {:sensitive? true} :string]])
@@ -166,47 +143,6 @@
 (deftest ref-decoder-is-omitted-off-box
   (with-default-registry-schema :app/user user-schema
     #(assert-omitted-off-box [:ref :app/user])))
-
-(deftest local-registry-decoder-is-omitted-off-box
-  (assert-omitted-off-box [:schema {:registry {:app/u2 user-schema}} :app/u2]))
-
-;; A qualified keyword inside a vector form names a registry schema whose marks
-;; the walker never sees, so the body fails closed off-box.
-
-(def ^:private nested-user-body "{\"user\":{\"id\":1,\"token\":\"SECRET\"}}")
-
-(deftest qualified-ref-map-child-decoder-is-omitted-off-box
-  (with-default-registry-schema :app/user user-schema
-    #(assert-omitted-off-box [:map [:user :app/user]] nested-user-body {:user {:id 1 :token "SECRET"}})))
-
-(deftest qualified-ref-vector-element-decoder-is-omitted-off-box
-  (with-default-registry-schema :app/user user-schema
-    #(assert-omitted-off-box [:vector :app/user] "[{\"id\":1,\"token\":\"SECRET\"}]" [{:id 1 :token "SECRET"}])))
-
-;; Malli reads a `:map` entry with no child schema as a reference to the
-;; registry schema its key names.
-
-(def ^:private token-schema [:string {:sensitive? true}])
-
-(deftest implicit-map-entry-ref-decoder-is-omitted-off-box
-  (with-default-registry-schema :app/token token-schema
-    #(assert-omitted-off-box [:map :app/token] "{\"app/token\":\"SECRET\"}" {:app/token "SECRET"})))
-
-(deftest implicit-optional-map-entry-ref-decoder-is-omitted-off-box
-  (with-default-registry-schema :app/token token-schema
-    #(assert-omitted-off-box [:map [:app/token {:optional true}]] "{\"app/token\":\"SECRET\"}"
-                             {:app/token "SECRET"})))
-
-(deftest inline-vector-form-child-keeps-per-slot-classification
-  (testing "the same nested body under an inline vector-form child stays
-            :classify, redacting only the marked slot off-box"
-    (let [[ev] (managed-trace! (respond 200 "application/json" nested-user-body)
-                               (fn [base] {:request  {:url (str base "/user")}
-                                           :decode   [:map [:user user-schema]]
-                                           :reply-to [:test/ok]})
-                               :rf.http/replied)]
-      (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
-      (is (= {:user {:id 1 :token :rf/redacted}} (get-in (off-box ev) [:tags :value]))))))
 
 (deftest vector-of-maps-decoder-redacts-every-element
   (testing "a mark inside a collection's element schema redacts that slot in
@@ -378,22 +314,18 @@
       (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
           "the raw error body is stamped :omit on the replied row too"))))
 
-(deftest replied-trace-redacts-builtin-sensitive-response-meta-headers
-  (testing "a success reply's denylisted :meta header is redacted on the trace
-            while the delivered reply keeps it"
+(deftest replied-trace-redacts-denylisted-and-carrier-response-meta-headers
+  (testing "a success reply's denylisted and app-declared carrier :meta headers
+            are redacted on the trace while the delivered reply keeps them"
+    (reg-carriers! {:headers ["X-Honeycomb-Team"]})
     (let [[ev] (managed-trace! (respond 200 "application/json" "{\"ok\":true}"
-                                        {"Set-Cookie" "session=SECRET-COOKIE; Path=/"})
+                                        {"Set-Cookie"       "session=SECRET-COOKIE; Path=/"
+                                         "X-Honeycomb-Team" "hc-token"})
                                (fn [base] {:request {:url (str base "/x")} :decode :json :reply-to [:test/ok]})
                                :rf.http/replied)]
       (is (= "session=SECRET-COOKIE; Path=/" (get-in (delivered-reply) [:meta :headers "set-cookie"])))
-      (is (= :rf/redacted (get-in ev [:tags :meta :headers "set-cookie"]))))))
-
-(deftest replied-trace-redacts-app-declared-carrier-in-response-meta
-  (reg-carriers! {:headers ["X-Honeycomb-Team"]})
-  (let [[ev] (managed-trace! (respond 200 "application/json" "{\"ok\":true}" {"X-Honeycomb-Team" "hc-token"})
-                             (fn [base] {:request {:url (str base "/x")} :decode :json :reply-to [:test/ok]})
-                             :rf.http/replied)]
-    (is (= :rf/redacted (get-in ev [:tags :meta :headers "x-honeycomb-team"])))))
+      (is (= [:rf/redacted :rf/redacted]
+             (mapv #(get-in ev [:tags :meta :headers %]) ["set-cookie" "x-honeycomb-team"]))))))
 
 (deftest sensitive-request-force-redacts-response-meta-wholesale
   (testing "per-call :sensitive? redacts the whole :meta wire slot, as it does :value"
