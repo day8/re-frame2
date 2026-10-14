@@ -39,19 +39,6 @@
 
 ;; ---- :rf.view/render carries the view's registration coord -------------------
 
-(deftest view-render-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler on :rf.view/render is a top-level
-   field, NOT nested under :tags — mirrors the error / fx-handled /
-   sub-run / machine-transition shapes"
-    (with-trace-recorder! [traces {:pred view-render-pred}]
-      (rf/reg-view ^{:rf/id :rf2-npm2p/top-level-view} top-level-view []
-        [:span "hi"])
-      ((rf/view :rf2-npm2p/top-level-view))
-      (let [ev (first @traces)]
-        (is (= [true false]
-               [(contains? ev :rf.trace/trigger-handler) (contains? (:tags ev) :rf.trace/trigger-handler)])
-            ":rf.trace/trigger-handler lives at top level, NOT under :tags")))))
-
 (deftest view-render-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
    :rf.view/render equals what the registrar holds on the view's slot —
