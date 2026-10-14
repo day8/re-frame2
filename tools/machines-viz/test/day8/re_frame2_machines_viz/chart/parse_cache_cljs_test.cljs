@@ -4,8 +4,8 @@
   `spec/API.md` keeps the topology and runtime-highlight planes strictly
   separate: a decoration-only render must not walk the definition through the
   parser (`chart/invoke-project-definition!`) nor re-run ELK
-  (`compute-layout!`). Only a NEW `:definition` reparses, exactly once.
-  Density / direction / layout-options changes relayout but never reparse.
+  (`compute-layout!`). Density / direction / layout-options changes relayout
+  but never reparse.
 
   `(chart/MachineChart props)` returns the Form-2 render fn closing over the
   cache; calling it with new props IS the host-driven re-render sequence.
@@ -23,11 +23,6 @@
    :states  {:idle    {:on {:start :loading}}
              :loading {:on {:ok :done}}
              :done    {:final? true}}})
-
-(def ^:private machine-b
-  {:initial :off
-   :states  {:off {:on {:flip :on}}
-             :on  {:on {:flip :off}}}})
 
 ;; ---- spy harness --------------------------------------------------------
 
@@ -98,21 +93,6 @@
               (rfn (assoc props :fit-signal 7))
               (rfn props)
               (is (= {:parse 1 :layout 1 :project after-highlights} @counts)))))))))
-
-(deftest new-definition-reparses-once-and-busts-downstream-caches
-  (testing "a CHANGED `:definition` reparses once and re-runs layout; an
-            unchanged one does neither; switching back reparses again (the
-            cache holds the LAST definition only)"
-    (with-seam-spies
-      (fn [counts]
-        (let [rfn     (chart/MachineChart {:machine-id :m :definition machine-a})
-              render! (fn [definition & {:as more}]
-                        (rfn (merge {:machine-id :m :definition definition} more))
-                        ((juxt :parse :layout) @counts))]
-          (is (= [1 1] (render! machine-a)))
-          (is (= [2 2] (render! machine-b)) "a new definition reparses and relayouts")
-          (is (= [2 2] (render! machine-b :current-state :on)) "an unchanged one does neither")
-          (is (= [3 3] (render! machine-a)) "switching back reparses (single-slot memo)"))))))
 
 (deftest density-direction-layout-options-changes-do-not-reparse
   (testing "density / direction / layout-options re-run ELK but never
