@@ -66,7 +66,6 @@
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
@@ -193,33 +192,6 @@
   keys."
   [sub-key]
   (count (rf.fresco.test.runtime/cell-readers sub-key)))
-
-(defn frame-memo-frames
-  "The frames the arm's frame memo holds a row for.
-
-  Populated by RENDER: `impl.collector/run-once` binds
-  `(frame-dispatch frame-kw)` for each body's dynamic extent, and that
-  lookup is what mints the frame's row. So two frames rendering is two
-  entries, and a runtime that resolved one frame for both mounts would
-  hold one — a second frame-keyed table saying the same thing the cell
-  keys say, on a different axis.
-
-  `impl.frames/!frame-ops` is ONE row per frame rather than two sibling
-  tables: the row carries the incarnation, the
-  `capture-frame` bundle pinned to it, and the ambient dispatch closure
-  over that bundle. Acquiring the dispatch acquires the bundle in the
-  same act, which is what stops the two from ever describing different
-  incarnations — and which is why a render, not a dispatch, is what fills
-  this. `test.runtime/stats`'s `:frames` counts the same rows."
-  []
-  (set (keys @rf.fresco.impl.frames/!frame-ops)))
-
-(defn frame-memo-row
-  "The arm's memo row for `frame-kw`, or nil — `{:incarnation :ops
-  :dispatch}`. Read by IDENTITY, never by value: what a witness wants to
-  know is whether this is the same row it saw before."
-  [frame-kw]
-  (get @rf.fresco.impl.frames/!frame-ops frame-kw))
 
 (defn body-runs-delta!
   "Run `f`, answer how many boundary bodies ran while it did.
@@ -488,20 +460,6 @@
                     (set! (.-error js/console) original)
                     (.removeEventListener js/window "error" on-error))
                   @captured)})))
-
-(defn capture-console!
-  "Run `f` with React's two failure channels captured, and answer
-  `[result captured]`, where `captured` is an atom holding a vector of
-  one string per complaint.
-
-  **The window is exactly `f`'s synchronous extent.** For a claim about
-  a hydration — which React finishes in a LATER turn — use
-  [[open-console-capture!]] and close it after [[adopted!]] resolves."
-  [f]
-  (let [{:keys [captured close!]} (open-console-capture!)]
-    (try
-      [(f) captured]
-      (finally (close!)))))
 
 (defn watch-mismatches!
   "Capture every `:rf.ssr/hydration-mismatch` the framework emits, on the
