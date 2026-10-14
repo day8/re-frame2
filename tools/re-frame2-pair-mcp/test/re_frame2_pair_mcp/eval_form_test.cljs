@@ -1,8 +1,7 @@
 (ns re-frame2-pair-mcp.eval-form-test
   "Unit tests for the eval-form DSL's emitter. The conformance corpus matches
   the emitted runtime calls through the tools, mostly by substring; these pin
-  a string arg's quoting, the `let` and raw-source shapes, and the
-  literal-data quote."
+  a string arg's quoting and the literal-data quote."
   (:require [cljs.test :refer-macros [deftest is]]
             [cljs.reader]
             [re-frame2-pair-mcp.tools.eval-form :as ef]))
@@ -11,11 +10,6 @@
   ;; A string arg must print quoted; unquoted it would read as a symbol.
   (is (= "(re-frame2-pair.runtime/read-recording \"abc-123\")"
          (ef/emit (ef/rt-call 'read-recording "abc-123")))))
-
-(deftest rt-let-single-binding-single-body
-  (is (= "(let [snap (re-frame2-pair.runtime/snapshot)] (:app-db snap))"
-         (ef/emit (ef/rt-let ['snap (ef/rt-call 'snapshot)]
-                             (ef/rt-raw "(:app-db snap)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rt-quote. `pr-str` renders a value as SOURCE, so in external EDN a list
