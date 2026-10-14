@@ -5,19 +5,13 @@
 
   ## What this owns
 
-  Two surfaces:
-
-    1. **Chart-collapsed slot** — a per-machine boolean living at
-       `[:rf.xray/machine-canvas :chart-collapsed-by-id machine-id]`.
-       Persisted to localStorage so the operator's choice to hide the
-       chart real-estate survives reloads.
-    2. **The chart adapter** — a thin wrapper around
-       `mv-chart/MachineChart` that wires the focused-event lens
-       from-state / to-state highlights, the on-state-click
-       dispatch, and the after-rings overlay: one body, `chart-tree`,
-       behind TWO heads: `Chart` for a Reagent parent and `Chart-view`
-       for a Fresco boundary. `chart-tree`'s docstring carries why both
-       are needed and what differs between them.
+  The chart adapter — a thin wrapper around `mv-chart/MachineChart` that
+  wires the focused-event lens from-state / to-state highlights, the
+  on-state-click dispatch, and the after-rings overlay: one body,
+  `chart-tree`, behind TWO heads: `Chart` for a Reagent parent and
+  `Chart-view` for a Fresco boundary. `chart-tree`'s docstring carries
+  why both are needed and what differs between them. It registers no
+  subs, events or fx.
 
   ## What this does not own
 
@@ -50,16 +44,12 @@
 
     :show-after-rings?      false  — no live focused event on static.
     :testid                 \"rf-xray-static-machines-topology\""
-  (:require [clojure.string :as str]
-            [cljs.reader :as reader]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; `debug-enabled?` gates the `reg-view` below,
             ;; so a release bundle that mis-ships the preload registers
             ;; nothing of Xray's in the host's registrar.
             [re-frame.interop :as rf.interop]
             [re-frame.fresco :as rf.fresco]
-            [day8.re-frame2-xray.defaults :as defaults]
-            [day8.re-frame2-xray.local-storage :as ls]
             ;; The `as-child` door [[Chart-view]] hands
             ;; [[chart-tree]] for the machines-viz mount. See that fn's
             ;; docstring for why the chart itself stays Reagent.
@@ -93,120 +83,6 @@
              (= "dark"  (str theme))   :dark
              :else                      :dark)]
     (reset! default-chart-theme (if (#{:light :dark} kw) kw :dark))))
-
-;; ---- app-db slots -------------------------------------------------------
-
-(def slot-root
-  "Top-level app-db slot for this ns's state. Lives at
-  `[:rf.xray/machine-canvas]` inside the `:rf/xray` frame so the
-  rest of Xray's slots stay clean."
-  :rf.xray/machine-canvas)
-
-(defn- chart-collapsed-of
-  "Read the persisted chart-collapsed flag for `machine-id`. Defaults
-  to `false`: the chart is expanded by default so
-  first-time operators see the topology; persisting per-machine lets
-  the operator hide chart real-estate to give the snapshot pair room."
-  [db machine-id]
-  (boolean (get-in db [slot-root :chart-collapsed-by-id machine-id] false)))
-
-;; ---- localStorage round-trip --------------------------------------------
-
-(def chart-collapsed-storage-key
-  "Canonical localStorage key for the per-machine chart-collapsed flag
-  map. One EDN map keyed by machine-id.
-  Persisting per-machine lets one machine's Chart be collapsed
-  (snapshot pair foregrounded) while another's Chart stays expanded."
-  "xray.machine-canvas.chart-collapsed-by-id")
-
-;; Raw browser access lives in the shared `local-storage` seam;
-;; the slot is key-parameterised here.
-
-(defn save-chart-collapsed-by-id!
-  "Persist the chart-collapsed-by-id map to localStorage.
-  Empty/nil clears the slot."
-  [m]
-  (if (or (nil? m) (and (map? m) (empty? m)))
-    (ls/remove-item! chart-collapsed-storage-key)
-    (ls/set-item! chart-collapsed-storage-key (pr-str m)))
-  nil)
-
-(defn load-chart-collapsed-by-id
-  "Read + normalise the persisted chart-collapsed map. Returns `{}`
-  when the slot is absent / unparseable. Values normalise to booleans
-  (truthy → `true`, anything else → `false`)."
-  []
-  (when-let [raw (ls/get-item chart-collapsed-storage-key)]
-    (try
-      (let [parsed (reader/read-string raw)]
-        (when (map? parsed)
-          (into {}
-                (keep (fn [[k v]]
-                        (when (keyword? k)
-                          [k (boolean v)])))
-                parsed)))
-      (catch :default _ {}))))
-
-;; ---- subs ---------------------------------------------------------------
-
-(defn- install-subs! []
-  (rf/reg-sub :rf.xray.machine-canvas/chart-collapsed-for
-    (fn [db [_ machine-id]]
-      (chart-collapsed-of db machine-id)))
-
-  (rf/reg-sub :rf.xray.machine-canvas/chart-collapsed-by-id
-    (fn [db _]
-      (get-in db [slot-root :chart-collapsed-by-id] {}))))
-
-;; ---- events -------------------------------------------------------------
-
-(defn- install-events! []
-  ;; Toggle the per-machine chart-collapsed flag.
-  ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
-  ;; map to localStorage so the operator's choice survives reloads.
-  ;;
-  ;; The persist fx rides `:fx`, not the top level. The effect
-  ;; map is CLOSED at seven top-level keys (`#{:db :rf.db/runtime :fx}` plus
-  ;; the four EP-0025 classification keys, per Spec 002 §Write authority):
-  ;; an fx-id sitting at the top level is policed as
-  ;; `:rf.error/effect-map-shape` and REFUSES the event pre-commit — nothing
-  ;; commits, not even a well-formed `:db` beside it.
-  (rf/reg-event :rf.xray.machine-canvas/set-chart-collapsed
-    (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
-      (let [current (chart-collapsed-of db machine-id)
-            next    (case mode
-                      :collapsed true
-                      :expanded  false
-                      :toggle    (not current)
-                      (boolean mode))
-            db'     (assoc-in db [slot-root :chart-collapsed-by-id machine-id]
-                              next)
-            by-id   (get-in db' [slot-root :chart-collapsed-by-id])]
-        {:db db'
-         :fx [[:rf.xray.machine-canvas/persist-chart-collapsed by-id]]})))
-
-  (rf/reg-event :rf.xray.machine-canvas/hydrate-chart-collapsed
-    (fn [{:keys [db]} [_ by-id]]
-      {:db (assoc-in db [slot-root :chart-collapsed-by-id] (or by-id {}))})))
-
-;; ---- fx -----------------------------------------------------------------
-
-(defn- install-fx! []
-  (rf/reg-fx :rf.xray.machine-canvas/persist-chart-collapsed
-    (fn [_ctx by-id]
-      (save-chart-collapsed-by-id! by-id))))
-
-;; ---- hydration ----------------------------------------------------------
-
-(defn- hydrate! []
-  ;; Init-time hydration targets the production Xray shell
-  ;; frame via the named `defaults/default-frame-id` Var (production-
-  ;; singleton seam, no surrounding render frame), not a `{:frame
-  ;; :rf/xray}` literal. Consistent with `spine-filters/hydrate!`.
-  (let [by-id (load-chart-collapsed-by-id)]
-    (when (seq by-id)
-      (rf/dispatch [:rf.xray.machine-canvas/hydrate-chart-collapsed by-id]
-                   {:frame defaults/default-frame-id}))))
 
 ;; ---- the shared chart body ----------------------------------------------
 
@@ -259,9 +135,7 @@
   Args (map):
 
     :definition         — machine definition map. Required.
-    :machine-id         — keyword; identifies the per-machine
-                          chart-collapsed slot and surfaces on every
-                          per-node testid.
+    :machine-id         — keyword; surfaces on every per-node testid.
     :from-highlight     — focused-event lens origin state. Optional;
                           a state-id keyword or path vector. xyflow
                           renders the originating state with a dashed
@@ -464,12 +338,3 @@
   [props]
   (chart-tree props substrate/as-element [after-rings/AfterRingsOverlay {}]))
 
-;; ---- install ------------------------------------------------------------
-
-(defn install!
-  "Idempotent install of this ns's subs + events + fx + hydrate."
-  []
-  (install-subs!)
-  (install-events!)
-  (install-fx!)
-  (hydrate!))

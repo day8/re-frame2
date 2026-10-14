@@ -682,20 +682,6 @@ absent after a plain `register-xray-handlers!` (rf2-e8330v; asserted by
 | `:rf.xray/set-epoch-history-for-test` | event | **Seeding**, not an override — writes the real `:epoch-history` slot. |
 | `:rf.xray/set-focus-epoch-id-for-test` | event | **Seeding**, not an override — writes the real `:focus` slot. |
 
-### Machine-canvas chart widget
-
-`:rf.xray.machine-canvas/*` is the chart widget shared by the Dynamic
-Machine inspector and the Static Machines topology view, so it is owned
-by neither and catalogued here once.
-
-| Id | Kind | Behaviour |
-|---|---|---|
-| `:rf.xray.machine-canvas/chart-collapsed-for` | sub | `[_ machine-id]` — is that machine's chart collapsed? |
-| `:rf.xray.machine-canvas/chart-collapsed-by-id` | sub | The whole `{machine-id boolean}` map. |
-| `:rf.xray.machine-canvas/set-chart-collapsed` | event | `[_ {:machine-id :mode}]`, `mode` ∈ `:collapsed` / `:expanded` / `:toggle`. Persists the post-mutation map **via `:fx`** — rf2-04tx: an fx-id at the top level of the effect map is policed as `:rf.error/effect-map-shape` and refuses the event pre-commit. Before that refusal existed the stray key was silently dropped while the `:db` write landed, so the toggle looked like it worked and the choice never survived a reload. |
-| `:rf.xray.machine-canvas/hydrate-chart-collapsed` | event | Lifts the persisted map back into app-db at boot. |
-| `:rf.xray.machine-canvas/persist-chart-collapsed` | fx | Writes the map to localStorage. |
-
 ## Module-view tab (EP-0023 image/frame model)
 
 Spec: [`026-Module-View-Panel.md`](./026-Module-View-Panel.md). The cohesive

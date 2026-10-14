@@ -109,8 +109,6 @@
    :rf.xray/issues-ribbon
    :rf.xray/machine-definitions
    :rf.xray/machine-inspector-data
-   :rf.xray.machine-canvas/chart-collapsed-by-id
-   :rf.xray.machine-canvas/chart-collapsed-for
    :rf.xray/machine-transitions-for-focused-event
    :rf.xray/machine-focused-epoch-cascade
    :rf.xray/machine-scrubber-position
@@ -269,8 +267,6 @@
    :rf.xray/managed-fx-toggle-section
    :rf.xray/machine-chart-layout-pulse
    :rf.xray/machine-state-clicked
-   :rf.xray.machine-canvas/hydrate-chart-collapsed
-   :rf.xray.machine-canvas/set-chart-collapsed
    :rf.xray/note-sensitive-suppressed
    :rf.xray/open-edit-popup
    :rf.xray/open-in-editor
@@ -364,7 +360,6 @@
    :rf.xray.column-widths/persist
    :rf.xray.frame-switcher/persist
    :rf.xray.spine-filters/persist
-   :rf.xray.machine-canvas/persist-chart-collapsed
    :rf.xray.palette.fx/popout
    :rf.xray.palette.fx/snapshot-app-db
    :rf.xray.palette.fx/persist-recents

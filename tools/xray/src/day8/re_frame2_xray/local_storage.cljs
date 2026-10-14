@@ -6,8 +6,8 @@
 
   Several Xray namespaces persist a slot to localStorage (frame-switcher
   selection, column widths, command-palette recents, spine mute-set,
-  the Static mode flag, the Static-Machines selection + sub-mode map,
-  the machine-canvas chart-collapsed map). Only the storage key and the
+  the Static mode flag, the Static-Machines selection + sub-mode map).
+  Only the storage key and the
   (de)serialisation around it vary between them, so the raw browser
   access lives in this one seam, which makes the
   no-op-when-unavailable / swallow-throws posture a one-file
