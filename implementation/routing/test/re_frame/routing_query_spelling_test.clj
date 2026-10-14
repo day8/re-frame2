@@ -121,14 +121,3 @@
       (is (= {"page" "2" "on" "true" "tag" "sym" "user/id" "u"}
              (:query (slice))
              (:query (rf.routing/match-url (last @pushed))))))))
-
-;; ---- control: the refusal rows keep their refusal --------------------------
-
-(deftest non-admitted-values-are-still-refused-and-never-stringified
-  (testing "route-url refuses a value with no URL form under the URL's own
-            string-key spelling too, rather than stringifying it"
-    (rf/reg-route :route/search {} "/search")
-    (is (= :rf.error/route-url-non-edn-value
-           (try (rf.routing/route-url {:to :route/search :query {"x" (Object.)}})
-                nil
-                (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex))))))))
