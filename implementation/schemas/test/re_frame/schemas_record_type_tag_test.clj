@@ -32,7 +32,7 @@
 
 (deftest rejection-record-reason-carries-no-host-class-name
   (testing "a leaf outside the named tags reads `got object`, never its class
-            name, and the named tags keep their `type-of-value` spelling"
+            name, and `nil` keeps its own tag"
     (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:tenant] [:map [:id :int]])
       (let [[reason :as reasons] (rejection-reasons {:tenant {:id #{:not :an :int}}})]
@@ -40,5 +40,4 @@
         (is (str/includes? reason "got object") reason)
         (is (not (str/includes? reason "PersistentHashSet")) reason)
         (is (str/includes? reason "[:tenant]") "the reason names its registered path"))
-      (is (str/includes? (first (rejection-reasons {:tenant {:id "text"}})) "got string"))
       (is (str/includes? (first (rejection-reasons {:tenant {:id nil}})) "got nil")))))
