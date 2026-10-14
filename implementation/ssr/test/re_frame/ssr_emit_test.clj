@@ -85,6 +85,10 @@
   (is (= "<Script>if (a < b)</Script>"
          (rf.ssr.emit/render-to-string [:Script "if (a < b)"] {}))))
 
+(deftest render-to-string-allows-empty-or-element-only-raw-text-tags
+  (is (= "<script src=\"/main.js\"></script>"
+         (rf.ssr.emit/render-to-string [:script {:src "/main.js"}] {}))))
+
 ;; ===========================================================================
 ;; Void classification is case-insensitive: the void set is keyed lower-case,
 ;; and `[:BR]` must not emit a <BR></BR> pair.
