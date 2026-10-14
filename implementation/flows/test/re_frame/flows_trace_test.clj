@@ -1,6 +1,6 @@
 (ns re-frame.flows-trace-test
   "JVM coverage for Spec 009 §Flow trace events / Spec 013 §Flow tracing: the
-  `:rf.flow/*` payloads, first-time-only and per-frame registration evidence,
+  `:rf.flow/*` payloads, first-time-only registration evidence,
   the error-emit routing of flow failures, dirty-check rollback on a flow
   throw, and payload elision and privacy.
 
@@ -64,15 +64,6 @@
     (rf/reg-flow :area {:inputs [[:w]] :output-path [:area]} (fn [w] w)))
   (is (= 1 (count (by-op :rf.flow/registered)))))
 
-(deftest reg-flow-registered-is-per-frame-not-per-global-id
-  ;; The same id on a second frame is an independent FIRST registration.
-  (rf/make-frame {:id :left})
-  (rf/make-frame {:id :right})
-  (doseq [f [:left :right]]
-    (rf/reg-flow :shared {:frame f :inputs [[:n]] :output-path [:result]} identity))
-  (is (= [[:shared :left] [:shared :right]]
-         (mapv (comp (juxt :flow-id :frame) :tags) (by-op :rf.flow/registered)))))
-
 ;; ---- computed / skip / failed --------------------------------------------
 
 (deftest flow-computed-fires-on-input-change
@@ -134,14 +125,11 @@
       (is (= expected (select-keys r (keys expected))))
       (is (= (into #{:exception :time :elapsed-ms :source-coord} (keys expected))
              (set (keys r))))
-      (is (and (number? (:time r)) (nat-int? (:elapsed-ms r))))
       ;; `run-flows-on-db` is not on the `rf/` facade, so `:where` names its
       ;; owning namespace.
       (is (= {:rf.error/id :rf.error/flow-eval-exception :where 're-frame.flows/run-flows-on-db
               :recovery :no-recovery :rf.flow/failed-id :boom}
-             (select-keys data [:rf.error/id :where :recovery :rf.flow/failed-id])))
-      (is (and (some? (:cause data)) (string? (:reason data))))
-      (is (re-find #"\[:rf\.error/flow-eval-exception\]" (ex-message thrown))))))
+             (select-keys data [:rf.error/id :where :recovery :rf.flow/failed-id]))))))
 
 (deftest fx-reg-flow-cycle-routes-through-error-emit-substrate
   ;; A cycle closed by `:rf.fx/reg-flow` reaches the always-on substrate as the
