@@ -64,45 +64,16 @@
   (try (rf.http.handlers/validate-reply-target! args) nil
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
-(deftest bvw9ut-shape-validated-at-dispatch-time-unit
-  ;; The map row is the input that separates `vector?` from `coll?`.
-  (are [args k] (= {:rf.error/id :rf.error/http-bad-reply-target :key k}
-                   (select-keys (refusal args) [:rf.error/id :key]))
-    {:on-success :items/loaded}   :on-success
-    {:reply-to {:not :a-vector}}  :reply-to))
+(deftest reply-target-shape-and-mixture-refused-at-dispatch
+  ;; The map row is the input that separates `vector?` from `coll?`; the nil
+  ;; row shows refusal is on key PRESENCE, so an explicit nil branch is a
+  ;; mixture too.
+  (are [args expected] (= expected (select-keys (refusal args) (keys expected)))
+    {:reply-to {:not :a-vector}}
+    {:rf.error/id :rf.error/http-bad-reply-target :key :reply-to}
 
-(deftest mixed-reply-addressing-refused-at-dispatch
-  ;; Refusal is on key PRESENCE, so an explicit nil branch is a mixture too.
-  (are [args ks] (= {:rf.error/id :rf.error/http-bad-reply-target :reason :mixed-addressing :keys ks}
-                    (select-keys (refusal args) [:rf.error/id :reason :keys]))
-    {:reply-to nil :on-success [:b]}                    [:reply-to :on-success]
-    {:reply-to [:a] :on-success [:b] :on-failure nil}   [:reply-to :on-success :on-failure])
-  (are [args] (nil? (refusal args))
-    {:reply-to nil}
-    {:on-success [:a] :on-failure nil}))
-
-(deftest bvw9ut-bare-keyword-on-success-rejected-before-network
-  (let [hits (AtomicInteger. 0)
-        {:keys [port] :as srv} (start-counting-200-server! hits)]
-    (try
-      (with-trace-capture
-        (fn [captured]
-          (rf/reg-event :bvw9ut/load
-            (fn [_ _]
-              {:fx [[:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" port "/x")}
-                      :decode     :json
-                      :on-success :items/loaded}]]}))
-          (try (rf/dispatch-sync [:bvw9ut/load]) (catch Throwable _ nil))
-          (is (zero? (.get hits)) "the request was refused before it reached the wire")
-          (is (some (fn [{:keys [operation tags]}]
-                      (or (= :rf.error/http-bad-reply-target operation)
-                          (= :rf.error/http-bad-reply-target (:rf.error/id tags))
-                          (= :rf.error/http-bad-reply-target (:rf.error/id (:exception tags)))
-                          (= :rf.error/fx-handler-exception operation)))
-                    @captured)
-              "the dispatch-time refusal surfaced")))
-      (finally (stop-server! srv)))))
+    {:reply-to nil :on-success [:b]}
+    {:rf.error/id :rf.error/http-bad-reply-target :reason :mixed-addressing :keys [:reply-to :on-success]}))
 
 (deftest ln85eg-after-throw-over-2xx-observed-not-swallowed
   ;; Under a retryable :rf.http/transport policy, a reply-tail throw

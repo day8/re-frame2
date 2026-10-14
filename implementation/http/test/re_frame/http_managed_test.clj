@@ -356,17 +356,6 @@
 
 ;; ---- JVM transport --------------------------------------------------------
 
-(deftest jvm-html-404-with-json-decode-routes-to-http-4xx
-  (testing "status classification precedes decode: an HTML 404 under
-            :decode :json is :rf.http/http-4xx carrying the raw body, never a
-            decode failure"
-    (let [html "<!doctype html><html><body><h1>Not Found</h1></body></html>"]
-      (with-server (respond 404 "text/html" html)
-        (fn [base]
-          (let [reply (request! {:request {:url (str base "/missing")} :decode :json})]
-            (is (= [:error {:kind :rf.http/http-4xx :status 404 :body html}]
-                   [(:status reply) (select-keys (:error reply) [:kind :status :body])]))))))))
-
 (deftest jvm-empty-200-json-body-replies-success-nil
   (testing "an empty 200 application/json body (a no-content success) replies
             :ok with a nil :value through the whole JVM cascade"
@@ -471,35 +460,6 @@
                      (mapv (juxt :status (comp :kind :error)) @replies)))
               (is (= [[:info :user]]
                      (mapv (juxt :op-type (comp :reason :tags)) (ops traces :rf.http/aborted)))))))))))
-
-(deftest jvm-supersede-still-emits-trace-event
-  (testing "re-issuing under a live :request-id aborts the prior attempt with
-            one :info :rf.http/aborted row (:reason :request-id-superseded)
-            beside its stale-suppressed row"
-    (let [latch (CountDownLatch. 1)]
-      (capturing-traces
-        (fn [traces]
-          (with-server (fn [ex]
-                         (.await latch 5 TimeUnit/SECONDS)
-                         (write-response! ex 200 "application/json" "{\"ok\":true}"))
-            (fn [base]
-              (rf/reg-event :search/recorder (fn [_ _] {}))
-              (rf/reg-event :search/run
-                (fn [_ [_ path]]
-                  {:fx [[:rf.http/managed {:request    {:url (str base path)}
-                                           :request-id :search
-                                           :decode     :json
-                                           :reply-to   [:search/recorder]}]]}))
-              (rf/dispatch-sync [:search/run "/q1"])
-              (poll! #(seq (rf.http.managed/in-flight-snapshot)) "first request in flight")
-              (rf/dispatch-sync [:search/run "/q2"])
-              (poll! #(seq (ops traces :rf.http/aborted)) "supersede row")
-              (is (= [[:info :no-recovery :request-id-superseded :search]]
-                     (mapv (juxt :op-type :recovery (comp :reason :tags) (comp :request-id :tags))
-                           (ops traces :rf.http/aborted))))
-              (is (= [:rf.http/request-id-superseded]
-                     (mapv #(get-in % [:tags :rf.reply/stale-reason]) (ops traces :rf.http/stale-suppressed))))
-              (.countDown latch))))))))
 
 (deftest jvm-decode-failures-carry-their-discriminators
   (testing "a 2xx body that fails decode replies :rf.http/decode-failure; a

@@ -117,9 +117,11 @@
         (is (= {:status :error :rf.reply/work-status :failed}
                (select-keys reply [:status :rf.reply/work-status :meta]))
             "a failure reply carries no :meta; its wire facts ride :error")
+        ;; Status classification precedes decode: a non-JSON 404 under :decode
+        ;; :json is an :rf.http/http-4xx carrying the raw body.
         (is (= {:kind :rf.http/http-4xx :request {:method :get :url url} :request-id :sid/get
-                :attempt 1 :work/id [:rf.work/http :sid/get 1 1] :status 404}
-               (select-keys (:error reply) identity-keys))))
+                :attempt 1 :work/id [:rf.work/http :sid/get 1 1] :status 404 :body "nope"}
+               (select-keys (:error reply) (conj identity-keys :body)))))
       (finally (stop-server! srv)))))
 
 (deftest failure-reply-echoes-the-defaulted-method
@@ -225,6 +227,12 @@
       (rf/dispatch-sync [:search/quiesce])
       (is (= [[:ok [:rf.work/http :search 2 1]]] (mapv (juxt :status :rf.reply/work-id) @replies))
           "exactly one app reply, and it is the superseding issuance's")
+      (rf.test-support/poll-until #(some (fn [ev] (= :rf.http/aborted (:operation ev))) @traces)
+                                  {:timeout-ms 5000 :label "supersede aborted row"})
+      (is (= [[:info :no-recovery :request-id-superseded :search]]
+             (mapv (juxt :op-type :recovery (comp :reason :tags) (comp :request-id :tags))
+                   (filter #(= :rf.http/aborted (:operation %)) @traces)))
+          "the supersede aborts the prior attempt with one :info :rf.http/aborted row")
       (finally
         (.countDown release)
         (rf.trace.tooling/unregister-listener! lid)

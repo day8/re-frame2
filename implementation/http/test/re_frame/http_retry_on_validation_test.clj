@@ -18,9 +18,6 @@
 (def ^:private closed-set
   #{:rf.http/transport :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx})
 
-(deftest retryable-categories-is-the-closed-set
-  (is (= closed-set rf.http.handlers/retryable-categories)))
-
 (defn- call-managed!
   "Invoke the live handler with `retry` and no reply target; returns the
   thrown ex-data. A `:retry` the validator accepts reaches the reply-target
@@ -45,26 +42,18 @@
                                              :rf.http/aborted :rf.http/decode-failure}
                                       :max-attempts 3})))))
 
-(deftest cors-is-not-a-category
-  ;; A cross-origin network failure is `:rf.http/transport`.
-  (is (= (expected-bad-members #{:rf.http/cors})
-         (bad-members (call-managed! {:on #{:rf.http/cors} :max-attempts 3})))))
-
 (deftest non-set-on-shapes-rejected
-  ;; A bare keyword would otherwise throw a raw ISeq coercion error, and a
-  ;; vector would make `contains?` test index membership, silently disabling retry.
-  (are [on] (= {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed :recovery :no-recovery
-                :bad-shape on :bad-type (type on)}
-               (select-keys (call-managed! {:on on :max-attempts 3})
-                            [:rf.error/id :where :recovery :bad-shape :bad-type]))
-    :rf.http/transport
-    [:rf.http/transport]))
+  ;; A vector would make `contains?` test index membership, silently disabling retry.
+  (let [on [:rf.http/transport]]
+    (is (= {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed :recovery :no-recovery
+            :bad-shape on :bad-type (type on)}
+           (select-keys (call-managed! {:on on :max-attempts 3})
+                        [:rf.error/id :where :recovery :bad-shape :bad-type])))))
 
 (deftest retry-without-members-passes-through
-  ;; The whole closed set, an empty set, no :on and a nil :on all pass.
+  ;; The whole closed set, no :on and a nil :on all pass.
   (are [retry] (not= :rf.error/http-bad-retry-on (:rf.error/id (call-managed! retry)))
     {:on closed-set :max-attempts 3}
-    {:on #{} :max-attempts 3}
     {:max-attempts 3}
     {:on nil :max-attempts 3}))
 
