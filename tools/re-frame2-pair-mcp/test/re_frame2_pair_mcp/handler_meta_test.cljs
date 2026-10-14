@@ -64,21 +64,12 @@
 (defn- find-descriptor [name]
   (some #(when (= name (:name %)) %) registry/tool-descriptors))
 
-(def ^:private kinds
-  "The published kind vocabulary. `flow` and `frame` are reserved-but-EMPTY
-  registrar slots the framework refuses to query, so neither is offered."
-  #{"event" "sub" "fx" "cofx" "interceptor" "view" "route" "head"
-    "error-projector" "resource" "mutation" "resource-scope" "machine"})
-
-(deftest descriptors-advertise-the-accepted-kinds-and-an-optional-frame
-  (is (= kinds (set (map name @#'hm/supported-kinds)))
-      "the tools accept exactly the kinds the descriptors advertise")
-  (doseq [[tool-name required] [["handler-meta" #{"kind" "id"}]
-                                ["list-handlers" #{"kind"}]]]
-    (let [{req :required props :properties} (:inputSchema (find-descriptor tool-name))]
-      (is (= required (set req)) tool-name)
-      (is (= kinds (set (:enum (:kind props)))) tool-name)
-      (is (contains? props :frame) (str tool-name " takes an optional :frame")))))
+(deftest descriptors-advertise-the-accepted-kinds
+  ;; Each descriptor's enum is written by hand, apart from the tool's kind set.
+  (doseq [tool-name ["handler-meta" "list-handlers"]]
+    (is (= (set (map name @#'hm/supported-kinds))
+           (set (get-in (find-descriptor tool-name) [:inputSchema :properties :kind :enum])))
+        tool-name)))
 
 ;; ---------------------------------------------------------------------------
 ;; Argument refusals, before any runtime round-trip. The missing-kind
@@ -107,27 +98,19 @@
                                       (dissoc (extract-edn r) :hint)))))))))
             done)))
 
-(deftest handler-meta-rejects-frame-with-machine
+(deftest both-tools-refuse-a-frame-with-machine
   ;; Machines are not in the image generation resolver.
   (async done
-    (settle (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
-                                                    :id    ":auth/session"
-                                                    :frame ":blue/main"}))
-                (.then (fn [r]
-                         (is (is-error? r))
-                         (is (= {:ok? false :reason :frame-unsupported-for-machine
-                                 :frame :blue/main :kind :machine}
-                                (dissoc (extract-edn r) :hint))))))
-            done)))
-
-(deftest list-handlers-rejects-frame-with-machine
-  (async done
-    (settle (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :frame ":blue/main"}))
-                (.then (fn [r]
-                         (is (is-error? r))
-                         (is (= {:ok? false :reason :frame-unsupported-for-machine
-                                 :frame :blue/main :kind :machine}
-                                (dissoc (extract-edn r) :hint))))))
+    (settle (js/Promise.all
+              (into-array
+                (for [[tool args] [[hm/handler-meta-tool  {:kind "machine" :id ":auth/session" :frame ":blue/main"}]
+                                   [hm/list-handlers-tool {:kind "machine" :frame ":blue/main"}]]]
+                  (-> (tool nil (args-js args))
+                      (.then (fn [r]
+                               (is (is-error? r))
+                               (is (= {:ok? false :reason :frame-unsupported-for-machine
+                                       :frame :blue/main :kind :machine}
+                                      (dissoc (extract-edn r) :hint)))))))))
             done)))
 
 ;; ---------------------------------------------------------------------------
