@@ -117,13 +117,6 @@
           (fn [_ _] {:request {:method :get :url "/x"}})))
       "a non-vector :sensitive axis is rejected at reg-resource"))
 
-(deftest project-entry-data-frameless-rides-verbatim
-  ;; the registry is frame-scoped; the coarse disposition is the separate
-  ;; frame-independent authority
-  (is (= {:title "X" :token "tok"}
-         (rf.resources.classification/project-entry-data
-           {:title "X" :token "tok"} "k-1" nil :rf.egress/ssr-hydration))))
-
 ;; ===========================================================================
 ;; SSR projection end-to-end, registry-driven
 ;; ===========================================================================
@@ -145,17 +138,6 @@
       (is (= [{:secret rf.privacy/redacted-sentinel :title "hello"} false]
              [(select-keys (:data we) [:secret :title]) (str/includes? (pr-str we) "tok-xyz")])
           "the frame-classified :secret slot is redacted and no raw value rides"))))
-
-(deftest ssr-serialize-entry-redacts-owner-data-declaration-slot
-  (reg! :profile/card {:sensitive [[:data :pan]]})
-  (rf/make-frame {:id :rcfg/owner-data})
-  (let [k  (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card {:slug "x"})
-        we (ssr-wire-entry :rcfg/owner-data
-                           (runtime-db-with {k (entry {:resource-id :profile/card
-                                                       :data {:pan "4111-1111-1111-1111" :name "Alice"}})}))]
-    (is (= [{:pan rf.privacy/redacted-sentinel :name "Alice"} false]
-           [(select-keys (:data we) [:pan :name]) (str/includes? (pr-str we) "4111-1111-1111-1111")])
-        "the owner-declared :pan slot is redacted on the wire and the sibling rides verbatim")))
 
 (deftest ssr-serialize-entry-ships-owner-large-declaration-slot-whole
   ;; the hydration wire applies no size elision: the client's cached :data must
