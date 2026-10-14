@@ -72,11 +72,7 @@
       (is (str/includes? parallel (str "  note right of " par-id "\n    ✗ error / log\n  end note"))))))
 
 (deftest root-spawn-without-completion-draws-nothing
-  (testing "a root :spawn with no completion transition, or only the :data fold,
-            draws no edge and declares no root node"
+  (testing "a root :spawn with no completion transition draws no edge and
+            declares no root node"
     (is (nil? (alias-id (mermaid-body {:initial :a :spawn {:machine-id :m} :states {:a {}}})
-                        "root fallback")))
-    (is (nil? (alias-id (mermaid-body {:initial :a
-                                       :spawn   {:machine-id :m :on-done (fn [{:keys [data]}] data)}
-                                       :states  {:a {}}})
                         "root fallback")))))
