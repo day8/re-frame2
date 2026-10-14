@@ -59,15 +59,13 @@
   ## What these rows are
 
   The seam driven by hand, as in `staged-read-tear-cljs-test`:
-  `render-body` is the render, `commit-boundary!` is React's
-  `subscribe`, and the props map the codec built for the crossing is read
-  straight off the React element. `boundary-crossing-dom-cljs-test` then
-  proves the DOM moves, in real Chromium, on a later write — the half a
-  first paint cannot tell you.
-
-  The adapter is UIx's, not `plain-atom`'s: plain-atom has no reactivity
-  layer, so a subscription under it never notifies and every commit
-  assertion below would pass by never firing."
+  `render-body` is the render, and the props map the codec built for the
+  crossing is read straight off the React element. Where the commit then
+  puts the edges is `cell_table_laws_cljs_test`'s ground — a write
+  notifies exactly the readers of the keys it moved, so the parent,
+  which holds every row edge, re-runs and rebuilds the seq.
+  `boundary-crossing-dom-cljs-test` proves the DOM moves, in real
+  Chromium, on a later write."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -135,15 +133,6 @@
   (let [element (rf.bench.fresco.arm1.runtime/render-body frame-id body-fn props)]
     {:element element :entry (rf.bench.fresco.arm1.runtime/last-reads) :reads (rf.bench.fresco.arm1.runtime/reads-of (rf.bench.fresco.arm1.runtime/last-reads))}))
 
-(defn- mounted!
-  "A boundary at the seam React occupies: render the body, commit its
-  reads, and hand back the notification counter and the cleanup."
-  [body-fn props]
-  (let [{:keys [element entry reads]} (render body-fn props)
-        hits    (volatile! 0)
-        release (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))]
-    {:element element :entry entry :reads reads :hits hits :release! release}))
-
 (def ^:private row-keys
   #{[frame-id [:dogfood/todo 0]]
     [frame-id [:dogfood/todo 1]]
@@ -200,31 +189,7 @@
            realised"))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — and the commit puts the edges where the reads were attributed
-;; ---------------------------------------------------------------------------
-
-(deftest a-write-to-a-row-the-parent-produced-re-runs-the-parent
-  (seeded!)
-  (testing "the half a first render cannot tell you, at the seam: the
-           notification must reach the boundary that can REBUILD the seq.
-           A notification delivered to the child is worth nothing — its
-           props are the same object and its seq is already realised."
-    (let [parent (mounted! parent-body {})
-          child  (mounted! child-body (crossing-props (:element parent)))
-          edges  (:edges (rf.bench.fresco.arm1.runtime/stats))]
-      (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 1 "crossed"])
-      (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit 1])
-      (is (= [4 1 0] [edges @(:hits parent) @(:hits child)])
-          "four edges, all of them the parent's — the ids query and one per
-           row — so the parent re-runs, the seq is rebuilt and the child
-           receives a new one; the child is not notified in its stead, where
-           a re-render would repaint the identical realised seq and drop
-           the edges")
-      ((:release! child))
-      ((:release! parent)))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — the walk itself: what it forces, and what it must not disturb
+;; 2 — the walk itself: what it forces, and what it must not disturb
 ;; ---------------------------------------------------------------------------
 
 (deftest realize-deep-returns-its-argument-by-identity
