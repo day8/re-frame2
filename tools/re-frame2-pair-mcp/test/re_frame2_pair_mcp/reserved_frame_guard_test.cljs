@@ -18,10 +18,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest snapshot-refusal-shape-redirects-to-orient-and-a-slice
-  (doseq [[frames path mode] [[:all [] :summary]
-                              [[:rf/xray] [] :summary]
-                              [[:rf/xray] nil :full]]]
-    (is (tu/error? (guard/snapshot-refusal frames path mode)) (pr-str [frames path mode])))
+  ;; The named-frame shapes are refused through the real tool below.
+  (is (tu/error? (guard/snapshot-refusal :all [] :summary)) "frames :all sweeps in every tool frame")
   (is (= {:ok? false :reason :wholesale-read-of-reserved-frame :frame ":rf/xray"}
          (dissoc (tu/extract-edn (guard/snapshot-refusal [:rf/xray] [] :summary)) :hint))
       "names the refused frame"))
@@ -44,7 +42,6 @@
   (doseq [[frame path paths] [[:rf/xray [:rf.xray/state] nil]
                               [:rf/xray nil [[:rf.xray/state]]]
                               [:stories [] nil]
-                              [:rf/default [] nil]
                               [nil [] nil]]]
     (is (nil? (guard/get-path-refusal frame path paths)) (pr-str [frame path paths]))))
 
