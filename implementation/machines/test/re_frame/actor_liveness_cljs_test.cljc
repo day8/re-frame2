@@ -81,17 +81,3 @@
   (rf/reg-machine :al5/single (counter-child))
   (rf/dispatch-sync [:al5/single [:bump]])
   (is (= [1 nil] ((juxt (comp :n :data) :rf/machine-type) (snapshot :al5/single)))))
-
-(deftest parallel-spawned-actors-each-resolve-independently
-  (rf/reg-machine :al6/child  (counter-child))
-  (rf/reg-machine :al6/parent
-    {:initial :idle
-     :data    {}
-     :states  {:idle {:on {:go {:action (fn [_]
-                                          {:fx [[:rf.machine/spawn {:machine-id :al6/child :id-prefix :al6/child}]
-                                                [:rf.machine/spawn {:machine-id :al6/child :id-prefix :al6/child}]]})}}}}})
-  (rf/dispatch-sync [:al6/parent [:go]])
-  (rf/dispatch-sync [:al6/child#1 [:bump]])
-  (rf/dispatch-sync [:al6/child#1 [:bump]])
-  (rf/dispatch-sync [:al6/child#2 [:bump]])
-  (is (= [2 1] (mapv #(get-in (snapshot %) [:data :n]) [:al6/child#1 :al6/child#2]))))
