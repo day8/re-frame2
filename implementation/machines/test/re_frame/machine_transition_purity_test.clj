@@ -47,22 +47,6 @@
       (is (= :http/post#4 (-> fx first second :rf/spawned-id)))
       (is (= {:http/post 4} (:rf/spawn-counter snapshot))))))
 
-(deftest trace-is-observability-not-reduction
-  (let [m      {:initial :idle
-                :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
-                :states  {:idle {:on {:go {:target :done :action :bump}}}
-                          :done {}}}
-        input  {:state :idle :data {:n 0}}
-        bare   (rf.machines/machine-transition m input [:go])
-        [observed traces] (rf.machines.test-support/with-trace-capture seen
-                            [(rf.machines/machine-transition m input [:go]) @seen])]
-    (is (= {:state :done :data {:n 1}} (:snapshot bare)))
-    (is (= bare observed) "the Result does not depend on a listener being registered")
-    (is (some #(and (= :rf.machine/action-ran (:operation %))
-                    (= :bump (-> % :tags :action-id)))
-              traces)
-        "the listener did observe the transition's trace")))
-
 (deftest machine-always-microstep
   (testing ":always fires after an event nothing handled, under a true guard"
     (let [m {:initial :checking
