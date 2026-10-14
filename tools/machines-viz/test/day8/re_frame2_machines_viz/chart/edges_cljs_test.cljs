@@ -168,7 +168,6 @@
       (is (true? routed?))
       (is (str/starts-with? d "M 0,0"))
       (is (str/includes? d "120") "bends at the y=120 corner row")
-      (is (str/includes? d "160") "bends at the x=160 corner column")
       (is (str/ends-with? d "160,200"))
       (is (str/includes? d "Q") "rounded corners use quadratic segments")
       (is (not (str/includes? d "C")) "not a single bezier curve"))))
