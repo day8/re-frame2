@@ -43,39 +43,35 @@ const test = (name, fn) => tests.push([name, fn]);
 
 // --- the four refusals ------------------------------------------------------
 
-test('REFUSES warnings on an exit-0 build (the whole bug)', () => {
-  const v = judgeBuild({ status: 0, output: WARNED_OUTPUT });
-  assert.strictEqual(v.ok, false);
-  assert.match(v.reason, /2 warning/);
+/** Each refusal: what, the build it judges, and the reason that names it. */
+const REFUSALS = [
+  ['warnings on an exit-0 build (the whole bug)', { status: 0, output: WARNED_OUTPUT }, /2 warning/],
+  ['a non-zero exit', { status: 1, output: '' }, /exited 1/],
+  ['an exit-0 build with NO parsable summary (parser drift)', { status: 0, output: 'shadow-cljs - config: ...\n' }, /NO parsable/],
+  [
+    'a WARNING block the summary did not account for',
+    {
+      status: 0,
+      output: [
+        '------ WARNING #1 - :undeclared-var ------------------------------------',
+        ' Use of undeclared Var foo/bar',
+        '[:fresco-bench] Build completed. (3 files, 1 compiled, 0 warnings, 1.0s)',
+      ].join('\n'),
+    },
+    /did not account for|every parsed summary reads 0/,
+  ],
+];
+
+test('REFUSES each build on its own evidence, and names the warning class', () => {
+  const misjudged = REFUSALS.filter(([, build, reason]) => {
+    const v = judgeBuild(build);
+    return v.ok !== false || !reason.test(v.reason);
+  }).map(([what]) => what);
+  assert.deepStrictEqual(misjudged, []);
   assert.ok(
-    v.detail.some((d) => d.includes(':undeclared-var')),
+    judgeBuild({ status: 0, output: WARNED_OUTPUT }).detail.some((d) => d.includes(':undeclared-var')),
     'the refusal must name the warning class, not only its count',
   );
-});
-
-test('REFUSES a non-zero exit', () => {
-  const v = judgeBuild({ status: 1, output: '' });
-  assert.strictEqual(v.ok, false);
-  assert.match(v.reason, /exited 1/);
-});
-
-test('REFUSES an exit-0 build with NO parsable summary (parser drift)', () => {
-  const v = judgeBuild({ status: 0, output: 'shadow-cljs - config: ...\n' });
-  assert.strictEqual(v.ok, false);
-  assert.match(v.reason, /NO parsable/);
-});
-
-test('REFUSES a WARNING block the summary did not account for', () => {
-  const v = judgeBuild({
-    status: 0,
-    output: [
-      '------ WARNING #1 - :undeclared-var ------------------------------------',
-      ' Use of undeclared Var foo/bar',
-      '[:fresco-bench] Build completed. (3 files, 1 compiled, 0 warnings, 1.0s)',
-    ].join('\n'),
-  });
-  assert.strictEqual(v.ok, false);
-  assert.match(v.reason, /did not account for|every parsed summary reads 0/);
 });
 
 // --- and the green case, so the gate is not vacuously red -------------------
