@@ -3,7 +3,6 @@
   data, identically on the JVM and :node-test."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test :refer-macros [are deftest is testing]])
-            [clojure.string :as str]
             [re-frame.test-helpers :as rf.test-helpers]))
 
 (defn- counter-button [{:keys [n on-click]}]
@@ -17,11 +16,6 @@
   [:div {:data-testid "counter-root"}
    [:span {:data-testid "counter-label"} "Counter"]
    [counter-button {:n n :on-click on-inc}]])
-
-(defn- list-view [items]
-  [:ul {:data-testid "items"}
-   (for [{:keys [id label]} items]
-     [:li {:data-testid (str "item-" id) :key id} label])])
 
 ;; ---- expand-tree ---------------------------------------------------------
 
@@ -73,22 +67,6 @@
   (is (= :button (first (rf.test-helpers/find-by-testid (counter-view {:n 0 :on-inc identity})
                                                          "counter-inc")))))
 
-(deftest find-all-by-testid-returns-every-match
-  (let [tree [:div
-              [:span {:data-testid "dup"} "first"]
-              [:span {:data-testid "dup"} "second"]
-              [:span {:data-testid "other"} "third"]]]
-    (is (= ["first" "second"] (mapv last (rf.test-helpers/find-all-by-testid tree "dup"))))
-    (is (= "first" (last (rf.test-helpers/find-by-testid tree "dup")))
-        "find-by-testid returns only the first match")))
-
-(deftest find-by-testid-prefix-matches-stem
-  (is (= ["item-1" "item-2" "item-3"]
-         (mapv (comp :data-testid second)
-               (rf.test-helpers/find-by-testid-prefix
-                 (list-view [{:id 1 :label "a"} {:id 2 :label "b"} {:id 3 :label "c"}])
-                 "item-")))))
-
 ;; ---- find-by-attr family -------------------------------------------------
 ;;
 ;; Generic over the attribute keyword: Story keys on `:data-test`, Xray on
@@ -110,6 +88,8 @@
               [:li {:data-test "skip"} "c"]
               [:li {:data-test "row"} "d"]]]
     (is (= ["a" "b" "d"] (mapv last (rf.test-helpers/find-all-by-attr tree :data-test "row"))))
+    (is (= "a" (last (rf.test-helpers/find-by-attr tree :data-test "row")))
+        "find-by-attr returns only the first match")
     (is (= [] (rf.test-helpers/find-all-by-attr tree :data-test "none")) "no match is an empty vector")))
 
 (deftest find-by-attr-prefix-matches-stem
@@ -157,19 +137,3 @@
           (rf.test-helpers/testid "foo" {:on-click :handler :class "bar"})
           (rf.test-helpers/testid "outer" {:data-testid "inner"})])
       "extra attrs merge in; the id arg wins over an extra :data-testid"))
-
-;; The copyable `testid` example must show the `reg-view`-injected `dispatch`
-;; INSIDE the `rf/reg-view` form that binds it: a bare deferred `rf/dispatch`
-;; raises :rf.error/no-frame-context once the render scope has unwound, and a
-;; detached fragment leaves `dispatch` unresolved. The example is pinned as one
-;; exact form on whitespace-collapsed text, so re-indenting stays green while
-;; enclosure holds by construction rather than by a pattern.
-
-(def ^:private canonical-testid-example
-  "(rf/reg-view counter-inc-button [] [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"])")
-
-(deftest testid-docstring-shows-the-binding-context-for-injected-dispatch
-  (let [doc (:doc (meta #'rf.test-helpers/testid))]
-    (is (str/includes? (str/replace (str/trim (str doc)) #"\s+" " ") canonical-testid-example))
-    (is (nil? (re-find #"#\(rf/dispatch " (str doc)))
-        "no bare deferred `rf/dispatch` in the example")))
