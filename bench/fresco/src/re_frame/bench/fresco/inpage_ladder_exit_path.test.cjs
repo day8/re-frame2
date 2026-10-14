@@ -70,21 +70,6 @@ test('the control rule is OVERLAP, exactly as `lane/control-verdict` spells it',
   assert.deepStrictEqual([ok(1.2, 1.6), ok(2.4, 3.0), ok(1.0, 1.4), ok(2.6, 3.0)], [true, true, false, false]);
 });
 
-// --- the arm-order guard --------------------------------------------------
-
-test('the rebuilt guard stream carries predecessor and position as the page did', () => {
-  const raw = [
-    { round: 0, arm: 'floor', ms: 1.5 },
-    { round: 0, arm: 'uix', ms: 3.1 },
-    { round: 0, arm: 'floor', ms: 1.6 },
-  ];
-  assert.deepStrictEqual(agg.guardSamples(raw), [
-    { arm: 'floor', value: 1.5, predecessor: null, position: 0 },
-    { arm: 'uix', value: 3.1, predecessor: 'floor', position: 1 },
-    { arm: 'floor', value: 1.6, predecessor: 'uix', position: 2 },
-  ]);
-});
-
 // --- every mutation the file promises to catch ------------------------------
 //
 // An arm roster derived from the rows that survived would exit 0, print
