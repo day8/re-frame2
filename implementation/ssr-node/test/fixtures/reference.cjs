@@ -30,18 +30,14 @@ let overlapMax = 0;
  * request*, so a counter that a re-require resets could not tell the two
  * apart: a per-request `require` + `boot()` would report 1 every time,
  * which is exactly the reading the row is supposed to refuse. A worker
- * thread has its own `globalThis`, so this survives a re-require, cannot
- * see another isolate's boots, and cannot be contaminated by the main
- * process's copy of this module — the in-process controls require this
- * file directly, and they increment a different global.
+ * thread has its own `globalThis`, so this survives a re-require and cannot
+ * see another isolate's boots.
  */
 const BOOTS = Symbol.for('rf2.ssr-node.test.boots');
 globalThis[BOOTS] ??= 0;
 
-/** What a render of this module observed. Shared with its in-process control. */
-// `runtime` defaults for the in-process CONTROLS that call `render`
-// directly with a state-only call; through the service it always arrives.
-function observe({ entry, state, runtime = {}, args }) {
+/** What a render of this module observed. */
+function observe({ entry, state, runtime, args }) {
   let mutationThrew = false;
   try {
     // The snapshot is frozen; in strict mode this throws.
