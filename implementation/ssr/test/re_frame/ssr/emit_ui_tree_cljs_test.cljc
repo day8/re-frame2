@@ -328,6 +328,12 @@
                      (caught-ex-data
                        #(rf.ssr.ui-tree/emit-ui-tree
                           (v1 {:tag :script :children [{:tag :b :children ["x"]}]}))))))))
+  (testing "a non-string :html under <style> is the SAME shared malformed id, located at the child"
+    (let [expected (malformed {:path [:children 0]})]
+      (is (= expected
+             (pinned expected
+                     (caught-ex-data
+                       #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html 42}]}))))))))
   (testing "a body mixing string content with a structural child is malformed"
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
