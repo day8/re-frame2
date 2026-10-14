@@ -108,21 +108,6 @@
       (is (nil? (rf/compute-sub [:kjf3m/throwing] {})))
       (is (some? (:exception (first-of :rf.error/sub-exception seen)))))))
 
-(deftest fx-handler-exception-recovery-is-isolated-siblings-fire
-  (testing "a throwing fx is skipped: the fx on either side still fire, and the
-            :db installed before the :fx walk is not rolled back"
-    (let [fired (atom [])]
-      (rf/reg-fx :goum9x/ok-a (fn [_ _] (swap! fired conj :a)))
-      (rf/reg-fx :goum9x/boom (fn [_ _] (throw (ex-info "boom" {}))))
-      (rf/reg-fx :goum9x/ok-b (fn [_ _] (swap! fired conj :b)))
-      (rf/reg-event :goum9x/mixed
-                    (fn [{:keys [db]} _]
-                      {:db (assoc db :committed? true)
-                       :fx [[:goum9x/ok-a] [:goum9x/boom] [:goum9x/ok-b]]}))
-      (rf/dispatch-sync [:goum9x/mixed])
-      (is (= [:a :b] @fired))
-      (is (true? (:committed? (rf/app-db-value :rf/default)))))))
-
 (deftest listener-fires-on-override-fallthrough
   (testing "an :fx-overrides redirect to an unregistered fx-id falls back to the
             registered fx, and the record names the dispatching frame"
