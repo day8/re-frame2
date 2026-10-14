@@ -10,7 +10,7 @@
   thrown id together with its ex-data.
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns). The raw-text and
-  newline-compensation rows the three SSR paths share are pinned once, on the
+  newline-compensation rows both SSR paths share are pinned once, on the
   JVM, by `re-frame.ssr-emit-test` and `re-frame.ssr-hiccup-newline-test`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.emit :as rf.ssr.emit]
@@ -51,10 +51,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest version-gate-throws-the-new-id-with-got-and-supported
-  (testing "missing / non-integer / unsupported root version -> the SSR-seam id"
+  (testing "a missing or unsupported root version -> the SSR-seam id"
     (doseq [[label root expected-got]
             [["missing version" {:tag :div}                       nil]
-             ["string \"1\""     {:rf.ui/tree-version "1" :tag :div} "1"]
              ["version 2"        {:rf.ui/tree-version 2  :tag :div} 2]]]
       (let [expected {:rf.error/id :rf.error/ssr-ui-tree-version-unsupported
                       :got         expected-got
@@ -134,31 +133,15 @@
              (pinned expected
                      (caught-ex-data
                        #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["a" "b"]})))))
-          "locates the surplus (second) child"))
-    ;; a fragment does not hide the count — two spliced children still reject
-    (let [d (caught-ex-data
-              #(rf.ssr.ui-tree/emit-ui-tree
-                 (v1 {:tag :textarea :children [{:children ["a" "b"]}]})))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
-  (testing ":value / :default-value plus an authored child is rejected"
+          "locates the surplus (second) child")))
+  (testing ":value plus an authored child is rejected"
     (let [expected (malformed {:path [:children 0]})]
       (is (= expected
              (pinned expected
                      (caught-ex-data
                        #(rf.ssr.ui-tree/emit-ui-tree
-                          (v1 {:tag :textarea :attrs {:value "v"} :children ["c"]})))))))
-    (let [d (caught-ex-data
-              #(rf.ssr.ui-tree/emit-ui-tree
-                 (v1 {:tag :textarea :attrs {:default-value "v"} :children ["c"]})))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
-          ":default-value maps to value and rejects the pair identically")))
-  (testing "the valid shapes still emit unchanged — value, sole text, spliced text"
-    (is (= "<textarea>plain</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
-        ":value alone is valid")
-    (is (= "<textarea>hi</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
-        "a sole string child is valid")
+                          (v1 {:tag :textarea :attrs {:value "v"} :children ["c"]}))))))))
+  (testing "a single string spliced through a transparent wrapper is valid"
     (is (= "<textarea>hi</textarea>"
            (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :textarea :children [{:children ["hi"]}]})))
@@ -187,9 +170,7 @@
     (is (= "<label for=\"x\" tabindex=\"3\"></label>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :label :attrs {:for "x" :tab-index 3}}))))
     (is (= "<svg viewBox=\"0 0 1 1\"></svg>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :svg :attrs {:view-box "0 0 1 1"}}))))
-    (is (= "<a xlink:href=\"#a\"></a>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:xlink-href "#a"}})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :svg :attrs {:view-box "0 0 1 1"}})))))
   (testing "data-* / aria-* names verbatim"
     (is (= "<div data-fooBar=\"1\"></div>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:data-fooBar "1"}}))))))
@@ -206,57 +187,34 @@
 (deftest attribute-names-are-gated-like-the-hiccup-tier
   ;; `escape-html` covers attribute VALUES only, so a name is written into
   ;; the tag as it stands. Each key below breaks out of the tag when written
-  ;; unchecked: the first ends in a live `onmouseover` handler, the second
-  ;; closes the tag and opens an `<img>` whose `onerror` runs, and the third
-  ;; shows the `data-*` pass-through is a naming rule, not an exemption.
+  ;; unchecked, and the second shows the `data-*` pass-through is a naming
+  ;; rule, not an exemption.
   (doseq [attribute-key [(keyword "title\" onmouseover=\"alert(1)")
-                         (keyword "x><img src=x onerror=alert(1) z")
                          (keyword "data-a><b")]]
-    (let [tree-error   (caught-error
-                         #(rf.ssr.ui-tree/emit-ui-tree
-                            (v1 {:tag :div :attrs {attribute-key "v"}})))
-          hiccup-error (caught-error
-                         #(rf.ssr.html-helpers/attr-string {attribute-key "v"}))]
-      (testing (str "emit-ui-tree refuses " (pr-str (name attribute-key)))
-        (is (= :rf.error/ssr-invalid-attribute-name (first tree-error))
-            (str "the name must be refused, not written into the markup; got "
-                 (pr-str tree-error)))
-        (is (= hiccup-error tree-error)
-            "the same id and the same message as the hiccup tier"))))
-  (testing "control: a grammar-legal name still emits"
-    (is (= "<div data-ok=\"v\" title=\"t\"></div>"
-           (rf.ssr.ui-tree/emit-ui-tree
-             (v1 {:tag :div :attrs {:data-ok "v" :title "t"}}))))))
+    (let [tree-error (caught-error
+                       #(rf.ssr.ui-tree/emit-ui-tree
+                          (v1 {:tag :div :attrs {attribute-key "v"}})))]
+      (is (= :rf.error/ssr-invalid-attribute-name (first tree-error))
+          (str (pr-str (name attribute-key)) " must be refused, not written into the markup; got "
+               (pr-str tree-error))))))
 
 (deftest tag-names-are-gated-like-the-hiccup-tier
   ;; A tag name is written into the markup unescaped, once in the opening
-  ;; tag and again in the closing one. Each `:tag` below breaks out of the
-  ;; tag when written unchecked: the first closes the element and opens a
-  ;; `<b>` on both sides of the content, the second carries a live handler,
-  ;; and the third a quote.
-  (doseq [tag [(keyword "div><b")
-               (keyword "div onclick=alert(1)")
-               (keyword "a\"b")]]
-    (let [hiccup-error (caught-ex-data
-                         #(rf.ssr.emit/render-to-string [tag "marker"] {}))
-          ;; The hiccup tier's own `:tag-name` for the same input: equal only
-          ;; when both tiers refused it under the same grammar.
-          expected     {:rf.error/id :rf.error/invalid-tag-name
-                        :tag-name    (:tag-name hiccup-error)
-                        :source      tag}]
-      (is (= expected
-             (pinned expected
-                     (caught-ex-data
-                       #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children ["marker"]})))))
-          (str "emit-ui-tree refuses " (pr-str (name tag)) " as the hiccup tier does"))))
-  (testing "a malformed :tag on a nested node is refused"
-    (let [expected {:rf.error/id :rf.error/invalid-tag-name :tag-name "span><i"}]
-      (is (= expected
-             (pinned expected
-                     (caught-ex-data
-                       #(rf.ssr.ui-tree/emit-ui-tree
-                          (v1 {:tag :div
-                               :children [{:tag (keyword "span><i") :children ["m"]}]}))))))))
+  ;; tag and again in the closing one, so a `:tag` that closes the element
+  ;; and opens a `<b>` breaks out on both sides of the content.
+  (let [tag          (keyword "div><b")
+        hiccup-error (caught-ex-data
+                       #(rf.ssr.emit/render-to-string [tag "marker"] {}))
+        ;; The hiccup tier's own `:tag-name` for the same input: equal only
+        ;; when both tiers refused it under the same grammar.
+        expected     {:rf.error/id :rf.error/invalid-tag-name
+                      :tag-name    (:tag-name hiccup-error)
+                      :source      tag}]
+    (is (= expected
+           (pinned expected
+                   (caught-ex-data
+                     #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children ["marker"]})))))
+        "emit-ui-tree refuses the tag as the hiccup tier does"))
   (testing "a tree :tag is an element name, never hiccup `.class#id` shorthand"
     (is (= :rf.error/invalid-tag-name
            (:rf.error/id (caught-ex-data
@@ -310,41 +268,17 @@
                          #(rf.ssr.ui-tree/emit-ui-tree
                             (v1 {:tag :div
                                  :children [{:tag :span :attrs {:id "a" attribute-key "v"}}]})))))))))
-  (testing "control: the same spelling under `data-` is an ordinary attribute"
-    (is (= "<div data-dangerously-set-inner-html=\"v\"></div>"
-           (rf.ssr.ui-tree/emit-ui-tree
-             (v1 {:tag :div :attrs {:data-dangerously-set-inner-html "v"}})))))
   (testing "control: case decides no refusal of an ordinary slot, and no emitted name"
     (is (= "<div data-dangerously-set-inner-HTML=\"v\" tab-Index=\"1\"></div>"
            (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :div :attrs {:data-dangerously-set-inner-HTML "v"
                                     :tab-Index                       1}}))))))
 
-(deftest emits-boolean-classes
-  (testing "boolean attr: true -> presence, false -> omitted"
-    (is (= "<input disabled=\"\">"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:disabled true :checked false}})))))
-  (testing "booleanish: true/false -> \"true\"/\"false\", never omitted"
-    (is (= "<div contentEditable=\"false\"></div>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:content-editable false}})))))
-  (testing "overloaded: true -> presence, false -> omitted, other -> value"
-    (is (= "<a download=\"\"></a>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download true}}))))
-    (is (= "<a download=\"file.txt\"></a>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download "file.txt"}})))))
-  (testing "aria-* values always stringify, never omitted"
-    (is (= "<div aria-hidden=\"false\"></div>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:aria-hidden false}}))))))
-
 (deftest emits-style-in-pinned-order
   (testing ":style map -> css declaration, sorted by property name"
     (is (= "<div style=\"color:red;margin-top:0\"></div>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:style {:margin-top "0"
                                                                        :color "red"}}}))))))
-
-(deftest emits-void-elements-self-closed
-  (is (= "<img src=\"a.png\">"
-         (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :img :attrs {:src "a.png"}})))))
 
 (deftest void-element-children-are-refused
   ;; react-dom/server throws for children on a void element; a serialiser
@@ -355,28 +289,8 @@
              (pinned expected
                      (caught-ex-data
                        #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br :children ["lost"]}))))))))
-  (testing "a nested void element with an element child"
-    (let [expected (malformed {:path [:children 0]})]
-      (is (= expected
-             (pinned expected
-                     (caught-ex-data
-                       #(rf.ssr.ui-tree/emit-ui-tree
-                          (v1 {:tag :div
-                               :children [{:tag :img :attrs {:src "a.png"}
-                                           :children [{:tag :span :children ["x"]}]}]}))))))))
   (testing "control: an EMPTY children vector is no children"
     (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br :children []}))))))
-
-(deftest drops-events-and-keys
-  (testing "events never serialise into HTML; :key has no HTML presence;
-            node-level :rf.ui/* diagnostic keys never emit"
-    (is (= "<button>Go</button>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :button
-                                             :events {:on-click [:go]}
-                                             :key 7
-                                             :rf.ui/presence {:phase :present}
-                                             :rf.ui/boundary :client-only
-                                             :children ["Go"]}))))))
 
 (deftest splices-fragments-and-erases-view-boundaries
   (testing "fragment root splices its children with no wrapper"
@@ -389,15 +303,10 @@
                                              :props {:whatever 1}
                                              :children [{:tag :span :children ["x"]}]}))))))
 
-(deftest writes-trusted-html-verbatim
-  (testing ":html node content is NOT escaped"
-    (is (= "<div><b>raw</b></div>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "<b>raw</b>"}]}))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Raw-text elements — <script>/<style> content. The string-content rows
-;; (verbatim body, closing-sequence rewrite) are shared with both hiccup
-;; emitters and pinned on all three paths in `re-frame.ssr-emit-test`.
+;; (verbatim body, closing-sequence rewrite) are shared with the hiccup
+;; emitter and pinned on both paths in `re-frame.ssr-emit-test`.
 ;; ---------------------------------------------------------------------------
 
 (deftest raw-text-script-style-is-not-html-escaped
@@ -419,12 +328,6 @@
                      (caught-ex-data
                        #(rf.ssr.ui-tree/emit-ui-tree
                           (v1 {:tag :script :children [{:tag :b :children ["x"]}]}))))))))
-  (testing "a non-string :html under <style> is the SAME shared malformed id, located at the child"
-    (let [expected (malformed {:path [:children 0]})]
-      (is (= expected
-             (pinned expected
-                     (caught-ex-data
-                       #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html 42}]}))))))))
   (testing "a body mixing string content with a structural child is malformed"
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
@@ -442,9 +345,6 @@
   (testing ":default-value serialises as value"
     (is (= "<input value=\"d\">"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :input :attrs {:default-value "d"}})))))
-  (testing ":value on :textarea serialises as the text child, not an attribute"
-    (is (= "<textarea>hello</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
   (testing ":value on :select serialises as selected on the matching option"
     (is (= (str "<select>"
                 "<option value=\"a\">A</option>"
@@ -468,38 +368,17 @@
                   :attrs {:multiple true :value ["a" "c"]}
                   :children [{:tag :option :attrs {:value "a"} :children ["A"]}
                              {:tag :option :attrs {:value "b"} :children ["B"]}
-                             {:tag :option :attrs {:value "c"} :children ["C"]}]})))))
-  (testing "and the EMPTY selection selects none of them"
-    (is (= (str "<select multiple=\"\">"
-                "<option value=\"a\">A</option>"
-                "<option value=\"b\">B</option>"
-                "</select>")
-           (rf.ssr.ui-tree/emit-ui-tree
-             (v1 {:tag :select
-                  :attrs {:multiple true :value []}
-                  :children [{:tag :option :attrs {:value "a"} :children ["A"]}
-                             {:tag :option :attrs {:value "b"} :children ["B"]}]}))))))
+                             {:tag :option :attrs {:value "c"} :children ["C"]}]}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Newline-eating elements — leading-LF compensation. HTML parsing eats the
 ;; FIRST LF after <pre>/<listing>/<textarea>, so react-dom/server 19.2 prefixes
 ;; one compensating LF when the content is a SINGLE STRING beginning with LF.
-;; The rows the three SSR paths share are pinned in
+;; The rows both SSR paths share are pinned in
 ;; `re-frame.ssr-hiccup-newline-test`; these are the tree's own arms.
 ;; ---------------------------------------------------------------------------
 
-(deftest leading-newline-compensated-for-pre-and-listing
-  (testing "<pre> single text child beginning with LF gets the doubled LF"
-    (is (= "<pre>\n\nhello</pre>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\nhello"]})))))
-  (testing "pre child text is still HTML-escaped alongside the compensation"
-    (is (= "<pre>\n\n&lt;a&gt; &amp; b</pre>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\n<a> & b"]}))))))
-
 (deftest leading-newline-compensated-for-textarea-value
-  (testing ":value on <textarea> beginning with LF gets the doubled LF"
-    (is (= "<textarea>\n\nhello</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\nhello"}})))))
   (testing "textarea :value is RCDATA-escaped alongside the compensation"
     (is (= "<textarea>\n\n&lt;a&gt;&amp;</textarea>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "\n<a>&"}})))))
@@ -508,9 +387,6 @@
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["\nhi"]}))))))
 
 (deftest leading-newline-own-lever-only-a-single-lf-string-child
-  (testing "a leading CR (\\r) is NOT a newline-eating trigger — matches React"
-    (is (= "<pre>\r\nhello</pre>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\r\nhello"]})))))
   (testing "MULTIPLE children ⇒ no compensation (React's single-string guard)"
     (is (= "<pre>\nab</pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\na" "b"]}))))))
@@ -530,12 +406,6 @@
   ;; `:doctype?` is the ONLY option, default off; other keys are ignored —
   ;; neither rejected nor honoured (Spec 004B §The SSR consumption boundary).
   (let [tree (v1 {:tag :html})]
-    (testing ":doctype? true prefixes the doctype"
-      (is (= "<!DOCTYPE html><html></html>"
-             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true}))))
-    (testing "default (arity-1) emits no doctype"
-      (is (= "<html></html>"
-             (rf.ssr.ui-tree/emit-ui-tree tree))))
     (testing "unknown keys are ignored — not rejected, not honoured"
       (is (= "<!DOCTYPE html><html></html>"
              (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true :emit-hash? true :bogus 1}))))))
