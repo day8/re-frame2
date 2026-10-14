@@ -55,14 +55,8 @@
 (deftest happy-returns-entity-and-content
   (async done
     (let [canned {:ok? true :via :view-id
-                  :entity {:view-id :my.app/counter
-                           :source-coord {:ns "my.app" :handler-id "counter"
-                                          :line 42 :col 3
-                                          :file "/abs/my/app.cljs"}
-                           :render-key 8123
-                           :subs-read [[:count] [:user]]}
-                  :content {:tag "div" :text "Count: 3"
-                            :attrs {"class" "counter" "data-count" "3"}}}]
+                  :entity {:view-id :my.app/counter :render-key 8123}
+                  :content {:tag "div" :text "Count: 3"}}]
       (-> (tu/with-stubbed-eval! canned
             #(read-ui/read-ui-tool (fresh-conn) #js {:view-id ":my.app/counter"}))
           (.then (fn [r]
