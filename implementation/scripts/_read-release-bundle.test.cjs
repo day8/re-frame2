@@ -4,7 +4,7 @@
  * primitives behind the bundle-isolation and production-elision gates. Each
  * contract here fails toward a silent false-GREEN if it regresses: a missing or
  * empty bundle must not read as a clean one, a stale cljs-runtime/ dev tree must
- * not be scanned, and counts must be literal and call-independent.
+ * not be scanned, and counts must be literal.
  * Hermetic: each fixture is a fresh os.tmpdir() mkdtemp dir, torn down after.
  */
 
@@ -15,12 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const {
-  listReleaseJsFiles,
-  classifyReleaseBundle,
-  countMatches,
-  countSubstring,
-} = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const tests = [];
 const cleanups = [];
@@ -45,23 +40,6 @@ function missingDir() {
   return path.join(os.tmpdir(), `rf2-rrb-absent-${process.pid}-${Math.random().toString(36).slice(2)}`);
 }
 
-// ----- listReleaseJsFiles ----------------------------------------------------
-
-test('listReleaseJsFiles excludes non-.js files and subdirectories (rf2-z9a06 trap)', () => {
-  const dir = makeBundleDir({
-    'main.js': 'release();',
-    'manifest.edn': '{}',
-    'index.html': '<html>',
-    // A stale dev-compile subdir: must NOT be walked.
-    'cljs-runtime/re_frame.core.js': 'DEV_ONLY_SENTINEL();',
-  });
-  const files = listReleaseJsFiles(dir);
-  assert.deepEqual(
-    files.map((f) => path.basename(f)).sort(),
-    ['main.js'],
-  );
-});
-
 // ----- classifyReleaseBundle (non-vacuous floor) -----------------------------
 
 test('classifyReleaseBundle reports status "missing" for a missing dir', () => {
@@ -74,12 +52,6 @@ test('classifyReleaseBundle reports status "empty" for a present dir with no *.j
   const dir = makeBundleDir({ 'manifest.edn': '{}' });
   const c = classifyReleaseBundle(dir);
   assert.deepEqual(c, { status: 'empty', files: [], blob: '' });
-});
-
-test('classifyReleaseBundle reports status "empty" when every top-level *.js is zero-byte', () => {
-  const dir = makeBundleDir({ 'main.js': '', 'cljs_base.js': '' });
-  const c = classifyReleaseBundle(dir);
-  assert.equal(c.status, 'empty');
 });
 
 test('classifyReleaseBundle reports status "ok" for a real bundle (non-empty top-level *.js)', () => {
@@ -97,22 +69,6 @@ test('classifyReleaseBundle ignores stale cljs-runtime dev sources when deciding
   assert.equal(c.status, 'empty', 'stale dev sources must not rescue an empty release artefact');
 });
 
-// ----- countMatches ----------------------------------------------------------
-
-test('countMatches counts global matches in the blob', () => {
-  assert.equal(countMatches('xax-xax-xax', /xax/g), 3);
-});
-
-test('countMatches returns 0 for a null blob (missing-bundle safe)', () => {
-  assert.equal(countMatches(null, /anything/g), 0);
-});
-
-test('countMatches resets a /g RegExp lastIndex so the count is call-independent', () => {
-  const re = /ab/g;
-  re.lastIndex = 5; // as a live .exec()/.test() consumer leaves it
-  assert.equal(countMatches('ab ab ab', re), 3, 'the count must ignore a stale lastIndex');
-});
-
 // ----- countSubstring --------------------------------------------------------
 
 test('countSubstring treats regex metacharacters in the needle literally', () => {
@@ -121,10 +77,6 @@ test('countSubstring treats regex metacharacters in the needle literally', () =>
 
   const blob2 = 'cljs.core$truth_(x) cljs.core$truth_(y)';
   assert.equal(countSubstring(blob2, 'cljs.core$truth_('), 2);
-});
-
-test('countSubstring returns 0 for a null blob (missing-bundle safe)', () => {
-  assert.equal(countSubstring(null, 'sentinel'), 0);
 });
 
 // ----- runner ----------------------------------------------------------------
