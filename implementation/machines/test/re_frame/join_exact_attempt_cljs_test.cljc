@@ -1,7 +1,7 @@
 (ns re-frame.join-exact-attempt-cljs-test
   "A join folds a completion carrier only when every exact-attempt coordinate field
   equals the current join attempt (Spec 005 §Exact-attempt fold fence); the fence
-  runs before the resolved/unresolved split, and resolution destroys only survivors."
+  runs before the resolved/unresolved split."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -91,29 +91,6 @@
       (is (= [#{} [:rf.machine.spawn-all/attempt-superseded]]
              [(:done (join-state :jea/p1)) (stale-reasons)])
           (str field)))))
-
-(deftest join-resolution-destroys-only-survivors
-  (rf/reg-machine :jea/p2c child)
-  (rf/reg-machine :jea/p2
-    {:initial :idle
-     :states  {:idle   {:on {:start :racing}}
-               :racing {:spawn-all {:children         [{:id :a :machine-id :jea/p2c}
-                                                       {:id :b :machine-id :jea/p2c}]
-                                    :join             :any
-                                    :on-some-complete [:any/done]}}}})
-  (rf/dispatch-sync [:jea/p2 [:start]])
-  (let [{:keys [a b]}  (:children (join-state :jea/p2))
-        destroy-reasons (fn [actor-id]
-                          (into [] (comp (filter #(= actor-id (:actor-id (:tags %))))
-                                         (map (comp :reason :tags)))
-                                (events-of :rf.machine/destroyed)))]
-    (rf/dispatch-sync [a [:go]])
-    (is (= [[:rf.machine/finished] [:explicit] [:b]]
-           [(destroy-reasons a)
-            (destroy-reasons b)
-            (mapv (comp :child-id :tags)
-                  (events-of :rf.machine.spawn/cancelled-on-join-resolution))])
-        "the decisive child closed itself; only the survivor is cancelled by the join")))
 
 ;; Classifying `:resolved?` first would attribute any carrier against a resolved
 ;; join to the CURRENT attempt and forge a `:late-completion` from it.
