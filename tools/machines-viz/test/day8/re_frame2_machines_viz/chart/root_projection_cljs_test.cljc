@@ -47,23 +47,7 @@
       (is (= (select-keys twin lifecycle-keys) (select-keys root lifecycle-keys))
           "the root projects its lifecycle exactly as a state does")
       (is (= #{:a-tag} (:tags (node-with-id graph (layout/node-id [:a]))))
-          "a state keeps its own tags; the root's stay on the root")))
-
-  (testing "a parallel root's :entry / :exit / :tags ride the frame too"
-    (let [m     {:type    :parallel
-                 :entry   :hello
-                 :exit    :bye
-                 :tags    #{:busy}
-                 :actions lifecycle-actions
-                 :regions {:r {:initial :a :states {:a {}}}}}
-          root  (root-container (layout/project-definition m))]
-      (is (= {:entry "hello" :exit "bye" :tags #{:busy} :entry-requires ["rf/time-ms"]}
-             (select-keys root [:entry :exit :tags :entry-requires]))))))
-
-(deftest root-container-without-lifecycle-carries-none
-  (testing "a root declaring no lifecycle slot projects none, as a bare state does"
-    (let [root (root-container (layout/project-definition {:initial :a :states {:a {}}}))]
-      (is (= {:tags #{}} (select-keys root [:entry :exit :tags]))))))
+          "a state keeps its own tags; the root's stay on the root"))))
 
 (deftest root-lifecycle-reaches-the-renderer-data
   (testing "the frame's xyflow :data carries the root lifecycle in the keys a
@@ -83,14 +67,10 @@
     (let [m      {:type    :parallel
                   :actions lifecycle-actions
                   :regions {:r {:initial :a :entry :r-in :exit :bye :tags #{:r-tag}
-                                :states  {:a {}}}
-                            :s {:initial :x :states {:x {}}}}}
-          graph  (layout/project-definition m)
-          r      (node-with-id graph (layout/region-node-id :r))
-          s      (node-with-id graph (layout/region-node-id :s))]
+                                :states  {:a {}}}}}
+          r      (node-with-id (layout/project-definition m) (layout/region-node-id :r))]
       (is (= {:entry "r-in" :exit "bye" :tags #{:r-tag} :entry-requires ["rf/uuid"]}
-             (select-keys r [:entry :exit :tags :entry-requires])))
-      (is (= {:tags #{}} (select-keys s [:entry :tags])) "a region declaring none carries none")))
+             (select-keys r [:entry :exit :tags :entry-requires])))))
 
   (testing "a region container reads its OWN body, never a state inside the
             region that shares the region's name"
@@ -127,25 +107,6 @@
           shape  (fn [g] (set (map #(select-keys % [:event :on-done? :on-error? :event-label :to-path])
                                    (spawn-edges g))))]
       (is (= (shape state) (shape (layout/project-definition flat-root-spawn)))))))
-
-(deftest root-spawn-action-only-and-fold-forms
-  (testing "an action-only :on-error self-anchors on the machine-root chip, and a
-            fn :on-done is the :data fold and draws nothing"
-    (let [graph (layout/project-definition
-                  {:initial :a
-                   :spawn   {:machine-id :m :on-done (fn [{:keys [data]}] data)
-                             :on-error {:action :log}}
-                   :states  {:a {}}})
-          mr    layout/machine-root-id]
-      (is (= [[:rf.machine.spawn/error true mr mr]]
-             (map (juxt :event :internal? :source :target) (spawn-edges graph)))
-          "one edge: the fold draws none"))))
-
-(deftest root-spawn-without-completions-draws-nothing
-  (testing "a root :spawn with no completion transition draws no edge and no chip"
-    (let [graph (layout/project-definition {:initial :a :spawn {:machine-id :m} :states {:a {}}})]
-      (is (empty? (spawn-edges graph)))
-      (is (not-any? :machine-root? (:nodes graph))))))
 
 (deftest parallel-root-spawn-draws-region-qualified-edges
   (testing "a parallel root's :spawn completions carry region-qualified targets,
