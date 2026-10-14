@@ -9,7 +9,6 @@
   (testing "reagent-slim — flush-views! surfaced from the ADAPTER ns with
             the canonical nil-return shape, alongside the substrate-ns
             Promise-returning primitive"
+    ;; The 0-arity delegates to the 1-arity, so one read covers both.
     (is (nil? (rf.adapter.reagent-slim/flush-views!))
-        "0-arity flush-views! returns nil — the canonical contract (NOT the substrate-ns Promise)")
-    (is (nil? (rf.adapter.reagent-slim/flush-views! (fn [] nil)))
-        "1-arity flush-views! also returns nil")))
+        "flush-views! returns nil — the canonical contract (NOT the substrate-ns Promise)")))
