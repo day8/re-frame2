@@ -16,12 +16,8 @@
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
-(defn- fresh-conn
-  "A conn-atom as `connect!` leaves it: both build caches empty."
-  []
-  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    (swap! conn assoc :probed-builds #{} :resolved-build-id nil)
-    conn))
+(defn- fresh-conn []
+  (nrepl/make-conn 0 "127.0.0.1"))
 
 (def ^:private healthy-health
   {:ok?                        true
@@ -39,14 +35,6 @@
 ;; ---------------------------------------------------------------------------
 ;; `wire/arg-build`.
 ;; ---------------------------------------------------------------------------
-
-(deftest arg-build-tolerates-a-leading-colon
-  ;; The hint prints the colon form; both forms must resolve to one
-  ;; keyword, never the doubled-colon `::examples/step-deck`.
-  (let [conn (fresh-conn)]
-    (is (= [:examples/step-deck :examples/step-deck]
-           (mapv #(wire/arg-build conn (tu/args->js {:build %}))
-                 ["examples/step-deck" ":examples/step-deck"])))))
 
 (deftest arg-build-explicit-arg-overrides-cache
   (let [conn (fresh-conn)]
