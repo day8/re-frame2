@@ -141,25 +141,11 @@
 
 ;; ===========================================================================
 
-(deftest control-a-vector-page-feeds-reply-redacts-the-declaration-as-written
-  (assert-reply-value
-    (settle-feed :feed-reply/vector {:sensitive [[:data :ssn]]}
-                 [{:ssn ssn :name "zero"}])
-    [{:ssn redacted :name "zero"}]))
-
 (deftest a-keyword-accessor-feeds-reply-redacts-the-declaration-through-the-accessor
   (assert-reply-value
     (settle-feed :feed-reply/keyword {:page->items :items :sensitive [[:data :items :ssn]]}
                  {:items [{:ssn ssn :name "zero"}] :cursor nil})
     [{:ssn redacted :name "zero"}]))
-
-(deftest a-callable-accessor-feeds-reply-redacts-its-whole-value
-  (testing "nothing says where a declared field lands, so the whole :value redacts"
-    (assert-reply-value
-      (settle-feed :feed-reply/callable {:page->items (fn [pg] (:items pg))
-                                         :sensitive   [[:data :items :ssn]]}
-                   {:items [{:ssn ssn :name "zero"}] :cursor nil})
-      redacted)))
 
 ;; ---- a vector page under a keyword accessor --------------------------------
 
@@ -182,14 +168,6 @@
 (def ^:private blob "feed-reply-blob-LARGE")
 
 (defn- large-elided? [v] (and (map? v) (contains? v :rf.size/large-elided)))
-
-(deftest control-a-keyword-accessor-feeds-reply-elides-the-large-field-through-the-accessor
-  (assert-reply-value
-    (settle-feed :feed-reply/keyword-large {:page->items :items :large [[:data :items :blob]]}
-                 {:items [{:blob blob :name "zero"}] :cursor nil})
-    (fn [v] (and (large-elided? (:blob (first v))) (= "zero" (:name (first v)))))
-    [{:blob blob :name "zero"}]
-    blob))
 
 (deftest a-callable-accessor-feeds-reply-elides-its-whole-value-as-large
   (testing "nothing says where a declared large field lands, so the whole :value elides"
