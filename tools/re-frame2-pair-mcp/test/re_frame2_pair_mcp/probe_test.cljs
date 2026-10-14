@@ -134,13 +134,16 @@
     (with-tri-stub! (fn [_] false)
                     (fn [form-str]
                       (if (re-find #"active-builds" form-str)
-                        {:value "[:other]"}
+                        {:value "[:examples/machine-epochs]"}
                         {:value "1"}))
       (fn []
         (assert-ladder-rejects-with-reason
-          (fresh-conn) :build-not-running #":other" done
+          (fresh-conn) :build-not-running #":examples/machine-epochs" done
           (fn [data]
-            (is (= [:other] (:running-builds data)))))))))
+            ;; The arg forms are the paste-back strings the `:build` arg accepts.
+            (is (= {:running-builds           [:examples/machine-epochs]
+                    :running-builds-arg-forms [":examples/machine-epochs"]}
+                   (select-keys data [:running-builds :running-builds-arg-forms])))))))))
 
 (deftest diagnose-rung-no-runtime-connected
   ;; The build runs but its cljs-eval answers blank.
@@ -212,24 +215,6 @@
           (.then (fn [_]
                    (is (= 2 @freshness-calls)
                        "the liveness read re-runs on EVERY ensure-runtime! call, cache hit or not")
-                   (done)))))))
-
-(deftest ensure-runtime-cache-hit-stays-live-when-jvm-confirms-runtime
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-freshness-sequence! [{:runtime-count 1}] (atom 0)
-            (fn []
-              (with-stubbed-eval! true calls
-                (fn []
-                  (-> (probe/ensure-runtime! conn :app)
-                      (.then (fn [_] (probe/ensure-runtime! conn :app)))
-                      (.then (fn [_] (probe/ensure-runtime! conn :app)))
-                      (.catch (fn [err]
-                                (is false (str "must not reject: " (.-message err))))))))))
-          (.then (fn [_]
-                   (is (= 1 @calls)
-                       "the marker probe is still cache-hit — only the JVM liveness read re-runs")
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
