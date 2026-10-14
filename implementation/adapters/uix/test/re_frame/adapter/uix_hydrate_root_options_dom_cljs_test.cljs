@@ -137,9 +137,8 @@
                       (str "the client's useId equals the server's prefixed one: the prefix reached"
                            " React, and the root's own wrapping moved no tree position. Ids: "
                            (pr-str @probe-ids))))
-                (testing "a clean hydration reports nothing"
-                  (is (empty? @mismatches) (str "no trace for a clean root. Saw: " (pr-str @mismatches)))
-                  (is (empty? @host-calls) "no host call for a clean root"))
+                ;; The two atoms only grow, so the exact readings below also say
+                ;; the clean hydration reported nothing.
                 (testing "after the hydration commit the reporter delegates without emitting"
                   (let [on-recoverable (some-> (fiber-root el) .-onRecoverableError)
                         later          (js/Error. "after the hydration commit")]
