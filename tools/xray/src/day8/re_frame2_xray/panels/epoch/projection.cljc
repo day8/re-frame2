@@ -618,15 +618,15 @@
     ;; machine section renders the no-op notice rather than collapsing to a
     ;; plain reg-event handler.
     (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
-    ;; An EAGER `[:rf.machine/start]` kick is a PURE init:
-    ;; it runs the initial-entry cascade then STOPS,
-    ;; emitting `:rf.machine/started` but NO `:rf.machine/transition` /
-    ;; `:rf.machine/action-ran` (the initial-entry actions are not traced as
-    ;; action-ran) / no-op. So a standalone start would fall
-    ;; through to `:effectful` (the machine handler always rides a
-    ;; do-fx — its snapshot write) and render the raw `:db` diff with NO
-    ;; machine section. Keying on the birth signal makes the
-    ;; cascade render the `[START]` row instead.
+    ;; An EAGER `[:rf.machine/start]` kick runs the initial-entry
+    ;; cascade then STOPS: it emits `:rf.machine/started` and one
+    ;; `:rf.machine/action-ran` per initial-entry action, but no
+    ;; `:rf.machine/transition` and no no-op. A start whose initial path
+    ;; declares no entry action would therefore fall through to
+    ;; `:effectful` (the machine handler always rides a do-fx — its
+    ;; snapshot write) and render the raw `:db` diff with NO machine
+    ;; section. Keying on the birth signal makes the cascade render the
+    ;; `[START]` row instead.
     (some #(= :rf.machine/started (op %)) events)    :reg-machine
     (some #(= :rf.fx/do-fx (op %)) events)           :effectful
     :else                                            :db-only))
@@ -1043,9 +1043,11 @@
   in BOTH creation paths:
 
     - EAGER (`:cause :explicit`) — an explicit `[:machine-id
-      [:rf.machine/start]]` dispatch got its own epoch; the start is a PURE
-      init-kick (no transition / action rows ride alongside), so `[START]`
-      is the cascade's sole row.
+      [:rf.machine/start]]` dispatch got its own epoch; the start runs the
+      initial-entry cascade and stops, so `[START]` leads only the
+      `:initial-entry` action rows of the entry actions on the initial
+      path (no transition or no-op), and is the sole row when there are
+      none.
     - LAZY (`:cause :lazy`) — the machine was first reached by a REAL event;
       init folded into THAT event's epoch, so `[START]` leads the real
       event's guards / transition / action rows. The `:lazy` cause flags an
