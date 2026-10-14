@@ -3223,164 +3223,125 @@ def _self_test() -> int:
     # halves are asserted, so weakening `_clause_is_negated` to a line test
     # reds here even if SETUP-2 were ever softened.
     _stale_match = M0_STOP_AND_WAIT_RE.search(LEAF_STALE)
-    if _stale_match is None:
+    _stale_prefix = _EMPHASIS_RE.sub("", LEAF_STALE[: _stale_match.start()])
+    if not SKILL_NEGATION_CUE_RE.search(_stale_prefix):
         print(
-            "SELF-TEST FAIL (SETUP-3): the stale fixture does not match the "
-            "Rule-6 stop-and-wait shapes, so it can prove nothing about the "
-            "skill-leaf lock."
+            "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture does not "
+            "carry a negation cue EARLIER ON ITS LINE, so it cannot "
+            "prove that clause scoping - not a line-wide test - is "
+            "what catches the stale defer paragraph."
         )
         failures += 1
-    else:
-        _stale_prefix = _EMPHASIS_RE.sub("", LEAF_STALE[: _stale_match.start()])
-        if not SKILL_NEGATION_CUE_RE.search(_stale_prefix):
-            print(
-                "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture does not "
-                "carry a negation cue EARLIER ON ITS LINE, so it cannot "
-                "prove that clause scoping - not a line-wide test - is "
-                "what catches the stale defer paragraph."
-            )
-            failures += 1
-        if _clause_is_negated(LEAF_STALE, _stale_match.start()):
-            print(
-                "SELF-TEST FAIL (SETUP-3 clause): the clause test reads the "
-                "stale defer sentence as negated. The cue must be required "
-                "in the match's OWN clause; a wider window lets the defect "
-                "land again."
-            )
-            failures += 1
+    if _clause_is_negated(LEAF_STALE, _stale_match.start()):
+        print(
+            "SELF-TEST FAIL (SETUP-3 clause): the clause test reads the "
+            "stale defer sentence as negated. The cue must be required "
+            "in the match's OWN clause; a wider window lets the defect "
+            "land again."
+        )
+        failures += 1
 
     # SETUP-4 - live tooth against the SHIPPED leaf, not a fixture that could
     # drift away from it: setup.md must scan clean today, and re-growing the
     # stale paragraph in it must red.
     _live_leaf = SKILL_DIR / "references" / "setup.md"
-    if not _live_leaf.is_file():
-        print(f"SELF-TEST FAIL (SETUP-4): {_live_leaf.name} missing.")
+    _live_text = _slurp(_live_leaf)
+    if _skill_leaf_route_problems(_live_text):
+        print(
+            "SELF-TEST FAIL (SETUP-4 live): the shipped setup.md already "
+            "trips Rule 6b, so the mutation tooth cannot prove the guard "
+            "has bite. Fix the leaf (or the rule) first."
+        )
+        failures += 1
+    elif not _skill_leaf_route_problems(_live_text + "\n\n" + LEAF_STALE):
+        print(
+            "SELF-TEST FAIL (SETUP-4 undetected): re-growing the stale "
+            "per-feature defer paragraph in the shipped setup.md did not "
+            "trip Rule 6b - the stale defer paragraph could land again."
+        )
+        failures += 1
+    # SETUP-4b - the same live mutation, hard-wrapped inside the banned
+    # phrase. The scan unit is a NORMALISED PARAGRAPH, so a Markdown wrap
+    # cannot disarm the lock, and the reported line must be the physical
+    # line the phrase STARTS on, which makes the finding actionable.
+    _wrapped_stale = LEAF_STALE.replace(
+        "leave the dep alone", "leave the dep\nalone")
+    _wrapped_problems = _skill_leaf_route_problems(
+        _live_text + "\n\n" + _wrapped_stale)
+    if not _wrapped_problems:
+        print(
+            "SELF-TEST FAIL (SETUP-4b undetected): the stale paragraph "
+            "re-grown in setup.md with an ordinary Markdown wrap inside "
+            "`leave the dep alone` did not trip Rule 6b. The lock is "
+            "failing open on reflow."
+        )
         failures += 1
     else:
-        _live_text = _slurp(_live_leaf)
-        if _skill_leaf_route_problems(_live_text):
+        _expected_line = (
+            len((_live_text + "\n\n" + _wrapped_stale).splitlines())
+            - _wrapped_stale.count("\n"))
+        if _wrapped_problems[0][0] != _expected_line:
             print(
-                "SELF-TEST FAIL (SETUP-4 live): the shipped setup.md already "
-                "trips Rule 6b, so the mutation tooth cannot prove the guard "
-                "has bite. Fix the leaf (or the rule) first."
+                "SELF-TEST FAIL (SETUP-4b lineno): the wrapped finding "
+                f"reported line {_wrapped_problems[0][0]}, expected "
+                f"{_expected_line} - the paragraph scan must map "
+                "a match back to the physical line it starts on."
             )
             failures += 1
-        elif not _skill_leaf_route_problems(_live_text + "\n\n" + LEAF_STALE):
-            print(
-                "SELF-TEST FAIL (SETUP-4 undetected): re-growing the stale "
-                "per-feature defer paragraph in the shipped setup.md did not "
-                "trip Rule 6b - the stale defer paragraph could land again."
-            )
-            failures += 1
-        # SETUP-4b - the same live mutation, hard-wrapped inside the banned
-        # phrase. The scan unit is a NORMALISED PARAGRAPH, so a Markdown wrap
-        # cannot disarm the lock, and the reported line must be the physical
-        # line the phrase STARTS on, which makes the finding actionable.
-        _wrapped_stale = LEAF_STALE.replace(
-            "leave the dep alone", "leave the dep\nalone")
-        if _wrapped_stale == LEAF_STALE:
-            print(
-                "SELF-TEST FAIL (SETUP-4b anchor): the stale fixture does not "
-                "carry the exact `leave the dep alone` phrase, so the "
-                "hard-wrap mutation is a no-op - re-point it in the same change."
-            )
-            failures += 1
-        else:
-            _wrapped_problems = _skill_leaf_route_problems(
-                _live_text + "\n\n" + _wrapped_stale)
-            if not _wrapped_problems:
-                print(
-                    "SELF-TEST FAIL (SETUP-4b undetected): the stale paragraph "
-                    "re-grown in setup.md with an ordinary Markdown wrap inside "
-                    "`leave the dep alone` did not trip Rule 6b. The lock is "
-                    "failing open on reflow."
-                )
-                failures += 1
-            else:
-                _expected_line = (
-                    len((_live_text + "\n\n" + _wrapped_stale).splitlines())
-                    - _wrapped_stale.count("\n"))
-                if _wrapped_problems[0][0] != _expected_line:
-                    print(
-                        "SELF-TEST FAIL (SETUP-4b lineno): the wrapped finding "
-                        f"reported line {_wrapped_problems[0][0]}, expected "
-                        f"{_expected_line} - the paragraph scan must map "
-                        "a match back to the physical line it starts on."
-                    )
-                    failures += 1
 
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
     # mutation that drops the A→B sentence from either owner must be caught — so a
     # careless re-author of the real docs cannot make this guard go vacuous.
-    if not FORM3_MD.is_file():
-        print(f"SELF-TEST FAIL (form3 live): {FORM3_MD.name} missing.")
+    f3_live = _slurp(FORM3_MD)
+    g_live = _slurp(GUIDED_VIEWS_M11_MD)
+    f3_broken = FORM3_RETARGET_RE.sub("under one steady frame", f3_live)
+    if not _form3_capture_once_problems(f3_broken, g_live):
+        print(
+            "SELF-TEST FAIL (form3 owner mutation): dropping the provider A→B "
+            "retarget sentence from FORM-3.md did not trip the guard — it is "
+            "blind to the shape the adopter owner actually ships."
+        )
         failures += 1
-    elif not GUIDED_VIEWS_M11_MD.is_file():
-        print(f"SELF-TEST FAIL (form3 live): {GUIDED_VIEWS_M11_MD.name} missing.")
+    g_broken = FORM3_RETARGET_RE.sub("under one steady frame", g_live)
+    if not _form3_capture_once_problems(f3_live, g_broken):
+        print(
+            "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
+            "A→B retarget sentence from guided-views-m11.md did not trip "
+            "the cross-owner drift leg."
+        )
         failures += 1
-    else:
-        f3_live = _slurp(FORM3_MD)
-        g_live = _slurp(GUIDED_VIEWS_M11_MD)
-        f3_broken = FORM3_RETARGET_RE.sub("under one steady frame", f3_live)
-        if not _form3_capture_once_problems(f3_broken, g_live):
-            print(
-                "SELF-TEST FAIL (form3 owner mutation): dropping the provider A→B "
-                "retarget sentence from FORM-3.md did not trip the guard — it is "
-                "blind to the shape the adopter owner actually ships."
-            )
-            failures += 1
-        g_broken = FORM3_RETARGET_RE.sub("under one steady frame", g_live)
-        if not _form3_capture_once_problems(f3_live, g_broken):
-            print(
-                "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
-                "A→B retarget sentence from guided-views-m11.md did not trip "
-                "the cross-owner drift leg."
-            )
-            failures += 1
 
-        # Mutate each live owner to the WRONG POLARITY while keeping ALL of the
-        # A/B / remount / pointer vocabulary intact — a splice adjacent to a
-        # real capture-once token, so it lands inside a capture-once paragraph
-        # regardless of the doc's exact wording. A vocabulary-presence-only
-        # guard would be blind to this; the polarity teeth must catch it. This
-        # proves the guard has semantic teeth, not just a token census.
-        def _splice_reversal(t: str) -> str:
-            return FORM3_CAPTURE_ONCE_RE.sub(
-                lambda m: m.group(0)
-                + " automatically re-resolves and never goes stale;",
-                t,
-                count=1,
-            )
+    # Mutate each live owner to the WRONG POLARITY while keeping ALL of the
+    # A/B / remount / pointer vocabulary intact — a splice adjacent to a
+    # real capture-once token, so it lands inside a capture-once paragraph
+    # regardless of the doc's exact wording. A vocabulary-presence-only
+    # guard would be blind to this; the polarity teeth must catch it. This
+    # proves the guard has semantic teeth, not just a token census.
+    def _splice_reversal(t: str) -> str:
+        return FORM3_CAPTURE_ONCE_RE.sub(
+            lambda m: m.group(0)
+            + " automatically re-resolves and never goes stale;",
+            t,
+            count=1,
+        )
 
-        f3_reversed = _splice_reversal(f3_live)
-        if f3_reversed == f3_live:
-            print(
-                "SELF-TEST FAIL (form3 owner reversal setup): no capture-once "
-                "anchor in FORM-3.md to splice a polarity reversal onto."
-            )
-            failures += 1
-        elif not _form3_capture_once_problems(f3_reversed, g_live):
-            print(
-                "SELF-TEST FAIL (form3 owner reversal): a capture-once auto-adapt "
-                "reversal spliced into FORM-3.md (A/B/remount/pointer intact) "
-                "passed the guard — the polarity teeth are blunt."
-            )
-            failures += 1
+    f3_reversed = _splice_reversal(f3_live)
+    if not _form3_capture_once_problems(f3_reversed, g_live):
+        print(
+            "SELF-TEST FAIL (form3 owner reversal): a capture-once auto-adapt "
+            "reversal spliced into FORM-3.md (A/B/remount/pointer intact) "
+            "passed the guard — the polarity teeth are blunt."
+        )
+        failures += 1
 
-        g_reversed = _splice_reversal(g_live)
-        if g_reversed == g_live:
-            print(
-                "SELF-TEST FAIL (canonical reversal setup): no capture-once anchor "
-                "in guided-views-m11.md to splice a polarity reversal onto."
-            )
-            failures += 1
-        elif not _form3_capture_once_problems(f3_live, g_reversed):
-            print(
-                "SELF-TEST FAIL (canonical reversal): a capture-once auto-adapt "
-                "reversal spliced into guided-views-m11.md (A/B/remount/"
-                "pointer intact) passed the cross-owner leg."
-            )
-            failures += 1
+    g_reversed = _splice_reversal(g_live)
+    if not _form3_capture_once_problems(f3_live, g_reversed):
+        print(
+            "SELF-TEST FAIL (canonical reversal): a capture-once auto-adapt "
+            "reversal spliced into guided-views-m11.md (A/B/remount/"
+            "pointer intact) passed the cross-owner leg."
+        )
+        failures += 1
 
     # --- Rule 7 — a stale four-member listener-stream shape, hard-wrapped
     # inside the anchor: the scan unit is the normalised paragraph, so an
