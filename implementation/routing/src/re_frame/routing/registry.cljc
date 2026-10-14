@@ -17,7 +17,9 @@
   MATCH/EMIT seam."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
             [re-frame.identity :as rf.identity]
+            [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing.address :as rf.routing.address]
@@ -68,16 +70,20 @@
   ;; out-of-band mutation invalidates without an explicit hook.
   (atom nil))
 
+(defn- rank-sorted
+  "`pairs` as a vector sorted descending by `:rf.route/rank`."
+  [pairs]
+  (->> pairs
+       (sort-by (fn [[_id route-meta]]
+                  (or (:rf.route/rank route-meta) [0 0 0 0 0 0]))
+                #(compare %2 %1))
+       vec))
+
 (defn- rebuild-route-table-cache!
-  "Read the current `:route` kind from the registrar, sort descending by
-  rank, and replace the cache. Returns the new pairs vector."
-  []
-  (let [source (rf.registrar/registrations :route)
-        pairs  (->> source
-                    (sort-by (fn [[_id route-meta]]
-                               (or (:rf.route/rank route-meta) [0 0 0 0 0 0]))
-                             #(compare %2 %1))
-                    vec)]
+  "Sort `source` — the registrar's `:route` map — descending by rank, and
+  replace the cache. Returns the new pairs vector."
+  [source]
+  (let [pairs (rank-sorted source)]
     (reset! route-table-cache {:source-id source :pairs pairs})
     pairs))
 
@@ -87,13 +93,26 @@
   registrar query API — `registrations` returns a snapshot map, so identity
   equality is a safe invalidation signal — register! / clear-kind! /
   clear-all! all swap the underlying ref, so the snapshot identity
-  changes on every mutation)."
+  changes on every mutation).
+
+  A frame made without `:images` leaves a route id registered from more than
+  one namespace out of `registrations`. Its table keeps every registration of
+  such an id, each pair carrying a third element, `::ambiguous`, so that a URL
+  it would match raises in `match-url` rather than falling through to a
+  lower-ranked route. That table is built per call and not cached: the frame's
+  view of the store is per cascade anyway."
   []
-  (let [cache  @route-table-cache
-        source (rf.registrar/registrations :route)]
-    (if (and cache (identical? source (:source-id cache)))
-      (:pairs cache)
-      (rebuild-route-table-cache!))))
+  (let [ambiguous (rf.registrar/ambiguous-registrations :route)]
+    (if (seq ambiguous)
+      (rank-sorted (concat (rf.registrar/registrations :route)
+                           (for [[id ns->desc] ambiguous
+                                 descriptor    (vals ns->desc)]
+                             [id descriptor ::ambiguous])))
+      (let [cache  @route-table-cache
+            source (rf.registrar/registrations :route)]
+        (if (and cache (identical? source (:source-id cache)))
+          (:pairs cache)
+          (rebuild-route-table-cache! source))))))
 
 ;; ---- url encoding / decoding facade --------------------------------------
 ;; The public predicate `malformed-url?` is re-exported here so the
@@ -1326,10 +1345,15 @@
         ;; `reduce` with `reduced` short-circuits on the first hit. nil ⇒
         ;; no route matched OR malformed query fails closed.
         (reduce
-          (fn [_ [id route-meta]]
+          (fn [_ [id route-meta ambiguous?]]
             (when-let [compiled (or (:rf.route/compiled route-meta)
                                     (some-> (:path route-meta) rf.routing.match/parse-pattern))]
               (when-let [raw-params (rf.routing.match/match-against compiled path)]
+                ;; The winning route is one more than one namespace registers
+                ;; (see `route-table`): resolving it raises
+                ;; `:rf.error/ambiguous-registration`, naming them and the remedy.
+                (when ambiguous?
+                  (rf.registrar/lookup :route id))
                 (let [;; Coerce PATH captures against the
                       ;; route's `:params` schema (precompiled to
                       ;; `:rf.route/params-coerce`) BEFORE validation —
@@ -1412,6 +1436,30 @@
           nil
           (route-table))))))
 
+(defn- report-ambiguous-route!
+  "Report `ex` — the `:rf.error/ambiguous-registration` a URL raised by
+  matching a route more than one namespace registers — on both error axes,
+  attributed to the frame whose event is navigating. The always-on record
+  follows the event and `:fx` ambiguity records (`:registration`,
+  `:namespaces`, `:reason`), because the cause is production-reachable (a
+  late-loaded module duplicating a route id) and nothing else would say why
+  the URL went to not-found. Returns nil."
+  [ex]
+  (let [{:keys [registration namespaces reason]} (ex-data ex)
+        tags {:frame        (rf.frame/current-event-owner-frame-id)
+              :registration registration
+              :namespaces   namespaces
+              :reason       reason}]
+    (when-let [dispatch-error-record!
+               (rf.late-bind/get-fn-cached :error-emit/dispatch-error-record)]
+      (dispatch-error-record!
+        (assoc tags
+               :error :rf.error/ambiguous-registration
+               :time  (rf.interop/now-ms))))
+    (rf.trace/emit-error! :rf.error/ambiguous-registration
+                          (assoc tags :recovery :clear-the-id-and-re-evaluate-its-owner))
+    nil))
+
 (defn match-url-fail-closed
   "Fail-closed wrapper over `match-url`, reached by every URL-bearing
   navigation door through the ONE URL -> ResolvedTarget extraction
@@ -1434,13 +1482,20 @@
 
    - `:match-error`    — any unexpected throw out of match-url.
 
+  A URL matching a route more than one namespace registers, on a frame made
+  without `:images`, throws `:rf.error/ambiguous-registration` (see
+  `route-table`). That throw fails closed like any other, and is reported
+  first ([[report-ambiguous-route!]]), so the navigation names its cause.
+
   Note: malformed %-encoding does NOT throw — `match-url` already fails
   it closed to nil (`malformed-url?` then discriminates `:reason
   :malformed-url`). This wrapper is strictly for the THROW path."
   [url]
   (try
     {:match (match-url url) :throw-reason nil}
-    (catch #?(:clj Throwable :cljs :default) _ex
+    (catch #?(:clj Throwable :cljs :default) ex
+      (when (rf.registrar/ambiguous-registration? ex)
+        (report-ambiguous-route! ex))
       {:match        nil
        :throw-reason :match-error})))
 
