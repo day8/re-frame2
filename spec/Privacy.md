@@ -366,7 +366,7 @@ Per [API.md §Configure keys](API.md) and [015](015-Data-Classification.md):
 | `(rf/configure! {<key> {...}})` | Privacy-relevant opt | Default | Purpose |
 |---|---|---|---|
 | `:elision` | `:rf.egress/threshold-bytes N` | `16384` | Wire-elision size threshold — advisory, **not** a cap. An over-threshold value at an undeclared path fires `:rf.warning/large-value-unschema'd` but ships unchanged; only declared / schema-marked entries elide. Non-negative integer; 0 disables the auto-detect warning. |
-| `:epoch-history` | `:depth N` / `:trace-events-keep N` | depth `50`, trace-events-keep `nil` | Bounds the ring (doesn't redact; bounds the surface). |
+| `:epoch-history` | `:depth N` / `:trace-events-keep N` | depth `50`, trace-events-keep `50` | Bounds the ring (doesn't redact; bounds the surface). |
 
 ---
 
