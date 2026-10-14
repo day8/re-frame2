@@ -1,8 +1,8 @@
 (ns re-frame2-pair-mcp.cursor-pagination-test
   "The pair's cursor adapter (`tools/cursor.cljs`) over the shared
-  `re-frame.mcp-base.cursor` codec: the `:limit` default and clamp, the
-  cursor payload shape, the sticky `:pred` a watch-epochs cursor carries,
-  and the handler's rejection of a noncanonical cursor."
+  `re-frame.mcp-base.cursor` codec: the `:limit` bounds, the cursor payload
+  shape, the sticky `:pred` a watch-epochs cursor carries, and the
+  handler's rejection of a noncanonical cursor."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -12,29 +12,11 @@
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 (deftest parse-limit-arg-resolution
+  ;; The pair's two bounds; coercion and clamping are mcp-base's.
   (doseq [[input expected note]
           [[nil cursor/default-limit "absent ⇒ the default"]
-           [1 1 "the smallest positive integer passes through"]
-           [0 1 "zero clamps to one"]
-           [1000 1000 "the ceiling passes through"]
-           ["25" 25 "a numeric string parses"]
-           ["bogus" cursor/default-limit "a non-numeric string falls back to the default"]]]
+           [1000 1000 "the ceiling passes through"]]]
     (is (= expected (cursor/parse-limit-arg input)) note)))
-
-(deftest encode-cursor-nil-when-no-after-id
-  (is (nil? (cursor/encode-cursor {:v 1 :after-id nil}))))
-
-(deftest cursor-round-trips-every-after-id-shape
-  ;; The reference epoch runtime emits INTEGER epoch-ids, and the
-  ;; payload check is `some?`, not `string?` or truthiness — integer 0
-  ;; included. Equality also proves an integer id is not coerced.
-  (doseq [payload [{:v 1 :after-id 0}
-                   {:v 1 :after-id :ev/login :ms nil :until-ms nil :frame nil}]]
-    (is (= payload (cursor/decode-cursor (cursor/encode-cursor payload)))
-        (str "after-id " (pr-str (:after-id payload)) " round-trips losslessly"))))
-
-(deftest decode-cursor-blank-is-absent
-  (is (nil? (cursor/decode-cursor ""))))
 
 (deftest decode-cursor-malformed-on-missing-after-id
   (let [bogus (.toString (js/Buffer.from "{:v 1}" "utf8") "base64")]
