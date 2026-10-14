@@ -58,7 +58,6 @@
       {:params   [:map [:slug :string]]
        :on-match [[:app/load-article]]}
       "/articles/:slug")
-    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
     ;; `:app/fetch-article` stands in for the app's async effect: it records each
     ;; reply event so the test can deliver A's reply LATE, after B's navigation.
