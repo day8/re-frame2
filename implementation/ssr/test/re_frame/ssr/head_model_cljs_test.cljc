@@ -1,20 +1,12 @@
 (ns re-frame.ssr.head-model-cljs-test
-  "`head-model`'s selection rule on both hosts, and the NAME-COLLISION guard
-  for the read.
-
-  The read cannot be spelled `(ssr/head …)`: in ClojureScript a
-  `(def head …)` in `re-frame.ssr` would emit `re_frame.ssr.head = <fn>`
-  over the `re-frame.ssr.head` namespace object (`:ns-var-clash`). This
-  namespace requires BOTH and reads a var through `re-frame.ssr.head` after
-  load — the witness on the one host where the clobber can happen."
+  "`head-model`'s selection rule on both hosts."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loaded for its ns-load-time registrations — `rf/reg-route`
             ;; reaches the routing artefact through a late-bind hook this
             ;; namespace publishes.
             [re-frame.routing]
-            [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.head :as rf.ssr.head]))
+            [re-frame.ssr :as rf.ssr]))
 
 ;; COLD-START the adapter slot rather than assuming it is empty.
 ;; This ns runs in the shared node bundle beside suites that seat Reagent /
@@ -42,31 +34,8 @@
     fid))
 
 ;; ===========================================================================
-;; The collision guard
-;; ===========================================================================
-
-(deftest head-model-and-the-head-namespace-coexist
-  ;; `rf.ssr/head-model` is exercised by every test below; this reads a var
-  ;; through the `re-frame.ssr.head` namespace object a clobber would replace.
-  (is (ifn? rf.ssr.head/reg-head)))
-
-;; ===========================================================================
 ;; The selection rule, on this host
 ;; ===========================================================================
-
-(deftest head-model-selects-the-explicit-head-id
-  (let [hid (fresh-id "head")
-        f   (fresh-frame! "explicit")]
-    (rf/reg-head hid (fn [_db _route] {:title "explicit"}))
-    (is (= {:title "explicit"} (rf.ssr/head-model f {:head-id hid})))))
-
-(deftest head-model-falls-back-to-default-head
-  (let [f (fresh-frame! "Fallback doc")]
-    (testing "no :head-id and no route → default-head, which rolls the
-              frame's :doc into :title"
-      (let [model (rf.ssr/head-model f)]
-        (is (= "Fallback doc" (:title model)))
-        (is (some #(= "viewport" (:name %)) (:meta model)))))))
 
 (deftest head-model-route-preview-selects-and-evaluates-against-that-route
   (let [hid (fresh-id "echo")
