@@ -27,28 +27,19 @@
         "the spawned child's initial :entry fired exactly once, during the spawn")))
 
 (deftest initial-entry-throw-halts-bootstrap-atomically
+  ;; The outer :entry's :data write has already run when the inner :entry throws.
   (rf/reg-machine :rf2-dd3b/throws
-    {:initial :a
-     :actions {:throws (fn [_] (throw (ex-info "boom in :entry" {})))}
-     :states  {:a {:entry :throws}}})
-  (rf/dispatch-sync [:rf2-dd3b/throws [:noop]])
-  (is (nil? (rf.machines.test-support/snapshot :rf2-dd3b/throws))
-      "the bootstrap snapshot is not committed")
-  (is (= [[:error :no-recovery :rf2-dd3b/throws [:rf.machine/start] true]]
-         (mapv (fn [{:keys [op-type recovery tags]}]
-                 [op-type recovery (:actor-id tags) (:event tags) (some? (:exception tags))])
-               (rf.machines.test-support/events-of :rf.error/machine-action-exception)))
-      "exactly one error, naming the actor and its synthetic creation marker"))
-
-(deftest initial-entry-throw-in-compound-cascade
-  (rf/reg-machine :rf2-dd3b/compound
     {:initial :outer
      :actions {:outer-ok  (fn [{data :data}] {:data (assoc data :outer-ran? true)})
                :inner-bad (fn [_] (throw (ex-info "inner boom" {})))}
      :states  {:outer {:entry   :outer-ok
                        :initial :inner
                        :states  {:inner {:entry :inner-bad}}}}})
-  (rf/dispatch-sync [:rf2-dd3b/compound [:noop]])
-  (is (nil? (rf.machines.test-support/snapshot :rf2-dd3b/compound))
-      "the outer :entry's :data write does not commit when the inner :entry throws")
-  (is (seq (rf.machines.test-support/events-of :rf.error/machine-action-exception))))
+  (rf/dispatch-sync [:rf2-dd3b/throws [:noop]])
+  (is (nil? (rf.machines.test-support/snapshot :rf2-dd3b/throws))
+      "the bootstrap snapshot, outer :entry write included, is not committed")
+  (is (= [[:error :no-recovery :rf2-dd3b/throws [:rf.machine/start] true]]
+         (mapv (fn [{:keys [op-type recovery tags]}]
+                 [op-type recovery (:actor-id tags) (:event tags) (some? (:exception tags))])
+               (rf.machines.test-support/events-of :rf.error/machine-action-exception)))
+      "exactly one error, naming the actor and its synthetic creation marker"))
