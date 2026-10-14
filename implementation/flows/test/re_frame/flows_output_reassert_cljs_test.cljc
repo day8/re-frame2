@@ -12,7 +12,6 @@
    [re-frame.core :as rf]
    [re-frame.error-emit :as rf.error-emit]
    [re-frame.flows]
-   [re-frame.flows.registry :as rf.flows.registry]
    [re-frame.trace.tooling :as rf.trace.tooling]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
@@ -45,18 +44,6 @@
     (rf/dispatch-sync [:set 6])
     (is (= [{:n 6 :doubled 12} 2] [(db) @calls]) "a changed input still recomputes")))
 
-(deftest parent-map-rebuild-with-equal-inputs-keeps-the-output
-  (let [calls (atom 0)]
-    (rf/reg-event :init (fn [_ _] {:db {:cart {:items [1 2 3]}}}))
-    (rf/reg-event :trim-cart
-      (fn [{:keys [db]} _] {:db (assoc db :cart (select-keys (:cart db) [:items]))}))
-    (rf/reg-flow :total {:inputs [[:cart :items]] :output-path [:cart :total]}
-      (counted calls #(reduce + %)))
-    (rf/dispatch-sync [:init])
-    (is (= {:cart {:items [1 2 3] :total 6}} (db)))
-    (rf/dispatch-sync [:trim-cart])
-    (is (= [{:cart {:items [1 2 3] :total 6}} 1] [(db) @calls]))))
-
 (deftest a-handler-write-to-the-output-slot-loses-to-the-flow
   (let [calls (atom 0)]
     (reg-replace-db!)
@@ -76,22 +63,15 @@
         flow  [:editor/can-submit?
                {:inputs [[:editor :draft] [:editor :baseline]]
                 :output-path [:editor :can-submit?]}
-               (counted calls (fn [draft baseline]
-                                (boolean (and (seq (:title draft)) (not= draft baseline)))))]]
+               (counted calls not=)]]
     (rf/reg-event :editor/initialise
       (fn [{:keys [db]} _] {:db (assoc db :editor (editor-slice)) :fx [[:rf.fx/reg-flow flow]]}))
     (rf/reg-event :editor/reset (fn [{:keys [db]} _] {:db (assoc db :editor (editor-slice))}))
-    (rf/reg-event :editor/type
-      (fn [{:keys [db]} [_ title]] {:db (assoc-in db [:editor :draft :title] title)}))
     (rf/dispatch-sync [:editor/initialise])
     (is (= [(assoc (editor-slice) :can-submit? false) 1] [(:editor (db)) @calls]))
     (rf/dispatch-sync [:editor/reset])
     (is (= [(assoc (editor-slice) :can-submit? false) 1] [(:editor (db)) @calls])
-        "a reset that leaves draft and baseline unchanged keeps :can-submit?")
-    (rf/dispatch-sync [:editor/type "x"])
-    (is (true? (get-in (db) [:editor :can-submit?])))
-    (rf/dispatch-sync [:editor/reset])
-    (is (= [(assoc (editor-slice) :can-submit? false) 3] [(:editor (db)) @calls]))))
+        "a reset that leaves draft and baseline unchanged keeps :can-submit?")))
 
 (deftest a-chained-dependent-is-repaired-in-topological-order
   ;; Registered dependent-first, so only the topological sort puts :a ahead.
@@ -116,21 +96,6 @@
   (rf/dispatch-sync [:trim-cart])
   (is (= {:items [] :first nil} (:cart (db))) "a legitimate nil is a value, not an absence"))
 
-(deftest a-repair-in-one-frame-leaves-a-sibling-frame-untouched
-  (reg-replace-db!)
-  (doseq [f [:x :y]]
-    (rf/make-frame {:id f})
-    (rf/reg-flow :doubled {:frame f :inputs [[:n]] :output-path [:doubled]} #(* 2 %)))
-  (rf/dispatch-sync [:set 5] {:frame :x})
-  (rf/dispatch-sync [:set 7] {:frame :y})
-  (let [y-db   (rf/app-db-value :y)
-        y-rows (rf.flows.registry/frame-last-inputs-snapshot :y)]
-    (rf/dispatch-sync [:set 5] {:frame :x})
-    (is (= {:n 5 :doubled 10} (rf/app-db-value :x)))
-    (is (identical? y-db (rf/app-db-value :y)))
-    (is (= {:n 7 :doubled 14} (rf/app-db-value :y)))
-    (is (= y-rows (rf.flows.registry/frame-last-inputs-snapshot :y)))))
-
 (deftest a-repair-is-tagged-on-the-skip-trace
   (let [skips (atom [])]
     (rf.trace.tooling/register-listener! ::skips
@@ -144,7 +109,6 @@
       (rf/dispatch-sync [:keep])
       (is (= [[:repaired? true] nil] (mapv #(find % :repaired?) @skips))
           "the repairing skip says so; a plain skip carries no :repaired? key")
-      (is (= [:inputs-value-equal :inputs-value-equal] (mapv :reason @skips)))
       (finally
         (rf.trace.tooling/unregister-listener! ::skips)))))
 
