@@ -457,7 +457,7 @@ A requirement means **ensure + deliver**; the full satisfaction algorithm (prese
 
 ### `inject-cofx` is removed
 
-`inject-cofx` (and `inject-cofx*`) is **removed**, with **no alias and no coexistence window**. `:rf.cofx/requires` is the one declaration surface; the registration's grade decides replay semantics; delivery is context assembly, not a chain member ([002 §Coeffects are context assembly](002-Frames.md#declaration-and-delivery--rfcofxrequires)). Calling `inject-cofx` is a **hard error** `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires` as the replacement (it fires in production too — a correctness contract, not a dev diagnostic).
+`inject-cofx` (and `inject-cofx*`) is **removed**, with **no alias and no coexistence window**. `:rf.cofx/requires` is the one declaration surface; the registration's grade decides replay semantics; delivery is context assembly, not a chain member ([002 §Coeffects are context assembly](002-Frames.md#declaration-and-delivery--rfcofxrequires)). Neither name is on the public facade, so `rf/inject-cofx` does not resolve; the one var kept is `re-frame.cofx/inject-cofx`, and calling it is a **hard error** `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires` as the replacement (it fires in production too — a correctness contract, not a dev diagnostic).
 
 ### Collisions
 
