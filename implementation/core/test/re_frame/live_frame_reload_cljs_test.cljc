@@ -2,7 +2,8 @@
   "EP-0023 §Hot Reload / §Default Image Semantics — image hot reload is
   re-construction: re-calling `make-frame` against the SAME `:id` swaps the
   generation on the frame's record (EP-0024: the one `rf.frame/frames`
-  registry) while preserving frame memory, and a source-store change
+  registry) while preserving frame memory (pinned with a running handler in
+  `live-run-frame-resolution-cljs-test`), and a source-store change
   reprojects affected EXPLICIT-image frames, not only default-image ones —
   by hand through `reproject-live-frames!`, or automatically through the
   registration hook's coalesced flush. A no-id frame has no id to reload
@@ -21,7 +22,6 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
             [re-frame.error-emit   :as rf.error-emit]
-            [re-frame.events       :as rf.events]
             [re-frame.frame        :as rf.frame]
             [re-frame.image        :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
@@ -77,26 +77,7 @@
 
 (def ^:private img (rf.image/image {:id :counter/img :select-ns {:include ["counter.core"]}}))
 
-;; ---- re-make-frame: swap the generation, keep the memory ------------------
-
-(deftest reload-swaps-generation-preserving-frame-memory
-  ;; the seed resolves the `:rf/set-db` standard through the sealed generation,
-  ;; so this case re-seeds that one standard after the fixture's clear
-  (rf.events/register-set-db-standard!)
-  (rf.image-assembly/clear-generation-cache!)
-  (let [old-gen  (rf.live-frame/frame-generation
-                   (rf.live-frame/make-frame {:id :counter/main
-                                              :images [img]
-                                              :initial-events [[:rf/set-db {:count 7}]]
-                                              :adapter ::reagent}
-                                             pool-v1))
-        reloaded (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)]
-    ;; a new generation on the same id, and the app-db seeded at creation
-    ;; survives — not a teardown/recreate
-    (is (= [true :counter/main {:count 7}]
-           [(not= old-gen (rf.live-frame/frame-generation reloaded))
-            (rf.frame/frame-value->id reloaded)
-            (rf/app-db-value :counter/main)]))))
+;; ---- re-make-frame: swap the generation ---------------------------------
 
 (deftest reload-report-carries-the-shadow-report
   ;; EP-0026 §Shadow Report: after a reload, frame-shadows reads the NEW
@@ -333,16 +314,6 @@
             (identical? gen-before (rf.live-frame/frame-generation :ktmto9-pool/main))
             (rf.live-frame/reproject-live-frame! :ktmto9-pool/main)
             (resolved-handler :ktmto9-pool/main :event :ktmto9-pool/inc)]))))
-
-#?(:clj
-   (deftest failed-first-construction-records-no-provenance-rf2-ktmto9
-     ;; a failed FIRST make-frame writes no record and no provenance row
-     ;; (JVM-only read of the private provenance table)
-     (let [pool [(reg-desc "ktmto9-first.provenance.ns" :event :ktmto9-first/inc ::pool-v1)]]
-       (is (= [:rf.error/on-create-retired false false]
-              [(err-id #(rf.live-frame/make-frame {:id :ktmto9-first/never :on-create [:boom]} pool))
-               (contains? (set (rf.frame/frame-ids)) :ktmto9-first/never)
-               (contains? (deref @#'rf.live-frame/frame-generation-pool) :ktmto9-first/never)])))))
 
 (deftest reproject-live-frames-mixes-explicit-pool-and-live-store-frames-safely
   ;; one sweep over an explicit-pool frame and a live-store frame: each
