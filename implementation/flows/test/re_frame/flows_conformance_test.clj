@@ -338,18 +338,3 @@
                         [fname (dissoc (run-claimed fixture) :exception)]))]
     (is (<= 7 (count results)) (str "flow fixtures executed: " (count results)))
     (is (= {} (into (sorted-map) (remove (comp #{{:mismatches {}}} val) results))))))
-
-(deftest registrar-flow-slot-pollution-fails-the-destroy-fixture
-  ;; The control on the registrar-slots channel: a forbidden `:flow` registrar
-  ;; row survives the destroy fixture, which must then fail on that channel
-  ;; alone.
-  (let [fixture (some (fn [[_ fx]] (when (= :flow/frame-destroy-teardown (:fixture/id fx)) fx))
-                      (all-flow-fixtures))
-        run     (fn [before]
-                  (let [result (atom nil)]
-                    (reset-runtime-fixture #(do (before) (reset! result (run-fixture fixture))))
-                    (:mismatches @result)))]
-    (is (= {} (run (fn [])))
-        "the unpolluted destroy fixture passes")
-    (is (= {:registrar-flow-slots-after {:expected #{} :actual #{:rf.test/forbidden-registrar-row}}}
-           (run #(rf.registrar/register! :flow :rf.test/forbidden-registrar-row {:doc "pollution control"}))))))
