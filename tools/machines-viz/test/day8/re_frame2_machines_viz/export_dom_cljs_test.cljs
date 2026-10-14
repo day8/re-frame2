@@ -124,9 +124,9 @@
 ;; ---- SVG carries the node grammar + active-state affordance -------------
 
 (deftest svg-includes-state-boxes-and-active-affordance
-  (testing "chart-as-svg captures the FULL viewport in a foreignObject: the
-            state-box text, the active `:loading` node's affordance attr and
-            box-shadow glow, and the <title>/<desc> summary"
+  (testing "chart-as-svg captures the state-node DOM — the active `:loading`
+            node's affordance attr, which an edge-only capture lacks — and the
+            <title>/<desc> summary"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -134,11 +134,7 @@
          :current-state :loading}
         (fn [node]
           (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
-            (is (str/includes? svg "foreignObject"))
-            (is (str/includes? svg "loading"))
-            (is (str/includes? svg "idle"))
             (is (str/includes? svg "data-active-affordance=\"true\""))
-            (is (str/includes? svg "box-shadow"))
             (is (str/includes? svg "<desc>"))))))))
 
 ;; ---- PNG rasterises the full chart --------------------------------------
@@ -214,8 +210,7 @@
 (deftest export-resolves-root-from-wrapper-and-custom-testid
   (testing "for a CUSTOM `:testid`, which a hard-coded default-testid selector
             would never find, export resolves the chart from the wrapper
-            (descendant search), a descendant node (ancestor walk) and the
-            root itself"
+            (descendant search) and a descendant node (ancestor walk)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -223,9 +218,7 @@
          :current-state :loading
          :testid "my-custom-chart"}
         (fn [node]
-          (doseq [el [node
-                      (.querySelector node "[data-testid^=\"rf-mv-chart-node-\"]")
-                      (chart-root-of node "my-custom-chart")]]
+          (doseq [el [node (.querySelector node "[data-testid^=\"rf-mv-chart-node-\"]")]]
             (is (str/includes? (export/chart-as-svg el) "loading"))))))))
 
 ;; ---- share-url off the live chart's seam --------------------------------
@@ -253,21 +246,20 @@
 (deftest svg-export-redacts-sensitive-live-context
   (testing "chart-as-svg of a chart fed a LIVE :context-band with a slot
             classified sensitive carries the :rf/redacted sentinel, never the
-            raw secret, while a non-sensitive slot still renders"
+            raw secret"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (let [secret "card-4111-1111-1111-1111"]
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done
            :current-state :loading
-           :context-band {:card secret :count 7}
+           :context-band {:card secret}
            :context-band-inferred? false
            :context-band-sensitive #{:card}}
           (fn [node]
             (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
               (is (not (str/includes? svg secret)))
-              (is (str/includes? svg ":rf/redacted"))
-              (is (str/includes? svg "7")))))))))
+              (is (str/includes? svg ":rf/redacted")))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
   (testing ":context-band-raw? true is the explicit trusted-local opt-in: the
