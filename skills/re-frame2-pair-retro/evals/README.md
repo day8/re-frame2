@@ -61,10 +61,9 @@ it yields one `query`/`should_trigger` item per fixture.
 `tests/duplicate_search_test.clj` pins the §Issue drafts duplicate-search **command
 contract** — the prescribed `gh issue list` query stays narrow to
 `day8/re-frame2` and explicitly `--state all` (gh defaults to open-only,
-which hides a closed owner), a discovered closed owner links instead of
-twinning, and a failed query reads as "not checked", never "no duplicate".
-It extracts the prescribed argv from `SKILL.md` verbatim and models gh's
-documented state filtering over a fixed fixture set — a command-contract
+which hides a closed owner), and a failed query reads as "not checked",
+never "no duplicate". It extracts the prescribed argv from `SKILL.md`
+verbatim and checks those flags on it — a command-contract
 pin, not a session-evidence scorer, and like everything here it is
 repo-maintenance material the published package does not ship.
 
