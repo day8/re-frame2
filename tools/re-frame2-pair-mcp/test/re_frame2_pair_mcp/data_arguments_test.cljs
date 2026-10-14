@@ -156,21 +156,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest watch-form-signals-are-not-evaluated
-  (let [form (read-form
-               (watch-until/watch-form [{:sub [:review/sub inert-list]}]
-                                       :rf/default
-                                       (record/pred-source {:signal 0 :equals :done})
-                                       "{}"))
-        call (find-call form 're-frame2-pair.runtime/sample-signals)]
-    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (second call))))))
-
-(deftest watch-form-keeps-the-synthesised-predicate-as-source
-  ;; CONTROL — quoted, the poll would compare a list against the sample
-  ;; instead of calling the fn.
-  (let [src (watch-until/watch-form [{:app-db [:x]}] :rf/default
-                                    (record/pred-source {:signal 0 :equals :done})
-                                    "{}")]
-    (is (str/includes? src "(boolean ((fn [sample]"))))
+  (let [src  (watch-until/watch-form [{:sub [:review/sub inert-list]}]
+                                     :rf/default
+                                     (record/pred-source {:signal 0 :equals :done})
+                                     "{}")
+        call (find-call (read-form src) 're-frame2-pair.runtime/sample-signals)]
+    (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (second call))))
+    ;; CONTROL — quoted, the poll would compare a list against the sample
+    ;; instead of calling the fn.
+    (is (str/includes? src "(boolean ((fn [sample]")
+        "the synthesised predicate stays raw source")))
 
 (deftest record-signals-and-stop-bounds-are-not-evaluated
   (let [src  (#'record/start-recording-form
