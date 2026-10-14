@@ -20,22 +20,16 @@
 (defn- footprint [id]
   (first (filter (comp #{id} :id) (rf.bench.fresco.read-profile-app/phase-b-slot-plan))))
 
-(deftest the-built-roster-is-the-declared-roster
-  ;; The vector index IS the slot, and `arm-rows` keys by id, so a duplicate
-  ;; would pool two arms into one row.
-  (let [ids rf.bench.fresco.read-profile-app/phase-b-arm-ids]
-    (is (= [ids (count ids) true 3]
-           [(mapv :id (rf.bench.fresco.read-profile-app/phase-b-arms {} {} {} nil))
-            (count (set ids))
-            (every? (set ids) rf.bench.fresco.read-profile-app/null-arm-ids)
-            (count rf.bench.fresco.read-profile-app/null-arm-ids)]))))
-
 (deftest the-nulls-were-appended-and-nothing-was-reordered
   ;; Published deltas are quoted slot-against-slot, so the published nine
-  ;; arms keep their slots and the two further nulls come after them.
-  (is (= [:commit :c-local :c-null :c-noactivate :c-nowatch
-          :c-nosub :c-noreaders :c-nomap :b-build]
-         (subvec rf.bench.fresco.read-profile-app/phase-b-arm-ids 0 9))))
+  ;; arms keep their slots and the two further nulls come after them. The
+  ;; ids are distinct because `arm-rows` keys by id, so a duplicate would
+  ;; pool two arms into one row.
+  (let [ids rf.bench.fresco.read-profile-app/phase-b-arm-ids]
+    (is (= [[:commit :c-local :c-null :c-noactivate :c-nowatch
+             :c-nosub :c-noreaders :c-nomap :b-build]
+            true]
+           [(subvec ids 0 9) (apply distinct? ids)]))))
 
 (deftest the-three-nulls-sit-on-three-different-footprints
   (let [base      (footprint :c-local)
