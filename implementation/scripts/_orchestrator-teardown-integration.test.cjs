@@ -87,63 +87,41 @@ async function spawnOrchestrator() {
   } };
 }
 
-// SIGTERM runs the handler on POSIX; on Windows it is TerminateProcess and the
-// 'exit' handler's sweep reaps the grandchild.
-test('orchestrator teardown reaps its tracked grandchild on termination', async () => {
-  const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();
-  try {
-    assert.ok(isAlive(grandchildPid), 'grandchild should be alive after spawn');
+// Windows cannot deliver a JS SIGINT to a child reliably, so it runs SIGTERM only.
+const SIGNALS = process.platform === 'win32' ? ['SIGTERM'] : ['SIGTERM', 'SIGINT'];
+for (const signal of SIGNALS) {
+  test(`orchestrator teardown reaps its tracked grandchild on ${signal}`, async () => {
+    const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();
+    try {
+      assert.ok(isAlive(grandchildPid), 'grandchild should be alive after spawn');
 
-    const orchestratorExit = new Promise((resolve) => child.once('exit', resolve));
-    child.kill('SIGTERM');
+      const orchestratorExit = new Promise((resolve) => child.once('exit', resolve));
+      child.kill(signal);
 
-    const exited = await Promise.race([
-      orchestratorExit.then(() => true),
-      sleep(15000).then(() => false),
-    ]);
-    assert.ok(exited, 'orchestrator process should exit after SIGTERM');
+      const exited = await Promise.race([
+        orchestratorExit.then(() => true),
+        sleep(15000).then(() => false),
+      ]);
+      assert.ok(exited, `orchestrator process should exit after ${signal}`);
 
-    // Generous: on Windows the sweep is a multi-second `taskkill /T /F`.
-    const dead = await waitUntilDead(grandchildPid, 30000);
-    assert.ok(
-      dead,
-      `grandchild ${grandchildPid} was orphaned — the teardown sweep did ` +
-        `not reap the tracked server when the orchestrator was terminated.`,
-    );
-  } finally {
-    if (isAlive(grandchildPid)) {
-      try { process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
+      // Generous: on Windows the sweep is a multi-second `taskkill /T /F`.
+      const dead = await waitUntilDead(grandchildPid, 30000);
+      assert.ok(
+        dead,
+        `grandchild ${grandchildPid} was orphaned — the teardown sweep did ` +
+          `not reap the tracked server when the orchestrator got ${signal}.`,
+      );
+    } finally {
+      if (isAlive(grandchildPid)) {
+        try { process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
+      }
+      if (!child.killed && child.exitCode == null) {
+        try { child.kill('SIGKILL'); } catch (_) {}
+      }
+      cleanupDir();
     }
-    if (!child.killed && child.exitCode == null) {
-      try { child.kill('SIGKILL'); } catch (_) {}
-    }
-    cleanupDir();
-  }
-});
-
-test('orchestrator teardown reaps its grandchild on SIGINT (POSIX)', async () => {
-  if (process.platform === 'win32') {
-    console.log('  SKIP (Windows: JS SIGINT delivery to a child is not reliable)');
-    return;
-  }
-  const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();
-  try {
-    assert.ok(isAlive(grandchildPid), 'grandchild should be alive after spawn');
-    const orchestratorExit = new Promise((resolve) => child.once('exit', resolve));
-    child.kill('SIGINT');
-    await Promise.race([orchestratorExit, sleep(15000)]);
-    const dead = await waitUntilDead(grandchildPid, 15000);
-    assert.ok(dead, `grandchild ${grandchildPid} survived a SIGINT to the orchestrator`);
-  } finally {
-    if (isAlive(grandchildPid)) {
-      try { process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
-    }
-    if (!child.killed && child.exitCode == null) {
-      try { child.kill('SIGKILL'); } catch (_) {}
-    }
-    cleanupDir();
-  }
-});
+  });
+}
 
 (async () => {
   let failed = 0;
