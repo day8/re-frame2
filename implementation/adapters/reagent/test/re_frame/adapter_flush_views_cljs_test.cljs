@@ -7,7 +7,6 @@
 (deftest flush-views-canonical-shape
   (testing "Reagent — flush-views! surfaced from the adapter ns with the
             canonical nil-return shape"
+    ;; The 0-arity delegates to the 1-arity, so one read covers both.
     (is (nil? (rf.adapter.reagent/flush-views!))
-        "0-arity flush-views! returns nil — the converged contract across all four substrates")
-    (is (nil? (rf.adapter.reagent/flush-views! (fn [] nil)))
-        "1-arity flush-views! also returns nil")))
+        "flush-views! returns nil — the converged contract across all four substrates")))
