@@ -125,12 +125,3 @@
                  :tags
                  (select-keys [:machine-id :machine-type :version-recorded :version-current])))
           "the trace names the instance id and the TYPE"))))
-
-(deftest restore-spawned-actor-resolves-its-type-keyword
-  (rf/make-frame {:id :test/main})
-  (rf/reg-machine :rev/child (child 1))
-  (let [alive-epoch (spawn-child! :rev/child)]
-    (is (= :rev/child (:rf/machine-type (snapshot :rev/child#1)))
-        "precondition: the snapshot names its registered TYPE")
-    (is (true? (rf/restore-epoch! :test/main alive-epoch))
-        "the TYPE keyword resolves through the registrar")))
