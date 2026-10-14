@@ -3,10 +3,10 @@
 
   `runtime-cljs-test`'s
   `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
-  covers four escapes — a stored handler, a handler invoked, an
-  author-held `delay`, and a stashed lazy seq — and all four share one
+  covers three escapes — an author-held `delay`, a stashed lazy seq,
+  and a stored handler called later — and all three share one
   property: the deferred read runs when **no** body is running, so
-  `read-key!` finds no frame and says so. This file is about the fifth,
+  `read-key!` finds no frame and says so. This file is about the fourth,
   which has the opposite property and is therefore silent.
 
   ## The hazard these rows are about
