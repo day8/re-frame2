@@ -109,22 +109,20 @@
 (deftest script-injection-is-inert
   (testing "a <script> injection never becomes a live :script element"
     (let [tree (md/render "Hello\n\n<script>window.__pwned = true</script>\n\nbye")]
-      ;; No script element was synthesised from the raw HTML.
-      (is (not (contains? (tags tree) :script))
-          "raw <script> must not become a :script hiccup element")
       ;; The raw source survives only as inert (React-escaped) text so the
       ;; user can SEE what was in the document.
-      (is (str/includes? (strings-of tree) "window.__pwned")
-          "the raw script source is preserved as inert escaped text")))
+      (is (= [false true]
+             [(contains? (tags tree) :script) (str/includes? (strings-of tree) "window.__pwned")])
+          "raw <script> does not become a :script hiccup element; its source is preserved as inert escaped text")))
 
   (testing "raw inline HTML with an attribute is inert (no live element)"
     (let [tree (md/render "before <b onclick=\"boom()\">x</b> after")]
       ;; The raw <b ...> is NOT promoted to a live :b element with an
       ;; onclick — it is rendered as inert escaped text.
-      (is (not (some #(contains? % :onclick) (attrs-of tree)))
-          "no live onclick attribute is synthesised from raw HTML")
-      (is (str/includes? (strings-of tree) "onclick")
-          "the raw HTML (incl. the onclick attr) renders as inert text"))))
+      (is (= [false true]
+             [(boolean (some #(contains? % :onclick) (attrs-of tree)))
+              (str/includes? (strings-of tree) "onclick")])
+          "no live onclick attribute is synthesised from raw HTML; the raw HTML (incl. the onclick attr) renders as inert text"))))
 
 (deftest img-onerror-injection-is-inert
   (testing "a raw <img onerror=...> injection never becomes a live :img with onerror"
@@ -194,11 +192,11 @@
                                "| 1 | 2 |\n"))
           ts   (tags tree)
           text (strings-of tree)]
-      (is (contains? ts :table) "a :table element is emitted")
-      ;; header + data cells
-      (is (or (contains? ts :th) (contains? ts :td)) "table cells are emitted")
-      (is (and (str/includes? text "A") (str/includes? text "1"))
-          "header and body cell text are present"))))
+      (is (= [true true true]
+             [(contains? ts :table)
+              (or (contains? ts :th) (contains? ts :td))
+              (every? #(str/includes? text %) ["A" "1"])])
+          "a :table element with cells is emitted, carrying the header and body cell text"))))
 
 (deftest renders-nested-list
   (testing "a nested unordered list renders nested :ul structure"
@@ -208,21 +206,18 @@
           ;; count :ul elements anywhere in the tree — a nested list yields >1
           uls  (filter #(= :ul (first %)) (elements tree))
           text (strings-of tree)]
-      (is (>= (count uls) 2)
-          "a nested list produces at least two :ul elements (outer + inner)")
-      (is (and (str/includes? text "top")
-               (str/includes? text "nested-a")
-               (str/includes? text "nested-b"))
-          "every list item's text is present"))))
+      (is (= [true true]
+             [(>= (count uls) 2) (every? #(str/includes? text %) ["top" "nested-a" "nested-b"])])
+          "a nested list produces at least two :ul elements (outer + inner), and every list item's text is present"))))
 
 (deftest renders-image
   (testing "an image renders as a real :img with src + alt"
     (let [tree (md/render "![a kitten](https://example.com/kitten.png)")
           imgs (filter #(= :img (first %)) (elements tree))]
-      (is (some (fn [i] (= "https://example.com/kitten.png" (:src (second i)))) imgs)
-          "an :img is emitted and a safe :src is preserved")
-      (is (some (fn [i] (= "a kitten" (:alt (second i)))) imgs)
-          "the image :alt is preserved"))))
+      (is (some (fn [i] (= ["https://example.com/kitten.png" "a kitten"]
+                           ((juxt :src :alt) (second i))))
+                imgs)
+          "an :img is emitted with its safe :src and its :alt preserved"))))
 
 (deftest renders-baseline-shapes
   (testing "headings, emphasis, code, and blockquote render"
@@ -230,13 +225,8 @@
                                "A **bold** and *italic* and `code` span.\n\n"
                                "> a quote\n"))
           ts   (tags tree)]
-      (is (contains? ts :h1) "ATX heading")
-      (is (contains? ts :strong) "bold")
-      (is (contains? ts :em) "italic")
-      (is (contains? ts :code) "inline code")
-      (is (contains? ts :blockquote) "blockquote")))
+      (is (= [] (remove ts [:h1 :strong :em :code :blockquote]))
+          "ATX heading, bold, italic, inline code and blockquote are all emitted")))
 
   (testing "a blank / nil source renders an empty fragment without throwing"
-    (is (= [:<>] (md/render nil)))
-    (is (= [:<>] (md/render "")))
-    (is (= [:<>] (md/render "   \n  ")))))
+    (is (= [[:<>] [:<>] [:<>]] (map md/render [nil "" "   \n  "])))))
