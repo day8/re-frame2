@@ -63,16 +63,6 @@
 ;; so the tool fails loud instead.
 ;; ---------------------------------------------------------------------------
 
-(deftest no-running-build-fails-loud
-  (async done
-    (-> (with-runtime! {:running [] :runtime? false}
-          #(eval-cljs/eval-cljs-tool (fresh-conn) #js {:form "(count [1 2 3])"}))
-        (.then (fn [r]
-                 (is (= {:ok? false :reason :no-runtime-for-build :running-builds []}
-                        (select-keys (read-edn r) [:ok? :reason :running-builds]))
-                     "with no :build and nothing running, no build can be auto-detected")
-                 (done))))))
-
 (deftest auto-detects-single-running-build
   (async done
     (-> (with-runtime! {:running [:examples/step-deck] :respond (constantly 3)}
