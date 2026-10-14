@@ -445,12 +445,13 @@
                       (str "`Enter` reset the panel to the default through the "
                            "same captured dispatcher — `:rf.xray/reset-panel-"
                            "width`. "
-                           "Got: " (pr-str (announced-width container))))
-                  (teardown! root container)
-                  (done)))
+                           "Got: " (pr-str (announced-width container))))))
               (.catch (fn [e]
                         (is false (str "W2 never settled: " (.-message e)))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! root container)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; W3 — the YIELD branch: the host's own `resize` declaration decides
@@ -484,7 +485,8 @@
         (setup!)
         ;; ---- half one: a host that does NOT assert its own handle ----
         (attach-stub-host! "vertical")
-        (let [{c1 :container r1 :root} (mount! handle-frame)]
+        (let [{c1 :container r1 :root} (mount! handle-frame)
+              !second                  (atom nil)]
           (-> (poll-until #(testid c1 anchor-testid))
               (.then (fn [_] (settle)))
               (.then
@@ -498,22 +500,25 @@
                   (teardown! r1 c1)
                   ;; ---- half two: the consumer asserts their own ----
                   (attach-stub-host! "horizontal")
-                  (let [{c2 :container r2 :root} (mount! handle-frame)]
-                    (-> (poll-until #(testid c2 anchor-testid))
-                        (.then (fn [_] (settle)))
-                        (.then
-                          (fn [_]
-                            (is (some? (testid c2 anchor-testid))
-                                "CONTROL: this second tree committed too")
-                            (is (nil? (handle-node c2))
-                                (str "and the boundary yielded: the host "
-                                     "declares `resize: horizontal`, so the "
-                                     "consumer owns the affordance and the "
-                                     "page carries ONE handle, not two"))
-                            (teardown! r2 c2)
-                            (remove-stub-hosts!)
-                            (done)))))))
+                  (let [{c2 :container :as half-two} (mount! handle-frame)]
+                    (reset! !second half-two)
+                    (poll-until #(testid c2 anchor-testid)))))
+              (.then (fn [_] (settle)))
+              (.then
+                (fn [_]
+                  (let [{c2 :container} @!second]
+                    (is (some? (testid c2 anchor-testid))
+                        "CONTROL: this second tree committed too")
+                    (is (nil? (handle-node c2))
+                        (str "and the boundary yielded: the host "
+                             "declares `resize: horizontal`, so the "
+                             "consumer owns the affordance and the "
+                             "page carries ONE handle, not two")))))
               (.catch (fn [e]
                         (is false (str "W3 never settled: " (.-message e)))
-                        (remove-stub-hosts!)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (when-let [{c2 :container r2 :root} @!second]
+                         (teardown! r2 c2))
+                       (remove-stub-hosts!)
+                       (done)))))))))
