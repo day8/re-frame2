@@ -263,16 +263,14 @@
 ;; `:replace!` legs pass through unchanged.
 
 (defn- normalize-base-path
-  "Normalize a base-path string: nil / blank -> `\"\"` (no base); else
-  ensure a leading `/` and strip a trailing `/`. Pure."
+  "Normalize a base-path string to one leading `/` and no trailing `/`. A nil,
+  blank or all-slash base normalizes to `\"\"`, no base: the site root `/` is
+  no sub-path, and prefixing it onto a path-form href would turn `/active`
+  into `//active`, a protocol-relative reference a browser resolves against
+  the HOST `active`. Pure."
   [base]
-  (let [b (or base "")]
-    (if (clojure.string/blank? b)
-      ""
-      (let [b (if (clojure.string/starts-with? b "/") b (str "/" b))]
-        (if (and (> (count b) 1) (clojure.string/ends-with? b "/"))
-          (subs b 0 (dec (count b)))
-          b)))))
+  (let [b (clojure.string/replace (or base "") #"^/+|/+$" "")]
+    (if (clojure.string/blank? b) "" (str "/" b))))
 
 (defn strip-base-path
   "Strip `base` off the front of path-form `url`, returning the app-relative
@@ -358,9 +356,9 @@
   PATH-FORM and base-agnostic; only these consult points ever see the base
   path — exactly like the two shipped strategies' address-bar-form seam.
 
-  `base` is normalized (a leading `/` is added if missing; a trailing `/`
-  is stripped). A blank/nil `base` returns `strategy` UNCHANGED — the common
-  no-sub-path app pays no wrapping cost. Only `:install-listener!` among the
+  `base` is normalized to one leading `/` and no trailing `/`. A blank, nil or
+  root (`\"/\"`) `base` returns `strategy` UNCHANGED — the common no-sub-path
+  app pays no wrapping cost. Only `:install-listener!` among the
   side-effecting keys is wrapped (base-stripping ingress); `:push!` /
   `:replace!` pass through unwrapped from the inner strategy, since `:encode`
   already carries the base outbound. The wrapped `:install-listener!` is
