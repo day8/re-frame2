@@ -6,10 +6,12 @@
   inputs for `:rf.sub/prev-value`, the live runtime-db for `:rf.sub/value`).
   Two boundaries are pinned: the registry never holds a coarse `:sensitive?`
   root claim, and it holds the lowered claims only until the next resource
-  commit reconciles it against the current registrations. Each scenario runs
-  re-registered and unchanged, the unchanged run its control (for prior data
-  across a remove and a prior result across a clear, the controls are the
-  read-sub egress suite's). Trace-bus assertions sit inside
+  commit reconciles it against the current registrations. A scenario runs
+  re-registered and unchanged, the unchanged run its control, with two
+  exceptions: a prior result across a clear takes its control from the read-sub
+  egress suite, and prior data across a remove needs none, because its
+  unchanged run holds the same recovered claims plus its spec. Trace-bus
+  assertions sit inside
   `(when rf.interop/debug-enabled? …)`, since the negative census would pass
   vacuously with no trace to read."
   (:require
