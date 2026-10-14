@@ -32,7 +32,7 @@
   behind `rf.interop/debug-enabled?` (Spec 001 §Source-coordinate capture), and
   `:doc` is a pure-documentation key the registrar STRIPS before storage in
   production builds (Spec 001 §Production elision contract) so its string
-  bytes DCE out of the bundle. Both deftests that read them therefore branch:
+  bytes DCE out of the bundle. The deftest that reads them therefore branches:
   the dev arm makes the presence assertion, and the production arm asserts
   the ELISION — that the strip really happened. Neither arm is vacuous."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -160,19 +160,16 @@
 ;; ---- source-coords / doc passthrough -------------------------------------
 
 (deftest source-coords-surface-in-the-node
-  (testing ":ns / :file / :line captured by reg-route surface under :source"
-    (rf/reg-route :route/home {} "/")
-    (let [source (:source ((rf.routing.tooling/route-algebra-view) :route/home))]
-      (if rf.interop/debug-enabled?
-        (is (and (:ns source) (:file source) (number? (:line source)))
-            (str "coords captured at the call site, got " (pr-str source)))
-        (is (nil? source)
-            "under -Dre-frame.debug=false the coords are elided (Spec 001)")))))
-
-(deftest doc-passes-through
-  (testing ":doc supplied on the route metadata surfaces in the node"
+  (testing ":ns / :file / :line captured by reg-route surface under :source, and
+            a declared :doc under :doc"
     (rf/reg-route :route/home {:doc "the home route"} "/")
-    (if rf.interop/debug-enabled?
-      (is (= "the home route" (:doc ((rf.routing.tooling/route-algebra-view) :route/home))))
-      (is (not (contains? ((rf.routing.tooling/route-algebra-view) :route/home) :doc))
-          "under -Dre-frame.debug=false the registrar strips :doc before storage"))))
+    (let [node   ((rf.routing.tooling/route-algebra-view) :route/home)
+          source (:source node)]
+      (if rf.interop/debug-enabled?
+        (is (and (:ns source) (:file source) (number? (:line source))
+                 (= "the home route" (:doc node)))
+            (str "coords captured at the call site and the doc carried, got "
+                 (pr-str (select-keys node [:source :doc]))))
+        (is (= [nil false] [source (contains? node :doc)])
+            "under -Dre-frame.debug=false the coords are elided and the registrar
+             strips :doc before storage (Spec 001)")))))
