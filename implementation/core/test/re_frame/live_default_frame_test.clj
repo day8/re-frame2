@@ -207,7 +207,9 @@
       (register-a!)
       (rf/make-frame {:id :probe/frame})
       (move-to-b!)
-      (is (= "other" (:doc (rf/handler-meta {:frame :probe/frame :kind :event :id :probe/other}))))
+      (is (identical? (:handler-fn (rf/handler-meta {:source :store :kind :event :id :probe/other}))
+                      (:handler-fn (rf/handler-meta {:frame :probe/frame :kind :event :id :probe/other})))
+          "an id with one owner reports the registration the frame runs")
       (is (= :rf.error/ambiguous-registration
              (error-id #(rf/handler-meta {:frame :probe/frame :kind :event :id :probe/ev})))
           "an ambiguous id reports the error the frame raises, not a registration it never runs")
