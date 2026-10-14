@@ -157,7 +157,7 @@ Report any unresolved Type B site or pending gate as remaining work, with the ne
 - **Bumping unrelated dependencies.** Keep the diff to what the migration forces. The bumps the Phase-0b floor gate approved ride into M-0, as do the Xray npm peer-deps when the 10x swap applies; `MIGRATION.md` Part 2 carries the same carve-out. Record every non-re-frame dependency you changed, and the gate that justified it, in the report.
 - **Adding `-schemas` / `-machines` / `-routing` "to be safe".** The artefact split is pay-as-you-go (M-27–M-33).
 - **Converting plain Reagent fns to `reg-view` reflexively.** That is O-2, opt-in. The forced case is M-11, a *subscribing* plain `defn` ([`guided-views-m11.md`](references/guided-views-m11.md)); a non-subscribing fn needs no change. (A callback that escapes the render scope is a separate async hazard.)
-- **Rewriting test bodies eagerly.** `re-frame.test` → `re-frame.test-support` (M-25) is a mechanical pass; touch a test body only when it trips another rule.
+- **Rewriting test bodies eagerly.** `day8.re-frame.test` → `re-frame.test-support` (M-25) is a mechanical pass; touch a test body only when it trips another rule.
 - **Treating a clean compile as done**, or claiming "migrated" before the report is written — the smoke-test is the done-bar and the report is the contract.
 
 ---

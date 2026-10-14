@@ -84,7 +84,7 @@ Design exploration happens in the local-only `ai/findings/` tree and is never co
 ### In scope
 
 - Re-frame v1.x CLJS codebases moving to re-frame2.
-- JVM-side test infrastructure (`.clj` runners, `re-frame.test` → `re-frame.test-support`).
+- JVM-side test infrastructure (`.clj` runners, `day8.re-frame.test` → `re-frame.test-support`).
 - Both Reagent v2 (default) and pre-existing UIx codebases (the substrate is detected, not migrated).
 - The full M-rule and O-rule surfaces in `migration/from-re-frame-v1/README.md`.
 
