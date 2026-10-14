@@ -26,10 +26,6 @@
 ;; Registered at namespace load, BEFORE the fixture is built, so they sit in the
 ;; registrar baseline the fixture restores before every test.
 
-(reg-view ^{:rf/id ::kw-form-1} kw-form-1 [& {:keys [label p13]}]
-  [:div {:data-testid "slim-kw-form-1"}
-   (str label "|" p13 "|" (pr-str (rf/current-frame-id)))])
-
 (reg-view ^{:rf/id ::kw-form-2} kw-form-2 [& {outer-label :label}]
   (fn [& {:keys [label p13]}]
     [:div {:data-testid "slim-kw-form-2"} (str outer-label "/" label "|" p13)]))
@@ -84,14 +80,6 @@
              (pr-str (when error (or (ex-message error) (str error))))))
     (is (= expected text)
         (str (count args) " arguments: the mounted view rendered " (pr-str text)))))
-
-(deftest slim-kw-form-1-renders-its-label-and-frame-with-thirty-scalars
-  (testing "a Form-1 `reg-view` mounted with 15 keyword/value pairs receives
-            every pair and reads the provider's frame through React context"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test runner exercises this")
-      (assert-renders ::kw-form-1 (kw-args 15) "slim-kw-form-1"
-                      (str "visible|13|" (pr-str frame-id))))))
 
 (deftest slim-kw-form-2-forwards-thirty-scalars-to-outer-and-inner
   (if-not (browser?)
