@@ -158,8 +158,10 @@
 
 (deftest watch-epochs-whole-ring-projection-leaks-no-raw-bytes
   (testing "a forwarder maps `project-egress` over the ring: no raw secret and no
-            raw large payload anywhere in what it ships, while the bookkeeping
-            slots a tool navigates by survive byte-for-byte"
+            raw large payload anywhere in what it ships, the bookkeeping slots a
+            tool navigates by survive byte-for-byte, and re-projecting is a fixed
+            point, so a marker's `:bytes` / `:digest` do not drift across a
+            pipeline that double-projects"
     (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (let [raw         (drive-mixed-ring! :test/mcp)
@@ -181,6 +183,7 @@
                   [(:epoch-id r) k (get r k) (get p k)]))
           "every bookkeeping slot of every record survives (lists each
            offending [epoch-id slot raw projected])")
+      (is (= ring (mapv rf/project-egress ring)))
 
       (testing "a whole-output `:large?` sub's value and previous value are
                 marked in BOTH carriers, the structured `:sub-runs` row and the
@@ -206,20 +209,6 @@
                  [(:value ctrl-row) (:prev-value ctrl-row)
                   (:rf.sub/value ctrl-tags) (:rf.sub/prev-value ctrl-tags)])
               "NEGATIVE CONTROL — an unmarked sub's values ride raw in all four slots"))))))
-
-(deftest forwarder-project-egress-is-large-idempotent
-  (testing "re-projecting a projected ring is a fixed point: the marker-aware walk
-            passes a `:rf.size/large-elided` marker through rather than
-            re-marking it, so `:bytes` / `:digest` do not drift across a
-            forwarder pipeline that double-projects, and `:rf/redacted` is a
-            non-matchable scalar"
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (let [once (mapv rf/project-egress (drive-mixed-ring! :test/mcp))]
-      (is (rf.elision/marker?
-            (get-in (some #(when (= :upload (:event-id %)) %) once) [:db-after :blob :payload]))
-          "FIXTURE — the first pass substituted a marker at the large path")
-      (is (= once (mapv rf/project-egress once))))))
 
 ;; ============================================================================
 ;;  The fx-args trace-tag carriers
