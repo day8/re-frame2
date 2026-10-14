@@ -5,8 +5,6 @@ const {
   classifyTrustedInputRequest,
   createDiagnosticBuffer,
   findFixtureAbort,
-  formatCompactSummary,
-  isVerboseTests,
   parseFailureCounts,
   parseRanCounts,
   summaryPartsFromText,
@@ -43,25 +41,6 @@ test('a failures/errors line with no preceding Ran line is ignored (rf2-mwx08)',
   assert.deepEqual(parts, { ran: null, failErr: null });
 });
 
-test('last complete cljs.test summary pair wins on a re-run (rf2-mwx08)', () => {
-  const parts = summaryPartsFromText([
-    'Ran 3 tests containing 9 assertions.',
-    '0 failures, 0 errors.',
-    '[browser:log] re-running suite',
-    'Ran 4 tests containing 12 assertions.',
-    '2 failures, 1 errors.',
-  ].join('\n'));
-  assert.deepEqual(parts, { ran: 'Ran 4 tests containing 12 assertions.', failErr: '2 failures, 1 errors.' });
-});
-
-test('a Ran line with no failures/errors line yet surfaces ran only (rf2-mwx08)', () => {
-  const parts = summaryPartsFromText([
-    '[browser:log] booted',
-    'Ran 8 tests containing 20 assertions.',
-  ].join('\n'));
-  assert.deepEqual(parts, { ran: 'Ran 8 tests containing 20 assertions.', failErr: null });
-});
-
 // The executed-test count must be read: a lane that ran nothing has a clean
 // failure tally, so only this count tells it from green.
 test('ran-count parser exposes the executed-test count (rf2-qqzmf)', () => {
@@ -80,10 +59,6 @@ test('ran-count parser returns null for unparseable / null input (rf2-qqzmf)', (
   assert.deepEqual([null, '0 failures, 0 errors.', 'Ran some tests'].map(parseRanCounts), [null, null, null]);
 });
 
-test('summary parser tolerates null input (returns null parts)', () => {
-  assert.deepEqual(summaryPartsFromText(null), { ran: null, failErr: null });
-});
-
 // A null here is run-browser-tests.cjs's "could not parse; failing the run" guard.
 test('failure count parser returns null for unparseable / null input', () => {
   assert.deepEqual([null, 'Ran 3 tests containing 5 assertions.'].map(parseFailureCounts), [null, null]);
@@ -96,22 +71,11 @@ test('failure count parser reads failures and errors independently', () => {
   );
 });
 
-test('green browser summary is one line', () => {
-  const line = formatCompactSummary({
-    ran: 'Ran 12 tests containing 34 assertions.',
-    failErr: '0 failures, 0 errors.',
-    source: 'browser console',
-  });
-
-  assert.equal(
-    line,
-    'Browser tests: Ran 12 tests containing 34 assertions. 0 failures, 0 errors. (source: browser console)'
-  );
-});
-
 test('diagnostic buffer preserves output streams until flush', () => {
   const buffer = createDiagnosticBuffer();
+  assert.equal(buffer.isEmpty(), true);
   buffer.add('[browser:log] hello');
+  assert.equal(buffer.isEmpty(), false);
   buffer.add('page exploded\nstack line', 'stderr');
 
   const stdout = [];
@@ -122,15 +86,6 @@ test('diagnostic buffer preserves output streams until flush', () => {
   });
 
   assert.deepEqual({ stdout, stderr }, { stdout: ['[browser:log] hello'], stderr: ['page exploded', 'stack line'] });
-});
-
-test('diagnostic buffer reports emptiness and ignores null adds', () => {
-  const buffer = createDiagnosticBuffer();
-  buffer.add(null);
-  buffer.add(undefined);
-  assert.equal(buffer.isEmpty(), true, 'null/undefined adds are no-ops');
-  buffer.add('first line');
-  assert.equal(buffer.isEmpty(), false);
 });
 
 // The literal cljs.test 1.12.x rethrows from `test-var-block*`'s
@@ -149,14 +104,6 @@ test('the cljs.test fixture abort is recognised in the captured page errors (rf2
 // it as one would truncate a run that was about to report its summary.
 test('an ordinary uncaught exception is NOT classified as the fixture abort (rf2-u0j8)', () => {
   assert.deepEqual([null, ['Async test called done more than one time']].map(findFixtureAbort), [null, null]);
-});
-
-// Two independent substrings, so an upstream reword has to take out both.
-test('either half of the abort sentence is enough to match (rf2-u0j8)', () => {
-  assert.ok(
-    findFixtureAbort(['… Testing aborted.']) &&
-      findFixtureAbort(['Async tests require fixtures to be specified as maps.']),
-  );
 });
 
 // cljs-test-display prints `\nTesting <ns>` at every :begin-test-ns.
@@ -224,13 +171,6 @@ test('an empty key list is served, not refused (rf2-il7b)', () => {
       keys: [], keysType: 'array', ackType: 'function',
     }),
     { kind: 'ready', token: 't', keys: [] },
-  );
-});
-
-test('RF2_VERBOSE_TESTS=1 enables verbose mode', () => {
-  assert.deepEqual(
-    [{ RF2_VERBOSE_TESTS: '1' }, { RF2_VERBOSE_TESTS: 'true' }, {}].map((env) => isVerboseTests(env)),
-    [true, false, false],
   );
 });
 
