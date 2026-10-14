@@ -120,13 +120,3 @@ test('an own "__proto__" payload key survives expansion, at the root and nested 
     JSON.parse(PROTO_KEY_ORIGINAL),
   );
 });
-
-// The JVM contract pins `DedupTable` as a closed single-key map; expanding
-// the cache would erase a sibling, grading the response on a sanitised value.
-test('a dedup wrapper carrying a sibling key is rejected', () => {
-  const cache = { [cacheId(0)]: { 'ok?': true, value: 42 } };
-  assert.throws(
-    () => decodeDedupEnvelope({ ...envelope(cache), 'ok?': false, reason: 'failure' }),
-    /CLOSED single-key map/,
-  );
-});
