@@ -34,6 +34,13 @@
       (is (= (pr-str payload) (tu/extract-text result)) "the text slot is the payload's own EDN")
       (is (= json (structured-json result)) (pr-str payload)))))
 
+(deftest err-text-emits-both-slots-plus-isError
+  (let [payload {:ok? false :reason :sample-error :hint "..."}
+        result  (wire/err-text payload)]
+    (is (true? (j/get result :isError)))
+    (is (= (pr-str payload) (tu/extract-text result)))
+    (is (= {"ok?" false "reason" "sample-error" "hint" "..."} (structured-json result)))))
+
 (deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
   ;; The marker is built outside the tool callbacks, so it must route
   ;; through `wire/result` too.
