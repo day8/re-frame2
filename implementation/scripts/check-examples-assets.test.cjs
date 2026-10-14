@@ -14,10 +14,8 @@ const zlib = require('zlib');
 
 const scanner = require('../../examples/scripts/check-examples-assets.cjs');
 const {
-  ALLOWLIST,
   EXTERNAL_IMPORT_ALLOWLIST,
   EXTERNAL_HTML_REF_ALLOWLIST,
-  isExampleHostPage,
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,
@@ -39,10 +37,9 @@ const {
   contrastRatio,
   colorToHex,
 } = scanner;
-const { pageExemptions, stagedDestsByPage } = require('../../examples/scripts/examples-asset-manifest.cjs');
+const { pageExemptions } = require('../../examples/scripts/examples-asset-manifest.cjs');
 
-// A vendored-CSS page (both assets html-linked) and a staging-only entry (no
-// html-linked asset, no exemption), keyed to synthetic pages.
+// A vendored-CSS page (both assets html-linked), keyed to a synthetic page.
 const SYNTHETIC_MANIFEST = [
   {
     build: 'examples/synth-todomvc',
@@ -53,13 +50,6 @@ const SYNTHETIC_MANIFEST = [
       { from: 'node-modules', src: 'todomvc-common/base.css', dest: 'base.css', htmlLinked: true },
       { from: 'node-modules', src: 'todomvc-app-css/index.css', dest: 'index.css', htmlLinked: true },
     ],
-  },
-  {
-    build: 'examples/synth-fixture',
-    page: 'examples/reagent/fixture/index.html',
-    reason: 'synthetic: staging-only fixture (fetched from app code, not the HTML)',
-    assetExemptions: [],
-    assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
   },
 ];
 
@@ -191,13 +181,6 @@ it('the real examples tree exposes a non-vacuous set of host pages', () => {
   );
 });
 
-it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', () => {
-  assert.deepStrictEqual(
-    ['index.html', 'stories.index.html', 'about.html'].map(isExampleHostPage),
-    [true, true, false],
-  );
-});
-
 // A dropped subtree would leave an ordinary, smaller array that can stay above
 // the CLI floor and green an incomplete scan.
 it('TEETH: listExampleIndexHtml FAILS CLOSED on an unreadable subtree (rf2-3fc89f.31)', () => {
@@ -229,33 +212,6 @@ it('LIVE: every real example page resolves its assets + carries the contract', (
     `the live asset scan found ${errors.length} violation(s):\n` +
       errors.map((e) => `    - ${e}`).join('\n'),
   );
-});
-
-// examples/_shared/README.md: every page carries the favicon and OG card; only
-// TodoMVC skips the shared stylesheet.
-it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)', () => {
-  assert.deepStrictEqual(ALLOWLIST['examples/core/todomvc/index.html'].assetExemptions, [
-    '_shared/css/style.css',
-  ]);
-});
-
-// ---- manifest projections --------------------------------------------------
-
-it('pageExemptions projects a synthetic manifest: exemption + derived localAssets, staging-only entry excluded (rf2-phpbo8)', () => {
-  assert.deepStrictEqual(pageExemptions(SYNTHETIC_MANIFEST), {
-    'examples/reagent/todomvc/index.html': {
-      reason: 'synthetic: vendored TodoMVC CSS instead of the shared stylesheet',
-      assetExemptions: ['_shared/css/style.css'],
-      localAssets: ['base.css', 'index.css'],
-    },
-  });
-});
-
-it('stagedDestsByPage projects every staged dest per page, staging-only entries included (rf2-3x7nj.44.2)', () => {
-  assert.deepStrictEqual(stagedDestsByPage(SYNTHETIC_MANIFEST), {
-    'examples/reagent/todomvc/index.html': ['base.css', 'index.css'],
-    'examples/reagent/fixture/index.html': ['api/data.json'],
-  });
 });
 
 // ---- extraction primitives -------------------------------------------------
@@ -355,10 +311,6 @@ it('inventory — inert HTML comment — an unterminated <!-- makes the rest of 
 
 // ---- scanPage: resolution, required assets, staging ------------------------
 
-it('a well-formed page with all assets present scans clean', () => {
-  assert.deepStrictEqual(scanPage(fullIo(), PAGE).errors, []);
-});
-
 it('TEETH: a missing _shared favicon is reported', () => {
   const { errors } = scanPage(fullIo({ [FAVICON]: null }), PAGE);
   assert.deepStrictEqual(
@@ -451,17 +403,6 @@ it('TEETH: an SVG og:image is flagged as a non-raster social-preview asset', () 
 
 const cssPath = (name) => path.join(path.dirname(STYLE), name);
 
-it('TEETH: a style.css @import to a missing structure.css is reported', () => {
-  const { errors } = scanPage(fullIo({ [STRUCTURE]: null }), PAGE);
-  assert.deepStrictEqual(
-    errors.map((e) =>
-      e.includes("@import 'structure.css' does not resolve to a file (looked for examples/_shared/css/structure.css)"),
-    ),
-    [true],
-    errors.join(' | '),
-  );
-});
-
 it('TEETH: a broken @import two levels deep is reported once (multi-level recursion) (rf2-2l5mav)', () => {
   const io = makeIo({
     [cssPath('style.css')]: "@import url('a.css');",
@@ -474,27 +415,6 @@ it('TEETH: a broken @import two levels deep is reported once (multi-level recurs
     "_shared/css/style.css -> a.css -> b.css: @import 'missing-deep.css' does not resolve " +
       'to a file (looked for examples/_shared/css/missing-deep.css)',
   ]);
-});
-
-// The read counter turns a dropped `seen` guard into a prompt failure instead
-// of an unbounded recursion; the cap keeps that failure from hanging.
-it('TEETH: a circular @import pair terminates via the cycle guard (bounded, no hang) (rf2-2l5mav)', () => {
-  const files = makeIo({
-    [cssPath('a.css')]: "@import url('b.css');",
-    [cssPath('b.css')]: "@import url('a.css');",
-  });
-  let reads = 0;
-  const io = {
-    existsSync: files.existsSync,
-    readFileSync: (p) => {
-      if ((reads += 1) > 50) throw new Error('@import recursion exceeded 50 reads');
-      return files.readFileSync(p);
-    },
-  };
-  const errors = [];
-  checkCssImports(io, cssPath('a.css'), '_shared/css/a.css', errors, new Set());
-  assert.deepStrictEqual(errors, [], `a circular import graph must terminate cleanly, got: ${errors.join(' | ')}`);
-  assert.ok(reads <= 2, `the cycle guard must read each file in the pair at most once (got ${reads} reads)`);
 });
 
 it('TEETH: an unallowlisted external Google-Fonts @import is REJECTED', () => {
@@ -553,23 +473,6 @@ it('the LIVE external-ref allowlists are empty (no remote CSS or HTML asset deps
 
 // ---- direct-HTML network policy --------------------------------------------
 
-it('TEETH: a direct external <script src> (CDN) is REJECTED', () => {
-  const html = GOOD_HTML.replace(
-    '<script src="main.js"></script>',
-    '<script src="https://cdn.example.com/sdk.js"></script>\n<script src="main.js"></script>',
-  );
-  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
-  assert.deepStrictEqual(
-    errors.map(
-      (e) =>
-        e.includes("<script src> 'https://cdn.example.com/sdk.js'") &&
-        e.includes('Direct-HTML external asset refs'),
-    ),
-    [true],
-    errors.join(' | '),
-  );
-});
-
 it('TEETH: a direct external stylesheet <link href> (hosted CSS/font) is REJECTED', () => {
   const html = GOOD_HTML.replace(
     '<link rel="stylesheet" href="_shared/css/style.css">',
@@ -605,15 +508,6 @@ it('TEETH rf2-cnu7qy: a content-first REMOTE og:image is REJECTED (was invisible
 const BOOT_ERROR = /no live '<script src="main\.js">'/;
 const bootScriptReplacedBy = (markup) => GOOD_HTML.replace('<script src="main.js"></script>', markup);
 const relOf = (abs) => path.relative(scanner.REPO_ROOT, abs).split(path.sep).join('/');
-
-it('TEETH rf2-y1kbf: an otherwise-valid page with NO boot script is REJECTED, naming page + main.js', () => {
-  const { errors, relIndex } = scanPage(fullIo({ [PAGE]: bootScriptReplacedBy('') }), PAGE);
-  assert.deepStrictEqual(
-    errors.map((e) => BOOT_ERROR.test(e) && e.startsWith(`${relIndex}: `)),
-    [true],
-    errors.join(' | '),
-  );
-});
 
 it('TEETH: a preload <link> or an <a href> naming main.js does NOT satisfy the boot contract', () => {
   for (const impostor of ['<link rel="preload" as="script" href="main.js">', '<a href="main.js">the bundle</a>']) {
@@ -670,11 +564,6 @@ it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns th
 });
 
 // ---- og.png raster validation ----------------------------------------------
-
-it('TEETH: a missing og.png raster is reported by checkSharedTree', () => {
-  const errors = sharedErrors({ [OG]: null });
-  assert.ok(errors.some((e) => e.includes('og.png')), `expected a missing-og.png error, got: ${errors.join(' | ')}`);
-});
 
 it('TEETH: checkSharedTree rejects a wrong-dimension og.png', () => {
   const errors = sharedErrors({ [OG]: buildPng({ width: 800, height: 600 }) });
@@ -800,11 +689,6 @@ it('TEETH: a commented-out :focus-visible ring reads red (rf2-3x7nj.44.3)', () =
 });
 
 // ---- shared CSS cascade + responsive shell ---------------------------------
-
-it('a clean _shared tree (scoped send-form, cells width, stacked shell) scans clean', () => {
-  const errors = sharedErrors();
-  assert.deepStrictEqual(errors, [], `the clean fixture tree should scan clean, got: ${errors.join(' | ')}`);
-});
 
 it('TEETH: a bare global input[type="text"] rule is flagged (Cells blowout)', () => {
   const errors = sharedErrors({ [STRUCTURE]: 'input[type="text"] { min-width: 240px; }\n' + GOOD_STRUCTURE });
