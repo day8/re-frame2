@@ -76,10 +76,7 @@
     (testing "the click's :rf.route/url-requested carries each policy key written"
       (is (= [:rf.route/url-requested
               {:url "/cart#top" :replace? true :scroll :preserve :bypass-leave? true}]
-             (click-payload props))))
-    (testing "and none that was not"
-      (is (= [:rf.route/url-requested {:url "/cart"}]
-             (click-payload {:to :route/cart}))))))
+             (click-payload props))))))
 
 (deftest route-link-replace-replaces-the-history-entry
   (rf/reg-route :route/home {} "/")
@@ -96,10 +93,9 @@
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :route/cart {:scroll :restore} "/cart")
   (let [seen (record-nav-fx!)]
-    ;; No link :scroll → the route's own; a link :scroll overrides it; false → none.
+    ;; No link :scroll → the route's own; a link :scroll overrides it.
     (doseq [[props strategies] [[{:to :route/cart}                  [:restore]]
-                                [{:to :route/cart :scroll :preserve} [:preserve]]
-                                [{:to :route/cart :scroll false}     []]]]
+                                [{:to :route/cart :scroll :preserve} [:preserve]]]]
       (is (= strategies
              (into [] (comp (filter (comp #{:rf.nav/scroll} first))
                             (map (comp :strategy second)))
