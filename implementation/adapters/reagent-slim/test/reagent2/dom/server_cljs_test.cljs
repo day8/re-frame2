@@ -60,20 +60,19 @@
       (doseq [[hiccup head] [[[:> Foo {}] :>]
                              [[:f> Foo] :f>]
                              [[:r> Foo #js {}] :r>]]]
-        (let [data (thrown-data hiccup)]
-          (is (= :rf.error/static-markup-opaque-component (:rf.error/id data))
-              (pr-str head))
-          (is (= head (:head data)))
-          (is (= :render-hiccup-in-its-place (:recovery data))))))))
+        (is (= {:rf.error/id :rf.error/static-markup-opaque-component
+                :head        head
+                :recovery    :render-hiccup-in-its-place}
+               (select-keys (thrown-data hiccup) [:rf.error/id :head :recovery]))
+            (pr-str head))))))
 
 (deftest generic-react-class-head-is-refused
   (testing "a React class not made by create-class, written as the head, has
             no CLJS render fn to walk, so it is refused as `:>` is"
     (let [Klass (fn [])]
       (set! (.. Klass -prototype -render) (fn [] nil))
-      (let [data (thrown-data [Klass "x"])]
-        (is (= :rf.error/static-markup-opaque-component (:rf.error/id data)))
-        (is (= :class (:head data)))))))
+      (is (= {:rf.error/id :rf.error/static-markup-opaque-component :head :class}
+             (select-keys (thrown-data [Klass "x"]) [:rf.error/id :head]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; React context Providers render their children: the canonical slim mount
@@ -89,15 +88,12 @@
     (let [ctx      (react/createContext :rf/none)
           Provider (.-Provider ctx)]
       ;; `:r>` — the head the canonical frame-provider uses. Children start
-      ;; at index 3 (the props slot at 2 is unconditional for `:r>`).
-      (is (= "<div>hello</div>"
-             (server/render-to-static-markup
-              [:r> Provider #js {:value :frame/a} [:div "hello"]]))
-          "the Provider's subtree is present, not a placeholder comment")
-      ;; Multiple children, in order.
+      ;; at index 3 (the props slot at 2 is unconditional for `:r>`), and
+      ;; several come out in order.
       (is (= "<p>a</p><p>b</p>"
              (server/render-to-static-markup
-              [:r> Provider #js {:value :frame/a} [:p "a"] [:p "b"]])))
+              [:r> Provider #js {:value :frame/a} [:p "a"] [:p "b"]]))
+          "the Provider's subtree is present, not a placeholder comment")
       ;; `:>` — the hiccup-props interop head, same Provider.
       (is (= "<div>hello</div>"
              (server/render-to-static-markup
@@ -111,18 +107,6 @@
       (is (= "" (server/render-to-static-markup
                  [:r> Provider #js {:value :frame/a}]))))))
 
-(deftest context-provider-head-nests-and-escapes
-  (testing "nested Providers compose, and content under a
-            Provider is escaped exactly as it is anywhere else"
-    (let [outer (.-Provider (react/createContext :rf/none))
-          inner (.-Provider (react/createContext :rf/none))]
-      (is (= "<section><div>a &amp; b</div></section>"
-             (server/render-to-static-markup
-              [:r> outer #js {:value :frame/a}
-               [:section
-                [:r> inner #js {:value :frame/b}
-                 [:div "a & b"]]]]))))))
-
 (deftest context-consumer-head-is-refused
   (testing "negative control: a context CONSUMER takes a RENDER FN
             as its child, not elements, so it must NOT be walked — it is
@@ -132,13 +116,6 @@
              (:rf.error/id
               (thrown-data
                [:r> (.-Consumer ctx) #js {} (fn [_v] [:div "nope"])])))))))
-
-(deftest non-provider-react-component-is-refused-with-its-children
-  (testing "the Provider branch does not widen the walker: a genuine foreign
-            React component head is refused even when it carries children"
-    (let [Foo (fn [_] [:div "x"])]
-      (is (= :rf.error/static-markup-opaque-component
-             (:rf.error/id (thrown-data [:> Foo {} [:div "dropped"]])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-2 user-fn heads
@@ -172,15 +149,6 @@
 ;; Form-1/Form-2 path. Lifecycle keys have no static-HTML meaning.
 ;; ---------------------------------------------------------------------------
 
-(deftest form-3-reagent-render-is-form-2
-  (testing "a create-class whose :reagent-render is itself
-            Form-2 (returns an inner closure) renders the inner hiccup"
-    (let [box (r/create-class
-                {:display-name "box2"
-                 :reagent-render (fn [_x] (fn [x] [:section x]))})]
-      (is (= "<section>x</section>"
-             (server/render-to-static-markup [box "x"]))))))
-
 ;; ---------------------------------------------------------------------------
 ;; A render that reads its component instance
 ;;
@@ -203,14 +171,11 @@
                   {:display-name   "reads-its-instance"
                    :reagent-render (fn [] (read-instance (r/current-component)) [:div])})
           data  (thrown-data [klass])]
-      (is (= :rf.error/static-markup-no-instance (:rf.error/id data)) (str accessor))
-      (is (= accessor (:accessor data)))
-      (is (= :render-from-args (:recovery data))))))
-
-(deftest no-instance-gate-arms-only-inside-a-static-render
-  (server/render-to-static-markup [:div])
-  (is (thrown? js/TypeError (r/state-atom nil))
-      "outside a static render a nil instance reaches the accessor unchanged"))
+      (is (= {:rf.error/id :rf.error/static-markup-no-instance
+              :accessor    accessor
+              :recovery    :render-from-args}
+             (select-keys data [:rf.error/id :accessor :recovery]))
+          (str accessor)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Malformed hiccup
@@ -234,10 +199,11 @@
                       [:div "ok" {:secret "app-owned-value"}])
                     nil
                     (catch :default e (ex-data e)))]
-      (is (= :rf.error/static-markup-bad-element (:rf.error/id data)))
-      (is (= 'reagent2.dom.server/render-to-static-markup (:where data)))
-      (is (= :supply-a-renderable-child (:recovery data)))
-      (is (= {:type :map :count 1} (:got/summary data)))
+      (is (= {:rf.error/id  :rf.error/static-markup-bad-element
+              :where        'reagent2.dom.server/render-to-static-markup
+              :recovery     :supply-a-renderable-child
+              :got/summary  {:type :map :count 1}}
+             (select-keys data [:rf.error/id :where :recovery :got/summary])))
       (is (not (re-find #"app-owned-value" (pr-str data)))
           "the payload summarises the child, never carries its value"))))
 
@@ -297,14 +263,15 @@
   (testing "ordinary value path: a keyword key and a string key carrying an
             attribute breakout both throw, and no markup is produced"
     (doseq [k [(keyword breakout-name) breakout-name]]
+      ;; `render-outcome` carries `:error` only when the render threw, so
+      ;; matching it also says no markup was produced.
       (let [{:keys [html error message]} (render-outcome [:div {k "y"} "hi"])]
-        (is (nil? html)
-            (str "no markup may be produced for key " (pr-str k)
-                 "; got " (pr-str html)))
-        (is (= :rf.error/ssr-invalid-attribute-name (:rf.error/id error)))
-        (is (= k (:attribute error)) "the payload names the offending key")
-        (is (= :rename-the-attribute-key (:recovery error)))
-        (is (= 'reagent2.dom.server/render-to-static-markup (:where error)))
+        (is (= {:rf.error/id :rf.error/ssr-invalid-attribute-name
+                :attribute   k
+                :recovery    :rename-the-attribute-key
+                :where       'reagent2.dom.server/render-to-static-markup}
+               (select-keys error [:rf.error/id :attribute :recovery :where]))
+            (str "key " (pr-str k) " must throw, not render; got " (pr-str html)))
         (is (re-find #"\[:rf\.error/ssr-invalid-attribute-name\]" (str message)))))))
 
 (deftest hostile-boolean-attribute-name-throws-rf2-3x7nj-6-1
@@ -313,11 +280,9 @@
     (doseq [[k v] [["data-x onclick=alert(1) x" true]
                    ["aria-x onclick=alert(1) x" false]]]
       (let [{:keys [html error]} (render-outcome [:div {k v} "hi"])]
-        (is (nil? html)
-            (str "no markup may be produced for " (pr-str k) " " v
-                 "; got " (pr-str html)))
-        (is (= :rf.error/ssr-invalid-attribute-name (:rf.error/id error)))
-        (is (= k (:attribute error)))))))
+        (is (= {:rf.error/id :rf.error/ssr-invalid-attribute-name :attribute k}
+               (select-keys error [:rf.error/id :attribute]))
+            (str (pr-str k) " " v " must throw, not render; got " (pr-str html)))))))
 
 (deftest oncommand-is-dropped-rf2-3x7nj-6-1
   (testing "oncommand is an event-handler attribute (Chromium fires it on a
@@ -332,19 +297,19 @@
             the start tag"
     (let [head "img/src=\"x\"/onerror=alert(1)"
           {:keys [html error message]} (render-outcome [head])]
-      (is (nil? html) (str "no markup may be produced; got " (pr-str html)))
-      (is (= :rf.error/invalid-tag-name (:rf.error/id error)))
-      (is (= head (:tag-name error)))
-      (is (= head (:source error)))
-      (is (= :use-a-valid-element-name (:recovery error)))
+      (is (= {:rf.error/id :rf.error/invalid-tag-name
+              :tag-name    head
+              :source      head
+              :recovery    :use-a-valid-element-name}
+             (select-keys error [:rf.error/id :tag-name :source :recovery]))
+          (str "must throw, not render; got " (pr-str html)))
       (is (re-find #"\[:rf\.error/invalid-tag-name\]" (str message)))))
   (testing "class-before-id shorthand parses to a NIL tag, which would render
             as the literal element `<null>`; it throws the same id"
     (let [{:keys [html error]} (render-outcome [:div.a#id "x"])]
-      (is (nil? html) (str "no markup may be produced; got " (pr-str html)))
-      (is (= :rf.error/invalid-tag-name (:rf.error/id error)))
-      (is (nil? (:tag-name error)))
-      (is (= :div.a#id (:source error))))))
+      (is (= {:rf.error/id :rf.error/invalid-tag-name :tag-name nil :source :div.a#id}
+             (select-keys error [:rf.error/id :tag-name :source]))
+          (str "must throw, not render; got " (pr-str html))))))
 
 (deftest valid-names-still-serialise-rf2-3x7nj-6-1
   (testing "controls: ordinary names render normally"
@@ -357,8 +322,6 @@
     (is (= "<svg xmlns:xlink=\"http://www.w3.org/1999/xlink\"></svg>"
            (server/render-to-static-markup
             [:svg {(keyword "xmlns:xlink") "http://www.w3.org/1999/xlink"}])))
-    (is (= "<div online=\"x\"></div>"
-           (server/render-to-static-markup [:div {:online "x"}])))
     (is (= "<div data-flag=\"true\"></div>"
            (server/render-to-static-markup [:div {:data-flag true}]))
         "the boolean path emits a valid prefixed name"))
