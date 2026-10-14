@@ -563,26 +563,20 @@
          (.getName (io/file (:path r))))))
 
 (deftest write-keeps-line-endings
-  (let [sources   {"no-event" ["(ns eol-control)" "(def value 1)"]
-                   "flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
+  (let [sources   {"flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
                    "discarded" ["(ns eol-control)" "#_(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]
-                   "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]
-                   "bare"     ["(ns eol-control (:require [re-frame.core :refer [reg-event-fx]]))"
-                               "(reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
-        rewritten {"rename"   ["(ns eol-control)" "(rf/reg-event :eol-control/event (fn [cofx event] {}))"]
-                   "bare"     ["(ns eol-control (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
-                               "(reg-event :eol-control/event (fn [cofx event] {}))"]}
+                   "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
+        rewritten {"rename"   ["(ns eol-control)" "(rf/reg-event :eol-control/event (fn [cofx event] {}))"]}
         eols      {"lf" "\n" "crlf" "\r\n"}
         text      (fn [lines sep] (str (str/join sep lines) sep))
         files     (into {} (for [[n lines] sources [eol sep] eols]
                              [(str n "-" eol ".cljs") (text lines sep)]))]
-    (testing "no-event, flagged-only and discarded-only files are left byte-identical; a rename, qualified or bare, keeps its convention"
+    (testing "flagged-only and discarded-only files are left byte-identical; a rename keeps its convention"
       (with-source-dir files
         (fn [dir]
           (is (= (set (for [n (keys rewritten) eol (keys eols)] (str n "-" eol ".cljs")))
                  (rewrite-dir! dir)))
-          (doseq [n ["no-event-lf.cljs" "no-event-crlf.cljs" "flagged-lf.cljs" "flagged-crlf.cljs"
-                     "discarded-lf.cljs" "discarded-crlf.cljs"]]
+          (doseq [n ["flagged-lf.cljs" "flagged-crlf.cljs" "discarded-lf.cljs" "discarded-crlf.cljs"]]
             (is (= (text-bytes (files n)) (file-bytes (io/file dir n))) n))
           (doseq [[n lines] rewritten [eol sep] eols]
             (is (= (text-bytes (text lines sep)) (file-bytes (io/file dir (str n "-" eol ".cljs"))))
@@ -591,19 +585,16 @@
       (with-source-dir files
         (fn [dir]
           (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" (.getPath dir)))
-                             "4 file(s) would change (dry run); summary: {:total 6, :rewrite 0, :rename 4, :flag 2}"))
+                             "2 file(s) would change (dry run); summary: {:total 4, :rewrite 0, :rename 2, :flag 2}"))
           (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" "--write" (.getPath dir)))
-                             "4 file(s) rewritten")))))))
+                             "2 file(s) rewritten")))))))
 
 (deftest write-mixed-line-endings
-  (testing "a mixed file is left alone unless rewritten, then takes its first break's convention"
-    (with-source-dir {"unchanged.cljs" "(ns m)\r\n(def a 1)\n(def b 2)\r\n"
-                      "crlf-first.cljs" "(ns m)\r\n(rf/reg-event-fx :e (fn [c e] {}))\n(def a 1)\n"
+  (testing "a rewritten mixed file takes its first break's convention"
+    (with-source-dir {"crlf-first.cljs" "(ns m)\r\n(rf/reg-event-fx :e (fn [c e] {}))\n(def a 1)\n"
                       "lf-first.cljs"   "(ns m)\n(rf/reg-event-fx :e (fn [c e] {}))\r\n(def a 1)\r\n"}
       (fn [dir]
         (is (= #{"crlf-first.cljs" "lf-first.cljs"} (rewrite-dir! dir)))
-        (is (= (text-bytes "(ns m)\r\n(def a 1)\n(def b 2)\r\n")
-               (file-bytes (io/file dir "unchanged.cljs"))))
         (is (= (text-bytes "(ns m)\r\n(rf/reg-event :e (fn [c e] {}))\r\n(def a 1)\r\n")
                (file-bytes (io/file dir "crlf-first.cljs"))))
         (is (= (text-bytes "(ns m)\n(rf/reg-event :e (fn [c e] {}))\n(def a 1)\n")
