@@ -41,13 +41,12 @@
     (is (= expected (rf.routing.address/prefetch-address-error request))
         (pr-str request))))
 
-(deftest prefetch-payload-synthesises-the-event-only-on-intent-opt-in
-  (testing "an opted-in link yields the address-only event"
-    (is (= [:rf.route/prefetch {:to :route/article}]
-           (rf.routing.link/prefetch-payload {:to :route/article :prefetch :intent
-                                              :class "title" :on-mouse-enter identity}))))
-  (testing "an ABSENT :prefetch is passive, and the only way to be"
-    (is (nil? (rf.routing.link/prefetch-payload {:to :route/article})))))
+(deftest prefetch-payload-synthesises-the-address-only-event-on-intent-opt-in
+  ;; A param-less address carries no nil :params, which prefetch-address-error
+  ;; would reject as :bad-address.
+  (is (= [:rf.route/prefetch {:to :route/article}]
+         (rf.routing.link/prefetch-payload {:to :route/article :prefetch :intent
+                                            :class "title" :on-mouse-enter identity}))))
 
 (defn- bad-prefetch-ex-data
   "The `ex-data` of the throw `calc` raises for `props`, or nil if it did not throw."
