@@ -63,9 +63,9 @@ Those 2 mechanisms are not the same strength and the witness keeps them
 apart. The clone is the guarantee and does not depend on the render
 module behaving. The freeze is a diagnostic: a strict-mode module — any
 shadow-cljs output, any ES module — takes a `TypeError` at the write, while
-a sloppy-mode CommonJS module's write fails silently. Both cases are
-witnessed, the second by showing that the write reached nothing even
-though nothing threw.
+a sloppy-mode CommonJS module's write fails silently. The strict case is
+witnessed; the sloppy one is JavaScript's own behaviour once the snapshot
+is shown frozen.
 
 A shallow freeze is a deep freeze here by construction rather than by
 luck: every value in `state` is EDN text, and strings are immutable.
@@ -844,7 +844,7 @@ below: the changed-surface classifier, which is the repo's own answer to
 and nothing else.
 
 The suite drives the service against reference render modules under
-`test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing
+`test/fixtures/` — well-behaved, mutating, hanging, throwing
 (inside the call and escaping it), chunking, byte-hostile, leaky,
 null-returning and boot-flaky — because every guarantee here is a
 property of the service, and a fixture that misbehaves on purpose is the
@@ -869,29 +869,17 @@ suite would feel it. The observations used to ride the terminal frame,
 which is the egress described above — they were not deleted when it
 closed, because 4 of the 5 guarantees are witnessed through them.
 
-Every guard has a control beside it, and the controls are ordinary rows
-rather than a `--self-test` flag, so they cannot be skipped by anyone
-running the file the usual way. The reason the repo has already paid to
-learn: a green run against a fault that was never actually planted is a
-false proof of a real guard, which is worse than no proof. So the overlap
-counter is shown reading 2 before it is trusted reading 1; the byte
-comparison is shown moving under a re-encoding before it is trusted
-agreeing; the runaway render is shown still running after 400 ms before a
-200 ms refusal is called a termination; the egress scan is shown finding a
-planted leak — and the leaky fixture shown really returning one, and the
-null-returning fixture shown really returning `null` rather than drifting
-into falling off its end, and the throwing fixture shown really carrying a
-distinct sentinel on each of `code`, `message` and a nested `detail`, and
-the ESCAPING one's scheduled callback intercepted before it fires and shown
-really throwing that sentinel —
-before its zero is believed; and the absence scan is shown finding a
-planted reference before its zero is believed.
+The controls are ordinary rows rather than a `--self-test` flag, so they
+cannot be skipped by anyone running the file the usual way. The reason the
+repo has already paid to learn: a green run against a fault that was never
+actually planted is a false proof of a real guard, which is worse than no
+proof. So the runaway render is shown still running after 400 ms before a
+200 ms refusal is called a termination, and the absence scan is shown
+finding a planted reference before its zero is believed.
 
-The replacement-boot rows need two controls rather than one, and the second
-is the kind that is easy not to write. The first is the ordinary one: the
-flaky fixture is shown really refusing to boot, carrying its sentinel and
-its spoofed `code`. The second is about the SCENARIO rather than the
-fixture — every claim in that section is about what a *waiting* caller
+The replacement-boot rows carry a control about the SCENARIO rather than
+the fixture, and it is the kind that is easy not to write: every claim in
+that section is about what a *waiting* caller
 receives, so a run in which nobody happened to be queued, or in which the
 pool never tried to replace anything, would be green about a path it never
 took. Both facts are read off the service's own counters (`waiting`, and
@@ -953,12 +941,12 @@ strength:
   move Reading 1 made under `rf2-6ovv`, not a second and softer one.
   Nothing was forgiven to achieve it: there is no allowance list, no path
   or string is named as an exception, and the needles were not widened by
-  a character. The control plants a real `:source-paths` entry and a real
-  `:local/root` coordinate and requires both to be found, plants a comment
-  naming the package and requires it not to be, and then requires that
-  comment fixture to carry both needles — so the scoped scan is shown
-  walking past text a raw scan does hit, rather than passing on an empty
-  fixture. The row also fails closed on its own instrument: each config
+  a character. The loader-position control plants a real `:source-paths`
+  entry, a `:local/root` coordinate, a `:deps` coordinate and a `:paths`
+  entry, each beside a Markdown copy of the same text, and requires each
+  planted fault to be found and no Markdown copy to be — so the scoped scan
+  is shown walking past text a raw scan does hit. The row also fails
+  closed on its own instrument: each config
   must exist and must yield at least one loader position, so a missing,
   unparseable or key-less file is not a clean scan. That is what this row
   adds over Reading 1's repo-wide sweep, which cannot speak for a config
@@ -971,8 +959,9 @@ strength:
   inside this tree, so it contributes nothing to `implementation/package.json`
   and nothing to any consumer's closure
 
-Each of the 3 is paired with a row that plants exactly that fault in a
-scratch directory and requires the scan to find it. The first of those
+Each of the 3 has a control row that plants exactly that fault in a
+scratch directory and requires the scan to find it; Readings 1 and 2 share
+the loader-position one. The first of those
 controls earned its keep immediately: a bare `ssr-node` substring scan
 reported the SSR spike driver, whose header explains at length that it
 deliberately did not mint a `:fresco-ssr-node` build id.
