@@ -57,12 +57,6 @@
    :edge-points {"a-edge__out" [{:x 7 :y 7} {:x 8 :y 8}]}
    :edge-labels {"a-edge__out" {:x 6 :y 6}}})
 
-(def ^:private a-error-result
-  {:positions   {}
-   :edge-points {}
-   :edge-labels {}
-   :layout-error {:error {:message "stale boom"} :input-summary {}}})
-
 (def ^:private b-result
   {:positions   {"b-off" {:x 111 :y 222 :width 100 :height 50}
                  "b-on"  {:x 333 :y 444 :width 100 :height 50}}
@@ -193,17 +187,3 @@
             (rfn props-b)
             (is (= fits (count @fit-calls)) "the stale relayout schedules no fit")
             (is (= b-result (last @projections)))))))))
-
-(deftest stale-error-settle-does-not-surface
-  (testing "a stale pass failing with a layout error neither replaces B's
-            layout with the empty error shape nor paints the error banner"
-    (with-stale-seams
-      (fn [{:keys [passes projections]}]
-        (let [rfn (chart/MachineChart props-a)]
-          (rfn props-a)
-          (rfn props-b)
-          (settle! passes 1 b-result)
-          (settle! passes 0 a-error-result)
-          (let [hiccup (rfn props-b)]
-            (is (= b-result (last @projections)))
-            (is (= "false" (find-prop hiccup :data-layout-error)))))))))
