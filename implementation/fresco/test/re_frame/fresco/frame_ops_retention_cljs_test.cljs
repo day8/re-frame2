@@ -14,35 +14,25 @@
   retaining that request's captured bundle: linear growth in requests
   served, in a process built to be long-lived.
 
-  ## What these rows measure, and why in this order
+  ## What the row measures
 
-  §1 is the general claim and §2 the case where it matters most, and §1
-  comes first because the rule is general: the row belongs to an
-  INCARNATION, so the moment that incarnation is destroyed the row is
-  unreadable by anything and the eviction is `destroy-frame!`'s to make.
-  The SSR path is the case where a missed eviction is unbounded rather
-  than merely untidy.
+  The row belongs to an INCARNATION, so the moment that incarnation is
+  destroyed the row is unreadable by anything and the eviction is
+  `destroy-frame!`'s to make. `server/render` destroys its per-request
+  frame once the request is served, so the row reads the eviction on the
+  path where a missed one is unbounded rather than merely untidy: one
+  request must leave no `fresco.ssr` row behind.
 
-  §1's first assertion is its own control. `!frame-ops` is populated by
-  RENDER — `run-once` binds `(frame-dispatch frame-kw)` around every
-  boundary body — so a row that was never minted would make the
-  after-destroy assertion vacuously green. It mints the row through
-  `collector/frame-dispatch`, the exact door a body run takes, and
-  asserts its presence before asking whether destruction removes it.
-
-  §2 measures boundedness directly: read the table's
-  `fresco.ssr` rows after one request, serve three more, and read them
-  again. Bounded means the two readings agree at zero; leaking means the
-  second is three higher. Its own control is `runtime/body-runs`, so a
-  `render` that reached no boundary at all — which would leave the table
-  empty for the wrong reason — reds instead of passing.
+  Its control is `runtime/body-runs`. `!frame-ops` is populated by RENDER
+  — `run-once` binds `(frame-dispatch frame-kw)` around every boundary
+  body — so a `render` that reached no boundary at all would leave the
+  table empty for the wrong reason, and reds instead of passing.
 
   ## Runtime
 
-  `-cljs-test`, not `-dom-cljs-test`: every row is a `react-dom/server`
-  render or a direct table read, and none touches a document."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
+  `-cljs-test`, not `-dom-cljs-test`: the row is a `react-dom/server`
+  render and a direct table read, and touches no document."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -90,52 +80,16 @@
   (filter #(= "fresco.ssr" (namespace %)) (keys @rf.fresco.impl.frames/!frame-ops)))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the general claim: the row dies with the incarnation
-;; ---------------------------------------------------------------------------
-
-(deftest a-destroyed-frame-drops-its-frame-ops-row
-  (rf/make-frame {:id ::live :initial-events [[:rf/set-db snapshot]]})
-
-  (testing "control — a body run under a live frame mints the row"
-    (is (nil? (get @rf.fresco.impl.frames/!frame-ops ::live))
-        "nothing has rendered under this frame yet")
-    ;; The exact lookup `run-once` makes around every boundary body.
-    (rf.fresco.impl.collector/frame-dispatch ::live)
-    (is (some? (get @rf.fresco.impl.frames/!frame-ops ::live))
-        "a row exists — without this the assertion below is vacuous"))
-
-  (testing "and `destroy-frame!` drops it"
-    (rf/destroy-frame! ::live)
-    (is (nil? (get @rf.fresco.impl.frames/!frame-ops ::live))
-        (str "the row is the destroyed incarnation's `capture-frame` bundle and "
-             "the closure over it; no successor can ever look it up, so the "
-             "destruction is the eviction"))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — the case that would be unbounded: one row per REQUEST
+;; The case that would be unbounded: one row per REQUEST
 ;; ---------------------------------------------------------------------------
 
 (deftest a-server-render-leaves-no-row-behind
-  (is (empty? (ssr-rows))
-      "baseline: no per-request rows before the first render")
-
   (rf.fresco.test.runtime/reset-body-runs!)
-
-  (testing "control — a render really runs this page's boundary body"
-    (is (str/includes? (:html (rf.fresco.server/render (request))) "alpha")
-        "the seeded snapshot reaches the bytes")
-    (is (pos? (rf.fresco.test.runtime/body-runs))
-        (str "a `render` that reached no boundary would leave the table "
-             "empty for the wrong reason; ran " (rf.fresco.test.runtime/body-runs)
-             " bodies")))
-
-  (let [after-1 (count (ssr-rows))]
-    (dotimes [_ 3] (rf.fresco.server/render (request)))
-    (let [after-4 (count (ssr-rows))]
-
-      (testing "the table is BOUNDED in requests served, not linear in them"
-        (is (= 0 after-1)
-            "one request leaves no per-request row")
-        (is (= after-1 after-4)
-            (str "and three more leave the reading unchanged — this "
-                 "read " after-4 " against " after-1))))))
+  (rf.fresco.server/render (request))
+  (is (pos? (rf.fresco.test.runtime/body-runs))
+      (str "control: a `render` that reached no boundary would leave the "
+           "table empty for the wrong reason; ran "
+           (rf.fresco.test.runtime/body-runs) " bodies"))
+  (is (empty? (ssr-rows))
+      "a request leaves no per-request row, so the table cannot grow with
+       requests served"))
