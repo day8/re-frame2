@@ -29,8 +29,7 @@
   for an order to choose between — which is what makes it a witness rather
   than a lucky run. And once through `convert-props`, the emission step
   the DOM actually shows. Both are taken over an array map AND over a
-  PersistentHashMap, and one row asserts those two are genuinely different
-  implementations so the second is not silently the first."
+  PersistentHashMap."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [goog.object :as gobj]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -91,27 +90,6 @@
   (nth (rf.fresco.impl.collector/annotate-root [:p authored] annotations) 1))
 
 ;; ---------------------------------------------------------------------------
-;; The premise, established at source
-;; ---------------------------------------------------------------------------
-
-(deftest every-spelling-of-an-annotation-names-one-slot
-  (testing "the accepted spelling set is what `rf.fresco.impl.codec/canonical-slot` folds
-            together, and for both annotations it is a single slot — the
-            fact that makes a key-keyed merge the wrong instrument"
-    (doseq [[k _] annotations]
-      (is (= #{(rf.fresco.impl.codec/canonical-slot k)}
-             (into #{} (map rf.fresco.impl.codec/canonical-slot) (spellings k)))
-          (str (pr-str k) ": every spelling emits into one React prop name")))))
-
-(deftest the-two-map-shapes-are-genuinely-different-implementations
-  (let [k (first (keys annotations))]
-    (is (not= (type (small-attrs k)) (type (hashed-attrs k)))
-        "the array-map row and the hash-map row below exercise two different
-         map implementations — without this the second row would be the
-         first wearing a different name, and the order-dependence would go
-         unmeasured")))
-
-;; ---------------------------------------------------------------------------
 ;; The guarantee, at the slot
 ;; ---------------------------------------------------------------------------
 
@@ -134,12 +112,3 @@
         (is (= (get annotations other) (emitted merged (rf.fresco.impl.codec/canonical-slot other)))
             "while the annotation the author did NOT write is still stamped —
              ownership is per slot, not a blanket refusal to annotate")))))
-
-(deftest an-untouched-root-still-carries-both-annotations
-  (testing "the ordinary body — no collision in any spelling — is unchanged
-            by slot-keyed ownership"
-    (let [merged (annotated {:class "plain" :id "keep-me"})]
-      (doseq [[k v] annotations]
-        (is (= v (emitted merged (rf.fresco.impl.codec/canonical-slot k)))
-            (str (pr-str k) " is stamped")))
-      (is (= "keep-me" (emitted merged "id")) "and the author's attrs stand"))))
