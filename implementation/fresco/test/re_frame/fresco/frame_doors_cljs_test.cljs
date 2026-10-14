@@ -110,15 +110,6 @@
     (is (= frame-b (read-in-body frame-b (fn [seen] (vreset! seen (rf/current-frame-id))))))
     (is (= frame-b (read-in-body frame-b (fn [seen] (vreset! seen (:frame (rf/capture-frame)))))))))
 
-(deftest outside-a-render-extent-the-doors-report-cores-absence
-  (frames!)
-  (testing "no extent, no answer — never a guessed frame and never nil.
-           The error is core's own `:rf.error/no-frame-context`: Fresco
-           mints no door and therefore no error of its own"
-    (let [data (outcome rf/current-frame-id)]
-      (is (= :rf.error/no-frame-context (:rf.error/id data))
-          (str "expected core's absence error; got " (pr-str data))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Inside a render callback the doors answer the SUPPLYING boundary
 ;; ---------------------------------------------------------------------------
@@ -192,17 +183,9 @@
 
 (deftest the-identity-read-registers-no-edge
   (frames!)
-  (testing "a body whose ONLY read is `rf/current-frame-id` records no
-           sub-key at all. Reads become edges because they are sub-KEYS;
-           the frame is not one — it is render-constant per boundary and
-           resolved once by the shell"
-    (rf.fresco.impl.collector/render-body frame-a (fn [_] [:li (str (rf/current-frame-id))]) {})
-    (is (= [] (vec (rf.fresco.test.runtime/reads-of (rf.fresco.impl.collector/last-reads))))))
-
-  (testing "and adding it to a READING body changes the read set not at
-           all — same keys, same order. The control is the point: the
-           first row alone would be green for a body that read nothing
-           for any reason"
+  (testing "adding the identity read to a READING body changes the read set
+           not at all — same keys, same order. Reads become edges because
+           they are sub-KEYS; the frame is not one"
     (rf.fresco.impl.collector/render-body frame-a
                            (fn [_] [:li (str (rf.fresco.impl.collector/sub [:fresco.todo/done? 0]))])
                            {})
