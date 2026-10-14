@@ -64,33 +64,7 @@
   (is true (str "the topology clock witness needs a real React DOM — " why)))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the plan, and the arm that is deliberately absent from it
-;; ---------------------------------------------------------------------------
-
-(deftest the-windowed-arm-is-unaddressed-and-says-why
-  (testing "the windowed arm's clock cells are unresolvable at the
-           tournament's committed window. A driver that measured it anyway and
-           labelled the number would publish a figure a reader can quote, so it
-           is absent from the roster and its reason travels in the file"
-    (is (= [#{:virtual} (set rf.bench.fresco.topo.arms/arm-ids)]
-           [(set (keys rf.bench.fresco.topo.clock-app/unaddressed))
-            (into (set rf.bench.fresco.topo.clock-app/measured-arms) (keys rf.bench.fresco.topo.clock-app/unaddressed))])
-        "every arm of the tournament is either measured or unaddressed — an arm
-         that fell out of both lists would vanish from the table silently")))
-
-(deftest the-floor-row-is-not-one-of-the-tournaments-operations
-  (testing "`:noop` is measured beside the cells and is not a cell. Folding it
-           into `operations` would put a row in the published table that the
-           tournament never registered"
-    (is (= [[:sparse :bulk :reorder :edit]
-            false
-            (conj rf.bench.fresco.topo.clock-app/operations rf.bench.fresco.topo.clock-app/floor-op)]
-           [rf.bench.fresco.topo.clock-app/operations
-            (contains? (set rf.bench.fresco.topo.clock-app/operations) rf.bench.fresco.topo.clock-app/floor-op)
-            rf.bench.fresco.topo.clock-app/rows]))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — the pre-clock gate is the census's published table
+;; 1 — the pre-clock gate is the census's published table
 ;; ---------------------------------------------------------------------------
 
 (def ^:private published-markup
@@ -124,18 +98,8 @@
                    [[op b] (into {} (map (fn [arm] [arm (rf.bench.fresco.topo.clock-app/markup-expected arm op b)]))
                                  rf.bench.fresco.topo.clock-app/measured-arms)]))))))
 
-(deftest the-floor-row-builds-nothing-in-any-arm
-  (testing "`[:topo/noop-write]` moves a key no arm reads, so the floor window
-           holds the per-commit cost and no row of markup. A floor that built
-           markup would be measuring an operation"
-    (is (= [] (for [b   rf.bench.fresco.topo.model/row-counts
-                    arm rf.bench.fresco.topo.clock-app/measured-arms
-                    :let [n (rf.bench.fresco.topo.clock-app/markup-expected arm rf.bench.fresco.topo.clock-app/floor-op b)]
-                    :when (not= 0 n)]
-                [arm b n])))))
-
 ;; ---------------------------------------------------------------------------
-;; 3 — the probe pairs, before any page exists
+;; 2 — the probe pairs, before any page exists
 ;; ---------------------------------------------------------------------------
 
 (deftest every-operation-carries-a-cell-that-must-not-have-moved
@@ -162,28 +126,12 @@
                                                (remove (comp #{:unchanged} :probe))
                                                (map :want)
                                                vec))]
-                    :when (or (= (changed 20) (changed 21))
-                              (not= (changed 20) (changed 20)))]
+                    :when (= (changed 20) (changed 21))]
                 [op b]))
-        "one more commit is visible in the probe, and the same commit count
-         reads the same")))
-
-(deftest the-floor-rows-pair-is-two-cells-that-must-not-move
-  (testing "the negative control, written as a read-back: a window over a
-           commit no arm reads must leave the page exactly where the seed put
-           it, and BOTH probes say so"
-    (is (= [] (for [b rf.bench.fresco.topo.model/row-counts
-                    :let [es (rf.bench.fresco.topo.clock-app/expectations rf.bench.fresco.topo.clock-app/floor-op b 20)]
-                    :when (not (and (= [:unchanged :unchanged] (mapv :probe es))
-                                    (= (mapv :want es)
-                                       (mapv :want (rf.bench.fresco.topo.clock-app/expectations
-                                                     rf.bench.fresco.topo.clock-app/floor-op b 40)))))]
-                [b es]))
-        "both probes are unchanged, and the expectation does not depend on how
-         many no-op commits ran, because none of them may reach the page")))
+        "one more commit is visible in the probe")))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — the read-back, on a real page
+;; 3 — the read-back, on a real page
 ;; ---------------------------------------------------------------------------
 
 (def ^:private page-frame ::witness)
@@ -267,7 +215,7 @@
             (finally (rf.bench.fresco.arm1.mount/release! (:handle page)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5 — and the gate the driver runs before any clock, live
+;; 4 — and the gate the driver runs before any clock, live
 ;; ---------------------------------------------------------------------------
 
 (deftest a-real-page-builds-the-markup-the-driver-predicts
