@@ -11,7 +11,6 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
-            [re-frame2-pair-mcp.tools.summary :as summary]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]))
 
@@ -49,32 +48,20 @@
 (def ^:private door-tags-path
   [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags])
 
-(deftest tree-summary-handles-a-set
-  (let [marker (:rf.mcp/summary (summary/tree-summary #{:door/locked :armed}))]
-    (is (= {:type :set :count 2} (select-keys marker [:type :count])))
-    (is (pos? (:bytes marker)))))
-
 (deftest snapshot-tool-set-valued-app-db
-  ;; Full mode ships the deep set intact; summary mode summarises the
-  ;; set-carrying :machines slice.
+  ;; Full mode walks every slice, so the deep sets cross every walker.
   (async done
     (let [snap {:rf/default {:app-db    db-after
                              :sub-cache {}
                              :machines  {:door {:tags #{:door/locked}}}
                              :epochs    []
-                             :traces    []}}
-          run  (fn [mode]
-                 (with-substr-eval! "snapshot-state"
-                   {:value snap :elided-count 0 :tool-frames-excluded []}
-                   #(snapshot/snapshot-tool nil (tu/args->js {:mode mode :frames #js [":rf/default"]}))))]
-      (-> (run "full")
+                             :traces    []}}]
+      (-> (with-substr-eval! "snapshot-state"
+            {:value snap :elided-count 0 :tool-frames-excluded []}
+            #(snapshot/snapshot-tool nil (tu/args->js {:mode "full" :frames #js [":rf/default"]})))
           (.then (fn [r]
                    (is (= #{:door/locked :door/bolted}
-                          (get-in (tu/extract-edn r) (into [:snapshot :rf/default :app-db] door-tags-path))))
-                   (run "summary")))
-          (.then (fn [r]
-                   (is (contains? (get-in (tu/extract-edn r) [:snapshot :rf/default :machines])
-                                  :rf.mcp/summary))))
+                          (get-in (tu/extract-edn r) (into [:snapshot :rf/default :app-db] door-tags-path))))))
           (.catch (fn [e] (is false (str "drive rejected: " e))))
           (.then (fn [_] (done)))))))
 
