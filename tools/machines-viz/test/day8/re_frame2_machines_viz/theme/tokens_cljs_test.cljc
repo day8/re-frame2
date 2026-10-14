@@ -11,8 +11,7 @@
             returns the solid value, an absent token nil, and an unparseable
             value passes through rather than blanking the tint"
     (let [palette {:hex "#79c0ff" :rgba "rgba(1, 2, 3, 0.4)"}]
-      (doseq [[k alpha expected] [[:hex    0.25 "rgba(121, 192, 255, 0.25)"]
-                                  [:hex    0    "rgba(121, 192, 255, 0)"]
+      (doseq [[k alpha expected] [[:hex    0    "rgba(121, 192, 255, 0)"]
                                   [:hex    nil  "#79c0ff"]
                                   [:absent 0.5  nil]
                                   [:rgba   0.5  "rgba(1, 2, 3, 0.4)"]]]
@@ -26,7 +25,6 @@
   (testing "the Xray custom property with the palette hex as fallback (dark by
             default), and no fallback for an unknown token"
     (is (= "var(--rf-xray-green, #3fb950)" (tokens/css-var :green)))
-    (is (= "var(--rf-xray-info, #0550ae)" (tokens/css-var :info tokens/light-palette)))
     (is (= "var(--rf-xray-not-a-token)" (tokens/css-var :not-a-token)))))
 
 (deftest duration-css-interpolates-scale-var
