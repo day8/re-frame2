@@ -348,10 +348,9 @@
   from the session identity seeded here, a session-scoped owner, and a no-op
   managed-HTTP fx so `ensure` emits its rows without a request leaving the box.
 
-  `fx/reg-fx` rather than the `rf/reg-fx` macro: the macro stamps this ns as a
-  second provenance under `:rf.http/managed`, the frame's default-image
-  reprojection then dies on `:rf.error/image-duplicate-id` (swallowed), and
-  every `ensure` throws `:rf.error/resource-not-registered`."
+  `fx/reg-fx` rather than the `rf/reg-fx` macro: the plain fn replaces the
+  framework's own `:rf.http/managed` registration in place, where the macro
+  would stamp this ns as a second provenance beside it."
   [frame-id]
   (rf.frame/swap-frame-db! frame-id assoc-in [:auth :user :username] secret-password)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))

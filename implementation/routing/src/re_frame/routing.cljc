@@ -184,12 +184,12 @@
 ;;
 ;; The marker is what makes that recipe work. The framework seeds these through
 ;; the internal `rf.events/reg-event` path, so the source store records them with
-;; NO `:rf.provenance/ns`; without the marker the default image would select
-;; BOTH the framework copy and the app's provenanced registration, and image
-;; assembly would refuse to let selection order decide
-;; (`:rf.error/image-duplicate-id`). Image assembly reads the marker and stops projecting the
-;; framework's own copy into the app layer exactly when the app has registered
-;; one — see `re-frame.image-assembly/superseded-framework-default-keys`.
+;; NO `:rf.provenance/ns`; without the marker a frame would see BOTH the
+;; framework copy and the app's provenanced registration and refuse to let load
+;; order decide (`:rf.error/ambiguous-registration` at use on a frame made
+;; without `:images`, `:rf.error/image-duplicate-id` from image assembly). Both
+;; read the marker and drop the framework's own copy exactly when the app has
+;; registered one — see `re-frame.image-assembly/framework-default-descriptor?`.
 (def ^:private framework-default-meta
   (assoc framework-authority-meta :rf/framework-default? true))
 

@@ -226,9 +226,9 @@
 
 (defn- seal-frame!
   "Build one of the app's frames and return its id, AFTER `register-app!` — the
-  order an application loads in. Were the default image to select both the
-  app's provenanced `:rf.route/entry-denied` and the framework's no-provenance
-  default, this `rf/make-frame` would throw `:rf.error/image-duplicate-id`."
+  order an application loads in. Were the frame to resolve both the app's
+  provenanced `:rf.route/entry-denied` and the framework's no-provenance
+  default, a denial would raise `:rf.error/ambiguous-registration`."
   ([] (seal-frame! {}))
   ([{:keys [frame-id platform url-bound?]}]
    (let [id (or frame-id app-frame-id)]

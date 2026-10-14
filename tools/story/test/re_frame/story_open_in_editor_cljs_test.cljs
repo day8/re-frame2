@@ -216,9 +216,9 @@
 ;;
 ;; The tests capture the fx args through a per-frame `:fx-overrides` fn value,
 ;; never a second `rf/reg-fx`: a test-namespace registration would leave the
-;; fx id claimed by two namespaces in the source store, and the next
-;; `rf/make-frame` anywhere would fail image assembly with
-;; `:rf.error/image-duplicate-id`. A fn-value override runs without a registry
+;; fx id claimed by two namespaces in the source store, ambiguous for every
+;; frame made without `:images` (`:rf.error/ambiguous-registration`). A
+;; fn-value override runs without a registry
 ;; lookup of the id it shadows, so `assert-production-registration!` is the
 ;; positive control and `production-fx-navigates-without-any-override` drives
 ;; the real effect end to end.

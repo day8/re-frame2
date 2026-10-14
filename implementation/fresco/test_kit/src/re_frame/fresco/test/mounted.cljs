@@ -851,9 +851,10 @@
                        non-empty vector of `rf/image` values, the later
                        image winning a `[kind id]` both define. Core's own
                        `rf/make-frame` option, passed as given; omit it
-                       for the default image, the whole source store,
-                       which refuses a `[kind id]` registered from two
-                       namespaces (`:rf.error/image-duplicate-id`).
+                       and the frame resolves the whole source store live,
+                       where a `[kind id]` registered from two namespaces
+                       is ambiguous (`:rf.error/ambiguous-registration`
+                       where it is used).
                        Disjoint ordered images are how an application
                        that deliberately overrides a library registration
                        mounts.

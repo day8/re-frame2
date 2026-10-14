@@ -187,12 +187,13 @@
 ;; (`:rf/framework-default? true`): an app declares its carriers by
 ;; re-registering it through the public `rf/reg-fx` macro (## HTTP carriers,
 ;; above). The macro records the app's namespace while this fn-form
-;; registration records none, so without the marker the default image would
-;; hold two descriptors for the id and every `rf/make-frame {}` would fail
-;; `:rf.error/image-duplicate-id`. With it, image assembly stops projecting
-;; this copy once the app has registered its own — see
-;; `re-frame.image-assembly/superseded-framework-default-keys`. Two app
-;; registrations of the id still collide.
+;; registration records none, so without the marker a frame made without
+;; `:images` would find two registrations of the id and raise
+;; `:rf.error/ambiguous-registration` wherever it is used, and an image
+;; selecting both would fail `:rf.error/image-duplicate-id`. With it, this
+;; copy gives way once the app has registered its own — see
+;; `re-frame.image-assembly/framework-default-descriptor?`. Two app
+;; registrations of the id are still ambiguous.
 
 (rf.fx/reg-fx :rf.http/managed
            {:doc                   "Spec 014 — managed HTTP request."
