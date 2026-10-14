@@ -774,8 +774,9 @@ Spec: [`003-Machine-Inspector.md`](./003-Machine-Inspector.md). Master-detail
 browse over the registered machines plus a per-machine sub-strip
 (`:topology` / `:sim` / `:instances` / `:cascade`). The composites reuse
 the Machine inspector's `:rf.xray/registered-machines`,
-`:rf.xray/machine-definitions` and `:rf.xray/machine-snapshots` rather
-than re-reading the registrar.
+`:rf.xray/machine-definitions` and `:rf.xray/machine-snapshots`; only
+`source-coords` reads the registrar itself, for the call-site coord that
+lives on each registration's metadata rather than on its spec.
 
 | Id | Kind | Behaviour |
 |---|---|---|
@@ -784,6 +785,7 @@ than re-reading the registrar.
 | `:rf.xray.static.machines/sort-key` | sub | One of `:name` / `:states` / `:live`; default `:name`. |
 | `:rf.xray.static.machines/sub-mode-by-id` | sub | `{machine-id sub-mode}`; `{}` when unset. |
 | `:rf.xray.static.machines/sub-mode` | sub | `[_ machine-id]` — that machine's effective sub-mode; default `:topology`. |
+| `:rf.xray.static.machines/source-coords` | sub | `{machine-id coord}` — each registered machine's `reg-machine` call-site `:file` / `:line` / `:column` / `:ns`, read off its registration metadata; machines with no `:file` are absent. |
 | `:rf.xray.static.machines/data` | sub | Browse-list composite — rows filtered by `search`, ordered by `sort-key`, marked with `selected-id`. |
 | `:rf.xray.static.machines/copy-mermaid-status` | sub | `[_ machine-id]` — `:copied` / `:failed` for **that** machine only, else `nil`. `:pending` also reads `nil`, so an in-flight write never renders as a completed copy (rf2-sxw06). |
 | `:rf.xray.static.machines/select` | event | `[_ machine-id]` — sets the selection, clears any Copy-Mermaid feedback, and fires `persist-selection`. |

@@ -171,6 +171,7 @@
    :rf.xray.static.machines/search
    :rf.xray.static.machines/selected-id
    :rf.xray.static.machines/sort-key
+   :rf.xray.static.machines/source-coords
    :rf.xray.static.machines/sub-mode
    :rf.xray.static.machines/sub-mode-by-id
    :rf.xray/panel-width-px
