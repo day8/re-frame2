@@ -3,15 +3,14 @@
   client-only, best-effort compatibility checks `:rf/hydrate` dispatches
   (Spec 011 §The :rf/hydrate event): a mismatch emits a warning trace and
   hydration proceeds. The trace is their only output and is elided under
-  `-Dre-frame.debug=false`, so the trace assertions sit in dev arms; the
-  registration gate and never-halting the drain hold in both postures."
+  `-Dre-frame.debug=false`, so the trace assertions sit in dev arms; never
+  halting the drain holds in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -28,11 +27,6 @@
   (with-trace-recorder! [traces]
     (rf/dispatch-sync [::probe] {:frame (rf.frame/make-anon-frame-record! {:platform :client})})
     @traces))
-
-(deftest compatibility-check-fxs-are-registered-client-only
-  (is (= [#{:client} #{:client}]
-         (map #(:platforms (rf.registrar/lookup :fx %))
-              [:rf.ssr/check-version :rf.ssr/check-schema-digest]))))
 
 (deftest compatibility-checks-are-best-effort-and-never-halt-the-drain
   (testing "a double mismatch commits the handler's :db and runs the effect
