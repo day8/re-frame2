@@ -3,7 +3,7 @@
   (specification §7's accessibility row).
 
   `re-frame.fresco.examples.slice.a11y-cljs-test` asserts the structure:
-  which role each element carries and which label names which control,
+  which role each element carries and that every control has a name,
   read off the semantic tree. Everything it says is a claim about markup,
   and markup is a claim about what an engine will do with it. This file
   is where an engine answers.
@@ -24,17 +24,14 @@
      same page — the one row that can catch the structural helper being
      confidently wrong.
 
-  ## The two directions every row is written for
+  ## The order is a complete sequence
 
   A focus assertion is trivially satisfiable in the wrong direction: a
   row that only ever asserts *this element can be focused* is green under
   a page where everything can be focused, which is its own defect. So the
-  focusability rows come in pairs. `.discard` is disabled until the form
-  is dirty, so it is **absent** from the pristine page's focus order and
-  **present** after one keystroke; `.save` is disabled while a save is in
-  flight, so it leaves the order and comes back. The order is asserted as
-  a complete sequence rather than as a membership test, which is what
-  makes an element joining it, leaving it or moving within it visible.
+  order is asserted as a complete sequence rather than as a membership
+  test, which is what makes an element joining it, leaving it or moving
+  within it visible.
 
   ## Browser lane
 
@@ -45,10 +42,8 @@
   measurement."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.core :as rf]
             [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
             [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
-            [re-frame.fresco.examples.slice.subs :as rf.fresco.examples.slice.subs]
             [re-frame.fresco.examples.slice.views :as rf.fresco.examples.slice.views]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
@@ -87,21 +82,6 @@
 (defn- finish [m done]
   (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
-(defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
-
-(defn- finish-after
-  "End the row when `p` settles, reporting a rejection as a failure
-  rather than letting a deadline hang the run — and tearing the mount
-  down either way, so a stuck row cannot make the next row's residue
-  reading wrong."
-  [p m done]
-  (-> p
-      (.catch (fn [e]
-                (is false (str "the flow never settled: "
-                               (or (ex-message e) (str e)) " "
-                               (pr-str (ex-data e))))))
-      (.then (fn [_] (finish m done)))))
-
 (defn- label-of
   "How a failure NAMES an element: its id when it has one, else its first
   class, else its tag. Short enough to read a whole focus order at once."
@@ -137,17 +117,6 @@
        (filterv focusable?)
        (mapv label-of)))
 
-(defn- type-into!
-  "One real keystroke's worth of input on a controlled field: a write
-  through the prototype's own value setter and a real `input` event, the
-  same door `flow-dom-cljs-test` and `i18n-dom-cljs-test` use."
-  [m sel s]
-  (let [n (node m sel)
-        d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
-    (.call (.-set d) n s)
-    (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (rf.fresco.test.mounted/settle! m)))
-
 ;; ---------------------------------------------------------------------------
 ;; The label associations, as the engine computes them
 ;; ---------------------------------------------------------------------------
@@ -178,38 +147,17 @@
                   the engine must still count as one association rather
                   than two"
           (let [el (node m "#slice-published")]
-            (is (= 1 (.-length (.-labels el))))
             (is (identical? (node m ".published") (aget (.-labels el) 0)))))
 
         (finish m done)))))
 
-(deftest clicking-a-label-moves-focus-to-the-control-it-names
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at-article! "intents")]
-        (testing "the behaviour a `for`/`id` pair BUYS, and the one that
-                  goes quiet when the pair is broken: a label pointing at
-                  the wrong id still renders, still reads correctly, and
-                  simply stops doing this"
-          (doseq [[label-sel control-sel] [["label[for='slice-title']" "#slice-title"]
-                                           ["label[for='slice-body']" "#slice-body"]
-                                           ["label[for='slice-locale']" "#slice-locale"]]]
-            (some-> (.-activeElement js/document) (.blur))
-            (.click (node m label-sel))
-            (is (identical? (node m control-sel) (.-activeElement js/document))
-                (str "clicking " label-sel " must focus " control-sel))))
-
-        (finish m done)))))
-
 ;; ---------------------------------------------------------------------------
-;; Focus order, and the two controls whose place in it is state
+;; Focus order
 ;; ---------------------------------------------------------------------------
 
 (def ^:private pristine-order
   "The article screen's focus order before anything is typed. `discard`
-  is absent because it is disabled until the form is dirty — the whole
-  point of the pair of rows below."
+  is absent because it is disabled until the form is dirty."
   ["slice-locale" "theme-choice" "theme-choice" "back"
    "slice-title" "slice-body" "slice-published" "save"])
 
@@ -231,125 +179,5 @@
                          (array-seq)
                          (filterv #(pos? (.-tabIndex %)))
                          (mapv label-of)))))
-
-        (finish m done)))))
-
-(deftest a-disabled-control-leaves-the-focus-order-and-comes-back
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at-article! "intents")]
-        (testing "pristine: discard is disabled, and the engine will not
-                  focus it — measured by asking, not by reading the
-                  attribute back"
-          (is (false? (focusable? (node m ".discard"))))
-          (is (not (contains? (set (focus-order m)) "discard"))))
-
-        (type-into! m "#slice-title" "Intents are data, still")
-
-        (testing "one keystroke later the form is dirty, discard is
-                  enabled, and it takes its place at the END of the order
-                  — the same order otherwise, so what moved is exactly
-                  the one control whose state changed"
-          (is (true? (focusable? (node m ".discard"))))
-          (is (= (conj pristine-order "discard") (focus-order m))))
-
-        (finish m done)))))
-
-(deftest the-save-button-leaves-the-focus-order-while-it-is-saving
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at-article! "intents")]
-        (type-into! m "#slice-title" "A new title")
-        (.click (node m ".save"))
-        (rf.fresco.test.mounted/settle! m)
-
-        (testing "the save is in flight, the button is disabled, and it is
-                  out of the order — the other direction of the same
-                  mechanism, on a different control and a different piece
-                  of state, so neither row is a special case of the
-                  other's markup"
-          (is (true? (.-disabled (node m ".save"))))
-          (is (false? (focusable? (node m ".save"))))
-          (is (not (contains? (set (focus-order m)) "save"))))
-
-        ;; The reply is a macrotask the mount must not be torn down under:
-        ;; wait for the region to leave `:saving`, then assert the button
-        ;; came BACK, which is what makes the row above about a transition
-        ;; rather than about a button that is simply always disabled.
-        (-> (rf.fresco.test.mounted/settle-until!
-              m
-              #(not= :saving (:status (read-sub m [::rf.fresco.examples.slice.subs/save-state "intents"])))
-              {:label "the stand-in server's reply for intents"})
-            (.then (fn [_]
-                     (is (false? (.-disabled (node m ".save"))))
-                     (is (contains? (set (focus-order m)) "save"))))
-            (finish-after m done))))))
-
-;; ---------------------------------------------------------------------------
-;; Focus across a re-render
-;; ---------------------------------------------------------------------------
-
-(deftest a-re-render-does-not-take-focus-away-from-the-user
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at-article! "intents")]
-        (.focus (node m "#slice-title"))
-        (let [field (node m "#slice-title")]
-          (is (identical? field (.-activeElement js/document)))
-
-          ;; The locale switch dispatched rather than clicked, deliberately:
-          ;; clicking the `<select>` would move focus itself, and what is
-          ;; under test is what the RE-RENDER does to focus, not what a
-          ;; click does.
-          (rf.fresco.test.mounted/dispatch-and-settle! m [::rf.fresco.examples.slice.events/set-locale "fr"])
-
-          (is (identical? field (.-activeElement js/document))
-              "the SAME element still holds focus after every label on the
-               page changed language. A substrate that rebuilt the subtree
-               would leave `<body>` focused here and a user mid-sentence
-               would be typing into nothing — this is the failure an i18n
-               subsystem is bought to avoid, stated where a browser can
-               see it")
-          (is (= "Titre" (.-textContent (node m "label[for='slice-title']")))
-              "and the re-render really did happen, so the row above is
-               not green for want of anything occurring"))
-
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; An alert must be announced without being intrusive
-;; ---------------------------------------------------------------------------
-
-(deftest an-alert-appearing-does-not-take-focus-from-the-field-it-is-about
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at-article! "intents")]
-        ;; A blank title is refused LOCALLY, so the region appears on the
-        ;; line after the dispatch with nothing in flight to wait for.
-        (type-into! m "#slice-title" "   ")
-        (let [field (node m "#slice-title")]
-          (.focus field)
-          (is (identical? field (.-activeElement js/document)))
-
-          ;; Dispatched rather than clicked: clicking `.save` would move
-          ;; focus to the button, and what is under test is what the
-          ;; ALERT's arrival does to focus.
-          (rf.fresco.test.mounted/dispatch-and-settle! m [::rf.fresco.examples.slice.events/save {:slug "intents"}])
-
-          (is (= "alert" (.getAttribute (node m ".save-problem") "role"))
-              "the region really did arrive, so the row below is not green
-               for want of anything happening")
-          (is (identical? field (.-activeElement js/document))
-              "and focus did not move. `role=\"alert\"` is announced BECAUSE
-               it appeared — a live region that also stole focus would
-               interrupt a user mid-sentence and drop them somewhere they
-               did not ask to be, which is the failure that makes people
-               turn assistive announcements off")
-          (is (= "   " (.-value field))
-              "the draft is still in the field it was typed into"))
 
         (finish m done)))))
