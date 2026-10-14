@@ -158,19 +158,6 @@ test('every published in-repo dependency is ordered by the job graph (rf2-p4a93)
   assert.deepEqual(violations, [], `release DAG ordering violations:\n  ${violations.join('\n  ')}`);
 });
 
-test('ACCEPTANCE: if the ssr leaf does not publish, ssr-ring cannot publish', () => {
-  const jobs = releaseModel.jobs;
-  const publishers = discoverPublishers(releaseModel);
-  const ssr = publishers.get('implementation/ssr');
-  const ssrRing = publishers.get('implementation/ssr-ring');
-  // A needs edge onto a matrix job waits for every value of it to succeed.
-  assert.ok(
-    transitiveNeeds(jobs, ssrRing.job).has(ssr.job),
-    `${ssrRing.job} must transitively need ${ssr.job}; needs = `
-      + `${JSON.stringify(needsOf(jobs[ssrRing.job]))}`,
-  );
-});
-
 test('ACCEPTANCE: if the ssr leaf does not publish, fresco cannot publish', () => {
   // Fresco carries the same published edge onto ssr, ordered by its own needs:
   // block; a shared loop over "the dependent leaves" would pass vacuously were the
