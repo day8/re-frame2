@@ -136,7 +136,7 @@ skills/re-frame2-improver/
 │                                   # code; CI's skills-structural job loops them all under bb, so adding one
 │                                   # needs no wiring PR — list new pins here, do not re-scope this directory
 │   ├── storage_materializer_test.clj (the canonical storage materializer in schemaless-events.md stays total)
-│   ├── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md settles [:article :status] on both reply branches)
+│   ├── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md addresses both reply branches)
 │   └── render_lifecycle_test.clj (the published :items/status slice rewrite in manual-loading-flags.md keeps prior data across a refresh and records a failure without dropping it; evals 18/27/34's reg-sub predicates really are mutually exclusive and totally covering)
 └── spec/
     ├── design.md (this file)

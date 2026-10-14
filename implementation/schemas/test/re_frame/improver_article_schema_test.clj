@@ -1,7 +1,8 @@
 (ns re-frame.improver-article-schema-test
   "Exercise the improver's published HTTP rewrite with real app-db validation.
-  The skill's Babashka transition tests deliberately stub schema registration;
-  this fixture catches a payload schema that rejects the pre-response states."
+  The skill's Babashka test pins only the request's reply targets; this
+  fixture runs the lifecycle under real schema registration, so it catches a
+  payload schema that rejects the pre-response states."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]

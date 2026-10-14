@@ -6129,9 +6129,9 @@ jobs:
       # re-frame2-pair-retro command-contract fixture.
       # `tests/duplicate_search_test.clj` pins the all-state duplicate-search
       # contract the skill prescribes: the exact argv is EXTRACTED FROM SKILL.md
-      # and run through a model of gh's state filter that must surface a closed
-      # owner, beside prose checks for the failed-query wording and the
-      # read-only grant. So the test fails when the prose
+      # and must carry `--state all` and the repo narrowing, beside prose checks
+      # for the failed-query wording and the read-only grant. So the test fails
+      # when the prose
       # drifts from the contract — which is the drift class that matters here,
       # a retro skill that tells an agent to search only open issues and thereby
       # re-files a bead somebody already closed. Loop every
