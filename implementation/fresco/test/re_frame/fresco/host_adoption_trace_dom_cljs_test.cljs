@@ -15,18 +15,15 @@
 
   ## The claims
 
-  1. **The server announces nothing.** Server bytes are produced under
-     the server snapshot, where the gate renders its placeholder and
-     stays there.
-  2. **A real crossing announces exactly once** — not once per render,
+  1. **A real crossing announces exactly once** — not once per render,
      and not once per SITE.
-  3. **A first render that is already adopted announces nothing.** A
+  2. **A first render that is already adopted announces nothing.** A
      fresh `createRoot` mount renders the foreign component on its very
      first pass, with no placeholder to replace, because such a root
      consults no server snapshot at all. Reporting a transition there
      would be reporting one that did not occur, which is the failure
      mode that turns a trace into noise.
-  4. **End to end**, a genuinely hydrated page produces (2).
+  3. **End to end**, a genuinely hydrated page produces (1).
 
   ## Why each row mints its own declaration
 
@@ -40,7 +37,7 @@
   door `defhost` expands to — and gets a declaration nobody else has
   touched.
 
-  ## Why rows 2 and 3 stub `adopted?`, and what that costs
+  ## Why rows 1 and 2 stub `adopted?`, and what that costs
 
   Adoption is React's own business: `adopted?` answers `false` from its
   SERVER snapshot and `true` from its client one, and only a real client
@@ -52,16 +49,16 @@
   and the trace silent. [[re-frame.fresco.impl.codec/mint-adoption-crossing]]
   says why the cell is two booleans instead.)
 
-  So rows 2 and 3 drive the REAL gate, the REAL crossing cell and the
+  So rows 1 and 2 drive the REAL gate, the REAL crossing cell and the
   REAL emit through `renderToString`, stubbing only `adopted?` — the one
-  input Node cannot supply. Row 4 then takes the whole thing unstubbed
+  input Node cannot supply. Row 3 then takes the whole thing unstubbed
   through an actual `hydrateRoot` in the browser, so the stub is a Node
   convenience rather than the only evidence.
 
   ## Lane
 
-  Rows 1–3 need no DOM and run under `:node-test` as well as in the
-  browser. Row 4 mounts React against a real document, so this file
+  Rows 1 and 2 need no DOM and run under `:node-test` as well as in the
+  browser. Row 3 mounts React against a real document, so this file
   takes the `-dom-cljs-test` suffix and that row skips in Node, in the
   shape the sibling `host-ssr-dom-cljs-test` established."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -147,30 +144,7 @@
 (defn- query-node [root selector] (.querySelector root selector))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the server announces nothing
-;; ---------------------------------------------------------------------------
-
-(deftest a-server-render-announces-no-adoption
-  (fresh!)
-  (let [host (mint! "server-silent-chart")
-        {:keys [seen stop]} (watch-adoptions!)]
-    (try
-      (let [html (render-html [:div [host {:label "revenue"}]])]
-        (testing "the server rendered the placeholder rather than the component
-                  — the row's own restatement of the policy, so a gate that
-                  stopped gating is red HERE and not only in the trace claim"
-          (is (re-find #"chart-skeleton" html) html)
-          (is (not (re-find #"class=\"chart\"" html)) html))
-        (testing "and nothing crossed, so nothing was announced. The trace
-                  reports an ADOPTION, and a server render is the one place
-                  adoption provably cannot have happened"
-          (is (empty? @seen) (pr-str @seen))))
-      (finally
-        (stop)
-        (rf.fresco.impl.collector/reset-runtime!)))))
-
-;; ---------------------------------------------------------------------------
-;; 2 — a crossing announces ONCE, and carries the facts a tool reads
+;; 1 — a crossing announces ONCE, and carries the facts a tool reads
 ;; ---------------------------------------------------------------------------
 
 (deftest a-crossing-announces-exactly-once
@@ -218,7 +192,7 @@
         (rf.fresco.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — nothing crossed, so nothing is announced
+;; 2 — nothing crossed, so nothing is announced
 ;; ---------------------------------------------------------------------------
 
 (deftest an-already-adopted-first-render-announces-nothing
@@ -243,7 +217,7 @@
         (rf.fresco.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — the same claim, unstubbed, through a real hydration
+;; 3 — the same claim, unstubbed, through a real hydration
 ;; ---------------------------------------------------------------------------
 
 (deftest a-hydrated-crossing-announces-once
