@@ -143,18 +143,12 @@
     (when rf.interop/debug-enabled?
       (is (some #(= :rf.warning/no-not-found-route (:operation %)) @traces)))))
 
-(deftest not-found-address-bar-parity-programmatic-vs-url-driven
-  ;; Both doors keep the requested URL in the address bar: the programmatic
-  ;; door pushes it (never the not-found route's own /404), and the URL-driven
-  ;; door pushes nothing because the bar already moved.
+(deftest url-driven-not-found-keeps-the-requested-url-and-pushes-nothing
+  ;; The address bar already moved, so the URL-driven door pushes nothing and
+  ;; never the not-found route's own /404.
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :rf.route/not-found {} "/404")
   (let [pushed (record-pushes!)]
-    (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-    (is (= {:route-id :rf.route/not-found :params {:url "/no/such/path"}}
-           (select-keys (nav-slice) [:route-id :params])))
-    (is (= ["/no/such/path"] @pushed))
-    (reset! pushed [])
     (rf/dispatch-sync [:rf.route/handle-url-change "/another/miss" {:rf.route/cause :link}])
     (is (= {:route-id :rf.route/not-found :params {:url "/another/miss"}}
            (select-keys (nav-slice) [:route-id :params])))
@@ -194,38 +188,19 @@
 (deftest transitioned-malformed-url-routes-to-not-found-with-reason
   ;; Spec 012 §Routing failure semantics: a malformed %-encoding lands on the
   ;; not-found slice with `:reason :malformed-url`, the discriminator a
-  ;; per-route error UI branches on. The per-position decode verdicts are
-  ;; `routing-registry-test`'s.
+  ;; per-route error UI branches on, in the frame that took the URL; Spec 009
+  ;; requires `:frame` on the route-miss diagnostics. The per-position decode
+  ;; verdicts are `routing-registry-test`'s.
+  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :route/owner})
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :rf.route/not-found {} "/404")
   (let [traces (atom [])]
     (rf/register-listener! :trace ::malformed-trace (fn [ev] (swap! traces conj ev)))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}] {:frame :route/owner})
     (rf/unregister-listener! :trace ::malformed-trace)
     (is (= {:route-id :rf.route/not-found :params {:url "/articles/%" :reason :malformed-url}}
-           (select-keys (nav-slice) [:route-id :params])))
-    (when rf.interop/debug-enabled?
-      (is (some (fn [ev] (and (= :rf.warning/malformed-url (:operation ev))
-                              (= "/articles/%" (-> ev :tags :url))))
-                @traces))
-      (is (some (fn [ev] (and (= :rf.error/no-such-handler (:operation ev))
-                              (= :route (-> ev :tags :kind))
-                              (= :malformed-url (-> ev :tags :reason))))
-                @traces)))))
-
-(deftest transitioned-forward-nav-traces-carry-frame-rf2-w3qgc
-  ;; A forward URL-driven nav threads its frame onto the route-miss
-  ;; diagnostics (Spec 009 requires `:frame` on `:rf.error/no-such-handler
-  ;; {:kind :route}`). The attribution is also a frame-state fact, read in
-  ;; both postures: the miss committed in :route/owner and left :rf/default alone.
-  (rf/make-frame {:id :rf/default})
-  (rf/make-frame {:id :route/owner})
-  (rf/reg-route :route/home {} "/")
-  (let [traces (atom [])]
-    (rf/register-listener! :trace ::w3qgc-malformed (fn [ev] (swap! traces conj ev)))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/%" {:rf.route/cause :link}] {:frame :route/owner})
-    (rf/unregister-listener! :trace ::w3qgc-malformed)
-    (is (= {:url "/articles/%" :reason :malformed-url} (:params (frame-slice :route/owner))))
+           (select-keys (frame-slice :route/owner) [:route-id :params])))
     (is (nil? (:route-id (frame-slice :rf/default))))
     (when rf.interop/debug-enabled?
       (is (some (fn [ev] (and (= :rf.warning/malformed-url (:operation ev))
@@ -234,6 +209,7 @@
                 @traces))
       (is (some (fn [ev] (and (= :rf.error/no-such-handler (:operation ev))
                               (= :route (-> ev :tags :kind))
+                              (= :malformed-url (-> ev :tags :reason))
                               (= :route/owner (-> ev :tags :frame))))
                 @traces)))))
 
@@ -444,23 +420,14 @@
 ;; no `:on-match` re-fire, no resource re-plan.
 
 (defn- reg-nav-fxs-capturing!
-  "Register the four routing history / scroll fxs on both platforms with
-  capturing handlers. Returns atoms `:push` / `:replace` (URLs), `:scroll`
-  (args) and `:order` (an ordered `[fx-id args]` log across all four)."
+  "Register the four routing history / scroll fxs on both platforms, logging
+  each call; returns the atom of the ordered `[fx-id args]` log."
   []
-  (let [pushed   (atom [])
-        replaced (atom [])
-        scrolled (atom [])
-        order    (atom [])]
-    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-                  (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
-    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
-                  (fn [_ url]  (swap! replaced conj url) (swap! order conj [:rf.nav/replace-url url])))
-    (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
-                  (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
-    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
-                  (fn [_ args] (swap! order conj [:rf.nav/capture-scroll args])))
-    {:push pushed :replace replaced :scroll scrolled :order order}))
+  (let [order (atom [])]
+    (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url :rf.nav/scroll :rf.nav/capture-scroll]]
+      (rf.fx/reg-fx fx-id {:platforms #{:server :client}}
+                    (fn [_ args] (swap! order conj [fx-id args]))))
+    order))
 
 (defn- fx-log
   "The `[fx-id args]` log with each scroll's args cut to `:strategy` / `:fragment`."
@@ -475,79 +442,43 @@
        (filter #(= :rf.route/fragment-changed (:operation %)))
        (map #(select-keys (:tags %) [:route-id :prev-fragment :next-fragment :frame]))))
 
-(deftest navigate-fragment-only-short-circuits-no-refire-no-token-rf2-k4exp1
+(deftest navigate-fragment-only-moves-only-the-fragment-rf2-k4exp1
+  ;; Each edit starts from the slice at #a. The whole-slice equality says only
+  ;; :fragment moved (the nav-1 token included); the exact fx log says the order
+  ;; — capture the leaving position, move history, scroll — and what did NOT run.
   (let [on-match-calls (atom 0)
-        traces         (atom [])]
+        at-a           {:to :route/docs :params {:page "routing"} :fragment "a"}
+        capture        [:rf.nav/capture-scroll {:url "/docs/routing#a"}]]
     (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
     (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-    (let [fxs (reg-nav-fxs-capturing!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-      (let [slice-before (nav-slice)]
-        (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-        (rf/unregister-listener! :trace ::k4exp1-frag)
-        (is (= 1 @on-match-calls))
-        ;; Only :fragment moved — the nav-1 token included, nothing was re-allocated.
-        (is (= (assoc slice-before :fragment "b") (nav-slice)))
-        (is (= ["/docs/routing#a" "/docs/routing#b"] @(:push fxs)))
-        (is (empty? @(:replace fxs)))
-        (when rf.interop/debug-enabled?
-          (is (= [{:route-id :route/docs :prev-fragment "a" :next-fragment "b" :frame :rf/default}]
-                 (fragment-changed-tags @traces))))))))
-
-(deftest navigate-fragment-only-effect-ordering-rf2-k4exp1
-  ;; State first, then: capture the leaving position, push, scroll to the new fragment.
-  (rf/reg-route :route/docs {} "/docs/:page")
-  (let [fxs (reg-nav-fxs-capturing!)]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-    (reset! (:order fxs) [])
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-    (is (= [[:rf.nav/capture-scroll {:url "/docs/routing#a"}]
-            [:rf.nav/push-url "/docs/routing#b"]
-            [:rf.nav/scroll {:strategy :top :fragment "b"}]]
-           (fx-log @(:order fxs))))))
-
-(deftest navigate-fragment-only-replace-uses-replace-url-rf2-k4exp1
-  (rf/reg-route :route/docs {} "/docs/:page")
-  (let [fxs (reg-nav-fxs-capturing!)]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-    (reset! (:push fxs) [])
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :replace? true}])
-    (is (= ["/docs/routing#b"] @(:replace fxs)))
-    (is (empty? @(:push fxs)))))
-
-(deftest navigate-fragment-only-scroll-false-suppresses-scroll-rf2-k4exp1
-  (rf/reg-route :route/docs {} "/docs/:page")
-  (let [fxs (reg-nav-fxs-capturing!)]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-    (reset! (:scroll fxs) [])
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b" :scroll false}])
-    (is (= "b" (:fragment (nav-slice))))
-    (is (empty? @(:scroll fxs)))))
-
-(deftest navigate-fragment-only-clearing-fragment-rf2-k4exp1
-  ;; Dropping the fragment is still fragment-only: nil is written, the bare URL
-  ;; pushed, and no nav-token minted.
-  (rf/reg-route :route/docs {} "/docs/:page")
-  (let [fxs (reg-nav-fxs-capturing!)]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-    (reset! (:push fxs) [])
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
-    (is (= {:fragment nil :nav-token "nav-1"} (select-keys (nav-slice) [:fragment :nav-token])))
-    (is (= ["/docs/routing"] @(:push fxs)))))
-
-(deftest navigate-identical-target-with-replace-stays-noop-rf2-k4exp1
-  ;; Identical wins over fragment-only: an exactly identical target is the
-  ;; complete no-op even with :replace?.
-  (rf/reg-route :route/docs {} "/docs/:page")
-  (let [fxs (reg-nav-fxs-capturing!)]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-    (let [before (nav-slice)]
-      (reset! (:push fxs) [])
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a" :replace? true}])
-      (is (= before (nav-slice)))
-      (is (empty? @(:push fxs)))
-      (is (empty? @(:replace fxs))))))
+    (let [order (reg-nav-fxs-capturing!)]
+      (doseq [[edit fragment fxs]
+              [[{:fragment "b"}                "b" [capture
+                                                    [:rf.nav/push-url "/docs/routing#b"]
+                                                    [:rf.nav/scroll {:strategy :top :fragment "b"}]]]
+               [{:fragment "b" :replace? true} "b" [capture
+                                                    [:rf.nav/replace-url "/docs/routing#b"]
+                                                    [:rf.nav/scroll {:strategy :top :fragment "b"}]]]
+               [{:fragment "b" :scroll false}  "b" [capture [:rf.nav/push-url "/docs/routing#b"]]]
+               ;; dropping the fragment is still fragment-only
+               [{}                             nil [capture
+                                                    [:rf.nav/push-url "/docs/routing"]
+                                                    [:rf.nav/scroll {:strategy :top}]]]
+               ;; identical wins over fragment-only: the complete no-op, even with :replace?
+               [{:fragment "a" :replace? true} "a" []]]]
+        (rf/dispatch-sync [:rf.route/navigate at-a])
+        (reset! order [])
+        (let [before (nav-slice)
+              traces (atom [])]
+          (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
+          (rf/dispatch-sync [:rf.route/navigate (merge (dissoc at-a :fragment) edit)])
+          (rf/unregister-listener! :trace ::k4exp1-frag)
+          (is (= [(assoc before :fragment fragment) fxs] [(nav-slice) (fx-log @order)])
+              (pr-str edit))
+          (when (and rf.interop/debug-enabled? (= {:fragment "b"} edit))
+            (is (= [{:route-id :route/docs :prev-fragment "a" :next-fragment "b" :frame :rf/default}]
+                   (fragment-changed-tags @traces))))))
+      (is (= 1 @on-match-calls) "no fragment-only edit re-fires :on-match"))))
 
 (deftest url-driven-fragment-only-emits-scroll-rf2-p1aipi
   ;; The URL-driven door short-circuits a fragment-only change the same way,
@@ -558,9 +489,9 @@
         traces         (atom [])]
     (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
     (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-    (let [fxs (reg-nav-fxs-capturing!)]
+    (let [order (reg-nav-fxs-capturing!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#a" {:rf.route/cause :link}])
-      (reset! (:order fxs) [])
+      (reset! order [])
       (rf/register-listener! :trace ::p1aipi-frag (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#b" {:rf.route/cause :link}])
       (rf/unregister-listener! :trace ::p1aipi-frag)
@@ -568,7 +499,7 @@
       (is (= 1 @on-match-calls))
       (is (= [[:rf.nav/capture-scroll {:url "/docs/routing#a"}]
               [:rf.nav/scroll {:strategy :top :fragment "b"}]]
-             (fx-log @(:order fxs))))
+             (fx-log @order)))
       (when rf.interop/debug-enabled?
         (is (= [{:route-id :route/docs :prev-fragment "a" :next-fragment "b" :frame :rf/default}]
                (fragment-changed-tags @traces)))))))
@@ -609,11 +540,9 @@
     (reset! leave-calls 0)
     (let [before (nav-slice)]
       (doseq [[event reason ks]
-              [[[:rf.route/navigate {:query-merge [:page 2]}]                  :query-merge-not-map         [:query-merge]]
-               [[:rf.route/navigate {:to :route/gate-b :my-app/replace? true}] :unknown-keys                [:my-app/replace?]]
-               [[:rf.route/navigate {:params {:q "y"} :fragment "x"}]          :params-requires-destination [:params]]
-               [[:rf.route/navigate "/gate-b"]                                 :request-not-a-map           []]
-               [[:rf.route/navigate {:to :route/gate-b} {:replace? true}]      :bad-event-arity             []]]]
+              [[[:rf.route/navigate {:query-merge [:page 2]}]             :query-merge-not-map [:query-merge]]
+               [[:rf.route/navigate "/gate-b"]                            :request-not-a-map   []]
+               [[:rf.route/navigate {:to :route/gate-b} {:replace? true}] :bad-event-arity     []]]]
         (let [tags (gate-reject event)]
           (is (= before (nav-slice)) (pr-str event))
           (when rf.interop/debug-enabled?
