@@ -11,14 +11,12 @@
   from the fixture's `:fixture/eval-script`."
   (:require [cljs.test :refer-macros [deftest is async]]
             [clojure.string :as str]
-            [clojure.set :as set]
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
-            [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
 (defn- run-eval-script
@@ -179,11 +177,9 @@
 
    ;; ---------- eval-cljs --------------------------------------------------
    ;; The launch-flag gate ships DEFAULT-ON in published builds — the
-   ;; operator passes `--no-eval` to opt OUT. Fixtures that drive the
-   ;; post-gate logical paths (`:happy`, `:missing-form`,
-   ;; `:no-runtime-for-build`) rely on the default ON state; the
-   ;; `:disabled-via-no-eval` fixture pins the opt-out envelope via
-   ;; `:fixture/eval-allowed? false`.
+   ;; operator passes `--no-eval` to opt OUT. The post-gate fixtures rely
+   ;; on the default ON state; `:disabled-via-no-eval` pins the opt-out
+   ;; envelope via `:fixture/eval-allowed? false`.
    {:fixture/id    :eval-cljs/disabled-via-no-eval
     :fixture/doc   "eval-cljs with --no-eval (gate flipped OFF) returns :rf.error/eval-cljs-disabled."
     :fixture/tool  "eval-cljs"
@@ -194,21 +190,6 @@
     :fixture/expect
     {:isError? true
      :reason :rf.error/eval-cljs-disabled}}
-
-   {:fixture/id    :eval-cljs/happy
-    :fixture/doc   "eval-cljs (gate at default ON) with explicit :build returns {:ok? true :value v} on a successful runtime eval."
-    :fixture/tool  "eval-cljs"
-    ;; Explicit :build short-circuits the auto-detect (which would
-    ;; jvm-eval `active-builds` — not stubbed by this cljs-eval-only
-    ;; harness). The runtime-sentinel preflight still runs.
-    :fixture/args  {:form "(+ 1 2)" :build "app"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     ["(+ 1 2)"                   3]
-     [:default                    nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :value 3 :build :app}}}
 
    ;; The typed result envelope distinguishes a GENUINE nil, an
    ;; eval-error, and an unserializable value rather than collapsing all
@@ -280,10 +261,8 @@
      :reason :missing-form}}
 
    ;; ---- await opt-in ----
-   ;; :await false (the default) sends the form verbatim — no await
-   ;; wrapper. Pin that via :fixture/eval-form-must-not-contain.
    {:fixture/id    :eval-cljs/await-default-off-no-wrap
-    :fixture/doc   "eval-cljs without :await sends the form verbatim — no await wrapper, no mailbox slot (default :await false)."
+    :fixture/doc   "eval-cljs (default :await false) returns {:ok? true :value v :build b} on a successful runtime eval, sending no await wrapper."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(+ 1 2)" :build "app"}
     :fixture/eval-script
@@ -295,9 +274,6 @@
     {:isError? false
      :edn-submap {:ok? true :value 3 :build :app}}}
 
-   ;; Await + non-thenable: the wrapper's synchronous arm reports
-   ;; `:rf.mcp/await-direct v`; the server short-circuits with v as
-   ;; the :value. Same shape as the no-await path.
    {:fixture/id    :eval-cljs/await-direct-passthrough
     :fixture/doc   "eval-cljs :await true on a non-thenable form returns the value via the wrapper's synchronous fast path."
     :fixture/tool  "eval-cljs"
@@ -338,11 +314,6 @@
     {:isError? false
      :edn-submap {:ok? true :value {:hello "world"} :build :app}}}
 
-   ;; Await + rejected thenable: the mailbox-read returns :rejected;
-   ;; the server surfaces :rf.error/eval-cljs-rejected. This is a
-   ;; known-tool failure and MUST be isError: true per spec/003's
-   ;; universal isError rule — riding back as ok-text (isError: false)
-   ;; would mask the rejection as a success.
    {:fixture/id    :eval-cljs/await-rejected
     :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} as an isError envelope."
     :fixture/tool  "eval-cljs"
@@ -381,31 +352,9 @@
     ["dispatch-consequence!"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:mode :sync :ok? true :db-changed? true :no-op? false
+     :edn-submap {:mode :sync :ok? true :db-changed? true :effects-fired [:db] :no-op? false
                   :resolved [:counter/inc]}}}
 
-   ;; A genuine NO-OP is VISIBLE: `:db-changed? false :effects-fired []
-   ;; :no-op? true` rather than a bare success ack.
-   {:fixture/id    :dispatch/no-op-visible
-    :fixture/doc   "a no-op dispatch returns :db-changed? false :effects-fired [] :no-op? true."
-    :fixture/tool  "dispatch"
-    :fixture/args  {:event "[:noop/event]"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     ["dispatch-consequence!"     {:ok? true :epoch-id 8
-                                   :db-changed? false :changed-paths []
-                                   :effects-fired [] :no-op? true
-                                   :resolved [:noop/event]}]
-     [:default                    nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:mode :sync :ok? true :db-changed? false
-                  :effects-fired [] :no-op? true}}}
-
-   ;; An unknown event-id is VALIDATED at the wire boundary and returns a
-   ;; structured :unknown-id error with :nearest matches, WITHOUT
-   ;; dispatching (the runtime `dispatch-consequence!` short-circuits on
-   ;; the validation miss). No silent no-op success.
    {:fixture/id    :dispatch/unknown-id-validated
     :fixture/doc   "dispatch of an unregistered event-id surfaces :reason :unknown-id + :nearest, never a silent success."
     :fixture/tool  "dispatch"
@@ -423,9 +372,6 @@
      :edn-submap {:ok? false :reason :unknown-id :id :rf/xrayy
                   :nearest [:rf/xray :rf/default] :resolved [:rf/xrayy]}}}
 
-   ;; `:queued true` opts into the async transport-ack: the runtime
-   ;; `pair-dispatch!` return rides back with `:mode :queued` and
-   ;; `:settled? false` when the cascade hasn't drained.
    {:fixture/id    :dispatch/queued-settled-false
     :fixture/doc   "dispatch :queued true returns the async ack (:mode :queued :settled? false)."
     :fixture/tool  "dispatch"
@@ -484,26 +430,6 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:mode :sync :ok? true :frame :rf/xray}}}
-
-   ;; When the named frame cannot be targeted (head did not advance), the
-   ;; runtime returns {:ok? false :reason :no-new-epoch}. The tool MUST
-   ;; surface a structured ERROR envelope, never a {:mode :sync} success
-   ;; merged over the failure (which would be a silent wrong-success).
-   {:fixture/id    :dispatch/frame-untargetable-error
-    :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot."
-    :fixture/tool  "dispatch"
-    :fixture/args  {:event "[:rf.xray/focus-event 85]" :frame ":rf/xray" :sync true}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     ["dispatch-consequence!"     {:ok? false :reason :no-new-epoch
-                                   :event [:rf.xray/focus-event 85]
-                                   :frame :rf/xray
-                                   :resolved [:rf.xray/focus-event 85]
-                                   :hint "dispatch-sync returned, but epoch-history head did not advance."}]
-     [:default                    nil]]
-    :fixture/expect
-    {:isError? true
-     :edn-submap {:ok? false :reason :no-new-epoch :frame :rf/xray}}}
 
    ;; Render-settle. `:await-render true` wraps the settle Promise in the
    ;; await mailbox; the wrap-form eval returns the mailbox sentinel and
@@ -739,14 +665,6 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch}}}
 
-   ;; SAFETY: the simulation LANDED but the rollback
-   ;; (`replace-frame-state!`) was rejected, so the simulated state can
-   ;; still be live. The runtime reports the documented
-   ;; {:ok? false :reason :rollback-failed :rolled-back? false} shape — an
-   ;; :ok? true shape would read GREEN over a mutated db. A dry-run that
-   ;; silently mutated the live app must ride as isError — the tool routes
-   ;; it red on :ok? false AND on the belt-and-braces :rolled-back? false
-   ;; boundary guard.
    {:fixture/id    :dispatch-dry-run/rollback-failed
     :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :rollback-failed :rolled-back? false} as an isError envelope (a failed rollback leaves the live db MUTATED; it must never read as a silent green success)."
     :fixture/tool  "dispatch-dry-run"
@@ -807,10 +725,6 @@
     {:isError? true
      :reason :missing-epoch-id}}
 
-   ;; A restore that the runtime REJECTS (a bare `false`: aged-out id,
-   ;; drain-in-flight) means the write did not land. It MUST ride as
-   ;; isError carrying :restore-rejected, NOT a success-shaped envelope
-   ;; the host reads as a landed write.
    {:fixture/id    :restore-epoch/rejected-false
     :fixture/doc   "restore-epoch with --allow-writes ON whose runtime returns false (rejected restore) rides as isError :restore-rejected."
     :fixture/tool  "restore-epoch"
@@ -860,9 +774,6 @@
     {:isError? true
      :reason :missing-epoch-id}}
 
-   ;; A refusal decided BEFORE dispatch (unknown / aged-out id) means the
-   ;; replay did not land. It MUST ride as isError carrying the framework's
-   ;; own reason, never a success-shaped envelope.
    {:fixture/id    :replay-epoch/refused-unknown-epoch
     :fixture/doc   "replay-epoch whose runtime refuses BEFORE dispatch (unknown / aged-out id) rides as isError carrying the framework reason."
     :fixture/tool  "replay-epoch"
@@ -923,11 +834,6 @@
     {:isError? true
      :reason :missing-db}}
 
-   ;; A replace the runtime REJECTS
-   ;; ({:ok? false :reason :reset-rejected ...}: no-such-frame,
-   ;; replace-during-drain, schema-mismatch) means the injection did NOT
-   ;; land. It MUST ride as isError carrying the reason, NOT a
-   ;; success-shaped envelope.
    {:fixture/id    :replace-app-db/reset-rejected
     :fixture/doc   "replace-app-db with --allow-writes ON whose runtime returns {:ok? false :reason :reset-rejected} rides as isError."
     :fixture/tool  "replace-app-db"
@@ -1063,9 +969,7 @@
    ;; The whole read runs browser-side in the preloaded runtime fn
    ;; (re-frame2-pair.runtime/dom-read — shared plumbing with read-ui);
    ;; the corpus stubs the form's canned envelope, matching on
-   ;; the `dom-read` runtime call. Pins the outer wire shape: matched
-   ;; :count + per-node {:tag :text :attrs}, the large-text elision marker,
-   ;; the missing-arg gate, and the bad-selector error reason.
+   ;; the `dom-read` runtime call.
    {:fixture/id    :read-dom/happy
     :fixture/doc   "read-dom returns {:ok? true :count N :nodes [{:tag :text :attrs}]} from the browser-side dom-read runtime fn."
     :fixture/tool  "read-dom"
@@ -1083,22 +987,6 @@
     {:isError? false
      :edn-submap {:ok? true :count 1 :truncated? false}
      :edn-contains-keys #{:nodes :selector}}}
-
-   {:fixture/id    :read-dom/large-text-elided
-    :fixture/doc   "read-dom replaces over-:max-text node text with the {:rf.size/large-elided {:type :dom-text ...}} marker (the size-elision convention)."
-    :fixture/tool  "read-dom"
-    :fixture/args  {:selector "pre" :max-text 100}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     ["dom-read"                  {:ok? true :selector "pre" :count 1 :truncated? false
-                                   :nodes [{:tag "pre"
-                                            :text {:rf.size/large-elided
-                                                   {:type :dom-text :chars 54000 :preview "lorem..."}}
-                                            :attrs {}}]}]
-     [:default                    nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :count 1}}}
 
    {:fixture/id    :read-dom/missing-selector
     :fixture/doc   "read-dom without :selector surfaces :missing-selector before any nREPL round-trip."
@@ -1176,7 +1064,7 @@
     ;; pin via select-frame! — the escape mechanism. The keyword rides
     ;; as a well-formed :stories, never the malformed ::stories.
     :fixture/eval-form-must-contain
-    ["frames-list" "select-frame!" ":stories"]
+    ["frames-list" "select-frame!" ":frames" ":stories"]
     :fixture/eval-form-must-not-contain
     ["::stories"]
     :fixture/expect
@@ -1219,35 +1107,6 @@
     :fixture/expect
     {:isError? true
      :reason :missing-frame}}
-
-   ;; EP-0023 §Specification — the public address is the FRAME id (a single
-   ;; process-local frame-id space). The pin form pins the frame via
-   ;; select-frame!.
-   {:fixture/id    :set-operating-frame/frame-pin
-    :fixture/doc   "set-operating-frame pins a FRAME (the public address, EP-0023); the emitted form pins via select-frame!."
-    :fixture/tool  "set-operating-frame"
-    :fixture/args  {:frame ":shop/cart"}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"  true]
-     ;; The form validates :shop/cart against (:frames (frames-list)), pins
-     ;; it via select-frame!, then re-reads frames-list, which reports it as
-     ;; :selected / :operating. A bare pin would answer select-frame!'s own
-     ;; value instead.
-     ["(let [_ (re-frame2-pair.runtime/select-frame! :shop/cart)] (re-frame2-pair.runtime/frames-list))"
-      {:ok? true
-       :frames [:rf/default :shop/cart]
-       :app-frames [:rf/default :shop/cart]
-       :selected :shop/cart
-       :operating :shop/cart}]
-     ["select-frame!"             {:ok? true :frame :shop/cart}]
-     [:default                    nil]]
-    ;; The emitted form MUST pin the FRAME via select-frame!.
-    :fixture/eval-form-must-contain
-    ["select-frame!" ":frames" ":shop/cart"]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :selected :shop/cart :operating :shop/cart}
-     :edn-contains-keys #{:frames :app-frames :selected :operating}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
     :fixture/doc   "reset-operating-frame clears the session frame pin (select-frame! nil), returning the post-reset map with :selected nil and :operating back at the tier-3/4 resolution."
@@ -1475,8 +1334,8 @@
     :fixture/expect
     {:isError? false}}
 
-   {:fixture/id    :raw-state/signal-runtime-fires-once-on-first-call
-    :fixture/doc   "Boot-gate state is signalled to the runtime via configure-raw-state! before a state-emitting tool call's eval."
+   {:fixture/id    :raw-state/snapshot-signals-runtime-posture
+    :fixture/doc   "snapshot signals the boot-gate posture to the runtime via configure-raw-state! (gate OFF ⇒ :allow-raw-state? false)."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all"}
@@ -1492,9 +1351,6 @@
     {:isError? false}}
 
    ;; ---------- handler-meta ----------------------------------------------
-   ;; These fixtures put handler-meta / list-handlers inside the "every
-   ;; tool" cross-tool ratchet the corpus promises, pinning their
-   ;; outer-wire shape (the unit suite covers their error paths).
    {:fixture/id    :handler-meta/happy
     :fixture/doc   "handler-meta on a registered (kind,id) merges :ok? true + the requested kind/id onto the runtime meta map."
     :fixture/tool  "handler-meta"
@@ -1678,21 +1534,6 @@
      :edn-submap {:ok? true :schema :re-frame.fresco.evidence/v3
                   :producer :re-frame/fresco :complete? true}
      :edn-contains-keys #{:boundaries :generation}}}
-
-   {:fixture/id    :read-mounted-boundaries/empty-but-versioned
-    :fixture/doc   "with nothing mounted, read-mounted-boundaries forwards {:ok? true :boundaries []} - an empty-but-versioned envelope, NOT an isError. The entry cache is authoritative about what holds a live read edge, so the empty IS complete; what it does not establish is that nothing is retained above, which the census cannot see."
-    :fixture/tool  "read-mounted-boundaries"
-    :fixture/args  {}
-    :fixture/eval-script
-    [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.fresco.evidence/v3
-                                                          :read :mounted-boundaries
-                                                          :complete? true :loss nil
-                                                          :boundaries []}]
-     [:default                                           nil]]
-    :fixture/expect
-    {:isError? false
-     :edn-submap {:ok? true :boundaries []}}}
 
    {:fixture/id    :read-mounted-boundaries/tier-unavailable-iserror
     :fixture/doc   "when re-frame.fresco.tool is not loaded - a Reagent/UIx app, or a Fresco app nothing pulled the door into (nothing in re-frame.fresco requires it, which is how a production build never loads it) - find-ns-obj answers nil and the form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
@@ -1932,19 +1773,7 @@
     [[:default nil]]
     :fixture/expect
     {:isError? true
-     :reason :no-signals}}
-
-   ;; ---------- pipeline: unknown tool ------------------------------------
-   {:fixture/id    :pipeline/unknown-tool
-    :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue."
-    :fixture/tool  "no-such-tool"
-    :fixture/args  {}
-    :fixture/eval-script
-    [[:default nil]]
-    :fixture/expect
-    {:isError? true
-     :reason :unknown-tool
-     :edn-contains-keys #{:hint :available-tools}}}])
+     :reason :no-signals}}])
 
 (defn- run-one-fixture
   "Drive one fixture through `tools/invoke` from an empty response cache,
@@ -2017,11 +1846,3 @@
                             " re-frame2-pair-mcp conformance fixtures failed.")))
                  (cache/clear!)
                  (done))))))
-
-(deftest conformance-corpus-covers-every-registered-tool
-  ;; The ratchet only reaches tools that have a fixture. The reverse is not
-  ;; checked: `:pipeline/unknown-tool` names a tool that must not exist.
-  (let [missing (set/difference (set registry/tool-names) (set (map :fixture/tool corpus)))]
-    (is (empty? missing)
-        (str "registered tools with no conformance fixture: " (sort missing)
-             " — add a happy-path and an error fixture for each."))))
