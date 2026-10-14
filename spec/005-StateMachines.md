@@ -256,7 +256,7 @@ A state node MUST NOT declare both `:spawn` and `:spawn-all` — they are mutual
 
 `:entry` and `:exit` are **single fns or single keyword references into the machine's `:actions` map** — never vectors. To run multiple actions on entry, write a fn that calls them in order (or name a compound entry in the machine's `:actions` map; the named id is richer for tooling). Registration rejects any other value in an `:entry`, `:exit` or transition `:action` slot — a vector, an XState `{:type …}` object — with `:rf.error/machine-bad-action-form`, and a `:guard` that is not one fn or one keyword (a vector, an `{:and …}` combinator, an `{:id … :params …}` map) with `:rf.error/machine-bad-guard-form`.
 
-`:spawn` is **declarative sugar** that the transition reducer lowers into `:rf.machine/spawn` / `:rf.machine/destroy` fx as transitions enter and exit the state; per-state at most one `:spawn`, and its value is one spawn-spec map — a vector of specs (XState's multi-`invoke` spelling) is rejected with `:rf.error/machine-spawn-bad-shape`, because N children is `:spawn-all`. See [§Declarative `:spawn`](#declarative-spawn) for the `:spawn` map keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
+`:spawn` is **declarative sugar** that the transition reducer lowers into `:rf.machine/spawn` / `:rf.machine/destroy` fx as transitions enter and exit the state; per-state at most one `:spawn`, and its value is one spawn-spec map — a vector of specs (XState's multi-`invoke` spelling) is rejected with `:rf.error/machine-spawn-bad-shape`, because N children is `:spawn-all`. See [§Declarative `:spawn`](#declarative-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
 
 #### The machine root
 
@@ -2650,7 +2650,7 @@ There is no `:timeout-ms` slot on `:spawn` / `:spawn-all` (`:rf.error/spawn-time
 
 If machines are event handlers and actors are machines, then **a spawned actor is addressable as an event handler whose id is the actor's address** — but, per [§Liveness is derived from runtime-db](#liveness-is-derived-from-runtime-db), that handler is NOT a per-instance registrar entry. It is *resolved on demand* from the actor's snapshot. The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
-> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site, or with the state that tracks it — there is no implicit ownership cascade beyond the children a `:spawn` / `:spawn-all` slot tracks and still owns. A declarative child's lifetime is its parent's occupancy of the spawning state, so it is destroyed when the parent leaves that state **or is itself destroyed**, by whatever cause (per [§Declarative `:spawn`](#declarative-spawn)). A hand-emitted actor is tracked by no slot: it outlives the actor that spawned it until a destroy names it. Auto-cleanup of such untracked actors via an opt-in `:owned-by` relation is a v1.1+ direction, per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). Beside the tracked-children reap, the one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`. **One narrow qualification:** a `:rf.machine/spawn` arriving at a `:fixed-actor-id` that a LIVE actor occupies destroys that occupant through the ordinary destroy path before installing the replacement (per [§`:spawn` map keys](#spawn-map-keys)). That is still an explicit teardown at a named address — the author named it by spawning there — and it ends exactly what an explicit `[:rf.machine/destroy <actor-id>]` ends: the occupant and the children its `:spawn` / `:spawn-all` slots track and still own, never an actor it hand-emitted.
+> **Teardown is explicit in v1.** Every spawned actor ends its life at a named `[:rf.machine/destroy <actor-id>]` site, or with the state that tracks it — there is no implicit ownership cascade beyond the children a `:spawn` / `:spawn-all` slot tracks and still owns. A declarative child's lifetime is its parent's occupancy of the spawning state, so it is destroyed when the parent leaves that state **or is itself destroyed**, by whatever cause (per [§Declarative `:spawn`](#declarative-spawn)). A hand-emitted actor is tracked by no slot: it outlives the actor that spawned it until a destroy names it. Auto-cleanup of such untracked actors via an opt-in `:owned-by` relation is a v1.1+ direction, per [§Resolved decisions §Auto-cleanup of orphaned actors](#auto-cleanup-of-orphaned-actors--explicit-rfmachinedestroy-for-v1-resolved). Beside the tracked-children reap, the one composed-with cascade is the `:rf.http/managed`-abort cascade per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts), which fires off the explicit `:rf.machine/destroy`. **One narrow qualification:** a `:rf.machine/spawn` arriving at a `:fixed-actor-id` that a LIVE actor occupies destroys that occupant through the ordinary destroy path before installing the replacement (per [§Spec-spec keys](#spec-spec-keys)). That is still an explicit teardown at a named address — the author named it by spawning there — and it ends exactly what an explicit `[:rf.machine/destroy <actor-id>]` ends: the occupant and the children its `:spawn` / `:spawn-all` slots track and still own, never an actor it hand-emitted.
 
 <a id="liveness-is-derived-from-app-db"></a>
 
@@ -2988,7 +2988,7 @@ To record the ids in the parent's `:data`, give each spawn a distinct `:fixed-ac
 
 While in `:loading`, an actor of `:request/protocol` exists at `[:rf.runtime/machines :snapshots <gensym'd-id>]`, addressable through the runtime-owned registry at `[:rf.runtime/machines :spawned <parent-machine-id> [:loading]]`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, never requiring the user to have written the id under any specific `:data` key.
 
-### `:spawn` map keys
+### Spec-spec keys
 
 The map under `:spawn` accepts the following keys:
 
@@ -3493,7 +3493,7 @@ Synchronous ordering (per D4):
 - [§The done-state signal](#the-done-state-signal) — the transitionable compound / parallel `:on-done` (`done.state.<id>`), distinct from the whole-machine finality above.
 - [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) — how the `:final?` leaf's depth selects compound-done-signal vs whole-machine teardown.
 - [§`:on-error`](#on-error--child-failure-control-flow) — the symmetric child-FAILURE control-flow hook (`:spawn :on-error` transition; `:error?` error terminal), the failure twin of the success notification `:on-done` (a transition or a `:data` fold, D2).
-- [§`:spawn` map keys](#spawn-map-keys) — `:on-done` and `:on-error` are listed on the parent's `:spawn` map.
+- [§Spec-spec keys](#spec-spec-keys) — `:on-done` and `:on-error` are listed on the parent's `:spawn` map.
 - [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row records that re-frame2 ships final-state-with-on-done AND first-class compound / parallel `done.state`; the `onError` row records that `:spawn :on-error` ships first-class (control flow, not observability-only).
 - [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?`, `:output-key`, `:error?`, and the `:on-done` / `:on-error` node keys.
 - [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration (the actor-finality trace; the in-machine `[:rf.machine/done <path>]` raise rides the standard `:raise` queue, not a separate trace family).
@@ -3803,13 +3803,13 @@ The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all`
 
 While in `:hydrating`, four child actors are alive at `[:rf.runtime/machines :snapshots <gensym'd-id>]`. Each child reaches a `:final?` state and, in doing so, completes: the runtime tears it down, mints its completion into the parent, updates the join state at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, evaluates the join condition, and on resolution fires `[:on-all-complete-or-friend ...]` into the parent (an ordinary FSM event the parent's `:on` handles) AND cancels any siblings still in flight. **The children know nothing about the join** — `:load-config` is an ordinary machine with a `:final?` state, and the same machine can be spawned by a single `:spawn` elsewhere without changing a line.
 
-### `:spawn-all` map keys
+### Spec-spec keys
 
 The map under `:spawn-all` accepts the following keys:
 
 | key | purpose | required? |
 |---|---|---|
-| `:children` | a vector of **invoke-spec** maps — same shape as `:spawn` (see [§`:spawn` map keys](#spawn-map-keys)) plus a required `:id` keyword for join-state addressing | required, vector of ≥ 1 |
+| `:children` | a vector of **invoke-spec** maps — same shape as `:spawn` (see [§Spec-spec keys](#spec-spec-keys)) plus a required `:id` keyword for join-state addressing | required, vector of ≥ 1 |
 | `:join` | join-condition discriminator — a **closed two-member enum**: `:all` (default), `:any`. Any other value (including `{:n N}` / `{:fn pred}` forms) is rejected at registration as an unknown join spec. Quorum is a data-only idiom — each child's `:on-done` counts into the parent's `:data` and a guard on the state's `:after` reads that count (see [§Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after)); a `{:n}` mode would be a compatible widening | optional; default `:all` |
 | `:on-all-complete` | event vector the runtime dispatches into the parent when `:join :all` resolves with all-complete | required iff `:join :all` |
 | `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` resolves on the success-side | required iff `:join :any` |

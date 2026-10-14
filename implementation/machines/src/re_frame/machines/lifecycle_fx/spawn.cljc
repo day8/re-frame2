@@ -52,7 +52,7 @@
 
 (defn- pre-allocated-actor-id
   "Resolve the pre-allocated actor id carried on the spawn args. Per Spec
-  005 §`:spawn` map keys: `:fixed-actor-id` is an explicit
+  005 §Declarative :spawn Spec-spec keys: `:fixed-actor-id` is an explicit
   actor-address literal (per-state singleton); `:rf/spawned-id` is stamped
   by the transition reducer (allocated from the parent snapshot's
   `:rf/spawn-counter`). Returns nil for hand-emitted
@@ -711,7 +711,7 @@
       resource owners release, and only then installs the newcomer from
       the post-teardown runtime-db. It is NOT last-write-wins over a live
       snapshot. Independent CHILD lifetimes are not reaped — see Spec 005
-      §`:spawn` map keys.
+      §Spec-spec keys.
    3. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar), bind the spawned id at
       `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` and at the
