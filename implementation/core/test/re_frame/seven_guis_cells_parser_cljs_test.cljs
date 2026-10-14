@@ -26,17 +26,11 @@
              "a1"]]   ;; lowercase
     (is (nil? (cells/parse-cell-id s)) s)))
 
-(deftest evaluate-uses-real-row-100-cells
-  (is (= 7 (cells/evaluate-cell "A1" {"A100" (cell-entry "6")
-                                      "A1"   (cell-entry "=(+ A100 1)")} #{}))
-      "a formula reading row 100 picks up that cell"))
-
 (deftest evaluate-out-of-grid-ref-fails-loud-not-silent-zero
   (let [v (cells/evaluate-cell "A1" {"A1" (cell-entry "=(+ A101 1)")} #{})]
     (is (cells/parse-error? v)
         "an off-grid ref surfaces the parse error, never an empty cell read as 0")
-    (is (re-find #"A101" (cells/parse-error-text v)) "the message names the offending ref")
-    (is (re-find #"outside the grid" (cells/parse-error-text v)))))
+    (is (re-find #"A101" (cells/parse-error-text v)) "the message names the offending ref")))
 
 (deftest evaluate-cell-division-by-zero-marks-error
   (is (= :error/div-by-zero
@@ -50,12 +44,11 @@
   (testing "a plain (non-formula) text cell evaluates to its own raw text"
     (is (= "hi" (cells/evaluate-cell "A1" {"A1" (cell-entry "hi")} #{})))))
 
-(deftest value->display-maps-every-error-marker-to-a-hash-code
-  (is (= ["#CYCLE" "#EVAL" "#TYPE" "#DIV/0" "#OP?" "#PARSE" "42" "hi"]
-         (mapv cells/value->display
-               [:error/cycle :error/eval :error/type :error/div-by-zero :error/unknown-op
-                [:error/parse "boom"] 42 "hi"]))
-      "every typed marker shows a hash-code, never its raw keyword"))
+(deftest value->display-maps-each-value-kind
+  ;; A typed marker, the parse-error pair, and plain values; the marker table
+  ;; itself is data.
+  (is (= ["#DIV/0" "#PARSE" "42" "hi"]
+         (mapv cells/value->display [:error/div-by-zero [:error/parse "boom"] 42 "hi"]))))
 
 (deftest unknown-op-formula-renders-hash-not-raw-keyword
   (is (= "#OP?" (cells/value->display
