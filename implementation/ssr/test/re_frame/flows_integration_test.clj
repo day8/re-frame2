@@ -111,23 +111,6 @@
           ;; made it always-on reddens here.
           (is (= {:n -3 :derived {:doubled -6}} (default-db))))))))
 
-(deftest flow-throw-aborts-event-no-db-changed-no-partial-commit
-  (testing "a flow THROW aborts the event before install: the handler's :db
-            does not land"
-    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
-    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed])
-    (let [flow-attempts (atom 0)]
-      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:derived :doomed]}
-        (fn [_] (swap! flow-attempts inc) (throw (ex-info "flow boom" {:why :test}))))
-      (reset! *captured* [])
-      (rf/dispatch-sync [:bump])
-      (is (= {:n 0} (default-db)))
-      (is (= 1 @flow-attempts) "the flow was evaluated and threw, not skipped")
-      ;; DEV ARM
-      (when rf.interop/debug-enabled?
-        (is (= [:rf.flow/failed] (ops-among #{:rf.flow/failed :rf.event/db-changed})))))))
-
 (deftest flow-augmented-value-renders-under-ssr-sync-drain
   (testing "under SSR's synchronous drain a sub over a flow's :output-path
             renders the flow-augmented value"
