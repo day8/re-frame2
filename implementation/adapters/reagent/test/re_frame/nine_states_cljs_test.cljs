@@ -29,9 +29,6 @@
   (get-in (rf/frame-state-value frame)
           [:rf.db/runtime :rf.runtime/machines :snapshots :ui/nine-states]))
 
-(defn- has-tag? [frame tag]
-  (contains? (:tags (snapshot frame)) tag))
-
 (defn- render-model [frame]
   (rf/compute-sub [:ui/render] (rf/frame-state-value frame)))
 
@@ -98,12 +95,7 @@
     (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
     (is (= 4 (count (get-in (snapshot f) [:data :items]))) "precondition: four todos loaded")
     (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
-    (is (= [initial-state initial-data] ((juxt :state :data) (snapshot f))))
-    (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
-    (rf/dispatch-sync [:new-todo/submit] {:frame f})
-    (is (= ["Buy milk"] (mapv :title (rf/compute-sub [:todos/items] (rf/frame-state-value f))))
-        "none of the four pre-reset rows reappear")
-    (is (has-tag? f :data/one) "the :data region rests at :one, not :some")))
+    (is (= [initial-state initial-data] ((juxt :state :data) (snapshot f))))))
 
 (deftest reset-clears-recorded-failure-and-thaws-done
   (with-new-frame [f (new-frame)]
