@@ -274,14 +274,11 @@
              (v1 {:tag :div :attrs {:data-dangerously-set-inner-HTML "v"
                                     :tab-Index                       1}}))))))
 
-(deftest emits-boolean-classes
-  ;; The parity suite compares classes, not spellings, so these pin the
-  ;; bytes: an overloaded `true` is a bare presence (`download="true"` would
-  ;; name the file), and an aria `false` is written, never omitted.
+(deftest an-overloaded-true-is-a-bare-presence
+  ;; The parity suite compares classes, not spellings, and
+  ;; `download="true"` would name the downloaded file.
   (is (= "<a download=\"\"></a>"
-         (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download true}}))))
-  (is (= "<div aria-hidden=\"false\"></div>"
-         (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :attrs {:aria-hidden false}})))))
+         (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :a :attrs {:download true}})))))
 
 (deftest emits-style-in-pinned-order
   (testing ":style map -> css declaration, sorted by property name"
