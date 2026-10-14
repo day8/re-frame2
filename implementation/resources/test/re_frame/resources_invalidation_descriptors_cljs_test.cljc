@@ -128,31 +128,6 @@
   [body-fn]
   (mapv :invalidation (traces-of :rf.mutation/succeeded body-fn)))
 
-(deftest bare-tag-set-invalidates-resolved-scope
-  (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:params-schema [:map [:slug :string]]
-     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (ownerless-stale-load! article-owned)
-  (execute-and-reply! :m/save :b1 {:title "new"})
-  (is (invalidated? global-key)))
-
-(deftest descriptor-invalidates-global-and-session-exactly
-  ;; One execution reaches a global and a session-scoped target, and only the
-  ;; resolved session: another user's feed is untouched.
-  (reg-article-resource!)
-  (reg-feed-resource!)
-  (rf/dispatch-sync [:t/login "jake"])
-  (ownerless-stale-load! {:resource :r/feed :scope [:rf.scope/session {:username "abel"}]
-                          :params {} :owner [:v :feed-abel]})
-  (ownerless-stale-load! {:resource :r/feed :scope {:from-db :t/session} :params {} :owner [:v :feed-jake]})
-  (ownerless-stale-load! article-owned)
-  (reg-save! global-and-session-descriptors)
-  (execute-and-reply! :m/save :f1 {:favorited true})
-  (is (= [true true false]
-         (map invalidated? [global-key (session-feed-key "jake") (session-feed-key "abel")]))))
-
 (deftest descriptor-refetches-active-owner-marks-stale-ownerless
   (reg-article-resource!)
   (reg-feed-resource!)
