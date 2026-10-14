@@ -330,7 +330,7 @@
     (when-let [provenance (rf.source-store/provenance-ns metadata)]
       (rf.error/throw-error!
         :rf.error/image-standard-replacement-forbidden
-        'rf/register-handler
+        're-frame.registrar/register!
         (str (pr-str [kind id]) " is a FRAMEWORK STANDARD registration, so the "
              "registration of it from namespace " provenance " is refused. A "
              "standard encodes an execution invariant and is not an application "
