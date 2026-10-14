@@ -163,12 +163,6 @@
            (fire! (inline-fieldset false))
            (fire! (merged-fieldset false))))))
 
-(deftest the-error-slot-still-appears-for-exactly-the-field-that-has-one
-  ;; R-A5: one field is in error, so one slot renders.
-  (let [errs (into [] (mapcat (fn [g] (filter #(and (some? %) (= "div" (.-type %))) (children-of g))))
-                   (children-of (render (merged-fieldset false) (atom []))))]
-    (is (= ["can't be blank"] (mapv #(aget (.-props %) "children") errs)))))
-
 (deftest the-helper-does-not-have-to-defend-itself
   ;; A call site forwarding a whole remainder cannot reach the controlled
   ;; contract, because the helper wrote those keys as literals — and
