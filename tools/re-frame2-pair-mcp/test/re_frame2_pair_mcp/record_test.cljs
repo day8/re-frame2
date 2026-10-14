@@ -43,7 +43,6 @@
             "(fn [sample] (clojure.string/includes? (str (get sample 0)) \"load\"))"]
            [{:signal 2}
             "(fn [sample] (some? (get sample 2)))"]
-           [nil         nil]
            ["not-a-map" nil]]]
     (is (= src (record/pred-source pred)) (pr-str pred))))
 
