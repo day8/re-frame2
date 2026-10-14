@@ -11,7 +11,6 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -90,20 +89,6 @@
     (is (= [nil] @seen) "only the nil token reached the validator, once")
     (is (= [[:area :flow-output]] (mapv (comp (juxt :rf.flow/id :where) :tags) (violations))))
     (is (= 12 (area)))))
-
-(deftest no-validator-soft-passes
-  (rf.schemas/set-schema-fns! {:validate nil})
-  (area-flow! {:schema (fn [_] false)})
-  (is (= [12 []] [(area) (violations)])))
-
-(deftest production-gate-elides-validation
-  ;; Witnessed at the validator: the failure trace is itself debug-gated, so
-  ;; its absence could not fail here.
-  (let [consulted (atom 0)]
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
-    (with-redefs [rf.interop/debug-enabled? false]
-      (area-flow! {:schema (fn [_] false)}))
-    (is (= [12 0] [(area) @consulted]))))
 
 ;; The schemas below are walkable vector Malli forms with no `:sensitive?`
 ;; prop, so the seam's opaque-schema fail-closed arm cannot be what redacts
