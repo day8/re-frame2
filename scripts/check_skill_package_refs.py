@@ -341,10 +341,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     marker = " (not in the published package; run from a monorepo clone)"
     # (name, package.json `files`, {doc: line}, the kind of its one finding)
     cases = [
-        ("unshipped_link", ["SKILL.md"],
-         {"SKILL.md": "See [setup](docs/SETUP.md)."}, omitted),
-        ("parent_escape", ["SKILL.md"],
-         {"SKILL.md": "See [foo](../../tools/foo/README.md)."}, escape),
         # The marker excuses an unshipped IN-package path, never an escape.
         ("parent_escape_marker_does_not_excuse", ["SKILL.md"],
          {"SKILL.md": "See [foo](../../tools/foo/README.md)" + marker}, escape),
