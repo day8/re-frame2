@@ -148,7 +148,7 @@ Same for the `uix` variant.
 
 **Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per the [`issue-filing.md`](issue-filing.md) recipe). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
 
-### M-25 — `re-frame.test` rename
+### M-25 — `day8.re-frame.test` rename
 
 ```clojure
 ;; SEARCH
