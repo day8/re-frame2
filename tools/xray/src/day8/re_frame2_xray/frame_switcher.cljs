@@ -63,22 +63,16 @@
   envelope keeps room for future fields (e.g. last-N-frames history,
   per-frame UI state) without a versioned migration.
 
-  ## Hydration
+  ## No hydration
 
-  Boot does NOT restore the persisted selection: the frame pin is a
+  Nothing restores the persisted selection: the frame pin is a
   transient exploration filter (see `install!`), and `mount.cljs`'s
   `::reset-transient-filters` first-mount hook clears the stale slot.
-  `hydrate!` / `load` are the data layer for tests and opt-in hosts.
-  `hydrate!` is re-entrant — the dispatch is a wholesale
-  `(assoc db :focus (assoc focus :frame …))` — and guards on
-  `(rf.frame/frame defaults/default-frame-id)` so a call before the
-  frame is seated short-circuits cleanly."
+  `load` reads the slot back for the tests that check that clear."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack]]))
@@ -203,8 +197,8 @@
 
 (defn <-edn
   "Parse a stored EDN string. Returns the parsed frame-id keyword on
-  success, or nil on parse failure / unrecognised shape — the load
-  path never throws into init."
+  success, or nil on parse failure / unrecognised shape — it never
+  throws."
   [s]
   (let [parsed (try (reader/read-string s)
                     (catch :default _ nil))]
@@ -247,36 +241,6 @@
     (fn [_ctx frame-id]
       (save! frame-id)))
   nil)
-
-;; ---- hydration -----------------------------------------------------------
-
-(defn hydrate!
-  "Drive the localStorage → `:focus :frame` slot hydration, restoring
-  the user's last picked frame. Boot does not call it — the frame pin is
-  transient (see `install!`) — so it is the data layer for tests and
-  opt-in hosts.
-
-  Re-entrant. Safe to call before the frame is registered AND after it
-  is. Both invocations converge on the same slot because:
-
-  - the load read is pure;
-  - the hydrate dispatch is a wholesale `(assoc-in db [:focus :frame]
-    …)` so re-running with the same source produces the same slot;
-  - the frame guard short-circuits the pre-mount call without losing
-    state — the localStorage value is still readable at the second
-    call.
-
-  Returns nil. No-op when localStorage has no stored selection."
-  []
-  (when-let [frame-id (load)]
-    (when (some? (rf.frame/frame defaults/default-frame-id))
-      (rf/with-frame defaults/default-frame-id
-        ;; Dispatch the canonical event so any future side-effects
-        ;; (analytics, instrumentation, undo-stack) all run through
-        ;; the same path. dispatch-sync because we're at boot — the
-        ;; first subscribe needs to see the hydrated value.
-        (rf/dispatch-sync [:rf.xray/select-frame frame-id])))
-    nil))
 
 ;; ---- view ----------------------------------------------------------------
 
@@ -472,8 +436,7 @@
   Does NOT hydrate `[:focus :frame]` from localStorage: the
   frame pin is a transient exploration filter, reset to unpinned on
   every page load. `mount.cljs`'s `::reset-transient-filters` first-
-  mount hook clears the stale slot. `hydrate!` / `load` are the
-  data layer for tests and opt-in hosts, but init does not restore.
+  mount hook clears the stale slot.
 
   Called from `registry/register-xray-handlers!` after `spine/install!`
   so the canonical event-fx's `[:dispatch [:rf.xray/set-frame ...]]`
@@ -604,8 +567,6 @@
   ;; a frame chosen in a past session. The `[:focus :frame]` slot starts
   ;; at its registry default (unpinned) and `mount.cljs`'s
   ;; `::reset-transient-filters` first-mount hook clears the stale
-  ;; localStorage slot so storage matches. `hydrate!` / `load` are the
-  ;; data layer (exercised by the round-trip tests), but init does not
-  ;; restore.
+  ;; localStorage slot so storage matches.
 
   nil)

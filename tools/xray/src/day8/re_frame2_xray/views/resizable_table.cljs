@@ -293,7 +293,7 @@
 (defn hydrate!
   "Lift the persisted column-widths slot into the shell frame's app-db.
 
-  Mirrors `frame-switcher/hydrate!` / `static-machines/hydrate!`:
+  Mirrors `static-machines/hydrate!`:
   re-entrant; safe to call from `install!` (preload-time, before the
   frame is registered) AND from `mount.cljs/ensure-xray-frame!`
   (first open, frame registered). Both invocations converge on the
