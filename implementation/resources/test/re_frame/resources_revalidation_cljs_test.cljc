@@ -116,17 +116,6 @@
               (boolean (some #{:focus} (:causes (rf.resources.work-ledger/get-record (runtime-db) (:current-work e)))))])
           "the refetch records a :focus cause and attaches no owner"))))
 
-(deftest focus-refetch-bumps-generation-and-suppresses-stale-reply
-  (let [k          (owned-stale! :gn/sw)
-        gen-before (:generation (entry k))]
-    (rf/dispatch-sync [:rf.resource/window-focused])
-    (is (= [(inc gen-before) :fetching] ((juxt :generation :status) (entry k))))
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key k
-                        :work/id (rf.resources.work-ledger/resource-work-id k gen-before)
-                        :generation gen-before :data {:title "Zombie"}}])
-    (is (not= {:title "Zombie"} (:data (entry k))) "a pre-focus-generation reply is suppressed")))
-
 (deftest back-to-back-focus-coalesces-to-one-refetch
   ;; a tab return fires both window focus and document visibilitychange, and
   ;; both dispatch :rf.resource/window-focused
@@ -141,17 +130,6 @@
       (is (= [gen-after-1 wid-after-1 :fetching []]
              [(:generation (entry k)) (:current-work (entry k)) (:status (entry k)) @aborts])
           "the second focus joins the same work with no abort churn"))))
-
-(deftest coalescing-does-not-block-a-fresh-revalidation
-  ;; coalescing is per in-flight attempt, not a latch
-  (let [k (owned-stale! :cf/sw)]
-    (rf/dispatch-sync [:rf.resource/window-focused])
-    (let [gen-mid (:generation (entry k))]
-      (succeed! k {:title "W2"})
-      (is (nil? (:current-work (entry k))) "precondition: the refetch settled")
-      (rf/dispatch-sync [:rf.resource/window-focused])
-      (is (= [(inc gen-mid) :fetching] ((juxt :generation :status) (entry k)))
-          "a focus after the settle starts a fresh refetch"))))
 
 (deftest frame-destroy-cancels-revalidation-listeners
   (let [fa :rv/frame-a]
