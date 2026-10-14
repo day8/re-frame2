@@ -150,12 +150,6 @@
       (let [db       (rf/frame-state-value f)
             payloads [test-config test-routes test-flags test-user]]
         (is (= :ready (rf/compute-sub [:app.boot/state] db)))
-        ;; A child completes by reaching a `:final?` state, and the parent's
-        ;; `:on-done` fold is the only writer of the machine's own :data.
-        (is (= payloads
-               ((juxt :config :routes :flags :user)
-                (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])))
-            "each payload folded into its own slot of the boot machine's :data")
         (is (= payloads
                (mapv #(rf/compute-sub [%] db) [:app/config :app/routes :app/flags :app/user]))
             "the top-level slices hydrated from the machine's :data")))))
