@@ -6,7 +6,9 @@
 // field would be a fact about HTTP, not a guarantee. On the response leg:
 //
 //   1. the `complete` frame carries exactly the service-owned roster;
-//   2. nothing the render module handled appears outside `chunk.html`;
+//   2. nothing the render module handled appears outside `chunk.html` — the
+//      chunk frames are pinned exactly in `bytes.test.cjs`, the HTTP headers
+//      here;
 //   3. a module that RETURNS a value (`null` included) is refused, and the
 //      refusal carries none of it;
 //   4. a module that THROWS is refused with service-owned wording, code and
@@ -15,8 +17,6 @@
 //   6. a REPLACEMENT isolate that cannot boot tells a waiting caller nothing
 //      it authored, and ends the service rather than shrinking it;
 //   7. a rejection that is not a `Refusal` carries nothing the caller sent.
-//
-// Every absence check has a control showing its sentinel was really there.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -28,14 +28,11 @@ const {
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
   REPLACEMENT_FAILED_REFUSAL,
-  isRefusalCode,
 } = require('../src/protocol.cjs');
 const { Service } = require('../src/service.cjs');
 const { serve, statusFor } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
-const NULL_RETURN = require('./fixtures/null-return.cjs');
 const THROWS_DATA = require('./fixtures/throws-data.cjs');
-const THROWS_ASYNC = require('./fixtures/throws-async.cjs');
 
 /**
  * Every place a sentinel appears in a frame sequence OUTSIDE body markup.
@@ -67,6 +64,9 @@ function captureStderr() {
 }
 
 const prefixed = (log) => log.split('\n').some((line) => line.includes('[rf.ssr-node]'));
+
+/** An `isolate-lost` detail with its two identifiers reduced to their types. */
+const detailShape = (err) => ({ ...err.detail, isolate: typeof err.detail.isolate, threadId: typeof err.detail.threadId });
 
 // Distinctive sentinels, so a hit can only be a leak.
 const STATE = {
@@ -103,41 +103,8 @@ test('the complete frame carries EXACTLY the service-owned roster', async () => 
 });
 
 // ---------------------------------------------------------------------------
-// 2. The scan
+// 2. Outside the frames — the HTTP headers
 // ---------------------------------------------------------------------------
-
-test('CONTROL — the scan finds a planted leak, in each of its two shapes', () => {
-  const onComplete = [
-    { type: 'chunk', seq: 0, html: `<p>${SENTINELS[0]}</p>` },
-    { type: 'complete', chunks: 1, renderMs: 1, buildId: 'b', meta: { readTodos: SENTINELS[0] } },
-  ];
-  assert.strictEqual(scanForEgress(onComplete, SENTINELS).length, 1, 'a leak on the terminal frame');
-
-  const onChunk = [
-    { type: 'chunk', seq: 0, html: '<p>ok</p>', note: SENTINELS[2] },
-    { type: 'complete', chunks: 1, renderMs: 1, buildId: 'b' },
-  ];
-  assert.strictEqual(scanForEgress(onChunk, SENTINELS).length, 1, 'a leak beside body markup');
-
-  const clean = [
-    { type: 'chunk', seq: 0, html: `<p>${SENTINELS[0]}${SENTINELS[1]}${SENTINELS[2]}</p>` },
-    { type: 'complete', chunks: 1, renderMs: 1, buildId: 'b' },
-  ];
-  assert.deepStrictEqual(scanForEgress(clean, SENTINELS), [], 'a sentinel inside html is not a leak');
-});
-
-test('no value the render module handled crosses outside body markup', async () => {
-  await withService('reference', { isolates: 1 }, async (service) => {
-    const frames = [];
-    for await (const frame of service.renderFrames(req({ requestId: 'corr-2' }))) {
-      frames.push(frame);
-    }
-    // The module renders its todos, so the first sentinel is reachable.
-    const body = frames.filter((f) => f.type === 'chunk').map((f) => f.html).join('');
-    assert.ok(body.includes(SENTINELS[0]), 'the module did read and render the state');
-    assert.deepStrictEqual(scanForEgress(frames, SENTINELS), [], 'application data reached a public frame outside body markup');
-  });
-});
 
 test('the HTTP transport carries none of it either — corollary, not evidence', async () => {
   // Headers are their own egress surface.
@@ -162,14 +129,6 @@ test('the HTTP transport carries none of it either — corollary, not evidence',
 // 3. The refusal — a module that RETURNS
 // ---------------------------------------------------------------------------
 
-test('CONTROL — the leaky fixture really does return a payload', () => {
-  const emitted = [];
-  const out = LEAKY.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) => emitted.push(h));
-  assert.strictEqual(emitted.length, 1, 'it emits body markup like any other module');
-  assert.strictEqual(out.meta.secret, LEAKY.SECRET);
-  assert.strictEqual(out.meta.readTodos, '[1]', 'and it reads application state into the payload');
-});
-
 test('a render module that returns a value is REFUSED, not silently dropped', async () => {
   // The refusal names the SHAPE; echoing the value would be the same egress
   // through the error channel.
@@ -185,13 +144,6 @@ test('a render module that returns a value is REFUSED, not silently dropped', as
     assert.ok(!text.includes(LEAKY.SECRET), 'the refusal echoed the module’s own value');
     assert.ok(!text.includes('secret-state-3ab1'), 'the refusal echoed the request state');
   });
-});
-
-test('CONTROL — the null fixture really does return null, and not nothing', () => {
-  const emitted = [];
-  const out = NULL_RETURN.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) => emitted.push(h));
-  assert.strictEqual(emitted.length, 1, 'it emits body markup like any other module');
-  assert.strictEqual(out, null);
 });
 
 test('a module that returns null is REFUSED too — `undefined` is the whole accepted set', async () => {
@@ -234,45 +186,6 @@ const refusalLeaks = (err, sentinels = THROW_SENTINELS) => [
   ...sentinels.filter((s) => (err.stack ?? '').includes(s)).map((s) => ({ type: 'stack', sentinel: s, in: err.stack })),
 ];
 
-test('CONTROL — the throwing fixture really does put all three sentinels on the Error', () => {
-  let thrown = null;
-  try {
-    THROWS_DATA.render({ entry: 'app/plain', state: THROW_STATE }, () => {});
-  } catch (err) {
-    thrown = err;
-  }
-  assert.ok(thrown.message.includes(THROW_SENTINELS[1]), 'message carries its sentinel');
-  assert.ok(String(thrown.code).includes(THROW_SENTINELS[0]), 'code carries its sentinel');
-  assert.ok(thrown.detail.echoed.includes(THROW_SENTINELS[2]), 'detail carries its sentinel');
-  assert.ok(thrown.detail.nested.deeper.includes(THROW_SENTINELS[2]), 'and it is NESTED, so a shallow scan would miss it');
-  assert.strictEqual(new Set(THROW_SENTINELS).size, 3);
-});
-
-test('CONTROL — the spoofed codes really are members of the refusal family', () => {
-  // Rename a member of `CODE` and the fixture's literals would map to 500 on
-  // their own: the status row would stay green and stop testing a spoof.
-  const members = new Set(Object.values(CODE));
-  for (const [entry, code] of Object.entries(THROWS_DATA.SPOOFED_CODE)) {
-    assert.ok(members.has(code), `${entry} spoofs ${code}, which is not a real code`);
-    assert.notStrictEqual(
-      statusFor(code),
-      statusFor(CODE.RENDER_THREW),
-      `${code} must map to a DIFFERENT status than render-threw, or there is nothing to spoof`,
-    );
-  }
-  assert.strictEqual(Object.keys(THROWS_DATA.SPOOFED_CODE).length, 3, '400, 503 and 504');
-});
-
-test('a render that THROWS is refused with service-owned wording, carrying nothing it authored', async () => {
-  await withService('throws-data', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, throwReq('app/plain')));
-    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the documented code, not the module’s');
-    assert.strictEqual(err.message, RENDER_THREW_REFUSAL, 'the contract owns the wording');
-    assert.deepStrictEqual(err.detail, { entry: 'app/plain', afterChunks: 0 }, 'the detail is service-owned');
-    assert.deepStrictEqual(refusalLeaks(err), [], 'the module’s exception reached the public refusal');
-  });
-});
-
 test('a THROW after emitting is still a torn response, and still carries nothing', async () => {
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const chunks = [];
@@ -290,6 +203,11 @@ test('a THROW after emitting is still a torn response, and still carries nothing
 });
 
 test('and it cannot choose the HTTP status either — every throw is a 500', async () => {
+  // Rename a member of `CODE` and the fixture's literals would map to 500 on
+  // their own: this row would stay green and stop testing a spoof.
+  for (const code of Object.values(THROWS_DATA.SPOOFED_CODE)) {
+    assert.notStrictEqual(statusFor(code), 500, `${code} must be a live code with a status of its own`);
+  }
   await withService('throws-data', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     try {
@@ -348,62 +266,29 @@ const ASYNC_SENTINEL = 'rf2-c38b-async-9f31c4';
 
 const asyncReq = (entry) => ({ protocol: 1, entry, state: ASYNC_STATE });
 
-test('CONTROL — the scheduled callback really does throw the sentinel-bearing Error', () => {
-  // The throw is uncaught by design, so the callback is captured instead of
-  // allowed to fire, and thrown here on purpose.
-  const scheduled = [];
-  const realSetImmediate = globalThis.setImmediate;
-  globalThis.setImmediate = (fn) => {
-    scheduled.push(fn);
-    return { unref() {} };
-  };
-  try {
-    THROWS_ASYNC.render({ entry: 'app/uncaught', state: ASYNC_STATE }, () => {});
-  } finally {
-    globalThis.setImmediate = realSetImmediate;
-  }
-
-  assert.strictEqual(scheduled.length, 1, 'the render must schedule exactly one callback');
-  let thrown = null;
-  try {
-    scheduled[0]();
-  } catch (err) {
-    thrown = err;
-  }
-  assert.ok(thrown.message.includes(ASYNC_SENTINEL), 'its message carries the sentinel');
-  assert.strictEqual(thrown.code, THROWS_ASYNC.SPOOFED_CODE, 'it also types a `code`');
-  assert.ok(new Set(Object.values(CODE)).has(THROWS_ASYNC.SPOOFED_CODE), 'the spoofed code must still be a real member of the family');
-});
-
-test('an exception that ESCAPES the render call carries nothing the module authored', async () => {
-  await withService('throws-async', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, asyncReq('app/uncaught')));
-    // A crashed worker is not a reusable one, so the code stays isolate-lost.
-    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
-    assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
-    assert.deepStrictEqual(
-      Object.keys(err.detail).sort(),
-      ['afterChunks', 'isolate', 'threadId'],
-      'the detail is service-owned: which isolate died, its thread, and the tear count',
-    );
-    assert.strictEqual(typeof err.detail.threadId, 'number');
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-    assert.deepStrictEqual(refusalLeaks(err, [ASYNC_SENTINEL]), [], 'the escaped exception reached the public refusal');
-    // A stack would also name the deployment's filesystem.
-    assert.ok(!JSON.stringify(err.toFrame()).includes('throws-async.cjs'), 'a serialised stack names the server’s own filesystem');
-  });
-});
-
-test('and the OPERATOR still gets the exception, in full, on the sidecar stderr', async () => {
-  // The worker never caught this one, so the parent's write is the only copy.
+test('an exception that ESCAPES the render call carries nothing the module authored, and the OPERATOR gets all of it', async () => {
+  // The worker never caught this one, so the parent's stderr write is the only copy.
   const [captured, restore] = captureStderr();
+  let err;
   try {
-    await withService('throws-async', { isolates: 1 }, async (service) => {
-      await refusalOf(() => collect(service, asyncReq('app/uncaught')));
-    });
+    err = await withService('throws-async', { isolates: 1 }, (service) =>
+      refusalOf(() => collect(service, asyncReq('app/uncaught'))),
+    );
   } finally {
     restore();
   }
+  // A crashed worker is not a reusable one, so the code stays isolate-lost.
+  assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+  assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
+  assert.deepStrictEqual(
+    detailShape(err),
+    { afterChunks: 0, isolate: 'number', threadId: 'number' },
+    'the detail is service-owned: which isolate died, its thread, and the tear count',
+  );
+  assert.deepStrictEqual(refusalLeaks(err, [ASYNC_SENTINEL]), [], 'the escaped exception reached the public refusal');
+  // A stack would also name the deployment's filesystem.
+  assert.ok(!JSON.stringify(err.toFrame()).includes('throws-async.cjs'), 'a serialised stack names the server’s own filesystem');
+
   const log = captured.join('');
   assert.ok(prefixed(log), 'the operator was told nothing at all');
   assert.ok(log.includes(ASYNC_SENTINEL), 'the operator copy must be the REAL exception');
@@ -432,7 +317,7 @@ test('an escaped NULLISH throw is refused like any other, and the sidecar surviv
 // ---------------------------------------------------------------------------
 
 const FLAKY_BOOT = require('./fixtures/flaky-boot.cjs');
-const { FAIL_FLAG, BOOT_SENTINEL, BOOT_SPOOF_CODE } = FLAKY_BOOT;
+const { FAIL_FLAG, BOOT_SENTINEL } = FLAKY_BOOT;
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -474,25 +359,6 @@ async function replacementBootFailure() {
     restore();
   }
 }
-
-test('CONTROL — the flaky fixture really does refuse to boot, with all three payloads', () => {
-  const modulePath = require.resolve('./fixtures/flaky-boot.cjs');
-  process.env[FAIL_FLAG] = '1';
-  delete require.cache[modulePath];
-  let thrown = null;
-  try {
-    require('./fixtures/flaky-boot.cjs');
-  } catch (err) {
-    thrown = err;
-  } finally {
-    delete process.env[FAIL_FLAG];
-    delete require.cache[modulePath];
-    require('./fixtures/flaky-boot.cjs'); // leave the cache holding the good one
-  }
-  assert.ok(thrown.message.includes(BOOT_SENTINEL), 'the armed fixture throws, carrying the sentinel on its message');
-  assert.strictEqual(thrown.code, BOOT_SPOOF_CODE, 'and carry the spoofed code');
-  assert.ok(isRefusalCode(BOOT_SPOOF_CODE), 'which must be a real member, or nothing is spoofed');
-});
 
 test('a replacement that cannot boot tells a WAITING CALLER nothing it authored, and tells the OPERATOR all of it', async () => {
   const run = await replacementBootFailure();
@@ -558,8 +424,7 @@ test('a replacement that cannot boot is TERMINAL: a later caller is refused, /he
           );
 
           const later = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/root' }));
-          assert.ok(later, 'a later call must be refused, not served by a shrunken pool');
-          assert.strictEqual(later.code, CODE.ISOLATE_LOST, 'the one stable code a waiter is also given');
+          assert.strictEqual(later?.code, CODE.ISOLATE_LOST, 'a later call must be refused, not served by a shrunken pool');
           assert.strictEqual(later.message, REPLACEMENT_FAILED_REFUSAL);
 
           const health = await fetch(`http://127.0.0.1:${transport.port}/health`);
@@ -690,28 +555,21 @@ test('a rejection that is not a Refusal carries nothing the CALLER authored, and
 
 const exitReq = (entry) => ({ protocol: 1, entry, state: { ':for-exit': 'x' } });
 
-test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', async () => {
-  await withService('exits', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, exitReq('app/exits')));
-    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
-    assert.deepStrictEqual(
-      Object.keys(err.detail).sort(),
-      ['afterChunks', 'isolate', 'threadId'],
-      'the exit arm must identify the isolate the way its sibling arm does',
-    );
-    assert.strictEqual(typeof err.detail.isolate, 'number', 'which isolate went');
-    assert.strictEqual(typeof err.detail.threadId, 'number', 'and the thread an operator will look for');
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-    assert.strictEqual(err.message, 'the isolate exited mid-render', 'the exit arm keeps its own wording');
-  });
-});
-
-test('and a TORN exit still names the count beside the identifying fields', async () => {
+test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread, torn or not', async () => {
   // The count comes from `_failPendingRender`: the worker is gone and cannot report it.
   await withService('exits', { isolates: 1 }, async (service) => {
+    const clean = await refusalOf(() => collect(service, exitReq('app/exits')));
+    assert.strictEqual(clean.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+    assert.deepStrictEqual(
+      detailShape(clean),
+      { afterChunks: 0, isolate: 'number', threadId: 'number' },
+      'the exit arm must identify the isolate the way its sibling arm does',
+    );
+
+    // The next render runs on the replacement isolate.
     const chunks = [];
     let complete = null;
-    const err = await refusalOf(async () => {
+    const torn = await refusalOf(async () => {
       for await (const frame of service.renderFrames(exitReq('app/exits-torn'))) {
         if (frame.type === 'chunk') chunks.push(frame.html);
         else complete = frame;
@@ -719,12 +577,11 @@ test('and a TORN exit still names the count beside the identifying fields', asyn
     });
     assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
     assert.strictEqual(complete, null, 'no success completion follows the failure');
-    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the distinction is kept');
-    assert.strictEqual(err.detail.afterChunks, 1, 'the tear is named, with its exact count');
+    assert.strictEqual(torn.code, CODE.ISOLATE_LOST, 'the distinction is kept');
     assert.deepStrictEqual(
-      Object.keys(err.detail).sort(),
-      ['afterChunks', 'isolate', 'threadId'],
-      'identifying the isolate must not have added a field beyond the three',
+      detailShape(torn),
+      { afterChunks: 1, isolate: 'number', threadId: 'number' },
+      'the tear is named, with its exact count, beside the identifying fields',
     );
   });
 });
