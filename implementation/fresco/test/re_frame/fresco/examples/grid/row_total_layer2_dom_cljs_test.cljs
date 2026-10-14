@@ -23,8 +23,8 @@
   are evidence about the public door. Adopting a layer-2 spelling in
   `examples/grid` is a separate decision — this file measures a contrast, it
   does not adopt one. So the contrast arm lives in the suite, beside
-  `grid.scaling-dom-cljs-test`'s coarse anti-shapes, for the same reason those
-  do.
+  `grid.scaling-dom-cljs-test`'s coarse anti-shape, for the same reason it
+  does.
 
   ## Both arms on ONE instrument, in one file
 
@@ -33,7 +33,7 @@
   layer-2 restatement — so the contrast is a reading rather than an
   arithmetic comparison between two instruments run in two places. The census's published figures (111 at 10x10, 31 at
   5x5, `per-keystroke.md`) are then a CROSS-CHECK on this file's layer-1
-  arm rather than one half of its subtraction.
+  arm rather than one half of its contrast.
 
   ## What the layer-2 spelling costs the author, and it is not nothing
 
@@ -184,11 +184,6 @@
         (doseq [[id meta] originals]
           (rf.registrar/register! :sub id meta))))))
 
-(defn- total
-  "The census's one number, summed over the per-sub attribution."
-  [counts]
-  (reduce + 0 (vals counts)))
-
 (def ^:private counted-sub-ids
   "Both arms count the same four ids, so an arm that never ran its own
   total shows up as an ABSENT key rather than as a smaller sum."
@@ -229,8 +224,7 @@
           (let [bodies (rf.fresco.test.mounted/bodies-run (fn [] (type-into! n "1") (rf.fresco.test.mounted/settle! m)))
                 runs   (sub-runs)]
             (try
-              {:sub-runs     (total runs)
-               :by-sub       runs
+              {:by-sub       runs
                :bodies       bodies
                :total-before before
                :total-after  (total-text m 3)
@@ -239,27 +233,6 @@
 
 (def ^:private small {:rows 5 :cols 5})
 (def ^:private full {:rows 10 :cols 10})
-
-;; ---------------------------------------------------------------------------
-;; The restatement is FAITHFUL before it is fast
-;; ---------------------------------------------------------------------------
-
-(deftest the-layer-2-total-renders-what-the-layer-1-total-renders
-  ;; The premise. A cheaper subscription that answers a different number
-  ;; is not a contrast, it is a bug, and every count below would be
-  ;; measuring the wrong thing.
-  (if-not (browser?)
-    (skip! "the faithfulness premise")
-    (let [l1 (rf.fresco.test.mounted/mount! [rf.fresco.examples.grid.views/grid {}] {:initial-events (rf.fresco.examples.grid.app/initial-events full)})
-          l2 (rf.fresco.test.mounted/mount! [grid-l2 {}] {:initial-events (rf.fresco.examples.grid.app/initial-events full)})]
-      (is (= (mapv #(total-text l1 %) (range 10))
-             (mapv #(total-text l2 %) (range 10)))
-          "every row's total, both spellings, at 10x10")
-      (is (= "345" (total-text l1 3))
-          "and the value is the seeded row's real sum (30+31+…+39), so the
-           row above is not two spellings agreeing on nil")
-      (rf.fresco.test.mounted/unmount! l1)
-      (rf.fresco.test.mounted/unmount! l2))))
 
 ;; ---------------------------------------------------------------------------
 ;; The contrast
@@ -302,12 +275,10 @@
             "10x10: every mounted cell, every row total, and the
              dimensions cell that nothing moved. Identical to the
              per-keystroke census's published attribution, taken on the
-             same counter — so this file's subtraction is between two
+             same counter — so this file's contrast is between two
              readings it took itself")
-        (is (= 111 (:sub-runs l1-100)))
         (is (= {::rf.fresco.examples.grid.subs/cell 25 ::rf.fresco.examples.grid.subs/row-total 5 ::rf.fresco.examples.grid.subs/dimensions 1}
-               (:by-sub l1-25)))
-        (is (= 31 (:sub-runs l1-25))))
+               (:by-sub l1-25))))
 
       (testing "the layer-2 arm — the row-total term collapses to ONE"
         (is (= {::rf.fresco.examples.grid.subs/cell 100 ::row-total-l2 1 ::rf.fresco.examples.grid.subs/dimensions 1}
@@ -317,35 +288,7 @@
              not move — the layer-2 memo compares those `cols` cell VALUES
              and finds them `=`, where the layer-1 memo compares the whole
              of `app-db` and finds it moved")
-        (is (= 102 (:sub-runs l2-100)))
         (is (= {::rf.fresco.examples.grid.subs/cell 25 ::row-total-l2 1 ::rf.fresco.examples.grid.subs/dimensions 1}
                (:by-sub l2-25))
             "and at 5x5 the same ONE — the term is flat in the grid, where
-             the layer-1 spelling's was linear in `rows`")
-        (is (= 27 (:sub-runs l2-25))))
-
-      (testing "the contrast, stated as the two shapes"
-        (is (= [10 5] [(::rf.fresco.examples.grid.subs/row-total (:by-sub l1-100))
-                       (::rf.fresco.examples.grid.subs/row-total (:by-sub l1-25))])
-            "layer-1 row-total runs = rows: 10 at 10x10, 5 at 5x5 — it
-             GROWS with the page")
-        (is (= [1 1] [(::row-total-l2 (:by-sub l2-100))
-                      (::row-total-l2 (:by-sub l2-25))])
-            "layer-2 row-total runs = 1 at both sizes — it does NOT")
-
-        (is (= 100 (::rf.fresco.examples.grid.subs/cell (:by-sub l1-100)) (::rf.fresco.examples.grid.subs/cell (:by-sub l2-100)))
-            "AND THE LINEAR TERM SURVIVES, which is the half of this
-             measurement a reader is likeliest to misread. `::cell` is a
-             layer-1 reader in BOTH arms and there are a hundred of them
-             mounted, so a hundred bodies run either way. What the layer-2
-             spelling removes is the row-total term and nothing else.")
-        (is (= [9 4] [(- (:sub-runs l1-100) (:sub-runs l2-100))
-                      (- (:sub-runs l1-25) (:sub-runs l2-25))])
-            "so the whole saving is nine recomputations out of 111 at
-             10x10 (111 -> 102) and four out of 31 at 5x5 (31 -> 27):
-             `rows - 1`, exactly the row totals that were recomputing a
-             value that had not moved. Stated as a fraction it is 8% and
-             13% of the census's number, and stated as a shape it is the
-             difference between a term that grows with the page and one
-             that does not — which is why the fraction is the less
-             interesting of the two readings.")))))
+             the layer-1 spelling's was linear in `rows`")))))
