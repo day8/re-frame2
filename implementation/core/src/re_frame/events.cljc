@@ -1224,8 +1224,8 @@
 
   TWO surfaces, ONE handler:
 
-    * the REGULAR registrar (the default-image / no-generation resolution path,
-      where `rf.registrar/lookup` reads the registrar atom directly). The
+    * the REGULAR registrar (the registrar-atom resolution path, where
+      `rf.registrar/lookup` reads the registrar atom directly). The
       framework registers via the PRIVATE `rf.registrar/register!` path — NOT the
       public `reg-event` — so the `reserved-event-ids` guard (which fires only
       on the public `register-event!` entry) does not reject the framework's

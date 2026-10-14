@@ -270,7 +270,7 @@
    (do
      (def ^{:doc "Fn-alias of the `reg-event` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a
   `(fn [coeffects event-vec] effect-map)` event handler under `id` — the
   ONE public event form (EP-0018). See `re-frame.events/reg-event` and
@@ -278,19 +278,19 @@
        reg-event       rf.events/reg-event)
      (def ^{:doc "Fn-alias of the `reg-sub` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a subscription under
   `id`. See `re-frame.subs/reg-sub` and spec/API.md §Registration."}
        reg-sub         rf.subs/reg-sub)
      (def ^{:doc "Fn-alias of the `reg-fx` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register an effect handler
   under `id`. See `re-frame.fx/reg-fx` and spec/API.md §Registration."}
        reg-fx          rf.fx/reg-fx)
      (def ^{:doc "Fn-alias of the `reg-cofx` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a coeffect SUPPLIER —
   a value-returning fn whose result is delivered FLAT into a declaring
   handler's `:coeffects` map (the handler declares `:rf.cofx/requires
@@ -299,7 +299,7 @@
        reg-cofx        rf.cofx/reg-cofx)
      (def ^{:doc "Fn-alias of the `reg-interceptor` macro for HoF /
   programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register an
   interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
   `{:factory}`) under `id` — the public interceptor-authoring form (EP-0022).
@@ -324,7 +324,7 @@
        reg-flow        rf.core-flows/reg-flow)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
   (`:doc`, `:params`, `:on-match`, …); the `path` pattern is the THIRD value
@@ -335,7 +335,7 @@
        reg-route       rf.core-routing/reg-route)
      (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a resource — a named,
   cached read of remote/external state: `(reg-resource resource-id metadata
   request-fn)` — `metadata` is the MIDDLE registration-metadata map carrying
@@ -348,7 +348,7 @@
        reg-resource    rf.core-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a mutation — a named,
   causal WRITE to remote state that, on success, invalidates / patches /
   populates cached resource reads: `(reg-mutation mutation-id metadata
@@ -361,7 +361,7 @@
        reg-mutation    rf.core-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a PURE named
   scope resolver under `scope-id`. The 3-slot grammar is
   `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is the
@@ -408,7 +408,7 @@
        reg-app-schemas rf.core-schemas/reg-app-schemas)
      (def ^{:doc "Fn-alias of the `reg-error-projector` macro for HoF /
   programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register an error
   projector — `(fn [trace-event] public-error-map)` — under `id`; frames opt
   in via the `:ssr` config's `:public-error-id` key. Implementation ships in
@@ -418,7 +418,7 @@
        reg-error-projector rf.core-ssr/-reg-error-projector)
      (def ^{:doc "Fn-alias of the `reg-head` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  `:rf.provenance/ns` — reached only by a frame made without `:images`
   unless the metadata stamps `:ns`). Register a head-fragment producer —
   `(fn [db route] head-model)` — under a namespaced keyword `id`; routes name
   a registered head via `:head` route metadata. Implementation ships in
@@ -929,7 +929,7 @@
      registration — leave the macro's source-coord capture unbound, so their
      descriptors carry no `:rf.provenance/ns` and are never matched by an
      `:include` glob: an APPLICATION registration made that way is reachable
-     through the DEFAULT image alone. (One whose id sits under the reserved
+     only from a frame made without `:images`. (One whose id sits under the reserved
      `:rf` root is treated as framework-owned instead: it rides the framework
      base, reported as `:rf/framework`, that every explicit composition is
      layered over. That is how the framework's own feature handlers reach an

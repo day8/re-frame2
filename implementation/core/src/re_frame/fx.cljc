@@ -1457,9 +1457,19 @@
                                             frame-id origin-event origin-event-id))
         ;; `resolve-fx-with-overrides` itself may emit override-applied or
         ;; fallthrough. Its result is inert after listener-induced owner loss.
+        ;; A frame made without `:images` throws
+        ;; `:rf.error/ambiguous-registration` from the lookup when more than
+        ;; one namespace registers `fx-id`; that fx is reported and skipped
+        ;; like an unknown one, and the walk continues.
+        ambiguity     (volatile! nil)
         resolved-meta (call-while-exact-owner
                         frame-id
-                        #(resolved-fx-meta original-fx-id fx-id overrides))
+                        #(try
+                           (resolved-fx-meta original-fx-id fx-id overrides)
+                           (catch #?(:clj Throwable :cljs :default) e
+                             (if (rf.registrar/ambiguous-registration? e)
+                               (do (vreset! ambiguity e) nil)
+                               (throw e)))))
         ;; A function-value override (`{:dispatch (fn [m args] ...)}`)
         ;; must run IN PLACE OF the registered/reserved fx — per spec/002
         ;; §`:fx-overrides` the resolution model consults `:fx-overrides`
@@ -1760,16 +1770,33 @@
       ;; This category defines no `:reason`, and `dispatch-on-error!` drops
       ;; nil-valued attribution slots, so the record carries exactly one
       ;; attribution key.
-      (emit-fx-error! :rf.error/no-such-fx
-                      origin-event
-                      origin-event-id
-                      frame-id
-                      nil
-                      {:failing-id fx-id
-                       :rf.fx/id   fx-id
-                       :rf.fx/args args
-                       :frame      frame-id
-                       :recovery   :no-recovery})))))))))
+      (if-let [ambiguous @ambiguity]
+        (let [{:keys [registration namespaces reason]} (ex-data ambiguous)]
+          (emit-fx-error! :rf.error/ambiguous-registration
+                          origin-event
+                          origin-event-id
+                          frame-id
+                          nil
+                          {:failing-id   fx-id
+                           :rf.fx/id     fx-id
+                           :rf.fx/args   args
+                           :frame        frame-id
+                           :registration registration
+                           :namespaces   namespaces
+                           :reason       reason
+                           :recovery     :clear-the-id-and-re-evaluate-its-owner}
+                          {:registration registration
+                           :namespaces   namespaces}))
+        (emit-fx-error! :rf.error/no-such-fx
+                        origin-event
+                        origin-event-id
+                        frame-id
+                        nil
+                        {:failing-id fx-id
+                         :rf.fx/id   fx-id
+                         :rf.fx/args args
+                         :frame      frame-id
+                         :recovery   :no-recovery}))))))))))
 
 (def framework-coeffect-keys
   "Coeffect keys populated by the runtime itself (not by user-registered

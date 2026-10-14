@@ -282,9 +282,9 @@
 
   TWO surfaces, ONE descriptor:
 
-    * the REGULAR registrar (`reg-interceptor*`) — the default-image /
-      no-generation resolution path, where `registrar/lookup` reads the
-      registrar atom directly;
+    * the REGULAR registrar (`reg-interceptor*`) — the registrar-atom
+      resolution path, where `registrar/lookup` reads the registrar atom
+      directly;
 
     * the EP-0023 FRAMEWORK-STANDARD registry (`rf.image-assembly/register-standard!`)
       — so the standard descriptor is unioned into EVERY resolved image

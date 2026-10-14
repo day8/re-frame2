@@ -612,19 +612,19 @@
 
   ## Source-store isolation (EP-0026 §Default Image)
 
-  `make-frame {}` (omitted `:images`) resolves the DEFAULT image — the implicit
-  selector over the whole active SOURCE STORE plus the framework standards. Every
+  `make-frame {}` (omitted `:images`) resolves the whole active SOURCE STORE live,
+  plus the framework standards. Every
   `reg-*` writes a provenance-tagged descriptor into the source store in lockstep
   with the registrar resolver map (`rf.registrar/register!`), so without isolation
   the source store accumulates across the consolidated node-test bundle: two
   sibling namespaces registering the same `[kind id]` under different provenance
   namespaces leave a cross-namespace collision in the shared store, and the next
-  test's default projection FAILS LOUD (`:rf.error/image-duplicate-id`). The
+  test's frame raises `:rf.error/ambiguous-registration` when it uses the id. The
   fixture captures the source store's ns-load contents at build time (the same
   stable-baseline moment as the registrar) and RESTORES the store to that baseline
   before and after each test, clearing the resolved-generation cache (keyed on the
-  source-store generation) on each reset. Each test's default projection therefore
-  sees only its own registrations plus the ns-load set — no cross-bundle leakage.
+  source-store generation) on each reset. Each test's frames therefore see only
+  its own registrations plus the ns-load set — no cross-bundle leakage.
 
   The registrar baseline is captured ONCE, when the fixture is built —
   i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,

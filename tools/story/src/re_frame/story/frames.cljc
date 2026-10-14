@@ -581,13 +581,14 @@
 
   When NO application image resolves anywhere — none on the variant, none on its
   parent story — the composition is `nil`, the absence-is-DEFAULT signal:
-  `allocate!` then creates the frame with NO `:images`, so `rf/make-frame`
-  resolves the EP-0026 DEFAULT image (the whole-store projection) for the
-  convenient single-app / standalone-testbed case. (A colliding MULTI-app
-  testbed scopes itself by declaring a story `:images` selecting its own app
-  namespace.) `runtime-image` is composed ONLY when an app image is present —
-  the default-image path already projects the whole store, which includes the
-  Story runtime, so the runtime image would be redundant (and an `:images`
+  `allocate!` then creates the frame with NO `:images`, so it resolves the
+  registration store live for the convenient single-app / standalone-testbed
+  case. (A MULTI-app testbed whose apps share ids scopes itself by declaring a
+  story `:images` selecting its own app namespace; otherwise each shared id
+  raises `:rf.error/ambiguous-registration` where a variant uses it.)
+  `runtime-image` is composed ONLY when an app image is present — a frame made
+  without `:images` already resolves the whole store, which includes the Story
+  runtime, so the runtime image would be redundant (and an `:images`
   vector carrying ONLY the runtime image would scope the frame to the Story
   machinery alone, hiding the app)."
   [variant-id variant-images]
@@ -785,9 +786,8 @@
            ;;
            ;; `nil` when NO app image resolves anywhere (none on the variant,
            ;; none on its story): the absence-is-DEFAULT signal — the frame is
-           ;; created with NO `:images`, so `rf/make-frame` resolves the EP-0026
-           ;; DEFAULT image (the whole-store projection) for the convenient
-           ;; single-app / standalone-testbed case.
+           ;; created with NO `:images`, so it resolves the registration store
+           ;; live for the convenient single-app / standalone-testbed case.
            composed-imgs  (compose-variant-images variant-id (:images v-body))
            ;; The variant's own behaviour-variant image ids (for frame-meta
            ;; tooling read-back) — the AUTHORED app images, NOT the
@@ -818,15 +818,15 @@
        ;; machinery live in that generation; an app image scopes the frame to its
        ;; own registrations so two variants reuse the SAME global id with
        ;; DIFFERENT meanings ("behavior variant -> image", EP-0023 §Stories). When
-       ;; NO app image resolves, the frame resolves the EP-0026 DEFAULT image (the
-       ;; whole-store projection) — absence-is-default. The framework's `rf/image`
+       ;; NO app image resolves, the frame is made without `:images` and resolves
+       ;; the registration store live. The framework's `rf/image`
        ;; / assembly own all validation — a malformed image or a zero-match
        ;; `:select-ns :include` glob FAILS LOUDLY here at frame creation.
        ;;
        ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
        ;; BOTH the image-selection opts AND the full record-config in one
        ;; call over the one registry. `:images` is supplied only when an app
-       ;; image resolves (absent ⇒ the default image generation).
+       ;; image resolves (absent ⇒ live resolution of the registration store).
        (rf/make-frame (cond-> {:id variant-id}
                         (seq composed-imgs) (assoc :images composed-imgs)
                         :always             (merge config-map)))

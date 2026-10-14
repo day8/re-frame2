@@ -504,8 +504,8 @@
    ;; each variant frame at allocation (`re-frame.story.frames/allocate!` →
    ;; `compose-variant-images`), so a MULTI-app testbed scopes each story's
    ;; variant frames to its own app namespace (`:select-ns`) rather than the
-   ;; whole co-loaded store. Absent ⇒ the variant frames resolve the EP-0026
-   ;; DEFAULT image (the whole-store projection) — the convenient single-app /
+   ;; whole co-loaded store. Absent ⇒ the variant frames resolve the
+   ;; registration store live — the convenient single-app /
    ;; standalone-testbed case.
    ;;
    ;; Loose `:vector` here on purpose, mirroring the Variant `:images` slot: the

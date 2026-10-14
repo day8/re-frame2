@@ -295,19 +295,31 @@ The default image is a frame-construction behavior, not an ordinary
 
 For the reference implementation:
 
-- omitting `:images` from `make-frame` uses the default frame image behavior;
-- the default image selects all ordinary namespace-authored registrations in the
-  default registrar source set and includes framework standards;
-- duplicate distinct `[kind id]` descriptors in the default image fail loudly
-  (there is no image order to resolve them — see Layered Resolution);
-- default image hot-reload behavior remains the ordinary same-source replacement
-  case, not general last-writer-wins.
+- omitting `:images` from `make-frame` gives a frame that seals no generation: it
+  resolves all ordinary namespace-authored registrations in the default registrar
+  source set **live**, plus the framework standards, so a registration made after
+  the frame exists reaches it at the frame's next event;
+- distinct `[kind id]` descriptors from more than one namespace have no image
+  order to resolve them (see Layered Resolution), so the frame fails loudly **at
+  use** of that id — `:rf.error/ambiguous-registration`, naming the namespaces and
+  the remedy — while every other id keeps working; load order never picks a
+  survivor;
+- an application registration of a framework standard is refused when it is made,
+  so a standard always resolves to itself;
+- hot reload is the ordinary same-source replacement case, not general
+  last-writer-wins;
+- a frame with explicit `:images` keeps its sealed generation, and a duplicate
+  within one image's selection still fails assembly
+  (`:rf.error/image-duplicate-id`).
 
-This is a behavior change to call out plainly, and it is **ruled** (2026-06-22): a
-missing `:images` — `make-frame {}` — resolves the **default image generation**,
-where a configured frame might previously have run without resolving a generation
-at all. The magnitude is real; acceptance MUST cover the omit-`:images` default
-path explicitly (see Acceptance Bar).
+This is **ruled** (2026-10-13, superseding the 2026-06-22 ruling that sealed a
+default image generation): a sealed default froze EVERY id of the frame once one
+cross-namespace duplicate appeared after the frame was made — a hot-reload
+refactor moving a handler, or a late-loaded module — while live resolution
+shrinks the failure to the one ambiguous id. The test fixture's ambient frame,
+which test support seats without `make-frame`, resolves the registrar's latest
+registration instead; that is a test-only exception (Spec 008 §Pattern 5).
+Acceptance MUST cover the omit-`:images` path explicitly (see Acceptance Bar).
 
 `:images []` is an error: pass at least one image, or omit `:images` for the
 default. To create a frame with no app registrations, pass a real empty image:
@@ -742,4 +754,7 @@ Settled during design:
   "capability" vocabulary is untouched.
 - **`rf/image`** — stays a plain function, never a macro.
 - **Default image (Open Issue 3)** — a missing `:images` (`make-frame {}`) means
-  the default image generation (ruled 2026-06-22).
+  live resolution of the registration store, with `:rf.error/ambiguous-registration`
+  at use for a `[kind id]` registered from more than one namespace (ruled
+  2026-10-13; it supersedes the 2026-06-22 ruling that sealed a default image
+  generation).

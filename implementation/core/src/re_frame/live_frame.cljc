@@ -7,7 +7,7 @@
   returns the frame VALUE (the lifecycle token). The resolved generation lives on
   the frame's record (the `:generation` slot), NOT in a second registry. A frame
   made WITHOUT `:images` seals nothing: it resolves the registration store live
-  (§Live resolution, below).
+  (see [[live-view]]).
 
   > A frame id names a running context in a registry. A frame value is the
   > lifecycle token a creation API returns. (EP-0023 §Frame / EP-0024)
@@ -1003,7 +1003,7 @@
                        image, or OMIT `:images` for the default;
                      * ABSENT `:images` (`make-frame {}`) → NO generation: the
                        frame resolves the registration store LIVE, plus the
-                       framework standards (§Live resolution). A `[kind id]`
+                       framework standards ([[live-view]]). A `[kind id]`
                        registered from more than one namespace raises
                        `:rf.error/ambiguous-registration` when it is used —
                        load order never decides the survivor — while every
@@ -1102,7 +1102,7 @@
          ;;   * PRESENT empty `:images []`   → an ERROR (`validate-images!` rejects
          ;;     it: pass at least one image, or OMIT `:images` for the default);
          ;;   * ABSENT `:images` (`make-frame {}`) → NO generation: the frame
-         ;;     resolves the live registration store (§Live resolution), so a
+         ;;     resolves the live registration store (`live-view`), so a
          ;;     duplicate id fails where it is used, not here. An explicit
          ;;     descriptor pool is a value rather than the live store, so with
          ;;     one the frame seals the pool's default projection

@@ -66,6 +66,11 @@
         (rf.error-emit/unregister-error-listener! ::recorder)
         (doseq [ns-sym probe-namespaces] (remove-ns ns-sym))))))
 
+(def fx-runs
+  "Which probe fx bodies ran, in order. Public so a form `eval`ed in a probe
+  namespace can name it."
+  (atom []))
+
 (defn- register-a! []
   (eval-in-ns 'probe.a '(rf/reg-event :probe/ev {:doc "a"}
                           (fn [{:keys [db]} _] {:db (assoc db :who :a)}))))
@@ -114,6 +119,29 @@
       (is (= 1 (count (ambiguities @seen)))
           "using another id raises nothing"))))
 
+(deftest other-kinds-raise-where-they-are-used
+  ;; An ambiguous fx is reported and skipped like an unknown one, and the walk
+  ;; continues; an ambiguous subscription throws at the subscribe.
+  (with-recorded-errors
+    (fn [seen]
+      (reset! fx-runs [])
+      (doseq [ns-sym '[probe.a probe.b]]
+        (eval-in-ns ns-sym '(do (rf/reg-fx :probe/fx (fn [_ _] nil))
+                                (rf/reg-sub :probe/sub (fn [_ _] :either)))))
+      (rf/reg-fx :probe/ok (fn [_ _] (swap! fx-runs conj :ok)))
+      (rf/reg-event :probe/fires (fn [_ _] {:fx [[:probe/fx] [:probe/ok]]}))
+      (rf/make-frame {:id :probe/frame})
+      (rf/dispatch-sync [:probe/fires] {:frame :probe/frame})
+      (is (= [:ok] @fx-runs) "the walk continues past the ambiguous fx")
+      (is (= [{:event-id     :probe/fires
+               :failing-id   :probe/fx
+               :registration [:fx :probe/fx]
+               :namespaces   ["probe.a" "probe.b"]}]
+             (mapv #(select-keys % [:event-id :failing-id :registration :namespaces])
+                   (ambiguities @seen))))
+      (is (= :rf.error/ambiguous-registration
+             (error-id #(deref (rf/subscribe [:probe/sub] {:frame :probe/frame}))))))))
+
 (deftest clearing-the-id-and-re-evaluating-its-owner-is-the-remedy
   (with-recorded-errors
     (fn [seen]
@@ -140,11 +168,6 @@
              (error-id #(rf/make-frame {:id     :probe/sealed
                                         :images [(rf/image {:id        :probe/image
                                                             :select-ns {:include ["probe.**"]}})]})))))))
-
-(def fx-runs
-  "Which `:probe/fx` body ran, in order. Public so a form `eval`ed in a probe
-  namespace can name it."
-  (atom []))
 
 (deftest one-event-resolves-against-one-view-of-the-store
   ;; The handler re-registers the fx its own effects name. The event, its

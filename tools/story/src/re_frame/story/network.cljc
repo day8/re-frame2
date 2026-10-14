@@ -51,8 +51,8 @@
 
   `install-managed-request-stubs!` registers into the process SOURCE STORE
   through the fn-alias `reg-fx` path, so the descriptor carries no
-  `:rf.provenance/ns`. A variant frame created with NO `:images` projects the
-  whole store (EP-0026's DEFAULT image), so it sees that registration. A
+  `:rf.provenance/ns`. A variant frame created with NO `:images` resolves the
+  whole registration store live, so it sees that registration. A
   variant that DECLARES an app image (or inherits one from its parent story)
   resolves through a SELECTED, sealed generation instead, and an image selects
   by `:rf.provenance/ns`, so no namespace glob can select the stub. With

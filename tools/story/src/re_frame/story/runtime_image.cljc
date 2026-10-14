@@ -7,20 +7,20 @@
 
   ## Why this exists (EP-0026 §Default Image)
 
-  Under EP-0026 a frame created with `rf/make-frame` ALWAYS carries a resolved
-  image generation: a PRESENT `:images` resolves the selected generation; an
-  ABSENT `:images` resolves the DEFAULT image — the implicit selector over the
-  WHOLE source store, FAILING LOUD on a cross-namespace same-`[kind id]`
-  collision. A variant frame is created by `re-frame.story.frames/allocate!`, and
-  the frame's cascade (event-handler lookup, cofx, fx) resolves through the
-  frame's OWN generation (EP-0023 §Frame-derived live registration resolution).
+  A frame created with `rf/make-frame` and a PRESENT `:images` resolves through
+  the selected, sealed generation; with `:images` ABSENT it resolves the WHOLE
+  registration store live, raising `:rf.error/ambiguous-registration` for an id
+  more than one namespace registers. A variant frame is created by
+  `re-frame.story.frames/allocate!`, and the frame's cascade (event-handler
+  lookup, cofx, fx) resolves through the frame's OWN view (EP-0023
+  §Frame-derived live registration resolution).
 
-  The whole-store DEFAULT image (a) collides when several apps co-load
-  same-`[kind id]` registrations into one test process, and (b) a variant that
-  selects an application image scopes the frame to a single SELECTED
-  projection that must EXPLICITLY include the Story machinery — otherwise the
-  frame's dispatches resolve no `:rf.assert/*` handler / no lifecycle machine
-  and the play-runner reports `:cannot-run`.
+  Live whole-store resolution (a) fails the shared ids when several apps
+  co-load same-`[kind id]` registrations into one test process, and (b) a
+  variant that selects an application image scopes the frame to a single
+  SELECTED projection that must EXPLICITLY include the Story machinery —
+  otherwise the frame's dispatches resolve no `:rf.assert/*` handler / no
+  lifecycle machine and the play-runner reports `:cannot-run`.
 
   The runtime image is the library's contract: Story authors NEVER hand-write it.
   `allocate!` composes it LAST into every variant frame's `:images` vector
