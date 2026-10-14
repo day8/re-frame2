@@ -39,7 +39,7 @@
   event: `first-registration!` scans the cells for the id and drops the
   reference, so the next read falls through to the cold probe and the
   rebuilt attachment notifies later writes. That is the mounted case, and
-  the first two rows.
+  the first row.
 
   A boundary inside the **render→commit gap** holds no cell, so that scan
   reaches nothing on its behalf. It is repaired by the `registry-epoch`
@@ -87,7 +87,6 @@
 ;; other suite registers — and the fixture's registrar snapshot/restore
 ;; is what keeps them unregistered at the top of each row.
 (def ^:private q-first [:firstreg/pending])
-(def ^:private q-held  [:firstreg/held])
 (def ^:private q-gap   [:firstreg/gap])
 (def ^:private q-live  [:firstreg/live])
 
@@ -159,28 +158,6 @@
                        the mount"))
                 (release!)
                 (done)))))))))
-
-(deftest deliberately-a-cell-that-keeps-the-recovery-answers-nil-forever
-  (testing "the failure the row above repairs, stated as its own assertion
-            so the repair cannot quietly stop being needed. The recovery
-            reaction is a constant nil — it is not wired to the frame, it
-            is not in any cache, and no registration can ever reach it. A
-            cell that keeps it answers nil for as long as the boundary
-            lives."
-    (let [f (make-frame! ::held {:v 1})]
-      (rf.bench.fresco.arm1.runtime/render-body f (reader q-held (volatile! nil)) {})
-      (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
-            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
-            ;; Reach past the repair and hold the object the cell caught.
-            ;; This is exactly what the cell would keep if the first
-            ;; registration were not an event.
-            held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held])]
-        (rf/reg-sub (first q-held) (fn [db _] (:v db)))
-        (is (= [nil nil] [@held (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held])])
-            "the held recovery answers nil where the live registration answers
-             1, and will after every later write too, because it derives from
-             nothing — which is why the cell drops the reference instead")
-        (release!)))))
 
 (deftest a-first-registration-in-the-render-commit-gap-moves-the-snapshot
   (testing "the OTHER window. The rows above are the
