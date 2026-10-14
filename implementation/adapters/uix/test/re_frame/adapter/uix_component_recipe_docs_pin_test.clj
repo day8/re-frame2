@@ -7,7 +7,7 @@
    normalised). Edit either side and this goes red until the other follows."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is]]))
 
 (def ^:private recipe-path
   "implementation/adapters/uix/test/re_frame/adapter/uix_component_recipe_dom_cljs_test.cljs")
@@ -44,13 +44,7 @@
 (deftest views-page-shows-the-recipe-verbatim
   (let [root   (repo-root)
         recipe (normalise (slurp (io/file root recipe-path)))
-        page   (normalise (slurp (io/file root page-path)))
-        shown  (fenced-clojure-block-opening-with page opening-line)]
-    (testing "the recipe file opens with the ns form the page is pinned on"
-      (is (str/starts-with? recipe opening-line)))
-    (testing "the page carries a fenced clojure block opening with that ns form"
-      (is (some? shown)))
-    (testing "and that block is the recipe file, byte for byte"
-      (is (= recipe (some-> shown normalise))
-          (str page-path " §4 and " recipe-path " have drifted apart; "
-               "make the page's block the file's exact contents.")))))
+        page   (normalise (slurp (io/file root page-path)))]
+    (is (= recipe (some-> (fenced-clojure-block-opening-with page opening-line) normalise))
+        (str page-path " §4 and " recipe-path " have drifted apart; "
+             "make the page's block the file's exact contents."))))
