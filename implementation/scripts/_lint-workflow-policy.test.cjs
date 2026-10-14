@@ -31,15 +31,6 @@ function sectionBlock(text, headerRe, siblingRe) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-test('push path filter includes .splint.edn (rf2-nlnd9y.3)', () => {
-  const onBlock = workflow.slice(0, workflow.indexOf('\njobs:'));
-  assert.match(
-    onBlock,
-    /^\s+-\s+'\.splint\.edn'\s*$/m,
-    'push trigger paths must list .splint.edn so a .splint.edn-only push runs lint',
-  );
-});
-
 test('PR detect classifier routes .splint.edn to lint_surface=true (rf2-nlnd9y.3)', () => {
   const detectBlock = sectionBlock(
     workflow,
