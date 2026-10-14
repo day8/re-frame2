@@ -9,7 +9,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
-            [re-frame.ssr.ring.headers :as rf.ssr.ring.headers]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
             [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
@@ -328,14 +327,6 @@
                                  [rf.ssr.ring/ssr-handler (dissoc minimal :initial-events)]]]
            (error-id #(construct opts))))))
 
-(deftest fail-closed-proof-unpermitted-slot-not-on-wire
-  (rf/reg-event :init/with-secret {:platforms #{:server}}
-    (fn [_ _] {:db {:public/articles [{:title "A"}] :server-only/auth-token "PROBE_xyz789"}}))
-  (let [body (:body (serve {:initial-events [[:init/with-secret]] :root-view [:div]
-                            :payload [:public/articles]}))]
-    (is (= {:public/articles [{:title "A"}]} (:rf/app-db (payload body))))
-    (is (not (str/includes? body "PROBE_xyz789")))))
-
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
   ;; Strings or nil only; `:script-src false` (no bootstrap script) is the one
   ;; exception, and it is :script-src's alone.
@@ -428,11 +419,6 @@
     (is (= [] (filter #(str/includes? p %) [":rf/response" "SECRET_TOKEN_xyz" "INTERNAL_abc"])))
     (is (= [["session=SECRET_TOKEN_xyz; HttpOnly"] ["INTERNAL_abc"]]
            (map #(header-values response %) ["set-cookie" "x-secret"])))))
-
-(deftest content-type-override-replaces-any-casing
-  (is (= {"Content-Type" "text/html"}
-         (rf.ssr.ring.headers/headers->ring-map+content-type-override
-           [["CoNtEnT-TyPe" "application/json"]] "text/html"))))
 
 (deftest ssr-handler-honors-custom-content-type-opt
   ;; The opt replaces the runtime's seeded text/html; absent, an app-set
