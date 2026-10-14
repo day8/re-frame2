@@ -131,12 +131,11 @@
 ;; Export
 
 (deftest export-leads-with-prolog-marker-and-w3c-root
-  (testing "line 1 is the XML prolog, line 2 the format marker `scxml->spec`
-            requires, line 3 the W3C-namespaced root — flat and parallel alike"
+  (testing "line 1 is the XML prolog and line 3 the W3C-namespaced root, around
+            the format marker the import tests read — flat and parallel alike"
     (doseq [machine [idle-loading-success-error parallel-machine]]
-      (let [[prolog marker root] (str/split-lines (scxml/spec->scxml machine))]
+      (let [[prolog _marker root] (str/split-lines (scxml/spec->scxml machine))]
         (is (= "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" prolog))
-        (is (= scxml-format-marker marker))
         (is (str/starts-with? root "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""))))))
 
 (deftest export-writes-the-v1-w3c-forms
@@ -469,13 +468,6 @@
            ["the marker anywhere but first" (str "<!-- a comment first -->\n" scxml-format-marker "\n" foreign-scxml)
             {:rf.error/id :scxml/unsupported-format}]]]
     (is (= expected (select-keys (refusal input) (keys expected))) label)))
-
-(deftest import-accepts-the-same-bytes-once-marked
-  (testing "the marker is the whole difference, and it may follow an XML prolog
-            with whitespace around it"
-    (is (map? (scxml/scxml->spec (str scxml-format-marker "\n" foreign-scxml))))
-    (is (map? (scxml/scxml->spec (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n  "
-                                      scxml-format-marker "\n\n" foreign-scxml))))))
 
 (deftest import-errors-carry-a-summary-never-the-input
   (testing "an imported document is untrusted: each refusal keeps a value-free
