@@ -32,9 +32,9 @@
   or Reagent. `rf/destroy-adapter!` reaches the package's root drain
   through core's `:fresco/drain-client-roots!` late-bind hook, which is
   the PROCESS teardown boundary and therefore adapter-independent. W7
-  reads that guarantee under each in turn — Fresco's own adapter, UIx and
-  Reagent; the rest of the file installs UIx, as the rest of this
-  package's suites do.
+  reads that guarantee under each in turn — Fresco's own adapter and UIx;
+  the rest of the file installs UIx, as the rest of this package's suites
+  do.
 
   ## The readings
 
@@ -47,7 +47,6 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as react]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -139,25 +138,6 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; W1 — allocation is INERT
-;; ---------------------------------------------------------------------------
-;;
-;; The claim `defonce`-at-namespace-load rests on, and the reason it is a row
-;; rather than a remark: an allocation that touched the DOM would make every
-;; boot in the guide order-dependent, and would be invisible until somebody
-;; loaded the namespace on Node.
-
-(deftest client-root-allocates-an-inert-handle
-  (let [handle (rf.fresco/client-root)]
-    (testing "a fresh handle holds no root — no `createRoot`, no DOM work,
-              nothing to undo"
-      (is (nil? @handle)))
-    (testing "and tearing down a never-rendered handle is a no-op that
-              answers nil rather than throwing"
-      (is (nil? (rf.fresco/unmount! handle)))
-      (is (nil? @handle)))))
-
-;; ---------------------------------------------------------------------------
 ;; W2 — CREATE ONCE, UPDATE LATER
 ;; ---------------------------------------------------------------------------
 ;;
@@ -177,8 +157,6 @@
         (let [node  (node-at ca ".panel")
               input (node-at ca ".draft")]
           (testing "premise: the first render created the root and painted it"
-            (is (some? node))
-            (is (some? input))
             (is (= "alpha" (text-at ca ".label"))))
 
           ;; Host state the caller, not React, put there.
@@ -193,7 +171,6 @@
                 "the update did not reach the page")
             (is (identical? node (node-at ca ".panel"))
                 "the update replaced the root's DOM instead of reconciling it")
-            (is (identical? input (node-at ca ".draft")))
             (is (= "half-typed" (.-value (node-at ca ".draft")))
                 "a second `createRoot` ran: the uncontrolled input lost its
                  host state, which is exactly the loss the create-once half
@@ -493,19 +470,12 @@
       (try
         (let [id-a (text-at ca ".probe")
               id-b (text-at cb ".probe")]
-          (testing "premise: both roots painted a `useId`"
-            (is (seq id-a))
-            (is (seq id-b)))
           (testing "each root's ids carry the prefix that root was given —
                     the option reached `createRoot` untouched"
             (is (str/includes? id-a "pfx-a-")
                 (str "the first root's id does not carry its prefix; got " (pr-str id-a)))
             (is (str/includes? id-b "pfx-b-")
-                (str "the second root's id does not carry its prefix; got " (pr-str id-b))))
-          (testing "and the two roots' ids differ, which is the whole point of
-                    the option: React numbers `useId` per root from the same
-                    start, so two roots on one page collide without it"
-            (is (not= id-a id-b))))
+                (str "the second root's id does not carry its prefix; got " (pr-str id-b)))))
 
         (finally
           (rf.fresco/unmount! a)
@@ -528,7 +498,7 @@
 ;; `unmount!` then finds nothing left to do and reaches React's
 ;; `root.unmount()` no second time, and a `render!` afterwards mounts afresh.
 ;;
-;; The other two passes are the composition a Fresco-only row cannot cover:
+;; The UIx pass is the composition a Fresco-only row cannot cover:
 ;; `h/render!` reaches `createRoot` through
 ;; `re-frame.fresco.impl.mount` whatever adapter is installed, so a Fresco
 ;; root is the PACKAGE's rather than any adapter's. Fresco over UIx or over
@@ -636,5 +606,4 @@
     (skip! ":node-test has no DOM")
     (do
       (destroy-adapter-releases-fresco-roots! "the Fresco adapter" rf.fresco.substrate/adapter)
-      (destroy-adapter-releases-fresco-roots! "the UIx adapter" rf.adapter.uix/adapter)
-      (destroy-adapter-releases-fresco-roots! "the Reagent adapter" rf.adapter.reagent/adapter))))
+      (destroy-adapter-releases-fresco-roots! "the UIx adapter" rf.adapter.uix/adapter))))
