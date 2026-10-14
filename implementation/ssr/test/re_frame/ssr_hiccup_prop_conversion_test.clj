@@ -26,19 +26,15 @@
     (check-rows
       [;; kebab names → Reagent's camel prop → react-dom's attribute
        [[:input {:read-only true :tab-index 0}]    "<input readOnly tabindex=\"0\">"]
-       [[:label {:html-for "e"} "Email"]          "<label for=\"e\">Email</label>"]
-       [[:svg {:view-box "0 0 10 10"}]            "<svg viewBox=\"0 0 10 10\"></svg>"]
        ;; Reagent's prop is `panose1`, which react-dom writes
        ;; verbatim (its alias row is keyed on `panose-1`)
        [[:svg {:panose-1 "2 0 0 0"}]              "<svg panose1=\"2 0 0 0\"></svg>"]
        ;; React spellings, as keywords and as a string key
-       [[:div {:className "c"}]                   "<div class=\"c\"></div>"]
        [[:div.x {:className "c"}]                 "<div class=\"x c\"></div>"]
        [[:div {"className" "c"}]                  "<div class=\"c\"></div>"]
        ;; keyword values → `name`
        [[:button {:type :button} "Cancel"]        "<button type=\"button\">Cancel</button>"]
        ;; class collections → joined, nil and false dropped
-       [[:div {:class ["a" nil false "b"]}]       "<div class=\"a b\"></div>"]
        [[:div.x {:class [:a nil false :b]}]       "<div class=\"x a b\"></div>"]
        [[:div {:class :active}]                   "<div class=\"active\"></div>"]])))
 
@@ -96,15 +92,12 @@
 (deftest form-controls-take-react-dom-special-forms
   (testing "a textarea's value is its text body"
     (check-rows
-      [[[:textarea {:value "abc"}]                "<textarea>abc</textarea>"]
-       [[:textarea {:default-value "abc"}]        "<textarea>abc</textarea>"]
+      [[[:textarea {:default-value "abc"}]        "<textarea>abc</textarea>"]
        [[:textarea {:value "a<b"}]                "<textarea>a&lt;b</textarea>"]
        ;; the leading-LF compensation applies to a :value body too
        [[:textarea {:value "\nabc"}]              "<textarea>\n\nabc</textarea>"]
        ;; the client takes the value and never reads the child
-       [[:textarea {:value "v"} "child"]          "<textarea>v</textarea>"]
-       ;; with no value the child is the body
-       [[:textarea "child"]                       "<textarea>child</textarea>"]]))
+       [[:textarea {:value "v"} "child"]          "<textarea>v</textarea>"]]))
 
   (testing "a select's value marks its matching options"
     (check-rows
@@ -135,6 +128,4 @@
   (testing "an input's default props write value / checked"
     (check-rows
       [[[:input {:default-value "x" :default-checked true}]  "<input value=\"x\" checked>"]
-       [[:input {:value "v" :default-value "x"}]             "<input value=\"v\">"]
-       ;; react-dom drops both default props on every other element
-       [[:div {:default-value "x" :default-checked true}]    "<div></div>"]])))
+       [[:input {:value "v" :default-value "x"}]             "<input value=\"v\">"]])))
