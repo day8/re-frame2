@@ -53,8 +53,6 @@ module.exports = {
     'app/uncaught-null': ENTRY,
   },
 
-  SPOOFED_CODE,
-
   render({ entry, state }, emit) {
     const err = new Error(`render callback saw ${state[':for-uncaught']}`);
     err.code = SPOOFED_CODE;

@@ -20,8 +20,8 @@
 // witness needs.
 //
 // The thrown Error is built to carry all three things the refusal must not
-// pass on: a message the application authored, a `code` outside the closed
-// refusal family, and — by way of `worker.cjs`'s boot post and
+// pass on: a message the application authored, a `code` the module has no
+// business choosing, and — by way of `worker.cjs`'s boot post and
 // `isolate.cjs`'s boot receiver — the module path this deployment was
 // pointed at.
 
@@ -67,4 +67,3 @@ module.exports = {
 
 module.exports.FAIL_FLAG = FAIL_FLAG;
 module.exports.BOOT_SENTINEL = BOOT_SENTINEL;
-module.exports.BOOT_SPOOF_CODE = BOOT_SPOOF_CODE;
