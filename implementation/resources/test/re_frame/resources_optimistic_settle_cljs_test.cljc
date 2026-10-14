@@ -383,7 +383,7 @@
   (is (= {:favorited true :favoritesCount 10} (get-in (entry article-key) [:data :article]))
       "precondition: the optimistic value is applied")
   (let [mutation-args @last-managed-args]
-    (rf/dispatch-sync [:rf.resource/refetch (assoc article-q :owner [:v :first])])
+    (rf/dispatch-sync [:rf.resource/refetch (assoc article-q :owner [:v :second])])
     (let [read-args @last-managed-args
           reading   (entry article-key)]
       (is (some? (:current-work reading)) "precondition: a newer read is in flight")
@@ -392,25 +392,15 @@
       (is (= [{:favorited false :favoritesCount 9} (:current-work reading) (:generation reading) :fetching]
              ((juxt (comp :article :data) :current-work :generation :status) (entry article-key)))
           "the payload rolled back; the read's work facts survived, so its status is :fetching")
+      (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key))))
+      (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
+                     (rf.resources.state/key-id article-key))
+          "the owner the read attached survives too, in the owner index")
       (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
       (is (= [:loaded nil] ((juxt :status :current-work) (entry article-key)))
           "the read's own reply lands")
       (is (= {:article {:favorited false :favoritesCount 42}}
              @(rf/subscribe [:rf.resource/data article-q]))))))
-
-(deftest an-owner-attached-by-that-refetch-survives-the-rollback
-  (stub-lifecycle-fx!)
-  (favorite-pending! [:v :first])
-  (let [mutation-args @last-managed-args]
-    (rf/dispatch-sync [:rf.resource/refetch (assoc article-q :owner [:v :second])])
-    (let [read-args @last-managed-args]
-      (reply-failure! mutation-args http-500)
-      (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key))))
-      (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
-                     (rf.resources.state/key-id article-key))
-          "the owner index still carries the attached owner")
-      (reply-success! read-args {:article {:favorited false :favoritesCount 42}})
-      (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount]))))))
 
 (deftest an-absent-restore-keeps-a-live-read-rather-than-dissocing-it
   ;; Rolling back an optimistic seed restores the absence, unless a read started
