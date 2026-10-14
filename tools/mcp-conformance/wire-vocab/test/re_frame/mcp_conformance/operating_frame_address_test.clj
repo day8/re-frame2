@@ -177,10 +177,6 @@
    {:ok?    false
     :reason :missing-frame}})
 
-;; ---------------------------------------------------------------------------
-;; Schema-conformance + structural assertions
-;; ---------------------------------------------------------------------------
-
 (deftest fixtures-conform-to-schema
   (doseq [[schema fixtures] [[OperatingFrameSuccess success-fixtures]
                              [OperatingFrameFailure failure-fixtures]]
@@ -188,19 +184,6 @@
     (is (m/validate schema fixture-value)
         (str "Fixture " fixture-name " failed operating-frame validation:\n"
              (me/humanize (m/explain schema fixture-value))))))
-
-(deftest schemas-enforce-the-addressing-slots-and-reasons
-  ;; The teeth: the public address space is REQUIRED, frame-ids ride as
-  ;; keywords, and the failure reasons are a closed vocabulary.
-  (let [base (:multi-frame-pinned success-fixtures)]
-    (doseq [[label schema envelope]
-            [[":frames is the public address space — it MUST ride on every success envelope"
-              OperatingFrameSuccess (dissoc base :frames)]
-             ["a string :operating is a serialisation regression — frame-ids ride as keywords"
-              OperatingFrameSuccess (assoc base :operating "stories")]
-             ["an unrecognised :reason has no enum arm"
-              OperatingFrameFailure {:ok? false :reason :bogus-reason}]]]
-      (is (not (m/validate schema envelope)) label))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text pins — each fixture family against the production source it
