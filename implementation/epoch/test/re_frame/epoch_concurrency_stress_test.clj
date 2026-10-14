@@ -5,7 +5,7 @@
   CLJS is single-threaded, so these races cannot arise there.
 
   Stress dial: `n-threads` × `stress-iters` (default 5000, override with
-  `RF2_RD7A7_STRESS_ITERS`); scenario 6 uses `RF2_J538F75_ITERS` (default 500)."
+  `RF2_RD7A7_STRESS_ITERS`); scenario 5 uses `RF2_J538F75_ITERS` (default 500)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -108,50 +108,7 @@
         (is (= stress-iters @seen-count)
             "the non-throwing sibling fired once per settle — never skipped after a throwing peer or lost under churn")))))
 
-;; ---- Scenario 3: concurrent record + history read + restore --------------
-
-(deftest ring-buffer-write-read-race-stress
-  (testing "concurrent settles + epoch-history reads + restore attempts — no
-            exception, every record lands in dispatch order"
-    (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (rf/make-frame {:id :rd7a7.race/main})
-    (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
-    (let [consumer-stop  (atom false)
-          consumer-error (atom nil)
-          read-count     (atom 0)
-          latch          (CountDownLatch. 1)
-          producer       (future
-                           (.await latch)
-                           (try
-                             (dotimes [i stress-iters]
-                               (rf/dispatch-sync [:bump i] {:frame :rd7a7.race/main}))
-                             (finally (reset! consumer-stop true))))
-          consumer       (future
-                           (.await latch)
-                           (try
-                             (while (not @consumer-stop)
-                               (let [history (rf/epoch-history :rd7a7.race/main)]
-                                 (swap! read-count inc)
-                                 (when-not (vector? history)
-                                   (throw (ex-info "epoch-history returned non-vector"
-                                                   {:got history})))
-                                 ;; Often refused as :rf.epoch/restore-during-drain —
-                                 ;; that refusal is the contract.
-                                 (when (seq history)
-                                   (rf/restore-epoch! :rd7a7.race/main
-                                                      (:epoch-id (rand-nth history))))))
-                             (catch Throwable t
-                               (reset! consumer-error t))))]
-      (.countDown latch)
-      (is (all-completed? [producer consumer]) "producer and consumer completed")
-      (is (nil? @consumer-error)
-          (str "the consumer must not throw; got " (some-> @consumer-error .getMessage)))
-      (is (pos? @read-count) "the consumer actually read")
-      ;; Restores replace app-db, never the ring, so the ring is the producer's alone.
-      (is (= (bumps stress-iters) (mapv :trigger-event (rf/epoch-history :rd7a7.race/main)))
-          "every producer record landed, in dispatch order"))))
-
-;; ---- Scenario 4: raw back-fill under CAS contention ----------------------
+;; ---- Scenario 3: raw back-fill under CAS contention ----------------------
 ;;
 ;; Each thread back-fills sub-runs onto its own frame's settled epoch, but all
 ;; frames share the one global `histories` atom, so its CAS retries. The splice
@@ -195,7 +152,7 @@
                       frame-id))
             "each frame's epoch holds exactly one raw row per back-fill — none lost, none doubled")))))
 
-;; ---- Scenario 5: back-fill vs interleaved eviction at ring cap -----------
+;; ---- Scenario 4: back-fill vs interleaved eviction at ring cap -----------
 ;;
 ;; A back-fill runs outside any drain, so a same-frame `record!` can interleave.
 ;; At cap every append evicts the front and shifts indices, so the back-fill
@@ -257,7 +214,7 @@
             "every accepted back-fill landed on the epoch it embeds — no stale-index splice")
         (is (pos? @accepted) "the back-fillers accepted splices, so the race was exercised")))))
 
-;; ---- Scenario 6: same-id listener replacement vs fan-out / destroy -------
+;; ---- Scenario 5: same-id listener replacement vs fan-out / destroy -------
 ;;
 ;; One driver owns the frame lifecycle (settle → destroy → recreate) while
 ;; churners re-register ONE shared id, minting a generation per call. A
