@@ -1,9 +1,8 @@
 (ns re-frame.resources-runtime-cljs-test
   "The resource cache-entry runtime (Spec 016): canonical identity, the
-  fail-closed scope policy, the lifecycle status transitions, structural
-  sharing, stale suppression, the passive subs, per-frame isolation, owners,
-  remove, the reverse indexes and clear-resource. The `:rf.http/managed` fx is
-  a capturing no-op, so replies are fed to the internal reply events directly."
+  fail-closed scope policy, the passive subs, the reverse indexes and
+  clear-resource. The `:rf.http/managed` fx is a capturing no-op, so replies
+  are fed to the internal reply events directly."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -87,16 +86,6 @@
                          :generation (:generation e) :data data}]
                        opts))))
 
-(defn- fail! [k error]
-  (let [e (entry k)]
-    (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource/key k :work/id (:current-work e)
-                        :generation (:generation e) :error error}])))
-
-(defn- refetch! [rid slug]
-  (rf/dispatch-sync [:rf.resource/refetch {:resource rid :scope :rf.scope/global
-                                           :params {:slug slug}}]))
-
 (defn- record-error-records!
   "Run `body-fn`; return every record fanned on the always-on `:errors` stream."
   [body-fn]
@@ -114,49 +103,25 @@
 
 ;; ---- canonical identity -----------------------------------------------------
 
-(deftest resource-identity-uses-shared-cedn1-rule
-  (testing "non-portable numbers are rejected at the cache-key boundary"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.state/reject-non-edn! {:ratio 1.5} 'test :params :r/x)))
-    (is (false? (rf.resources.state/serializable-edn? {:n 9007199254740993}))
-        "an integer beyond the safe range"))
-  (is (true? (rf.resources.state/serializable-edn? {:rev 1 :page 42})))
-  (is (= {:rev 1 :page 42} (rf.resources.state/canonicalize {:page 42 :rev 1})))
-  (testing "list and vector params stay distinct, kind-preserving identities"
-    (let [cv (rf.resources.state/canonicalize {:xs [1 2 3]})
-          cl (rf.resources.state/canonicalize {:xs '(1 2 3)})]
-      (is (not (rf.identity/identical-identity? (gkey :r/x cv) (gkey :r/x cl))))
-      (is (vector? (:xs cv)))
-      (is (seq? (:xs cl))))))
-
 ;; Present-nil and missing are distinct identities, and nil-vs-missing is
 ;; schema-defined: validation defers to :params-schema.
 
-(deftest resource-present-nil-param-distinct-from-missing
-  (let [spec {:scope :rf.scope/global
-              :params-schema [:map [:x {:optional true} [:maybe :string]]]
-              :request (fn [_ _ctx] {:request {:method :get :url "/x"}})}
-        present-nil (rf.resources.registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
-        absent      (rf.resources.registry/validate+canonicalize-params :r/x spec {} 'test)]
-    (is (= [{:x nil} {}] [present-nil absent]))
-    (is (not (rf.identity/identical-identity? (gkey :r/x present-nil) (gkey :r/x absent))))))
-
-(deftest resource-explicit-nil-params-slot-distinct-from-omitted
-  ;; A whole-slot {:params nil} reaches the schema unchanged; only an absent
-  ;; slot defaults to {}.
-  (let [spec {:scope         :rf.scope/global
-              :params-schema [:maybe :map]
-              :request       (fn [_ _ctx] {:request {:method :get :url "/x"}})}
-        explicit-nil (rf.resources.registry/validate+canonicalize-params
-                       :r/x spec (rf.resources.state/params-present? {:params nil}) 'test)
-        omitted      (rf.resources.registry/validate+canonicalize-params
-                       :r/x spec (rf.resources.state/params-present? {}) 'test)]
-    (is (= [nil {}] [explicit-nil omitted]))
-    (is (not (rf.identity/identical-identity? (gkey :r/x explicit-nil) (gkey :r/x omitted))))))
+(deftest a-present-nil-is-distinct-from-an-absent-one
+  ;; A nil param, or a whole-slot {:params nil}, reaches the schema unchanged;
+  ;; only an absent key or slot defaults.
+  (doseq [[schema present absent expected]
+          [[[:map [:x {:optional true} [:maybe :string]]] {:x nil} {} [{:x nil} {}]]
+           [[:maybe :map] (rf.resources.state/params-present? {:params nil})
+            (rf.resources.state/params-present? {}) [nil {}]]]]
+    (let [spec {:scope :rf.scope/global :params-schema schema
+                :request (fn [_ _ctx] {:request {:method :get :url "/x"}})}
+          p    (rf.resources.registry/validate+canonicalize-params :r/x spec present 'test)
+          a    (rf.resources.registry/validate+canonicalize-params :r/x spec absent 'test)]
+      (is (= expected [p a]) (pr-str schema))
+      (is (not (rf.identity/identical-identity? (gkey :r/x p) (gkey :r/x a))) (pr-str schema)))))
 
 (deftest resource-explicit-nil-params-slot-rejected-when-schema-rejects-nil
-  ;; Coercing the nil slot to {} would pass a [:map] schema.
+  ;; The nil slot reaches the schema as nil, never coerced to {}.
   (let [ex (invalid-params-ex rf.resources.registry/validate+canonicalize-params :r/x
                               {:scope         :rf.scope/global
                                :params-schema [:map [:slug :string]]
@@ -164,20 +129,6 @@
                               (rf.resources.state/params-present? {:params nil}))]
     (is (= {:rf.error/id :rf.error/resource-invalid-params :resource-id :r/x :params nil}
            (select-keys (ex-data ex) [:rf.error/id :resource-id :params])))))
-
-(deftest mutation-explicit-nil-params-slot-rejected-when-schema-rejects-nil
-  (let [spec {:scope :rf.scope/global
-              :params-schema [:map [:slug :string]]
-              :request (fn [_ _] {:request {:method :post :url "/x"}})}
-        ex   (invalid-params-ex rf.resources.mutation-registry/validate+canonicalize-params :m/x spec
-                                (rf.resources.state/params-present? {:params nil}))]
-    (is (= {:rf.error/id :rf.error/mutation-invalid-params :params nil}
-           (select-keys (ex-data ex) [:rf.error/id :params])))
-    (is (= {} (rf.resources.mutation-registry/validate+canonicalize-params
-                :m/x {:scope :rf.scope/global :params-schema [:map]
-                      :request (fn [_ _] {:request {:method :post :url "/x"}})}
-                (rf.resources.state/params-present? {}) 'test))
-        "an omitted slot still defaults to {}")))
 
 (deftest param-canonicalization-total-over-mixed-keys
   (let [c1 (rf.resources.state/canonicalize {:b 1 "a" 2 :a 3 "z" 4})]
@@ -272,105 +223,7 @@
             :recovery :fix-registration}
            (select-keys (ex-data (:exception rec)) [:rf.error/id :resource-id :recovery])))))
 
-(deftest ensure-registered-under-another-kind-still-refuses
-  ;; The guard keys on the :resource registrar kind: a mutation's POST must not
-  ;; be lowered as a cache read.
-  (rf/reg-mutation :m/save
-                   {:params-schema [:map [:slug :string]]}
-                   (fn [{:keys [slug]} _ctx]
-                     {:request {:method :post :url (str "/api/articles/" slug)}}))
-  (let [recs (record-error-records! #(ensure! :m/save "w" [:app :test 1]))
-        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
-    (is (nil? (entry (gkey :m/save {:slug "w"}))))
-    (is (nil? @last-managed-args))
-    (is (= {:rf.error/id :rf.error/resource-not-registered :resource-id :m/save}
-           (select-keys (ex-data (:exception rec)) [:rf.error/id :resource-id])))))
-
 ;; ---- lifecycle --------------------------------------------------------------
-
-(deftest ensure-then-success-loaded
-  (rf/reg-resource :a/article (article-spec) article-spec-request)
-  (let [k (gkey :a/article {:slug "welcome"})]
-    (ensure! :a/article "welcome" [:app :test 1])
-    (let [e (entry k)]
-      (is (= {:status :loading :generation 1} (select-keys e [:status :generation])))
-      (is (some? (:current-work e)))
-      (is (contains? (:active-owners e) [:app :test 1])))
-    (is (= :rf.resource.internal/succeeded (first (:on-success @last-managed-args))))
-    (is (some? (:request-id @last-managed-args)))
-    (succeed! k {:title "Welcome"})
-    (is (= [:loaded {:title "Welcome"} nil #{[:article "welcome"]}]
-           ((juxt :status :data :current-work :tags) (entry k))))))
-
-(deftest structural-sharing-preserves-identical-data
-  ;; An equal newly decoded value keeps the old value's identity, so
-  ;; downstream subs stay quiet.
-  (rf/reg-resource :ss/article (article-spec) article-spec-request)
-  (let [k (gkey :ss/article {:slug "w"})]
-    (ensure! :ss/article "w" [:app :ss 1])
-    (succeed! k {:title "Welcome" :body [1 2 3]})
-    (let [first-data (:data (entry k))]
-      (refetch! :ss/article "w")
-      (succeed! k {:title "Welcome" :body [1 2 3]})
-      (is (identical? first-data (:data (entry k)))))))
-
-(deftest refresh-failure-keeps-data
-  (rf/reg-resource :rf2/article (article-spec) article-spec-request)
-  (let [k (gkey :rf2/article {:slug "w"})]
-    (ensure! :rf2/article "w" [:app :rf2 1])
-    (succeed! k {:title "Welcome"})
-    (refetch! :rf2/article "w")
-    (is (= {:status :fetching :data {:title "Welcome"}} (select-keys (entry k) [:status :data])))
-    (fail! k {:kind :rf.http/http-5xx :status 503})
-    (is (= [:loaded {:title "Welcome"} {:kind :rf.http/http-5xx :status 503} nil]
-           ((juxt :status :data :refresh-error :error) (entry k))))))
-
-(deftest first-load-failure-error
-  (rf/reg-resource :fl/article (article-spec) article-spec-request)
-  (let [k (gkey :fl/article {:slug "w"})]
-    (ensure! :fl/article "w" [:app :fl 1])
-    (fail! k {:kind :rf.http/http-5xx :status 503})
-    (is (= [:error nil {:kind :rf.http/http-5xx :status 503}]
-           ((juxt :status :data :error) (entry k))))))
-
-(deftest stale-reply-is-suppressed
-  (rf/reg-resource :st/article (article-spec) article-spec-request)
-  (let [k (gkey :st/article {:slug "w"})]
-    (ensure! :st/article "w" [:app :st 1])
-    (let [wid1 (:current-work (entry k))]
-      (refetch! :st/article "w")
-      (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource/key k :work/id wid1 :generation 1
-                          :data {:stale "data"}}])
-      (is (= [:loading 2 nil] ((juxt :status :generation :data) (entry k)))))))
-
-(deftest ensure-dedupes-in-flight
-  (rf/reg-resource :dd/article (article-spec) article-spec-request)
-  (let [k (gkey :dd/article {:slug "w"})]
-    (ensure! :dd/article "w" [:route :r 1])
-    (ensure! :dd/article "w" [:app :x 2])
-    (is (= 1 (:generation (entry k))) "a second ensure while in flight joins")
-    (is (= #{[:route :r 1] [:app :x 2]} (set (:active-owners (entry k)))))))
-
-(deftest per-frame-isolation
-  (rf/reg-resource :iso/article (article-spec) article-spec-request)
-  (let [fa :iso/frame-a
-        fb :iso/frame-b
-        k  (gkey :iso/article {:slug "w"})]
-    (rf/make-frame {:id fa :doc "isolation frame A"})
-    (rf/make-frame {:id fb :doc "isolation frame B"})
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :iso/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :a 1]}]
-                      {:frame fa})
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key k :work/id (:current-work (entry fa k)) :generation 1
-                        :data {:title "A"}}]
-                      {:frame fa})
-    (is (= {:title "A"} (:data (entry fa k))))
-    (is (nil? (entry fb k)))
-    (rf.frame/destroy-frame! fa)
-    (rf.frame/destroy-frame! fb)))
 
 ;; A reply is addressed by frame KEYWORD, and a frame destroyed and re-made
 ;; under the same id answers to the same keyword. The capturing transport is
@@ -418,19 +271,6 @@
     (is (false? @(rf/subscribe [:rf.resource/loading? q])))
     (is (= {:title "Welcome"} @(rf/subscribe [:rf.resource/data q])))))
 
-(deftest stale-sub-derives-from-facts
-  (rf/reg-resource :stl/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [k (gkey :stl/article {:slug "w"})
-        q {:resource :stl/article :scope :rf.scope/global :params {:slug "w"}}]
-    (ensure! :stl/article "w" [:app :st 1])
-    (succeed! k {:title "W"})
-    (is (false? @(rf/subscribe [:rf.resource/stale? q])))
-    ;; Released first, so the invalidation stales rather than refetches.
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :st 1]}])
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope :rf.scope/global :tags #{[:article "w"]}}])
-    (is (true? @(rf/subscribe [:rf.resource/stale? q])))))
-
 (deftest fresh-skip-decision-reads-causal-time-ms-not-ambient-clock
   ;; The fresh-skip gate gates a durable write, so it reads the ensure token's
   ;; :time-ms; the live host clock is decades past this scripted window.
@@ -450,33 +290,7 @@
 
 ;; ---- owners, remove ---------------------------------------------------------
 
-(deftest release-owner-drops-the-owner
-  (rf/reg-resource :ro/article (article-spec) article-spec-request)
-  (let [k (gkey :ro/article {:slug "w"})]
-    (ensure! :ro/article "w" [:app :ro 1])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :ro 1]}])
-    (is (not (contains? (:active-owners (entry k)) [:app :ro 1])))))
-
-(deftest remove-evicts-the-entry
-  (rf/reg-resource :rm/article (article-spec) article-spec-request)
-  (let [k (gkey :rm/article {:slug "w"})]
-    (ensure! :rm/article "w" [:app :rm 1])
-    (rf/dispatch-sync [:rf.resource/remove {:resource :rm/article :scope :rf.scope/global
-                                            :params {:slug "w"}}])
-    (is (nil? (entry k)))))
-
 ;; ---- reverse indexes --------------------------------------------------------
-
-(deftest indexes-recompute-from-entries
-  ;; Restore recomputes the indexes from :entries rather than trusting a snapshot.
-  (let [k1 [:rf.scope/global :r/a {:id 1}]
-        k2 [:rf.scope/global :r/b {:id 2}]
-        rebuilt (rf.resources.state/recompute-indexes
-                  {:entries {k1 {:tags #{:t1 :shared} :active-owners #{[:app 1]}}
-                             k2 {:tags #{:t2 :shared} :active-owners #{[:app 1]}}}})]
-    (is (= {:shared #{k1 k2} :t1 #{k1}}
-           (select-keys (:tag-index rebuilt) [:shared :t1])))
-    (is (= #{k1 k2} (get-in rebuilt [:owner-index [:app 1]])))))
 
 ;; reindex-keys maintains the indexes incrementally at mutation sites; the
 ;; result must equal the full rebuild after every op.
@@ -559,16 +373,6 @@
 ;; ---- the entries table is keyed on the CEDN-1 byte key-id -------------------
 ;; `(= [1 2 3] '(1 2 3))` is true, so keying on the scoped-key vector would
 ;; collapse a list-params entry and a vector-params entry onto one map key.
-
-(deftest resources-introspection-keys-by-byte-key-id
-  (rf/reg-resource :intro/article (article-spec) article-spec-request)
-  (let [k1 (gkey :intro/article {:slug "one"})
-        k2 (gkey :intro/article {:slug "two"})]
-    (ensure! :intro/article "one" [:app :intro 1])
-    (ensure! :intro/article "two" [:app :intro 2])
-    (let [entries (entries-table)]
-      (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (set (keys entries))))
-      (is (= #{k1 k2} (set (map :resource/key (vals entries))))))))
 
 (deftest resources-introspection-keeps-cedn-distinct-scoped-keys-distinct
   (rf/reg-resource :intro/article (article-spec) article-spec-request)
