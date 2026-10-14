@@ -25,7 +25,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.identity :as rf.identity]
    [re-frame.interop :as rf.interop]
    [re-frame.routing :as rf.routing]
    [re-frame.routing.address :as rf.routing.address]
@@ -63,7 +62,7 @@
             plain sort of a keyword, a string and a number throws on the JVM"
     (is (= {:rf.error/id :rf.error/route-url-validation
             :reason      :bad-address-keys
-            :keys        (vec (sort-by rf.identity/canonical-bytes #{:url "s" 3}))}
+            :keys        [3 :url "s"]}
            (route-url-error {:to :route/x :url "/x" "s" 1 3 2})))))
 
 ;; ---- navigate unknown-key reporting is total on both hosts ---------------
@@ -85,7 +84,7 @@
             dispatch completes without a host compare throw"
     (let [request  {:to :route/gate :a/b 1 "s" 2 3 4}
           expected {:reason :unknown-keys
-                    :keys   (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))}
+                    :keys   [3 :a/b "s"]}
           err      (navigate-error request)]
       (is (= expected (rf.routing.address/classify request nil)))
       ;; Dev-instrumentation arm (see ns docstring).
