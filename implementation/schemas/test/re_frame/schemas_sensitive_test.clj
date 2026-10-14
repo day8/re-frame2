@@ -80,16 +80,6 @@
           schema [:map [:id [:= 7]] [:ssn {:sensitive? true} :string]]]
       (is (= {[:ssn] {:sensitive? true :source :schema}} (hook schema []))))))
 
-(deftest schema-sensitive-at?-sibling-does-not-taint-a-wrapped-leaf
-  (testing "a failing leaf reached through a transparent :maybe, or beside a
-            sensitive ancestor wrapped in :and, is not sensitive because a
-            sibling is"
-    (are [schema path] (false? (rf.schemas/schema-sensitive-at? schema path))
-      [:map [:s [:maybe [:map [:k :string] [:secret {:sensitive? true} :string]]]]]
-      [:s :k]
-      [:map [:s {:sensitive? true} [:and [:map [:k :int]]]] [:other [:and [:map [:j :int]]]]]
-      [:other :j])))
-
 (deftest sanitize-sensitive-path-transparent-through-maybe
   (testing ":maybe contributes no :in segment, so the map keys either side of
             it stay navigable locators"

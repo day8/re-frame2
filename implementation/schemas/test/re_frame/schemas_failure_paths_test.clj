@@ -77,7 +77,11 @@
         true  ancestor   [:token]
         true  descendant [:user]
         true  descendant [:user :password]
-        false descendant [:user :name]))))
+        false descendant [:user :name]
+        ;; through a transparent :maybe, and beside a sensitive ancestor wrapped in :and
+        false [:map [:s [:maybe [:map [:k :string] [:secret {:sensitive? true} :string]]]]] [:s :k]
+        false [:map [:s {:sensitive? true} [:and [:map [:k :int]]]] [:other [:and [:map [:j :int]]]]]
+        [:other :j]))))
 
 (deftest multi-error-path-narrows-to-common-ancestor
   ;; Two diverging failures under one registration narrow to the parent slot
