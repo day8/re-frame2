@@ -1098,15 +1098,17 @@
 ;; counted on the envelope, never silently swallowed.
 
 (deftest read-failures-surfaces-dropped-sensitive-indicator
+  ;; The operator gate is closed, so a per-call :include-sensitive changes nothing.
   (with-clean-frame [vid :story.button/primary]
     (seed-app-db! vid {:rf.story/assertions
                        [{:assertion :rf.assert/path-equals :passed? true}
                         {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "secret"}
                         {:assertion :rf.assert/sub-equals :passed? false :sensitive? true :reason "secret"}]})
-    (is (= {:total 1 :failures [] :status :pass :dropped-sensitive 2}
-           (select-keys (:structuredContent (invoke "read-failures" {:variant-id "story.button/primary"}))
-                        [:total :failures :status :dropped-sensitive]))
-        "a dropped sensitive failure is counted and does not flip the verdict")))
+    (doseq [args [{} {:include-sensitive true}]]
+      (is (= {:total 1 :failures [] :status :pass :dropped-sensitive 2}
+             (select-keys (:structuredContent (invoke "read-failures" (merge {:variant-id "story.button/primary"} args)))
+                          [:total :failures :status :dropped-sensitive]))
+          (str "a dropped sensitive failure is counted and does not flip the verdict: " args)))))
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
@@ -1167,10 +1169,8 @@
   (let [props (into {} (map (juxt :name (comp :properties :inputSchema))) (rf.story-mcp.tools.registry/tool-descriptors))]
     (map #(get-in (props %) [:include-sensitive :type]) include-sensitive-tools)))
 
-(deftest tools-list-strips-include-sensitive-when-gate-closed
-  (is (= [nil nil nil nil] (advertised-include-sensitive))))
-
-(deftest tools-list-surfaces-include-sensitive-when-gate-open
+(deftest tools-list-advertises-include-sensitive-only-through-the-open-gate
+  (is (= [nil nil nil nil] (advertised-include-sensitive)))
   (rf.story-mcp.config/set-allow-sensitive-reads! true)
   (is (= ["boolean" "boolean" "boolean" "boolean"] (advertised-include-sensitive))))
 
@@ -1187,14 +1187,6 @@
                                                                      :include-sensitive true})))
                           [:public :secret]))
           (str tool ", gate " (if gate "open" "closed"))))))
-
-(deftest read-failures-gate-closed-ignores-per-call-flag
-  (with-clean-frame [vid :story.button/primary]
-    (seed-app-db! vid {:rf.story/assertions
-                       [{:assertion :rf.assert/path-equals :passed? true}
-                        {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "leak"}]})
-    (is (= 1 (:total (:structuredContent (invoke "read-failures" {:variant-id        "story.button/primary"
-                                                                  :include-sensitive true})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The stdio frame cap is a UTF-8 BYTE budget, the DoS bound the error
