@@ -7,11 +7,14 @@
   name a stale server before a missing tool reads as an application
   finding. The property is an agreement between two artefacts, so this
   suite reads the skill itself."
-  (:require [cljs.test :refer-macros [deftest is async]]
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
-            [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as instructions]
             [re-frame2-pair-mcp.tools.registry :as registry]))
+
+(use-fixtures :each
+  {:before (fn [] (server/reset-session-state-for-tests!))
+   :after  (fn [] (server/reset-session-state-for-tests!))})
 
 (def ^:private fs (js/require "fs"))
 (def ^:private path (js/require "path"))
@@ -36,15 +39,23 @@
   (mapv second (re-seq #"tool contract `([^`]+)`" (skill-md))))
 
 (deftest a-matching-pairing-proceeds
-  ;; Through the real pre-connection call path: the skill runs this step
-  ;; before `discover-app`, so it must answer with no nREPL at all.
+  ;; Through the real call path: the skill runs this step before
+  ;; `discover-app`, so the server answers it before `ensure-connection!`,
+  ;; which here (no port configured) would answer :nrepl-port-not-found.
   (async done
     (-> (server/handle-call-for-tests {} "get-re-frame2-pair-instructions" #js {} nil)
         (.then (fn [result]
-                 (is (= [(:tool-contract (tu/extract-edn result))] (stated-contracts))
-                     (str "skills/re-frame2-pair/SKILL.md must state this server's contract once, as "
-                          "tool contract `" registry/tool-contract "` — re-copy it after changing a "
-                          "tool's name or argument keys."))))
+                 (let [reply (tu/extract-edn result)]
+                   (is (= [(:tool-contract reply)] (stated-contracts))
+                       (str "skills/re-frame2-pair/SKILL.md must state this server's contract once, as "
+                            "tool contract `" registry/tool-contract "` — re-copy it after changing a "
+                            "tool's name or argument keys."))
+                   ;; `:tool-contract` cannot see a behaviour change, so the skill
+                   ;; checks `:built-from` by ancestry. Only `npm run build` bakes a
+                   ;; commit in; this test build sets no define.
+                   (is (= "unknown" (:built-from reply))
+                       "a build given no commit reports \"unknown\"")
+                   (is (false? (:discovered? (server/session-state-snapshot)))))))
         (.catch (fn [e] (is false (str "get-re-frame2-pair-instructions rejected: " (.-message e)))))
         (.then (fn [_] (done))))))
 
@@ -55,18 +66,3 @@
               (registry/contract-fingerprint
                 (map #(cond-> % (= "dispatch" (:name %)) edit) registry/tool-descriptors)))
         (str change " reads as a different contract"))))
-
-(deftest the-reply-names-the-commit-the-server-was-built-from
-  ;; `:tool-contract` cannot see a behaviour change, so the skill checks
-  ;; `:built-from` by ancestry. Only `npm run build` bakes a commit in; this
-  ;; test build sets no define, so it reports the default.
-  (async done
-    (-> (server/handle-call-for-tests {} "get-re-frame2-pair-instructions" #js {} nil)
-        (.then (fn [result]
-                 (let [reply (tu/extract-edn result)]
-                   (is (= instructions/built-from (:built-from reply))
-                       "the reply carries the baked-in commit as :built-from")
-                   (is (= "unknown" (:built-from reply))
-                       "a build given no commit reports \"unknown\""))))
-        (.catch (fn [e] (is false (str "get-re-frame2-pair-instructions rejected: " (.-message e)))))
-        (.then (fn [_] (done))))))
