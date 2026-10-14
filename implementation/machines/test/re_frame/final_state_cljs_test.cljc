@@ -9,26 +9,17 @@
    [re-frame.core :as rf]
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
-   [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
-       :cljs {:adapter rf.adapter.reagent/adapter})))
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (def ^:private snapshot rf.machines.test-support/snapshot)
-
-(defn- traces-for
-  [traces operation]
-  (filter #(= operation (:operation %)) @traces))
-
-(defn- record-traces!
-  [k]
-  (let [a (atom [])]
-    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
-    a))
+(def ^:private events-of rf.machines.test-support/events-of)
 
 (defn- spawned-at-working [parent-id]
   (get-in (rf.machines.test-support/runtime-db)
@@ -79,40 +70,38 @@
         "the parent's :on-done got the :output-key slot; the child's snapshot and spawn slot are cleared")))
 
 (deftest done-trace-fires-with-actor-id-output-parent-id
-  (let [traces (record-traces! ::done-trace)]
-    (rf/reg-machine :rf2-gn80/child2
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:finish {:target :done
-                                :action (fn [{data :data ev :event}]
-                                          {:data (assoc data :result (second ev))})}}}
-        :done    {:final?     true
-                  :output-key :result}}})
-    (rf/reg-machine :rf2-gn80/parent2
-      {:initial :working
-       :states  {:working {:spawn {:machine-id :rf2-gn80/child2}}}})
-    (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
-    (let [child (spawned-at-working :rf2-gn80/parent2)]
-      (rf/dispatch-sync [child [:finish 42]])
-      (is (= [{:actor-id child :output 42 :parent-id :rf2-gn80/parent2}]
-             (map #(select-keys (:tags %) [:actor-id :output :parent-id])
-                  (traces-for traces :rf.machine/done)))))))
+  (rf/reg-machine :rf2-gn80/child2
+    {:initial :running
+     :data    {}
+     :states
+     {:running {:on {:finish {:target :done
+                              :action (fn [{data :data ev :event}]
+                                        {:data (assoc data :result (second ev))})}}}
+      :done    {:final?     true
+                :output-key :result}}})
+  (rf/reg-machine :rf2-gn80/parent2
+    {:initial :working
+     :states  {:working {:spawn {:machine-id :rf2-gn80/child2}}}})
+  (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
+  (let [child (spawned-at-working :rf2-gn80/parent2)]
+    (rf/dispatch-sync [child [:finish 42]])
+    (is (= [{:actor-id child :output 42 :parent-id :rf2-gn80/parent2}]
+           (map #(select-keys (:tags %) [:actor-id :output :parent-id])
+                (events-of :rf.machine/done))))))
 
 (deftest dispatch-to-done-singleton-recreates-from-its-surviving-definition
   ;; D7: a singleton reaching :final? auto-destroys and emits one
   ;; :rf.machine/done with a nil :parent-id. D5: its surviving DEFINITION
   ;; births a fresh instance for the next ORDINARY event.
-  (let [traces (record-traces! ::recreated)]
-    (rf/reg-machine :rf2-gn80/finalised
-      {:initial :running
-       :states  {:running {:on {:fin :done}}
-                 :done    {:final? true}}})
-    (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
-    (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
-    (is (= [[nil] :running]
-           [(map (comp :parent-id :tags) (traces-for traces :rf.machine/done))
-            (:state (snapshot :rf2-gn80/finalised))]))))
+  (rf/reg-machine :rf2-gn80/finalised
+    {:initial :running
+     :states  {:running {:on {:fin :done}}
+               :done    {:final? true}}})
+  (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
+  (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
+  (is (= [[nil] :running]
+         [(map (comp :parent-id :tags) (events-of :rf.machine/done))
+          (:state (snapshot :rf2-gn80/finalised))])))
 
 (deftest child-snapshot-cleared-at-child-teardown
   ;; The parent's :on-done fold runs at the PARENT's boundary on the
@@ -157,24 +146,23 @@
   (is (= :beta/value (spawn-and-finish! :rf2-gn80/par-observer :rf2-gn80/par-child))))
 
 (deftest parallel-output-key-conflict-emits-error-and-first-region-wins
-  (let [traces (record-traces! ::okey-conflict)]
-    (rf/reg-machine :rf2-gn80/par-conflict-child
-      {:type    :parallel
-       :regions {:alpha {:initial :run
-                         :states  {:run  {:on {:fin {:target :done
-                                                     :action (fn [{data :data}]
-                                                               {:data (assoc data :a-out :alpha/value)})}}}
-                                   :done {:final?     true
-                                          :output-key :a-out}}}
-                 :beta  {:initial :run
-                         :states  {:run  {:on {:fin {:target :done
-                                                     :action (fn [{data :data}]
-                                                               {:data (assoc data :b-out :beta/value)})}}}
-                                   :done {:final?     true
-                                          :output-key :b-out}}}}})
-    (is (= :alpha/value
-           (spawn-and-finish! :rf2-gn80/par-conflict-observer :rf2-gn80/par-conflict-child)))
-    (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict)))))
+  (rf/reg-machine :rf2-gn80/par-conflict-child
+    {:type    :parallel
+     :regions {:alpha {:initial :run
+                       :states  {:run  {:on {:fin {:target :done
+                                                   :action (fn [{data :data}]
+                                                             {:data (assoc data :a-out :alpha/value)})}}}
+                                 :done {:final?     true
+                                        :output-key :a-out}}}
+               :beta  {:initial :run
+                       :states  {:run  {:on {:fin {:target :done
+                                                   :action (fn [{data :data}]
+                                                             {:data (assoc data :b-out :beta/value)})}}}
+                                 :done {:final?     true
+                                        :output-key :b-out}}}}})
+  (is (= :alpha/value
+         (spawn-and-finish! :rf2-gn80/par-conflict-observer :rf2-gn80/par-conflict-child)))
+  (is (seq (events-of :rf.error/machine-parallel-output-key-conflict))))
 
 (deftest parallel-error-final-on-non-first-region-routes-as-error
   ;; :alpha, the FIRST region, ends on a plain final and :beta on an :error?
