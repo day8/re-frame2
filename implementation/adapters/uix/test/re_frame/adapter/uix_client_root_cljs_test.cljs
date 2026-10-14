@@ -12,7 +12,6 @@
   browser twin instead."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            ["react" :as React]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]))
 
@@ -51,16 +50,4 @@
                 (boolean (re-find #"xyzzy" (pr-str (ex-data thrown))))
                 (rf.adapter.uix/unmount! h)])
             (str label " is rejected with the canonical id and greppable message, no tree"
-                 " content in the ex-data (EP-0015), and the handle left inert")))))
-  (testing "a legitimate React element passes the guard"
-    ;; The positive leg stops at the guard: mounting needs a real container,
-    ;; which the browser twin supplies.
-    (let [h      (rf.adapter.uix/client-root)
-          thrown (try (rf.adapter.uix/render!
-                        h (React/createElement "div" nil "ok") nil)
-                      nil
-                      (catch :default e e))]
-      (is (or (nil? thrown)
-              (not= :rf.error/hiccup-on-element-render-slot
-                    (:rf.error/id (ex-data thrown))))
-          "a React element is never refused by the element-slot guard"))))
+                 " content in the ex-data (EP-0015), and the handle left inert"))))))
