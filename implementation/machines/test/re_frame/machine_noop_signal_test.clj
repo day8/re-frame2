@@ -1,7 +1,7 @@
 (ns re-frame.machine-noop-signal-test
-  "A declined event is signalled once, by the benign unhandled no-op, never also by
-  a no-change `:rf.machine/transition`; only a machine's first start signals its
-  birth, by `:rf.machine/started`."
+  "A declined event is signalled once, by the benign unhandled no-op addressed to
+  the live actor, never also by a no-change `:rf.machine/transition`; only a
+  machine's first start signals its birth, by `:rf.machine/started`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Installs the late-bind hooks `rf/reg-machine` resolves through.
@@ -32,7 +32,9 @@
   (doseq [machine-id [:rf2-coozg/tl :rf2-coozg/par]]
     (rf/dispatch-sync [machine-id [:rf.machine/start]])
     (let [evs (record-traces! #(rf/dispatch-sync [machine-id [:no-such-event]]))]
-      (is (= [1 0] (mapv #(count (ops evs %)) [:rf.machine.event/unhandled-no-op :rf.machine/transition]))
+      (is (= [[[:rf.machine machine-id]] []]
+             [(mapv (juxt :op-type (comp :actor-id :tags)) (ops evs :rf.machine.event/unhandled-no-op))
+              (ops evs :rf.machine/transition)])
           (str machine-id)))))
 
 (deftest only-the-first-start-signals-birth
