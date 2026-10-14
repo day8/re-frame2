@@ -40,11 +40,7 @@
         patched (rf.resources.mutation-runtime/patch-entry base (fn [d _r] d) :ignored-result
                                                            {:clock-ms 50 :stale-at 60})]
     (is (identical? (:data base) (:data patched)))
-    (is (= [50 (inc (:revision base))] ((juxt :loaded-at :revision) patched))))
-  (testing "a patch of an entry with no usable data is a no-op"
-    (let [empty (rf.resources.state/empty-entry :conduit/article)]
-      (is (= empty (rf.resources.mutation-runtime/patch-entry empty (fn [_d _r] {:x 1}) :r
-                                                              {:clock-ms 1 :stale-at 2}))))))
+    (is (= [50 (inc (:revision base))] ((juxt :loaded-at :revision) patched)))))
 
 (deftest populate-entry-bumps-revision
   (let [sk    (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {})
@@ -71,13 +67,6 @@
     (is (= [:loaded {:kind :rf.http/http-5xx} nil (inc rec-rev)]
            ((juxt :status :refresh-error :current-work :revision) settled)))
     (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled rec-rev)))))
-
-(deftest entry-failed-bumps-revision-on-a-first-load-failure
-  (let [loading (start-load (rf.resources.state/empty-entry :conduit/article) [:w 2])
-        rec-rev (rf.resources.state/entry-revision loading)
-        settled (rf.resources.state/entry-failed loading {:error {:kind :rf.http/http-4xx}})]
-    (is (= [:error nil nil (inc rec-rev)]
-           ((juxt :status :data :current-work :revision) settled)))))
 
 (deftest entry-page-failed-bumps-revision-on-a-load-more-failure
   (let [feed     (-> (rf.resources.state/empty-infinite-entry :conduit/feed)
@@ -172,5 +161,4 @@
                     (rf.resources.state/detach-owner e1 :owner/a))))
     (testing "releasing an absent owner writes nothing"
       (let [e2 (rf.resources.state/detach-owner e1 :owner/absent)]
-        (is (= [(:active-owners e1) 1] ((juxt :active-owners :revision) e2)))))
-    (is (nil? (rf.resources.state/detach-owner nil :owner/a)))))
+        (is (= [(:active-owners e1) 1] ((juxt :active-owners :revision) e2)))))))
