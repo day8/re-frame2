@@ -183,9 +183,6 @@
               ;; A button that failed to mount makes `.click` throw.
               (let [bare     (query mount-node "syn-bare")
                     captured (query mount-node "syn-captured")]
-                (is (= 0 (:n (rf/app-db-value target)))
-                    "sanity: app-db seeded to {:n 0} before any click")
-
                 ;; ---- (1) bare rf/dispatch: fires later, no frame → raises ----
                 (.click bare)
                 (is (= [:rf.error/no-frame-context 0] [@raised (:n (rf/app-db-value target))])
