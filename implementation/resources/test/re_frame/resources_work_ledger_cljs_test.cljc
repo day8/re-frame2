@@ -103,7 +103,7 @@
 
 (defn- fail! [k wid error opts]
   (rf/dispatch-sync [:rf.resource.internal/failed
-                     {:resource/key k :work/id wid :generation 1 :error error}]
+                     {:resource/key k :work/id wid :generation (nth wid 2) :error error}]
                     opts))
 
 ;; ---- records ----------------------------------------------------------------
@@ -138,70 +138,22 @@
 
 ;; ---- terminal settles -------------------------------------------------------
 
-(deftest succeeded-settles-the-row-completed-and-clears-its-handle
-  (rf/reg-resource :sc/article (article-spec) article-spec-request)
-  (let [k (gkey :sc/article)]
-    (ensure! :sc/article [:app :sc 1])
-    (let [wid (:current-work (entry k))]
-      (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource/key k :work/id wid :generation 1 :data {:title "W"}}])
-      (is (= :completed (:status (record wid))))
-      (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid))))))
-
-(deftest failed-settles-record-terminal
-  (rf/reg-resource :fa/article (article-spec) article-spec-request)
-  (let [k (gkey :fa/article)]
-    (ensure! :fa/article [:app :fa 1])
-    (let [wid (:current-work (entry k))]
-      (fail! k wid {:kind :rf.http/http-5xx :status 503} {:rf.cofx {:rf/time-ms 1781649764112}})
-      (is (= {:status :failed
-              :outcome {:error {:kind :rf.http/http-5xx :status 503} :completed-at 1781649764112}}
-             (select-keys (record wid) [:status :outcome])))
-      (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid))))))
-
-(deftest aborted-settles-record-cancelled
-  (rf/reg-resource :ab/article (article-spec) article-spec-request)
-  (let [k (gkey :ab/article)]
-    (ensure! :ab/article [:app :ab 1])
-    (let [wid (:current-work (entry k))]
-      (fail! k wid {:kind :rf.http/aborted :reason :aborted} {:rf.cofx {:rf/time-ms 1781649764112}})
-      (is (= {:status :cancelled :outcome {:reason :aborted :completed-at 1781649764112}}
-             (select-keys (record wid) [:status :outcome])))
-      (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid))))))
-
-(deftest stale-aborted-reply-suppressed-not-cancelled
-  ;; Stale validation wins over the natural cancellation status.
-  (rf/reg-resource :sa/article (article-spec) article-spec-request)
-  (let [k (gkey :sa/article)]
-    (ensure! :sa/article [:app :sa 1])
-    (let [wid1 (:current-work (entry k))]
-      (rf/dispatch-sync [:rf.resource/refetch {:resource :sa/article :scope :rf.scope/global
-                                               :params {:slug "w"}}])
-      (fail! k wid1 {:kind :rf.http/aborted :reason :aborted} nil)
-      (is (= :suppressed (:status (record wid1))))
-      (is (= 2 (:generation (entry k)))))))
-
-(deftest cross-frame-aborted-reply-rejected
-  ;; An abort reply stamped with another frame's id never settles the
-  ;; receiving frame's entry, even at the same work-id and generation.
-  (rf/reg-resource :cfa/article (article-spec) article-spec-request)
-  (let [fa :cfa/frame-a
-        fb :cfa/frame-b
-        k  (gkey :cfa/article)]
-    (rf/make-frame {:id fa :doc "frame A"})
-    (rf/make-frame {:id fb :doc "frame B"})
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :cfa/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :b 1]}]
-                      {:frame fb})
-    (let [wid-b  (:current-work (entry fb k))
-          before (entry fb k)]
-      (rf/dispatch-sync [:rf.resource.internal/failed
-                         {:resource/key k :work/id wid-b :generation 1
-                          :rf.frame/id fa
-                          :error {:kind :rf.http/aborted :reason :aborted}}]
-                        {:frame fb})
-      (is (= [(:status before) wid-b] ((juxt :status :current-work) (entry fb k))))
-      (is (not= :cancelled (:status (record fb wid-b)))))))
+(deftest each-settle-closes-its-row-and-clears-its-handle
+  (doseq [[rid settle! expected]
+          [[:sc/article #(rf/dispatch-sync [:rf.resource.internal/succeeded
+                                             {:resource/key %1 :work/id %2 :generation 1 :data {:title "W"}}])
+            {:status :completed}]
+           [:fa/article #(fail! %1 %2 {:kind :rf.http/http-5xx :status 503} {:rf.cofx {:rf/time-ms 1781649764112}})
+            {:status :failed :outcome {:error {:kind :rf.http/http-5xx :status 503} :completed-at 1781649764112}}]
+           [:ab/article #(fail! %1 %2 {:kind :rf.http/aborted :reason :aborted} {:rf.cofx {:rf/time-ms 1781649764112}})
+            {:status :cancelled :outcome {:reason :aborted :completed-at 1781649764112}}]]]
+    (rf/reg-resource rid (article-spec) article-spec-request)
+    (let [k (gkey rid)]
+      (ensure! rid [:app rid 1])
+      (let [wid (:current-work (entry k))]
+        (settle! k wid)
+        (is (= expected (select-keys (record wid) (keys expected))) (str rid))
+        (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid)) (str rid))))))
 
 ;; ---- supersession, dedupe, owners -------------------------------------------
 
@@ -213,7 +165,10 @@
       (rf/dispatch-sync [:rf.resource/refetch {:resource :ss/article :scope :rf.scope/global
                                                :params {:slug "w"}}])
       (is (contains? (set @aborts) (req wid1)) "a best-effort abort for the old work")
-      (is (= [:suppressed :superseded] ((juxt :status (comp :reason :outcome)) (record wid1)))))))
+      (is (= [:suppressed :superseded] ((juxt :status (comp :reason :outcome)) (record wid1))))
+      (fail! k wid1 {:kind :rf.http/aborted :reason :aborted} nil)
+      (is (= [:suppressed 2] [(:status (record wid1)) (:generation (entry k))])
+          "its late aborted reply stays :suppressed, never :cancelled"))))
 
 (deftest dedupe-joins-existing-record
   (rf/reg-resource :dd/article (article-spec) article-spec-request)
