@@ -123,8 +123,7 @@
 (def stack-slot
   "App-db slot holding the open-popups stack (vector of `mount-id`s,
   oldest first; top-of-stack = last). Public so the Esc handler can
-  peek the topmost entry and a consuming panel's 'close all' action
-  can clear it."
+  peek the topmost entry."
   :rf.xray.edn-inspector-popup/stack)
 
 (def entries-slot

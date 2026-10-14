@@ -169,15 +169,13 @@ addition, so re-running `focus/install!` is the whole delta.
 orchestrator already requires (the idempotent re-install applies only the
 missing/changed delta).
 
-Tests drive the upgrade via `registry/simulate-legacy-registration!`
-(test-only: poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
-process, i.e. schema 0) or `registry/simulate-registration-at-schema!`
+Tests drive the upgrade via `registry/simulate-registration-at-schema!`
 (test-only: poses an INTERMEDIATE installed schema so a fixture can isolate
 the newest migration clause); `reset-for-test!` clears both the boolean gate
 and the schema stamp. `schema-version` is a **public read-only** contract
 number: the governance pin
 `schema-version-is-pinned-so-changed-registrations-name-a-migration` in
-`registry_cljs_test.cljs` reads it and the shipped reactive-data topology, so
+`registry_cljs_test.cljs` pins its value, so
 any gated registration edit — add or replace — must consciously bump
 `schema-version` (or record an explicit no-migration rationale) and update
 the pin.

@@ -44,7 +44,7 @@
             ;; release bundle.
             [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
             ;; Popup overlay infra. `install!` registers
-            ;; the stack/entries subs + open/close/close-top/close-all
+            ;; the stack/entries subs + open/close/close-top
             ;; events at orchestrator-load time. The stack VIEW mount
             ;; lives in `shell.cljs`; per-panel "open in popup"
             ;; affordances flow through `[ei/edn-inspector value
@@ -910,7 +910,6 @@
                                                         show-ungrouped?)]
           (spine/focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
-
     ;; ---- 4-layer chrome events (spec/018) -------------------------
 
     ;; L3 tab bar — flip the active tab. The valid ids are whatever
@@ -1498,20 +1497,6 @@
     (gobj/remove js/globalThis donor-ownership-marker))
   nil)
 
-(defn simulate-legacy-registration!
-  "TEST-ONLY: pose the sentinels to model an already-registered process
-  from before schema-versioning — the umbrella idempotency gate SET (as the old full install
-  left it) with NO schema stamp (schema-versioning did not exist in the
-  old code, so `installed-schema` reads nil). A subsequent
-  `register-xray-handlers!` then no-ops the umbrella and reaches ONLY the
-  migration seam, exactly as a live shadow `:after-load` of new code onto
-  an old process does. Poses only the sentinels; the fixture registers
-  whatever legacy handler shape it needs. Never call from production."
-  []
-  (reset! registered? true)
-  (reset! installed-schema nil)
-  nil)
-
 (defn simulate-registration-at-schema!
   "TEST-ONLY: pose the sentinels to model an ALREADY-registered
   process that installed schema `n` under OLDER code and is now running NEWER
@@ -1519,9 +1504,8 @@
   full install ran) and `installed-schema` is stamped `n`, so a subsequent
   `register-xray-handlers!` no-ops the umbrella and reaches ONLY the migration
   seam — running exactly the `(< n …)` clauses that post-date the posed
-  schema. Complements `simulate-legacy-registration!` (which poses the
-  pre-schema-versioning nil stamp, i.e. schema 0): this poses an INTERMEDIATE
-  schema so a fixture can isolate the newest migration clause. Poses only the
+  schema. This poses an INTERMEDIATE schema so a fixture can isolate the
+  newest migration clause. Poses only the
   sentinels; the fixture registers whatever predecessor handler shape it
   needs. Never call from production. Returns nil."
   [n]

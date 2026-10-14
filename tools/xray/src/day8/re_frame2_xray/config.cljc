@@ -164,9 +164,9 @@
   "Pure helper: clamp `px` to the seam handle's [min, viewport×0.7]
   range. Pass `viewport-height-px` explicitly so the helper
   stays CLJC-pure and JVM-testable (no implicit `window.innerHeight`
-  reach). Non-numeric input falls back to `default-events-list-height-px`
-  so a malformed persisted payload never leaves the list at an
-  unusable size."
+  reach). Non-numeric input falls back to `default-events-list-height-px`.
+  Only the write path (`:rf.xray/set-events-list-height-px`) calls it; a
+  persisted value is read back unclamped."
   [px viewport-height-px]
   (if-not (number? px)
     default-events-list-height-px
@@ -885,8 +885,9 @@
   ^{:doc "Atom: `{frame-id → suppressed-count}`. Xray's trace
          collector bumps the counter for the event's `:tags :frame`
          when it drops a sensitive event. The UI's redaction hint
-         reads this counter; `reset-suppressed-count!` clears it
-         (e.g. on `clear-buffer!` or via a 'clear' button)."}
+         reads the app-db mirror through `:rf.xray/suppressed-sensitive-count`;
+         `reset-suppressed-count!` clears it (from
+         `trace-collector/retroactive-scrub!`)."}
   suppressed-counters
   (atom {}))
 

@@ -1174,7 +1174,7 @@
   ## Test-fixture obligation: the keybinding listener
 
   `teardown!` does NOT detach the global `Ctrl+Shift+C` keydown
-  listener that `preload/init!` attaches via `keybinding/attach!`.
+  listener that `keybinding/attach!` installs.
   Doing so from here would force a circular `mount → keybinding`
   require (keybinding already requires mount for `toggle!`), and the
   attachment is a preload-time concern, not a mount-time one. Test

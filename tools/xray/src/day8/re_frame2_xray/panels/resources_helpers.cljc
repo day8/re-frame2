@@ -37,7 +37,9 @@
   reserved keywords is the price of keeping THIS projection free of a
   `re-frame.resources.*` require edge. They are the
   reserved runtime-db keys fixed in [Conventions §Reserved runtime-db
-  keys]; a drift would be caught by the panel's CLJS wiring test.
+  keys]; a drift in `resources-key` fails the on-box redaction rows, which
+  declare sensitivity at the real entry path, while nothing checks
+  `work-ledger-key` or `routing-key`.
 
   ## PRIVACY (Spec 016 §Xray and AI tooling — load-bearing)
 

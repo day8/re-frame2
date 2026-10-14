@@ -18,8 +18,6 @@
     recorded` when the framework records a new epoch (any frame),
     task-coalesced to one dispatch per frame per tick.
   - `mount.cljs` seeds `:rf.xray/sync-epoch-history` at first open.
-  - `panels.app-db-diff-sections` dispatches `:rf.xray/select-epoch`
-    when a section's epoch chip is clicked.
   - `shell/tab-bar` dispatches `:rf.xray/reset-to-epoch` —
     the UI rewind affordance — and reads `:rf.xray/reset-flash` for the
     inline failure flash.

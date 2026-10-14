@@ -1467,7 +1467,6 @@
         (dissoc db :machine-definitions-override)
         (assoc db :machine-definitions-override ov))}))
 
-
   ;; Focused-event composite seeding events (write the real slots).
   (rf/reg-event :rf.xray/set-epoch-history-for-test
     (fn [{:keys [db]} [_ history]]

@@ -65,9 +65,8 @@
   Schemas catalogues. `row->haystack` projects a row to the lower-cased
   string the needle is matched against (each tab supplies its own —
   flow-id + frame + paths + doc for Flows, kind + id + schema for
-  Schemas, …). A nil / blank query returns `rows` verbatim. Pure data —
-  JVM-runnable, so each tab's projection tests cover it without a CLJS
-  runtime."
+  Schemas, …). A nil / blank query returns `rows` verbatim. Pure data, so
+  each tab's projection tests cover it directly."
   [row->haystack rows query]
   (let [q (some-> query str/trim)]
     (if (or (nil? q) (= "" q))
@@ -81,8 +80,7 @@
   "The catalogue count-chip text: `\"match\"` while a query is filtering,
   else a `noun`-pluralised total (`\"1 flow\"` / `\"7 flows\"`). `noun`
   is the singular form; the plural appends `\"s\"` (every Static noun —
-  flow / interceptor / schema / route — pluralises that way). Pure —
-  JVM-runnable for the projection tests."
+  flow / interceptor / schema / route — pluralises that way). Pure."
   [noun total filtered?]
   (cond
     filtered?   "match"

@@ -106,7 +106,7 @@
   L1 frame picker scopes the app-db-schema rows.
 
   A nil `frame-id` (no frame resolved yet) returns the snapshot
-  verbatim. Pure data — JVM-runnable.
+  verbatim. Pure data.
 
   NOTE: only the app-db-schema rows are frame-scoped. Event-schema and
   sub-schema rows come from the process-global registrar (Spec 001 —
