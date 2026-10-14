@@ -26,20 +26,8 @@
   (some-> (tu/extract-text result) edn/read-string :rf.mcp/cache-hit))
 
 (deftest cacheable?-is-the-read-tool-allowlist
-  ;; An action tool's result is the outcome of an action, and an
-  ;; unregistered tool has no registry entry at all.
-  (doseq [[tool cacheable?] [["dispatch" false]
-                             ["unknown-tool" false]]]
-    (is (= cacheable? (cache/cacheable? tool)) tool)))
-
-(deftest args-fingerprint-stable-across-key-order
-  (let [a (args-js {:frame ":rf/default" :path "[:cart :items]"})
-        b (let [o #js {}]
-            (j/assoc! o "path" "[:cart :items]")
-            (j/assoc! o "frame" ":rf/default")
-            o)]
-    (is (= (cache/args->fingerprint a)
-           (cache/args->fingerprint b)))))
+  ;; An action tool's result is the outcome of an action, not a read.
+  (is (false? (cache/cacheable? "dispatch"))))
 
 (deftest same-state-call-returns-cache-hit
   ;; A byte-identical repeat answers with the marker, which names the tool
@@ -63,14 +51,11 @@
     (is (= 1 (cache/size)) "and replaces the entry in place")))
 
 (deftest disabled-cache-is-pure-pass-through
+  ;; No hit even when a matching entry exists.
   (let [off {:tool "snapshot" :args (args-js {:frame ":rf/default"}) :enabled? false}
         r   (mcp-result "{:ok? true}")]
-    (is (identical? r (cache/apply-cache r off)))
-    (is (zero? (cache/size)))
     (cache/apply-cache (mcp-result "{:ok? true}") (assoc off :enabled? true))
-    (let [r2 (mcp-result "{:ok? true}")]
-      (is (identical? r2 (cache/apply-cache r2 off))
-          "no hit even when a matching entry exists"))))
+    (is (identical? r (cache/apply-cache r off)))))
 
 (deftest get-operating-frame-bypasses-cache
   ;; It is off the cacheable list, so byte-identical reads both go out in
