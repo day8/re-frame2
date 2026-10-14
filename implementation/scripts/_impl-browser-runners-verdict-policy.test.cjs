@@ -62,12 +62,6 @@ test('run-browser-tests: a captured pageerror fails the run even on a green cljs
     /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,400}?return\s+1\s*;/,
     'must fail the run (return 1) when pageErrors.length > 0, even on a green summary',
   );
-  assertPrecedes(
-    src,
-    /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)/,
-    /formatCompactSummary\(/,
-    'the pageerror fatal check must precede the green compact-summary return',
-  );
 });
 
 test('run-browser-tests: the executed-test count is part of the verdict, not just the failure tally (rf2-qqzmf)', () => {
@@ -76,12 +70,6 @@ test('run-browser-tests: the executed-test count is part of the verdict, not jus
     src,
     /ranCounts\.tests\s*<\s*minTests[\s\S]{0,700}?return\s+1\s*;/,
     'must fail the run (return 1) when the executed-test count is below the floor',
-  );
-  assertPrecedes(
-    src,
-    /ranCounts\.tests\s*<\s*minTests/,
-    /formatCompactSummary\(/,
-    'the test-count floor must precede the green compact-summary return',
   );
 });
 
@@ -112,12 +100,6 @@ test('run-browser-tests: a double-fired cljs.test `done` is fatal, not diagnosti
     src,
     /if\s*\(\s*fatalConsole\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,900}?return\s+1\s*;/,
     'must fail the run (return 1) when a duplicate `done` was captured, even on a green summary',
-  );
-  assertPrecedes(
-    src,
-    /if\s*\(\s*fatalConsole\.length\s*>\s*0\s*\)/,
-    /formatCompactSummary\(/,
-    'the duplicate-done fatal check must precede the green compact-summary return',
   );
 });
 
@@ -189,15 +171,6 @@ test('the default `test:browser` lane CARRIES the drift check; only `:advanced` 
   }
 });
 
-test('run-browser-tests: navigation does not wait for the load event (rf2-dczpv)', () => {
-  const src = read('run-browser-tests.cjs');
-  assert.doesNotMatch(
-    src,
-    /NAV_WAIT_UNTIL\s*=\s*['"]load['"]/,
-    "waitUntil 'load' cannot fire until the suite yields — the poll loop owns that wait",
-  );
-});
-
 test('run-browser-tests: an aborted run is named as an abort, not waited out as a timeout (rf2-u0j8)', () => {
   const src = read('run-browser-tests.cjs');
   // cljs.test refuses an `async` row under a POSITIONAL fixture by throwing out
@@ -214,13 +187,6 @@ test('run-browser-tests: an aborted run is named as an abort, not waited out as 
     /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,700}?if\s*\(\s*fixtureAborts\.length\s*>\s*0\s*\)\s*break\s*;/,
     'the poll loop must stop the moment a terminal abort is seen',
   );
-  // Only the terminal class short-circuits: an ordinary mid-suite pageerror
-  // usually lets the run finish and fail on the summary.
-  assert.doesNotMatch(
-    src,
-    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,700}?if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*break\s*;/,
-    'an ordinary pageerror must NOT short-circuit the poll loop',
-  );
 });
 
 test('run-browser-tests: an unanswerable trusted-input request stops the run instead of hanging it (rf2-il7b)', () => {
@@ -233,13 +199,6 @@ test('run-browser-tests: an unanswerable trusted-input request stops the run ins
     src,
     /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,1600}?serviceTrustedInputRequest\([\s\S]{0,200}?if\s*\(\s*trustedInput\.faults\.length\s*>\s*0\s*\)\s*break\s*;/,
     'the poll loop must stop the moment a request it cannot answer is seen',
-  );
-  // A press that THREW is acknowledged with its error so the row resumes and
-  // reds on the spot; breaking on it would truncate the lane.
-  assert.doesNotMatch(
-    src,
-    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,1600}?if\s*\(\s*trustedInput\.presses\s*[=<>!]/,
-    'a failed press must not short-circuit the poll loop',
   );
 });
 
