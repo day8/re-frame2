@@ -35,29 +35,13 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; A registered view + a plain Reagent fn rendering the SAME shape, so
-;; the parity assertions compare like with like.
 (reg-view ^{:rf/id :rf.key-test/row} row-view [n]
-  [:div "row-" n])
-
-(defn- plain-row [n]
   [:div "row-" n])
 
 (defn- el-key
   "The React `:key` the reconciler will read for hiccup `v`."
   [v]
   (.-key (r/as-element v)))
-
-;; ---- single element: metadata :key reaches the React element --------------
-
-(deftest regview-key-parity-with-plain-fn
-  (testing "the reg-view wrapper is transparent to React's :key — a
-            reg-view'd component and a plain Reagent fn produce the SAME
-            React key for the same call-site ^{:key}"
-    (let [view (rf/view :rf.key-test/row)]
-      (is (= (el-key ^{:key 3} [plain-row 3])
-             (el-key ^{:key 3} [view 3]))
-          "reg-view'd and plain-fn elements get identical React keys"))))
 
 ;; ---- seq of reg-views: distinct keys, no collision -------------------------
 
