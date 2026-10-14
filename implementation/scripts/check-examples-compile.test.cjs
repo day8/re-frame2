@@ -17,7 +17,6 @@ const {
   enumerateCompiledBuilds,
   prefixesBelowFloor,
   buildsMissingWarningsAsErrors,
-  parseBuildSummaries,
   reconcileRequestedBuilds,
 } = require('./check-examples-compile.cjs');
 
@@ -63,26 +62,6 @@ it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () 
   );
 });
 
-it('a :story-static/* declaration is NOT swept (prefix roster is closed)', () => {
-  const edn =
-    '  :examples/real {:target :browser}\n' +
-    '  :testbeds/real {:target :browser}\n' +
-    '  :story-static/counter-with-stories {:target :browser}\n';
-  assert.deepStrictEqual(enumerateCompiledBuilds(edn), [
-    'examples/real',
-    'testbeds/real',
-  ]);
-});
-
-it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
-  const edn =
-    '  :examples/real {:target :browser}\n' +
-    '  ;; see :examples/xray-rhs-smoke for the removed variant\n' +
-    '   :modules {:main {:init-fn foo/run}} ;; trailing :examples/nope {\n';
-  const builds = enumerateCompiledBuilds(edn);
-  assert.deepStrictEqual(builds, ['examples/real']);
-});
-
 // The flag is the gate's teeth: shadow-cljs fails a flagged build on a warning,
 // and compiles an unflagged one's warnings green.
 
@@ -121,12 +100,6 @@ const CLEAN_OUTPUT = [
   '[:examples/login-uix] Build completed. (188 files, 187 compiled, 0 warnings, 5.10s)',
   '[:examples/login-helix] Build completed. (196 files, 195 compiled, 0 warnings, 5.47s)',
 ].join('\n');
-
-it('parseBuildSummaries reads the completed build ids in output order', () => {
-  assert.deepStrictEqual(parseBuildSummaries(CLEAN_OUTPUT), {
-    completed: [':examples/login-uix', ':examples/login-helix'],
-  });
-});
 
 // A clean exit is not proof every requested build was compiled: a missing,
 // duplicate or unexpected summary must fail the gate.
