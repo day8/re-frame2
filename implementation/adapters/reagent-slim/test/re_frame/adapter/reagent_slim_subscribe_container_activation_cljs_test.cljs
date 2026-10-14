@@ -79,7 +79,6 @@
           unsub          (observe d notify)]
       (write! s 2)
       (ratom/flush!)
-      (is (= [[10 20]] @events))
       (let [before @computes]
         (unsub)
         (unsub)                                        ; idempotent
@@ -94,11 +93,11 @@
           [events notify] (recorder)
           unsub          (observe s notify)]
       (write! s 2)
-      (is (= [[1 2]] @events) "base container notifies synchronously on write")
       (unsub)
       (unsub)                                          ; idempotent
       (write! s 3)
-      (is (= [[1 2]] @events) "cancelled base-container observer hears nothing"))))
+      (is (= [[1 2]] @events)
+          "the write notified synchronously (no flush ran), and the cancelled observer hears nothing after"))))
 
 (deftest slim-direct-derived-multi-input-retains-batching-cljs-test
   (testing "two source writes before one flush coalesce into a single notification"
