@@ -826,7 +826,7 @@
   ;; API). CLASSIFICATION (EP-0015 diff-time rule): a deliberate public
   ;; constructor. Tier `:advanced`, not `:front-porch` — EP-0023 is explicit
   ;; that "most code should not have to name an image" (the ordinary `reg-*` +
-  ;; default-image path stays implicit); explicit images are for the advanced
+  ;; imageless `make-frame` path stays implicit); explicit images are for the advanced
   ;; cases where the default visible registration set stops being enough
   ;; (multiple surfaces on one page, progressive docs examples, Xray-beside-
   ;; target, library packaging, test/story overrides). Same tier + owning Spec
