@@ -68,9 +68,9 @@ This handler returns only `:db`, because seeding canned data touches nothing out
 
 This replaces the placeholder `:app/initialise` that setup dropped into `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 
-!!! warning "Gotcha — re-registering an id replaces it"
+!!! warning "Gotcha — one id, registered twice"
 
-    [Registries](../../core/glossary.md#registrar) are last-write-wins. If both `core.cljs` and `articles.cljs` register `:app/initialise`, whichever namespace loads last silently wins, and the other body never runs. That's why you *delete* the placeholder rather than leaving it: a duplicate id doesn't error, it just quietly shadows. (The dev build does emit a `:rf.registry/handler-replaced` trace, so a tool like [Xray](../../core/glossary.md#xray) can show you the swap — but your eyes won't catch it in the source.)
+    Re-registering an id from the same namespace replaces it, which is how hot reload works. But if both `core.cljs` and `articles.cljs` register `:app/initialise`, the [registrar](../../core/glossary.md#registrar) keeps both and the app frame runs neither: dispatching it reports `:rf.error/ambiguous-registration`, naming both namespaces. That's why you *delete* the placeholder rather than leaving it.
 
 Now look at the slice's shape. It isn't a bare vector of articles; it's a map that carries the data *and its lifecycle*:
 

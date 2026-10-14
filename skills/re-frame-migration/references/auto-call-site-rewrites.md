@@ -190,7 +190,7 @@ v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on
 
 **Three v1 test-double habits compile and pass for the wrong reason in v2.** Hoisting is enough while the body only adds ids no other loaded namespace registers. Audit every double in the migrated suite against the `re-frame2` skill's [`testing-doubles.md` §Test doubles](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing-doubles.md#test-doubles), which owns the v2 patterns:
 
-- **A mock re-registered in the body to beat a product registration.** Under explicit images (SKILL.md §Boot and init) the re-registration never reaches the frame, and on the default image a fresh frame fails with `:rf.error/image-duplicate-id`. It moves to a final mock image.
+- **A mock re-registered in the body to beat a product registration.** Under explicit images (SKILL.md §Boot and init) the re-registration never reaches the frame, and on a frame made without `:images` the doubled id raises `:rf.error/ambiguous-registration` where it is used. It moves to a final mock image.
 - **`with-redefs` on `rf/dispatch`, `rf/dispatch-sync` or `rf/subscribe`.** In call position these are v2 macros, so the redef compiles and intercepts nothing while the real event runs. A redef that does reach a function value must keep the original's arity set, which only the compiled suite checks.
 - **A throwing "fail if this subscription is touched" double.** v2 recovers a throwing subscription to `nil`, so the guard passes whether or not the forbidden access happens. It becomes a receipt.
 
