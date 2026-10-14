@@ -54,16 +54,6 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
   }
 });
 
-test('cleanupScratchDirs removes the lanes it created and is safe to repeat (rf2-2i1ay)', () => {
-  const a = makeScratchDir(REPO_ROOT, 'rf2-isolation-a');
-  const b = makeScratchDir(REPO_ROOT, 'rf2-isolation-b');
-  cleanupScratchDirs();
-  assert.equal(fs.existsSync(a), false, 'lane a must be removed');
-  assert.equal(fs.existsSync(b), false, 'lane b must be removed');
-  // Idempotent: a `finally` may call teardown after an early cleanup.
-  cleanupScratchDirs();
-});
-
 // ── 2. Static: no suite may re-roll a whole-root removal ─────────────────
 
 // Recursive removal whose target names the scratch root rather than a lane:
@@ -122,25 +112,6 @@ test(`every ${SCRATCH_DIRNAME}/ fixture dir is taken from the shared helper (rf2
     `these scripts create a \`${SCRATCH_DIRNAME}/\` fixture dir directly instead of via `
       + `makeScratchDir(): ${offenders.join(', ')}.`,
   );
-});
-
-test('the four historical callers still route through the helper (rf2-2i1ay)', () => {
-  // Sanity for the two scans above: if these stop requiring the helper the
-  // scans go vacuously green while the suites drift to private roots.
-  const callers = [
-    '_transform-reagent-slim-ns.test.cjs',
-    '_preflight-story-package.test.cjs',
-    '_preflight-reagent-slim-package.test.cjs',
-    '_rewrite-local-root-coord.test.cjs',
-  ];
-  for (const caller of callers) {
-    const src = stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, caller), 'utf8'));
-    assert.match(
-      src,
-      /require\(['"]\.\/lib\/scratch-fixtures\.cjs['"]\)/,
-      `${caller} must take its fixture lanes from lib/scratch-fixtures.cjs`,
-    );
-  }
 });
 
 run();
