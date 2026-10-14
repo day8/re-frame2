@@ -982,8 +982,8 @@ Its refusals are fixtures rather than an assertion — one deliberate corruption
 in both directions:
 
 ```bash
-cd implementation
-node fresco/test/re_frame/bench/fresco/clock_exit_path.test.cjs
+cd bench/fresco
+node src/re_frame/bench/fresco/clock_exit_path.test.cjs
 ```
 
 The cross-check probe in [§2.1](#21-what-the-correction-therefore-does-not-reach)

@@ -141,10 +141,10 @@ was `record-reads`'s set difference.** That was wrong about the running path
 id; the index installs `#{}` for it, and the `record-reads` that follows sees
 `held = #{}` — `added` is the whole read set and `dropped` is always empty. The
 narrowing is the *previous* registration's cleanup calling `unmount`, which drops
-every edge outright. The difference is proved in
-`front/sub_index_laws_cljs_test`, and on this wiring it is delivered by the
-`unmount`/`mount` pair; `the-wired-path-never-takes-the-diffs-dropping-half`
-pins that, so the two stop diverging.
+every edge outright. The narrowing is pinned by law 4 of
+`arm1/cell_table_laws_cljs_test` (the sub-index and its set difference have
+since fused into the cell table), and it is delivered by the `unmount`/`mount`
+pair; `the-wired-path-replaces-wholesale-and-never-takes-a-difference` pins that.
 
 The cost follows and is not the "identity change and one replacement" §4 of this
 page priced it as. For an `n`-read boundary with one key changed: `n` releases
