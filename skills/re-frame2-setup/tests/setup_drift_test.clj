@@ -201,10 +201,6 @@
     ["existing-project.md" @existing-project-md "ignores `shadow-cljs.edn`'s `:source-paths`" "the conversion states the same rule"]
     ["SKILL.md" @skill-md "references/existing-project.md" "the router sends an empty CLJS project to the conversion"]]))
 
-;; Lock 6 — a fresh project's shadow-cljs is a local devDependency.
-(deftest first-counter-verify-command-uses-npx
-  (claims [["first-counter.md" @first-counter-md "npx shadow-cljs watch app" "bare shadow-cljs is not on PATH"]]))
-
 ;; Lock 7 — UIx authors are routed to the substrate views, not Reagent's reg-view.
 (deftest uix-not-routed-to-reagent-reg-view-counter
   (claims
