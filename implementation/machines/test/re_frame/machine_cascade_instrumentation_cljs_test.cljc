@@ -128,8 +128,10 @@
         "a targetless transition is action-only")))
 
 (deftest flat-transition-emits-minimal-cascade
+  ;; The unchanged :big slot stays out of every step's :data-delta.
   (rf/reg-machine :casc/flat
     {:initial :a
+     :data    {:big (vec (range 1000))}
      :actions {:go-act (fn [{d :data}] {:data (assoc d :went true)})}
      :states  {:a {:on {:go {:target :b :action :go-act}}}
                :b {}}})
@@ -161,42 +163,32 @@
 ;; geometry; the cascade records it as one `:raised-transition` wrapper per
 ;; handled dequeue, in FIFO order, rather than dropping or flattening its rows.
 
-(deftest raised-event-transition-is-recorded-as-its-own-cascade-boundary
+(deftest raised-event-transitions-are-recorded-as-their-own-cascade-boundaries
   (rf/reg-machine :casc/settle
     {:initial :idle
-     :actions {:start        (fn [_] {:fx [[:raise [:settle]]]})
+     :actions {:start        (fn [_] {:fx [[:raise [:settle]] [:raise [:finish]]]})
                :settled      (fn [_] nil)
+               :finished     (fn [_] nil)
                :exit-working (fn [_] nil)
                :enter-done   (fn [_] nil)}
      :states  {:idle    {:on {:go {:target :working :action :start}}}
                :working {:exit :exit-working
                          :on   {:settle {:target :done :action :settled}}}
-               :done    {:entry :enter-done}}})
+               :done    {:entry :enter-done
+                         :on    {:finish {:target :end :action :finished}}}
+               :end     {}}})
   (rf/dispatch-sync [:casc/settle [:rf.machine/start]])
   (let [tr      (transition-of #(rf/dispatch-sync [:casc/settle [:go]]))
         cascade (-> tr :tags :cascade)]
-    (is (= [:idle :done] (map #(get-in tr [:tags % :state]) [:before :after]))
+    (is (= [:idle :end] (map #(get-in tr [:tags % :state]) [:before :after]))
         "the headline trace spans the whole macrostep")
-    (is (= [[:exit nil] [:action :start] [:entry nil] [:raised-transition nil]]
+    (is (= [[:exit nil] [:action :start] [:entry nil] [:raised-transition nil] [:raised-transition nil]]
            (kinds+actions cascade))
-        "the external :go rows stay top-level; the raise follows as one wrapper")
-    (is (= [[:settle] :working :done nil [[:exit :exit-working] [:action :settled] [:entry :enter-done]]]
-           ((juxt :event :from :to :region (comp kinds+actions :steps)) (peek cascade))))))
-
-(deftest raised-wrappers-follow-actual-fifo-dequeue-order
-  (rf/reg-machine :casc/fifo
-    {:initial :a
-     :actions {:fan-out (fn [_] {:fx [[:raise [:first]] [:raise [:second]]]})
-               :noop    (fn [_] {})}
-     :states  {:a {:on {:go {:target :b :action :fan-out}}}
-               :b {:on {:first {:target :c :action :noop}}}
-               :c {:on {:second {:target :d :action :noop}}}
-               :d {}}})
-  (rf/dispatch-sync [:casc/fifo [:rf.machine/start]])
-  (is (= [[[:first] :b :c] [[:second] :c :d]]
-         (mapv (juxt :event :from :to)
-               (raised-steps (cascade-of #(rf/dispatch-sync [:casc/fifo [:go]])))))
-      "each wrapper's from/to is its own hop, in dequeue order"))
+        "the external :go rows stay top-level; each raise follows as its own wrapper")
+    (is (= [[[:settle] :working :done nil [[:exit :exit-working] [:action :settled] [:entry :enter-done]]]
+            [[:finish] :done :end nil [[:exit nil] [:action :finished] [:entry nil]]]]
+           (mapv (juxt :event :from :to :region (comp kinds+actions :steps)) (raised-steps cascade)))
+        "each wrapper's from/to is its own hop, in dequeue order")))
 
 (deftest always-enabled-by-a-raised-transition-rides-inside-its-wrapper
   (rf/reg-machine :casc/raise-always
@@ -321,17 +313,3 @@
     (is (= [:main :r2 :r3] ((juxt :region :from :to) round))
         "the round starts where the raise left off")))
 
-(deftest cascade-carries-only-deltas-not-whole-data
-  (rf/reg-machine :casc/delta
-    {:initial :a
-     :data    {:big (vec (range 1000)) :n 0}
-     :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
-     :states  {:a {:on {:go {:target :b :action :bump}}}
-               :b {}}})
-  (rf/dispatch-sync [:casc/delta [:rf.machine/start]])
-  (is (= {:n 1}
-         (->> (cascade-of #(rf/dispatch-sync [:casc/delta [:go]]))
-              (filter #(= :action (:kind %)))
-              first
-              :data-delta))
-      "the unchanged large :big slot stays out of the step's delta"))
