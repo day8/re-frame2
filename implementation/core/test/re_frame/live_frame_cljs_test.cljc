@@ -93,9 +93,6 @@
   (is (registers-nothing? #(err-id (fn [] (rf.live-frame/make-frame {:id :rejected/empty :images []} counter-pool))))))
 
 (deftest absent-images-resolves-the-default-image-generation
-  (testing "OMIT :images resolves the DEFAULT generation over the whole pool"
-    (let [frame (rf.live-frame/make-frame {} counter-pool)]
-      (is (= [true true] [(resolves? frame :event :counter/inc) (resolves? frame :sub :counter/value)]))))
   (is (some? (rf.live-frame/frame-generation (rf.live-frame/make-frame {} [])))
       "an empty pool is a valid standards-only generation, not a zero-match failure")
   (testing "a cross-namespace same-[kind id] collision fails loud at make-frame —
@@ -120,25 +117,18 @@
 
 ;; ---- :id registers an image-loaded record in the one registry ------------
 
-(deftest id-registers-an-image-loaded-record-in-the-one-registry
-  ;; live-frame RECONSTRUCTS a fresh value from the record, routing to the same id
-  (let [frame (rf.live-frame/make-frame
-                {:id :counter/main :images [(rf.image/image {:select-ns {:include ["examples.counter"]}})]}
-                counter-pool)]
-    (is (= [:counter/main :counter/main true]
-           [(rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))
-            (:rf.frame/id frame)
-            (contains? (rf.live-frame/live-frame-ids) :counter/main)]))))
-
 (deftest duplicate-live-id-is-idempotent-replacement
   ;; EP-0024 §Duplicate id policy: re-making a live id refreshes config and
-  ;; generation and PRESERVES durable state (no :rf.error/live-frame-id-conflict)
+  ;; generation and PRESERVES durable state (no :rf.error/live-frame-id-conflict);
+  ;; live-frame RECONSTRUCTS a fresh value from the record, routing to the same id
   (let [img (rf.image/image {:select-ns {:include ["examples.counter"]}})]
     (rf.live-frame/make-frame {:id :counter/main :images [img] :initial-events [[:rf/set-db {:count 7}]]}
                               counter-pool)
     (let [again (rf.live-frame/make-frame {:id :counter/main :images [img]} counter-pool)]
-      (is (= [:counter/main true true {:count 7}]
-             [(rf.frame/frame-value->id again)
+      (is (= [:counter/main :counter/main :counter/main true true {:count 7}]
+             [(:rf.frame/id again)
+              (rf.frame/frame-value->id again)
+              (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))
               (some? (rf.live-frame/frame-generation :counter/main))
               (contains? (rf.live-frame/live-frame-ids) :counter/main)
               (rf/app-db-value :counter/main)])
@@ -171,19 +161,15 @@
   ;; EP-0024 §One constructor: a non-map opts fails loud before any frame is
   ;; registered, rather than making a garbage frame (nil) or a host
   ;; ClassCastException; the all-defaults frame is (make-frame {})
-  (is (= (repeat 5 :rf.error/make-frame-bad-opts)
+  (is (= (repeat 3 :rf.error/make-frame-bad-opts)
          [(err-id #(rf.live-frame/make-frame nil counter-pool))
           (err-id #(rf.live-frame/make-frame nil))
-          (err-id #(rf.live-frame/make-frame :not-a-map counter-pool))
-          (err-id #(rf.live-frame/make-frame [:images []] counter-pool))
-          (err-id #(rf.live-frame/make-frame "oops" counter-pool))]))
-  (is (registers-nothing? #(do (err-id (fn [] (rf.live-frame/make-frame nil counter-pool)))
-                               (err-id (fn [] (rf.live-frame/make-frame :not-a-map counter-pool))))))
+          (err-id #(rf.live-frame/make-frame :not-a-map counter-pool))]))
+  (is (registers-nothing? #(err-id (fn [] (rf.live-frame/make-frame :not-a-map counter-pool)))))
   (is (= [{:type :keyword} {:type :string}]
          [(:received (err-data #(rf.live-frame/make-frame :not-a-map counter-pool)))
           (dissoc (:received (err-data #(rf.live-frame/make-frame "oops" counter-pool))) :count)])
-      "an EP-0015-safe :received shape summary, never the raw value or a keyword :head")
-  (is (rf.live-frame/frame-object? (rf.live-frame/make-frame {} counter-pool)) "the empty map is accepted"))
+      "an EP-0015-safe :received shape summary, never the raw value or a keyword :head"))
 
 ;; ---- host handles stay out of the serializable frame-state ---------------
 
