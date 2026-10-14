@@ -67,9 +67,8 @@
       (try
         (ratom/flush!)
         (let [{:keys [query params]} @rxs]
-          (testing "the leaves read the route in-process RAW"
-            (is (= {:token "first-token"} @query))
-            (is (= {:secret "first-secret"} @params)))
+          (is (= [{:token "first-token"} {:secret "first-secret"}] [@query @params])
+              "the leaves read the route in-process RAW")
 
           (testing "an unrelated runtime-db write wakes neither leaf"
             (reset! traces [])
@@ -82,23 +81,17 @@
             (reset! traces [])
             (visit! "/vault/second-secret?token=second-token")
             (ratom/flush!)
-            (is (= {:token "second-token"} @query))
-            (is (= {:secret "second-secret"} @params))
-            (let [runs (into {}
-                             (keep (fn [ev]
-                                     (when (= :rf.sub/run (:operation ev))
-                                       [(get-in ev [:tags :rf.sub/id]) (:tags ev)])))
-                             (leaf-sub-traces @traces))]
-              (is (= #{:rf.route/query :rf.route/params} (set (keys runs)))
-                  "both leaves recompute on the route change")
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in runs [:rf.route/query :rf.sub/value :token])))
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in runs [:rf.route/query :rf.sub/prev-value :token])))
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in runs [:rf.route/params :rf.sub/value :secret])))
-              (is (= rf.privacy/redacted-sentinel
-                     (get-in runs [:rf.route/params :rf.sub/prev-value :secret])))))
+            (is (= [{:token "second-token"} {:secret "second-secret"}] [@query @params]))
+            (let [s rf.privacy/redacted-sentinel]
+              (is (= {:rf.route/query  {:rf.sub/value {:token s} :rf.sub/prev-value {:token s}}
+                      :rf.route/params {:rf.sub/value {:secret s} :rf.sub/prev-value {:secret s}}}
+                     (into {}
+                           (keep (fn [ev]
+                                   (when (= :rf.sub/run (:operation ev))
+                                     [(get-in ev [:tags :rf.sub/id])
+                                      (select-keys (:tags ev) [:rf.sub/value :rf.sub/prev-value])])))
+                           (leaf-sub-traces @traces)))
+                  "both leaves recompute on the route change, value and prev-value redacted")))
 
           (testing "after the route change the leaves still ignore unrelated runtime-db writes"
             (reset! traces [])
