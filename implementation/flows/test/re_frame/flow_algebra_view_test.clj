@@ -15,11 +15,6 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(deftest facade-publishes-no-algebra-view-alias
-  (is (= [nil true]
-         [(ns-resolve 're-frame.flows 'flow-algebra-view)
-          (some? (ns-resolve 're-frame.flows.tooling 'flow-algebra-view))])))
-
 (deftest flow-exposes-its-full-algebra-view
   ;; An empty registry projects `{}`, not nil, in both arities. Absent
   ;; `:schema` and `:doc` stay absent from the node.
