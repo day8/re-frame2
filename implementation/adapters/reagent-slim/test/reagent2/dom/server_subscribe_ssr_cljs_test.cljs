@@ -85,10 +85,11 @@
                    [rf/frame-provider {:frame :static/other} [counter-app]])
                   nil
                   (catch :default e (ex-data e)))]
-    (is (= :rf.error/static-markup-provider-frame (:rf.error/id data)))
-    (is (= :static/other (:frame data)))
-    (is (= :rf/default (:ambient-frame data)))
-    (is (= :export-under-the-provided-frame (:recovery data))))
+    (is (= {:rf.error/id    :rf.error/static-markup-provider-frame
+            :frame          :static/other
+            :ambient-frame  :rf/default
+            :recovery       :export-under-the-provided-frame}
+           (select-keys data [:rf.error/id :frame :ambient-frame :recovery]))))
   (testing "under the provided frame, the export renders that frame's state"
     (rf/with-frame :static/other
       (rf/dispatch-sync [:counter/initialise])
