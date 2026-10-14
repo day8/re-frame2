@@ -16,7 +16,7 @@
   `machine_inspector_fresco_boundary_dom_cljs_test`) carry them.
   Xray's own interactions (the subscriptions filter bar, the parent-epoch
   and app-db jump links) dispatch through a frame captured at render time by
-  `rf/current-frame-id`, which `view_cljs_test` grades directly.
+  `rf/current-frame-id`.
 
   ## THREE READS, AND WHY THE COUNT IS THE POINT
 

@@ -213,9 +213,8 @@ converts a loud failure into a quiet wrong answer.
 **There is no acceptance path for a superseded version and no compatibility
 adapter.** This is pre-alpha; a shim would restore exactly the mis-parse the
 pin refuses. A v2-stamped envelope is a mismatch at the data layer
-(`fresco_helpers_cljs_test/the-superseded-v2-shape-is-refused-rather-than-mis-parsed`,
-with a non-vacuity row proving the same envelope parses under the current
-stamp) and on the page
+(`fresco_helpers_cljs_test/the-superseded-v2-shape-is-refused-rather-than-mis-parsed`)
+and on the page
 (`fresco_cljs_test/an-unparseable-schema-is-MISMATCH-and-suppresses-rows`,
 which drives both the superseded `v2` and an unknown future `v99`, because the
 pin is exact rather than a floor).

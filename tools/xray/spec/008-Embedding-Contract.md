@@ -561,16 +561,12 @@ per-call `{:frame frame}` opt — cleaner than threading a `dispatch-fn`
 through every intermediate fn. For ops that fire after the dynamic frame
 context unwinds (async clipboard / `setTimeout` continuations, held
 watcher subscriptions), capture a `(rf/capture-frame)` once and call its
-`:dispatch` / `:subscribe` — the frame api survives the async boundary. The
-de-singleton sweep (rf2-1w07r EPIC,
-closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
-and static surface now captures its instance frame, and the
-`:rf/xray`-literal / global-dispatch guard's `pending-migration`
-allowlist is empty. The few production-singleton seams (`config/note-suppressed!`
+`:dispatch` / `:subscribe` — the frame api survives the async boundary.
+Every Xray panel, modal, and static surface captures its instance frame.
+The few production-singleton seams (`config/note-suppressed!`
 → `drain-suppressed-counts!`, per-feature `hydrate!` init) have no surrounding
 render/event frame, so they target the shell via the named
-`defaults/default-frame-id` Var. (The share-URL on-load restore was
-another such seam until rf2-nugvv removed the whole share surface.) A `:rf/xray`-literal /
+`defaults/default-frame-id` Var. A `:rf/xray`-literal /
 global-dispatch guard rejects regressions (see
 [`017-Test-Coverage-Matrix.md`](./017-Test-Coverage-Matrix.md)).
 
@@ -711,16 +707,8 @@ alternative is worse:
   captured frame-bound op (`rf/capture-frame`, or a render-time
   `rf/current-frame-id` capture threaded as a `{:frame frame}` opt) — never a
   `:rf/xray` literal and never a bare global `rf/dispatch`. See
-  §Parameterized shell frame-id; a guard rejects regressions and its
-  `pending-migration` allowlist is empty.
-
-`shell-view-mode-of` — a PRIVATE helper in the mount test namespace
-(`tools/xray/test/day8/re_frame2_xray/mount_cljs_test.cljs`; it reads 0 under
-`tools/xray/src`, so it is no part of the mount surface a host meets) — is an
-EXAMPLE OF THIS SHAPE rather than an outstanding
-debt: the root swap re-derived its positional `[2 1]` index into a walk for
-the `shell/ShellView` head, and the only surviving `[2 1]` under `tools/xray`
-is inside the docstring explaining what it used to be.
+  §Parameterized shell frame-id; a guard rejects regressions and has no
+  allowlist.
 
 ## The minimum host contract
 

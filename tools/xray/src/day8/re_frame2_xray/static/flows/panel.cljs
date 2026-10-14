@@ -84,7 +84,7 @@
 
   A nil `frame-id` (no frame resolved yet) returns the snapshot
   verbatim — the cold-start empty-state stays useful rather than
-  blanking the list. Pure data — JVM-runnable."
+  blanking the list. Pure data."
   [registry-snapshot frame-id]
   (if (nil? frame-id)
     registry-snapshot
@@ -92,8 +92,7 @@
 
 (defn project-rows
   "Flatten `{frame-id {flow-id flow-map}}` into a flat vector of rows,
-  sorted by flow-id ascending. Pure data so the JVM unit-test target
-  can cover the shape without a CLJS runtime."
+  sorted by flow-id ascending. Pure data."
   [registry-snapshot]
   (->> registry-snapshot
        (mapcat (fn [[frame-id by-id]]

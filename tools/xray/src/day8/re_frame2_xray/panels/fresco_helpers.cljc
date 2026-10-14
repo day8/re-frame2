@@ -15,7 +15,7 @@
   is in exactly the position the schema was built to spare them. So every
   absence here is turned into a [[loss-chip]] carrying its own `:kind`,
   its own testid suffix and its own sentence, and
-  [[the five kinds are pairwise distinct]] is a property the suite
+  that the five kinds are pairwise distinct is a property the suite
   asserts rather than a convention the renderers follow.
 
   ## Three empties, three different sentences

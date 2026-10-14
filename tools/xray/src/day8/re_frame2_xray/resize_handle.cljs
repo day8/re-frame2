@@ -94,13 +94,13 @@
   `config/clamp-panel-width-px`); the handle's UI math is naive
   delta — the source of truth for the clamp lives in one place.
 
-  ## Coexistence with `:panel-position`
+  ## Coexistence with the shell modes
 
-  - `:right-rail` (default) — handle on LEFT edge of panel.
+  - `:inline` (the default `:right-rail` panel-position) — handle on LEFT edge of panel.
     Rendered.
   - `:popout` — separate window; browser-native window resize.
     NOT rendered (the inline shell is hidden anyway).
-  - `:fullscreen` — full viewport overlay; resize is N/A.
+  - `:overlay` (the `:fullscreen` panel-position) — full viewport overlay; resize is N/A.
     NOT rendered.
 
   The shell-view passes `mode` through; `Handle` renders nil for
@@ -240,8 +240,8 @@
 
 (defn dragging?
   "Test seam — true iff a drag is in progress. Pure read of the
-  drag-state atom. Used by `shell_resize_handle_cljs_test` to assert
-  the start/stop lifecycle."
+  drag-state atom. Used by `resize_handle_cljs_test` to assert
+  the release ends the drag."
   []
   (some? @drag-state))
 
@@ -600,7 +600,7 @@
   rather than working around it.
 
   `:popout` is a separate window the user resizes via the OS and
-  `:fullscreen` is full-viewport with no width to drag, so both render
+  `:overlay` is full-viewport with no width to drag, so both render
   nil.
 
   NOT SCAFFOLDING. `shell-view` lowers to a boundary, and this and

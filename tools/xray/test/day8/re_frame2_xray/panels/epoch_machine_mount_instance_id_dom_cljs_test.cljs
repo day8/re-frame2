@@ -5,7 +5,7 @@
 
   ## The claim, and why it needs a DOM
 
-  `panels/epoch/view` mounts thirteen `ei/edn-inspector-view`s, each
+  `panels/epoch/view` mounts twelve `ei/edn-inspector-view`s, each
   carrying a `:mount-id` composed from a
   LOGICAL site — `\"epoch/dispatch-event\"` is a CONSTANT, and the machine
   cascade's three are a role plus a step ordinal. Those separate the roles
@@ -50,7 +50,7 @@
 
   ## WHY THE TWO COLLISIONS ARE SEPARATED BY DIFFERENT MEANS
 
-  ONE qualifier, on the `:mount-id` ALONE — every one of the thirteen sites
+  ONE qualifier, on the `:mount-id` ALONE — every one of the twelve sites
   passes a stable `:site-id` alongside it, and the widget's `effective-id`
   is `(or site-id mount-id)`, so expansion and zoom are keyed by the
   site-id and DO NOT READ THE MOUNT-ID AT ALL. That much this surface
@@ -623,7 +623,7 @@
                 sites-r (site-ids (:container right))]
             (is (seq sites-l)
                 (str "control: the left mount committed a site-id at all — "
-                     "all thirteen sites pass one, so an equality below is a "
+                     "all twelve sites pass one, so an equality below is a "
                      "measurement rather than two empty vectors agreeing. "
                      "left=" (pr-str sites-l)))
             (is (= sites-l sites-r)
