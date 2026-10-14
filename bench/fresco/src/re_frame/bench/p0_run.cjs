@@ -1998,7 +1998,7 @@ const ALLOC_CONTROL_SLOT = process.env.P0_ALLOC_CONTROL_SLOT || 'first';
 
 // Pure, for `allocSegmentOrder`'s reason: it needs neither a release build nor
 // a Chromium, so the pin can DRIVE all three slots over a pass count and read
-// the multi-round window sequence out, rather than read the source and hope.
+// one round's window sequence out, rather than read the source and hope.
 //
 // The index is into the round's PASS sequence and names the pass the three
 // controls are driven BEFORE. `passCount` is the return for `last`, which is
@@ -2017,8 +2017,8 @@ function allocControlIndex(passCount, slot) {
 // The flattened window sequence ONE ROUND drives, in drive order, as the kinds
 // a reader cares about: `control` for each of the three, `arm` for each pass.
 // Pure and driven by the pin for the reason above — the two properties this
-// mode exists to separate are claims about a SEQUENCE across rounds, and
-// neither is readable off a ternary in the source.
+// mode exists to separate are claims about a SEQUENCE across rounds, which
+// is this one repeated, and neither is readable off a ternary in the source.
 function allocRoundWindowKinds(passCount, slot) {
   const at = allocControlIndex(passCount, slot);
   const out = [];
@@ -4896,7 +4896,7 @@ module.exports = {
   boxSessionOpen,
   boxSessionClose,
   boxRecord,
-  // The control slot's two pure functions, so the pin can DRIVE the multi-round
+  // The control slot's two pure functions, so the pin can DRIVE one round's
   // window sequence and read the two properties this mode separates off it,
   // rather than match the source for a ternary.
   allocControlIndex,
