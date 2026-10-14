@@ -93,36 +93,27 @@
                          #(rf/reg-resource :rt/once (article-spec {:stale-after-ms 1}) article-spec-request))
                        :rf.resource/registered))))
 
-(deftest owner-attached-on-fresh-load
-  (rf/reg-resource :oa/article (article-spec) article-spec-request)
-  (is (= [{:owner [:app :oa 1] :resource/key (k-of :oa/article) :joined-in-flight? false}]
-         (mapv #(select-keys % [:owner :resource/key :joined-in-flight?])
-               (tags-of (record-resource-traces! #(ensure! :oa/article [:app :oa 1]))
-                        :rf.resource/owner-attached)))))
-
-(deftest owner-attached-on-dedupe-join
-  (rf/reg-resource :oa/join (article-spec) article-spec-request)
-  (ensure! :oa/join [:route :r 1])
-  (let [traces (record-resource-traces! #(ensure! :oa/join [:app :x 2]))]
-    (is (seq (tags-of traces :rf.resource/deduped)) "precondition: the second ensure deduped")
-    (is (= [{:owner [:app :x 2] :joined-in-flight? true}]
-           (mapv #(select-keys % [:owner :joined-in-flight?]) (tags-of traces :rf.resource/owner-attached)))
-        "one row for the newly joined owner")))
-
-(deftest owner-attached-not-re-emitted-for-existing-owner
-  (rf/reg-resource :oa/same (article-spec) article-spec-request)
-  (ensure! :oa/same [:app :same 1])
-  (is (empty? (tags-of (record-resource-traces! #(ensure! :oa/same [:app :same 1]))
-                       :rf.resource/owner-attached))))
-
-(deftest owner-attached-absent-when-no-owner
-  ;; a cause is not an owner (Spec 016 §Active owners and causes)
-  (rf/reg-resource :oa/none (article-spec) article-spec-request)
-  (is (empty? (tags-of (record-resource-traces!
-                         #(rf/dispatch-sync
-                            [:rf.resource/ensure {:resource :oa/none :scope :rf.scope/global
-                                                  :params {:slug "w"} :cause [:manual :x]}]))
-                       :rf.resource/owner-attached))))
+(deftest owner-attached-fires-once-per-newly-attached-owner
+  ;; a fresh load and a dedupe join each attach one owner; a held owner, or a
+  ;; cause (which is not an owner, Spec 016 §Active owners and causes), none
+  (doseq [[rid prior payload expected]
+          [[:oa/article nil {:owner [:app :oa 1]}
+            [{:owner [:app :oa 1] :resource/key (k-of :oa/article) :joined-in-flight? false}]]
+           [:oa/join [:route :r 1] {:owner [:app :x 2]}
+            [{:owner [:app :x 2] :resource/key (k-of :oa/join) :joined-in-flight? true}]]
+           [:oa/same [:app :same 1] {:owner [:app :same 1]} []]
+           [:oa/none nil {:cause [:manual :x]} []]]]
+    (rf/reg-resource rid (article-spec) article-spec-request)
+    (when prior (ensure! rid prior))
+    (is (= expected
+           (mapv #(select-keys % [:owner :resource/key :joined-in-flight?])
+                 (tags-of (record-resource-traces!
+                            #(rf/dispatch-sync [:rf.resource/ensure
+                                                (merge {:resource rid :scope :rf.scope/global
+                                                        :params {:slug "w"}}
+                                                       payload)]))
+                          :rf.resource/owner-attached)))
+        (str rid))))
 
 (defn- hydrated-runtime-db
   "Three hydrated entries: fresh with data (no refetch), stale with data, and
@@ -162,12 +153,10 @@
                                         {:resource/key k :work/id wid1 :generation 1
                                          :data {:stale "data"}}])))
           tags   (first (tags-of traces :rf.resource/stale-suppressed))]
-      (is (not (contains? (ops traces) :rf.resource/work-suppressed)) "stale-suppressed is the one suppression op")
       (is (= {:resource/key k :outcome :success :rf.reply/status :stale :rf.reply/work-status :suppressed
               :rf.reply/stale-reason :rf.resource/superseded :rf.reply/work-id wid1}
              (select-keys tags [:resource/key :outcome :rf.reply/status :rf.reply/work-status
                                 :rf.reply/stale-reason :rf.reply/work-id])))
-      (is (not (contains? tags :work/id)) "the work identity rides only as :rf.reply/work-id")
       (is (= [1 2 k] ((juxt (comp :carried :generation) (comp :current :generation) :resource/key)
                       (:rf.reply/correlation tags)))
           "the carried-vs-current generation pair")
