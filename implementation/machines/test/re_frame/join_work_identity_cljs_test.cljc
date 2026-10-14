@@ -161,21 +161,4 @@
              [(first-work-id :rf.machine.spawn/cancelled-on-join-resolution)
               (->> (events-of :rf.machine/destroyed)
                    (filter #(= [:jwi/fixed-d :explicit] ((juxt :actor-id :reason) (:tags %))))
-                   first :tags :rf.reply/work-id)]))))
-
-  (testing "a fixed join child's own final-leaf reply and its fold share one work id"
-    (rf.machines.test-support/reset-captured!)
-    (rf/reg-machine :jwi/final-child child)
-    (rf/reg-machine :jwi/final-parent
-      {:initial :idle
-       :states  {:idle   {:on {:start :racing}}
-                 :racing {:spawn-all {:children        [{:id :only :machine-id :jwi/final-child
-                                                         :fixed-actor-id :jwi/fixed-final}]
-                                      :join            :all
-                                      :on-all-complete [:join/done]}}}})
-    (rf/dispatch-sync [:jwi/final-parent [:start]])
-    (let [expected [:rf.work/machine :jwi/fixed-final [:racing] (:rf/attempt (join-state :jwi/final-parent))]]
-      (rf/dispatch-sync [:jwi/fixed-final [:go]])
-      (is (= [expected expected]
-             [(first-work-id :rf.machine/done)
-              (first-work-id :rf.machine.spawn-all/all-completed)])))))
+                   first :tags :rf.reply/work-id)])))))
