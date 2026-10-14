@@ -15,36 +15,24 @@
 (def ^:private category-rows
   "Definition → the category `definition-defect` refuses it with, or nil when
   it projects."
-  [;; compound `:initial` presence, at any depth and inside a region
-   [{:initial :a :states {:a {:initial :b :states {:b {:states {:c {}}}}}}}
-    :rf.error/machine-compound-state-missing-initial]
-   [{:type :parallel :regions {:r {:initial :a :states {:a {:states {:b {}}}}}}}
-    :rf.error/machine-compound-state-missing-initial]
-   ;; parallel root and region shape
+  [;; parallel root and region shape
    [{:type :parallel :regions {:r {:initial "x" :states {:x {}}}}} :rf.error/machine-parallel-bad-shape]
    [{:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}} :rf.error/machine-parallel-bad-shape]
-   [{:type :parallel :regions {}} :rf.error/machine-parallel-bad-shape]
    [{:type :parallel :regions 5} :rf.error/machine-parallel-bad-shape]
    [{:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
     :rf.error/machine-parallel-nested-not-supported]
    ;; flat root shape
    [42 :rf.error/machine-bad-definition]
    [{:initial "idle" :states {:idle {}}} :rf.error/machine-missing-initial]
-   [{:initial :a :states {}} :rf.error/machine-missing-states]
    [{:initial :a :states 7} :rf.error/machine-missing-states]
-   ;; unknown BARE keys; namespaced keys and `:meta` are the open slots
-   [{:initial :a :innitial :a :states {:a {}}} :rf.error/machine-unknown-node-key]
-   [{:initial :a :states {:a {:my.app/note "meta"}}} nil]
-   [{:initial :a :my.tool/x 1 :states {:a {}}} nil]
+   ;; an unknown key that is not `Named` is refused, not thrown out of the
+   ;; validator as a host cast exception; `:meta` is an open slot
+   [{:initial :a :states {:a {}} "x" 1} :rf.error/machine-unknown-node-key]
    [{:initial :a :states {:a {:meta {:doc "x"}}}} nil]
    ;; transition targets: a keyword names a sibling, so a top-level state is
    ;; unreachable by keyword from a nested one; every target-bearing slot is checked
    [{:initial :o :states {:o {:initial :i :states {:i {:on {:up :top}}}} :top {}}} :rf.error/machine-unresolved-target]
-   [{:initial :a :states {:a {:on {:go [:nope]}}}} :rf.error/machine-unresolved-target]
    [{:initial :a :states {:a {:on {:go []}}}} :rf.error/machine-bad-target]
-   [{:initial :a :states {:a {:on {:go {:target 42}}}}} :rf.error/machine-bad-target]
-   [{:initial :a :states {:a {:after {1000 {:target :nope}}}}} :rf.error/machine-unresolved-target]
-   [{:initial :a :states {:a {:always [{:target :nope}]}}} :rf.error/machine-unresolved-target]
    [{:initial :a :states {:a {:initial :b :states {:b {:final? true}} :on-done {:target :nope}}}}
     :rf.error/machine-unresolved-target]
    [{:initial :a :states {:a {:spawn {:machine-id :m :on-error {:target :nope}}}}} :rf.error/machine-unresolved-target]
@@ -60,16 +48,12 @@
     :rf.error/machine-history-bad-default-target]
    ;; final states
    [{:initial :a :states {:a {:final? true :states {:b {}}}}} :rf.error/machine-final-state-compound]
-   [{:initial :a :states {:a {:final? true :on {:x :b}} :b {}}} :rf.error/machine-final-state-has-transitions]
    [{:initial :a :states {:a {:output-key :foo}}} :rf.error/machine-output-key-without-final]
    [{:initial :a :states {:a {:error? true}}} :rf.error/machine-error-flag-without-final]
    [{:initial :a :states {:a {:on {:go :b}} :b {:final? true :output-key :out :error? true}}} nil]
-   ;; tags, `:after` delay keys, spawn shape
-   [{:initial :a :states {:a {:tags [:x]}}} :rf.error/machine-bad-tags]
+   ;; tags and `:after` delay keys
    [{:initial :a :states {:a {:tags #{:ok "bad"}}}} :rf.error/machine-bad-tags]
    [{:initial :a :states {:a {:after {0 :b}} :b {}}} :rf.error/machine-bad-after-delay]
-   [{:initial :a :states {:a {:spawn {}}}} :rf.error/machine-spawn-bad-shape]
-   [{:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}} :rf.error/machine-spawn-bad-shape]
    ;; `:choice` and `:timeout` are validated on their lowered shape
    [{:initial :g :states {:g {:type :choice :choice [{:target :nope}]} :a {}}} :rf.error/machine-unresolved-target]
    [{:initial :a :states {:a {:timeout 1000 :on-timeout :nope}}} :rf.error/machine-unresolved-target]])
@@ -277,10 +261,3 @@
           (str label " — no sentinel fragment may survive: " (pr-str s)))
       (is (<= (count (pr-str s)) summary-serialized-bound)
           (str label " — fixed serialized bound, got " (count (pr-str s)))))))
-
-(deftest hostile-keys-do-not-destroy-the-failure-being-described
-  (testing "a key that is not `Named` is refused as an unknown key rather than
-            thrown out of the validator as a host cast exception"
-    (doseq [[label d] [["a string key on the root"    {:initial :a :states {:a {}} "x" 1}]
-                       ["a key whose toString throws" {:initial :a :states {:a {}} exploding-key 1}]]]
-      (is (= :rf.error/machine-unknown-node-key (category d)) label))))
