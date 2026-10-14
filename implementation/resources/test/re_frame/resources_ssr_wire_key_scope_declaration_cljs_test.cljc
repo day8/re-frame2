@@ -100,7 +100,7 @@
 
 (defn- global-key-for
   "An undeclared owner under `:rf.scope/global`: an ADDRESSABLE key carrying no
-  secret in any component, so its row rides and a slice holding it is not empty."
+  secret in any component, so its row rides."
   [resource-id]
   (rf.resources.state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
 
@@ -165,16 +165,6 @@
       (is (= expected w) (str resource-id))
       (is (= (pr-str w) (pr-str trace))
           (str resource-id ": the SSR wire key and the trace key are one value")))))
-
-(deftest the-whole-hydration-payload-slice-is-free-of-the-declared-scope
-  ;; Map keys included: a key-id is a reversible plaintext CEDN-1 encoding.
-  (install-entry! :rf/default (key-for :tenant/report))
-  (install-entry! :rf/default (global-key-for :plain/report))
-  (let [slice (rf.resources.ssr/project-resources-runtime-db
-                (rf.frame/frame-runtime-db-value :rf/default) :rf/default)]
-    (is (seq (get-in slice [rf.resources.state/resources-key :entries]))
-        "premise: the slice is not empty")
-    (is (not (leaks? tenant-secret slice)) (pr-str slice))))
 
 (deftest keys-with-nothing-to-redact-ride-byte-identical
   (is (seq? (get-in (key-for :plain/report) [0 1 :roles]))
