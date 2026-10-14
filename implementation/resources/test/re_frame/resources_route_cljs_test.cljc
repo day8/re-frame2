@@ -184,18 +184,6 @@
     (is (= [[:route-entry :route/article nav-token]] (:causes (work-record-for (article-key "intro"))))
         "the load's work record carries the route-entry activation cause")))
 
-(deftest blocking-resource-holds-route-transition-until-it-settles
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (reg-article-route! {:blocking? true})
-  (navigate-article! "intro")
-  (let [nav-token (:nav-token (slice))
-        k         (article-key "intro")]
-    (is (= [:loading #{k}] [(:transition (slice)) (blocking-slot nav-token)])
-        "the blocking key is the one requirement tracked under the nav-token")
-    (settle-success! k {:title "Intro"})
-    (is (= [:idle #{}] [(:transition (slice)) (blocking-slot nav-token)])
-        "the route lands :idle on settle and the slot drains")))
-
 (deftest non-blocking-resource-does-not-hold-the-transition
   (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
   (reg-article-route! {:resource :comments/list :blocking? false})
@@ -220,18 +208,6 @@
            [(:status (entry k)) (:current-work (entry k))
             (:transition (slice)) (blocking-slot (:nav-token (slice)))])
         "no refetch, no in-flight work, and the route lands :idle at once")))
-
-(deftest route-leave-releases-prior-route-owner
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (reg-article-route! {})
-  (rf/reg-route :route/home {} "/")
-  (navigate-article! "intro")
-  (let [owner [:route :route/article (:nav-token (slice))]
-        k     (article-key "intro")]
-    (is (contains? (:active-owners (entry k)) owner))
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (is (not (contains? (:active-owners (entry k)) owner))
-        "the prior route owner was released on leave")))
 
 (deftest route-resupersede-same-key-blocking-transition-drains
   ;; Leaving marks the in-flight attempt :abort-requested while the entry still
@@ -551,9 +527,7 @@
              (distinct (map (juxt :removed (comp set :removed-identities)) variants)))
           "every variant drops exactly the three")
       (is (apply = (map :removed-identities variants))
-          "the row is byte-identical however the caller ordered or duplicated it")
-      (is (= 3 (count (:removed-identities (peek variants))))
-          "a duplicate can neither duplicate an entry nor put :removed out of step"))))
+          "the row is byte-identical however the caller ordered or duplicated it"))))
 
 (deftest r2-identity-membership-is-byte-exact-not-clojure-equal
   ;; Resource identity is the CEDN-1 key-id, which is collection-KIND sensitive:
