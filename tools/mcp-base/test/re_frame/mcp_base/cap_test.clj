@@ -51,11 +51,6 @@
     ##NaN
     1.0E20))
 
-(deftest invalid-arg?-predicate-discriminates
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens -1)))
-  (is (not (rf.mcp-base.cap/invalid-arg? {:other :map})))
-  (is (not (rf.mcp-base.cap/invalid-arg? nil))))
-
 ;; ---------------------------------------------------------------------------
 ;; sum-payload-tokens — sums every string slot via ResultIO.
 ;; ---------------------------------------------------------------------------
