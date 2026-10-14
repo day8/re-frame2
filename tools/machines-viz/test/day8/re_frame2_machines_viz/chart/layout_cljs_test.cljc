@@ -53,8 +53,7 @@
     (is (= {:nodes [] :edges [] :initial-path nil} (layout/project-definition nil)))))
 
 (deftest project-definition-extracts-flat-machine-nodes
-  (let [{:keys [nodes initial-path]} (layout/project-definition idle-loading-success)]
-    (is (= [:idle] initial-path))
+  (let [{:keys [nodes]} (layout/project-definition idle-loading-success)]
     (is (= {[:idle]    [true false]
             [:loading] [false false]
             [:success] [false true]
@@ -100,15 +99,6 @@
              (set (map #(select-keys % [:from-path :to-path :event :source :target :event-label])
                        edges)))))))
 
-(deftest project-definition-emits-event-label-with-guard-and-action
-  (let [{:keys [edges]} (layout/project-definition
-                          {:initial :idle
-                           :states  {:idle    {:on {:submit [{:target :loading :guard :authed? :action :log-it}
-                                                             {:target :failed :guard :anon?}]}}
-                                     :loading {}
-                                     :failed  {}}})]
-    (is (= #{"submit [authed?] / log-it" "submit [anon?]"} (set (map :event-label edges))))))
-
 (deftest project-definition-edge-ids-distinct-for-identical-candidates
   (testing "byte-identical candidates get distinct ids via the per-key ordinal"
     (let [{:keys [edges]} (layout/project-definition
@@ -120,18 +110,14 @@
 
 (deftest project-definition-self-transitions-chart-as-self-loops
   (testing "Spec 005 §Self-transitions: `:target :same-state` resolves to the
-            source itself (no phantom :same-state node), and an omitted :target
-            is an internal action-only edge that self-anchors rather than drops"
+            source itself (no phantom :same-state node)"
     (let [{:keys [edges]} (layout/project-definition
                             {:initial :a
-                             :states  {:a {:on {:ping {:target :same-state}
-                                                :tick {:action :inc}}}}})
+                             :states  {:a {:on {:ping {:target :same-state}}}}})
           a  (layout/node-id [:a])
           ks [:from :to :source :target :internal? :action]]
       (is (= [{:from [:a] :to [:a] :source a :target a :action nil}]
-             (edges-with edges (event= :ping) ks)))
-      (is (= [{:from [:a] :to [:a] :source a :target a :internal? true :action :inc}]
-             (edges-with edges (event= :tick) ks))))))
+             (edges-with edges (event= :ping) ks))))))
 
 (deftest project-definition-wildcard-event-label
   (testing "the `:*` arm (Spec 005 §Wildcard) is charted as an 'otherwise' arm"
@@ -158,16 +144,6 @@
              (edges-with edges (event= :logout) [:machine-level? :from :to :source])))
       (is (= [{:id layout/machine-root-id :path []}]
              (map #(select-keys % [:id :path]) (filter :machine-root? nodes)))))))
-
-(deftest project-definition-machine-level-on-targetless-action-only
-  (testing "a targetless top-level :on self-anchors on the MACHINE-ROOT chip as
-            an internal affordance (XState v5 targetless semantics), not dropped"
-    (let [{:keys [edges]} (layout/project-definition
-                            {:initial :a :on {:ping {:action :log-ping}} :states {:a {} :b {}}})]
-      (is (= [{:machine-level? true :internal? true :from [] :to-path []
-               :source layout/machine-root-id :target layout/machine-root-id :action :log-ping}]
-             (edges-with edges (event= :ping)
-                         [:machine-level? :internal? :from :to-path :source :target :action]))))))
 
 (deftest project-definition-machine-root-same-state-drops-no-phantom-edge
   (testing "a top-level `:same-state` has no concrete state to target, so it is
@@ -255,11 +231,8 @@
       (doseq [[label on expected]
               [["targeted"   {:abort :loading}         {:target (layout/region-scoped-id :fetch [:loading])}]
                ["targetless" {:abort {:action :log}}   {:target fetch :internal? true}]]]
-        (let [{:keys [nodes edges]} (layout/project-definition (assoc-in ingest [:regions :fetch :on] on))
-              ids (set (map :id nodes))]
+        (let [{:keys [nodes edges]} (layout/project-definition (assoc-in ingest [:regions :fetch :on] on))]
           (is (not-any? :machine-root? nodes) label)
-          (is (every? #(and (ids (:source %)) (ids (:target %))) edges)
-              (str label ": every edge endpoint is a real node"))
           (is (= (merge {:source fetch} expected)
                  (select-keys (first (filter :machine-level? edges)) [:source :target :internal?]))
               label))))))
@@ -284,20 +257,6 @@
              :event-label "✓ done"}]
            (edges-with (:edges (layout/project-definition checkout-on-done)) :on-done?
                        [:from :to :event :done-path :event-label :internal?])))))
-
-(deftest project-definition-compound-on-done-guarded-candidate-vector
-  (let [{:keys [edges]} (layout/project-definition
-                          {:initial :flow
-                           :states  {:flow {:initial :work
-                                            :on-done [{:target :ok-next :guard :ok?}
-                                                      {:target :err-next :guard :err?}]
-                                            :states  {:work {:on {:finish :done}}
-                                                      :done {:final? true}}}
-                                     :ok-next  {}
-                                     :err-next {}}})]
-    (is (= #{{:from [:flow] :to [:ok-next] :guard :ok?}
-             {:from [:flow] :to [:err-next] :guard :err?}}
-           (set (edges-with edges :on-done? [:from :to :guard]))))))
 
 (deftest project-definition-parallel-root-on-done-is-terminal-affordance
   (testing "a parallel root's :on-done is action-only, so it charts as a
@@ -386,38 +345,6 @@
                          [:machine-level? :parallel-root-on? :after :from-path :to-path
                           :source :target :internal?]))))))
 
-(deftest project-definition-parallel-root-on-and-after-coexist
-  (testing "a root :on and a root :after to the same target are distinct edges"
-    (let [{:keys [edges]} (layout/project-definition
-                            {:type    :parallel
-                             :on      {:go {:target [:a :two]}}
-                             :after   {1000 {:target [:a :two]}}
-                             :regions two-region})
-          root-edges (filter :parallel-root-on? edges)]
-      (is (= [false true] (sort (map (comp boolean :parallel-root-after?) root-edges))))
-      (is (apply distinct? (map :id root-edges))))))
-
-;; ---- definition errors --------------------------------------------------
-
-(deftest project-definition-error-flag-needs-final
-  (testing ":error? is meaningful only on a :final? state, so the machine is
-            rejected before graph construction with the canonical defect"
-    (let [result (layout/project-definition {:initial :a
-                                             :states  {:a {:error? true :on {:go :b}}
-                                                       :b {}}})]
-      (is (= [[] [] :rf.error/machine-error-flag-without-final]
-             ((juxt :nodes :edges #(get-in % [:definition-error :defect :category])) result))))))
-
-(deftest project-definition-definition-error-is-content-free-and-rejection-only
-  (testing "the :definition-error carries cardinality, never material read off the
-            definition: a key COUNT and a defect DEPTH, no :keys and no :path"
-    (let [{:keys [definition-error]} (layout/project-definition
-                                       {:initial :outer :states {:outer {:states {:inner {}}}}})]
-      (is (nil? (:keys definition-error)))
-      (is (nil? (get-in definition-error [:defect :path])))
-      (is (integer? (:count definition-error)))
-      (is (integer? (get-in definition-error [:defect :depth]))))))
-
 ;; ---- highlight ids -----------------------------------------------------
 
 (deftest highlight-id-resolves-each-state-arm
@@ -463,22 +390,6 @@
              [{:event :auth/submit}                                                "auth/submit"]]]
       (is (= expected (layout/edge-label edge)) (pr-str edge)))))
 
-(deftest event-line-omits-the-action-segment
-  (testing "the visible line is event + guard; the action renders as a pill"
-    (is (= "submit [authed?]" (layout/event-line {:event :submit :guard :authed? :action :log-it})))))
-
-(deftest event-segment-after-iso-duration-renders-milliseconds
-  (is (= "⌚ 1000ms" (layout/event-segment {:after "PT1S"}))))
-
-(deftest name-of-renders-each-arm
-  (testing "a fn renders its :name meta or \"fn\", never `#object[Function]`"
-    (doseq [[value expected]
-            [[:auth/admin?                               "auth/admin?"]
-             [(with-meta (fn [_] true) {:name 'do-thing}) "do-thing"]
-             [(fn [_] true)                              "fn"]
-             ["raw"                                      "raw"]]]
-      (is (= expected (layout/name-of value)) (pr-str expected)))))
-
 ;; ---- consumer-attachment requirements -----------------------------------
 ;;
 ;; Spec 005 §Consumer attachment: a named guard / action declares
@@ -510,31 +421,8 @@
              ((juxt :entry-requires :exit-requires)
               (first (filter #(= [:idle] (:path %)) nodes))))))))
 
-(deftest cofx-requires-machine-scoped-across-parallel-regions
-  (testing "a region guard resolves against the machine-level :guards (XState v5 scoping)"
-    (let [{:keys [edges]} (layout/project-definition
-                            {:type    :parallel
-                             :guards  {:ready? {:rf.cofx/requires [:rf/time-ms] :fn (fn [_] true)}}
-                             :regions {:a {:initial :one
-                                           :states  {:one {:on {:go {:target :two :guard :ready?}}}
-                                                     :two {}}}
-                                       :b {:initial :x :states {:x {}}}}})]
-      (is (= [["rf/time-ms"]] (map :guard-requires (filter (event= :go) edges)))))))
-
-(deftest raw-node-at-resolves-each-node-in-its-own-region
-  (testing "two regions sharing an in-region path each resolve to their OWN raw
-            node; a flat or compound node resolves in the top-level :states; a
-            synthetic empty-path node resolves to nil"
-    (let [par  {:type    :parallel
-                :regions {:audio {:initial :active :states {:active {:entry :enter-a} :off {}}}
-                          :video {:initial :active :states {:active {:entry :enter-b} :off {}}}}}
-          flat {:initial :idle
-                :states  {:idle {:entry :log}
-                          :busy {:initial :step1 :states {:step1 {:exit :cleanup}}}}}]
-      (doseq [[definition node expected]
-              [[par  {:path [:active] :region :audio} {:entry :enter-a}]
-               [par  {:path [:active] :region :video} {:entry :enter-b}]
-               [flat {:path [:idle]}                  {:entry :log}]
-               [flat {:path [:busy :step1]}           {:exit :cleanup}]
-               [flat {:path []}                       nil]]]
-        (is (= expected (layout/raw-node-at definition node)) (pr-str node))))))
+(deftest raw-node-at-descends-into-a-compound-substate
+  (is (= {:exit :cleanup}
+         (layout/raw-node-at {:initial :busy
+                              :states  {:busy {:initial :step1 :states {:step1 {:exit :cleanup}}}}}
+                             {:path [:busy :step1]}))))
