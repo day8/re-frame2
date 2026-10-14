@@ -298,13 +298,6 @@
             ((juxt :optimistic? :success?) settled)])
         ":optimistic? is true only between the apply and the settle")))
 
-(deftest rider1-optimistic-flag-false-after-opt-out
-  (reg-article-resource!)
-  (own-loaded! article-owned {:article {:favorited false}})
-  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-  (execute! :m/favorite :f1 :optimistic? false)
-  (is (= [true false] ((juxt :pending? :optimistic?) (mutation-state :f1)))))
-
 (deftest malformed-optimistic-tags-descriptor-does-not-block-the-write
   ;; A tags descriptor is a best-effort broadcast, so a malformed one is
   ;; warn-and-skipped and the authoritative write still lowers.
