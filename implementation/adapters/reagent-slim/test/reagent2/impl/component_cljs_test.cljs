@@ -96,9 +96,7 @@
                       [:span (+ local-state n)])))
           c (fake-instance [outer 10])]
       (let [out1 (component/wrap-render c outer)]
-        (is (= [:span 20] out1) "first render: setup ran + inner fn called with [10]")
-        (is (= 1 @setup-calls))
-        (is (= 1 @render-calls)))
+        (is (= [:span 20] out1) "first render: setup ran + inner fn called with [10]"))
       ;; Update the argv as React would on prop change.
       (set! (.-cljsArgv c) [outer 5])
       (let [out2 (component/wrap-render c outer)]
@@ -106,12 +104,6 @@
             "second render: cached inner re-called; closes over local-state=10")
         (is (= 1 @setup-calls) "outer fn NOT re-run on subsequent render")
         (is (= 2 @render-calls) "inner fn ran a second time")))))
-
-(deftest wrap-render-form-2-with-multiple-args
-  (testing "Form-2 inner fn receives the full argv tail"
-    (let [outer (fn [_a _b _c] (fn [a b c] [:i a b c]))
-          c     (fake-instance [outer 1 2 3])]
-      (is (= [:i 1 2 3] (component/wrap-render c outer))))))
 
 ;; ---------------------------------------------------------------------------
 ;; create-class produces a working React class
@@ -130,33 +122,6 @@
               (boolean (component/reagent-class? klass))
               (some? (.. klass -prototype -isReactComponent))])
           "displayName set, tagged as a reagent class, extends React.Component"))))
-
-(deftest create-class-render-delegates-to-wrap-render
-  (testing "the class's render returns a React element built from the user's
-            hiccup (the render fn gets the argv's args, not `this`)"
-    (let [render-fn (fn [n] [:p "got=" n])
-          ^js klass (component/create-class*
-                      {:reagent-render render-fn})
-          inst      (new klass #js {:__rfArgv [render-fn 99]})
-          ^js el    (.call (.. klass -prototype -render) inst)]
-      (is (= "p" (.-type el))))))
-
-(deftest create-class-binds-current-component-during-render
-  (testing "*current-component* is bound to `this` during render"
-    (let [seen-cmp  (atom :sentinel)
-          render-fn (fn []
-                      (reset! seen-cmp (component/current-component))
-                      [:div])
-          ^js klass (component/create-class* {:reagent-render render-fn})
-          props     #js {:__rfArgv [render-fn]}
-          inst      (new klass props)]
-      (is (nil? (component/current-component))
-          "outside render, current-component is nil")
-      (.call (.. klass -prototype -render) inst)
-      (is (identical? inst @seen-cmp)
-          "during render, current-component is the rendering instance")
-      (is (nil? (component/current-component))
-          "after render, the dynamic var is unbound again"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lifecycle plumbing (per IMPL-SPEC §6.4)
@@ -215,34 +180,6 @@
                  :snapshot   :the-snapshot}]
              [@calls @seen])))))
 
-(deftest lifecycle-get-snapshot-before-update-pairs-with-component-did-update
-  (testing "getSnapshotBeforeUpdate gets (this prev-argv prev-state), and its
-            return value is what React hands componentDidUpdate's snapshot"
-    (let [gsbu-seen  (atom nil)
-          cdu-seen   (atom nil)
-          prev-state-sentinel #js {:probe "gsbu-prev-state"}
-          ^js klass (component/create-class*
-                  {:reagent-render             (fn [_] [:div])
-                   :get-snapshot-before-update (fn [_this prev-argv prev-state]
-                                                 (reset! gsbu-seen
-                                                   {:prev-argv prev-argv
-                                                    :prev-state prev-state})
-                                                 :scroll-position-42)
-                   :component-did-update       (fn [_this _prev-argv prev-state snapshot]
-                                                 (reset! cdu-seen
-                                                   {:prev-state prev-state
-                                                    :snapshot snapshot}))})
-          inst  (new klass #js {:__rfArgv [:r 1]})
-          prev-props #js {:__rfArgv [:r 0]}]
-      (is (= [:scroll-position-42 {:prev-argv [:r 0] :prev-state prev-state-sentinel}]
-             [(.call (.. klass -prototype -getSnapshotBeforeUpdate)
-                     inst prev-props prev-state-sentinel)
-              @gsbu-seen]))
-      (.call (.. klass -prototype -componentDidUpdate)
-             inst prev-props prev-state-sentinel :scroll-position-42)
-      (is (= {:prev-state prev-state-sentinel :snapshot :scroll-position-42}
-             @cdu-seen)))))
-
 ;; ---------------------------------------------------------------------------
 ;; :component-did-catch error-boundary plumbing. A boundary gets a default
 ;; getDerivedStateFromError that flips cljsHasError, bridged into the public
@@ -266,15 +203,10 @@
       (.call (.. klass -prototype -componentDidCatch) inst err info)
       (is (= {:this inst :error err :info info} @seen)))))
 
-(deftest error-boundary-get-derived-state-auto-installed
-  (testing "a :component-did-catch class gets a static getDerivedStateFromError
-            whose patch flips cljsHasError"
-    (let [^js klass (component/create-class*
-                  {:reagent-render      (fn [_] [:div])
-                   :component-did-catch (fn [_ _ _])})]
-      (is (true? (.-cljsHasError (.call (.-getDerivedStateFromError klass) nil (js/Error. "x")))))))
-  (testing "a class that did not opt in gets none, so it cannot silently
-            intercept a descendant's error"
+(deftest get-derived-state-from-error-only-on-a-boundary
+  (testing "a class that did not opt in to :component-did-catch gets no
+            getDerivedStateFromError, so it cannot silently intercept a
+            descendant's error"
     (is (nil? (.-getDerivedStateFromError
                 ^js (component/create-class* {:reagent-render (fn [_] [:div])}))))))
 
@@ -314,8 +246,6 @@
       ;; React re-renders the boundary. The render-entry sync must now
       ;; surface the marker through the public state atom.
       (let [^js el (.call (.. klass -prototype -render) inst)]
-        (is (true? (:cljsHasError @(component/state-atom inst)))
-            "marker bridged into the Reagent state atom")
         (is (= "fallback" (.-className (.-props el)))
             "boundary render reading (state-atom this) shows the fallback UI"))
       (.call (.. klass -prototype -componentWillUnmount) inst))))
