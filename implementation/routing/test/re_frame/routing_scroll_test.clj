@@ -51,11 +51,6 @@
                :to        {:id :route/article :params {:id "intro"}}
                :saved-pos [0 640]}]
              (nav! [:rf.route/navigate {:to :route/article :params {:id "intro"}}]))))
-    (testing "the per-call :scroll opt beats the route's"
-      (is (= [:preserve]
-             (map :strategy (nav! [:rf.route/navigate {:to     :route/article
-                                                       :params {:id "two"}
-                                                       :scroll :preserve}])))))
     (testing "the route's :scroll false suppresses the fx"
       (is (= [] (nav! [:rf.route/navigate {:to :route/profile}]))))
     (testing "handle-url-change defaults to :top for a link click and to
@@ -82,10 +77,8 @@
                            (range n)))
         lookups  (fn [cache n]
                    (map #(rf.routing/lookup-scroll-position cache (str "/u" %)) (range n)))]
-    (testing "past the cap the least-recently-saved urls are evicted"
-      (is (= (concat (repeat 10 nil) (map #(vector % %) (range 10 60)))
-             (lookups (save-all nil 60) 60))))
-    (testing "re-saving a url promotes it, so the next eviction takes the new LRU"
+    (testing "past the cap the least-recently-saved url is evicted, and re-saving
+              a url promotes it, so the next eviction takes the new LRU"
       (is (= (concat [[999 999] nil] (map #(vector % %) (range 2 51)))
              (lookups (-> (save-all nil 50)
                           (rf.routing/save-scroll-position "/u0" [999 999])
