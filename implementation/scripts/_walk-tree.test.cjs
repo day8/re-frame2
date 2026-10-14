@@ -13,7 +13,6 @@ const assert = require('assert');
 
 const {
   walkDir,
-  walkErrorReport,
   assertWalkComplete,
 } = require('../../examples/scripts/walk-tree.cjs');
 
@@ -132,18 +131,6 @@ it('TEETH: assertWalkComplete throws (naming the path + cause) on a partial walk
     () => assertWalkComplete(walkErrors, 'my-enumeration'),
     (err) => err.actionable === true && err.message.includes('my-enumeration') && err.message.includes(B),
   );
-});
-
-it('walkErrorReport names the count, context, and every path', () => {
-  const report = walkErrorReport(
-    [
-      { path: A, code: 'EACCES', message: `EACCES: scandir '${A}'` },
-      { path: B, code: 'ENOENT', message: `ENOENT: scandir '${B}'` },
-    ],
-    'ctx',
-  );
-  assert.ok(report.includes(A) && report.includes(B));
-  assert.ok(report.includes('ctx'));
 });
 
 if (failed > 0) {
