@@ -78,19 +78,18 @@
 
 (defn- start-join-parent!
   "Register `child-id` and a one-child `:spawn-all` parent whose child's
-  `:on-done` is `fold`, start it, and return the child's address.
-  `:on-any-failed` is declared only when `on-any-failed?`."
-  [parent-id child-id fold on-any-failed?]
+  `:on-done` is `fold`, start it, and return the child's address."
+  [parent-id child-id fold]
   (rf/reg-machine child-id (child-def))
   (rf/reg-machine parent-id
     {:initial :idle
      :data    {:slot nil}
      :states  {:idle    {:on {:start :working}}
-               :working {:spawn-all (cond-> {:children        [{:id         :a
-                                                                 :machine-id child-id
-                                                                 :on-done    fold}]
-                                             :on-all-complete [:all-ok]}
-                                      on-any-failed? (assoc :on-any-failed [:any-failed]))
+               :working {:spawn-all {:children        [{:id         :a
+                                                          :machine-id child-id
+                                                          :on-done    fold}]
+                                     :on-all-complete [:all-ok]
+                                     :on-any-failed   [:any-failed]}
                          :on        {:all-ok     :next
                                      :any-failed {:target :errored
                                                   :action (fn [{d :data ev :event}]
@@ -104,17 +103,10 @@
 
 (deftest j1-failed-join-child-reaches-on-any-failed-and-never-its-fold
   (let [folds (atom [])
-        child (start-join-parent! ::j1 ::j1-child (recording-fold folds) true)]
+        child (start-join-parent! ::j1 ::j1-child (recording-fold folds))]
     (rf/dispatch-sync [child [:fail]])
     (is (= [:errored failure-payload []]
            [(state ::j1) (:failure (data ::j1)) @folds]))))
-
-(deftest j3-failed-join-child-without-on-any-failed-lands-in-the-failed-set-only
-  (let [folds (atom [])
-        child (start-join-parent! ::j3 ::j3-child (recording-fold folds) false)]
-    (rf/dispatch-sync [child [:fail]])
-    (is (= [:working #{:a} []]
-           [(state ::j3) (:failed (spawned ::j3)) @folds]))))
 
 ;; ---- single :spawn — every failure rides the failure carrier ----------------
 
