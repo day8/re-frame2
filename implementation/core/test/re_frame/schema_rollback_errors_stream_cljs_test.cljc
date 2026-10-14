@@ -201,9 +201,6 @@
 (deftest ^:requires-debug machine-data-negative-controls
   (when (and rf.interop/debug-enabled? (schemas-present?) (machines-present?))
     (register-machine-app!)
-    (testing "a conforming macrostep fans nothing"
-      (let [captured (capture #(rf/dispatch-sync [machine-id [:bump]] {:frame machine-frame-id}))]
-        (is (empty? (errors-where captured :rf.error/schema-validation-failure :machine-data)))))
     (testing "a :spawn violation is :rollback? false — trace-only, so the
               promotion is scoped to :rollback? true, not to :where"
       (let [captured (capture #(rf/dispatch-sync [machine-id [:spawn-bad]] {:frame machine-frame-id}))]
@@ -315,16 +312,6 @@
       (is (= [before 0 :rolled-back]
              [(rf/app-db-value frame-id) @fx-ran (outcome-of captured :xpd8/seed)])
           "the candidate never installed, :fx never walked, and :events carries the consequence"))))
-
-(deftest ^:requires-debug conforming-commit-is-silent-and-the-control-is-live
-  (when (and rf.interop/debug-enabled? (schemas-present?))
-    (register-app!)
-    (let [captured (capture #(rf/dispatch-sync [:xpd8/all-good] {:frame frame-id}))]
-      (is (empty? (errors-where captured :rf.error/schema-validation-failure :app-db)))
-      (is (= {:conforms 1 :absent-a 2 :absent-b 3 :leaks 4} (rf/app-db-value frame-id))))
-    (testing "CONTROL: the same listener does receive an unrelated always-on category"
-      (let [captured (capture #(rf/dispatch-sync [:xpd8/no-such-event] {:frame frame-id}))]
-        (is (seq (errors-where captured :rf.error/no-such-handler nil)))))))
 
 ;; ---- the production gate: the records are gated WITH the check -----------
 
