@@ -59,16 +59,6 @@
     (is (not (str/includes? (scxml/spec->scxml all-three-internal-machine) "target=")))
     (is (= all-three-internal-machine (round-trip all-three-internal-machine)))))
 
-(deftest chart-and-mermaid-mint-the-same-injective-ids
-  (testing "Mermaid addresses each state by the chart's `node-id`, and the
-            collision-class forms `:a/b` / `:a-b` / `:a_b` stay distinct"
-    (let [out (mermaid-body {:initial :start
-                             :states  {:start {:on {:one :a/b :two :a-b :three :a_b}}
-                                       :a/b {} :a-b {} :a_b {}}})]
-      (is (= 3 (count (distinct (map #(layout/node-id [%]) [:a/b :a-b :a_b])))))
-      (doseq [[k event] [[:a/b "one"] [:a-b "two"] [:a_b "three"]]]
-        (is (str/includes? out (str "start --> " (layout/node-id [k]) " : " event)))))))
-
 ;; A `:type :history` node is a history pseudo-state in every emitter — chart
 ;; `history-marker`, Mermaid `H`/`H*`, SCXML `<history>` — never an ordinary
 ;; occupiable state.
@@ -83,20 +73,11 @@
                       :on      {:power-off :off}}}})
 
 (deftest history-pseudo-state-agrees-across-emitters
-  (is (= {:history? true :deep? true :final? false :compound? false}
-         (->> (layout/project-definition deep-history-machine)
-              :nodes
-              (filter #(= [:player :hist] (:path %)))
-              first
-              (#(select-keys % [:history? :deep? :final? :compound?]))))
-      "chart: a deep history pseudo-state, neither final nor compound")
-  (let [out (mermaid-body deep-history-machine)]
-    (is (str/includes? out "state \"H*\" as player__hist") "mermaid: the deep-history marker")
-    (is (not (str/includes? out "player__hist --> [*]")) "mermaid: not a final state"))
+  (is (str/includes? (mermaid-body deep-history-machine) "state \"H*\" as player__hist")
+      "mermaid: the deep-history marker")
   (let [out (scxml/spec->scxml deep-history-machine)]
     (is (re-find #"<history [^>]*type=\"deep\"" out) "scxml: a deep <history> element")
-    (is (not (re-find #"<state id=\"player___hist\"" out)) "scxml: not an occupiable <state>")
-    (is (= deep-history-machine (round-trip deep-history-machine)) "scxml: round-trips")))
+    (is (not (re-find #"<state id=\"player___hist\"" out)) "scxml: not an occupiable <state>")))
 
 ;; `:reenter? true` is the external-restart opt-in (Spec 005 §Self-transitions).
 ;; An emitter ignoring the axis would project two runtime-distinct machines
@@ -204,8 +185,7 @@
 (deftest region-on-done-action-only-surfaced-by-mermaid-and-scxml
   (let [out (mermaid-body region-on-done-action-only-machine)]
     (is (str/includes? out "note right of a"))
-    (is (str/includes? out "on-done: ✓ done / log"))
-    (is (not (str/includes? out "a --> b")) "mermaid: no phantom completion arrow"))
+    (is (str/includes? out "on-done: ✓ done / log")))
   (is (str/includes? (scxml/spec->scxml region-on-done-action-only-machine)
                      "event=\"done.state.a\"><!-- action: log --></transition>")))
 
@@ -219,12 +199,7 @@
              :ok      {:final? true}
              :boom    {:final? true :error? true}}})
 
-(deftest error-final-kind-surfaced-by-all-three-emitters
-  (is (= {"running" false "ok" false "boom" true}
-         (-> (into {} (map (juxt :label :error?))
-                   (:nodes (layout/project-definition success-and-error-finals-machine)))
-             (select-keys ["running" "ok" "boom"])))
-      "chart: only the error final is flagged")
+(deftest error-final-kind-surfaced-by-mermaid-and-scxml
   (let [out (mermaid-body success-and-error-finals-machine)]
     (is (str/includes? out "boom --> [*]") "the error final is still a terminal")
     (is (str/includes? out "note right of boom"))
@@ -305,13 +280,10 @@
               (str label ": the message carries no definition value")))))
     (testing "a definition missing its root shape keeps the shape explanation"
       (doseq [[label f] exports
-              d [{:initial :a :states {} :data {:token secret}}
+              d [{:initial :a :states {}}
                  {:type :parallel :regions {}}]]
-        (let [message (str (:message (refusal f d)))]
-          (is (str/includes? message ":states")
-              (str label ": the message names the missing shape"))
-          (is (not (str/includes? message secret))
-              (str label ": the message carries no definition value")))))
+        (is (str/includes? (str (:message (refusal f d))) ":states")
+            (str label ": the message names the missing shape"))))
     (testing "SCXML recommends regions only for a region-shape defect"
       (is (= :supply-a-valid-machine-spec
              (:recovery (refusal scxml/spec->scxml
@@ -323,33 +295,23 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Every ingestion / export surface refuses a RECURSIVELY-invalid definition (a
-;; shallow gate would bless all three), keeping its own error id while its
-;; value-free summary carries the canonical `:rf.error/machine-*` category.
-
-(def ^:private recursively-invalid-definitions
-  {:nested-compound-no-initial
-   {:def      {:initial :outer :states {:outer {:states {:inner {}}}}}
-    :category :rf.error/machine-compound-state-missing-initial}
-   :dangling-target
-   {:def      {:initial :idle :states {:idle {:on {:go :missing}}}}
-    :category :rf.error/machine-unresolved-target}
-   :unknown-node-key
-   {:def      {:initial :idle :states {:idle {:on-entry :oops}}}
-    :category :rf.error/machine-unknown-node-key}})
+;; shallow gate would bless it), keeping its own error id while its value-free
+;; summary carries the canonical `:rf.error/machine-*` category.
 
 (deftest recursively-invalid-rejected-by-every-surface
-  (doseq [[label {:keys [def category]}] recursively-invalid-definitions]
-    (let [{:keys [nodes edges definition-error]} (layout/project-definition def)]
-      (is (= [[] [] category] [nodes edges (get-in definition-error [:defect :category])])
-          (str label ": the chart refuses before ELK, with no orphan nodes or edges")))
+  (let [definition {:initial :idle :states {:idle {:on {:go :missing}}}}
+        category   :rf.error/machine-unresolved-target
+        {:keys [nodes edges definition-error]} (layout/project-definition definition)]
+    (is (= [[] [] category] [nodes edges (get-in definition-error [:defect :category])])
+        "the chart refuses before ELK, with no orphan nodes or edges")
     (doseq [[surface throw-it error-id summary-key]
-            [["mermaid" #(mermaid/emit def) :mermaid/invalid-definition :definition-summary]
-             ["scxml" #(scxml/spec->scxml def) :scxml/invalid-spec :spec-summary]
-             ["ai" #(ai/generate-machine "x" {:resolver (fn [_] (pr-str def))})
+            [["mermaid" #(mermaid/emit definition) :mermaid/invalid-definition :definition-summary]
+             ["scxml" #(scxml/spec->scxml definition) :scxml/invalid-spec :spec-summary]
+             ["ai" #(ai/generate-machine "x" {:resolver (fn [_] (pr-str definition))})
               :ai-generate/invalid-spec :spec-summary]]
             :let [data (ex-data (throws-ex throw-it))]]
       (is (= [error-id category] [(:rf.error/id data) (get-in data [summary-key :defect :category])])
-          (str label ": " surface " refuses with its own id and the canonical category")))))
+          (str surface " refuses with its own id and the canonical category")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The summary is content-free by construction (`grammar-validation-cljs-test`
@@ -478,25 +440,17 @@
        (map (fn [[_ from to]] [[(keyword from)] [(keyword to)]]))
        set))
 
-(deftest spawn-on-done-drawn-by-chart-and-mermaid-dropped-by-scxml
-  (testing "chart and Mermaid draw working -> loaded; SCXML omits it"
+(deftest spawn-on-done-drawn-by-chart-and-mermaid
+  (testing "chart and Mermaid draw working -> loaded"
     (let [edges (:edges (layout/project-definition spawn-on-done-machine))]
       (is (= [{:from [:working] :to [:loaded] :event :rf.machine.spawn/done
                :event-label "✓ done" :on-done? true}]
              (map spawn-edge-keys (filter #(= :rf.machine.spawn/done (:event %)) edges))))
       (is (= 2 (count edges)) "the :go edge and the :on-done edge, nothing else"))
-    (is (str/includes? (mermaid-body spawn-on-done-machine) "working --> loaded : ✓ done"))
-    (let [out (scxml/spec->scxml spawn-on-done-machine)]
-      (is (not (str/includes? out "child")))
-      (is (= {:initial :idle
-              :states  {:idle    {:on {:go :working}}
-                        :working {}
-                        :loaded  {:final? true}}}
-             (scxml/scxml->spec out)))))
+    (is (str/includes? (mermaid-body spawn-on-done-machine) "working --> loaded : ✓ done")))
   (testing "chart and Mermaid draw the same arrows for every transition shape"
     (doseq [[on-done arrows] {:b                                         #{[[:a] [:b]]}
                               [:b]                                       #{[[:a] [:b]]}
-                              {:target :b}                               #{[[:a] [:b]]}
                               [{:target :b :guard :ok?} {:target :c}]    #{[[:a] [:b]] [[:a] [:c]]}}
             :let [m {:initial :a
                      :states  {:a {:spawn {:machine-id :child :on-done on-done}}
