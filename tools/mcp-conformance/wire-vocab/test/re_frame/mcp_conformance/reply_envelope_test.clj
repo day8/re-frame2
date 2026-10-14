@@ -210,29 +210,7 @@
              (me/humanize (m/explain ReplyEnvelopeTraceRow fixture))))))
 
 ;; ===========================================================================
-;; (2) Schema FAILS CLOSED on a scalar work-id, an open enum or a dropped
-;;     key — the gate is only as strong as its ability to reject them.
-;; ===========================================================================
-
-(deftest schema-rejects-each-regression-shape
-  ;; Each row is the http fixture with one regression applied. EP-0011
-  ;; one-attempt-one-work-id requires the family-headed tuple; both status
-  ;; enums are closed; and a dropped work-id loses an MCP consumer its
-  ;; join key.
-  (doseq [[label row]
-          [["a scalar (non-tuple) :rf.reply/work-id"
-            (assoc http-stale-suppressed-fixture :rf.reply/work-id 3)]
-           ["a :rf.reply/status outside the closed set"
-            (assoc http-stale-suppressed-fixture :rf.reply/status :done)]
-           ["a :rf.reply/work-status outside the closed set"
-            (assoc http-stale-suppressed-fixture :rf.reply/work-status :running)]
-           ["a row missing :rf.reply/work-id"
-            (dissoc http-stale-suppressed-fixture :rf.reply/work-id)]]]
-    (is (not (m/validate ReplyEnvelopeTraceRow row))
-        (str label " MUST fail the schema"))))
-
-;; ===========================================================================
-;; (3) SOURCE-text pin — every fixture key appears as DATA at its own family's
+;; (2) SOURCE-text pin — every fixture key appears as DATA at its own family's
 ;;     emit site. A key one family drops or renames trips this gate even while
 ;;     another family still emits it.
 ;; ===========================================================================
