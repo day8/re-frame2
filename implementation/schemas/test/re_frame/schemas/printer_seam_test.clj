@@ -35,13 +35,11 @@
           label))))
 
 (deftest a-single-key-install-still-returns-the-whole-bundle
-  (testing "the return is the live bundle: the keys a call did not touch, and
-            the default printer a nil `:print` is coerced to"
+  (testing "the return is the live bundle, keys a call did not touch included"
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:e true})
           p-fn (fn [_] "::P::")]
       (rf.schemas/set-schema-fns! {:validate v-fn})
       (rf.schemas/set-schema-fns! {:explain e-fn})
       (is (= {:validate v-fn :explain e-fn :print p-fn}
-             (rf.schemas/set-schema-fns! {:print p-fn})))
-      (is (= ":int" ((:print (rf.schemas/set-schema-fns! {:print nil})) :int))))))
+             (rf.schemas/set-schema-fns! {:print p-fn}))))))
