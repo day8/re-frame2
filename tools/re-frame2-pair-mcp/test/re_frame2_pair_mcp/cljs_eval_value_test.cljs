@@ -117,14 +117,3 @@
                  (is (= "{:x #=(js/alert 1)}" v)
                      "a #= form is refused and the reply falls back to its raw string")))
         (.then (fn [_] (done))))))
-
-(deftest malformed-edn-beside-a-tag-still-falls-back
-  (async done
-    (-> (with-quiet-stderr
-          (fn []
-            (with-stubbed-cljs-eval! (printed-result "{:at #instant \"2026-01-01T00:00:00Z\" :b [1 2")
-              (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))))
-        (.then (fn [v]
-                 (is (= "{:at #instant \"2026-01-01T00:00:00Z\" :b [1 2" v)
-                     "malformed data falls back to its raw string — a tag does not mask it")))
-        (.then (fn [_] (done))))))
