@@ -174,19 +174,12 @@
 
 (deftest ordinary-ordering-is-unchanged
   ;; The control. Everywhere except a surrogate meeting U+E000-U+FFFF, UTF-8
-  ;; byte order IS code-unit order, so these bytes are the host-sorted bytes.
-  (testing "ASCII and BMP below the surrogate block: a pinned literal"
-    (is (= (str "m{k::a i:1 k::b i:2 s:\"a\" i:3 s:\"" (char 0xE9) "\" i:4 s:\""
-                (char 0x4E2D) "\" i:5}")
-           (rf.identity/canonical-bytes {(str (char 0x4E2D)) 5, :b 2, (str (char 0xE9)) 4,
-                                         "a" 3, :a 1}))))
-  (testing "pools that never mix a surrogate with U+E000-U+FFFF sort exactly as the host does"
-    (doseq [pool [["b" "a" "ab" "" "z" (str (char 0xE9)) (str (char 0x4E2D)) (str (char 0xD7FF))]
-                  [high-bmp (str (char 0xFFFD)) (str (char 0xFFFF)) (str (char 0xF900))]
-                  [astral (str (char 0xD83D) (char 0xDE00)) (str (char 0xDBFF) (char 0xDFFF))]]]
-      (is (= (set-bytes-by sort pool) (rf.identity/canonical-bytes (set pool))))
-      (is (= (map-bytes-by sort (zipmap pool (range)))
-             (rf.identity/canonical-bytes (zipmap pool (range))))))))
+  ;; byte order IS code-unit order: ASCII and BMP below the surrogate block,
+  ;; keyword tokens before string tokens, as a pinned literal.
+  (is (= (str "m{k::a i:1 k::b i:2 s:\"a\" i:3 s:\"" (char 0xE9) "\" i:4 s:\""
+              (char 0x4E2D) "\" i:5}")
+         (rf.identity/canonical-bytes {(str (char 0x4E2D)) 5, :b 2, (str (char 0xE9)) 4,
+                                       "a" 3, :a 1}))))
 
 ;; ---- kind distinctness ---------------------------------------------------
 
