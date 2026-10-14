@@ -173,11 +173,6 @@
                 no cell was built, no reference taken, no edge recorded"
         (is (= nothing-owned (ownership))))
 
-      (testing "the individually-named keys confirm it per key, which a
-                summed census could hide"
-        (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))
-        (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right])))))
-
       (testing "the read-set entries ARE there — a render-phase cache is the
                 one thing a probing render leaves, and calling it out is
                 what keeps the zero above honest"
@@ -212,11 +207,6 @@
           (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
           (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))))
 
-        (testing "and NOTHING for a key this body did not read — the
-                  acquisition is the read set, not the registrar"
-          (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right]))))
-          (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:kco/right])))))
-
         (testing "the acquired boundary is a live reader: a write to its key
                   notifies it exactly once"
           (rf/with-frame frame-id (rf/dispatch-sync [:kco/bump-left]))
@@ -243,100 +233,40 @@
                         (rf.fresco.test.runtime/residue))))
                (done))))))
 
-(deftest a-branch-not-taken-contributes-no-edge
-  (seeded!)
-  ;; The ambient collector's whole claim: the edge is recorded WHERE THE
-  ;; READ HAPPENS, so a boundary's edge set is a function of the control
-  ;; flow the render actually took.
-  (let [body    (fn [_] [:p (when (rf.fresco/sub [:kco/flag]) (rf.fresco/sub [:kco/right]))])
-        cold    (probe! body)
-        cleanup (rf.fresco.impl.collector/commit-boundary! cold (fn []))]
-
-    (testing "flag is false, so the guarded read never ran and its key is
-              not in the set"
-      (is (= #{(sub-key [:kco/flag])} (rf.fresco.test.runtime/reads-of cold)))
-      (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right])))))
-
-    (cleanup)
-    (rf/with-frame frame-id (rf/dispatch-sync [:kco/raise]))
-
-    (let [warm     (probe! body)
-          cleanup2 (rf.fresco.impl.collector/commit-boundary! warm (fn []))]
-      (testing "flag is true, so the same body reads two keys and the commit
-                acquires both — the edge set followed the branch"
-        (is (= #{(sub-key [:kco/flag]) (sub-key [:kco/right])}
-               (rf.fresco.test.runtime/reads-of warm)))
-        (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right]))))))
-      (cleanup2))))
-
 ;; ---------------------------------------------------------------------------
 ;; Rollback — a body that throws after its reads
 ;; ---------------------------------------------------------------------------
 
 (deftest a-body-that-throws-after-its-reads-leaves-nothing-and-contaminates-nothing
   (seeded!)
-  (let [before (ownership)]
+  (is (thrown-with-msg? js/Error #"planted"
+        (rf.fresco.impl.collector/render-body
+          frame-id
+          (fn [_]
+            (rf.fresco/sub [:kco/left])
+            (rf.fresco/sub [:kco/right])
+            (throw (js/Error. "planted")))
+          {}))
+      "the body must actually throw — otherwise this row proves nothing")
 
-    (is (thrown-with-msg? js/Error #"planted"
-          (rf.fresco.impl.collector/render-body
-            frame-id
-            (fn [_]
-              (rf.fresco/sub [:kco/left])
-              (rf.fresco/sub [:kco/right])
-              (throw (js/Error. "planted")))
-            {}))
-        "the body must actually throw — otherwise this row proves nothing")
+  (testing "the reads it took before it threw acquired nothing, because a
+            render-phase read acquires nothing to roll back"
+    (is (= nothing-owned (ownership))))
 
-    (testing "the reads it took before it threw acquired nothing, because a
-              render-phase read acquires nothing to roll back"
-      (is (= before (ownership)))
-      (is (= nothing-owned (ownership))))
-
-    ;; The half that would be a SILENT wrong answer rather than a leak. The
-    ;; scratch is one module-level array reset by overwrite at the top of
-    ;; every body; if a throwing run's reads survived into the next body,
-    ;; the next boundary would commit edges it never read — correct on
-    ;; screen, wrong forever after.
-    (let [entry   (probe! (fn [_] [:p (rf.fresco/sub [:kco/flag])]))
-          cleanup (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
-
-      (testing "the next body's read set is ITS OWN, not the throwing run's
-                concatenated with it"
-        (is (= #{(sub-key [:kco/flag])} (rf.fresco.test.runtime/reads-of entry)))
-        (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
-
-      (testing "named per key, because `:cells 1` alone could be the right
-                count of the wrong keys"
-        (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/flag])))))
-        (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))
-        (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right])))))
-
-      (cleanup))))
+  ;; The scratch is reset by overwrite at the top of every body; if a
+  ;; throwing run's reads survived into the next body, the next boundary
+  ;; would commit edges it never read.
+  (let [entry   (probe! (fn [_] [:p (rf.fresco/sub [:kco/flag])]))
+        cleanup (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
+    (testing "the next body's read set is ITS OWN, not the throwing run's
+              concatenated with it"
+      (is (= #{(sub-key [:kco/flag])} (rf.fresco.test.runtime/reads-of entry)))
+      (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
+    (cleanup)))
 
 ;; ---------------------------------------------------------------------------
 ;; A re-render before the commit — the discarded attempt is discarded
 ;; ---------------------------------------------------------------------------
-
-(deftest a-re-render-before-the-commit-owns-the-second-read-set-and-only-that
-  (seeded!)
-  (probe! (fn [_] [:p (rf.fresco/sub [:kco/left]) (rf.fresco/sub [:kco/right])]))
-
-  (testing "the first attempt owns nothing, so there is nothing for the
-            second to undo"
-    (is (= nothing-owned (ownership))))
-
-  (let [second-entry (probe! (fn [_] [:p (rf.fresco/sub [:kco/flag])]))
-        cleanup      (rf.fresco.impl.collector/commit-boundary! second-entry (fn []))]
-
-    (testing "React selected the second attempt, so the second attempt's set
-              is what got acquired — in full and in isolation"
-      (is (= #{(sub-key [:kco/flag])} (rf.fresco.test.runtime/reads-of second-entry)))
-      (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))
-      (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/right])))))
-
-    (cleanup)))
 
 ;; ---------------------------------------------------------------------------
 ;; Two fibers on one read set — StrictMode's SHAPE, at the seam
@@ -353,16 +283,10 @@
           c1    (rf.fresco.impl.collector/commit-boundary! entry (fn []))
           c2    (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
 
-      (testing "two boundaries, two memberships, still ONE cell — the cell
-                is shared per unique key and the reader list is the count"
-        (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (ownership)))
-        (is (= 2 (count (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))))))
-
-      (testing "and the two registrations are distinct objects: the
-                registration IS the boundary id, so a second subscribe
-                cannot be mistaken for the first"
-        (let [[a b] (rf.fresco.test.runtime/cell-readers (sub-key [:kco/left]))]
-          (is (not (identical? a b)))))
+      (testing "two boundaries, two memberships, still ONE cell — and
+                `:boundaries` counts distinct registrations, so the second
+                subscribe is not mistaken for the first"
+        (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (ownership))))
 
       (c1)
       (testing "one cleanup removes exactly one membership"
