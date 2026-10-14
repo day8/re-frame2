@@ -5,9 +5,9 @@
 //
 // Two suites in this tree look at these tools and neither one runs them:
 //
-//   - `fresco_tool_test.cljs` stubs `nrepl/cljs-eval-value` with canned
-//     envelopes, so it checks the emitter against itself (the conformance
-//     corpus checks the schema gate the same way);
+//   - `fresco_tool_test.cljs` reads the emitted form's text, and the
+//     conformance corpus stubs `nrepl/cljs-eval-value` with canned
+//     envelopes, so both check the emitter against itself;
 //   - `fresco_wire_test.cljs` parses the emitted STRING and reads the
 //     provider's own source, so it checks that the two sides agree on
 //     names and on the schema literal.
