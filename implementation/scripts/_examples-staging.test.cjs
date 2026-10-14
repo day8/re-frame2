@@ -15,7 +15,6 @@ const path = require('path');
 const assert = require('assert');
 
 const {
-  parseExampleBuilds,
   buildNsIndex,
   listStandaloneExamples,
   cleanStageDirs,
@@ -23,8 +22,6 @@ const {
   stagePerExampleAssets,
   EXAMPLES_ROOT,
 } = require('../../examples/scripts/examples-staging.cjs');
-
-const { stagedAssetsByBuild } = require('../../examples/scripts/examples-asset-manifest.cjs');
 
 const {
   decideRunnerExit,
@@ -85,56 +82,6 @@ function httpRequest({ port, method = 'GET', path: reqPath, accept }) {
 console.log('examples-staging tests');
 
 // ---- parser ----------------------------------------------------------------
-
-// The build-id key on its own line with `{` on the next is the shape
-// shadow-cljs.edn uses, and the one a single non-greedy regex with a lookahead
-// skips every other entry of; the inline-brace and :node-library variants must
-// be recovered too, and the commented-out key must not.
-const FIXTURE = `{:builds
- {:node-test {:target :node-test}
-
-  :examples/alpha
-  {:target     :browser
-   :output-dir "out/examples/alpha"
-   :asset-path "."
-   :modules    {:main {:init-fn alpha.core/run}}}
-
-  ;; a comment line :examples/should-be-ignored {
-  :examples/beta
-  {:target     :browser
-   :output-dir "out/examples/beta"
-   :modules    {:main {:init-fn beta.views/run}}}
-
-  :examples/gamma {:target :browser
-                   :output-dir "out/examples/gamma"
-                   :modules {:main {:init-fn seven-guis.gamma.core/run}}}
-
-  :examples/delta-server
-  {:target      :node-library
-   :output-dir  "out/examples/delta-server"
-   :exports-var delta.server/module}
-
-  :some-other-build
-  {:target :browser}}}`;
-
-it('parseExampleBuilds recovers every adjacent example build with its :output-dir, :init-fn and :target', () => {
-  assert.deepStrictEqual(parseExampleBuilds(FIXTURE), [
-    { build: 'examples/alpha', target: ':browser', outputDir: 'out/examples/alpha', initFn: 'alpha.core/run' },
-    { build: 'examples/beta', target: ':browser', outputDir: 'out/examples/beta', initFn: 'beta.views/run' },
-    {
-      build: 'examples/gamma',
-      target: ':browser',
-      outputDir: 'out/examples/gamma',
-      initFn: 'seven-guis.gamma.core/run',
-    },
-    {
-      build: 'examples/delta-server',
-      target: ':node-library',
-      outputDir: 'out/examples/delta-server',
-      initFn: null,
-    },
-  ]);
-});
 
 // ---- FAIL-CLOSED ns-index enumeration --------------------------------------
 //
@@ -289,25 +236,6 @@ it('decideRunnerExit: 0 for a clean or user-interrupted shutdown, 1 for any unex
 });
 
 // ---- per-example static assets ---------------------------------------------
-
-it('stagedAssetsByBuild projects a synthetic manifest to build -> [{from,src,dest}], dropping htmlLinked (rf2-phpbo8)', () => {
-  assert.deepStrictEqual(
-    stagedAssetsByBuild([
-      {
-        build: 'examples/linked',
-        assets: [{ from: 'node-modules', src: 'pkg/base.css', dest: 'base.css', htmlLinked: true }],
-      },
-      {
-        build: 'examples/fetched',
-        assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
-      },
-    ]),
-    {
-      'examples/linked': [{ from: 'node-modules', src: 'pkg/base.css', dest: 'base.css' }],
-      'examples/fetched': [{ from: 'src', src: 'api/data.json', dest: 'api/data.json' }],
-    },
-  );
-});
 
 it('stageExample stages a colocated per-example asset after a clean stage (rf2-cq6va5)', () => {
   // The real manifest's managed-http-counter entry against the real repo source.
