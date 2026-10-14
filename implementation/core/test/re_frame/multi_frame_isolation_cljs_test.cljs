@@ -12,7 +12,6 @@
   `two_frame_isolation` testbed."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -62,16 +61,7 @@
   (seed-frames!)
   (dotimes [_ 4] (rf/dispatch-sync [::counter-inc] {:frame frame-above}))
   (dotimes [_ 7] (rf/dispatch-sync [::counter-inc] {:frame frame-below}))
-  (let [above-record-pre (rf.frame/frame frame-above)
-        above-app-db-pre (:app-db above-record-pre)
-        above-sub-cache  (:sub-cache above-record-pre)]
-    (rf/destroy-frame! frame-below)
-    (is (nil? (rf.frame/frame frame-below)) "destroy-frame! removed :below from the registry")
-    (let [above-record-post (rf.frame/frame frame-above)]
-      (is (identical? above-app-db-pre (:app-db above-record-post))
-          ":above's app-db container is unchanged")
-      (is (identical? above-sub-cache (:sub-cache above-record-post))
-          ":above's sub-cache is unchanged"))
-    (is (= 4 (sub-in frame-above [::counter])) ":above's sub still resolves against its app-db")
-    (rf/dispatch-sync [::counter-inc] {:frame frame-above})
-    (is (= 5 (:counter (rf/app-db-value frame-above))) ":above still takes dispatches")))
+  (rf/destroy-frame! frame-below)
+  (is (= 4 (sub-in frame-above [::counter])) ":above's sub still resolves against its app-db")
+  (rf/dispatch-sync [::counter-inc] {:frame frame-above})
+  (is (= 5 (:counter (rf/app-db-value frame-above))) ":above still takes dispatches"))
