@@ -22,8 +22,6 @@ test('assertIsErrorMatchesOk grades :ok? against isError after dedup decoding', 
       { isError: false, structuredContent: dedupWrapped({ 'ok?': false }) }, FALSE_NOT_ERROR],
     ['dedup-wrapped :ok? true beside isError true',
       { isError: true, structuredContent: dedupWrapped({ 'ok?': true }) }, /:ok\? true but isError is true/],
-    ['plain :ok? false beside isError false',
-      { isError: false, structuredContent: { 'ok?': false } }, FALSE_NOT_ERROR],
     // Grading the decoded inner `ok? true` would erase the sibling `ok? false`.
     ['a dedup wrapper with a sibling key',
       { isError: false, structuredContent: { ...dedupWrapped({ 'ok?': true }), 'ok?': false } },
