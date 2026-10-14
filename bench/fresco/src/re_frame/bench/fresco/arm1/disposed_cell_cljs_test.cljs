@@ -1,11 +1,12 @@
 (ns re-frame.bench.fresco.arm1.disposed-cell-cljs-test
   "THE REGISTRY-EPOCH AND NODE-KEY AXES.
 
-  A `:sub` re-registration moves neither term of
-  [[re-frame.bench.fresco.arm1.runtime/commit-basis]]
-  (`generation_fence_coverage_cljs_test` pins that), and neither does a
-  same-id frame reincarnation. Giving every key a registry term would
-  re-render every boundary on every re-registration.
+  A `:sub` re-registration moves only the registry term of
+  [[re-frame.bench.fresco.arm1.runtime/commit-basis]], which a held key's
+  frozen stamp never reads (`generation_fence_coverage_cljs_test` pins
+  that), and the basis ties across a same-id frame reincarnation. Giving
+  every key a registry term would re-render every boundary on every
+  re-registration.
 
   **The axes are not blind spots in an arithmetic, and this file is the
   measurement.** Both events *dispose the reaction a cell holds*:
@@ -20,8 +21,9 @@
   `mark-dirty!`, so no flush, so no notification ever again — and its
   deref answers the RETIRED computation, or the destroyed incarnation's
   app-db, for as long as the boundary lives. That failure is the reason
-  there is no registry term: a moved number buys one extra render, and
-  the extra render reads back through the same dead cell.
+  a held key's number carries no registry term: a moved number buys one
+  extra render, and the extra render reads back through the same dead
+  cell.
 
   What closes both axes is the substrate's own disposal event, armed once
   per unique key at `wire-cell!` time. It costs no React hook, no
