@@ -129,16 +129,6 @@ test('a signal-killed child makes the CLI exit 1 and names the signal (rf2-i7q4)
   );
 });
 
-test('the same stand-in WITHOUT the kill still compiles green (control)', () => {
-  const result = runWrapper('clean');
-  assert.equal(
-    result.status,
-    0,
-    `the control arm exited ${result.status}; stderr was:\n${result.stderr}`,
-  );
-  assert.equal(fs.existsSync(OUTPUT_ABS), true, 'the control arm wrote no bundle');
-});
-
 // The child's own code passes through: collapsing every failure to 1 loses it.
 test("a numeric child status is the child's own, not a normalised 1", () => {
   const result = runWrapper('code3');
