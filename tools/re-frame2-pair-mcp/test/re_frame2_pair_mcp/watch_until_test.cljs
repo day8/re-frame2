@@ -28,13 +28,9 @@
   ;; Regression: `(boolean ((<pred-fn>) sample))` called the pred with no
   ;; args and then called its boolean; the poll loop swallowed the TypeError,
   ;; so every live watch timed out with `:last-sample nil`.
-  (let [form (watch-until/watch-form [{:app-db [:upload :status]}]
-                                     :rf/default
-                                     (record/pred-source {:signal 0 :equals :done})
-                                     nil)]
-    (is (str/includes? form "(boolean ((fn [sample]")
-        "the pred fn literal is applied directly inside the boolean")
-    (is (str/includes? form ") sample))")
-        "the sample rides as the pred fn's argument")
+  (let [pred-src (record/pred-source {:signal 0 :equals :done})
+        form     (watch-until/watch-form [{:app-db [:upload :status]}] :rf/default pred-src nil)]
+    (is (str/includes? form (str "(boolean (" pred-src " sample))"))
+        "the pred fn literal is applied to the sample inside the boolean")
     (is (str/includes? form "{:held? held? :sample sample")
         "the poll answers the :held? / :sample pair the tool's loop reads")))
