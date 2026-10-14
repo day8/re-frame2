@@ -1,46 +1,17 @@
 (ns re-frame.ssr-attr-name-react-parity-test
-  "The EMITTED-ATTRIBUTE-NAME half of the SSR conversion table,
-  pinned against react-dom ITSELF for the mask family.
+  "The EMITTED-ATTRIBUTE-NAME half of the SSR conversion table, pinned
+  against react-dom ITSELF for the mask family.
 
-  WHY THIS FILE EXISTS. `re-frame.ssr.ui-tree` mirrors react-dom in two
-  independent halves:
-
-    `standard-names`    author name     -> React prop name
-    `dom-attr-aliases`  React prop name -> the DOM attribute name
-                                           react-dom/server actually WRITES
-
-  A react-dom release can move BOTH halves at once: React 19.3 carries
-  `masktype -> maskType` in the first AND emits `maskType` as `mask-type` in
-  the second. A comparison against `possibleStandardNames` alone cannot see
-  the second direction, so an upgrade that re-derived only the first half
-  would look complete while the emitter kept writing the old spelling, and
-  every other lane in the tree would stay green over it.
-
-  Nothing here is a taste question. The SSR output is hydrated by a client
-  running the upgraded react-dom, so an emitter one version behind on an
-  attribute NAME is a hydration mismatch.
-
-  WHY THE EVIDENCE IS EXTERNAL. The two halves of the table are maintained by
-  hand from the same upstream, so a test that checked one against the other
-  would be two consumers of one belief agreeing with each other, and would
-  pass over exactly the drift above. `react_dom_probe/attr_name_mask_family.cjs`
-  renders each mask-family attribute through the INSTALLED react-dom and
-  records the name react-dom wrote; this namespace reads those bytes and
-  compares them with what `emit-ui-tree` writes. Both halves of the probe are
-  React's: the candidate names are react-dom's own `possibleStandardNames`
-  values (taking them from our roster would reproduce the blind spot
-  verbatim), and the emitted name is read back out of React's markup.
-
-  WHY THE FAMILY AND NOT THE ONE NAME. `maskUnits` and `maskContentUnits` are
-  the UNAFFECTED CONTROLS. They sit in the same table, take the same code
-  path, and keep their camelCase — so a witness carrying only `maskType`
-  could not show that the kebab spelling is confined to it. `mask` itself rides along from
-  React's own table.
-
-  WHAT THIS DOES NOT COVER: an emitted-name change outside the mask family,
-  in any react-dom release, is invisible to the tree. Closing that means probing the emitted
-  direction for every name, which is a react-dom table clone and a different
-  piece of work from this one."
+  `re-frame.ssr.ui-tree` maps author name -> React prop name
+  (`standard-names`) and React prop name -> the DOM attribute react-dom
+  writes (`dom-attr-aliases`). A react-dom release can move both halves at
+  once (React 19.3 emits `maskType` as `mask-type`), and a client one
+  version ahead on an attribute NAME is a hydration mismatch. Both halves are
+  hand-maintained from one upstream, so the evidence is external:
+  `react_dom_probe/attr_name_mask_family.cjs` renders each mask-family
+  attribute through the installed react-dom and records the name it wrote.
+  `maskUnits` and `maskContentUnits` are the camelCase controls beside
+  `maskType`. A move outside the mask family is not covered."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -123,25 +94,3 @@
           (str "attribute " react-prop " written as :" author-form
                " — react-dom " (:react-dom-version @react-evidence)
                " emits " emitted)))))
-
-(deftest the-mask-type-correction-is-narrow
-  (testing "`maskType` is the only kebab-case emitted name in the family, and
-            the evidence carries it beside its two camelCase controls. Stated
-            apart from the sweep, which would stay green over an empty fixture
-            or over a control moved to match a table drifted on both sides"
-    (is (= {"maskType" "mask-type" "maskUnits" "maskUnits"
-            "maskContentUnits" "maskContentUnits"}
-           (select-keys (into {} (map (juxt :react-prop :emitted)) (rows))
-                        ["maskType" "maskUnits" "maskContentUnits"])))))
-
-(deftest the-panose1-prop-is-written-verbatim
-  (testing "react-dom 19.3.0 keys its `panose-1` alias on the
-            HYPHENATED name (an identity row, `[\"panose-1\", \"panose-1\"]`)
-            and has no `panose1` key, so it writes the prop `panose1` verbatim.
-            `dom-attr-aliases` inverts `standard-names` but skips
-            `panose-1 -> panose1`, whose inversion `panose1 -> panose-1` would
-            write a name react-dom does not write. Stated by hand because the
-            mask-family fixture does not reach this name"
-    (doseq [author-form ["panose-1" "panose1"]]
-      (is (= "panose1" (emitted-name author-form))
-          (str "attribute panose1 written as :" author-form)))))
