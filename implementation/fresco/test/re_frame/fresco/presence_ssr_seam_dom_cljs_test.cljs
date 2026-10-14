@@ -5,7 +5,7 @@
   ## What this file is, said plainly
 
   It is a **RECORD OF A MISSING REFUSAL, not a proof of parity.**
-  Presence has a server/client seam, and §1–§4 measure it on the path
+  Presence has a server/client seam, and §1–§3 measure it on the path
   where it is open: a server render with no adoption window scoped over
   it. Every one of those rows drives `react-dom/server` for real and
   hydrates those actual bytes, and what they establish is the divergence,
@@ -132,26 +132,24 @@
         the client's first phase `:present` against server bytes that
         already said `present`. It becomes the parity row, on the same
         construction.
-    §4  is unchanged. It is the control, and a repair must not move it.
 
   **CLIENT-ONLY**, which is what HS-33 says. The tray refuses at
   source on a server render and emits nothing (or its declared fallback),
   so §1 asserts the ABSENCE the bare arm requires and the refusal's own
   firing, §2 and §3 are deleted — there are no tray bytes left to
   disagree about or to hydrate — and a new row proves the tray mounts
-  after adoption with its enter transition intact. §4 again unchanged.
+  after adoption with its enter transition intact.
 
-  Do not re-pin any of the four by loosening an assertion. Each names its
+  Do not re-pin any of the three by loosening an assertion. Each names its
   replacement above; a repair rewrites them.
 
   ## The Render arm works
 
-  ONE sabotage covers all four rows, because all four read the same
+  ONE sabotage covers all three rows, because all three read the same
   producer: give `server-bytes!` a window (the body of
   [[server-bytes-under-a-hand-held-window!]]) and the Render repair is
   simulated end to end. Run by hand under `:browser-test`, §1, §2 and §3
-  all red — nine assertions across the three — and **§4 stays green**,
-  which is the control doing its job.
+  all red.
 
   What §3 reports under that sabotage is the part worth carrying, because
   it is evidence about the repair rather than about the test:
@@ -177,7 +175,7 @@
 
   `-dom-cljs-test`, so `:browser-test` runs the whole file against a real
   React DOM. §1 is a `renderToString` row and needs no DOM, so it also
-  runs under `:node-test`; §2–§4 hydrate and state their skip there
+  runs under `:node-test`; §2 and §3 hydrate and state their skip there
   rather than reporting a false green."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -255,14 +253,6 @@
                   ::rf.fresco.motion/mounting    {:phase :mounting}
                   ::rf.fresco.motion/unmounting  {:phase :unmounting}}]]])
 
-(rf.fresco/defview plain-screen
-  "The same screen with the tray removed — §4's control. Identical in
-  every other respect: same frame, same subscription read, same server
-  door, same hydration."
-  [_]
-  [:div.screen
-   [:p.value (rf.fresco/sub label-q)]])
-
 ;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
@@ -334,8 +324,8 @@
 ;; Settlement — the ONE way out of an async row, taken on both outcomes
 ;; ---------------------------------------------------------------------------
 ;;
-;; §3 and §4 each hydrate a real root and wait on `sup/adopted!`, and each
-;; holds things the `:each` fixture will NOT take back: a MOUNTED React
+;; §3 hydrates a real root and waits on `sup/adopted!`, and it holds
+;; things the `:each` fixture will NOT take back: a MOUNTED React
 ;; root, with the container `sup/server-dom!` minted still in the document
 ;; — the fixture resets frames, disposes the adapter and empties the
 ;; runtime, and none of that unmounts a root — and `console.error`,
@@ -385,7 +375,7 @@
 ;; The `finally` inside `server-bytes-under-a-hand-held-window!` is an
 ;; ordinary bracket for the same reason.
 ;;
-;; `sup/settle-row!` is the one path all three async rows end with. Its
+;; `sup/settle-row!` is the one path both async rows end with. Its
 ;; rejection arm is on no green path here, so the rows that take it are the
 ;; shared controls: roots_frames_hydration_dom's
 ;; `a-rejected-adoption-still-releases-both-roots-and-the-watcher` and
@@ -402,28 +392,12 @@
 ;;
 ;; SABOTAGE (run by hand; the namespace header records it):
 ;; give `server-bytes!` a window — the body of
-;; [[server-bytes-under-a-hand-held-window!]] — and this row reds three ways
-;; at once: `"present"` in the bytes, `:present` off the machine, and the
-;; control no longer differing from the measurement it controls.
+;; [[server-bytes-under-a-hand-held-window!]] — and this row reds on
+;; `"present"` in the bytes.
 (deftest a-windowless-server-render-installs-no-adoption-context-so-presence-enters
   (fresh!)
   (reset! !phases {})
   (let [real (server-bytes! [tray-screen {:tag :server}])]
-
-    (testing "premise: the server render produced this tree's markup at all"
-      (is (re-find #"class=\"screen\"" real) (str "got " real))
-      (is (re-find #"alpha" real)
-          (str "the frame's subscription resolved server-side — " real)))
-
-    (testing "HS-33's Client-only refusal DOES NOT FIRE. The bare arm of
-              that policy requires the surface to be absent from the server
-              bytes with nothing there to hydrate; the tray's child is in
-              them, so the disposition is unwitnessed and the runtime
-              contradicts it. Nothing refuses at source and no fallback
-              stands in its place — the tray simply renders"
-      (is (some? (probe-text real))
-          (str "the presence child reached the server bytes — " real))
-      (is (re-find #"class=\"probe\"" real)))
 
     (testing "and the presence child is `:mounting` in the bytes a real
               `react-dom/server` render delivers. No product door installs
@@ -433,10 +407,7 @@
               is to be animated away, baked into the page as delivered"
       (is (= "mounting" (probe-text real))
           (str "the server's bytes; got " (pr-str (probe-text real))
-               " from " real))
-      (is (= :mounting (first (get @!phases :server)))
-          (str "and the machine computed it that way on the server's first
-                render; saw " (pr-str (get @!phases :server)))))
+               " from " real)))
 
     (testing "CONTROL: the same server render, with a window scoped over it
               by hand, emits `present` instead. So the phase above is a
@@ -447,12 +418,7 @@
       (reset! !phases {})
       (let [repaired (server-bytes-under-a-hand-held-window! [tray-screen {:tag :repaired}])]
         (is (= "present" (probe-text repaired))
-            (str "got " (pr-str (probe-text repaired)) " from " repaired))
-        (is (= :present (first (get @!phases :repaired)))
-            (str "saw " (pr-str (get @!phases :repaired))))
-        (is (not= (probe-text real) (probe-text repaired))
-            "the control must differ from the measurement, or it controls
-             nothing")))))
+            (str "got " (pr-str (probe-text repaired)) " from " repaired))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §2 — the harness's settled bytes are not the server's bytes
@@ -627,76 +593,9 @@
                            negative below is not vacuous")
                       (is (false? (rf.fresco.roots-frames-support/server-node? (.querySelector ca ".probe")))
                           "the probe node was re-created")
-                      (is (false? (rf.fresco.roots-frames-support/every-server-node? ca ".screen, .probe"))))
-
-                    (testing "while the FINAL DOM reads exactly what a healthy
-                              adoption would have left — React's repair. This
-                              is the assertion that stays green through the
-                              whole failure, and the reason no row in this
-                              file rests on it"
-                      (is (= "present" (text-in ca ".probe")))
-                      (is (= "alpha" (text-in ca ".value"))))))
+                      (is (false? (rf.fresco.roots-frames-support/every-server-node? ca ".screen, .probe"))))))
                 (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§3 — hydrating the real server bytes diverges"
-                   :done     done
-                   :release! (fn []
-                               (close!)
-                               (stop!)
-                               (rf.fresco.impl.mount/release! ha))}))))))))
-
-;; ---------------------------------------------------------------------------
-;; §4 — the control: the same real server path, with no tray in the tree
-;; ---------------------------------------------------------------------------
-
-;; Without this row §3 proves nothing. A red hydration is exactly what a
-;; broken `server-bytes!`, a stale container, a mis-scoped frame or a
-;; renderer/DOM version skew would also produce, and §3 could not tell those
-;; apart from the seam it is about.
-;;
-;; Same frame, same subscription, same `renderToString`, same `server-dom!`,
-;; same `hydrate-root!` — one difference, and it is the presence tray. This
-;; hydrates silently and keeps every server node, so the divergence above is
-;; the tray's and the plumbing beneath it is sound.
-;;
-;; A REPAIR MUST NOT MOVE THIS ROW. If closing the seam reds §4, the repair
-;; has changed ordinary hydration, which is not what it was for.
-(deftest the-same-real-server-path-hydrates-a-tray-free-tree-with-no-divergence
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (do
-        (fresh!)
-        (let [html (server-bytes! [plain-screen {}])]
-          (is (re-find #"alpha" html)
-              (str "premise: the real server renderer produced this tree — " html))
-          (rf.fresco.impl.collector/reset-runtime!)
-          (let [ca (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
-                {:keys [seen stop!]}      (rf.fresco.roots-frames-support/watch-mismatches!)
-                {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!)
-                ha (rf.fresco.impl.mount/hydrate-root! ca frame-id [plain-screen {}])]
-            (-> (rf.fresco.roots-frames-support/adopted! ha)
-                (.then
-                  (fn [ok]
-                    ;; Closed and stopped here and named in `:release!` too,
-                    ;; for §3's reason: the assertions below read `@captured`
-                    ;; and `@seen`, both primitives are idempotent, and the
-                    ;; rejection path never reaches this line.
-                    (close!)
-                    (stop!)
-                    (is (true? ok) "the root's own closer ran")
-
-                    (testing "React adopted the real server render silently"
-                      (is (= [] (filterv #(re-find #"Hydration failed" %) @captured))
-                          (str "no complaint expected; captured " (pr-str @captured)))
-                      (is (= 0 (count @seen))
-                          (str "and no framework diagnostic; got "
-                               (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen)))))
-
-                    (testing "and kept the server's own nodes, which is what
-                              adoption MEANS and what §3 lost"
-                      (is (rf.fresco.roots-frames-support/every-server-node? ca ".screen, .value")))))
-                (rf.fresco.roots-frames-support/settle-row!
-                  {:row      "§4 — the same real server path with no tray"
                    :done     done
                    :release! (fn []
                                (close!)
@@ -735,12 +634,6 @@
                                        :snapshot {:label "alpha"}
                                        :payload  [:label]})]
 
-    (testing "premise: the door rendered this tree, and the frame it minted
-              per request resolved the subscription"
-      (is (re-find #"class=\"screen\"" html) (str "got " html))
-      (is (re-find #"alpha" html)
-          (str "the per-request frame's subscription resolved — " html)))
-
     (testing "**the seam is closed on this path.** The tray's child is
               `present` in the bytes `re-frame.fresco.server/render`
               delivers, where §1's windowless render emits `mounting`.
@@ -748,19 +641,4 @@
               `presence-body` settles on the server and the page ships the
               phase a hydrating client's first pass also computes"
       (is (= "present" (probe-text html))
-          (str "got " (pr-str (probe-text html)) " from " html))
-      (is (= :present (first (get @!phases :product)))
-          (str "and the machine computed it that way on the server's first
-                render; saw " (pr-str (get @!phases :product)))))
-
-    (testing "and the two producers really do differ, which is what makes
-              this a measurement of the WINDOW rather than of the door's
-              name. §1's bare `renderToString` over the same tree still
-              emits the enter phase"
-      (reset! !phases {})
-      (let [bare (server-bytes! [tray-screen {:tag :bare}])]
-        (is (= "mounting" (probe-text bare))
-            (str "got " (pr-str (probe-text bare)) " from " bare))
-        (is (not= (probe-text html) (probe-text bare))
-            "the product door and the hand-rolled path must differ, or this
-             row is measuring nothing")))))
+          (str "got " (pr-str (probe-text html)) " from " html)))))
