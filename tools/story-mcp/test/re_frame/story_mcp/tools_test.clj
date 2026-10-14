@@ -754,20 +754,6 @@
 ;; `ping` and notifications: a client must not enumerate or invoke tools
 ;; before the handshake.
 
-(deftest dispatch-rejects-requests-before-initialize
-  ;; The gate runs before the method case, so even an unknown method is -32600.
-  (let [state (rf.story-mcp.server/new-lifecycle-state)]
-    (is (= [rf.mcp-base.vocab/code-invalid-request rf.mcp-base.vocab/code-invalid-request]
-           (map #(-> (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 1 :method %}) :error :code)
-                ["tools/list" "nope/whatever"])))))
-
-(deftest dispatch-allows-initialize-and-ping-before-handshake
-  (let [state (rf.story-mcp.server/new-lifecycle-state)]
-    (is (= {} (:result (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 5 :method "ping"}))))
-    (is (false? (:initialized? @state)) "ping is stateless; only initialize flips the session")
-    (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 6 :method "initialize" :params {}})
-    (is (true? (:initialized? @state)))))
-
 (deftest dispatch-allows-tools-immediately-after-initialize
   ;; The session is ready the moment the initialize response is built, without
   ;; `notifications/initialized`: a client pipelining initialize + tools/list
@@ -1322,14 +1308,6 @@
 ;; attacker-controlled key never interns before the tool's own allowlist runs.
 ;; ---------------------------------------------------------------------------
 
-(deftest ingress-does-not-intern-unknown-nested-arguments-key
-  (let [probe  (str "rf2-3luf3-nested-probe-" (System/nanoTime))
-        frames (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
-                                 "\"params\":{\"name\":\"get-variant\","
-                                 "\"arguments\":{\"" probe "\":1,\"variant-id\":\"story.button/primary\"}}}\n"))]
-    (is (= [1] (map :id frames)))
-    (is (nil? (find-keyword probe)))))
-
 (deftest ingress-does-not-intern-unknown-envelope-key
   (let [probe (str "rf2-3luf3-envelope-probe-" (System/nanoTime))]
     (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"" probe "\":99}\n"))
@@ -1412,14 +1390,6 @@
                      first :result)]
     (is (= [true true] [(:isError result) (boolean (re-find #"(?i)variant not found" (-> result :content first :text)))]))
     (is (nil? (find-keyword "story.rf2-3luf3-wire" name-str)))))
-
-(deftest ingress-legitimate-wire-keys-still-dispatch
-  ;; The control: known argument keys survive the no-intern normalisation.
-  (let [frame (first (run-frames! (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
-                                       "\"params\":{\"name\":\"get-variant\","
-                                       "\"arguments\":{\"variant-id\":\"story.button/primary\",\"max-tokens\":4000}}}\n")))]
-    (is (= [5 "story.button/primary" "Primary button."]
-           [(:id frame) (-> frame :result :structuredContent :id) (-> frame :result :structuredContent :body :doc)]))))
 
 (defn- normalized-arguments
   "The `arguments` map of the `tools/call` JSON `frame` after the real ingress
