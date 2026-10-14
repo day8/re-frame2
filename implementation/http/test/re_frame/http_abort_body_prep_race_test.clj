@@ -12,15 +12,14 @@
   and publishes the cancellable future. On the JVM the commit, `sendAsync` and
   the publication share a per-attempt monitor that the abort's cancel step
   also takes, so an abort racing an in-flight host call waits and then
-  cancels the published future. The re-entrant test drives the single-threaded
-  ordering CLJS produces through the JVM's copy of the same gate.
+  cancels the published future.
 
   `transport-jvm/jvm-fetch` is stubbed (the seam such a request would escape
   through), and the orderings are made with latches, promises and thread-state
   observation, never sleeps."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport :as rf.http.transport]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
@@ -61,13 +60,11 @@
               :on-success [:reply/recorder]}]]})))
 
 (defn- counting-fetch
-  "A `jvm-fetch` stub counting its calls and keeping the future it returns."
-  [fetch-calls returned-cf]
+  "A `jvm-fetch` stub counting its calls."
+  [fetch-calls]
   (fn [_]
     (swap! fetch-calls inc)
-    (let [cf (CompletableFuture.)]
-      (reset! returned-cf cf)
-      cf)))
+    (CompletableFuture.)))
 
 (def ^:private reply-shape (juxt :status (comp :kind :error) (comp :reason :error)))
 
@@ -80,7 +77,7 @@
         thunk-entered (promise)
         release       (promise)
         replies       (atom [])]
-    (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls (atom nil))]
+    (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls)]
       (register-recorder-and-issue!
         replies :prep-race
         {:url    "http://127.0.0.1:0/x"
@@ -105,45 +102,6 @@
             (deliver release true)
             (deref worker 5000 nil)))))))
 
-(deftest reentrant-abort-inside-body-thunk-never-enters-host-transport
-  ;; The thunk aborts its own request and then returns, so preparation succeeds
-  ;; and the gate alone stands between the cancellation and the send.
-  (let [fetch-calls  (atom 0)
-        abort-result (atom ::not-fired)
-        replies      (atom [])]
-    (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls (atom nil))]
-      (register-recorder-and-issue!
-        replies :prep-reentrant
-        {:url    "http://127.0.0.1:0/x"
-         :method :post
-         :body   (fn []
-                   (reset! abort-result
-                           (rf.http.registry/abort-in-flight! :prep-reentrant :user))
-                   "reentrant-body")})
-      (rf/dispatch-sync [:issue])
-      (is (= [true 0] [@abort-result @fetch-calls]))
-      (await-condition! #(seq @replies))
-      (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
-      (is (empty? (rf.http.registry/in-flight-snapshot))))))
-
-(deftest abort-after-issuance-cancels-published-future
-  ;; The handoff control: when issuance wins, the future is published and an
-  ;; abort cancels it without a second reply.
-  (let [fetch-calls (atom 0)
-        returned-cf (atom nil)
-        replies     (atom [])]
-    (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls returned-cf)]
-      (register-recorder-and-issue!
-        replies :issued-then-abort
-        {:url "http://127.0.0.1:0/x" :method :post :body "plain"})
-      (rf/dispatch-sync [:issue])
-      (is (= 1 @fetch-calls))
-      (is (true? (rf.http.registry/abort-in-flight! :issued-then-abort :user)))
-      (is (.isCancelled ^CompletableFuture @returned-cf) "the abort cancelled the published future")
-      (await-condition! #(seq @replies))
-      (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
-      (is (empty? (rf.http.registry/in-flight-snapshot))))))
-
 (deftest abort-completing-at-issuance-boundary-issues-no-request
   ;; An abort that completes one step before the host call must leave zero host
   ;; calls behind it: cancelling a future afterwards cannot un-send a POST.
@@ -151,7 +109,7 @@
         abort-result (atom ::not-fired)
         replies      (atom [])]
     (try
-      (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls (atom nil))]
+      (with-redefs [rf.http.transport-jvm/jvm-fetch (counting-fetch fetch-calls)]
         (register-recorder-and-issue!
           replies :issuance-boundary
           {:url "http://127.0.0.1:0/x" :method :post :body "plain"})

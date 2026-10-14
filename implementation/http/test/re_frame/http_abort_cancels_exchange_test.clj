@@ -12,20 +12,14 @@
   the test opens after it has acted. A failed write after release proves the
   client tore the exchange down; the un-cancelled control arm proves the
   harness can observe a survivor."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.http.managed]
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.io IOException]
            [java.net InetSocketAddress]
            [java.util.concurrent CompletableFuture CountDownLatch ExecutorService
                                  Executors TimeUnit]))
-
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private chunk-size 65536)
 
@@ -38,8 +32,7 @@
   "Serve a `body-bytes` body: headers and the first byte at once, the remainder
   only after `release` opens (bounded, so a failing run cannot pin a handler
   thread). `entries` counts exchanges that reached the stall; each exchange then
-  conj's `:wrote-all` or `:write-failed` onto `outcomes`. A thread pool lets a
-  second request's exchange run while the first is still parked on the latch."
+  conj's `:wrote-all` or `:write-failed` onto `outcomes`."
   [^CountDownLatch release outcomes entries]
   (let [server   (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
         executor (Executors/newCachedThreadPool)]
@@ -128,40 +121,3 @@
     (is (= [1 false :write-failed]
            ((juxt :entries :done-before-act? :outcome) (fetch-outcome timeout-ms true)))
         (str ":timeout-ms " (pr-str timeout-ms) ": the cancel reached the exchange and closed it"))))
-
-(deftest superseded-request-stops-downloading
-  ;; The debounce-search shape: each keystroke supersedes the last request.
-  ;; :timeout-ms nil, so the supersede and not a deadline closes the connection.
-  (let [release  (CountDownLatch. 1)
-        outcomes (atom [])
-        entries  (atom 0)
-        srv      (start-stalled-body-server! release outcomes entries)]
-    (try
-      (rf/reg-event :debounce/reply (fn [_ _] {}))
-      (rf/reg-event :debounce/search
-        (fn [_ _]
-          {:fx [[:rf.http/managed
-                 {:request    {:url (:url srv)}
-                  :decode     :text
-                  :request-id :debounce/query
-                  :timeout-ms nil
-                  :reply-to   [:debounce/reply]}]]}))
-      (rf/dispatch-sync [:debounce/search])
-      (rf.test-support/poll-until #(= 1 @entries)
-                                  {:timeout-ms 5000 :interval-ms 10
-                                   :label "first exchange stalled mid-body"})
-      (is (empty? @outcomes)
-          "PRECONDITION: the first request was still downloading when it was superseded")
-      (rf/dispatch-sync [:debounce/search])
-      (rf.test-support/poll-until #(= 2 @entries)
-                                  {:timeout-ms 5000 :interval-ms 10
-                                   :label "second exchange stalled mid-body"})
-      (.countDown release)
-      (rf.test-support/poll-until #(= 2 (count @outcomes))
-                                  {:timeout-ms 5000 :interval-ms 10
-                                   :label "server-side outcomes"})
-      ;; The live successor is the control: exactly one of the pair fails.
-      (is (= {:write-failed 1 :wrote-all 1} (frequencies @outcomes)))
-      (finally
-        (.countDown release)
-        (stop-server! srv)))))

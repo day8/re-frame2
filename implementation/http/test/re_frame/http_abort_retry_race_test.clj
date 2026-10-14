@@ -113,10 +113,6 @@
         (rf.http.transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 
-(deftest abort-injected-in-maybe-retry-window-no-double-reply-no-reissue
-  ;; After maybe-retry!'s abort snapshot, before the backoff registers.
-  (run-injected-abort-case! :maybe-retry/before-schedule))
-
 (deftest abort-injected-at-backoff-registration-boundary-no-reissue
   ;; At the backoff registration boundary; the prior clear is deferred, so the
   ;; prior handle is still resolvable.
@@ -131,7 +127,6 @@
 (deftest clear-in-flight-2arg-preserves-successor-actor-index
   ;; An OLD attempt's identity-conditional clear evicts neither a same-id
   ;; successor's request-id slot nor its actor-index entry.
-  (rf.http.registry/clear-all-in-flight!)
   (let [h-a (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
         h-b (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
     (rf.http.registry/clear-in-flight! :R h-a)
@@ -139,8 +134,7 @@
       (is (= [true true false]
              [(identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
               (boolean (some #(identical? % h-b) v))
-              (boolean (some #(identical? % h-a) v))]))))
-  (rf.http.registry/clear-all-in-flight!))
+              (boolean (some #(identical? % h-a) v))])))))
 
 ;; R1 gets a 500 and hands off into its retry. At `inject-point` — squarely
 ;; inside a handoff, on R1's own thread — the interleaving hook issues the

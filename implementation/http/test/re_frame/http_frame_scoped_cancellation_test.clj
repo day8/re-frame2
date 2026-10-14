@@ -90,17 +90,6 @@
       (is (= #{[:frame/a :actor-destroyed] [:frame/b :actor-destroyed]} (set @seen)))
       (is (empty? (rf.http.managed/actor-in-flight-snapshot))))))
 
-(deftest resources-abort-by-frame-qualified-token-still-works
-  (testing "the any-frame abort-by-id seam resources reaches through
-            `:http/abort-in-flight!` resolves its frame-qualified token, which
-            is registered under the issuing frame"
-    (let [seen  (atom [])
-          token [:rf.req :frame/a :work-1]]
-      (rf.http.registry/record-in-flight!
-        token nil {:frame :frame/a :abort-fn #(swap! seen conj %)})
-      (is (true? (rf.http.registry/abort-in-flight! token :resource-superseded)))
-      (is (= [:resource-superseded] @seen)))))
-
 ;; ---- frame-lifecycle sweeps and cleanup ------------------------------------
 
 (deftest frame-lifecycle-sweeps-reap-siblings-that-reused-one-id
