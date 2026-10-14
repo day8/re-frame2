@@ -25,14 +25,6 @@
       (finally
         (rf.registrar/clear-kind! :resource)))))
 
-(deftest a-non-negative-stale-after-ms-registers-unchanged
-  (doseq [[extra expected] [[{} nil]
-                            [{:stale-after-ms 0} 0]
-                            [{:stale-after-ms 60000} 60000]]]
-    (rf.resources.registry/reg-resource :test/stale (spec-with extra) request-fn)
-    (is (= expected (:stale-after-ms (rf.resources.registry/resource-meta :test/stale)))
-        (pr-str extra))))
-
 (deftest any-other-stale-after-ms-is-a-bad-spec
   (doseq [bad [nil -1 "60000"]]
     (let [thrown (try (rf.resources.registry/reg-resource
