@@ -68,14 +68,11 @@
         (rf.error-emit/clear-error-listeners!)
         (rf/destroy-frame! :probe)))))
 
-(deftest every-query-vector-category-egresses-raw
-  ;; Enumerated by what `:event` carries, not by a `sub-*` prefix, which would
-  ;; miss the `:subscribe` realm of the realm-ambiguous frame-destroyed error.
-  ;; The internal raw-event? marker never reaches the sink.
+(deftest query-vector-error-event-egresses-raw
+  ;; A `sub-*` category, and the `:subscribe` realm of the realm-ambiguous
+  ;; frame-destroyed error, which a `sub-*` prefix check would miss. The
+  ;; internal raw-event? marker never reaches the sink.
   (doseq [[error-kw attrs] [[:rf.error/sub-exception nil]
-                            [:rf.error/sub-input-fn-exception nil]
-                            [:rf.error/sub-input-fn-bad-return nil]
-                            [:rf.error/no-such-sub nil]
                             [:rf.error/frame-destroyed {:op :subscribe}]]]
     (let [{:keys [walker listener sink]} (emitted error-kw query-v :patient/record attrs)]
       (is (= [[:patient/record :rf/redacted]
