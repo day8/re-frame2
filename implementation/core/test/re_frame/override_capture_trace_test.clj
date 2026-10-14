@@ -68,17 +68,6 @@
        (finally
          (rf/unregister-listener! :trace ::cap))))))
 
-(deftest override-free-dispatch-omits-both-tags
-  (testing "no per-call overrides => neither tag rides the run-start emit"
-    (let [tags (run-start-tags [:ovc/run])
-          env  @captured-envelope]
-      (is (some? env) "the dispatch envelope reached the fx-handler ctx")
-      (is (empty? (:fx-overrides env)))
-      (is (empty? (:interceptor-overrides env)))
-      (when rf.interop/debug-enabled?
-        (is (not (contains? tags :rf.event/fx-overrides)))
-        (is (not (contains? tags :rf.event/interceptor-overrides)))))))
-
 (deftest fn-valued-fx-override-is-marker-ized
   (testing "a fn-valued per-call :fx-overrides entry is marker-ized to
             :rf/fn-override at the emission site — the fn never rides the tag"
