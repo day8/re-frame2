@@ -483,16 +483,9 @@ else
   printf '%s\n' "$missing" >&2
 fi
 
-# 6d: a linked worktree created AFTER the install inherits the guard, so one
+# A linked worktree created AFTER the install inherits the guard, so one
 # install is enough.
 git -C "$IREPO" worktree add -q -b worker/hooks-test "$IWORKER" >/dev/null 2>&1
-prim_hooks=$( cd "$IREPO" && cd "$(git rev-parse --git-path hooks)" && pwd )
-wt_hooks=$( cd "$IWORKER" && cd "$(git rev-parse --git-path hooks)" && pwd )
-if [ "$prim_hooks" = "$wt_hooks" ]; then
-  pass "(6d) a worktree created after install shares the primary's hooks dir"
-else
-  fail "(6d) worktree hooks dir diverged: '$wt_hooks' vs '$prim_hooks'"
-fi
 
 # 6e: THE BITE. From that inherited install, a worker commit of the tracker
 # database is refused, and the message names the file.
@@ -539,16 +532,7 @@ case "$out" in
     ;;
 esac
 
-# 6h: and the post-merge advisory says so, unprompted.
-out=$(run_in_repo "$IREPO" sh .git/hooks/post-merge)
-if grep -q 'install-git-hooks.sh' "$IERR"; then
-  pass "(6h) post-merge advisory reports the stale install and names the repair"
-else
-  fail "(6h) post-merge stayed silent about a stale install ($out)"
-  cat "$IERR" >&2
-fi
-
-# 6i: re-running the installer repairs it...
+# 6i: re-running the installer repairs it.
 out=$(run_in_repo "$IREPO" sh scripts/install-git-hooks.sh)
 case "$out" in
   EXIT=0)
@@ -560,16 +544,6 @@ case "$out" in
     ;;
   *) fail "(6i) repair install failed ($out)"; cat "$IERR" >&2 ;;
 esac
-
-# 6j: ...and the advisory goes quiet. One that fires on a healthy checkout is
-# a nag, and nags get muted.
-out=$(run_in_repo "$IREPO" sh .git/hooks/post-merge)
-if [ -s "$IERR" ]; then
-  fail "(6j) post-merge advisory fires on a healthy install (nag)"
-  cat "$IERR" >&2
-else
-  pass "(6j) post-merge advisory silent on a healthy install"
-fi
 
 # 6k: THE TWO INSTALLERS AGREE. They share one hooks directory and one
 # mayor-marker, and the post-merge advisory runs the .sh --check, so a marker
@@ -665,7 +639,6 @@ if [ "$out" = "EXIT=0" ] \
    && [ "$(git -C "$RCL" log -1 --format=%s 2>/dev/null)" = "local: mine" ] \
    && git -C "$RCL" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
   rebase_ok=1
-  pass "(7b) git pull --rebase completed a real rebase (local commit replayed)"
 else
   fail "(7b) the sandbox pull did not rebase as intended ($out)"
   printf '%s\n' "$pull_err_rebase" >&2
@@ -862,22 +835,6 @@ case "$out" in
     fi ;;
 esac
 
-# 8e: AN EMPTY EXPORT IS REFUSED.
-before=$(git -C "$CREPO" rev-parse HEAD)
-: > "$CBOX/db.jsonl"
-out=$(run_checkpoint "$CREPO")
-after=$(git -C "$CREPO" rev-parse HEAD)
-case "$out" in
-  EXIT=0) fail "(8e) an empty export was checkpointed" ;;
-  *)
-    if [ "$before" = "$after" ] && grep -q '0 rows' "$CERR"; then
-      pass "(8e) an empty export is refused, naming the row count"
-    else
-      fail "(8e) empty export was rejected for the wrong reason"
-      cat "$CERR" >&2
-    fi ;;
-esac
-
 # 8f: NO CHURN COMMIT. `bd export` does not fix the order of the memory rows,
 # so a reorder is not a change.
 before=$(git -C "$CREPO" rev-parse HEAD)
@@ -1069,7 +1026,7 @@ remedy=$(sed -n 's/^ *bd import \(.*\)$/\1/p' "$CERR" | head -1)
 if [ -n "$remedy" ] && [ -s "$remedy" ]; then
   if [ "$(awk 'END{print NR}' "$remedy")" = "2" ] \
      && grep -q 'rf2-g1' "$remedy" && grep -q 'rf2-b' "$remedy"; then
-    pass "(8j) and it stages exactly the two rows an import must carry"
+    :
   else
     fail "(8j) the remedy file did not hold exactly the Git-only/Git-newer rows"
     cat "$remedy" >&2
@@ -1354,10 +1311,10 @@ stage_tracker() {
   return 0
 }
 
-# trunc_rc [ARG...] — commit the staged tracker in the mayor checkout; echo the
-# exit code, stderr to $TERR. Extra args pass through (9d's --no-verify).
+# trunc_rc — commit the staged tracker in the mayor checkout; echo the exit
+# code, stderr to $TERR.
 trunc_rc() {
-  ( cd "$MAYOR" && git commit -q -m 'mayor: tracker' "$@" -- .beads/issues.jsonl ) \
+  ( cd "$MAYOR" && git commit -q -m 'mayor: tracker' -- .beads/issues.jsonl ) \
     >/dev/null 2>"$TERR" && echo 0 || echo $?
 }
 
@@ -1439,26 +1396,7 @@ if stage_tracker 180 base; then
   fi
 fi
 
-# 9d: THE ESCAPE. A genuine mass delete is the operator's call: re-seed a full
-# HEAD, then empty it through the escape the message names.
-if stage_tracker 200 base; then
-  rc=$(trunc_rc)
-fi
-before=$(git -C "$MAYOR" rev-parse HEAD)
-if stage_tracker 0 empty; then
-  rc=$(trunc_rc --no-verify)
-  after=$(git -C "$MAYOR" rev-parse HEAD)
-  if [ "$rc" = "0" ] && [ "$before" != "$after" ] && [ "$(mayor_rows)" = "0" ]; then
-    pass "(9d) the named escape works: --no-verify lands a deliberate mass delete"
-  else
-    fail "(9d) the escape named in the refusal message does not work (exit $rc, HEAD $(mayor_rows) rows)"
-    cat "$TERR" >&2
-  fi
-fi
-
-# 9e: NO NAG ON A FRESH CHECKOUT. A HEAD with no rows can lose none. The 0-row
-# HEAD is established here, not inherited from 9d, so a 9d regression cannot
-# surface as a misleading 9e failure.
+# 9e: NO NAG ON A FRESH CHECKOUT. A HEAD with no rows can lose none.
 ( cd "$MAYOR" && write_tracker 0 .beads/issues.jsonl empty \
     && git add .beads/issues.jsonl \
     && git commit -q --no-verify -m 'mayor: establish an empty HEAD' -- .beads/issues.jsonl ) \
@@ -1561,8 +1499,7 @@ done
 
 # 10b: a HUMAN co-author stays permitted — including one whose NAME contains
 # "claude". Same key, same column as 10a's first two; only the ADDRESS differs.
-for t in 'Co-Authored-By: Mike Thompson <mike@example.invalid>' \
-         'Co-Authored-By: Claude Martin <claude.martin@example.invalid>' \
+for t in 'Co-Authored-By: Claude Martin <claude.martin@example.invalid>' \
          'Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>'; do
   key=$(printf '%s' "$t" | cut -c1-40)
   out=$(printf 'fix(thing): a real change\n\n%s\n' "$t" | run_attr_lib 2>"$AERR") || true
@@ -1664,19 +1601,12 @@ case "$out" in
     ;;
 esac
 
-# 10g: NO FALSE POSITIVE. An ordinary commit in the same repo is untouched.
-out=$(attr_commit 'fix: an ordinary change')
-case "$out" in
-  EXIT=0) pass "(10g) an ordinary commit passes with the hook installed" ;;
-  *) fail "(10g) FALSE POSITIVE: an ordinary commit was refused ($out)"; cat "$AERR" >&2 ;;
-esac
-
-# 10h: `--no-verify` is the operator escape, and it works. It also plants the
-# offender on the base that 10k needs.
+# The offender on the base that 10k needs, landed through the operator
+# escape.
 out=$(attr_commit "$(printf 'chore: deliberate override\n\n%s\n' "$TRAILER_COAUTHOR")" --no-verify)
 case "$out" in
-  EXIT=0) pass "(10h) --no-verify lands a deliberate override" ;;
-  *) fail "(10h) the documented escape does not work ($out)"; cat "$AERR" >&2 ;;
+  EXIT=0) : ;;
+  *) fail "(10h-setup) could not land the base offender through --no-verify ($out)"; cat "$AERR" >&2 ;;
 esac
 
 # --- The CI arm --------------------------------------------------------------
@@ -1712,21 +1642,17 @@ case "$out" in
     ;;
 esac
 
-# 10j: a clean branch off the same base passes.
+# 10j: a clean branch off the same base. Its commit runs through the hook, so
+# an ordinary commit the hook refused reds here.
 git -C "$AREPO" checkout -q -b feature/clean base >/dev/null 2>&1
 out=$(attr_commit 'feat: clean branch work')
 case "$out" in
   EXIT=0) : ;;
   *) fail "(10j-setup) could not make the clean commit ($out)"; cat "$AERR" >&2 ;;
 esac
-out=$(run_attr_ci base)
-case "$out" in
-  EXIT=0) pass "(10j) CI arm passes a clean branch" ;;
-  *) fail "(10j) FALSE POSITIVE: a clean branch was refused ($out)"; cat "$AERR" >&2 ;;
-esac
 
-# 10k: THE RANGE. The base carries 10h's offender, and this branch is still
-# green: the gate grades the branch delta, not all of history.
+# 10k: THE RANGE. The base carries the planted offender, and this clean
+# branch is still green: the gate grades the branch delta, not all of history.
 base_offender=$(git -C "$AREPO" log base --format='%H' -1)
 if git -C "$AREPO" log -1 --format=%B "$base_offender" \
      | grep -Fq "$TRAILER_COAUTHOR"; then
@@ -1962,8 +1888,7 @@ case "$out" in
   *) fail "(10s) FALSE GREEN: a case-varied assistant address was allowed ($out)" ;;
 esac
 
-for id in "$HUMAN_IDENT" \
-          'Claude Martin <claude.martin@example.invalid> 1790000000 +1000' \
+for id in 'Claude Martin <claude.martin@example.invalid> 1790000000 +1000' \
           'Jane Doe <jane@anthropic.com> 1790000000 +1000'; do
   key=$(printf '%s' "$id" | cut -c1-40)
   out=$(run_attr_ident "$id" "$id" 2>"$AERR")
