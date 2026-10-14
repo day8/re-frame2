@@ -57,9 +57,6 @@
                   (fence "json" "\"rf.ssr-node\":\"ready\""))))
 
 (deftest the-paired-build-id-literals-do-not-diverge
-  (is (= @bundle-build-id @adapter-build-id)
-      "the bundle's goog-define and the host's :build-id are one value written twice"))
-
-(deftest the-ready-line-transcript-reports-the-bundles-build-id
-  (is (= @bundle-build-id @ready-line-build-id)
-      "the sample ready line reports the loaded bundle's id"))
+  (is (= @bundle-build-id @adapter-build-id @ready-line-build-id)
+      "the bundle's goog-define, the host's :build-id and the sample ready line
+       name one build id"))
