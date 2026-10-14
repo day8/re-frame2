@@ -7,8 +7,6 @@
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (deftest handler-for-keys-match-descriptor-names
-  (is (= (set (map :name registry/tool-descriptors))
-         (set (keys registry/handler-for)))))
-
-(deftest registry-names-are-unique
-  (is (apply distinct? (map :name registry/tools))))
+  ;; Sorted sequences rather than sets, so a duplicated name fails too.
+  (is (= (sort (map :name registry/tool-descriptors))
+         (sort (keys registry/handler-for)))))
