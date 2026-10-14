@@ -6,10 +6,10 @@
   them. Each slice's own contract is pinned by its unit suite; this suite
   holds the cross-slice cases, each named for its EP section:
 
-    s1 image construction + selection (the glob grammar and inline lowering:
-       `image-cljs-test`)
+    s1 image construction + selection (normalized shape, the glob grammar,
+       the zero-match diagnostic, inline lowering: `image-cljs-test`)
     s2 sealed assembly + validation (generation shape, duplicate id,
-       unsupported kind: `image-assembly-cljs-test`)
+       missing reference, unsupported kind: `image-assembly-cljs-test`)
     -- layered resolution: `ep0026-select-ns-cljs-test`,
        `image-assembly-cljs-test`
     s4 default-image projection (the cross-namespace collision:
@@ -19,7 +19,9 @@
        idempotent re-construction: `live-frame-cljs-test`)
     -- generation cache + invalidation: `image-assembly-cache-cljs-test`,
        `image-assembly-default-cljs-test`, `source-store-cljs-test`
-    s7 hot reload (a sibling frame left untouched: `live-frame-reload-cljs-test`)
+    s7 hot reload (re-`make-frame` swapping the generation:
+       `live-run-frame-resolution-cljs-test`; the diff and a sibling frame left
+       untouched: `live-frame-reload-cljs-test`)
     s8 the one frame constructor (EP-0024) and construction ordering (EP-0027)
     s9 the framework-standard registry
     s10 inline events deliver `:rf.cofx/requires`
@@ -75,37 +77,6 @@
 (defn- resolved-handler [gen kind id]
   (:handler-fn (rf.image-assembly/resolve-descriptor gen kind id)))
 
-;; ---- s1: image construction + selection ------------------------------------
-
-(deftest s1-image-is-an-inert-value-with-normalized-shape
-  ;; §Public API: equal specs give equal values — no realm, no registrar
-  (let [a (rf/image {:id :counter/v2 :select-ns {:include ["docs.counter.v2"]}})
-        b (rf/image {:id :counter/v2 :select-ns {:include ["docs.counter.v2"]}})]
-    (is (= [b :counter/v2 ["docs.counter.v2"] true]
-           [a (:rf.image/id a) (:rf.image/include-ns a) (vector? (:rf.image/inline a))]))))
-
-(deftest s1-zero-match-selection-fails-loud
-  ;; §Namespace-Selected Images: the error names the image, the pattern and the
-  ;; loaded provenance namespaces considered
-  (let [data (ex-data-of
-               #(rf.image/select-descriptors
-                  (rf/image {:id :shop/main :select-ns {:include ["shop.checkout.**"]}})
-                  [(reg-desc "shop.cart" :event :cart/add ::add)]))]
-    (is (= {:image :shop/main :pattern "shop.checkout.**" :loaded-ns ["shop.cart"]}
-           (select-keys data [:image :pattern :loaded-ns])))))
-
-;; ---- s2: sealed assembly + validation --------------------------------------
-
-(deftest s2-missing-reference-fails-loud
-  ;; §Image Validation: an event naming an application interceptor the image
-  ;; does not select fails; selecting the interceptor too resolves cleanly
-  (let [img (rf/image {:select-ns {:include ["app.core"]}})
-        ev  (assoc (reg-desc "app.core" :event :counter/inc ::inc) :interceptors [:my.audit/guard])]
-    (is (= [:rf.error/image-missing-reference true]
-           [(err-id #(rf.image-assembly/assemble [img] [ev]))
-            (map? (rf.image-assembly/assemble
-                    [img] [ev (reg-desc "app.core" :interceptor :my.audit/guard ::guard)]))]))))
-
 ;; ---- s4: default-image projection -----------------------------------------
 
 (deftest s4-default-image-projects-the-whole-store-plus-standards
@@ -131,27 +102,6 @@
            [gen (resolved-handler gen :event :counter/inc)]))))
 
 ;; ---- s7: hot reload --------------------------------------------------------
-
-(deftest s7-reload-images-swaps-the-generation-and-reports-the-diff
-  ;; §Hot Reload: re-`make-frame` with a new :images vector REPLACES the whole
-  ;; composition (a different ns selected), and generation-diff over the
-  ;; before/after generations classifies the move
-  (let [v1-pool [(reg-desc "counter.v1" :event :counter/inc ::v1-inc)]
-        v2-pool [(reg-desc "counter.v2" :event :counter/inc ::v2-inc)
-                 (reg-desc "counter.v2" :event :counter/reset ::v2-reset)]
-        before  (rf.live-frame/frame-generation
-                  (rf.live-frame/make-frame {:id :counter/main
-                                             :images [(rf/image {:select-ns {:include ["counter.v1"]}})]}
-                                            v1-pool))
-        after   (rf.live-frame/frame-generation
-                  (rf.live-frame/make-frame {:id :counter/main
-                                             :images [(rf/image {:select-ns {:include ["counter.v2"]}})]}
-                                            v2-pool))
-        diff    (rf.live-frame/generation-diff before after)]
-    (is (= [::v2-inc true true]
-           [(resolved-handler after :event :counter/inc)
-            (contains? (:added diff) [:event :counter/reset])
-            (contains? (:changed diff) [:event :counter/inc])]))))
 
 (deftest s7-reproject-live-frames-re-resolves-explicit-image-frames
   ;; §Hot Reload: a reg-* re-eval in a namespace an explicit image selects
