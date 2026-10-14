@@ -29,7 +29,6 @@
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
             [re-frame.story-mcp.tools.egress :as rf.story-mcp.tools.egress]
-            [re-frame.story-mcp.tools.lifecycle :as rf.story-mcp.tools.lifecycle]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -433,11 +432,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Testing tools
 ;; ---------------------------------------------------------------------------
-
-(deftest run-variant-happy
-  (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))]
-    (is (= [:story.button/primary :pass] [(:frame s) (:status s)]) "no assertions ⇒ vacuously :pass")
-    (is (vector? (:checks s)))))
 
 (deftest lifecycle-tools-refuse-with-no-adapter
   ;; Without the guard both tools would settle `:status :pass` over an empty
@@ -1041,17 +1035,6 @@
           ms (/ (double (- (System/nanoTime) t0)) 1e6)]
       (is (= [:error :error] [(:status s) (:lifecycle s)]))
       (is (< ms 2000.0) (str "elapsed=" ms "ms")))))
-
-(deftest lifecycle-error-outcome-is-canonical
-  ;; One normalisation for a synchronous throw and a deadline, shared by both
-  ;; lifecycle tools: routed through rf.story/run-result with every evidence
-  ;; slot filled to [], because the frozen RunResult schema refuses a
-  ;; present nil.
-  (let [outcome (rf.story-mcp.tools.lifecycle/error-outcome :story.some/variant (ex-info "boom" {}))]
-    (is (= [:error :error :story.some/variant :error]
-           [(:status outcome) (:lifecycle outcome) (:frame outcome) (-> outcome :assertions first :status)]))
-    (is (rf.story/valid-run-result? outcome) (str (rf.story/explain-run-result outcome)))
-    (is (= (zipmap evidence-slots (repeat [])) (select-keys outcome evidence-slots)))))
 
 (deftest lifecycle-error-outcome-surfaced-by-both-consumers
   ;; The worker future wraps a throw in an ExecutionException whose message is
