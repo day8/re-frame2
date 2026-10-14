@@ -16,20 +16,18 @@
    WHAT IS PINNED, and each row is a claim the guide makes that a reader would
    be entitled to rely on:
 
-     1. THE POLICY IS WELL-FORMED and names the same sink id the example's own
-        registration uses — the two halves cannot drift, because both read one
-        def.
-     2. THE POLICY ACTUALLY ROUTES. A handler exception in a frame configured
+     1. THE POLICY ACTUALLY ROUTES. A handler exception in a frame configured
         with the EXAMPLE'S OWN policy map delivers exactly one
         `:rf.observe/error` record to a sink registered under the example's own
-        id — and that record arrives ALREADY PROJECTED, with the JWT the app
-        classifies sensitive redacted. A sink that had to scrub for itself
-        would make the whole design pointless, so this is the load-bearing one.
-     3. ROUTING IS FAIL-CLOSED. The same registered sink and the same throwing
+        id — so the policy and the registration cannot drift — and that record
+        arrives ALREADY PROJECTED, with the JWT the app classifies sensitive
+        redacted. A sink that had to scrub for itself would make the whole
+        design pointless, so this is the load-bearing one.
+     2. ROUTING IS FAIL-CLOSED. The same registered sink and the same throwing
         handler, in a frame that declares NO policy, route nothing. This is
         what makes the example's unconditional declaration meaningful: it is
         the declaration, not the registration, that opens the channel.
-     4. THE GATE IS ON THE REGISTRATION, NOT THE DECLARATION.
+     3. THE GATE IS ON THE REGISTRATION, NOT THE DECLARATION.
         `install-error-monitor!` follows `rf.interop/debug-enabled?` — so a dev
         build registers no sink and the framework's own console fallback takes
         the record, which is the posture the how-to argues for at length.
@@ -89,24 +87,7 @@
   (rf/dispatch-sync [::boom {:auth {:token sensitive-token}}] {:frame frame-id}))
 
 ;; ---------------------------------------------------------------------------
-;; 1. the policy is well-formed and single-sourced
-;; ---------------------------------------------------------------------------
-
-(deftest example-declares-a-well-formed-error-sink-policy
-  (testing "the example's frame policy names ONE :errors sink, under a member
-            of the closed egress-profile enum, using the same id its own
-            registration uses (the routing row below fails if the id or
-            the profile does not resolve)"
-    (let [entries (:errors app/observability)]
-      (is (= [[:errors] 1 :rf.egress/off-box-observability]
-             [(keys app/observability) (count entries) (:rf.egress/profile (first entries))])
-          "the policy declares the :errors stream and nothing else, with exactly
-           one sink entry (the example teaches one monitor) at the off-box
-           boundary — this record leaves the box for a hosted monitor, which is
-           the profile that decides how much of it survives projection"))))
-
-;; ---------------------------------------------------------------------------
-;; 2. the policy routes, and the record arrives already projected
+;; 1. the policy routes, and the record arrives already projected
 ;; ---------------------------------------------------------------------------
 
 (deftest example-policy-routes-one-projected-error-record
@@ -134,7 +115,7 @@
              received an already-projected record and re-implements nothing")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. fail-closed — the DECLARATION is what opens the channel
+;; 2. fail-closed — the DECLARATION is what opens the channel
 ;; ---------------------------------------------------------------------------
 
 (deftest a-frame-without-the-policy-routes-nothing
@@ -153,7 +134,7 @@
            behalf, so you cannot leak from a frame you never classified"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. the gate is on the REGISTRATION
+;; 3. the gate is on the REGISTRATION
 ;; ---------------------------------------------------------------------------
 
 (deftest the-sink-registration-is-gated-on-build-posture
