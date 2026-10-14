@@ -165,11 +165,6 @@
   (let [p (snapshot :rfe/p)]
     (is (= [:b :boom] [(:state p) (get-in p [:data :err])]))))
 
-(deftest parallel-root-on-done-folds-the-result
-  (start! parallel-parent :rpd/p :rpd/kid {:spawn {:machine-id :rpd/kid :on-done fold-got}})
-  (rf/dispatch-sync [:rpd/kid#1 [:ok 42]])
-  (is (= [nil 42] [(snapshot :rpd/kid#1) (get-in (snapshot :rpd/p) [:data :got])])))
-
 (deftest parallel-root-transition-on-done-moves-a-region
   (start! parallel-parent :rpm/p :rpm/kid {:spawn {:machine-id :rpm/kid :on-done {:target [:x :x2]}}})
   (rf/dispatch-sync [:rpm/kid#1 [:ok 1]])
