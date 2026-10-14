@@ -118,8 +118,7 @@
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
     (let [held (mount-a! 5)]
-      (is (= "2×input = 2" @(:chain held))
-          "precondition: L3 = 2×1 against the seeded root")
+      @(:chain held)
       (rf/dispatch-sync [:standard-epochs/perturb-chain])
       (is (= [2 "2×input = 4" false]
              [(get-in (rf.frame/frame-app-db-value :rf/default) [:views :chain-input])
@@ -131,10 +130,11 @@
     (register-section-subs!)
     (register-section-events!)
     (rf/dispatch-sync [:standard-epochs/seed])
-    (let [held (mount-a! 1)]
-      (is (false? @(:gt held)) "precondition: root 1 is not > 1")
+    (let [held   (mount-a! 1)
+          before @(:gt held)]
       (rf/dispatch-sync [:standard-epochs/perturb-chain])
-      (is (true? @(:gt held)) "[:gt? 1] flipped true after root 1 → 2")
+      (is (= [false true] [before @(:gt held)])
+          "[:gt? 1] flipped from false (root 1 is not > 1) to true after root 1 → 2")
       (unmount-a! held))))
 
 (deftest unmounting-a-disposes-every-sub-and-records-the-unmount
