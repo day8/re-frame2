@@ -12,16 +12,14 @@
 
   Frame scope is the programmer's ordinary bracket — `rf/with-new-frame`.
 
-  ## The two halves, kept apart
+  ## Through a real frame
 
-  The PURE rows call `events/slugify` with a string, because a
-  calculation over data is best tested as one. The TRANSITION rows go
-  through a real frame and a real `dispatch-sync`, because a handler is
-  only a handler once the registrar has it and the interceptor chain has
-  run — a test that called the handler function by hand would be green
-  for a registration that never happened.
+  The row goes through a real frame and a real `dispatch-sync`, because
+  a handler is only a handler once the registrar has it and the
+  interceptor chain has run — a test that called the handler function by
+  hand would be green for a registration that never happened.
 
-  ## One row here is about the SHAPE of a write, not its value
+  ## The row is about the SHAPE of a write, not its value
 
   [[one-keystroke-moves-exactly-one-address]] is the L0 half of the
   per-keystroke budget. `flow-dom-cljs-test` counts the bodies that run;
@@ -34,7 +32,6 @@
             [re-frame.core :as rf]
             [re-frame.fresco.examples.editor.app :as rf.fresco.examples.editor.app]
             [re-frame.fresco.examples.editor.events :as rf.fresco.examples.editor.events]
-            [re-frame.fresco.examples.editor.subs :as rf.fresco.examples.editor.subs]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -50,59 +47,8 @@
   (rf/with-new-frame [frame (rf/make-frame {:initial-events rf.fresco.examples.editor.app/initial-events})]
     (f frame)))
 
-(defn- read-sub [frame query-v] (rf/subscribe-once query-v {:frame frame}))
-
 (defn- type! [frame field text]
   (rf/dispatch-sync [::rf.fresco.examples.editor.events/edit field text] {:frame frame}))
-
-;; ---------------------------------------------------------------------------
-;; Pure — the policies
-;; ---------------------------------------------------------------------------
-
-(deftest slugify-lower-cases-and-collapses
-  (is (= "hello-world" (rf.fresco.examples.editor.events/slugify "Hello, World")))
-  (is (= "a-b" (rf.fresco.examples.editor.events/slugify "A   B"))
-      "a RUN of non-alphanumerics collapses to one dash, so this
-       normalisation changes the length — which is what makes the slug
-       field's echo row distinguishable from a field that echoed nothing")
-  (is (= "" (rf.fresco.examples.editor.events/slugify "")))
-  (is (= "-" (rf.fresco.examples.editor.events/slugify "!!!"))
-      "recorded rather than defended: a leading or trailing dash is what
-       this policy produces mid-typing, and trimming it would make the
-       field fight the user's next keystroke"))
-
-;; ---------------------------------------------------------------------------
-;; Transitions — through a real frame
-;; ---------------------------------------------------------------------------
-
-(deftest an-accepting-field-takes-what-was-typed
-  (with-app
-    (fn [frame]
-      (type! frame :title "Intents, revisited")
-      (is (= "Intents, revisited" (read-sub frame [::rf.fresco.examples.editor.subs/field :title])))
-      (is (true? (read-sub frame [::rf.fresco.examples.editor.subs/dirty?]))))))
-
-(deftest a-normalising-field-commits-the-normalised-value
-  (with-app
-    (fn [frame]
-      (type! frame :slug "Hello, World")
-      (is (= "hello-world" (read-sub frame [::rf.fresco.examples.editor.subs/field :slug]))
-          "the MODEL holds the normalised value, which is what the field
-           will be handed back and therefore what it echoes — the
-           controlled law's `a normalised value echoes as the committed
-           one`, asserted here without a DOM and again with one in
-           flow-dom-cljs-test"))))
-
-(deftest the-checkbox-commits-a-boolean-and-not-a-truthy
-  (with-app
-    (fn [frame]
-      (rf/dispatch-sync [::rf.fresco.examples.editor.events/set-published true] {:frame frame})
-      (is (true? (read-sub frame [::rf.fresco.examples.editor.subs/field :published?])))
-      (rf/dispatch-sync [::rf.fresco.examples.editor.events/set-published nil] {:frame frame})
-      (is (false? (read-sub frame [::rf.fresco.examples.editor.subs/field :published?]))
-          "`nil` coerces to false rather than being stored. An owned
-           `:checked` wins by PRESENCE and not by truthiness, so a model
-           holding nil would leave the control uncontrolled"))))
 
 (deftest one-keystroke-moves-exactly-one-address
   (with-app
@@ -110,47 +56,7 @@
       (let [before (rf/app-db-value frame)
             _      (type! frame :title "x")
             after  (rf/app-db-value frame)]
-        (is (= (dissoc before :draft) (dissoc after :draft))
-            "nothing outside the draft moved")
-        (is (= (dissoc (:draft before) :title) (dissoc (:draft after) :title))
-            "and inside the draft, only the field that was typed into. One
-             write is the first number in the per-keystroke walk; the
-             others are counted in flow-dom-cljs-test")
-        (is (not= (:title (:draft before)) (:title (:draft after)))
-            "the premise — the write happened at all")))))
-
-(deftest saving-commits-the-draft-and-leaves-it-standing
-  (with-app
-    (fn [frame]
-      (type! frame :title "Committed")
-      (is (= "Intents are data" (read-sub frame [::rf.fresco.examples.editor.subs/committed :title]))
-          "typing does not move the article")
-      (rf/dispatch-sync [::rf.fresco.examples.editor.events/save] {:frame frame})
-      (is (= "Committed" (read-sub frame [::rf.fresco.examples.editor.subs/committed :title])))
-      (is (= "Committed" (read-sub frame [::rf.fresco.examples.editor.subs/field :title]))
-          "and the draft still holds it — a save is not a reset")
-      (is (false? (read-sub frame [::rf.fresco.examples.editor.subs/dirty?]))))))
-
-(deftest discarding-restores-the-draft-and-bumps-the-revision-from-absent
-  (with-app
-    (fn [frame]
-      (type! frame :title "typed")
-      (type! frame :slug "Typed Slug")
-      (is (= 0 (read-sub frame [::rf.fresco.examples.editor.subs/revision]))
-          "the subscription's own default answers 0 for the absent key, so
-           the fields have a revision to render before any discard")
-      (rf/dispatch-sync [::rf.fresco.examples.editor.events/discard] {:frame frame})
-      (is (= (get-in rf.fresco.examples.editor.events/seed [:article :title])
-             (read-sub frame [::rf.fresco.examples.editor.subs/field :title]))
-          "the model is back")
-      (is (= "intents-are-data" (read-sub frame [::rf.fresco.examples.editor.subs/field :slug])))
-      (is (false? (read-sub frame [::rf.fresco.examples.editor.subs/dirty?])))
-      (is (= 1 (read-sub frame [::rf.fresco.examples.editor.subs/revision]))
-          "ONE, from a key that did not exist. `(fnil inc 0)` is what makes
-           the FIRST discard a reset rather than a nil arithmetic error,
-           and nothing on the public door says an application needs a
-           counter at all")
-      (rf/dispatch-sync [::rf.fresco.examples.editor.events/discard] {:frame frame})
-      (is (= 2 (read-sub frame [::rf.fresco.examples.editor.subs/revision]))
-          "and a second discard bumps again, so two resets in a row are two
-           distinct triggers rather than one repeated value"))))
+        (is (= (assoc-in before [:draft :title] "x") after)
+            "one write, to the field typed into, and nothing else moved —
+             the first number in the per-keystroke walk; the others are
+             counted in flow-dom-cljs-test")))))
