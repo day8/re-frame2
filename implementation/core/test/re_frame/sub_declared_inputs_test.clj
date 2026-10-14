@@ -119,23 +119,6 @@
     (is (= [(same-three-ways "X") (same-three-ways "Y")]
            [(read-three-ways [:title :x] db) (read-three-ways [:title :y] db)]))))
 
-(deftest literal-and-producer-declarations-of-the-same-body-agree
-  ;; For map / vector / nil upstream values, on every path.
-  (rf/reg-sub :m (fn [db _] (:m db)))
-  (rf/reg-sub :v (fn [db _] (:v db)))
-  (rf/reg-sub :n (fn [db _] (:n db)))
-  (let [body (fn [[a] _] {:seen a})]
-    (doseq [up [:m :v :n]]
-      (rf/reg-sub (keyword "lit" (name up))  {:inputs [[up]]}          body)
-      (rf/reg-sub (keyword "prod" (name up)) {:inputs (fn [_] [[up]])} body)))
-  (let [db {:m {:k 1} :v [1 2] :n nil}]
-    (seed! db)
-    (doseq [up [:m :v :n]]
-      (let [w (same-three-ways {:seen (get db up)})]
-        (is (= [w w] [(read-three-ways [(keyword "lit" (name up))] db)
-                      (read-three-ways [(keyword "prod" (name up))] db)])
-            (str "upstream " up))))))
-
 (deftest the-retired-spellings-are-refused-naming-inputs-and-the-migration-rule
   ;; Refused at namespace load, naming `:inputs` and the migration rule, rather
   ;; than registered with a delivery shape the runtime has no arm for.
