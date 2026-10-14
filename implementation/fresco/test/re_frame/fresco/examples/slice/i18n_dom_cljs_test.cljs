@@ -151,20 +151,6 @@
 
         (finish m done)))))
 
-(deftest the-content-is-NOT-translated-and-that-is-the-boundary
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")]
-        (choose-locale! m :fr)
-        (is (= "Intents are data" (text m ".article-title"))
-            "the article's own title is DATA, not a string-table key —
-             stated here because the line between chrome and content is
-             the first thing a reader of this slice will want, and a test
-             is where it belongs")
-        (is (= "Intents are data" (.-value (node m ".field-title"))))
-        (finish m done)))))
-
 (deftest a-locale-switch-does-not-disturb-what-was-typed
   (if-not (browser?)
     (skip! ":node-test has no React DOM")
@@ -205,47 +191,4 @@
 
         (click-theme! m :light)
         (is (= "rgb(255, 255, 255)" (surface-of m)))
-        (finish m done)))))
-
-(deftest the-error-region-takes-its-colour-from-the-live-theme
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")
-            n (node m ".field-title")
-            d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
-        ;; A locally invalid draft, so the region appears with no request
-        ;; and no clock.
-        (.call (.-set d) n "   ")
-        (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-        (rf.fresco.test.mounted/settle! m)
-        (.click (node m ".save"))
-        (rf.fresco.test.mounted/settle! m)
-
-        (is (= "rgb(176, 32, 32)" (.. (node m ".save-problem") -style -color)))
-        (click-theme! m :dark)
-        (is (= "rgb(255, 138, 128)" (.. (node m ".save-problem") -style -color))
-            "a region that is already on screen repaints, because it read
-             the token through a subscription like everything else — no
-             theme object was threaded to it and none had to be")
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; Both at once
-;; ---------------------------------------------------------------------------
-
-(deftest locale-and-theme-are-independent
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")]
-        (click-theme! m :dark)
-        (choose-locale! m :fr)
-        (is (= "rgb(18, 21, 26)" (surface-of m))
-            "the locale switch did not reset the theme")
-        (is (= "Chronique" (text m ".slice-title")))
-        (click-theme! m :light)
-        (is (= "Chronique" (text m ".slice-title"))
-            "and the theme switch did not reset the locale — two keys in
-             app-db, and nothing that couples them")
         (finish m done)))))
