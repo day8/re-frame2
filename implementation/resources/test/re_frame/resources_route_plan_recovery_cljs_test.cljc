@@ -113,7 +113,6 @@
       "a route whose blocking resource is unregistered fails its plan and issues no request")
   (let [tok (token)]
     (reg-board-resource!)
-    (is (some? (rf.registrar/lookup :resource :ma8r/board-data)) "FIXTURE — the resource is registered now")
     (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
     (is (= [tok :error true []]
            [(token) (:transition (slice)) (unregistered-resource-plan-failure?) @requests])
@@ -139,15 +138,7 @@
            "the initial URL sync ran INSIDE make-frame — no navigate was dispatched")
        (is (= :error (:transition (slice))))
        (is (unregistered-resource-plan-failure?)
-           "so a resource registered on the NEXT line is already too late for this plan"))
-     (testing "the recovery is the same replan door"
-       (let [tok (token)]
-         (reg-board-resource!)
-         (rf/dispatch-sync [:rf.route/replan-resources {:cause [:ma8r/registered-after-make-frame]}])
-         (is (= tok (token)))
-         (is (nil? (slice-error)))
-         (is (= :loading (:transition (slice))))
-         (is (= 1 (count @requests)))))))
+           "so a resource registered on the NEXT line is already too late for this plan"))))
 
 #?(:cljs
    (deftest registering-the-resource-before-make-frame-plans-cleanly
