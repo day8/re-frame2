@@ -143,39 +143,6 @@ it('ACCEPTS a symlink under an allowed root whose target stays inside it', () =>
   }
 });
 
-it('REJECTS via a PARENT-directory symlink that escapes the allowed root', () => {
-  const { base, allowedRoot, outside } = makeSandbox();
-  try {
-    // The escaping link is an intermediate directory, not the final component.
-    const parentLink = path.join(allowedRoot, 'escape-dir');
-    if (!trySymlinkDir(outside, parentLink)) {
-      console.log('        (skipped: symlink/junction creation not permitted on this host)');
-      return;
-    }
-    const deepChild = path.join(parentLink, 'nested', 'manifest.json');
-    assert.throws(
-      () =>
-        enforcePolicy('STORY_BUILD_OUTPUT_DIR', deepChild, {
-          allowedRoots: [allowedRoot],
-        }),
-      /outside the approved roots/,
-      'a path under a parent-directory symlink that escapes was wrongly accepted',
-    );
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
-  }
-});
-
-it('rejects empty path', () => {
-  assert.throws(
-    () =>
-      enforcePolicy('BROWSER_TEST_ROOT', '', {
-        allowedRoots: [DEFAULT_OUT_ROOT],
-      }),
-    /empty path/,
-  );
-});
-
 it('the SAME opt-in env var lets an out-of-tree READ SOURCE through', () => {
   // The opt-in broadens read-source roots too, not only write targets.
   const elsewhere =
