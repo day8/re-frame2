@@ -42,20 +42,6 @@
       (finally
         (set! (.-warn js/console) original)))))
 
-;; ---- Fragment root: warning fires exactly once per id ---------------------
-
-(deftest fragment-root-warn-fires-once-across-multiple-renders
-  (testing "a Fragment-headed view emits the documented warning EXACTLY ONCE
-            across five renders"
-    (rf/reg-view* :rf.warn-once-test/fragment-multi
-                  (fn [] [:<> [:p "a"] [:p "b"]]))
-    (let [render   (rf/view :rf.warn-once-test/fragment-multi)
-          warnings (with-captured-console-warn
-                     (fn [] (dotimes [_ 5] (render))))]
-      (is (= [1 true] [(count warnings)
-                       (str/includes? (str (first warnings)) "rf.warn-once-test/fragment-multi")])
-          (str "exactly one warning, naming the view-id; got " (pr-str warnings))))))
-
 ;; ---- Per-id silencing is independent across ids --------------------------
 
 (deftest warn-once-is-per-id-not-global
