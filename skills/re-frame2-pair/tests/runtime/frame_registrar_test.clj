@@ -2,8 +2,9 @@
 ;;;; `list-handlers` / `describe-image` tools resolve registrations through the
 ;;;; OPERATING FRAME's image generation, so the preload must route through the
 ;;;; public `:frame` facade reads (`rf/handler-meta`, `rf/registrations`,
-;;;; `rf/frame-generation`), and `describe-image` must degrade gracefully on a
-;;;; live imageless frame while still failing loud on an unknown one.
+;;;; `rf/frame-generation`), and `describe-image` must describe a frame that
+;;;; resolves the live registration store while still failing loud on an
+;;;; unknown one.
 ;;;;
 ;;;; Run: bb tests/runtime/frame_registrar_test.clj
 
@@ -22,16 +23,22 @@
   (is (rt/mentions? :frame (rt/defn-named 'frame-registrar-describe))
       "frame-registrar-describe must pass a :frame-keyed query map"))
 
-(deftest describe-image-reads-the-generation-and-guards-no-generation
-  (let [f (rt/defn-named 'describe-image)]
+(deftest describe-image-reads-the-generation-and-describes-a-live-store-frame
+  (let [f    (rt/defn-named 'describe-image)
+        live (rt/defn-named 'describe-live-store-frame)]
     (is (rt/calls? 'rf/frame-generation f) "describe-image must read (rf/frame-generation frame)")
     (is (rt/calls? 'catch f) "describe-image must catch the no-generation throw")
     (is (rt/mentions? :rf.error/frame-no-generation f)
         "only :rf.error/frame-no-generation is softened")
-    (is (rt/mentions? :live-frame-ids f)
-        "a LIVE imageless frame degrades; a target naming no live frame still fails loud")
-    (is (rt/mentions? :no-generation? f) "the graceful result is :no-generation?")
-    (is (rt/calls? 'throw f) "any other throw is re-raised")))
+    (is (rt/calls? 'describe-live-store-frame f)
+        "a frame that seals no generation is described as resolving the live store")
+    (is (rt/calls? 'throw f) "any other throw is re-raised")
+    (is (rt/calls? 'rf/registrations live)
+        "the live-store read routes through (rf/registrations {:frame …})")
+    (is (not (rt/calls? 'catch live))
+        "and catches nothing, so its query fails loud on a target naming no frame")
+    (is (rt/mentions? :live-store? live) "the live-store result is marked :live-store?")
+    (is (rt/mentions? :ambiguous live) "and names the ids the frame refuses as ambiguous")))
 
 (deftest orient-rebased-on-frame-registry-view
   (let [orient (rt/defn-named 'orient)]
