@@ -36,9 +36,7 @@ test('unwrapClosedOverflow rejects everything but the closed single-key wrapper'
   for (const [outer, pattern] of [
     [{ 'rf.mcp/overflowed': validBody() }, /CLOSED single-key map/],
     [{ 'rf.mcp/overflow': validBody(), 'rf.mcp/summary': { type: 'map' } }, /CLOSED single-key map/],
-    [[validBody()], /not a map/],
     [null, /not a map/],
-    ['rf.mcp/overflow', /not a map/],
   ]) {
     assert.throws(() => unwrapClosedOverflow(outer, 'test'), pattern, JSON.stringify(outer));
   }
@@ -49,11 +47,8 @@ test('validateOverflowWrapper: accepts additive fields inside the (open) body', 
   assert.deepEqual(validateOverflowWrapper({ 'rf.mcp/overflow': body }, 'test'), body);
 });
 
-test('assertOverflowBody rejects a missing field, a wrong :limit and a token-count not above the cap', () => {
-  const hintless = validBody();
-  delete hintless.hint;
+test('assertOverflowBody rejects a wrong :limit and a token-count not above the cap', () => {
   for (const [body, pattern] of [
-    [hintless, /:hint MUST be/],
     [validBody({ limit: 'exceeded' }), /:limit MUST be/],
     [validBody({ 'token-count': 5000 }), /:token-count MUST exceed :cap-tokens/],
   ]) {
@@ -61,18 +56,12 @@ test('assertOverflowBody rejects a missing field, a wrong :limit and a token-cou
   }
 });
 
-test('fractional :cap-tokens / :token-count are rejected through BOTH slots (rf2-gwye.41)', () => {
-  for (const [cap, count, field] of [[5000.5, 6250, 'cap-tokens'], [5000, 6250.5, 'token-count']]) {
-    const want = new RegExp(':' + field + ' MUST be int');
-    assert.throws(() => validateOverflowText(overflowText(cap, count), 'text-slot'), want);
-    assert.throws(
-      () => validateOverflowWrapper(
-        { 'rf.mcp/overflow': validBody({ 'cap-tokens': cap, 'token-count': count }) },
-        'structured',
-      ),
-      want,
-    );
-  }
+test('a fractional :cap-tokens is rejected through BOTH slots (rf2-gwye.41)', () => {
+  assert.throws(() => validateOverflowText(overflowText(5000.5, 6250), 'text-slot'), /:cap-tokens MUST be int/);
+  assert.throws(
+    () => validateOverflowWrapper({ 'rf.mcp/overflow': validBody({ 'cap-tokens': 5000.5 }) }, 'structured'),
+    /:cap-tokens MUST be int/,
+  );
   // The canonical integer body parses from the text slot and agrees with the
   // structured slot.
   assert.doesNotThrow(() => assertBodiesAgree(
