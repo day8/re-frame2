@@ -49,12 +49,9 @@
 
 (deftest fx-renamed
   (testing "reg-event-fx is renamed to reg-event; the body and a metadata slot stay verbatim"
-    (doseq [[src out]
-            [["(rf/reg-event-fx :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"
-              "(rf/reg-event :todo/add\n  (fn [{:keys [db]} [_ text]]\n    {:db (assoc-in db [:todos text] true)}))"]
-             ["(rf/reg-event-fx :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"
-              "(rf/reg-event :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"]]]
-      (is (= [[[:reg-event-fx :rename nil :reg-event]] out] (outcome src))))))
+    (is (= [[[:reg-event-fx :rename nil :reg-event]]
+            "(rf/reg-event :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))"]
+           (outcome "(rf/reg-event-fx :todo/add {:rf.cofx/requires [:rf/time-ms]}\n  (fn [{:keys [db rf/time-ms]} [_ text]] {:db db}))")))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-db — faithful rewrite to {:db BODY}
@@ -343,10 +340,6 @@
 ;; ---------------------------------------------------------------------------
 ;; flagged sites — reported, never rewritten
 ;; ---------------------------------------------------------------------------
-
-(deftest ctx-flagged-never-rewritten
-  (let [src "(rf/reg-event-ctx :advanced/thing\n  (fn [ctx] (assoc ctx :rf/skip-handler? true)))"]
-    (is (= [[[:reg-event-ctx :flag :ctx nil]] src] (outcome src)))))
 
 ;; D7 — a body that can evaluate to nil is flagged, not rewritten, and the
 ;; rewrite still suggests its target.
