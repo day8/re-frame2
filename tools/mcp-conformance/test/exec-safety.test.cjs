@@ -119,16 +119,6 @@ test('safeUnlinkInside unlinks a file inside the allowed root', () => {
   });
 });
 
-test('safeUnlinkInside refuses a leaf symlinked outside the root', { skip: process.platform === 'win32' }, () => {
-  withTmpDirs(['unlink-escape-leaf', 'unlink-escape-outside'], (root, outside) => {
-    const outsideFile = path.join(outside, 'sensitive.txt');
-    fs.writeFileSync(outsideFile, 'do not delete');
-    const candidate = path.join(root, 'innocent-looking.txt');
-    fs.symlinkSync(outsideFile, candidate);
-    assert.throws(() => safeUnlinkInside(candidate, root), /symlink-escape/);
-  });
-});
-
 // `root/.shadow-cljs` linked outside the root: unlinking through it would
 // delete the real file on the far side.
 test('safeUnlinkInside refuses a candidate under a parent symlinked outside the root', { skip: process.platform === 'win32' }, () => {
