@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.watch-epochs-test
   "Unit tests for the `watch-epochs` MCP tool: the empty-result advisory
-  and the cursor-stale paths, driven through the real tool.
+  and the aged-out cursor-stale path, driven through the real tool.
 
   An empty `:matches` has three causes the advisory tells apart: a
   genuinely empty history (no advisory), a `:since-id` at the head
@@ -67,19 +67,9 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cursor-stale paths through the real tool: a cursor the codec cannot use
-;; comes back as cursor-stale, never as an empty page.
+;; An aged-out id comes back as cursor-stale, never as an empty page. A
+;; cursor the codec cannot use is pinned in `cursor_pagination_test`.
 ;; ---------------------------------------------------------------------------
-
-(deftest malformed-cursor-returns-cursor-stale
-  (async done
-    ;; No eval stub: the malformed branch returns before any runtime round-trip.
-    (-> (we/watch-epochs-tool nil (tu/args->js {:cursor "not-a-valid-cursor!!!"}))
-        (.then (fn [result]
-                 (is (tu/error? result))
-                 (is (= {:reason :rf.mcp/cursor-stale :tool "watch-epochs"}
-                        (select-keys (tu/extract-edn result) [:reason :tool])))
-                 (done))))))
 
 (deftest aged-out-ring-returns-cursor-stale
   (async done
