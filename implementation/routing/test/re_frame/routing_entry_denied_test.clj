@@ -121,9 +121,9 @@
 (deftest application-handler-registers-cleanly-and-fires-exactly-once
   (testing "an application registers its OWN :rf.route/entry-denied through the
             PUBLIC rf/reg-event, then builds a frame: the registration coexists
-            with the framework's shipped no-op default (rf/make-frame does not
-            throw :rf.error/image-duplicate-id), and the app handler — not the
-            default — receives the denial exactly once"
+            with the framework's shipped no-op default (the id is not
+            ambiguous), and the app handler — not the default — receives the
+            denial exactly once"
     (register-common!)
     (let [calls (atom 0)]
       (rf/reg-event :rf.route/entry-denied (fn [_ _] (swap! calls inc) {}))

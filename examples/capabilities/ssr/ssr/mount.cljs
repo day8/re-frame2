@@ -11,9 +11,10 @@
 
   Why its own namespace, and not a private `defn-` inside `ssr.core`: the
   regression has to reach the helper WITHOUT `:require`-ing `ssr.core`, whose app
-  registrations (`:auth.session/store`, `:articles/loaded`, …) collide at image
-  assembly with the login + realworld examples already sharing the consolidated
-  test bundle (`:rf.error/image-duplicate-id`). This namespace registers nothing,
+  registrations (`:auth.session/store`, `:articles/loaded`, …) share ids with
+  the login + realworld examples already in the consolidated test bundle, which
+  leaves those ids ambiguous (`:rf.error/ambiguous-registration`) for every
+  frame made without `:images`. This namespace registers nothing,
   so a test loads only the mount logic and no example ids enter the bundle."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]))
 

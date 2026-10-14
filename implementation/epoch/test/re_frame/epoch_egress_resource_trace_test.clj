@@ -15,9 +15,9 @@
             [re-frame.elision :as rf.elision]
             [re-frame.epoch]
             [re-frame.frame :as rf.frame]
-            ;; `fx/reg-fx`, the plain fn: the `rf/reg-fx` macro would stamp this
-            ;; ns as a second provenance under one fx id, and the frame's next
-            ;; default-image reprojection would die on `:rf.error/image-duplicate-id`.
+            ;; `fx/reg-fx`, the plain fn: it replaces the framework's own
+            ;; `:rf.http/managed` registration in place, where the `rf/reg-fx`
+            ;; macro would stamp this ns as a second provenance beside it.
             [re-frame.fx :as rf.fx]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
