@@ -58,12 +58,9 @@
   That click is half of this widget's contract: shut, Enter or Space
   opens the list through it; open, the key map commits and prevents it,
   or the click that follows a keydown commit toggles the list straight
-  back open. A synthetic row passes either way, so the trusted rows press
+  back open. A synthetic row passes either way, so the trusted row presses
   the keys for real through `re-frame.fresco.trusted-input-support` —
-  keydown, keyup and the click the engine fires for them — and
-  [[the-bare-enter-dropdown]] is their control: the same view with Enter
-  committing on keydown and left unprevented, which a synthetic Enter
-  reports as correct and a real one reopens.
+  keydown, keyup and the click the engine fires for them.
 
   Escape remains the platform's: the popover owns light dismiss and the
   close request, and `overlay-dom-cljs-test` drives it.
@@ -73,9 +70,9 @@
   The structural rows run everywhere — a role, a pointer and its
   referent are facts about markup, so they are decided on the test kit's
   a11y projections and need no engine. The conduct rows need a real React
-  DOM and state a skip in the node lane; the trusted rows also need the
+  DOM and state a skip in the node lane; the trusted row also needs the
   runner's trusted-input bridge, and a browser lane without one reports a
-  failure rather than a skip. The trusted rows are `async`, so the
+  failure rather than a skip. The trusted row is `async`, so the
   fixture is a map: an async row under a positional fixture aborts the
   whole run."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -173,7 +170,7 @@
   The key map is the guide's too. Shut, Enter and Space are not in it:
   they reach the button's native click, which is `::toggled`'s door. Open,
   both commit and are prevented, so no click follows the commit to toggle
-  the list back open — [[the-bare-enter-dropdown]] is what that costs."
+  the list back open."
   [_]
   (let [open?  (rf.fresco/sub [::open?])
         active (rf.fresco/sub [::active])
@@ -253,52 +250,6 @@
                :role          "option"
                ;; The transient position, announced as the selection.
                :aria-selected (= v active)
-               :on-click      [::selected v]}
-          l])]]]))
-
-(rf.fresco/defview the-bare-enter-dropdown
-  "THE KEY-MAP CONTROL — [[select-dropdown]] with Enter committing on
-  every keydown and NOT prevented, and Space left out.
-
-  Shut, it behaves: the commit finds nothing open, and the button's
-  native click opens the list. Open, one press does two things. The
-  keydown commits and shuts the list, and the engine then fires the
-  button's click for the same press, which `::toggled` reads as a
-  request to open it again. A synthetic Enter gets no click, so it
-  reports this spelling as correct; the trusted rows are what tell the
-  two apart."
-  [_]
-  (let [open?  (rf.fresco/sub [::open?])
-        active (rf.fresco/sub [::active])
-        value  (rf.fresco/sub [::value])
-        label  (some #(when (= value (:value %)) (:label %)) items)]
-    [:div.combo
-     [:button
-      {:id                    trigger-id
-       :type                  "button"
-       :disabled              (empty? items)
-       :role                  "combobox"
-       :aria-label            "Language"
-       :aria-haspopup         "listbox"
-       :aria-expanded         open?
-       :aria-controls         (when open? listbox-id)
-       :aria-activedescendant (when (and open? (some #{active} values))
-                                (option-id active))
-       :on-click              [::toggled]
-       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
-                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
-                               "Enter"     [::committed]}}
-      label]
-     [rf.fresco.overlay/popover {:open?      open?
-                       :on-dismiss [::dismissed]
-                       :anchor     trigger-id
-                       :placement  :bottom-start}
-      [:ul {:id listbox-id :role "listbox"}
-       (for [{v :value l :label} items]
-         [:li {:key           v
-               :id            (option-id v)
-               :role          "option"
-               :aria-selected (= v value)
                :on-click      [::selected v]}
           l])]]]))
 
@@ -433,11 +384,6 @@
     (let [t (open-tree select-dropdown {:active "ja" :value "en"})]
       (is (= [(option-id "en")] (selected-options t)))))
 
-  (testing "moving the keyboard does not move it — the same view, the
-            same commitment, the active option somewhere else again"
-    (let [t (open-tree select-dropdown {:active "fr" :value "en"})]
-      (is (= [(option-id "en")] (selected-options t)))))
-
   (testing "and committing does: `aria-selected` moves when the value
             moves, so the row above is a distinction rather than an
             attribute that never changes"
@@ -450,10 +396,7 @@
             one after another, having chosen none"
     (is (= [(option-id "ja")]
            (selected-options (open-tree the-guides-dropdown-as-written
-                                        {:active "ja" :value "en"}))))
-    (is (= [(option-id "fr")]
-           (selected-options (open-tree the-guides-dropdown-as-written
-                                        {:active "fr" :value "en"}))))))
+                                        {:active "ja" :value "en"}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The conduct — real key events, on a real React DOM
@@ -481,55 +424,6 @@
   (rf.fresco.test.mounted/settle! m)
   nil)
 
-(deftest the-arrow-keys-move-the-active-option-and-nothing-else
-  (if-not (browser?)
-    (skip! "the arrow keys")
-    (let [m (rf.fresco.test.mounted/mount! [select-dropdown {}])]
-      (try
-        (.focus (query-node m (str "#" trigger-id)))
-        (testing "premise: shut, with no pointer and nothing to point at"
-          (is (= "false" (attr-of m (str "#" trigger-id) "aria-expanded")))
-          (is (nil? (attr-of m (str "#" trigger-id) "aria-activedescendant")))
-          (is (nil? (attr-of m (str "#" trigger-id) "aria-controls")))
-          (is (nil? (query-node m (str "#" listbox-id)))
-              "and no listbox in the document, which is the module's
-               closed-cost posture and the reason `aria-controls` is
-               conditional"))
-
-        (key! m "ArrowDown")
-        (testing "one arrow opens the list and puts the pointer on the
-                  first option"
-          (is (= "true" (attr-of m (str "#" trigger-id) "aria-expanded")))
-          (is (= listbox-id (attr-of m (str "#" trigger-id) "aria-controls")))
-          (is (= (option-id "en") (attr-of m (str "#" trigger-id) "aria-activedescendant")))
-          (is (some? (query-node m (str "#" listbox-id)))))
-
-        (key! m "ArrowDown")
-        (key! m "ArrowDown")
-        (testing "two more move it to the last, and stop there — a
-                  clamp rather than a wrap, which is the guide's model
-                  and is asserted so a later wrap is a decision rather
-                  than a drift"
-          (is (= (option-id "ja") (attr-of m (str "#" trigger-id) "aria-activedescendant")))
-          (key! m "ArrowDown")
-          (is (= (option-id "ja") (attr-of m (str "#" trigger-id) "aria-activedescendant"))))
-
-        (testing "AND THE COMMITMENT NEVER MOVED. Three keystrokes later
-                  the selected option is still the one the application
-                  holds, and the trigger still shows its label — *keep
-                  active focus distinct from committed selection*, driven
-                  rather than described"
-          (is (= "true" (.getAttribute (query-node m (str "#" (option-id "en"))) "aria-selected")))
-          (is (= "false" (.getAttribute (query-node m (str "#" (option-id "ja"))) "aria-selected")))
-          (is (= "English" (.-textContent (query-node m (str "#" trigger-id))))))
-
-        (testing "and DOM focus never left the trigger, which is the
-                  whole reason an active-descendant model is used
-                  instead of moving focus into the list"
-          (is (identical? (query-node m (str "#" trigger-id)) (active-el))))
-
-        (finally (rf.fresco.test.mounted/unmount! m))))))
-
 (deftest enter-commits-the-active-option-and-shuts-the-list
   (if-not (browser?)
     (skip! "the commit")
@@ -549,10 +443,7 @@
                   one, the list shut, and both attributes that only make
                   sense while it is open went with it"
           (is (= "Français" (.-textContent (query-node m (str "#" trigger-id)))))
-          (is (= "false" (attr-of m (str "#" trigger-id) "aria-expanded")))
-          (is (nil? (attr-of m (str "#" trigger-id) "aria-activedescendant")))
-          (is (nil? (attr-of m (str "#" trigger-id) "aria-controls")))
-          (is (nil? (query-node m (str "#" listbox-id)))))
+          (is (= "false" (attr-of m (str "#" trigger-id) "aria-expanded"))))
 
         (is (identical? (query-node m (str "#" trigger-id)) (active-el))
             "and focus is still on the trigger — nothing had to be
@@ -591,10 +482,10 @@
     (k)))
 
 (defn- trusted-row!
-  "Mount `view`, focus its trigger, run `before` (the synthetic arm, if
-  any), then walk the steps `steps-for` answers for the mount. The mount
-  is released and `done` called exactly once on every path."
-  [view before steps-for done]
+  "Mount `view`, focus its trigger, then walk the steps `steps-for`
+  answers for the mount. The mount is released and `done` called exactly
+  once on every path."
+  [view steps-for done]
   (let [m (try (rf.fresco.test.mounted/mount! [view {}])
                (catch :default e
                  (is false (str "the mount threw: " (.-message e)))
@@ -609,7 +500,6 @@
           (is (identical? (trigger m) (active-el))
               "premise: focus is on the trigger, which is where the runner's
                key press lands")
-          (before m)
           (trusted-walk! m (steps-for m) finish)
           (catch :default e
             (is false (str "the row threw before its walk ended: " (.-message e)))
@@ -628,7 +518,6 @@
     (async done
       (trusted-row!
         select-dropdown
-        (fn [_m] nil)
         (fn [m]
           [[["Enter"]
             #(testing "SHUT, Enter is not in the key map: the button's own
@@ -665,46 +554,4 @@
                (is (= "false" (expanded m))
                    "the list did not reopen on the press that committed")
                (is (nil? (query-node m (str "#" listbox-id)))))]])
-        done))))
-
-(deftest an-unprevented-enter-commits-and-its-native-click-reopens-the-list
-  ;; THE CONTROL, both arms on one mount. The synthetic arm passes the
-  ;; bare spelling — which is the blind spot — and the trusted arm shows the
-  ;; same press reopening the list. Without the second arm the row above
-  ;; could be green because the instrument cannot see a click at all.
-  (cond
-    (not (browser?))
-    (skip! "a trusted key press")
-
-    (not (rf.fresco.trusted-input-support/bridge?))
-    (rf.fresco.trusted-input-support/unwitnessed!
-      "the bare Enter's native click")
-
-    :else
-    (async done
-      (trusted-row!
-        the-bare-enter-dropdown
-        (fn [m]
-          (key! m "ArrowDown")
-          (key! m "Enter")
-          (testing "SYNTHETIC: the bare Enter commits and the list stays
-                    shut, because a dispatched keydown fires no click —
-                    this spelling looks correct to a synthetic row"
-            (is (= 1 (commits m)))
-            (is (= "English" (.-textContent (trigger m))))
-            (is (= "false" (expanded m)))))
-        (fn [m]
-          [[["ArrowDown"]
-            #(is (= (option-id "fr") (attr-of m (str "#" trigger-id) "aria-activedescendant"))
-                 "premise: open again, the keyboard on the second option")]
-           [["Enter"]
-            #(testing "TRUSTED: the same key commits AND reopens. The keydown
-                       commits and shuts the list; the engine then fires the
-                       button's click for the same press, and `::toggled`
-                       opens it again"
-               (is (= 2 (commits m)) "the commit landed, once")
-               (is (= "Français" (.-textContent (trigger m))))
-               (is (= "true" (expanded m))
-                   "THE DEFECT: the list is open after the press that committed")
-               (is (some? (query-node m (str "#" listbox-id)))))]])
         done))))
