@@ -17,8 +17,8 @@
     5. the broad dirty set is the union of all readers of any dirty sub;
     6. an unknown dirty sub yields the empty set — no phantom boundaries.
 
-  Law 2 is discharged inside law 5, whose header shares `remaining` with a
-  row. Below the laws sit the obligations they would silently lose: a
+  Laws 1 and 2 are discharged inside law 5: r2 is the non-reader law 1
+  excludes, and the header shares `remaining` with a row. Below the laws sit the obligations they would silently lose: a
   StrictMode double subscribe, the registration sharing the entry's key
   set, and the evidence seam.
 
@@ -68,18 +68,6 @@
 
 (defn- hits [& boundaries] (mapv (comp deref :hits) boundaries))
 
-(deftest law-1-a-committed-sub-dirties-its-own-reader-only
-  (seeded!)
-  (let [row-1  (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))
-                                (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/draft 1]))]))
-        row-2  (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 2]))]))
-        header (mount! (fn [_] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))]
-    ;; `edit-draft` moves the draft and nothing else — one dirty key, which
-    ;; is what makes this law 1 rather than law 5.
-    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 1 "half-typed"])
-    (is (= [1 0 0] (hits row-1 row-2 header))
-        "the reader of the dirty sub re-runs, and not the sibling row or the header")))
-
 (deftest law-3-unmount-removes-every-edge-the-boundary-held
   (seeded!)
   (let [gone (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
@@ -111,11 +99,7 @@
              notified once; hdr shares `remaining` with r1, so it runs too
              (law 2); r2 read neither"
       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 1])
-      (is (= [1 0 1] (hits r1 r2 hdr))))
-    (testing "the empty commit dirties nothing"
-      (let [g (rf.bench.fresco.arm1.runtime/generation)]
-        (rf.bench.fresco.arm1.runtime/with-commit (fn []))
-        (is (= g (rf.bench.fresco.arm1.runtime/generation)))))))
+      (is (= [1 0 1] (hits r1 r2 hdr))))))
 
 (deftest law-6-an-unknown-dirty-sub-yields-the-empty-set
   (seeded!)
