@@ -1748,7 +1748,7 @@
 ;; exactly ONE argument: a QUERY MAP naming its source explicitly.
 ;;
 ;;   (registrations {:source :store :kind :event})     ; the process source store
-;;   (registrations {:frame f      :kind :event})      ; frame f's sealed image
+;;   (registrations {:frame f      :kind :event})      ; frame f's own view
 ;;   (handler-meta  {:source :store :kind :event :id i})
 ;;   (handler-meta  {:frame f      :kind :event :id i})
 ;;
@@ -1785,27 +1785,31 @@
 ;; build, fx, view) and MUST stay generation-routed. There is no realm
 ;; coordinate in the public read grammar.
 ;;
-;; EP-0023 — the FRAME-TARGETED map form reads the registrations
-;; resolved through a live frame's OWN sealed image generation (EP-0023
-;; §Frame-derived live registration resolution — "target frame -> resolved image
-;; generation -> registration resolution"), surfacing the `:rf.provenance/ns` +
-;; inline/image + replacement/standard facts the resolved descriptors already
-;; carry. This is the public tooling surface over a frame's generation, for tools
+;; EP-0023 — the FRAME-TARGETED map form reads the registrations resolved
+;; through a live frame's OWN view (EP-0023 §Frame-derived live registration
+;; resolution): its sealed image generation when it was made with `:images`, or
+;; the registration store resolved live when it was made without — where an id
+;; more than one namespace registers throws `:rf.error/ambiguous-registration`
+;; (Spec 002 §Image resolution and composition). The descriptors surface the
+;; `:rf.provenance/ns` + inline/image + replacement/standard facts they already
+;; carry. This is the public tooling surface over a frame's view, for tools
 ;; (Pair MCP, Xray) that EP-0023 forbids from consuming `re-frame.live-frame` /
 ;; `re-frame.image-assembly` internals. The thin, no-duplication path: resolve
-;; the frame target ONCE to a live frame object, then run the EXISTING registrar
-;; reads inside `re-frame.live-frame/call-with-frame-resolution`, which binds
-;; `rf.registrar/*generation*` so the registrar's ALREADY generation-aware `lookup`
-;; / `registrations` / `ids` do the resolution — byte-identical descriptor shape,
-;; no resolver-walk duplicated here. The default source-store path stays
-;; byte-identical: only a caller that passes `{:frame …}` reaches the generation.
+;; the frame target ONCE, then run the EXISTING registrar reads inside
+;; `re-frame.live-frame/call-with-frame-resolution`, which binds
+;; `rf.registrar/*generation*` or `rf.registrar/*live-view*` so the registrar's
+;; own `lookup` / `registrations` / `ids` do the resolution — byte-identical
+;; descriptor shape, no resolver-walk duplicated here. The source-store path
+;; stays byte-identical: only a caller that passes `{:frame …}` reaches a
+;; frame's view.
 ;;
-;; FAIL-LOUD (EP-0023 §Id Spaces): a `:frame` that does not resolve
-;; to a live frame carrying a generation throws `:rf.error/frame-no-generation`
-;; (NO fallback to the default registrar — the read needs a live EP-0023 frame).
-;; `:frame` accepts a REGISTERED FRAME ID (keyword, looked up in the
-;; process-local live-frame registry — the same path `frame-generation` uses)
-;; OR a direct live frame OBJECT (`make-frame`'s return value).
+;; FAIL-LOUD (EP-0023 §Id Spaces): a `:frame` that names neither a frame made
+;; without `:images` nor a live frame carrying a generation throws
+;; `:rf.error/frame-no-generation` (NO fallback to the default registrar — the
+;; read needs a frame that resolves registrations itself). `:frame` accepts a
+;; REGISTERED FRAME ID (keyword, looked up in the process-local live-frame
+;; registry — the same path `frame-generation` uses) OR a direct live frame
+;; OBJECT (`make-frame`'s return value).
 
 (defn- resolve-live-frame-object
   "Resolve a `:frame` target to the LIVE frame OBJECT it names — verifying the
