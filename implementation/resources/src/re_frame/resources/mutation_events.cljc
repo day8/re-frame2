@@ -1896,14 +1896,13 @@
       ;; the canonical reply-envelope vocabulary rides on the
       ;; `:rf.mutation/stale-suppressed` trace alongside the bespoke facts.
       ;; Settle the (already-superseded)
-      ;; work row terminal + clear the host handle.
+      ;; work row terminal + clear the host handle — in this frame only; a
+      ;; cross-frame reply settles nothing here.
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :success})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :success stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed {:reason :stale-reply :outcome :success})})
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
       (let [spec        (rf.resources.mutation-registry/mutation-meta mutation-id)
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
@@ -2305,10 +2304,8 @@
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :failure})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :failure stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed {:reason :stale-reply :outcome :failure})})
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload {:reason :stale-reply :outcome :failure}))
       (let [spec     (rf.resources.mutation-registry/mutation-meta mutation-id)
             params   (:params inst)
             timing   (or (:invalidate-timing spec) :after-success)

@@ -48,13 +48,24 @@
   slot's `:current-work` + `:generation` against the reply token. A reply with
   no stamped frame (a direct-dispatch test payload) skips the frame check (nil
   never collides with a concrete frame id) and is verified by work-id +
-  generation alone."
+  generation alone. A suppressed reply settles its work through
+  `settle-suppressed-work!`, which settles nothing for a cross-frame reply:
+  two frames can hold the same work-id, so the receiving frame's row and
+  handle under it are that frame's own live work."
   (:require [re-frame.resources.reply :as rf.resources.reply]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
             [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) Live-slot verifier (Spec 016 §Transport — stale suppression).
 ;; ---------------------------------------------------------------------------
+
+(defn- cross-frame-reply?
+  "True when `payload` carries a stamped `:rf.frame/id` other than
+  `receiving-frame-id`. An unstamped payload is never cross-frame."
+  [receiving-frame-id payload]
+  (let [reply-frame-id (:rf.frame/id payload)]
+    (and (some? reply-frame-id) (not= reply-frame-id receiving-frame-id))))
 
 (defn live-slot-for-reply
   "Look the live durable slot up for an internal reply and verify it is still
@@ -87,12 +98,27 @@
   `state/entry-path`-by-`:resource/key`, or the mutation
   `mstate/instance-path`-by-`:instance-id`)."
   [runtime-db receiving-frame-id path-fn {work-id :work/id :keys [generation] :as payload}]
-  (let [reply-frame-id (:rf.frame/id payload)]
-    (when (or (nil? reply-frame-id) (= reply-frame-id receiving-frame-id))
-      (when-let [slot (get-in runtime-db (path-fn payload))]
-        (when (and (= work-id (:current-work slot))
-                   (= generation (:generation slot)))
-          slot)))))
+  (when-not (cross-frame-reply? receiving-frame-id payload)
+    (when-let [slot (get-in runtime-db (path-fn payload))]
+      (when (and (= work-id (:current-work slot))
+                 (= generation (:generation slot)))
+        slot))))
+
+(defn settle-suppressed-work!
+  "Settle a suppressed reply's work in the RECEIVING frame: clear the host
+  handle for `[receiving-frame-id work-id]` and settle the ledger row terminal
+  `:suppressed` with `outcome`. Returns the handler's effect map.
+
+  A cross-frame reply settles NOTHING and returns `{}`: its work-id names the
+  issuing frame's attempt, and two frames can hold the same work-id (see
+  `rf.resources.work-ledger/resource-work-id`), so the row and handle under
+  that work-id here are the receiving frame's own live work."
+  [runtime-db receiving-frame-id {work-id :work/id :as payload} outcome]
+  (if (cross-frame-reply? receiving-frame-id payload)
+    {}
+    (do (rf.resources.work-ledger/clear-handle! receiving-frame-id work-id)
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id :suppressed outcome)})))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) Current-generation reader (the `:current` half of the stale gate).
