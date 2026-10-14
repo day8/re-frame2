@@ -197,6 +197,54 @@
   only be the entry snapshot."
   {:auth-token "u1"})
 
+(defn- drive-optimistic-commit!
+  "Drive a REAL optimistic write to an accepted `:ok` over the `:sensitive?`
+  `:secret/article` entry, first loaded with the secret in its `:data`. Returns
+  every trace row the drive put on the bus."
+  []
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)
+        rows     (atom [])
+        k        ::optimistic-commit-recorder]
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-mutation :m/rename
+      {:scope         :rf.scope/global
+       :params-schema [:map [:auth-token :string]]
+       :optimistic    (fn [params]
+                        {{:resource :secret/article :params params
+                          :scope    :rf.scope/global}
+                         (fn [data] (assoc data :nick "new"))})}
+      (fn [_ _] {:request {:method :put :url "/x"}}))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! rows conj ev)))
+    (try
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :secret/article :params optimistic-params
+                          :owner    real-owner}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync (conj (:on-success @captured)
+                              {:status :ok :value {:ssn secret :nick "old"}})
+                        {:frame :test/rt})
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/rename :params optimistic-params
+                          :instance :rename-1}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value {:saved true}})
+                        {:frame :test/rt})
+      (finally (rf.trace.tooling/unregister-listener! k)))
+    @rows))
+
+(deftest real-optimistic-commit-ships-no-entry-snapshot-off-box
+  (testing "an optimistic write that COMMITS over a :sensitive? entry records its
+            touched key on :rf.mutation/succeeded with no pre-apply entry
+            snapshot, whose `:data` would carry the secret"
+    (let [succeeded (->> (drive-optimistic-commit!)
+                         (filter #(= :rf.mutation/succeeded (:operation %)))
+                         first
+                         :tags)]
+      (is (= 1 (count (get-in succeeded [:patch-summary :rollback])))
+          "FIXTURE — the optimistic write committed one touched key")
+      (is (empty? (secret-leak-paths succeeded))))))
+
 (deftest off-box-disposition-row-fails-closed-on-non-key-slots
   (testing "a disposition row's slots other than :resource/key take the
             unknown-slot rule: a map (a stray entry snapshot) tokenizes, the
