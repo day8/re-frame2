@@ -95,30 +95,28 @@
 ;; :rejecting-guard to render "Discard changes on Editor?" prompts.
 
 (deftest pending-navigation-slot-shape
-  (editor! :editor/can-leave?)
-  (dirty-editor!)
-  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-  (let [p (pending)]
-    (is (string? (:id p)) ":id is the opaque pending-nav id")
-    (is (= {:requested-url   "/cart"
-            :rejecting-route :editor/article
-            :rejecting-guard :editor/can-leave?
-            :destination     {:to :route/cart}
-            :target          {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
-            :cause           :link
-            :policy          {}}
-           (select-keys p [:requested-url :rejecting-route :rejecting-guard
-                           :destination :target :cause :policy])))))
-
-;; ---- :can-leave query vectors, and the leave guard on every door ---------
-
-(deftest can-leave-query-vector-blocks-url-requested
-  (testing "a Spec-shaped :can-leave query vector is subscribed directly; the
-            slot stores the guard id, not the whole vector"
-    (editor! [:editor/can-leave?])
+  ;; A Spec-shaped `:can-leave` query vector is subscribed directly and the slot
+  ;; stores its guard id. The runtime DISPATCHES the slot as
+  ;; `[:rf.route/navigation-blocked pending-nav]` (§Default flow step 4d), so an
+  ;; app-registered handler fires; the trace alone would not fire it.
+  (editor! [:editor/can-leave?])
+  (let [seen (atom nil)]
+    (rf/reg-event :rf.route/navigation-blocked (fn [_ [_ pending-nav]] (reset! seen pending-nav) {}))
     (dirty-editor!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (is (= :editor/can-leave? (:rejecting-guard (pending))))))
+    (let [p (pending)]
+      (is (= {:requested-url   "/cart"
+              :rejecting-route :editor/article
+              :rejecting-guard :editor/can-leave?
+              :destination     {:to :route/cart}
+              :target          {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
+              :cause           :link
+              :policy          {}}
+             (select-keys p [:requested-url :rejecting-route :rejecting-guard
+                             :destination :target :cause :policy])))
+      (is (= p @seen) "the app handler received the slot value"))))
+
+;; ---- the leave guard on every door ----------------------------------------
 
 (deftest programmatic-navigate-runs-can-leave-guard
   (testing ":rf.route/navigate is guarded by the active route's :can-leave"
@@ -184,12 +182,9 @@
   (is (= [:page/a :page/a] [(current-id) (:rejecting-route (pending))]) "A→B is blocked and parked")
   (:id (pending)))
 
-(defn- late-continue-is-a-no-op
-  "After `move-to-c!` commits A→C, the parked A→B question is gone, and its late
-  continue leaves a now-dirty `:page/c` where it is."
-  [move-to-c!]
+(deftest activation-via-bypass-leave-retires-the-pending-leave
   (let [old-id (park-a-to-b!)]
-    (move-to-c!)
+    (rf/dispatch-sync [:rf.route/navigate {:to :page/c :bypass-leave? true}])
     (is (= [:page/c nil] [(current-id) (pending)]) "the commit to C retires A's question")
     (rf/dispatch-sync [:page/dirty :page/c true])
     (rf/dispatch-sync [:rf.route/continue old-id])
@@ -198,15 +193,6 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :page/b}])
     (is (= [:page/c :page/c] [(current-id) (:rejecting-route (pending))])
         "control: a fresh move off the dirty C is blocked by C's guard")))
-
-(deftest activation-via-bypass-leave-retires-the-pending-leave
-  (late-continue-is-a-no-op
-    #(rf/dispatch-sync [:rf.route/navigate {:to :page/c :bypass-leave? true}])))
-
-(deftest activation-via-a-clean-guard-retires-the-pending-leave
-  (late-continue-is-a-no-op
-    #(do (rf/dispatch-sync [:page/dirty :page/a false])
-         (rf/dispatch-sync [:rf.route/navigate {:to :page/c}]))))
 
 (deftest fragment-only-navigation-keeps-the-pending-leave
   (testing "a fragment-only move is not an activation, so the parked question
@@ -217,23 +203,6 @@
       (is (= ["section" before] [(:fragment (:current (routing))) (pending)]))
       (rf/dispatch-sync [:rf.route/continue old-id])
       (is (= [:page/b nil] [(current-id) (pending)])))))
-
-;; ---- :rf.route/navigation-blocked is a DISPATCHED event -------------------
-;;
-;; Spec 012 §Navigation blocking §Default flow step 4d: the runtime
-;; DISPATCHES [:rf.route/navigation-blocked pending-nav], so an app-registered
-;; handler fires; the trace (step 4e) alone would not fire it.
-
-(deftest navigation-blocked-is-dispatched-as-an-event
-  (let [seen (atom nil)]
-    (editor! :editor/can-leave?)
-    (rf/reg-event :rf.route/navigation-blocked
-                  (fn [_ [_ pending-nav]] (reset! seen pending-nav) {}))
-    (dirty-editor!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (is (= {:requested-url "/cart" :rejecting-route :editor/article :rejecting-guard :editor/can-leave?}
-           (select-keys @seen [:requested-url :rejecting-route :rejecting-guard]))
-        "the app handler received the pending-nav map")))
 
 ;; ============================================================================
 ;; can-leave / external-url diagnostics carry :frame
@@ -354,24 +323,19 @@
 ;; drain for every nav entry point instead of failing closed to
 ;; `:rf.route/not-found` like a bare miss.
 
-(deftest nav-guard-hostile-url-fails-closed-not-found-rf2-dqlfty
-  (rf/reg-route :route/home {} "/")
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
+(deftest nav-guard-hostile-url-fails-closed-without-bypassing-can-leave-rf2-dqlfty
+  (editor! :editor/can-leave?)
+  (dirty-editor!)
   (with-redefs [rf.routing.registry/match-url
                 (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
-    (is (= :rf.route/not-found (current-id))
-        "the throwing URL fails closed to :rf.route/not-found rather than
-         crashing the event drain")))
-
-(deftest nav-guard-hostile-url-does-not-bypass-declared-can-leave-guard-rf2-dqlfty
-  (testing "only the TARGET derived from the hostile URL degrades to a miss; a
-            declared dirty-form :can-leave still runs against the CURRENT route
-            and blocks the attempt"
-    (editor! :editor/can-leave?)
-    (dirty-editor!)
-    (with-redefs [rf.routing.registry/match-url
-                  (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
+    (testing "only the TARGET derived from the hostile URL degrades to a miss; a
+              declared dirty-form :can-leave still runs against the CURRENT route
+              and blocks the attempt"
       (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
-      (is (= [true :editor/article] [(some? (pending)) (current-id)])))))
+      (is (= [true :editor/article] [(some? (pending)) (current-id)])))
+    (testing "with the guard clean, the throwing URL fails closed to
+              :rf.route/not-found rather than crashing the event drain"
+      (rf/dispatch-sync [:rf.route/cancel (:id (pending))])
+      (rf/dispatch-sync [:editor/dirty false])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
+      (is (= :rf.route/not-found (current-id))))))
