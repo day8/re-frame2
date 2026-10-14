@@ -187,8 +187,8 @@
 // combinations `fresco / reagent-subs` STRADDLES 1.0 and is refused by the
 // whole-interval rule, which sits ahead of the veto and is untouched by it. The
 // veto is not what holds it. That is a fact about this corpus and not
-// a property of the rule, so `clock_exit_path.test.cjs` drives it in both
-// directions — and if it ever stops being true, the failure is the finding.
+// a property of the rule, so `clock_exit_path.test.cjs` pins it on all six
+// combinations — and if it ever stops being true, the failure is the finding.
 //
 // ## AND THE EVIDENCE ITSELF IS COMPLETE, OR THE CONSUMER REFUSES
 //
@@ -1699,11 +1699,10 @@ function shortName(f) {
   return m ? m[1] : f;
 }
 
-// `rawCrossSegment` is deliberately NOT here. This list is pinned by
-// `clock_exit_path.test.cjs`, and the pin is right: the exported names are the
+// `rawCrossSegment` is deliberately NOT here: the exported names are the
 // DECISIONS a test must be able to drive. The raw estimator decides nothing —
 // it is a second description of a row printed beside the first — so exporting
-// it would widen a guard to accommodate a reporting helper.
+// it would widen the list to accommodate a reporting helper.
 //
 // Four of the names are decisions of the publication path: the gate a row
 // turns on, the quantity the product claim asserts, the interval over
@@ -1716,8 +1715,8 @@ function shortName(f) {
 // record, estimand and threshold are bound together — the binding IS the
 // rule, so a test has to be able to read it. `counterpartLogRatios` is the
 // rule that the estimand NOT being published is stated complete beside the one
-// that is; a test drives it to prove no bound of one can reach a point of the
-// other. The two per-class estimators stay unexported: which one applies is
+// that is, so a test can drive it to prove no bound of one can reach a point
+// of the other. The two per-class estimators stay unexported: which one applies is
 // `PUBLICATION`'s to say, and a caller able to pick would be a second
 // adjudicator.
 module.exports = {
