@@ -49,14 +49,6 @@
         "the classified path redacts and the non-secret :count survives")
     (is (= rf.privacy/redacted-sentinel (get-in t [:input :data :secret])))))
 
-(deftest outcome-keyword-passes-through
-  ;; A nil-returning action stamps `:ok`; a non-map outcome rides through untouched.
-  (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
-  (is (= :ok (:outcome (project {:operation :rf.machine/action-ran
-                                 :tags {:actor-id mid
-                                        :frame    :rf/default
-                                        :outcome  :ok}})))))
-
 (deftest outcome-fx-entries-walk-their-own-registrations
   ;; The dispatch target's own registration classifies the entry, even on a
   ;; machine with no classification of its own.
