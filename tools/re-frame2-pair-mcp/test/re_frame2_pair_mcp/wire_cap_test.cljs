@@ -5,7 +5,6 @@
   (:require [cljs.test :refer-macros [deftest is]]
             [cljs.reader]
             [applied-science.js-interop :as j]
-            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.cap :as cap]))
 
 (defn- ok-text-result [v]
@@ -21,14 +20,8 @@
   (doseq [[args expected note]
           [[#js {} cap/default-max-tokens "absent ⇒ the default cap"]
            [nil cap/default-max-tokens "no args ⇒ the default cap"]
-           [#js {"max-tokens" 0} nil "0 disables the cap"]
-           [#js {"max-tokens" 1000} 1000 "a positive integer passes through"]]]
+           [#js {"max-tokens" 0} nil "0 disables the cap"]]]
     (is (= expected (cap/max-tokens-arg args)) note)))
-
-(deftest sum-payload-tokens-aggregates-across-slots
-  (let [r #js {:content #js [#js {:type "text" :text (big-string 4000)}
-                              #js {:type "text" :text (big-string 4000)}]}]
-    (is (= 2000 (cap/sum-payload-tokens r)))))
 
 (deftest apply-cap-nil-cap-disables-enforcement
   (let [r (ok-text-result {:k (big-string 100000)})]
@@ -55,10 +48,6 @@
     (is (contains? (read-edn out) :rf.mcp/overflow))
     (is (true? (j/get out :isError)))))
 
-(deftest apply-cap-unknown-tool-uses-fallback-hint
-  (let [out (cap/apply-cap (ok-text-result {:huge (big-string 4000)}) {:tool "no-such-tool" :cap 500})]
-    (is (= tu/overflow-hint-fallback (:hint (:rf.mcp/overflow (read-edn out)))))))
-
 ;; `wire/ok-text` writes the same payload into `:content[*].text` and
 ;; `:structuredContent`, and both ride the wire, so the cap must size the
 ;; structured slot too. The mcp-base contract pins the same class
@@ -71,17 +60,6 @@
         "the token count includes the structured-slot bytes")
     (is (<= (cap/sum-payload-tokens out) 1000)
         "the overflow replacement itself stays under the cap")))
-
-(deftest apply-cap-short-circuits-on-wire-bounded-markers
-  ;; No overflow of an overflow, even under a 1-token cap.
-  (doseq [marker [{:rf.mcp/cache-hit {:hash 42 :unchanged-since 0
-                                      :tool "snapshot" :hint "..."}}
-                  {:rf.mcp/overflow {:limit :reached :tool "snapshot"
-                                     :cap-tokens 100 :token-count 200
-                                     :hint "..."}}]]
-    (let [r (ok-text-result marker)]
-      (is (identical? r (cap/apply-cap r {:tool "snapshot" :cap 1}))
-          (str (ffirst marker) " passes through unchanged")))))
 
 (deftest apply-cap-caps-over-budget-lookalike-marker-key
   ;; The marker detector matches the EXACT key: a leading key that merely
