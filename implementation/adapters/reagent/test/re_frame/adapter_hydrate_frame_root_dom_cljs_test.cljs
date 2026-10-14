@@ -91,11 +91,10 @@
               (try
                 (is (< (copies) 2)
                     (str "the page is not mounted beside the server's copy. DOM: " (.-innerHTML el)))
-                (is (= [:rf.error/fresco-frame-root-adopting]
-                       (mapv #(:rf.error/id (ex-data %)) @refusals))
-                    (str "one refusal, naming the adopting frame-root. Saw: " (pr-str @refusals)))
-                (is (= frame-id (:frame (ex-data (first @refusals))))
-                    "the refusal names the frame-root's :id")
+                (is (= [{:rf.error/id :rf.error/fresco-frame-root-adopting :frame frame-id}]
+                       (mapv #(select-keys (ex-data %) [:rf.error/id :frame]) @refusals))
+                    (str "one refusal, naming the adopting frame-root and its :id. Saw: "
+                         (pr-str @refusals)))
                 (is (not (contains? (set (rf/frame-ids)) frame-id))
                     "the refusal came before the commit that would have made the frame")
                 (catch :default e
