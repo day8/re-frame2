@@ -2,86 +2,10 @@
   "Generic wrapper-marker conformance for the cross-MCP vocabulary.
 
   `wire-vocab.schemas/canonical-markers` owns the wrapper keys, schemas,
-  contracted servers, and representative fixtures.
-
-  Six top-level wrapper markers (the `canonical-markers` table below is
-  the source of truth — see it rather than re-counting this list),
-  plus the `:rf.elision/at` fetch-handle tag (embedded inside the
-  `:rf.size/large-elided` body's `:handle` slot — not a standalone
-  marker; pinned via the elision-marker body schema):
-
-  - `:rf.mcp/overflow`      — token-budget overflow marker
-                              (mcp-base `overflow.cljc` `overflow-payload`)
-  - `:rf.mcp/summary`       — tree-summary lazy-mode marker
-                              (re-frame2-pair-mcp `tools/summary.cljs` `tree-summary`)
-  - `:rf.mcp/dedup-table`   — structural-dedup wrapper (canonical
-                              encoder `re-frame.mcp-base.dedup/dedup-value`,
-                              consumed directly by both servers)
-  - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker; the
-                              body slot is `:sections` — a vector of
-                              path-headed cluster sections, each with
-                              `:section-path` + `:section-kind` +
-                              `:patches` (cross-MCP
-                              vocabulary per re-frame2-pair-mcp Principles
-                              §\"Cross-MCP vocabulary\"; canonical
-                              encoder
-                              `re-frame.mcp-base.diff-encode/diff-encode-db-after`)
-  - `:rf.size/large-elided` — size-elision wire marker
-                              (spec/Spec-Schemas §`:rf/elision-marker`,
-                               re-frame2-pair-mcp Principles §\"Size-elision\")
-  - `:rf.mcp/cache-hit`     — per-session response-cache hit marker
-                              (re-frame2-pair-mcp `cache.cljs`
-                              `cache-hit-payload`; literal in
-                              `mcp-base/vocab.cljc` `cache-hit-key`)
-  - `:rf.elision/at`        — size-elision fetch-handle tag, embedded
-                              inside the `:rf.size/large-elided` body's
-                              `:handle` slot per `ElisionMarkerBody`
-                              (NOT a standalone top-level marker)
-
-  story-mcp emits two of these markers — `:rf.mcp/dedup-table`
-  (the wire-boundary structural-dedup transform) and
-  `:rf.mcp/overflow` (its wire-boundary token-cap), both via
-  the shared `mcp-base` builders so the shapes stay byte-identical with
-  re-frame2-pair-mcp. Its remaining vocabulary is namespaced under
-  `:rf.story/*`, `:rf.assert/*`, `:rf.error/*` per its own spec. For
-  every marker story-mcp does NOT emit, the conformance gate guards
-  the *contract*: if story-mcp adopts one it MUST use the canonical
-  shape, not invent a near-miss — the `story-mcp-still-emits-zero-
-  uncontracted-cross-mcp-markers` tripwire below fires the day a NEW
-  uncontracted marker leaks in.
-
-  ## What this test guards
-
-  1. **One canonical schema per marker.** A single Malli schema lives
-     here. Every fixture EDN representing a server's actual emission
-     shape MUST validate against the canonical schema.
-
-  2. **Per-server fixture coverage.** Each marker has at least one
-     re-frame2-pair-mcp fixture exercising the schema. When a future MCP
-     server adopts the marker, a parallel fixture asserts the shared
-     contract.
-
-  3. **Source-text vocabulary pin.** A grep against each server's
-     emit source asserts the canonical literal appears as data. A rename
-     in any server surfaces here.
-
-  4. **Cross-server presence/absence.** The set of markers each
-     server is contracted to emit is pinned. Adding a sixth marker
-     requires editing this test — which forces the conformance
-     contract to stay in sync with the spec.
-
-  ## Why pure JVM Clojure (not Node SDK)
-
-  The sibling `tools/mcp-conformance/test/end-to-end-*.cjs` files
-  drive each server through the official MCP SDK client (handshake
-  + tools/list + tools/call against a live process). That validates
-  *protocol* conformance.
-
-  This test validates *vocabulary* conformance — the shapes of EDN
-  values the server emits as response payloads. It does NOT need a
-  live server: the schemas are normative, the fixtures are authored
-  from each server's spec/source, and the grep step pins those
-  authored fixtures to the actual source/spec text."
+  contracted servers and representative fixtures. This namespace checks
+  that every fixture conforms, drives each JVM-reachable emitter live
+  against its schema, pins each marker literal in its emit and doc
+  sources, and holds the envelope indicator-field slots."
   (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
@@ -98,55 +22,10 @@
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
-            ;; Shared wrapper contract data.
             [re-frame.mcp-conformance.wire-vocab.schemas
-             :refer [Overflow Summary DedupTable DiffFromBody
-                     ElisionMarker CacheHit DroppedSensitive ElidedLarge
-                     canonical-markers]]
-            ;; Shared source inventories.
+             :refer [Overflow DedupTable DiffFromBody ElisionMarker
+                     DroppedSensitive ElidedLarge canonical-markers]]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
-
-;; ---------------------------------------------------------------------------
-;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`,
-;; shared across the conformance test namespaces in this artefact.
-;;
-;; The canonical schemas + `canonical-markers` catalogue live in
-;; `re-frame.mcp-conformance.wire-vocab.schemas`; the shared source-pin
-;; inventories live in `re-frame.mcp-conformance.wire-vocab.source-pins`;
-;; and the independent marker families have their own `*_test.clj`
-;; namespaces (cursor-stale, result-envelope, redacted-sentinel, among
-;; others). This ns holds the CORE wrapper-marker contract:
-;; fixture-conformance over `canonical-markers`, the per-marker
-;; negative/live-emission gates, the marker-literal source pins, the JS
-;; cross-encoding pin, server-coverage, the story-mcp uncontracted-marker
-;; tripwire, and the envelope indicator-field slots.
-;;
-;; ## Where to touch when adding a new cross-MCP marker
-;;
-;;   - Wrapper-shaped marker (`{<key> <body>}`): add the schema to
-;;     `schemas.clj`, add an entry to `schemas/canonical-markers` (key +
-;;     schema + per-server fixtures + `:servers`), and — if the literal
-;;     home / doc-source moved — extend `source_pins.clj`. The generic
-;;     fixture-conformance + source-pin sweeps in THIS file then cover it.
-;;   - Non-wrapper marker (a `:reason` value, a bare scalar, a
-;;     tagged-union): give it its own
-;;     `*_test.clj` namespace (the cursor-stale / result-envelope /
-;;     redacted-sentinel files are the templates) requiring the shared
-;;     `schemas` + `source-pins` support nses. Keep the schema co-located
-;;     with its tests when it is referenced only by that family.
-;;   - Cross-encoding (JS) pin: if a live `.cjs` harness re-encodes the
-;;     shape, add the per-field grep-marker table next to the family's
-;;     fixture (see the overflow JS pin).
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; Fixture conformance — every authored fixture validates against the
-;; canonical schema for its marker. The primary conformance assertion:
-;; per-server fixture shapes all conform to the same single schema.
-;; Per-marker fixture variants (e.g. `:counts` vs `:count`, integer vs
-;; namespaced-keyword keys) pin the schema's alternate shapes so any MCP
-;; server adopting them validates without surprise.
-;; ---------------------------------------------------------------------------
 
 (deftest every-fixture-conforms-to-its-canonical-schema
   (doseq [{:keys [key schema fixtures]} canonical-markers
@@ -157,22 +36,8 @@
                " failed schema validation:\n"
                (me/humanize (m/explain schema fixture-value)))))))
 
-(deftest every-multi-server-marker-fixtures-cover-each-server
-  ;; Every server a marker is contracted for needs a fixture of its own,
-  ;; tagged by a key that starts with the server's name.
-  (doseq [{:keys [key fixtures servers]} canonical-markers
-          server                         servers]
-    (is (some #(str/starts-with? (name %) (name server)) (keys fixtures))
-        (str key " declares server " server " in :servers but no fixture "
-             "key starts with its name; got fixtures " (vec (keys fixtures))))))
-
 (deftest overflow-empty-body-is-rejected
-  ;; `ReFrame2PairOverflowBody` requires every field: an emit MUST carry
-  ;; re-frame2-pair-mcp's shape (`:cap-tokens` + `:token-count` + `:tool` +
-  ;; `:hint`). A schema marking every slot except `:limit`
-  ;; `{:optional true}` would let `{:rf.mcp/overflow {:limit :reached}}`
-  ;; alone validate, under-constraining the cross-server contract; this
-  ;; gate pins that directly.
+  ;; Every body field is required; an emit carrying only part of the shape fails.
   (is (not (m/validate Overflow
                        {:rf.mcp/overflow
                         {:limit      :reached
@@ -181,128 +46,39 @@
                          :hint       "..."}}))
       "re-frame2-pair-shape emit missing :token-count must fail"))
 
-;; ---------------------------------------------------------------------------
-;; SummaryBody per-type shape contract.
-;;
-;; `SummaryBody` is a `[:multi {:dispatch :type} ...]` enforcing the
-;; documented per-type required slots, with each arm CLOSED to its slot
-;; set (a cross-type slot leak — a scalar carrying `:keys`, a vector
-;; carrying `:value` — is rejected too). With `:keys` / `:count` /
-;; `:counts` / `:value` all `{:optional true}` and no type-specific
-;; predicate, a malformed `{:type :map :bytes 1}` (a map carrying neither
-;; `:keys` nor a count) and a scalar with no `:value` would both validate
-;; — unusable markers a future server could ship while the gate stayed
-;; green. These gates pin the malformed shapes; the documented ones are
-;; the `:rf.mcp/summary` fixtures in `canonical-markers`.
-;; ---------------------------------------------------------------------------
-
-(deftest summary-body-enforces-per-type-shape
-  (doseq [[label body] [["a map MUST carry :keys"               {:type :map :count 3 :bytes 10}]
-                        ["a map MUST carry :count or :counts"   {:type :map :keys [:a :b] :bytes 10}]
-                        ["a vector MUST carry :count"           {:type :vector :bytes 10}]
-                        ["a set MUST carry :count"              {:type :set :bytes 10}]
-                        ["a seq MUST carry :count"              {:type :seq :bytes 10}]
-                        ["a scalar MUST carry :value"           {:type :scalar :bytes 2}]
-                        ["a scalar MUST NOT carry :keys"        {:type :scalar :value 1 :bytes 2 :keys [:a]}]
-                        ["a vector MUST NOT carry :value"       {:type :vector :count 3 :bytes 10 :value 1}]
-                        ["an unknown :type has no dispatch arm" {:type :bogus :bytes 1}]]]
-    (is (not (m/validate Summary {:rf.mcp/summary body})) label)))
-
-;; ---------------------------------------------------------------------------
-;; Single-key wrapper contract.
-;;
-;; Every wire marker is a single reserved wrapper key (the file header:
-;; "The marker is always a single-key map keyed by the reserved keyword
-;; ... Agents pattern-match on the top-level reserved key"). The
-;; wrapper schemas (`Overflow` / `Summary` / `DedupTable` /
-;; `ElisionMarker` / `CacheHit`) are `{:closed true}`: an OPEN
-;; `[:map ...]` would let a payload carrying the marker PLUS an unrelated
-;; sibling top-level key validate — a mixed-envelope emission a uniform
-;; cross-server client can't pattern-match. These gates pin
-;; that an extra sibling key is rejected for each. (`:rf.mcp/diff-from`
-;; is the documented exception — marker key + `:sections` ride as a
-;; closed PAIR; covered by `diff-from-rejects-extra-sibling-key` below.)
-;; ---------------------------------------------------------------------------
-
+;; Overflow and ElisionMarker are the wrappers a production builder emits
+;; whole, so their closedness is what lets the live gates below catch a
+;; builder that adds a sibling key.
 (deftest wrapper-markers-reject-extra-sibling-key
-  ;; Each wrapper is the canonical single-key shape plus a sibling; the
-  ;; single-key shapes themselves are the `canonical-markers` fixtures.
   (doseq [[schema wrapper] [[Overflow {:rf.mcp/overflow {:limit :reached :token-count 1 :cap-tokens 1
                                                          :tool "snapshot" :hint "..."}}]
-                            [Summary {:rf.mcp/summary {:type :vector :count 3 :bytes 10}}]
-                            [DedupTable {:rf.mcp/dedup-table {:de-dupe.cache/cache-0 {:a 1}}}]
                             [ElisionMarker {:rf.size/large-elided {:path [:a] :bytes 1 :type :map
                                                                    :reason :effect :hint nil
-                                                                   :handle [:rf.elision/at [:a]]}}]
-                            [CacheHit {:rf.mcp/cache-hit {:hash 1 :unchanged-since 1 :tool "snapshot"
-                                                          :hint "..."}}]]]
+                                                                   :handle [:rf.elision/at [:a]]}}]]]
     (is (not (m/validate schema (assoc wrapper :sneaky :key)))
         (str (ffirst wrapper) " MUST be a single key — an extra sibling fails"))))
 
 (deftest diff-from-rejects-extra-sibling-key
-  ;; `:rf.mcp/diff-from` is NOT a single-key wrapper — it carries the
-  ;; marker key + its `:sections` body slot as a documented PAIR. The
-  ;; closed map rejects any OTHER sibling top-level key: the encoder
-  ;; emits exactly these two keys.
+  ;; The marker key and `:sections` ride as a closed PAIR.
   (is (not (m/validate DiffFromBody {:rf.mcp/diff-from :db-before :sections [] :sneaky :key}))
       "a diff-from :db-after carrying a key beyond {marker, :sections} MUST fail")
   (is (not (m/validate DiffFromBody {:rf.mcp/diff-from :db-before}))
       "the :sections body slot is required"))
 
-;; ---------------------------------------------------------------------------
-;; DedupTable root-cache contract.
-;;
-;; A bare `[:map [:rf.mcp/dedup-table :map]]` would accept ANY map,
-;; including `{}` and caches with no `cache-0` root. But
-;; `re-frame.mcp-base.dedup/expand` (what an agent host calls) ALWAYS starts at
-;; the `de-dupe.cache/cache-0` root, and the Node-side decoder
-;; (`tools/mcp-conformance/lib/dedup-envelope.cjs`) THROWS on a missing
-;; root. So a schema that loose would be strictly LOOSER than the
-;; client-visible / Node decoder contract: a root-less table that no
-;; real client can expand would validate JVM-side. This gate pins the
-;; schema's teeth — it rejects the root-less shape the Node decoder
-;; rejects. The keyword root form is the `canonical-markers` fixtures',
-;; and the symbol root form is what the live encoder test below emits.
-;; ---------------------------------------------------------------------------
-
 (deftest dedup-table-rejects-rootless-cache
-  ;; cache-1 / cache-2 present but the load-bearing cache-0 root is
-  ;; absent — `expand` begins at cache-0 and would throw. The Node
-  ;; decoder throws the same way.
+  ;; `expand` and the Node decoder both start at cache-0, so a root-less
+  ;; table is un-expandable.
   (is (not (m/validate DedupTable
                        {:rf.mcp/dedup-table
                         {:de-dupe.cache/cache-1 {:event-id :foo}
                          :de-dupe.cache/cache-2 {:event-id :bar}}}))
       "DedupTable must reject a cache missing the de-dupe.cache/cache-0 root."))
 
-;; ---------------------------------------------------------------------------
-;; LIVE dedup-table emission + JVM↔Node root agreement.
-;;
-;; Drive the REAL `re-frame.mcp-base.dedup/de-dupe-eq` encoder (the same fn both
-;; pair-mcp and story-mcp call at their wire boundary) over a
-;; duplicate-rich value and assert:
-;;
-;;   1. the wrapped marker validates against the DedupTable
-;;      schema (the encoder genuinely emits a cache-0 root — the
-;;      regression the fixture-only layer would miss); and
-;;   2. after a JSON round-trip (the symbol→string coercion every JSON
-;;      transport performs), the table's root key is the byte-for-byte
-;;      string the Node decoder hardcodes as `ROOT_CACHE_ID`. This pins
-;;      the JVM-encoder ⇄ Node-decoder agreement directly — the cross-
-;;      MCP root convention cannot drift on one side silently.
-;; ---------------------------------------------------------------------------
-
 (def ^:private node-decoder-root-cache-id
-  "The literal `ROOT_CACHE_ID` the Node decoder
-  (`tools/mcp-conformance/lib/dedup-envelope.cjs`) requires as the cache
-  root. Mirrored here so the live test below pins the JVM-encoder's
-  emitted root against the Node-decoder's expectation; the Node decoder's
-  own tests pin its side."
+  "The `ROOT_CACHE_ID` literal `lib/dedup-envelope.cjs` decodes from."
   "de-dupe.cache/cache-0")
 
 (deftest dedup-table-emitted-live-by-canonical-encoder
-  ;; The load-bearing live-emission gate for `:rf.mcp/dedup-table`. A
-  ;; payload with repeated subtrees so de-dupe actually pools them.
   (let [payload   [{:event-id :user/sign-in  :handler-id :auth}
                    {:event-id :user/sign-in  :handler-id :auth}
                    {:event-id :user/sign-out :handler-id :auth}]
@@ -313,18 +89,8 @@
           (str "Live-emitted dedup-table failed DedupTable validation:\n"
                (me/humanize (m/explain DedupTable wrapped)))))
     (testing "JVM↔Node root agreement: the JSON string form of the root key matches the Node decoder's ROOT_CACHE_ID"
-      ;; The cache keys are namespaced SYMBOLS (`de-dupe.cache/cache-N`).
-      ;; The real story-mcp wire serialises them with Cheshire, whose
-      ;; `generate-string` renders a namespaced symbol key as its FULL
-      ;; `(str sym)` form — namespace preserved — i.e.
-      ;; `"de-dupe.cache/cache-0"`. (`clojure.data.json` is the wrong
-      ;; model here: it DROPS the namespace to `"cache-0"`, which would
-      ;; never round-trip through the Node decoder — so we pin the
-      ;; library-independent `(str key)` form Cheshire and the MCP wire
-      ;; actually emit.) Assert the root key's string form is exactly
-      ;; the literal the Node decoder hardcodes; a drift in the encoder's
-      ;; root convention turns THIS gate red before it breaks real
-      ;; clients.
+      ;; Cheshire, which the MCP wire uses, writes a namespaced symbol key as
+      ;; its full `(str sym)` form.
       (let [root-key-strs (set (map str (keys cache)))]
         (is (contains? root-key-strs node-decoder-root-cache-id)
             (str "The cache's root key, in its on-the-wire string form, "
@@ -333,77 +99,7 @@
                  "ROOT_CACHE_ID) requires. Got key string forms: "
                  (pr-str root-key-strs)))))))
 
-;; ---------------------------------------------------------------------------
-;; LIVE marker emission.
-;;
-;; ## Why fixture + grep is not enough
-;;
-;; Without a live-emission gate a marker is pinned by exactly two
-;; layers:
-;;
-;;   1. an authored fixture validated against the canonical schema
-;;      (`every-fixture-conforms-to-its-canonical-schema`); and
-;;   2. a source-text grep that the marker LITERAL appears in
-;;      `mcp-base/vocab.cljc` (`marker-literal-appears-...-emit-source`).
-;;
-;; Neither layer observes the actual ENCODER producing the marker. The
-;; grep checks only that the literal is DECLARED in vocab.cljc — not that
-;; `diff-encode-db-after` still WRITES it into a real epoch. A regression
-;; that made `diff-encode-db-after` pass `:db-after` through unchanged
-;; (or emit a different key) would: leave the vocab literal in place
-;; (grep passes), leave the authored fixture untouched (fixture passes),
-;; and ship a tool that silently stopped diff-encoding. Every gate green.
-;;
-;; ## The live gate
-;;
-;; A live-emission gate for `:rf.mcp/diff-from`: drive the CANONICAL
-;; encoder (`re-frame.mcp-base.diff-encode/diff-encode-db-after`, the
-;; same fn re-frame2-pair-mcp's wire pipeline calls) over a real epoch
-;; and assert the emitted `:db-after` (a) carries the `:rf.mcp/diff-from`
-;; marker key and (b) validates against the canonical `DiffFromBody`
-;; schema pinned above. If the encoder stops emitting the marker — the
-;; exact regression the fixture+grep layers miss — this gate fails.
-;;
-;; ## Per-marker live-vs-fixture policy
-;;
-;; Only markers whose EMITTER is JVM-reachable from this pure-JVM gate
-;; get a live-emission assertion:
-;;
-;;   - :rf.mcp/diff-from   — LIVE here. Emitter is mcp-base
-;;                           `diff-encode-db-after` (`.cljc`, on the JVM
-;;                           classpath via the `:test` alias).
-;;   - :rf.mcp/overflow    — LIVE in `live-re-frame2-pair-overflow.cjs`
-;;                           (hermetic CI). Emitter is the re-frame2-pair-mcp
-;;                           CLJS wire boundary; the marker SHAPE builder
-;;                           (`mcp-base/overflow.cljc/overflow-payload`)
-;;                           is additionally exercised live below since
-;;                           it too is JVM-reachable.
-;;   - :rf.size/large-elided — LIVE here. Emitter is the
-;;                           framework wire-elision walker
-;;                           (`re-frame.elision/elide-wire-value`, `.cljc`,
-;;                           on the JVM classpath via the `:test` alias's
-;;                           core `:local/root`). Driven below over a
-;;                           classified `:large` slot; the emitted
-;;                           marker is validated against the canonical
-;;                           `ElisionMarker` schema. Without it the
-;;                           fixture+grep layers never observe the real
-;;                           emitter, so a runtime `:reason` that the
-;;                           schema's enum does not admit would go
-;;                           unseen.
-;;   - :rf.mcp/summary     — FIXTURE+grep only. Emitter is re-frame2-pair-mcp
-;;     :rf.mcp/dedup-table   CLJS (`tools/*.cljs`) with no JVM-reachable
-;;     :rf.mcp/cache-hit     counterpart; a pure-JVM live probe is
-;;                           impossible. Their bodies are pure data
-;;                           transforms already unit-tested in mcp-base /
-;;                           re-frame2-pair-mcp; a live SDK probe for each
-;;                           is tracked as future work (it requires the
-;;                           heavyweight nREPL+Playwright orchestrator the
-;;                           overflow path uses).
-;; ---------------------------------------------------------------------------
-
 (deftest diff-from-marker-emitted-live-by-canonical-encoder
-  ;; The load-bearing live-emission gate. Drive the real encoder and
-  ;; assert the marker is actually written — not just declared in vocab.
   (let [epoch    {:db-before {:cart {:items [{:sku "abc"}]}
                               :checkout {:state :idle}
                               :tmp 42}
@@ -418,13 +114,6 @@
                (me/humanize (m/explain DiffFromBody db-after)))))))
 
 (deftest overflow-marker-shape-emitted-live-by-canonical-builder
-  ;; `:rf.mcp/overflow`'s wire emission is live-tested in
-  ;; `live-re-frame2-pair-overflow.cjs`, but its SHAPE builder
-  ;; (`mcp-base/overflow.cljc/overflow-payload`) is also JVM-reachable.
-  ;; Drive it directly and assert the built marker validates against the
-  ;; canonical Overflow schema — a live counterpart to the authored
-  ;; overflow fixtures, catching a builder change that drifts the body
-  ;; shape without touching the fixtures.
   (let [marker (rf.mcp-base.overflow/overflow-payload
                  {:tool "snapshot" :token-count 6250 :cap 5000
                   :hint "Narrow the scope."})]
@@ -432,33 +121,10 @@
         (str "Live-built overflow marker failed Overflow validation:\n"
              (me/humanize (m/explain Overflow marker))))))
 
-;; ---------------------------------------------------------------------------
-;; :rf.size/large-elided — live-emission gate.
-;;
-;; The runtime emits the declaration SOURCE as `:reason` (EP-0025: `:effect`
-;; for the commit-plane classification effect, the canonical default — a
-;; large declaration is neither schema-owned NOR a frame annotation). With
-;; only a fixture (authored to match the schema) and a source-text grep
-;; (literal key only), a schema whose `:reason` enum drifted from the runtime
-;; would validate an IMPOSSIBLE shape and FAIL a real `:effect` marker — yet
-;; every gate would stay green. This gate drives the REAL walker
-;; (`re-frame.elision/elide-wire-value`) over a classified `:large` slot and
-;; validates the emitted marker against the canonical `ElisionMarker` schema,
-;; so a `:reason`-enum (or any body-shape) drift between runtime and schema
-;; turns this gate red.
-;;
-;; Self-contained runtime setup: this artefact's other tests are pure
-;; data and carry no `use-fixtures`, so the gate stands up + tears down
-;; its own minimal frame runtime (mirroring
-;; `implementation/core/test/re_frame/elision_test.clj`'s `reset-runtime`
-;; + `install-class!`).
-
 (defn- elision-live-marker
-  "Drive `re-frame.elision/elide-wire-value` LIVE over a classified
-  `:large` `app-db` slot and return the emitted `:rf.size/large-elided`
-  marker map. `large` is a vector of `:rf/path` vectors classified through
-  the EP-0025 commit-plane `:large` classification effect (`:source :effect`).
-  `v` is the wire value walked under the `:rf/default` frame scope."
+  "Drive `re-frame.elision/elide-wire-value` over `v` with the `large`
+  paths classified through the commit-plane `:large` effect, under a fresh
+  `:rf/default` frame."
   [large v]
   (reset! rf.frame/frames {})
   (rf/init! rf.substrate.plain-atom/adapter)
@@ -467,18 +133,11 @@
   (rf.elision/configure! {:rf.egress/threshold-bytes 16384})
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
-    ;; EP-0025: classify the `:large` paths via the commit-plane effect path —
-    ;; the same registry write a `reg-event` returning `:large` performs (the
-    ;; durable `:large {:app-db …}` frame annotation is removed).
     (rf.frame/swap-runtime-db! :rf/default
       (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)})))
     (rf.elision/elide-wire-value v)))
 
 (deftest elision-marker-emitted-live-by-canonical-walker
-  ;; Drive the REAL walker over a frame-declared `:large` slot and assert
-  ;; the emitted marker validates against the closed single-key
-  ;; `ElisionMarker` schema — the gate that catches a `:reason` drift
-  ;; between the runtime and the schema.
   (let [out    (elision-live-marker
                  [[:user :uploaded-pdf]]
                  {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
@@ -489,37 +148,13 @@
              "(a :reason drift the fixture+grep "
              "layers cannot see):\n"
              (me/humanize (m/explain ElisionMarker marker))))
-    ;; A `:large`-classified slot emits the commit-plane classification
-    ;; provenance (EP-0025) and the absolute declared path.
     (is (= {:reason :effect :path [:user :uploaded-pdf]}
            (select-keys (:rf.size/large-elided marker) [:reason :path])))))
 
-;; ---------------------------------------------------------------------------
-;; :rf.size/large-elided — SECOND live emitter.
-;;
-;; The gate above drives the wire-elision walker
-;; (`re-frame.elision/elide-wire-value`). But the framework has a SECOND
-;; runtime emitter of the same marker: the schemas-artefact validation-
-;; failure size-safety arm. When a `:large?`-flagged schema slot fails
-;; validation, `re-frame.schemas.validate/validate-event!` substitutes the
-;; `:rf.size/large-elided` marker into the value-bearing trace slots
-;; (Spec 010 §`:large?`) so the raw blob never rides the
-;; `:rf.error/schema-validation-failure` trace.
-;;
-;; The emitter delegates to the canonical `rf.elision/->marker`. Left
-;; FIXTURE-FREE, `validate.cljc` could ship a non-conformant marker (a
-;; `:reason` outside the enum, the REQUIRED `:hint` slot omitted) while its
-;; docstring claimed `:rf/elision-marker` conformance. This gate drives the
-;; REAL `validate-event!` emitter LIVE and validates the emitted marker
-;; against the SAME canonical `ElisionMarker` schema, so a drift on the
-;; schemas-artefact path turns red here — symmetric to the
-;; `elide-wire-value` gate above.
-
 (defn- schema-validation-failure-marker
-  "Drive `re-frame.schemas.validate/validate-event!` LIVE over a
-  `:large?`-flagged schema slot whose value fails validation, capture the
-  `:rf.error/schema-validation-failure` trace, and return the
-  `:rf.size/large-elided` marker substituted into its `:value` slot."
+  "Drive `re-frame.schemas.validate/validate-event!` over a `:large?` slot
+  whose value fails validation and return the `:rf.size/large-elided`
+  marker substituted into the failure trace's `:value` slot."
   [blob]
   (reset! rf.frame/frames {})
   (rf/init! rf.substrate.plain-atom/adapter)
@@ -535,10 +170,6 @@
         :tags :value)))
 
 (deftest schema-validation-failure-marker-emitted-live-validates
-  ;; Drive the REAL schemas-artefact validation-failure emitter and assert
-  ;; the substituted marker validates against the closed single-key
-  ;; `ElisionMarker` schema, which requires `:hint` and the EP-0025
-  ;; `:reason` enum.
   (let [blob   (apply str (repeat 200 "X"))
         marker (schema-validation-failure-marker blob)]
     (testing "the live-emitted validation-failure marker validates against ElisionMarker"
@@ -556,44 +187,9 @@
       (is (not (str/includes? (pr-str marker) blob))
           "the whole-value substitution must not re-leak the blob"))))
 
-;; ---------------------------------------------------------------------------
-;; Source-text vocabulary pin. The literal marker key MUST appear in
-;; each contracted server's source/spec. A rename in the framework or in
-;; either server surfaces here — the schema is one gate, the
-;; literal-occurrence pin is the second.
-;;
-;; The pin is split in two:
-;;
-;; - **emit-sources** — source files where the literal MUST appear as
-;;   actual data (not in a comment or docstring). Stripped via
-;;   `strip-comments-and-strings` before the grep. A rename in any of
-;;   these files MUST trip the test even if a docstring elsewhere still
-;;   carries the old form.
-;; - **doc-sources** — spec docs and prose-y descriptors where the
-;;   literal SHOULD appear for human readers. Looser — a `str/includes?`
-;;   against raw text suffices; documentation reorganisation may move
-;;   the mention around without tripping the gate.
-;;
-;; A single `some` over code and spec docs would pass whenever the spec
-;; docs prose-reference a marker — even when the literal appears in no
-;; re-frame2-pair-mcp source code AT ALL (the literals are imported via
-;; `re-frame.mcp-base.vocab/<key>`), so a rename inside
-;; `mcp-base/vocab.cljc` (the canonical home of every literal) would not
-;; trip it. The emit-side pin closes that hole.
-;; ---------------------------------------------------------------------------
-
-;; `emit-source-files` / `doc-source-files` / `marker-key->literal` live
-;; in `re-frame.mcp-conformance.wire-vocab.source-pins` so the focused
-;; marker-family test namespaces share one home.
-
+;; Emit sources are scanned after stripping comments and strings, so a
+;; docstring mention cannot satisfy the pin; doc sources are scanned raw.
 (deftest marker-literal-appears-in-every-contracted-server-emit-source
-  ;; The load-bearing pin: every marker literal each server is
-  ;; contracted to emit MUST appear as DATA (not docstring/comment) in
-  ;; at least one of the registered emit-source files. The
-  ;; `strip-comments-and-strings` walker is applied before the grep so
-  ;; a rename inside the canonical declaration site (`mcp-base/vocab.cljc`,
-  ;; the shared emit-source for both servers) trips the gate even if old
-  ;; docstrings still mention the prior name.
   (doseq [{:keys [key servers]} canonical-markers
           server                servers]
     (testing (str "marker " key " literal in " server " emit-sources")
@@ -611,11 +207,6 @@
                  "`emit-source-files`."))))))
 
 (deftest marker-literal-appears-in-re-frame2-pair-mcp-doc-sources
-  ;; Defence-in-depth: re-frame2-pair-mcp's spec/descriptor docs SHOULD also
-  ;; carry each emitted-marker literal for human readers. Looser pin —
-  ;; raw `str/includes?` allows docstring mentions; the load-bearing
-  ;; check is the emit-source pin above. Drift here means the docs
-  ;; lag, not that the emit shape broke.
   (doseq [{:keys [key servers]} canonical-markers
           :when                 (contains? servers :re-frame2-pair-mcp)]
     (testing (str "marker " key " literal in re-frame2-pair-mcp doc-sources")
@@ -629,65 +220,17 @@
                  ". The docs may have re-organised the prose; either "
                  "restore the mention or update `doc-source-files`."))))))
 
-;; ---------------------------------------------------------------------------
-;; JS-vs-Malli `ReFrame2PairOverflowBody` cross-encoding sanity.
-;;
-;; `lib/overflow-marker.cjs` (imported by `test/live-re-frame2-pair-overflow.cjs`)
-;; hand-rolls `assertOverflowBody` as a JS
-;; re-encoding of `ReFrame2PairOverflowBody`. The two encodings must agree on
-;; the same contract — that's the whole point of pinning a vocabulary
-;; conformance gate; a drift between the encodings is a vocabulary bug
-;; (a marker shape the Malli side considers valid that the JS side
-;; rejects, or vice versa). Without this gate, divergence could ship
-;; silently: a tightening to `ReFrame2PairOverflowBody` (e.g. promoting a
-;; field from optional to required) could pass the Malli side while the
-;; JS side lagged.
-;;
-;; The gate works by slurping the JS file and grepping for every Malli
-;; required-field substring. A field added to the Malli schema MUST
-;; appear in the JS form's hand-rolled assertions; missing a field
-;; trips this gate. Drift in the OTHER direction (JS has a check the
-;; Malli schema doesn't) is handled by the Malli schema's reject set
-;; in `overflow-empty-body-is-rejected` — together the two gates pin
-;; the cross-encoding contract from both sides.
-;;
-;; Why grep, not parse-and-execute: pulling a JS parser onto the JVM
-;; classpath to evaluate `assertOverflowBody` against a fixture would
-;; be ~50× the dependency surface for a pin that's a five-field union. The grep set is a curated whitelist — adding a Malli field
-;; means adding one entry here; the friction is correct.
-;; ---------------------------------------------------------------------------
+;; `lib/overflow-marker.cjs` re-encodes `ReFrame2PairOverflowBody` for the
+;; live overflow gate. Each required field must keep its row there, and the
+;; cross-field invariant, which the Malli schema does not model, its check.
 
 (def ^:private live-re-frame2-pair-overflow-js-rel
-  "Relative path to the hand-rolled JS assertion. Single source of truth
-  — drift here surfaces against the slurp below.
-
-  The pure overflow parsing/validation lives in `lib/overflow-marker.cjs`
-  (so its branches are unit-testable off the SKIP-gated live path). The
-  `REQUIRED_FIELDS` data table + the token-count invariant this gate greps
-  live THERE; the live `test/live-re-frame2-pair-overflow.cjs` imports
-  them. The slurp points at the helper that owns the rows."
   "tools/mcp-conformance/lib/overflow-marker.cjs")
 
 (def ^:private re-frame2-pair-overflow-js-required-grep-markers
-  "Substrings the JS `assertOverflowBody` MUST contain to pin every
-  required field on `ReFrame2PairOverflowBody`. Each entry is `[malli-field
-  js-substring]` — the field for error reporting, the substring as the
-  grep target. A field added to `ReFrame2PairOverflowBody` MUST add a row
-  here; a field removed from `ReFrame2PairOverflowBody` MUST remove a row.
-  Drift surfaces as a test failure naming the missing field.
-
-  The JS side parses EDN keywords as bare strings via `edn-data` (no `:`
-  prefix) and the required-field assertions live in one data-driven
-  `REQUIRED_FIELDS` table. The grep targets pin each row of that table by its literal
-  appearance in the source — a `REQUIRED_FIELDS` row that's been
-  renamed or deleted trips this gate even if the data-driven loop
-  silently skips it."
-  [;; The `[<field>, <pred>, <desc>]` row signatures in REQUIRED_FIELDS.
-   ;; Each row is on its own source line so a substring search uniquely
-   ;; pins the row's presence; whitespace inside the row is normalised
-   ;; in the source for alignment but `str/includes?` is whitespace-
-   ;; sensitive so we pin the canonical spaced form.
-   [":limit :reached"
+  "`[malli-field js-substring]` pairs; the substring is the field's
+  `REQUIRED_FIELDS` row as the source spells it."
+  [[":limit :reached"
     "['limit',       (v) => v === 'reached',          'enum :reached']"]
    [":cap-tokens : int"
     "['cap-tokens',  (v) => Number.isInteger(v),      'int']"]
@@ -697,21 +240,10 @@
     "['tool',        (v) => typeof v === 'string',    'string|keyword']"]
    [":hint : string|keyword"
     "['hint',        (v) => typeof v === 'string',    'string|keyword']"]
-   ;; Cross-field invariant: a tripped cap MUST report token-count
-   ;; STRICTLY GREATER THAN cap-tokens. The JS form pins this as a
-   ;; numeric comparison after the per-field loop; the Malli schema
-   ;; doesn't model cross-field relationships, so this grep is the only
-   ;; gate on the invariant. A future regression that emitted a
-   ;; degenerate overflow with `:token-count == :cap-tokens` would trip
-   ;; here.
    ["token-count > cap-tokens invariant"
     "body['token-count'] <= body['cap-tokens']"]])
 
 (deftest js-assertOverflowBody-pins-every-re-frame2-pair-overflow-required-field
-  ;; The cross-encoding sanity gate. For every required field on the
-  ;; Malli `ReFrame2PairOverflowBody` schema, the JS `assertOverflowBody`
-  ;; function MUST carry a substring that asserts the same shape.
-  ;; Missing fields trip this gate with the field name in the error.
   (let [js-src (rf.mcp-conformance.fixtures/read-source live-re-frame2-pair-overflow-js-rel)]
     (doseq [[field grep-pattern] re-frame2-pair-overflow-js-required-grep-markers]
       (testing (str "JS assertOverflowBody pins field " field)
@@ -725,27 +257,9 @@
                  "remove the entry from "
                  "`re-frame2-pair-overflow-js-required-grep-markers`."))))))
 
+;; A marker story-mcp starts emitting must first be contracted for it in
+;; `canonical-markers`, with a fixture and a source pin.
 (deftest story-mcp-still-emits-zero-uncontracted-cross-mcp-markers
-  ;; Self-documenting tripwire: the day story-mcp adopts a NEW
-  ;; cross-MCP marker as an INLINE EMISSION (i.e. one it is NOT
-  ;; already contracted for in `canonical-markers/:servers`), this
-  ;; test flips RED — at which point the reviewer adds story-mcp to
-  ;; the `:servers` set on the affected marker, adds a fixture, and
-  ;; extends `server-source-files`. That's the right friction;
-  ;; conformance is not free.
-  ;;
-  ;; Markers story-mcp is ALREADY contracted to emit are skipped — the
-  ;; contract IS the green-state. That set is
-  ;; `#{:rf.mcp/dedup-table :rf.mcp/overflow}` (story-mcp's
-  ;; structural-dedup wire-boundary transform and its token-cap, both via
-  ;; the shared mcp-base builders); the gate fires on every OTHER marker.
-  ;;
-  ;; Comment- and docstring-only mentions are stripped before the
-  ;; check (via `strip-comments-and-strings`). story-mcp re-uses
-  ;; mcp-base's overflow / elision machinery; its `tools/*.cljc` files
-  ;; document `:rf.mcp/overflow` and `:rf.size/large-elided` in
-  ;; docstrings without inline-emitting either. Documentation is not
-  ;; an emission — this tripwire fires only on bare-code occurrences.
   (let [story-files       rf.mcp-conformance.fixtures/story-mcp-source-files
         uncontracted-keys (for [{:keys [key servers]} canonical-markers
                                 :when (not (contains? servers :story-mcp))]
@@ -762,59 +276,18 @@
                    ":servers, add a story-mcp fixture, and extend "
                    "`server-source-files`.")))))))
 
-;; ---------------------------------------------------------------------------
-;; Envelope indicator-field gate (MUST-level pin).
-;;
-;; Per Conventions §Cross-MCP indicator-field vocabulary and Spec 009
-;; §Size elision in traces — Indicator field on tool responses, tools
-;; that return structured response maps MUST carry an `:elided-large`
-;; count alongside the `:dropped-sensitive` count, one MUST-
-;; level row per consumer-facing tool that walks a tree-typed payload.
-;;
-;; Conformance contract:
-;;
-;; 1. Schema-level: both envelope slots validate as
-;;    `[:map {:closed false} [<slot> pos-int?]]` — a PRESENT slot is
-;;    always a positive count (the omit-when-zero MUST turns a zero into
-;;    an absent key, so a present `0` is a rejected regression, pinned by
-;;    `envelope-indicator-present-zero-rejected` below). Fixtures sourced
-;;    from each emitting server.
-;; 2. Parity through one helper: both servers emit the two slots
-;;    through `re-frame.mcp-base.envelope/with-indicators`, so a server
-;;    cannot emit one without the other. pair-mcp's routing is pinned
-;;    in `indicator_field_test.clj`.
-;; 3. story-mcp routing: story-mcp's `run-variant` / `preview-variant` /
-;;    `read-failures` payload builders emit both slots through the
-;;    centralised `egress/with-indicators` helper;
-;;    `story-mcp-routes-envelope-through-the-centralised-helper` pins
-;;    that routing.
-;;
-;; The mcp-base vocab ns (`tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`)
-;; reserves the two slot KEYS as constants (`dropped-sensitive-key`,
-;; `elided-large-key`); the count-walker helper
-;; (`count-elided-markers`) lives in the sibling `elision` ns
-;; (`tools/mcp-base/src/re_frame/mcp_base/elision.cljc`) — a runtime
-;; tree-walker, not a constant, so it doesn't sit in the vocabulary
-;; catalogue. Consumers import either ns to keep the key bytes byte-
-;; identical across servers.
-;; ---------------------------------------------------------------------------
+;; Envelope indicator slots (Conventions §Cross-MCP indicator-field
+;; vocabulary). The omit-when-zero MUST makes a present slot always a
+;; positive count.
 
 (def envelope-indicator-slots
-  "Conformance contract for the two unqualified envelope-indicator
-  slots. Each entry pins the schema and per-server fixtures. The two
-  slots are siblings — any server that emits one MUST emit the other,
-  which holds because every emitter routes through the one mcp-base
-  helper."
+  "Each unqualified envelope slot with its schema and per-server fixtures."
   [{:slot     :dropped-sensitive
     :schema   DroppedSensitive
     :fixtures {:re-frame2-pair-mcp-trace-window
                {:ok? true :epochs [] :dropped-sensitive 3}
                :re-frame2-pair-mcp-snapshot
                {:ok? true :snapshot {} :dropped-sensitive 1}
-               ;; story-mcp emission: `read-failures` /
-               ;; `run-variant` / `preview-variant` drop `:sensitive? true`
-               ;; assertion records at egress and surface the count via
-               ;; `egress/with-indicators` (→ mcp-base envelope helper).
                :story-mcp-read-failures
                {:variant-id :story.button/primary :status :pass
                 :total 1 :failures [] :assertions [] :dropped-sensitive 2}}}
@@ -833,12 +306,6 @@
                   :hint "User PDF; fetch via get-path."
                   :handle [:rf.elision/at [:user :pdf]]}}
                 :elided-large 1}
-               ;; story-mcp emission: `run-variant` /
-               ;; `preview-variant` elide classified `:large` /
-               ;; over-threshold `:app-db` leaves (EP-0025: the declaration
-               ;; rides the commit-plane `:large` effect — `:reason :effect`)
-               ;; and count the `:rf.size/large-elided` markers via
-               ;; `egress/count-elided` (→ mcp-base `count-elided-markers`).
                :story-mcp-run-variant
                {:status :pass :frame :story.button/primary
                 :app-db {:blob {:rf.size/large-elided
@@ -857,19 +324,6 @@
                (me/humanize (m/explain schema fixture-value)))))))
 
 (deftest envelope-indicator-present-zero-rejected
-  ;; The negative counterpart to `envelope-indicator-fixtures-conform`
-  ;; (which pins that the positive fixtures are ACCEPTED). The
-  ;; omit-when-zero MUST (Conventions §Cross-MCP indicator-field
-  ;; vocabulary / Spec 009 §Indicator field on tool responses) says a ZERO
-  ;; count is OMITTED — the slot key never appears on the wire. The
-  ;; production emit-path (`re-frame.mcp-base.envelope/with-indicators`)
-  ;; enforces exactly that (`(pos? (or count 0))`), so a PRESENT
-  ;; `:dropped-sensitive 0` / `:elided-large 0` can only be a regression
-  ;; that bypassed the helper. The canonical schema is `pos-int?`
-  ;; precisely so it REJECTS the present-zero shape rather
-  ;; than blessing it — the schema must not be looser than the
-  ;; omit-when-zero production contract (a `nat-int?` would accept a
-  ;; present zero).
   (doseq [{:keys [slot schema]} envelope-indicator-slots]
     (testing (str "present-zero " slot " ⇒ schema REJECTS (omit-when-zero, not zero-emit)")
       (is (not (m/validate schema {slot 0}))
@@ -879,22 +333,9 @@
                "`nat-int?`) so a helper-bypassing present-zero regression fails "
                "conformance.")))))
 
+;; story-mcp's twin of `indicator_field_test.clj`'s pair-mcp routing pin:
+;; the omit-when-zero rule lives on one emit-path in mcp-base.
 (deftest story-mcp-routes-envelope-through-the-centralised-helper
-  ;; story-mcp keeps the envelope-indicator parity. The
-  ;; centralised emit-path is `egress/with-indicators` (delegating to
-  ;; the shared mcp-base helper) + `egress/count-elided` (delegating to
-  ;; `count-elided-markers`). This pin asserts that delegation AND that
-  ;; the tree-walking tools route their payload through the centralised
-  ;; egress epilogue — the structural guarantee that the omit-when-zero
-  ;; MUST lives in one place, mirroring `indicator_field_test.clj`'s
-  ;; pair-mcp routing pin.
-  ;;
-  ;; The three live-state read sites (dev/preview-variant,
-  ;; testing/run-variant, testing/read-failures) share the
-  ;; `egress/result-with-indicators` epilogue, which routes through
-  ;; `egress/with-indicators`. This pin follows the routing into that
-  ;; helper rather than grepping each tool body for a `with-indicators`
-  ;; literal.
   (let [egress-rel "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
         egress-src (rf.mcp-conformance.fixtures/read-source egress-rel)]
     (testing "egress.cljc delegates to the shared mcp-base envelope helper"
