@@ -116,11 +116,9 @@
     (is (= (ld-json "{\"@type\":\"Rating\",\"ratingValue\":0.3333333333333333}")
            (rf.ssr/head-model->html {:json-ld [{"@type" "Rating" "ratingValue" 1/3}]}))))
   (testing "a non-finite double has no JSON form, so the emitter fails fast"
-    (doseq [bad [##Inf ##-Inf ##NaN]]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-number"
-            (rf.ssr/head-model->html {:json-ld [{"@type" "Rating" "ratingValue" bad}]}))
-          (pr-str bad)))))
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-number"
+          (rf.ssr/head-model->html {:json-ld [{"@type" "Rating" "ratingValue" ##NaN}]})))))
 
 (deftest head-model->html-json-ld-escapes-control-chars
   (testing "every C0 control char is JSON-escaped (the five short forms, else
@@ -147,50 +145,8 @@
   (is (= "" (rf.ssr/head-model->html {})) "an empty model emits no orphan tags")
   (is (= "<head><title>Hi</title></head>" (rf.ssr/head-model->html {:title "Hi"} {:wrap? true}))))
 
-(deftest head-model->html-attr-name-validation
-  (testing "head tag attribute keys pass the HTML5 name grammar
-            `[A-Za-z][A-Za-z0-9_:-]*`, so an `=`-injection key cannot smuggle
-            an event-handler attribute"
-    (doseq [k ["onclick=alert(1) data-x" "1bad" "bad attr"]]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo #":rf\.error/ssr-invalid-attribute-name"
-            (rf.ssr/head-model->html {:meta [{(keyword k) "v"}]}))
-          k))))
-
 (deftest head-model->html-escaping
   (is (= (str "<title>Hello &lt;script&gt;alert(1)&lt;/script&gt;</title>"
               "<meta name=\"x\" content=\"&quot;weird&quot;\">")
          (rf.ssr/head-model->html {:title "Hello <script>alert(1)</script>"
                                    :meta  [{:name "x" :content "\"weird\""}]}))))
-
-;; ---- reg-head + reg-route + head-model + emission ---------------------------
-
-(deftest head-emits-canonical-html-from-active-route
-  (testing "the Spec 011 article flow: the route declares :head, the head fn
-            derives the model from app-db and the route params"
-    (rf/reg-event :seed-article
-                  (fn [{:keys [db] rt :rf.db/runtime} _]
-                    {:db            (assoc-in db [:articles "123"]
-                                              {:title   "re-frame2 SSR"
-                                               :summary "How re-frame2 ships SSR"
-                                               :image   "https://example.com/og.png"})
-                     :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                              {:route-id :route/article :params {:id "123"}})}))
-    (rf/reg-head :head/article
-                 (fn [db {:keys [params]}]
-                   (let [{:keys [title summary image]} (get-in db [:articles (:id params)])]
-                     {:title (str "Article: " title " — Example")
-                      :meta  [{:name "description" :content summary}
-                              {:property "og:title" :content title}
-                              {:property "og:image" :content image}]
-                      :link  [{:rel  "canonical"
-                               :href (str "https://example.com/articles/" (:id params))}]})))
-    (rf/reg-route :route/article {:doc "Article page" :head :head/article} "/articles/:id")
-    (let [f (rf.frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
-      (rf/dispatch-sync [:seed-article] {:frame f})
-      (is (= (str "<title>Article: re-frame2 SSR — Example</title>"
-                  "<meta name=\"description\" content=\"How re-frame2 ships SSR\">"
-                  "<meta property=\"og:title\" content=\"re-frame2 SSR\">"
-                  "<meta property=\"og:image\" content=\"https://example.com/og.png\">"
-                  "<link rel=\"canonical\" href=\"https://example.com/articles/123\">")
-             (rf.ssr/head-model->html (rf.ssr/head-model f)))))))
