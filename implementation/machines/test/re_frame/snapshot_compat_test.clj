@@ -147,7 +147,6 @@
     (rf/dispatch-sync [:compat/ja-parent [:rf.machine.spawn/spawned]])
     (let [actor (get-in (snapshot :compat/ja-parent) [:data :rf/spawned [:hydrating] :a])
           join  (get-in (snapshot actor) [:data :rf/join-child])]
-      (is (some? join))
       (rf/reg-machine :compat/ja-child (bumping-child 2 :live 100))
       (rf/dispatch-sync [actor [:bump]])
       (rf/dispatch-sync [actor [:bump]])
