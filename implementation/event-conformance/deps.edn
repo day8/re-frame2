@@ -1,7 +1,7 @@
 ;; Cross-artefact conformance for the public event model. The suites exercise
 ;; one-form event registration, recordable coeffects, image-scoped dispatch,
-;; reply delivery, and the always-on event/error channels against core's public
-;; facade and runtime seams.
+;; and the always-on event/error channels against core's public facade and
+;; runtime seams.
 ;;
 ;; This is a test-only artefact: it has no `src` and publishes no bundle. Core is
 ;; therefore a `:test` dependency, while `:extra-paths ["test"]` keeps the JVM
