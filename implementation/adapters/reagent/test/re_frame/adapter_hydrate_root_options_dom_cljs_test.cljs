@@ -138,12 +138,11 @@
             #(and (seq @text-host) (seq @struct-host))
             (fn []
               (try
-                (is (seq @text-host)
-                    "the host :on-recoverable-error was called for the nested text mismatch")
-                (is (seq @struct-host)
-                    "the host :on-recoverable-error was called for the nested extra element")
-                (is (empty? @clean-host)
-                    "a root whose server markup matches reports nothing")
+                (is (= [true true true]
+                       [(boolean (seq @text-host)) (boolean (seq @struct-host)) (empty? @clean-host)])
+                    (str "[text-mismatch struct-mismatch clean]: the host :on-recoverable-error was"
+                         " called for the nested text mismatch and the nested extra element, and a"
+                         " root whose server markup matches reports nothing"))
                 (is (and (<= 2 (count @mismatches))
                          (= (count @mismatches) (+ (count @text-host) (count @struct-host))))
                     (str "each adoption error emitted one :rf.ssr/hydration-mismatch before "
@@ -222,15 +221,12 @@
             (fn []
               (try
                 (testing "identifier prefix"
-                  (is (= prefix (some-> (fiber-root id-el) .-identifierPrefix))
-                      "the root was created with the prefix as identifierPrefix")
-                  (is (some-> (last @probe-ids) (.includes prefix))
-                      (str "a client useId carries the prefix. Ids: " (pr-str @probe-ids)))
                   (is (= server-id (last @probe-ids))
-                      "the client's useId equals the server's: the root's own wrapping moved no tree position"))
-                (testing "a clean hydration reports nothing"
-                  (is (empty? @mismatches) (str "no trace for a clean root. Saw: " (pr-str @mismatches)))
-                  (is (empty? @host-calls) "no host call for a clean root"))
+                      (str "the client's useId equals the server's prefixed one: the prefix reached"
+                           " React, and the root's own wrapping moved no tree position. Ids: "
+                           (pr-str @probe-ids))))
+                ;; The two atoms only grow, so the exact readings below also say
+                ;; the clean hydration reported nothing.
                 (testing "after the hydration commit the reporter delegates without emitting"
                   (let [on-recoverable (some-> (fiber-root id-el) .-onRecoverableError)
                         later          (js/Error. "after the hydration commit")]
