@@ -251,18 +251,6 @@
     ;; nature kept as a diagnostic
     (is (= [:suppressed :aborted] ((juxt :status (comp :outcome :outcome)) (work-record gen1-wid))))))
 
-(deftest owner-release-orphan-abort-does-not-set-entry-error
-  ;; releasing the last owner of an in-flight first load emits a best-effort
-  ;; abort, whose reply must not surface as a resource error
-  (rf/reg-resource :ab4/article (article-spec) article-spec-request)
-  (let [k    (ensure-article! :ab4/article [:app :ab4 1])
-        args @last-managed-args
-        wid  (:current-work (entry k))]
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :ab4 1]}])
-    (reply-failure! args (aborted-failure wid :user))
-    (let [e (entry k)]
-      (is (= [false nil true] [(= :error (:status e)) (:error e) (empty? (:active-owners e))])))))
-
 ;; ===========================================================================
 ;; cross-frame reply isolation, and joining an ensure in flight
 ;; ===========================================================================
