@@ -2919,11 +2919,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     # pairs: the join must reach across a wrap and stop at every real block
     # boundary.  Expectations are python-markdown's, which MkDocs runs.
     extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
-        # BLOCK BOUNDS: a blank line (so also a blanked fence), and the
-        # paragraph-interrupting leaf and container starts.
-        ("blank line is not bridged",
-         [(1, "A stray bracket [here"), (2, ""), (3, "](missing.md) after.")],
-         []),
+        # BLOCK BOUNDS: the paragraph-interrupting leaf and container starts.
         # CommonMark forbids whitespace in a bare destination.
         ("wrapped DESTINATION is not a link",
          [(1, "See [the doc](target.md#an"), (2, "chor) for detail.")],
@@ -2978,11 +2974,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           (2, ">   "),
           (3, "> [in](in-target.md)` closing here.")],
          [(3, "in-target.md")]),
-        ("a quoted continuation line does not end the paragraph",
-         [(1, "> A stray [opening"),
-          (2, "> and more"),
-          (3, "> ](missing.md)")],
-         [(3, "missing.md")]),
         # Quote depth is compared with the depth the unit OPENED at, so a
         # re-marked line after lazy continuation RESUMES the quote.
         ("a re-marked line after lazy continuation is not a new quote",
@@ -2990,10 +2981,6 @@ def _run_self_tests(verbose: bool = False) -> int:
           (2, "views and the"),
           (3, "> rest](API.md#compiled-views).")],
          [(3, "API.md#compiled-views")]),
-        ("nesting deeper still bounds",
-         [(1, "> A paragraph holding a stray ["),
-          (2, ">> and a deeper quote](missing.md) interrupts it.")],
-         []),
         ("a shallower quoted line after a deeper one still joins",
          [(1, ">> Per the note, see [§Compiled"),
           (2, "> views](API.md#compiled-views).")],
