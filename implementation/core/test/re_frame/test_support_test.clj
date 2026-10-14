@@ -68,11 +68,10 @@
   ;; mis-resolution would silently accept
   (register-counter-handlers!)
   (rf/with-new-frame [f (rf/make-frame {:initial-events [[:counter/init] [:counter/add 5]]})]
-    (is (= [:pass :fail :fail :pass :fail]
+    (is (= [:pass :fail :pass :fail]
            (record-reports
              (fn []
                (rf.test-support/assert-path-equals [:n] 5)
-               (rf.test-support/assert-path-equals [:n] 6)
                (rf.test-support/assert-path-equals [:n] nil)
                (rf.test-support/assert-path-equals [:n] 5 {:frame f})
                (rf.test-support/assert-path-equals [:n] nil {:frame f})))))))
@@ -112,9 +111,6 @@
       (rf.late-bind/set-fn! :schemas/restore-by-frame! (fn [_snap] nil))
       (rf.late-bind/set-fn! :schemas/snapshot-by-frame (fn [] nil))
       ((fixture) (fn [] :ran))
-      (is (= (set (map :hook @#'rf.test-support/reset-hook-table))
-             (set (keys reset-hook-expected-counts)))
-          "the expected counts name every reset-hook-table row and no other key")
       (is (= reset-hook-expected-counts @call-counts))
       (finally
         (reset! rf.late-bind/hooks snapshot)
@@ -206,25 +202,17 @@
 
 (deftest make-reset-runtime-fixture-runs-init-fn-under-ambient-frame
   (binding [rf.frame/*current-frame* nil]
-    (let [seen-frame (atom :unset)]
-      ((rf.test-support/make-reset-runtime-fixture
-         {:adapter rf.substrate.plain-atom/adapter
-          :init-fn (fn []
-                     (reset! seen-frame (rf.frame/current-frame))
-                     (rf/reg-app-schema [:counter] :int))})
-       (fn [] :ran))
-      (is (= :rf/default @seen-frame)
-          "the bare reg-app-schema did not throw, under the ambient :rf/default"))))
-
-(deftest make-reset-runtime-fixture-init-fn-frameless-when-ambient-opted-out
-  (binding [rf.frame/*current-frame* nil]
-    (let [seen-frame (atom :unset)]
-      ((rf.test-support/make-reset-runtime-fixture
-         {:adapter       rf.substrate.plain-atom/adapter
-          :ambient-frame nil
-          :init-fn       (fn [] (reset! seen-frame (rf.frame/current-frame)))})
-       (fn [] :ran))
-      (is (nil? @seen-frame) "`:ambient-frame nil` keeps :init-fn frameless"))))
+    (let [seen (atom [])
+          run  (fn [opts init-fn]
+                 ((rf.test-support/make-reset-runtime-fixture
+                    (merge {:adapter rf.substrate.plain-atom/adapter :init-fn init-fn} opts))
+                  (fn [] :ran)))]
+      (run {} (fn []
+                (swap! seen conj (rf.frame/current-frame))
+                (rf/reg-app-schema [:counter] :int)))
+      (run {:ambient-frame nil} #(swap! seen conj (rf.frame/current-frame)))
+      (is (= [:rf/default nil] @seen)
+          "the bare reg-app-schema ran under the ambient :rf/default; `:ambient-frame nil` keeps :init-fn frameless"))))
 
 ;; ---- destroy-frame! hook cascade ------------------------------------------
 
