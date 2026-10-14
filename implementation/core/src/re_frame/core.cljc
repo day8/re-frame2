@@ -991,10 +991,11 @@
                    for a single image), resolved into one sealed image
                    generation. A non-vector OR an empty `[]` fails loud
                    (`:rf.error/make-frame-bad-images`) — pass at least one
-                   image, or OMIT `:images` for the DEFAULT IMAGE generation
-                   over the whole source store + framework standards (which
-                   fails loud on a cross-namespace same-`[kind id]` collision,
-                   `:rf.error/image-duplicate-id`).
+                   image, or OMIT `:images` and the frame seals no generation:
+                   it resolves the whole source store + framework standards
+                   live, and a `[kind id]` registered from more than one
+                   namespace raises `:rf.error/ambiguous-registration` where it
+                   is used.
     :id            the frame id (optional). When supplied, the frame is registered
                    under this id; re-`make-frame`-ing the same id is IDEMPOTENT
                    REPLACEMENT (config + generation refresh, durable state
@@ -1758,15 +1759,16 @@
 ;; be added without another arity.
 ;;
 ;; WHY THE SOURCE IS EXPLICIT. `rf.registrar/registrations` / `lookup`
-;; consult `rf.registrar/*generation*` FIRST, and `re-frame.live-frame/call-with-
-;; frame-resolution` binds that around every subscribe build, dispatch, fx and
-;; view resolution against an image-loaded frame (`make-frame` seals a
-;; generation unconditionally) — so an implicit "default store" read issued
-;; from inside a sub computation or an event handler would silently read THAT
-;; FRAME'S IMAGE instead. `{:source :store}` reads the atom via
-;; `rf.registrar/store-registrations` / `store-lookup`, which never consult
-;; `*generation*`, so the answer does not depend on the caller's context — the
-;; public door for a tool that needs the host process's registrations.
+;; consult the frame's own view FIRST — `rf.registrar/*generation*` for a frame
+;; made with `:images`, `rf.registrar/*live-view*` for one made without — and
+;; `re-frame.live-frame/call-with-frame-resolution` binds it around every
+;; subscribe build, dispatch, fx and view resolution against a frame, so an
+;; implicit "default store" read issued from inside a sub computation or an
+;; event handler would silently read THAT FRAME'S view instead. `{:source
+;; :store}` reads the atom via `rf.registrar/store-registrations` /
+;; `store-lookup`, which consult neither, so the answer does not depend on the
+;; caller's context — the public door for a tool that needs the host process's
+;; registrations.
 ;;
 ;; NOT-QUERYABLE KINDS. `:flow` and `:frame` are RESERVED-BUT-EMPTY registrar
 ;; slots (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for
