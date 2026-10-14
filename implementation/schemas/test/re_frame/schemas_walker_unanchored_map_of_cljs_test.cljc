@@ -20,11 +20,7 @@
   [[:map-of :string token]
    [:map-of :keyword [:map [:blob {:large? true} :string]]]
    [:vector [:map-of :string token]]
-   [:map-of :string [:map-of :string token]]
-   [:maybe [:map-of :string token]]
-   [:or :nil [:map-of :string token]]
-   [:orn [:none :nil] [:some [:map-of :string token]]]
-   [:map-of :string [:tuple :int token]]])
+   [:orn [:none :nil] [:some [:map-of :string token]]]])
 
 (def ^:private complete
   "Schemas whose every mark an extracted path reaches."
@@ -32,8 +28,7 @@
    [:vector token]
    [:tuple [:map-of :string token]]
    [:map-of :string :int]
-   [:map-of :string [:string {:sensitive? true}]]
-   [:map-of {:sensitive? true} :string :int]])
+   [:map-of :string [:string {:sensitive? true}]]])
 
 (defn- marks-incomplete? [schema]
   ((rf.late-bind/get-fn :schemas/schema-has-opaque-child?) schema))
