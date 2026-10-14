@@ -61,19 +61,14 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
          (:rf.error/id (ex-data e)))))
 
-(deftest custom-nonatom-base-container-is-accepted
+(deftest custom-hook-accepts-the-nonatom-base-and-rejects-the-derived
   (install-custom-adapter!)
   (let [c (rf.substrate.adapter/make-state-container {:n 0})]
-    (is (= [nil {:n 1}]
+    (is (= [nil {:n 1} :rf.error/derived-container-replaced]
            [(rf.substrate.adapter/replace-container! c {:n 1})
-            (rf.substrate.adapter/read-container c)]))))
-
-(deftest custom-derived-container-is-still-rejected
-  (install-custom-adapter!)
-  (let [src (rf.substrate.adapter/make-state-container {:n 7})]
-    (is (= :rf.error/derived-container-replaced
-           (rejection-id #(rf.substrate.adapter/replace-container!
-                            (rf.substrate.adapter/make-derived-value [src] :n) 42))))))
+            (rf.substrate.adapter/read-container c)
+            (rejection-id #(rf.substrate.adapter/replace-container!
+                             (rf.substrate.adapter/make-derived-value [c] :n) 42))]))))
 
 (deftest no-opinion-falls-back-to-atom-marker-heuristic
   ;; Only the sentinel fallback is routed, so the choke point classifies by the
