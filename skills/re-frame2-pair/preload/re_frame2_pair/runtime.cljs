@@ -901,6 +901,67 @@
     {}
     (rf/registrations {:frame frame-id :kind kind})))
 
+(def ^:private frame-query-kinds
+  "The registrar kinds a frame-targeted `rf/registrations` query answers: the
+   closed registrar set less `:frame` and `:flow`, the two reserved-but-empty
+   slots the query refuses."
+  (vec (remove #{:frame :flow} pure/orient-registrar-kinds)))
+
+(defn- ambiguous-namespaces
+  "The namespaces registering `[kind id]` when frame `frame-id` refuses the id
+   as ambiguous, read off the `:rf.error/ambiguous-registration` that
+   `rf/handler-meta` raises for it; nil when the frame resolves the id."
+  [frame-id kind id]
+  (try
+    (rf/handler-meta {:frame frame-id :kind kind :id id})
+    nil
+    (catch :default e
+      (let [data (ex-data e)]
+        (when (= :rf.error/ambiguous-registration (:rf.error/id data))
+          (mapv str (:namespaces data)))))))
+
+(defn- describe-live-store-frame
+  "`describe-image` for frame `frame-id` when it was made without `:images`: it
+   seals no generation and resolves the registration store live. Reads it
+   through the PUBLIC frame-targeted query `(rf/registrations {:frame f :kind
+   k})` for every kind that query answers, and returns the image read's shape
+   with `:live-store? true`, `:images []`, and `:ambiguous` — each id the
+   process registers that the frame refuses because more than one namespace
+   registers it, as `{:kind k :id id :namespaces [ns …]}`. The query omits such
+   an id, so it is found by comparing against `{:source :store}` and confirmed
+   through `rf/handler-meta`, whose `:rf.error/ambiguous-registration` names the
+   namespaces. Ambiguous ids are not counted: the frame cannot run them.
+
+   FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-id` names no frame
+   that seals an image or resolves the store live — the facade's
+   no-silent-fallback contract."
+  [frame-id include-ns?]
+  (let [by-kind   (into {}
+                        (map (fn [k] [k (rf/registrations {:frame frame-id :kind k})]))
+                        frame-query-kinds)
+        counts    (into {}
+                        (keep (fn [[k regs]] (when (seq regs) [k (count regs)])))
+                        by-kind)
+        ambiguous (vec (for [k     frame-query-kinds
+                             id    (sort-by str (keys (rf/registrations {:source :store :kind k})))
+                             :when (not (contains? (get by-kind k) id))
+                             :let  [namespaces (ambiguous-namespaces frame-id k id)]
+                             :when namespaces]
+                         {:kind k :id id :namespaces namespaces}))]
+    (cond-> {:ok?         true
+             :frame       frame-id
+             :live-store? true
+             :images      []
+             :kinds       (vec (sort (keys counts)))
+             :counts      counts
+             :ambiguous   ambiguous}
+      include-ns?
+      (assoc :registrations
+             (into {}
+                   (for [[k regs] by-kind
+                         [id m]   regs]
+                     [[k id] (coordinate-summary m)]))))))
+
 (defn describe-image
   "Describe the IMAGE GENERATION a frame is running. Answers \"what
    behaviour does THIS frame run, and where did each piece come from?\" in
@@ -913,7 +974,8 @@
    (multi-frame session with no selection) rather than silently reading
    `:rf/default`.
 
-   Slices (all derived from the sealed generation's `:rf.gen/*` keys):
+   Slices (for a frame made with `:images`, derived from the sealed
+   generation's `:rf.gen/*` keys):
 
      :images        the image ids composed into the generation (the
                     normalized `:rf.gen/images`, reduced to `:rf.image/id`
@@ -932,18 +994,15 @@
 
    `:include-ns?` (default false) gates the per-registration provenance map.
 
-   NO-GENERATION FRAME: only an EXPLICIT `:images` key triggers
-   image resolution, so a frame configured with NO `:images` is an ordinary
-   frame on the shared registrar that carries no composed image — and the public
-   `rf/frame-generation` read FAILS LOUD (`:rf.error/frame-no-generation`) for
-   it (the intended no-generation contract). That is not an error for THIS read:
-   an imageless frame simply runs no composed image, so `describe-image` reports
-   it gracefully — `{:ok? true … :images [] :kinds [] :counts {}
-   :no-generation? true}` — rather than letting the fail-loud escape up the eval
-   boundary. The discriminator is the error's `:live-frame-ids`: a frame-id that
-   IS a live frame but carries no generation is the graceful imageless case; an
-   UNRESOLVABLE target (an id naming no live frame at all) still FAILS LOUD up
-   the eval boundary, the facade's no-silent-fallback contract."
+   LIVE-STORE FRAME: a frame made without `:images` — the main frame of most
+   apps — seals no generation, so the public `rf/frame-generation` read refuses
+   it (`:rf.error/frame-no-generation`). It resolves the registration store
+   live, and `describe-live-store-frame` describes it through the frame-targeted
+   `rf/registrations` query instead: the same slices, plus `:live-store? true`
+   (the marker Xray's Frames tab shows for such a frame) and `:ambiguous`, which
+   names each id the frame refuses because more than one namespace registers
+   it. A target naming no frame of either kind still FAILS LOUD up the eval
+   boundary, the facade's no-silent-fallback contract."
   ([] (describe-image {}))
   ([opts]
    (let [{:keys [frame include-ns?]} opts
@@ -953,26 +1012,16 @@
        (let [gen      (try
                         (rf/frame-generation frame-id)
                         (catch :default e
-                          (let [{err-id :rf.error/id
-                                 live   :live-frame-ids} (ex-data e)]
-                            ;; A live frame that carries no generation (an
-                            ;; imageless frame) is the graceful
-                            ;; no-image case, NOT a read failure. Surface the
-                            ;; sentinel and let the caller report it cleanly.
-                            ;; Any other thrown error — including a :frame
-                            ;; target that names NO live frame — re-throws and
-                            ;; fails loud up the eval boundary unchanged.
-                            (if (and (= :rf.error/frame-no-generation err-id)
-                                     (some #(= % frame-id) live))
-                              ::no-generation
-                              (throw e)))))]
+                          ;; A frame that seals no generation may resolve the
+                          ;; registration store live; the live-store read
+                          ;; describes it, and fails loud for a target naming
+                          ;; no frame at all. Any other thrown error re-throws
+                          ;; up the eval boundary unchanged.
+                          (if (= :rf.error/frame-no-generation (:rf.error/id (ex-data e)))
+                            ::no-generation
+                            (throw e))))]
          (if (= ::no-generation gen)
-           {:ok?            true
-            :frame          frame-id
-            :images         []
-            :kinds          []
-            :counts         {}
-            :no-generation? true}
+           (describe-live-store-frame frame-id include-ns?)
            (let [resolver (:rf.gen/resolver gen)
                  kinds    (vec (sort (:rf.gen/kinds gen)))
                  counts   (reduce-kv
