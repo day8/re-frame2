@@ -26,9 +26,8 @@
 
 (deftest corpus-is-not-already-the-trigger-input
   (let [parsed @corpus]
-    (is (contains? parsed :evals)
-        "evals.json must be the repository wrapper; if it is deliberately the native trigger list, retire this suite and the README's conversion together")
-    (is (seq (:evals parsed)) "the corpus is empty")
+    (is (seq (:evals parsed))
+        "evals.json must be the non-empty repository wrapper; if it is deliberately the native trigger list, retire this suite and the README's conversion together")
     (is (not-any? #(contains? % :query) (:evals parsed))
         "a fixture carries `query`: a half-converted corpus silently drops entries in whichever runner reads it")))
 
