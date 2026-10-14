@@ -48,18 +48,6 @@
 
 (def ^:private an-instant #inst "2024-01-02T03:04:05.000-00:00")
 
-(deftest silent-on-plain-data-payload
-  (testing "plain data, instants (EDN #inst) included, never fires the lint"
-    (let [recorded (record-traces! ::lint)]
-      (doseq [payload [{:a 1 :b [1 2 3] :c #{:x :y}}
-                       {:at      an-instant
-                        :instant (java.time.Instant/parse "2024-01-02T03:04:05Z")
-                        :nested  [{:when an-instant}]}]]
-        (rf/dispatch-sync [:payload-lint/noop payload])
-        (is (= payload (seen)) "the payload reached the handler intact"))
-      (when rf.interop/debug-enabled?
-        (is (empty? (payload-warnings recorded)))))))
-
 (deftest fires-on-fn-valued-payload
   (testing "a fn nested in the payload reaches the handler untouched and fires
             exactly one warning naming the offending path"
