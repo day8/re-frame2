@@ -133,14 +133,6 @@
   [mode]
   (into #{} (map :id) (tabs-for-mode mode)))
 
-(defn default-tab-for-mode
-  "First tab in `tabs-for-mode mode` order — the default landing tab
-  when `:selected-tab` is unset. Returns nil when no tabs are
-  registered for the mode (test-only state — production always has
-  the canonical inventory installed via `register-xray-handlers!`)."
-  [mode]
-  (:id (first (tabs-for-mode mode))))
-
 ;; ---- mutation -----------------------------------------------------------
 
 (defn reg-l4-tab!
