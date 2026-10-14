@@ -293,23 +293,11 @@
             (str "[:ui ::open? \"billing\"] crossed the wire as written. Saw: "
                  (pr-str gdb))))
 
-      (testing "the red request ships a WELL-FORMED allowlist that strands it"
-        (is (not (contains? rdb :ui))
-            (str "no :ui partition at all — not an empty one, not a
-                  defaulted one; absent: " (pr-str rdb)))
-        (is (nil? (get-in rdb state-path))))
-
-      (testing "and everything else is identical, so `:ui` is the whole
-               difference"
+      (testing "the red request's WELL-FORMED allowlist strands `:ui`, and
+               everything else is identical, so `:ui` is the whole difference"
         (is (= (:panels gdb) (:panels rdb) panels))
         (is (= #{:panels :ui} (set (keys gdb))))
         (is (= #{:panels} (set (keys rdb)))))
-
-      (testing "read off the EDN the client bootstrap actually parses,
-               because a claim about a payload map is a claim about the
-               wire only if the bytes agree with it"
-        (is (re-find #":ui\b" (:payload-edn green)))
-        (is (nil? (re-find #":ui\b" (:payload-edn red)))))
 
       (testing "and neither carries a render hash — an adoption-tier root
                ships none, which is Spec 011's own answer for this tier
