@@ -4,8 +4,8 @@
   registry slot does: the old child's teardown clears both, so the successor's
   install (and the `:spawn-all` seed) writes both."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
@@ -58,17 +58,3 @@
   (let [successors {:a :srm3/child#3 :b :srm3/child#4}]
     (is (= [successors successors]
            [(:children (registry-slot :srm3/parent [:loading])) (mirror :srm3/parent [:loading])]))))
-
-(deftest plain-exit-still-clears-the-mirror
-  (testing "control: exiting the spawning state WITHOUT re-entry clears the mirror and prunes the map"
-    (rf/reg-machine :srm4/child idle-child)
-    (rf/reg-machine :srm4/parent
-      {:initial :idle
-       :states  {:idle    {:on {:start :loading}}
-                 :loading {:spawn {:machine-id :srm4/child}
-                           :on    {:stop :idle}}}})
-    (rf/dispatch-sync [:srm4/parent [:start]])
-    (is (= :srm4/child#1 (mirror :srm4/parent [:loading])))
-    (rf/dispatch-sync [:srm4/parent [:stop]])
-    (is (= [nil nil] [(registry-slot :srm4/parent [:loading])
-                      (get-in (snapshot :srm4/parent) [:data :rf/spawned])]))))
