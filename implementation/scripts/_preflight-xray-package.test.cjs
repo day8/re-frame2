@@ -103,8 +103,8 @@ function partitionedCoords() {
   return { coords, rewritable, unrewritable };
 }
 
-test('release-xray.yml rewrites EVERY publishable in-repo coordinate', () => {
-  const { coords, rewritable } = partitionedCoords();
+test('every in-repo coordinate is publishable, and release-xray.yml rewrites each (rf2-gra70)', () => {
+  const { coords, rewritable, unrewritable } = partitionedCoords();
   assert.ok(coords.length > 0, 'zero :local/root coordinates read out of tools/xray/deps.edn — no vacuous green');
   const code = workflowCode();
   const missing = rewritable.filter(({ root }) => !code.includes(`"${root}"`));
@@ -116,13 +116,9 @@ test('release-xray.yml rewrites EVERY publishable in-repo coordinate', () => {
       + 'no yank. Add each to the rewrite step in .github/workflows/release-xray.yml '
       + 'AND to TOOLS_LOCAL_ROOTS in .github/scripts/verify-version-lockstep.sh.',
   );
-});
-
-test('NO coordinate is unpublishable — the ledger is empty (rf2-gra70)', () => {
   // A coordinate whose target carries no `:clein/build` has no Maven coordinate
   // to rewrite TO, so each one is an open operator decision; a NEW one reds
   // here rather than quietly joining a known-bad set.
-  const { unrewritable } = partitionedCoords();
   assert.deepEqual(
     unrewritable.map((c) => c.lib), [],
     'An in-repo coordinate Xray declares targets an artefact with no :aliases -> :clein/build, '
