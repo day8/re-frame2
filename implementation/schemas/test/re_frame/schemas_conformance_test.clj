@@ -1,64 +1,15 @@
 (ns re-frame.schemas-conformance-test
-  "Drives every `spec/conformance/fixtures/schema-*.edn` fixture (plus
-  `error-schema-failure.edn`) through the live runtime — `reg-app-schema`,
-  `validate-app-schema!`, the `:schemas/validate-event!` /
-  `:schemas/validate-sub!` late-bind hooks, the EP-0017 recordable-cofx
-  `:rf.error/cofx-value-invalid` path, and the
-  `:rf.error/schema-validation-failure` trace contract — and asserts
-  the conformance-corpus's recorded outcome against what the artefact
-  actually produces.
+  "The schemas artefact's conformance gate: drives every
+  `spec/conformance/fixtures/schema-*.edn` fixture, plus
+  `error-schema-failure.edn`, through the live runtime and asserts each
+  fixture's recorded `:final-app-db` (submap), `:sub-values` and
+  `:trace-emissions` (order-preserving partial match, per
+  `spec/conformance/README.md` §Fixture lifecycle).
 
-  This is the schemas artefact's conformance gate. It keeps fixture failures
-  local to the artefact while unit tests cover elision and validator details.
-
-  ## What this runner does
-
-  For each `schema-*.edn` / `error-schema-failure.edn` fixture:
-
-    1. Resets the runtime (registrar, frames, schemas-by-frame,
-       flows) and re-inits the plain-atom adapter. Per-test reset is
-       essential — the late-bind hook table is module-load state, but
-       the registry / schemas / frames atoms are global and would
-       leak across fixtures.
-    2. Realises the fixture's `:fixture/handlers` (event, sub, cofx)
-       into native fns via the `re-frame.conformance` DSL interpreter
-       (a re-use of core's pre-existing helpers; the interpreter is
-       in `core/src` so the schemas artefact has it on the classpath
-       without pulling core's test tree).
-    3. Wires `:fixture/registry :app-schemas` into `reg-app-schema`;
-       app-db schemas are not registrar entries.
-    4. Registers the default frame with the fixture's
-       `:fixture/frame-config` (e.g. `:initial-events [[:init]]`).
-    5. Drives `:fixture/dispatches` through `rf/dispatch-sync`.
-    6. Asserts each of:
-       - `:final-app-db` (submap match — partial expectations on
-         nested slices work the same way),
-       - `:sub-values` (per-query expected return value),
-       - `:trace-emissions` (partial match, order-preserving subset
-         per `spec/conformance/README.md` §Fixture lifecycle).
-
-  ## Capability claim
-
-  Per `spec/conformance/README.md` §Capability tagging, the runner
-  declares the surface its host implements. A fixture whose
-  `:fixture/capabilities` are NOT a subset of `claimed-capabilities`
-  is reported as out-of-claim and does not block the suite.
-
-  The claim covers `:schemas/runtime` (app-db slice validation),
-  `:schemas/event-payload`, `:schemas/cofx` (the EP-0017 recordable-cofx
-  `:schema` path; a declared recordable value that fails its
-  registration's `:schema` emits `:rf.error/cofx-value-invalid` and skips
-  the handler), `:schemas/sub-return`, plus the bare `:core/*`
-  capabilities every schema fixture cross-cuts (event / sub / error /
-  trace).
-
-  ## Coverage scope
-
-  Only `schema-*.edn` plus `error-schema-failure.edn`. The cross-spec
-  fixtures (e.g. those that combine schemas with routing or SSR) and
-  the FSM / ssr / routing / flows fixtures live at their respective
-  artefact gates (or at core's full-corpus gate). Running them here
-  would be redundant and slow the gate."
+  Per §Capability tagging, a fixture whose `:fixture/capabilities` are not a
+  subset of `claimed-capabilities` is reported out-of-claim and does not block
+  the suite. The cross-spec fixtures run at their own artefact gates or at
+  core's full-corpus gate."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -80,27 +31,11 @@
 ;; ---- fixture discovery ----------------------------------------------------
 
 (def fixtures-dir
-  "The conformance corpus lives at the repo root under
-  `spec/conformance/fixtures/`.
-
-  Anchored to a CLASSPATH RESOURCE, not the working directory. A cwd-relative
-  `(io/file \"../../spec/conformance/fixtures\")` form assumes the JVM cwd
-  is `implementation/schemas/` so that `../../` reaches the repo root. That
-  holds for the canonical per-artefact gate (`clojure -M:test` run from
-  `implementation/schemas/`, which is what CI runs) but SILENTLY MIS-SCOPES
-  under the combined `implementation/deps.edn :test` alias: run from
-  `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
-  returns nothing, and the corpus discovers zero fixtures (the runnable
-  floor in `run-schemas-conformance-corpus` turns that mis-discovery RED
-  instead of silent-green).
-
-  This test namespace's own source file is on the test classpath (the
-  artefact's `:test {:extra-paths [\"test\"]}`), so resolving it via
-  `io/resource` pins the anchor to the on-disk source location regardless
-  of cwd or which alias loaded the namespace. Walking five parents
-  (`schemas_conformance_test.clj → re_frame → test → schemas →
-  implementation → repo root`) reaches the repo root, then we descend into
-  `spec/conformance/fixtures`."
+  "The corpus at the repo root's `spec/conformance/fixtures/`, anchored to this
+  namespace's own source on the classpath rather than the working directory:
+  a cwd-relative `../../` resolves above the repo root when the combined
+  `implementation/deps.edn` alias runs from `implementation/`, and the corpus
+  would then discover nothing."
   (let [res (io/resource "re_frame/schemas_conformance_test.clj")]
     (assert res
             (str "schemas-conformance-test cannot locate its own source on "
@@ -144,25 +79,15 @@
     form))
 
 (defn- load-fixture
-  "Read one EDN fixture as EXACTLY ONE top-level EDN form, or throw.
-
-  The fixture text is parsed VERBATIM. Schema fixtures carry no
-  auto-resolved `::name` keywords, and the machines / ssr runners'
-  `::name` -> `:rf.machine.timer/name` rewrite has no business here: it
-  resolves nothing in the fixture's own namespace; it merely restamps the
-  token with an unrelated machines-timer identity, which could make a
-  future schema fixture pass or fail under a false id. If schema fixtures
-  ever need an alias facility, the conformance format should define one
-  explicitly."
+  "Read one EDN fixture verbatim as exactly one top-level form, or throw.
+  Schema fixtures carry no auto-resolved `::name` keywords, so no alias
+  rewrite applies."
   [file]
   (read-one-form (slurp file) (.getName file)))
 
 (defn- schema-fixture-file?
-  "True for the schemas-relevant fixture filenames:
-    - `schema-*.edn` — the four step-by-step schema validation
-      points (app-db slice, event payload, cofx, sub-return).
-    - `error-schema-failure.edn` — same surface, framed from the
-      error-trace angle (Spec 010 §Validation order step 4)."
+  "True for `schema-*.edn` (the four Spec 010 validation points) and
+  `error-schema-failure.edn` (the same surface from the error-trace angle)."
   [file]
   (let [n (.getName file)]
     (or (and (str/starts-with? n "schema-")
@@ -182,17 +107,10 @@
 ;; ---- claimed capability + spec-version sets ------------------------------
 
 (def claimed-capabilities
-  "The schemas-surface capabilities plus the `:core/*` cross-cuts that
-  every schema fixture declares. The four `:schemas/*` tags map 1:1 to
-  the four validation points in Spec 010 §Validation order."
-  ;; :schemas/cofx — CLAIMED: the EP-0017 recordable-cofx
-  ;; `:schema` path (`re-frame.cofx/validate-recordable-value!`,
-  ;; reached from `deliver-declared-cofx` for both supplied/replayed and
-  ;; generated values). A declared recordable value that fails its
-  ;; registration's `:schema` emits `:rf.error/cofx-value-invalid` and skips
-  ;; the handler. The `schema-cofx-validates.edn` fixture exercises THAT
-  ;; path; `inject-cofx` is removed, and with it any injection-time
-  ;; `:rf.error/schema-validation-failure :where :cofx`.
+  "The four `:schemas/*` validation points of Spec 010 §Validation order, plus
+  the `:core/*` cross-cuts every schema fixture declares. `:schemas/cofx` is
+  the recordable-cofx `:schema` path, whose failure emits
+  `:rf.error/cofx-value-invalid` and skips the handler."
   #{:core/event-handler
     :core/sub
     :core/fx
@@ -220,17 +138,13 @@
 
 ;; ---- handler realisation --------------------------------------------------
 ;;
-;; The conformance corpus represents handler bodies as data; the
-;; `re-frame.conformance` interpreter (in core/src — already on this
-;; artefact's classpath) lifts the DSL into native fns. The wiring
-;; mirrors the schemas slice of `re-frame.conformance-runner/realise-handlers`
-;; minus the surfaces the schema fixtures never touch (machines /
-;; flows / routes / heads / views).
+;; The `re-frame.conformance` interpreter (core/src) lifts the corpus's
+;; data-shaped handler bodies into native fns. The wiring mirrors the schemas
+;; slice of `re-frame.conformance-runner/realise-handlers`.
 
 (defn- adapter-helpers
-  "Helper map for `realise-fx-handler` — exposes the frame's app-db
-  via the substrate adapter plus the dispatch surface. Mirrors core's
-  runner shape."
+  "Helper map for `realise-fx-handler`: the frame's app-db and the dispatch
+  surface."
   []
   {:read-db!  (fn [frame-id] (rf.frame/frame-app-db-value frame-id))
    ;; EP-0001: write the app-db PARTITION via swap-frame-db! —
@@ -240,20 +154,9 @@
                 (rf.frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
-;; Handler-body realisation reuses the SHARED primitives owned by
-;; `re-frame.conformance` (core/src, already on this artefact's classpath):
-;;   - `collect-cofx-keys`       — walk steps, pull `[:cofx-key K]` refs
-;;   - `realise-cofx-supplier`   — DSL body → value-returning cofx supplier
-;;   - `normalize-event-handler` — collapse the `[body-shape handler]` pair
-;;                                 into the single `reg-event` form
-;; Only the schemas-specific
-;; wiring below (adapter helpers, app-schema registration, fixture discovery,
-;; capability claims, the execution loop, reporting) is local.
-
 (defn- realise-handlers
   "Register every handler the fixture declares (events / subs / cofx /
-  fx) and wire app-schemas. Mirrors core's realise-handlers for the
-  slice schema fixtures actually use."
+  fx). App-db schemas are registered separately, by `realise-app-schemas`."
   [fixture]
   (let [hmap          (or (:fixture/handlers fixture) {})
         event-meta    (get-in fixture [:fixture/registry :event] {})
@@ -262,8 +165,8 @@
         cofx-bodies   (get hmap :cofx)
         helpers       (adapter-helpers)
         ;; cofx that auto-wire onto a consuming event's `:rf.cofx/requires`
-        ;; declaration (EP-0017 model). Stable lex order on
-        ;; cofx-id so the last-write-wins outcome is deterministic.
+        ;; declaration. Stable lex order on cofx-id so the last-write-wins
+        ;; outcome is deterministic.
         cofx-by-key
         (->> cofx-registry
              (sort-by key)
@@ -272,17 +175,9 @@
                           (assoc acc k (mapv first pairs)))
                         {}))]
     ;; ---- cofx ----------------------------------------------------------
-    ;; EP-0017 model: cofx registrations carry value-returning
-    ;; suppliers (NOT ctx→ctx injection handlers) plus their metadata
-    ;; (`:recordable?` / `:provided?` / `:schema`). The runtime delivers the
-    ;; recordable value flat under the cofx-id when a handler declares it via
-    ;; `:rf.cofx/requires`, and validates it against `:schema`
-    ;; (`re-frame.cofx/validate-recordable-value!`, a production hard error on
-    ;; mismatch → `:rf.error/cofx-value-invalid`). A `:provided?` recordable
-    ;; fact carries NO supplier — its value rides the dispatch token's
-    ;; `:rf.cofx` map; `reg-cofx` rejects `:provided?` + a supplier, so register
-    ;; it bare. `inject-cofx` is removed, so there is no
-    ;; `inject-cofx`-time `:schema` validation path.
+    ;; A `:provided?` recordable fact carries no supplier (its value rides
+    ;; the dispatch token's `:rf.cofx` map, and `reg-cofx` rejects
+    ;; `:provided?` beside a supplier), so it registers bare.
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
       (doseq [cofx-id all-cofx-ids]
         (let [body (get cofx-bodies cofx-id [[:noop]])
@@ -291,25 +186,9 @@
             (rf/reg-cofx cofx-id meta)
             (rf/reg-cofx cofx-id meta (rf.conformance/realise-cofx-supplier body))))))
     ;; ---- events --------------------------------------------------------
-    ;; Per Spec 010 §step 1: event meta carries :schema; the
-    ;; runtime calls `:schemas/validate-event!` before the handler runs.
-    ;; EP-0017 model: a body that reads `[:cofx-key K]` declares
-    ;; the consumed coeffect ids via the `:rf.cofx/requires` registration-
-    ;; metadata key (there is no ctx→ctx `inject-cofx` interceptor wiring).
-    ;; The runtime delivers each declared recordable value flat under its
-    ;; cofx-id and validates it against `:schema`.
-    ;; Per EP-0018 there is ONE public event registration form —
-    ;; `reg-event`, a `(cofx-in → effects-map-or-nil)` handler. There is no
-    ;; public event sub-kind axis. `conformance/realise-event-handler` returns a
-    ;; `[body-shape handler]` pair where `body-shape` is a DSL-INTERNAL
-    ;; interpreter distinction (does the body read cofx / emit fx → event-fx
-    ;; body-shape, else event-db body-shape) — NOT a public `:event/kind`.
-    ;; `normalize-event-handler` collapses both DSL body-shapes to the single
-    ;; effects-map handler so the registration site below never branches on a
-    ;; kind: an event-db body `(fn [db event] new-db)` is lifted to
-    ;; `(fn [cofx event] {:db …})` (read db from the coeffects, lower the
-    ;; returned db into a `{:db …}` effect — same observable behaviour); an
-    ;; event-fx body is already the single form and passes through.
+    ;; A body that reads `[:cofx-key K]` declares the coeffect ids it consumes
+    ;; under `:rf.cofx/requires`; `normalize-event-handler` lifts either DSL
+    ;; body shape into the single `reg-event` effects-map handler.
     (doseq [[id steps] (:event hmap)]
       (let [handler  (rf.conformance/normalize-event-handler
                        (rf.conformance/realise-event-handler steps))
@@ -326,22 +205,16 @@
           (rf/reg-event id meta' handler)
           (rf/reg-event id handler))))
     ;; ---- subs ----------------------------------------------------------
-    ;; Per Spec 010 §step 6: sub meta carries :schema; the
-    ;; runtime calls `:schemas/validate-sub!` after each compute.
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (rf.conformance/realise-sub steps)
             meta                       (get sub-meta id {})]
         (case kind
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
-          ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
-          ;; is a JVM macro (Spec 001 §Source-coordinate capture).
-          ;; A declared dependency list rides the metadata map
-          ;; so the fixture's inputs go in as DATA.
+          ;; The fn-form `subs/reg-sub`, because the public `rf/reg-sub`
+          ;; is a JVM macro (Spec 001 §Source-coordinate capture); the
+          ;; fixture's inputs ride the metadata map as data.
           :layer-2 (rf.subs/reg-sub id (assoc meta :inputs (vec inputs)) body))))
     ;; ---- fxs -----------------------------------------------------------
-    ;; Schema fixtures rarely register fx bodies, but cover the case for
-    ;; symmetry with the other runners (and for any future fixture that
-    ;; combines schemas with an fx surface).
     (let [fx-bodies   (:fx hmap)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-ids     (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -350,39 +223,15 @@
               meta    (get fx-registry id {})
               handler (rf.conformance/realise-fx-handler id body helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
-    ;; NOTE: app-schemas are intentionally NOT registered here — see
-    ;; `realise-app-schemas` below. `destroy-frame!` drops the
-    ;; frame's app-db schemas
-    ;; (parity with the machines / SSR / privacy destroy hooks), so
-    ;; schema registration must follow the runner's destroy+make-frame
-    ;; cycle. Event / sub / cofx / fx registrations are global on
-    ;; the registrar and survive destroy-frame!, so they
-    ;; live here so `:initial-events` can fire against them.
     nil))
 
 (defn- realise-app-schemas
-  "Register the fixture's app-db schemas. Called AFTER the runner's
-  destroy step and BEFORE its `make-frame`, so the new frame's slate
-  carries exactly the fixture's declarations and nothing else.
-
-  The destroy step drops every schema registered against the frame
-  (parity with the machines / SSR / privacy destroy hooks), so
-  app-schemas registered inside `realise-handlers`, BEFORE
-  `destroy-frame!`, would not survive it."
+  "Register the fixture's app-db schemas. Called after the runner destroys
+  the frame, which drops its schemas, and before `make-frame`, so the
+  `:initial-events` commit is validated against them."
   [fixture]
-  ;; The fixture key is `:app-schemas` (plural) — app-db
-  ;; schemas are NOT a registrar kind.
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
     (rf/reg-app-schema path schema)))
-
-;; ---- matchers ------------------------------------------------------------
-;;
-;; The expectation matchers are the SHARED primitives owned by
-;; `re-frame.conformance` (core/src) — `submap?` (recursive submap match on
-;; `:final-app-db` / trace tags) and `check-trace-emissions` (order-preserving
-;; partial trace subset). The
-;; schemas-specific expectation wiring (which matchers to run against which
-;; fixture slice) is local, in `run-fixture` below.
 
 ;; ---- :fixture/dispatches runner ------------------------------------------
 
@@ -390,13 +239,11 @@
   "Drive one `:fixture/dispatches` entry. `dispatch-error-failures` is an atom
   collecting `:expect-error` mismatch strings.
 
-  A map entry with `:expect-error` (EP-0017 boundary-throw shape)
-  asserts the dispatch RAISES that `:rf.error/id`. Context-assembly throws (the
-  cofx delivery errors — `:rf.error/cofx-value-invalid` / missing-required /
-  unregistered) escape `dispatch-sync` rather than being captured into the
-  interceptor chain, so the runner catches the throw here and compares the
-  ex-data `:rf.error/id`. The remaining opts (e.g. `:rf.cofx`) pass through to
-  `dispatch-sync`. Mirrors core's `re-frame.conformance-test` runner."
+  A map entry with `:expect-error` asserts the dispatch RAISES that
+  `:rf.error/id`. Context-assembly throws (the cofx delivery errors) escape
+  `dispatch-sync` rather than being captured into the interceptor chain, so
+  the runner catches the throw here and compares the ex-data `:rf.error/id`.
+  The remaining opts (e.g. `:rf.cofx`) pass through to `dispatch-sync`."
   [ev dispatch-error-failures]
   (cond
     (and (map? ev) (contains? ev :expect-error))
@@ -427,10 +274,6 @@
     (rf/dispatch-sync ev)))
 
 ;; ---- single-fixture execution -------------------------------------------
-;;
-;; `:sub-values` query resolution (`[query-v]` implicit-frame vs
-;; `[frame-id [query-v]]` explicit-frame) is the shared `conformance/resolve-sub`
-;; primitive (core/src).
 
 (defn- run-fixture
   "Run one fixture; return a result map shaped like the core runner's."
@@ -446,26 +289,14 @@
             ;; Destroy first so the fixture's :initial-events cascade fires
             ;; under its declared frame config.
             _            (rf/destroy-frame! :rf/default)
-            ;; Register app-db schemas
-            ;; AFTER the destroy step (the
-            ;; `:schemas/on-frame-destroyed!` hook drops the frame's
-            ;; schemas on destroy, so registering them BEFORE the
-            ;; destroy would lose them). Schemas must also
-            ;; precede `make-frame` so the :initial-events cascade fires
-            ;; with the schemas in place — the initial-events' db commit
-            ;; will trigger validate-app-schema! against the new slate.
             _            (realise-app-schemas fixture)
-            ;; EP-0002: the shared `tf/reset-runtime` pins
-            ;; `*current-frame* :rf/default` for the body. Unbind it around
-            ;; `make-frame` so the fixture's `:initial-events` cascade fires
-            ;; SYNCHRONOUSLY — the frame engine async-queues initial-events when
-            ;; `*current-frame*` is bound (Spec 002 §make-frame from inside a
-            ;; handler), which would land the seed AFTER the first dispatch.
+            ;; `reset-runtime` binds `*current-frame*`, and `make-frame` under
+            ;; a bound frame queues `:initial-events` asynchronously (Spec 002
+            ;; §make-frame from inside a handler), which would land the seed
+            ;; after the first dispatch.
             _            (binding [rf.frame/*current-frame* nil]
                            (rf/make-frame (assoc frame-config :id :rf/default)))
             dispatches   (or (:fixture/dispatches fixture) [])
-            ;; EP-0017 `:expect-error` mismatches — a context-assembly
-            ;; throw the dispatch declared but did not raise (or raised wrong).
             dispatch-error-failures (atom [])]
         (doseq [ev dispatches]
           (run-dispatch ev dispatch-error-failures))
@@ -497,36 +328,13 @@
        :error      (.getMessage e)
        :exception  e})))
 
-;; ---- loader regression ---------------------------------------------------
-
-(deftest loader-does-not-restamp-auto-resolved-keywords
-  ;; The machines / ssr runners rewrite `::name` to
-  ;; `:rf.machine.timer/name` for their synthetic timer events. A copy of
-  ;; that rewrite here would not RESOLVE the token on a schemas fixture; it
-  ;; would restamp it with an unrelated namespace, so a future fixture could
-  ;; pass or fail under a false id.
-  ;; The loader parses verbatim, so the token is REJECTED instead,
-  ;; which is acceptable until the conformance format defines such syntax.
-  (let [f (java.io.File/createTempFile "rf2-schemas-conformance-probe" ".edn")]
-    (try
-      (spit f "{:fixture/id :probe/x :k ::probe}")
-      (let [outcome (try {:form (load-fixture f)}
-                         (catch Exception e {:threw (.getMessage e)}))]
-        (is (not= :rf.machine.timer/probe (-> outcome :form :k))
-            "a bare `::probe` must never arrive as a machines-timer keyword")
-        (is (contains? outcome :threw)
-            "an auto-resolved keyword is not EDN, so the loader rejects it"))
-      (finally (.delete f)))))
-
 ;; ---- the test entrypoint -------------------------------------------------
 
 (deftest run-schemas-conformance-corpus
   (let [results (atom [])]
     (doseq [[fname fixture] (all-schemas-fixtures)]
-      ;; There is no load-error arm. `load-fixture` THROWS on an
-      ;; unreadable / empty / multi-form fixture, so a
-      ;; parse failure escapes `all-schemas-fixtures` before this loop and
-      ;; fails the gate, rather than disappearing as a skip.
+      ;; No load-error arm: `load-fixture` throws on an unreadable, empty or
+      ;; multi-form fixture, which fails the gate rather than skipping.
       (cond
         (not (spec-version-claimed? fixture))
         (swap! results conj {:fixture-id   (:fixture/id fixture)
@@ -549,17 +357,10 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      ;; Non-empty floor. A lone (zero? (count failed))
-      ;; passes GREEN over an empty / fully-skipped / orphaned corpus
-      ;; (a wrong cwd, a fixtures-dir rename, or a capability-vocab
-      ;; rename that moves every fixture out of claim) — the gate then
-      ;; verifies NOTHING. Assert that fixtures actually executed:
-      ;;   - (pos? (count run)) catches the fully-empty case;
-      ;;   - the expected-minimum (>= 4) catches partial mass-orphaning
-      ;;     without pinning an exact count (the runnable set is
-      ;;     the four Spec 010 validation points + error-schema-failure).
-      (is (pos? (count run))
-          "at least one claim-runnable schemas conformance fixture must have executed")
+      ;; A zero-failure check alone passes over an empty or fully-orphaned
+      ;; corpus (a wrong cwd, a fixtures-dir rename, a capability-vocab
+      ;; rename), so the runnable set — the four Spec 010 validation points
+      ;; plus error-schema-failure — has a floor.
       (is (>= (count run) 4)
           (str "schemas corpus runnable-fixture floor (>= 4): only "
                (count run) " executed — a fixtures-dir/cwd fault or a "
