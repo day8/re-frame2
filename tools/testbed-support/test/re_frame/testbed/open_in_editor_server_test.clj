@@ -512,9 +512,9 @@
 ;; is `re-frame.testbed.open-in-editor-client-cljs-test`.
 
 (deftest position-blind-commands-are-declared-not-guessed
-  ;; The set's contents are graded against the installed dependency by
-  ;; launch-editor-2-14-1-really-does-drop-these-positions, and through
-  ;; `handle` by the editor rows of handle-answers-and-launches-per-request.
+  ;; The set's contents are graded against the installed dependency by the
+  ;; windsurf row of launch-declines-when-the-resolved-editor-would-drop-the-position,
+  ;; and through `handle` by the editor rows of handle-answers-and-launches-per-request.
   ;; A line alone and a column alone are each a coordinate (build-file-spec
   ;; supplies line 1); a request with none loses nothing, and the endpoint's
   ;; classpath resolution is still worth having. nil is auto-detect, whose
@@ -737,9 +737,9 @@
 ;; With no `editor` sent (a nil preference, or `{:custom …}`), launch-editor
 ;; picks the binary from the running process list, and its registries reach
 ;; editors `get-args.js` has no case for. So `launch-shim` asks the dependency
-;; rather than predicting it. Below: the installed dependency really behaves
-;; that way (also the declared set's drift guard), and the shim really
-;; declines it. `handle` answers every launch failure as a 422 carrying the
+;; rather than predicting it. The test below runs the shim against the
+;; installed dependency, so its windsurf row is also the declared set's drift
+;; guard. `handle` answers every launch failure as a 422 carrying the
 ;; launch message, so a launch-time decline reaches the client as the same
 ;; 422 and token the declared route emits.
 
@@ -767,108 +767,6 @@
       (System/setProperty "user.dir" (.getAbsolutePath ^File @implementation-dir))
       (f)
       (finally (System/setProperty "user.dir" prev)))))
-
-(def ^:private dependency-probe-script
-  "Ask the INSTALLED `launch-editor` what it would do — the same two questions
-  `launch-shim` asks, put to the same two modules. Emits `key<TAB><json>` per
-  line. `F` is a sentinel filename: `get-args.js` falls through to
-  `return [fileName]` for every command it has no case for, so an argv of the
-  sentinel ALONE is exactly the documented TOTAL drop."
-  (str "var g=require('launch-editor/guess');"
-       "var a=require('launch-editor/get-args');"
-       "function say(k,v){process.stdout.write(k+'\\t'+JSON.stringify(v)+'\\n');}"
-       "['code','code-insiders','cursor','zed','idea','windsurf'].forEach("
-       "function(c){say(c,a(c,'F',27,9));});"
-       ;; The PARTIAL-drop class: cases `get-args.js` DOES encode, which carry
-       ;; the line and discard the column. Neither is the bare file, so the
-       ;; total-drop test cannot see them — this is what the shim's column
-       ;; differential is for. Two shapes, one probe each.
-       "say('gvim',a('gvim','F',27,9));"
-       "say('rmate',a('rmate','F',27,9));"
-       ;; The auto-detect class: names that appear in the process registries
-       ;; but not in the get-args switch.
-       "say('brackets',a('Brackets','F',27,9));"
-       "say('win-cursor-exe',a('C:\\\\x\\\\Cursor.exe','F',27,9));"
-       ;; …and the registries that can select them, one per platform.
-       "say('win-process',g.getEditorFromWindowsProcesses("
-       "'C:\\\\Program Files\\\\Brackets\\\\Brackets.exe\\r\\n'));"
-       "say('linux-process',g.getEditorFromLinuxProcesses('Brackets\\n'));"
-       "say('mac-process',g.getEditorFromMacProcesses("
-       "'/Applications/Brackets.app/Contents/MacOS/Brackets'));"))
-
-(defn ^:private run-dependency-probe
-  "Run `dependency-probe-script` under node from `implementation/` and return
-  its `key → raw JSON` map. Values are compared as JSON text: exact, and with
-  no JSON dependency on this artefact's tiny test classpath."
-  []
-  (let [pb   (doto (ProcessBuilder. ^java.util.List ["node" "-e" dependency-probe-script])
-               (.directory ^File @implementation-dir)
-               (.redirectErrorStream false))
-        proc (.start pb)
-        out  (slurp (.getInputStream proc))]
-    (.waitFor proc 30 java.util.concurrent.TimeUnit/SECONDS)
-    (is (zero? (.exitValue proc))
-        (str "the dependency probe itself ran: " (slurp (.getErrorStream proc))))
-    (into {}
-          (for [line  (str/split-lines out)
-                :when (str/includes? line "\t")]
-            (let [[k v] (str/split line #"\t" 2)]
-              [k v])))))
-
-(deftest launch-editor-2-14-1-really-does-drop-these-positions
-  (testing "the installed dependency's own answers — the premise every decline
-            in this namespace rests on, asked of the package rather than
-            asserted from prose"
-    (if-not (and (node-available?) (launch-editor-installed?))
-      (skip-or-fail "node or launch-editor not installed")
-      (let [probe (run-dependency-probe)]
-        (testing "the probe returned the keys it was asked for (a silently
-                  empty map must not read as a pass)"
-          (is (= 13 (count probe)) "every probed key came back"))
-
-        (testing "every command this endpoint DECLARES position-blind really is
-                  — and no more. This is the drift guard: a launch-editor
-                  release that learns one of these makes it red, which is the
-                  signal to drop the entry from the set"
-          (doseq [cmd rf.testbed.open-in-editor-server/commands-without-position-support]
-            (is (= "[\"F\"]" (get probe cmd))
-                (str cmd " is invoked with the bare file — the coordinate is
-                     dropped inside the dependency"))))
-
-        (testing "every OTHER command in the vocabulary carries the position,
-                  so the decline is as narrow as the invariant allows"
-          (doseq [cmd (remove rf.testbed.open-in-editor-server/commands-without-position-support
-                              (vals rf.testbed.open-in-editor-server/editor-command-by-keyword))]
-            (let [argv (get probe cmd)]
-              (is (str/includes? argv "27")
-                  (str cmd " was probed, is not a bare-file launch, and its"
-                       " argv carries the requested line"))
-              ;; The column too: `gvim` below encodes a line and drops the column.
-              (is (str/includes? argv "9")
-                  (str cmd " argv carries the requested COLUMN")))))
-
-        (testing "PARTIAL DROP — cases the dependency DOES encode, which carry
-                  the line and discard the column. Neither is a bare-file
-                  launch, so the check above passes them; this is the premise
-                  the shim's column differential rests on, and a release that
-                  learns either editor's column makes it red"
-          (is (= "[\"+27\",\"F\"]" (get probe "gvim"))
-              "gvim gets the line as `+27` and no column at all")
-          (is (= "[\"--line\",27,\"F\"]" (get probe "rmate"))
-              "rmate gets `--line 27` and no column at all"))
-
-        (testing "AUTO-DETECT reaches position-blind binaries the declared set
-                  cannot name. Brackets is in all three
-                  process registries with no get-args case; on Windows so is
-                  Cursor.exe, whose basename the lowercase `cursor` case
-                  does not match"
-          (is (= "[\"F\"]" (get probe "brackets")))
-          (is (= "[\"F\"]" (get probe "win-cursor-exe")))
-          (is (= "\"C:\\\\Program Files\\\\Brackets\\\\Brackets.exe\""
-                 (get probe "win-process"))
-              "the Windows registry selects Brackets from a process list")
-          (is (= "\"brackets\"" (get probe "linux-process")))
-          (is (= "\"brackets\"" (get probe "mac-process"))))))))
 
 (deftest launch-declines-when-the-resolved-editor-would-drop-the-position
   (testing "the shim's probe runs for real: a coordinate-bearing launch whose
