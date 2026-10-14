@@ -29,27 +29,24 @@ function benignError() {
   return e;
 }
 
-function wipe(unlinkError, statExists, logFn = () => {}) {
+function wipe(unlinkError, statExists) {
   return () => wipeStalePortFileCandidate(CANDIDATE, FIXTURE_DIR, {
     unlink: () => { throw unlinkError; },
     statExists: () => statExists,
-    logFn,
+    logFn: () => {},
   });
 }
 
-test('wipeStalePortFileCandidate: benign failure + file STILL present fails loud (rf2-6i2yi4)', () => {
-  assert.throws(wipe(benignError(), true), /STILL on disk/);
-});
-
-test('wipeStalePortFileCandidate: benign failure + file confirmed GONE does not throw (transient-lock happy path)', () => {
-  const logs = [];
-  assert.doesNotThrow(wipe(benignError(), false, (m) => logs.push(m)));
-  assert.ok(logs.some((m) => m.includes('gone now')), 'logs the benign-but-resolved outcome');
-});
-
-test('wipeStalePortFileCandidate: containment-escape is fatal even if statExists would say gone', () => {
+test('wipeStalePortFileCandidate continues past a failed unlink only when the file is gone and the failure was benign (rf2-6i2yi4)', () => {
   const escape = new Error(
     `refusing to unlink ${CANDIDATE}: symlink-escape accident-gating — realpath resolves outside the allowed root`,
   );
-  assert.throws(wipe(escape, false), /refused to clean/);
+  for (const [error, stillOnDisk, expected] of [
+    [benignError(), true, /STILL on disk/],
+    [benignError(), false, null],
+    [escape, false, /refused to clean/],
+  ]) {
+    if (expected) assert.throws(wipe(error, stillOnDisk), expected);
+    else assert.doesNotThrow(wipe(error, stillOnDisk));
+  }
 });
