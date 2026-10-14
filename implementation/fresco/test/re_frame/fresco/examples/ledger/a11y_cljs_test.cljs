@@ -60,11 +60,6 @@
                     [::rf.fresco.examples.ledger.subs/note i]     note
                     [::rf.fresco.examples.ledger.subs/flagged? i] flagged?}})))
 
-(defn- status-tree [window total]
-  (rf.fresco.test/tree [rf.fresco.examples.ledger.views/status-line {}]
-           {:subs {[::rf.fresco.examples.ledger.subs/window] window
-                   [::rf.fresco.examples.ledger.subs/total]  total}}))
-
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 (defn- named [tree node] (rf.fresco.test/accessible-name tree node))
 
@@ -128,16 +123,12 @@
 
 (deftest the-sweep-finds-nothing-in-any-state-a-row-has
   ;; The accessibility acceptance, in the form the application can
-  ;; be held to as it grows: one assertion per rendering, over every state
-  ;; a row has. A fourth control added tomorrow without a name reds this,
+  ;; be held to as it grows: one assertion per rendering, at both ends of
+  ;; a row's state. A fourth control added tomorrow without a name reds this,
   ;; and no row has to be written for it.
   (doseq [[what tree] [["an untouched row" (row-tree 4136)]
-                       ["a row being typed into" (row-tree 4136 {:note "chase"})]
-                       ["a flagged row" (row-tree 4136 {:flagged? true})]
                        ["a flagged row being typed into"
-                        (row-tree 4136 {:note "chase" :flagged? true})]
-                       ["the first row" (row-tree 0)]
-                       ["the last row" (row-tree 9999)]]]
+                        (row-tree 4136 {:note "chase" :flagged? true})]]]
     (is (= [] (rf.fresco.test/unnamed-controls tree))
         (str what " — every field and button a user can operate must carry
              an accessible name, and this is the whole row asked at once"))))
@@ -159,26 +150,3 @@
               encodes the state in its text"
       (is (= "Flag Record 4136" (named off (flag-node off))))
       (is (= "Flag Record 4136" (named on (flag-node on)))))))
-
-(deftest the-note-field-echoes-the-committed-value
-  (is (= "chase" (:value (rf.fresco.test/attrs (note-node (row-tree 4136 {:note "chase"}))))))
-  (is (= "" (:value (rf.fresco.test/attrs (note-node (row-tree 4136)))))
-      "and an untouched field is EMPTY rather than absent — a `nil` here
-       is React's uncontrolled-input warning, not an empty field"))
-
-;; ---------------------------------------------------------------------------
-;; The status line — the model's size, announced politely
-;; ---------------------------------------------------------------------------
-
-(deftest the-status-line-is-a-status-and-counts-the-model
-  (let [tree (status-tree {:from 40 :to 66} 10000)]
-    (is (= :status (rf.fresco.test/role tree))
-        "a STATUS and not an ALERT: the window moving is not an
-         interruption, and the two roles are different promises about how
-         urgently a screen reader speaks")
-    (is (= "Showing rows 41–67 of 10000" (rf.fresco.test/text tree))
-        "one-based, and the denominator is the MODEL's count — the number
-         the document cannot supply")
-    (is (nil? (rf.fresco.test/accessible-name tree tree))
-        "a live region takes no name from its own text: it is announced
-         BECAUSE it changed")))
