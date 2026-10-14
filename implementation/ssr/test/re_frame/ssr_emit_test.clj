@@ -40,6 +40,9 @@
              ["a function value"
               [:span {:data-cb (fn [] nil)}]
               "<span></span>"]
+             ["__proto__"
+              [:div {:__proto__ "polluted" :id "x"}]
+              "<div id=\"x\"></div>"]
              ["a prototype-pollution key matched case-insensitively"
               [:div {:Constructor "polluted" :id "x"}]
               "<div id=\"x\"></div>"]
