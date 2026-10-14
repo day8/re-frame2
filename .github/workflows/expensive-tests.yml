@@ -910,11 +910,10 @@ jobs:
       #
       # AND THE CORPUS IS RESTORED, which is the point of the step rather than a
       # bonus. It costs ~0.5s for 237 files, and it is NOT only about
-      # `data_archive.test.cjs` going from 4/4 plus 3 SKIPPED to 7/7: measured
-      # both ways in that same depth-1 clone, EIGHT members print more with the
-      # corpus than without, and `alloc_null_floor`'s self-test does not run at
-      # all without it — 777 checks corpus-free against 995 with, summing each
-      # member's own printed summary. A corpus-free run therefore exits 0 over
+      # `data_archive.test.cjs` going from 4/4 plus 3 SKIPPED to 7/7: other
+      # members print more with the corpus than without too, and
+      # `alloc_null_floor`'s self-test does not run at all without it. A
+      # corpus-free run therefore exits 0 over
       # a lane whose corpus-backed checks announced themselves SKIPPED, which is
       # the present-but-not-executed failure this whole step exists to end. So a
       # failed fetch REDS this step rather than falling back: `data/` is
