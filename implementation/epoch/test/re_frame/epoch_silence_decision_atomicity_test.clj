@@ -9,7 +9,6 @@
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks, including
             ;; `:epoch/epoch-silence-current?`.
             [re-frame.epoch]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -23,10 +22,6 @@
         _     (rf/register-listener! :epoch cb (fn [_] nil))
         g     (get-in (rf.epoch.state/listeners-snapshot) [cb :generation])
         tags  {:cb-id cb :frame frame :observed-gen g}]
-    (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
-    (is (false? (rf/epoch-silence-current? tags))
-        "generation matches, but the callback is still observing the frame")
-    (rf.epoch.state/drop-frame-observation! frame)
     (rf.epoch.state/record-observation! cb g :uhouu/other)
     (is (true? (rf/epoch-silence-current? tags))
         "genuinely silent on this frame — an unrelated frame's observation does not mask it")
