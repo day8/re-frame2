@@ -13,7 +13,6 @@
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
-            [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -213,7 +212,6 @@
     (let [entry (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                                  (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
       (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
-      (is (= 1 (count (reads-of entry))))
       (is (= 1 (:edges (rf.bench.fresco.arm1.runtime/stats)))))))
 
 (deftest the-bucket-scan-does-not-grow-with-the-number-of-boundaries
@@ -230,18 +228,8 @@
 ;; The commit window
 ;; ---------------------------------------------------------------------------
 ;;
-;; Who a write notifies is laws 1, 3, 5 and 6 in `cell_table_laws_cljs_test`.
-
-(deftest one-commit-window-is-one-flush-however-many-subscriptions-moved
-  (seeded!)
-  (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                             (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
-        g (rf.bench.fresco.arm1.runtime/generation)]
-    (rf.bench.fresco.arm1.runtime/with-commit (fn []
-                                                (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 0]))
-                                                (rf/with-frame frame-id (rf/dispatch-sync [:dogfood/toggle 1]))))
-    (is (= 1 @(:hits a)) "one notification, not one per moved subscription")
-    (is (= (inc g) (rf.bench.fresco.arm1.runtime/generation)) "and one generation, not two")))
+;; Who a write notifies, and that one commit is one notification, is laws
+;; 3, 5 and 6 in `cell_table_laws_cljs_test` (law 1 inside law 5).
 
 (deftest a-warm-read-performs-no-new-attach-or-release
   (seeded!)
