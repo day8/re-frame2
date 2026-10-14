@@ -13,9 +13,11 @@
   `:image/lower-inline-<kind>` publisher, reached through
   `image-assembly/lower-inline-descriptor`), so the inline contract is exactly
   the registrar's; every other section fails loud at `rf/image`. A
-  metadata-only `[id metadata]` 2-tuple is pinned by `image-cljs-test`.
+  metadata-only `[id metadata]` 2-tuple is pinned by `image-cljs-test`. Inline
+  events (with their `:rf.cofx/requires`) and fx run end to end in
+  `live-run-frame-resolution-cljs-test` and `ep0023-conformance-cljs-test`.
 
-  The four kind namespaces are required so their publishers are installed
+  The sub and cofx namespaces are required so their publishers are installed
   (they `set-fn!` at ns load). The grammar is posture-independent except
   `:doc`, which `registrar/strip-pure-documentation` removes under
   `-Dre-frame.debug=false`: a row reading `:doc` back sits in a
@@ -27,9 +29,7 @@
             [re-frame.interop        :as rf.interop]
             ;; image-assembly cannot static-require the lowering publishers (a
             ;; cycle), so the test loads them to exercise the LIVE lowering
-            [re-frame.events]
             [re-frame.subs]
-            [re-frame.fx]
             [re-frame.cofx]))
 
 (defn- runnable
@@ -49,24 +49,6 @@
 (defn- err-id [thunk] (:rf.error/id (err-data thunk)))
 
 ;; ---- each supported kind lowers through its own registrar parser ----------
-
-(deftest inline-event-lowers-to-the-runnable-event-shape
-  ;; :handler-fn plus an :interceptors chain ending in the framework
-  ;; :rf/event-handler wrapper — the slots register-event! installs
-  (let [body (fn [{:keys [db]} _] {:db db})
-        d    (runnable {:reg-event [[:counter/inc body]]})]
-    (is (= [:event :counter/inc body true true true]
-           [(:kind d) (:id d) (:impl d)
-            (fn? (:handler-fn d))
-            (vector? (:interceptors d))
-            (boolean (some :rf/default? (:interceptors d)))]))))
-
-(deftest inline-event-parses-cofx-requires-metadata
-  ;; :rf.cofx/requires parses into the top-level :rf.cofx/requires-parsed slot
-  ;; the satisfaction step reads, as register-event! does
-  (let [d (runnable {:reg-event [[:needs/cofx {:rf.cofx/requires [:rf.cofx/now]} (fn [_ _] {})]]})]
-    (is (= [{:rf.cofx/requires [:rf.cofx/now]} [:rf.cofx/now]]
-           [(:metadata d) (mapv :id (:rf.cofx/requires-parsed d))]))))
 
 (deftest inline-sub-without-inputs-lowers-to-the-layer-1-db-reader
   (testing "with NO :inputs the sub is the layer-1 db-reader (:input-kind :db,
@@ -116,11 +98,6 @@
     (is (= [:rf.error/reg-sub-bad-args :rf.error/reg-sub-bad-args]
            [(err-id #(runnable {:reg-sub [[:bad {:inputs [:cart/items]} (fn [i _] i)]]}))
             (err-id #(runnable {:reg-sub [[:bad {:inputs nil} (fn [i _] i)]]}))]))))
-
-(deftest inline-fx-lowers-to-the-runnable-fx-slot
-  (let [body (fn [_args] nil)
-        d    (runnable {:reg-fx [[:metrics/send body]]})]
-    (is (= [:fx :metrics/send body body] [(:kind d) (:id d) (:impl d) (:handler-fn d)]))))
 
 (deftest inline-cofx-lowers-carrying-its-grade
   ;; the supplier slot plus the :recordable? / :provided? grade delivery reads,
