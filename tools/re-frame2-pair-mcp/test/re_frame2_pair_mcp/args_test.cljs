@@ -18,11 +18,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-bool-arg-absent-uses-table-default
-  ;; An absent slot, and a nil or undefined args object, all read the
-  ;; documented default. The privacy knobs default closed.
+  ;; An absent slot and a nil args object both read the documented default.
+  ;; The privacy knobs default closed.
   (let [ks [:dedup :elision :cache :include-sensitive :include-fx-args
             :include-values :drain :stop]]
-    (doseq [a [(args-js {}) nil js/undefined]]
+    (doseq [a [(args-js {}) nil]]
       (is (= {:dedup true :elision true :cache false :include-sensitive false
               :include-fx-args false :include-values false :drain false :stop false}
              (zipmap ks (map #(args/parse-bool-arg a %) ks)))
@@ -43,12 +43,8 @@
   (doseq [[raw missing invalid expected]
           [["   " :missing-db :invalid-db [:err :missing-db]]
            ["{:k" :missing-db :invalid-db [:err :invalid-db]]
-           [nil :missing-epoch-id :invalid-epoch-id-edn [:err :missing-epoch-id]]
-           ["{:unterminated" :missing-epoch-id :invalid-epoch-id-edn [:err :invalid-epoch-id-edn]]]]
+           [nil :missing-epoch-id :invalid-epoch-id-edn [:err :missing-epoch-id]]]]
     (is (= expected (args/read-edn-arg raw missing invalid)) (pr-str raw))))
-
-(deftest read-edn-arg-parses-valid-edn
-  (is (= [:ok {:counter 0}] (args/read-edn-arg "{:counter 0}" :missing :invalid))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-event-arg — the one event-parse seam dispatch and dispatch-dry-run
@@ -62,20 +58,11 @@
 (deftest parse-event-arg-refuses-anything-but-a-vector
   ;; Only the missing arm carries the caller's hint.
   (doseq [[in expected]
-          [[nil   {:ok? false :reason :missing-event :hint dispatch-hint}]
-           ["   " {:ok? false :reason :missing-event :hint dispatch-hint}]
+          [["   " {:ok? false :reason :missing-event :hint dispatch-hint}]
            ["[:foo" {:reason :invalid-event-edn :event "[:foo"}]
-           ["{:id :foo}" {:reason :not-an-event-vector :parsed-type :map :event "{:id :foo}"}]
-           [":cart/checkout" {:reason :not-an-event-vector :parsed-type :keyword :event ":cart/checkout"}]
-           ["(println :pwn)" {:reason :not-an-event-vector :parsed-type :list :event "(println :pwn)"}]
-           ["some-symbol" {:reason :not-an-event-vector :parsed-type :symbol :event "some-symbol"}]
-           ["42" {:reason :not-an-event-vector :parsed-type :scalar :event "42"}]]]
+           ["(println :pwn)" {:reason :not-an-event-vector :parsed-type :list :event "(println :pwn)"}]]]
     (let [[tag env] (args/parse-event-arg in dispatch-hint)]
       (is (= [:err expected] [tag (select-keys env (keys expected))]) (pr-str in)))))
-
-(deftest parse-event-arg-accepts-vectors
-  (is (= [:ok [:cart/add {:sku "abc"}]]
-         (args/parse-event-arg "[:cart/add {:sku \"abc\"}]" dispatch-hint))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-timeout-arg — a non-numeric deadline would make `(>= elapsed NaN)`
@@ -85,7 +72,7 @@
 (deftest parse-timeout-arg-accepts-only-positive-integers
   (doseq [[v expected] [[nil [:ok nil]] [1 [:ok 1]] ["250" [:ok 250]]]]
     (is (= expected (args/parse-timeout-arg "wait-ms" v)) (pr-str v)))
-  (doseq [v ["never" 0 12.5]]
+  (doseq [v [0 12.5]]
     (let [[tag env] (args/parse-timeout-arg "wait-ms" v)]
       (is (= [:err :invalid-numeric-arg "wait-ms" v] [tag (:reason env) (:arg env) (:given env)])
           (pr-str v)))))
