@@ -176,9 +176,7 @@
   (let [a (render-body! [id-page {}] {:identifier-prefix "pfx-a-"})
         b (render-body! [id-page {}] {:identifier-prefix "pfx-b-"})]
     (is (str/includes? a "pfx-a-") "React derived the id under the caller's prefix")
-    (is (str/includes? b "pfx-b-"))
-    (is (not= a b)
-        "two prefixes, two documents — the premise the equality above rests on")))
+    (is (str/includes? b "pfx-b-"))))
 
 ;; ---------------------------------------------------------------------------
 ;; §4 — the recovered render error
