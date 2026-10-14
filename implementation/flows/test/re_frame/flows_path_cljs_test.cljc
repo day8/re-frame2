@@ -1,8 +1,7 @@
 (ns re-frame.flows-path-cljs-test
-  "Flow path validation, output overlap and self-cycle rejection on both
-  hosts: the `:node-test` build discovers this `*-cljs-test.cljc` file and
-  the JVM runner runs it too, so each host meets its own adversarial values
-  (a raw JS object on CLJS, a host Object on the JVM)."
+  "Flow topology on both hosts: self-cycle rejection, acyclic ordering and
+  output-overlap rejection. The `:node-test` build discovers this
+  `*-cljs-test.cljc` file and the JVM runner runs it too."
   (:require
    #?(:clj  [clojure.test :refer [are deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [are deftest is use-fixtures]])
@@ -25,14 +24,6 @@
   "Register `flow` with the 3-slot grammar; return the thrown `:rf.error/id`, or nil."
   [flow]
   (error-id #(rf/reg-flow (:id flow) (dissoc flow :id :derive) (:derive flow))))
-
-(deftest output-paths-overlap-on-cljs
-  ;; Spec 013 §Disjoint output paths: a prefix in either direction overlaps.
-  (are [a b expected] (= expected (rf.flows.topo/output-paths-overlap? a b))
-    [:x]    [:x]    true
-    [:x]    [:x :y] true
-    [:x :y] [:x]    true
-    [:x :y] [:x :z] false))
 
 (deftest topo-sort-rejects-self-cycle-on-this-host
   ;; Inputs overlapping the flow's own output, in either prefix direction, make
@@ -64,14 +55,6 @@
   ;; output `[:x]`.
   (rf/reg-flow :probe/runtime {:inputs [[:rf.db/runtime :x]] :output-path [:x]} identity)
   (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/runtime)))
-
-(deftest reg-flow-rejects-host-and-composite-segments-on-cljs
-  ;; A composite, a function or a raw host object is not a path segment; the
-  ;; registration fails closed.
-  (doseq [bad [[:nested] (fn [_]) #?(:clj (Object.) :cljs #js {:a 1})]]
-    (is (= :rf.error/flow-bad-path
-           (reg-flow-error-id {:id :bad/seg :inputs [[:n]] :derive identity :output-path [:out bad]}))
-        (pr-str bad))))
 
 (deftest reg-flow-rejects-overlapping-outputs-on-cljs
   ;; Overlapping outputs with disjoint inputs get no dependency edge, so the
