@@ -9,7 +9,7 @@
 //
 // `'use strict'` is deliberate and load-bearing: a strict module takes a
 // TypeError when it writes to a frozen snapshot, which is what makes the
-// freeze visible. `sloppy.cjs` is its control.
+// freeze visible.
 //
 // It reports what it observed by RENDERING it — the one channel the
 // contract gives a render module, and the reason `test/observations.cjs`
