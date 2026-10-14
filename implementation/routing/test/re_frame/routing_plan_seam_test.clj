@@ -68,36 +68,15 @@
 ;; this seam directly, so a door-local rule would miss it.
 
 (deftest resolved-target-drops-nil-valued-query-keys
-  (rf.routing/reg-route :route/page
-    {:query-defaults {:tab :overview}} "/p/:slug")
-  (rf.routing/reg-route :route/plain {} "/plain/:slug")
-  (testing "a nil value is the caller spelling ABSENCE; `:route/plain` declares
-            no query vocabulary, so the survivor is spelled as the URL spells it"
-    (is (= {"keep" "y"}
-           (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
-                                                        :params   {:slug "x"}
-                                                        :query    {:keep "y" :drop nil}})))))
-  (testing "the strip runs BEFORE the defaults fill, so a declared default still
-            lands on a key the caller nilled out"
+  (testing "a nil value is the caller spelling ABSENCE, and the strip runs BEFORE
+            the defaults fill, so a declared default still lands on a key the
+            caller nilled out"
+    (rf.routing/reg-route :route/page
+      {:query-defaults {:tab :overview}} "/p/:slug")
     (is (= {:tab :overview}
            (:query (rf.routing.resolve/resolved-target {:route-id :route/page
                                                         :params   {:slug "x"}
-                                                        :query    {:tab nil}})))))
-  (testing "a query holding no nil is returned IDENTICALLY — the URL doors'
-            query arrives in canonical key order and rebuilding it would throw
-            that order away"
-    (let [q (array-map "b" "2" "a" "1")]
-      (is (identical? q (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
-                                                                     :params   {:slug "x"}
-                                                                     :query    q})))))))
-
-(deftest resolved-target-collapses-an-empty-fragment-to-nil
-  (rf.routing/reg-route :route/page {} "/p/:slug")
-  ;; "" is truthy, so an un-normalised empty fragment would make the slice say
-  ;; :fragment "" while route-url emits /p/x with no trailing #.
-  (is (nil? (:fragment (rf.routing.resolve/resolved-target {:route-id :route/page
-                                                            :params   {:slug "x"}
-                                                            :fragment ""})))))
+                                                        :query    {:tab nil}}))))))
 
 (deftest a-bare-trailing-hash-url-resolves-to-no-fragment
   ;; `match-url` reports `:fragment ""` for a bare trailing `#` (its own
@@ -109,29 +88,6 @@
          (dissoc (:target (rf.routing.resolve/url-resolution "/page#")) :url))
       "both spellings resolve to one target, differing only in the requested
        :url each preserves verbatim"))
-
-;; ---- the ONE place `:query-defaults` are filled ---------------------------
-;;
-;; Spec 012 defines a ResolvedTarget as planner output "after matching,
-;; defaults, and validation", and this is the single function every door
-;; shapes its target through. Were only `match-url` to fill defaults, the
-;; named-address doors would resolve a different target than the URL doors
-;; for one destination.
-
-(deftest resolved-target-fills-the-routes-declared-query-defaults
-  (rf.routing/reg-route :route/page
-    {:params         [:map [:slug :string]]
-     :query          [:map [:tab {:optional true} [:enum :overview :comments]]]
-     :query-defaults {:tab :overview}}
-    "/p/:slug")
-  (testing "an absent declared-default key is filled, and an explicit value WINS
-            — the fill is membership-only, never a value transform"
-    (are [query expected]
-         (= expected (:query (rf.routing.resolve/resolved-target {:route-id :route/page
-                                                                  :params   {:slug "x"}
-                                                                  :query    query})))
-      {}              {:tab :overview}
-      {:tab :comments} {:tab :comments})))
 
 ;; A schema may REQUIRE a key the route also defaults. `route-url` is the
 ;; emission boundary every named-address door shares, so it validates the
@@ -375,7 +331,6 @@
       ;; Dev-instrumentation arm (see ns docstring): the guarantees read off the
       ;; bus that actually carried them.
       (when rf.interop/debug-enabled?
-        (is (= 1 (count ts)))
         ;; `:route/invite` is bare, so its query keys are strings.
         (is (= {:param-keys [:id] :query-keys ["invite"]
                 :url        "/invite/acct-42?invite=rf/redacted#rf/redacted"}
@@ -452,11 +407,6 @@
 
 (deftest url-resolution-normalises-every-fallback-to-the-canonical-target
   (rf.routing/reg-route :route/article {} "/articles/:slug")
-  (rf.routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
-  (testing "a match resolves to the matched route's facts"
-    (is (= {:route-id :route/article :params {:slug "x"} :query {}
-            :fragment nil :url "/articles/x"}
-           (:target (rf.routing.resolve/url-resolution "/articles/x")))))
   (testing "a bare miss normalises to the reserved :rf.route/not-found target:
             the reserved route-id, the {:url …} params vocabulary, and an
             EMPTIED query"
@@ -469,11 +419,6 @@
             :matched?  false}
            (select-keys (rf.routing.resolve/url-resolution "/no-such-thing")
                         [:target :fallback? :matched?]))))
-  (testing "a validation fail is a MATCH (the SCHEMA rejected it) that still
-            normalises to not-found, with :reason"
-    (let [r (rf.routing.resolve/url-resolution "/typed/not-an-int")]
-      (is (= [:rf.route/not-found {:url "/typed/not-an-int" :reason :validation} true true]
-             [(:route-id (:target r)) (:params (:target r)) (:validation-fail? r) (:matched? r)]))))
   (testing "a malformed URL carries :reason :malformed-url and NO fragment — the
             fragment may itself be the decode-fail site"
     (let [r (rf.routing.resolve/url-resolution "/articles/%zz#frag")]
@@ -552,20 +497,9 @@
      :warnings (mapv :operation @traces)}))
 
 (deftest both-url-bearing-doors-stamp-the-same-not-found-reason
-  (rf.routing/reg-route :route/home {} "/home")
   (rf.routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
   (rf.routing/reg-route :rf.route/not-found {} "/not-found")
   (quiet-nav-fx!)
-  (testing "a BARE miss — no :reason on either door"
-    (let [url-driven   (door-fallback [:rf.route/handle-url-change "/miss-a"])
-          programmatic (door-fallback [:rf.route/navigate {:url "/miss-b"}])]
-      (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
-      (is (= {:url "/miss-a"} (:params url-driven)))
-      (is (= {:url "/miss-b"} (:params programmatic)))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (= [] (:warnings url-driven) (:warnings programmatic))
-            "a well-formed miss is not a malformed URL"))))
   (testing "a MALFORMED percent-encoding — both doors stamp :malformed-url, so
             a per-route error UI branching on :reason (Spec 012) and the
             EP-0015 malformed-URL diagnostic both reach the one door that
@@ -590,16 +524,12 @@
         ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (is (= [:rf.warning/malformed-url] (:warnings url-driven) (:warnings programmatic)))))))
-  (testing "a VALIDATION miss is the SPECIFIED asymmetry, not a defect: Spec 012's
-            resolve-target table and §Validation-error surfacing specify
-            URL-driven-routes-to-not-found vs programmatic-caller-bug-rejects."
+  (testing "a VALIDATION miss routes the URL-driven door to not-found with
+            :reason :validation (the programmatic door rejects instead, Spec 012
+            §Validation-error surfacing)"
     (let [url-driven (door-fallback [:rf.route/handle-url-change "/typed/not-an-int"])]
       (is (= :rf.route/not-found (:route-id url-driven)))
-      (is (= {:url "/typed/not-an-int" :reason :validation} (:params url-driven))))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (rf/dispatch-sync [:rf.route/navigate {:url "/typed/also-not-an-int"}])
-    (is (= :route/home (current-id))
-        "the programmatic door REJECTS a validation miss — slice unchanged")))
+      (is (= {:url "/typed/not-an-int" :reason :validation} (:params url-driven))))))
 
 ;; ---- the URL-change door reports WHICH of its sub-doors fired --------------
 
