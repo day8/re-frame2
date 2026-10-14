@@ -36,19 +36,21 @@
 
   This helper powers the Module-view tab's EP-0023 PUBLIC model: the
   image/frame projection reads the EP-0023 live-frame registry + sealed
-  generations. It is fail-soft and demand-gated — a process not using
-  image-loaded frames renders the calm no-image caption.
+  generations, and the frames made without `:images`, which resolve the
+  registration store live. It is fail-soft and demand-gated — a process with
+  no frame to show renders the calm empty caption.
 
   ## Inert-data, fail-soft, JVM-testable
 
   Every fn here is pure `data -> data`. The live reads (the EP-0023
-  registry/generation touches) live in `image_view_reads.cljs` and are
+  registry/generation touches) live in `image_view_reads.cljc` and are
   passed IN as already-projected values, so this algebra runs under the JVM
   unit-test target (`clojure -M:test`) exactly like every other Xray panel
   helper. A frame object / generation / image is presented as the inert data
   it already is — `make-frame` returns an inert map and `assemble` seals an
   inert generation (EP-0023 §Image — \"an image is data, not registration\")."
-  (:require [day8.re-frame2-xray.panels.common-helpers :as common]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ===========================================================================
 ;; Generation projection — an image as its `[kind id]` descriptor set
@@ -124,42 +126,60 @@
      :descriptor-count (count resolver)
      :descriptors      descs}))
 
+(defn project-live-store-image
+  "Project the registrations a frame made without `:images` resolves LIVE from
+  the registration store (`{[kind id] descriptor}`) into the image-row shape
+  `project-generation` returns — with no image ids, since the frame composes
+  none — plus `:ambiguous`: one `{:kind :id :namespaces}` entry per id the
+  frame refuses because more than one namespace registers it, sorted like the
+  descriptors. Pure `data -> data`; JVM-testable."
+  [registrations ambiguous]
+  (assoc (project-generation {:rf.gen/resolver registrations
+                              :rf.gen/kinds    (into #{} (map first) (keys registrations))})
+         :ambiguous (vec (sort-by (fn [{:keys [kind id]}] (str kind " " id)) ambiguous))))
+
 ;; ===========================================================================
 ;; Frame projection — a frame as an execution context (EP-0023 §Frame)
 ;; ===========================================================================
 
 (defn project-frame-row
   "Project ONE live frame OBJECT into the image-view's frame-row shape — a
-  frame presented as an EXECUTION CONTEXT that POINTS AT its generation
-  (EP-0023 §Frame). Returns
+  frame presented as an EXECUTION CONTEXT that POINTS AT what it resolves
+  registrations through (EP-0023 §Frame). Returns
 
       {:frame-id     <:rf.frame/id> | nil    ;; nil for a direct (no-id) frame
        :anonymous?   <bool>                  ;; true iff no public frame id
        :has-adapter? <bool>                  ;; carries an active-substrate binding?
-       :image        {<project-generation> …}};; the resolved image this frame runs
+       :live-store?  <bool>                  ;; resolves the store live (no :images)?
+       :image        {<project-generation> …}};; the registrations this frame runs
 
   `frame-id` is the registry key; `frame-object` is the inert FRAME VIEW the
-  `image-view-frames` seam projects per image-loaded record
-  (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …,
-  EP-0024). The frame's IMAGE is its resolved generation projected via
-  `project-generation` — that is the `frame -> resolved image generation` half
-  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable. Frame
-  views carry no image capabilities (EP-0026), so the row has no
-  `:capabilities`."
+  read seam supplies. An image-loaded frame's view carries its sealed
+  `:rf.frame/generation` (the `image-view-frames` projection, EP-0024), and
+  its IMAGE is that generation projected via `project-generation` — the
+  `frame -> resolved image generation` half of the EP-0023 resolution path.
+  A frame made without `:images` carries `:rf.frame/live-store? true`, its
+  `:rf.frame/registrations` and its `:rf.frame/ambiguous` ids instead, and its
+  IMAGE is `project-live-store-image` over them. Pure `data -> data`;
+  JVM-testable. Frame views carry no image capabilities (EP-0026), so the row
+  has no `:capabilities`."
   [frame-id frame-object]
-  (let [gen (:rf.frame/generation frame-object)]
+  (let [live-store? (true? (:rf.frame/live-store? frame-object))]
     {:frame-id     frame-id
      :anonymous?   (nil? frame-id)
      :has-adapter? (boolean (:rf.frame/adapter frame-object))
-     :image        (project-generation gen)}))
+     :live-store?  live-store?
+     :image        (if live-store?
+                     (project-live-store-image (:rf.frame/registrations frame-object)
+                                               (:rf.frame/ambiguous frame-object))
+                     (project-generation (:rf.frame/generation frame-object)))}))
 
 (defn project-frames
-  "Project the image-loaded frames `{frame-id frame-view}` into sorted
-  frame-rows (EP-0024 §One live frame registry — the `image-view-frames`
-  read over the one `frames` registry). Returns a vector of frame-rows sorted by
-  frame-id str. Only PUBLIC `:id`-bearing image-loaded frames are enumerated;
-  direct (no-id) frames bypass enumeration (their private `:rf.frame/<gensym>` id
-  is excluded). Pure `data -> data`; JVM-testable."
+  "Project the frames `{frame-id frame-view}` — image-loaded and live-store
+  alike — into sorted frame-rows. Returns a vector of frame-rows sorted by
+  frame-id str. Only PUBLIC `:id`-bearing frames are enumerated; direct
+  (no-id) frames bypass enumeration (their private `:rf.frame/<gensym>` id is
+  excluded by the read seam). Pure `data -> data`; JVM-testable."
   [live-frames]
   (->> live-frames
        (sort-by (comp str key))
@@ -174,31 +194,31 @@
   image/frame sections of the Module-view tab need. Pure
   `data -> data`; JVM-testable.
 
-  `live-frames` is the image-loaded-frames snapshot `{frame-id frame-view}`
-  (from `re-frame.live-frame/image-view-frames`, read in `image_view_reads.cljs`
-  — EP-0024 §One live frame registry: the seam projects each
-  one-registry record carrying a generation into an inert frame view).
-  Returns
+  `live-frames` is the frames snapshot `{frame-id frame-view}` read in
+  `image_view_reads.cljc`: each image-loaded frame (EP-0024 §One live frame
+  registry — the seam projects each one-registry record carrying a generation
+  into an inert frame view), and each frame made without `:images`, which
+  resolves the registration store live. Returns
 
-      {:frames        [<frame-row> …]   ;; per live frame, each carrying its
-                                        ;; resolved image (its generation's
-                                        ;; [kind id] descriptors)
+      {:frames        [<frame-row> …]   ;; per frame, each carrying the
+                                        ;; registrations it resolves
        :frame-count   <int>
-       :images?       <bool>}           ;; true iff ANY live frame runs a
-                                        ;; generation — i.e. the EP-0023 public
-                                        ;; image/frame model is in use. Drives
-                                        ;; whether the image/frame sections
-                                        ;; materialise (demand-gated).
+       :images?       <bool>}           ;; true iff ANY frame has something to
+                                        ;; show: it resolves the store live, or
+                                        ;; its generation resolves descriptors.
+                                        ;; Drives whether the frames section
+                                        ;; materialises (demand-gated).
 
-  A process that never calls `rf/make-frame` with `:images` has an empty
-  registry → `:images?` false → the sections render the calm no-image
-  caption. EP-0023's public model is OPT-IN, so this is the honest \"not using
-  the image/frame model yet\" state, not a broken surface."
+  A process with no such frame → `:images?` false → the section renders the
+  calm empty caption, the honest \"no frame yet\" state, not a broken
+  surface."
   [live-frames]
   (let [frames (project-frames live-frames)]
     {:frames      frames
      :frame-count (count frames)
-     :images?     (boolean (some (comp pos? :descriptor-count :image) frames))}))
+     :images?     (boolean (some (fn [{:keys [live-store? image]}]
+                                   (or live-store? (pos? (:descriptor-count image))))
+                                 frames))}))
 
 ;; ===========================================================================
 ;; Display strings
@@ -223,16 +243,20 @@
   (str descriptor-count " " (common/pluralize descriptor-count "descriptor")
        " · " (count kinds) " " (common/pluralize (count kinds) "kind")))
 
+(defn ambiguous-summary
+  "The one-line rendering of an ambiguous id's namespaces (an `:ambiguous`
+  entry's `:namespaces`): the frame runs neither registration until one is
+  cleared. Pure `data -> string`; JVM-testable."
+  [namespaces]
+  (str "ambiguous — " (str/join " " namespaces)))
+
 (def no-images-caption
-  "The calm empty-state caption the image/frame sections render when NO live
-  frame runs a resolved image generation. EP-0023's public
-  `image -> frame -> event stream` model is OPT-IN: a process on the bare
-  `reg-*` default path creates no `rf/make-frame` image-loaded frames, so there
-  is no image/frame model to show here yet. Names why the section is empty so
-  the operator understands it is the honest not-using-images state, not a
-  broken surface. Pure `data -> string`."
-  (str "No image-loaded frames — this process is not using the EP-0023 "
-       "image/frame model yet. Construct an image (rf/image {:select-ns {:include [...]}}) "
-       "and load it into a frame (rf/make-frame {:images [...]}) to surface the "
-       "resolved registration set (the [kind id] descriptors a frame sees) and "
-       "each frame's execution context here."))
+  "The calm empty-state caption the frames section renders when there is NO
+  frame to show: no frame made with `rf/make-frame`, with or without
+  `:images`. Names why the section is empty so the operator understands it is
+  the honest no-frame-yet state, not a broken surface. Pure
+  `data -> string`."
+  (str "No frames yet. Make one with rf/make-frame to see the registrations it "
+       "resolves here: the live registration store for a frame made without "
+       ":images, or its image's [kind id] descriptors for a frame made with "
+       ":images [...]."))
