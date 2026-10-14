@@ -2589,10 +2589,8 @@
                                         {:outcome :success})]
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation :success stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed {:reason :stale-reply :outcome :success})})
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             ;; the durable entry stores the canonical reply's `:value` under
             ;; `:data` (the entry layer's spelling of the same fact — the
@@ -2812,16 +2810,14 @@
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation
           (if aborted? :aborted :failure) stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed
-                          ;; The terminal outcome summary records
-                          ;; the causal completion time (the reply token's
-                          ;; `:completed-at`) for a failed / cancelled completion.
-                          {:reason :stale-reply
-                           :outcome (if aborted? :aborted :failure)
-                           :completed-at completed-at})})
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload
+          ;; The terminal outcome summary records
+          ;; the causal completion time (the reply token's
+          ;; `:completed-at`) for a failed / cancelled completion.
+          {:reason :stale-reply
+           :outcome (if aborted? :aborted :failure)
+           :completed-at completed-at}))
 
       ;; ABORT: an intentional cancellation reached the failure
       ;; reply seam. Settle the LIVE attempt to a non-error stable state, mark
@@ -3038,10 +3034,8 @@
                                         {:outcome :page-success})]
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation :page-success stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed {:reason :stale-reply :outcome :page-success})})
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload {:reason :stale-reply :outcome :page-success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             decoded   (:value reply)
             loaded-at (:completed-at reply)
@@ -3238,12 +3232,10 @@
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation
           (if aborted? :aborted :page-failure) stale)
-        (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
-                          runtime-db work-id
-                          :suppressed {:reason :stale-reply
+        (rf.resources.reply-handlers/settle-suppressed-work!
+          runtime-db frame-id payload {:reason :stale-reply
                                        :outcome (if aborted? :aborted :page-failure)
-                                       :completed-at completed-at})})
+                                       :completed-at completed-at}))
 
       ;; FIRST-LOAD ABORT — a page-0 fetch with NO accumulated
       ;; pages was aborted: there is no usable data, so this is a first load
