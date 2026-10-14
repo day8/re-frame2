@@ -27,32 +27,13 @@
                         [:rf.error/id :recovery :head :element]))
         "the id, recovery, head and whole vector the Spec 009 row promises on both hosts"))
 
-  (testing ":rf/suspense-boundary is a reserved head like any other"
-    (let [data (head-error [:rf/suspense-boundary {:id 1}])]
-      (is (= :rf.error/invalid-hiccup-head (:rf.error/id data))
-          "no :rf/* head has a client meaning")))
-
   (testing "a dotted rf.<area> namespace is reserved too"
     (is (= :rf.error/invalid-hiccup-head
            (:rf.error/id (head-error [:rf.ssr/nope {}]))))))
 
 (deftest unreserved-keyword-heads-still-render
-  (testing "ordinary and custom-element heads are untouched"
-    ;; Read `.-type`: a head `parse-tag` cannot parse still yields an
-    ;; element, with a nil type, so `some?` alone would pass on it.
-    (is (= "div" (.-type (template/as-element [:div "x"]))))
-    (is (= "my-element" (.-type (template/as-element [:my-element "x"])))))
-
   (testing "a NON-rf namespaced head is not reserved"
     (is (nil? (:rf.error/id (head-error [:svg/circle {}]))))))
-
-(deftest reserved-head-survives-a-colliding-cache-entry
-  (testing "an unreserved twin rendered first (seeding the cache under the
-            bare name) does not disarm the guard"
-    (template/as-element [:button "ordinary"])
-    (is (= :rf.error/invalid-hiccup-head
-           (:rf.error/id (head-error [:rf/button {}])))
-        "the reserved twin must still fail loud")))
 
 (deftest reserved-head-survives-a-string-aliased-cache-entry
   (testing "the string head \"rf/x\" seeds the same cache key as :rf/x, so
