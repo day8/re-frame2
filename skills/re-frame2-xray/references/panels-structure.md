@@ -2,7 +2,8 @@
 
 The structure family: the three Dynamic-shell tabs that do **not** follow
 the focused event. **Graph** draws the dependency graph across families;
-**Frames** shows which image loaded each live frame; **Fresco** is the
+**Frames** shows which image loaded each live frame, or that it resolves
+the live registration store; **Fresco** is the
 evidence lens over the Fresco view layer. Picking an epoch in L2 rebinds
 none of them — Graph follows its own projection toggle (and the L1 frame
 picker on the Realized side), Frames and Fresco read the live runtime.
@@ -63,10 +64,14 @@ structural counterpart to Graph (Graph is the per-fact view; Frames is
 the per-frame installation + image-provenance view). Each live frame
 renders as an **execution context** carrying its resolved image (the
 generation's `[kind id]` descriptor set), and how it
-resolves `(kind id)` lookups through that image. This is the model a
-consumer app developer reasons in: image assembly plus frame isolation
-are the whole composition story — **no realm / app / module layer to
-browse**.
+resolves `(kind id)` lookups through that image. A frame made without
+`:images` (most apps' main frame) seals no image: its row reads **live
+registration store** and lists the registrations it resolves live, with
+each id more than one namespace registers listed first as
+`ambiguous — <ns> <ns>`, because the frame refuses to run it. This is the
+model a consumer app developer reasons in: image assembly plus frame
+isolation are the whole composition story — **no realm / app / module
+layer to browse**.
 
 - **Registry-wide, not epoch-coupled** — enumerates the process-global
  live-frame registry; picking an epoch does not rebind it.
@@ -76,7 +81,8 @@ browse**.
 - **Read-only** — enumerating frames and images pins nothing.
 
 **Open when:** "what frames exist, and which image loaded each?", "how
-does this frame resolve its registrations?"
+does this frame resolve its registrations?", "which ids does my main
+frame refuse as ambiguous?"
 
 Spec: [`026-Module-View-Panel.md` §8](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/026-Module-View-Panel.md).
 

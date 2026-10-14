@@ -40,7 +40,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Routes** | `r` | focused epoch | Current route + this epoch's navigation + the registered-route table. **No URL simulator here** — arbitrary-URL matching is Static → Routes. | [panels-domains.md](panels-domains.md) |
 | **Resources** | `s` | mixed | The declarative server-state lens — registry, live instances, work ledger, mutation/invalidation evidence. | [panels-resources.md](panels-resources.md) |
 | **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own Declared ↔ Realized projection toggle. | [panels-structure.md](panels-structure.md) |
-| **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
+| **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, or that it resolves the live registration store, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
 | **Fresco** | `h` | live runtime (not epoch-coupled) | The Fresco evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
 
 Cross-epoch signal lives on the L2 timeline (the text `source` column +
