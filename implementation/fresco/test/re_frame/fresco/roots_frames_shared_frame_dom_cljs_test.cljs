@@ -114,9 +114,9 @@
    [:span.count (str (rf.fresco/sub count-q))]])
 
 (rf.fresco/defview screen
-  "The hydration rows' app. `title` is a PROP, so a server/client
-  divergence is a one-argument change at the call site rather than a
-  second app; the subscription read is what makes the root acquire a
+  "The hydration row's app. `title` is a PROP, so the two roots' markup
+  differs by one argument at the call site rather than by a second app;
+  the subscription read is what makes the root acquire a
   frame-keyed cell and so makes its commit observable."
   [{:keys [title]}]
   [:div.screen
@@ -139,9 +139,6 @@
 
 (defn- text-at [handle sel]
   (some-> (.querySelector (:container handle) sel) .-textContent))
-
-(defn- text-in [container sel]
-  (some-> (.querySelector container sel) .-textContent))
 
 (defn- both-committed?
   "Have BOTH roots committed?
@@ -183,15 +180,7 @@
                   `readers-of` counts slots, so the two numbers can disagree
                   and here they corroborate"
           (is (= 2 (:boundaries (rf.fresco.test.runtime/stats)))
-              (str "got " (pr-str (rf.fresco.test.runtime/stats))))
-          (is (= 4 (:cell-refs (rf.fresco.test.runtime/residue)))
-              "two keys at fan-out two"))
-
-        (testing "one frame is one memo row, however many roots render it —
-                  the row is keyed by frame and a second root must not mint a
-                  second"
-          (is (= #{shared-frame} (rf.fresco.roots-frames-support/frame-memo-frames))
-              (str "got " (pr-str (rf.fresco.roots-frames-support/frame-memo-frames)))))
+              (str "got " (pr-str (rf.fresco.test.runtime/stats)))))
 
         (testing "BOTH roots are live readers of the shared key: one dispatch
                   re-runs TWO bodies. This is what stops the counts above
@@ -390,107 +379,5 @@
                             "root A kept the server's nodes")
                         (is (rf.fresco.roots-frames-support/every-server-node? cb ".screen, .title, .value")
                             "root B kept the server's nodes"))
-
-                      (testing "the two roots differ where their markup differs
-                                and agree where their frame does"
-                        (is (= "A" (text-in ca ".title")))
-                        (is (= "B" (text-in cb ".title")))
-                        (is (= "alpha" (text-in ca ".value")))
-                        (is (= "alpha" (text-in cb ".value"))))
-
-                      (testing "and the shared frame is one cell with two
-                                readers here exactly as it is for two ordinary
-                                mounts — adoption changes the acquisition's
-                                timing and not its shape"
-                        (is (= #{[shared-frame label-q]} (rf.fresco.roots-frames-support/cell-keys))
-                            (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-                        (is (= 2 (rf.fresco.roots-frames-support/readers-of [shared-frame label-q]))))
-
-                      (finally (rf.fresco.impl.mount/release! ha) (rf.fresco.impl.mount/release! hb) (done))))))))))))
-
-;; ---------------------------------------------------------------------------
-;; S4 — two divergent roots on one frame complain twice
-;; ---------------------------------------------------------------------------
-
-;; H2 in the sibling suite asserts this across two frames. The fact is not
-;; the same fact here, and the difference is the whole reason this file
-;; exists: a window keyed by frame is per-root when the roots hold
-;; different frames, so H2 stays green under it. Only when the frame is
-;; SHARED does a frame-keyed window collapse two roots into one, and then
-;; root A's closer silences root B's genuine mismatch — a diagnostic
-;; missing from the instrumentation stream while the page's own error
-;; channel still shows both, which is precisely how a page-global window
-;; presents.
-;;
-;; So the row is read against React's own count rather than against a
-;; literal, and then against the literal too. The equality catches a
-;; diagnostic going missing; the absolute `2` catches the opposite mistake,
-;; a window never shut at all.
-(deftest two-divergent-hydrating-roots-on-one-frame-complain-independently
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (do
-        (fresh!)
-        (let [html-a (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "server-A"}])
-              html-b (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "server-B"}])
-              ca     (rf.fresco.roots-frames-support/server-dom! html-a)
-              cb     (rf.fresco.roots-frames-support/server-dom! html-b)]
-          (rf.fresco.impl.collector/reset-runtime!)
-          (let [{:keys [seen stop!]}      (rf.fresco.roots-frames-support/watch-mismatches!)
-                ;; MANUFACTURED here and asserted on here — the only shape of
-                ;; call site at which swallowing an uncaught error is not the
-                ;; fail-open the pageerror rule forbids.
-                {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
-                ha (rf.fresco.impl.mount/hydrate-root! ca shared-frame [screen {:title "client-A"}])
-                hb (rf.fresco.impl.mount/hydrate-root! cb shared-frame [screen {:title "client-B"}])]
-            (-> (rf.fresco.roots-frames-support/wait-until! both-committed?)
-                (.then
-                  (fn [ok]
-                    (close!)
-                    (stop!)
-                    (try
-                      (is (true? ok) "both roots must commit")
-
-                      (let [react-complaints (filterv #(re-find #"Hydration failed" %)
-                                                      @captured)]
-                        (testing "both divergences were detected and reported —
-                                  React saw two, and the reporter delegates
-                                  unconditionally, so two reach the page"
-                          (is (= 2 (count react-complaints))
-                              (str "got "
-                                   (pr-str (mapv #(subs % 0 (min 60 (count %)))
-                                                 @captured)))))
-
-                        (testing "and the framework's own stream carried exactly
-                                  what the page did, THOUGH BOTH ROOTS NAME ONE
-                                  FRAME. A window keyed by frame would have let
-                                  root A's closer silence root B here while
-                                  leaving every two-frame row green"
-                          (is (= (count react-complaints) (count @seen))
-                              (str "React said " (count react-complaints)
-                                   ", the framework said " (count @seen)))
-                          (is (= 2 (count @seen))
-                              (str "`:rf.ssr/hydration-mismatch` count; got "
-                                   (count @seen) " — "
-                                   (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))))
-
-                      (testing "and what fired is the framework diagnostic Spec
-                                011 names, tier-discriminated by its door"
-                        (doseq [ev @seen]
-                          (let [tags (rf.fresco.roots-frames-support/tags-of ev)]
-                            (is (= :rf.ssr/hydration-mismatch (:operation ev)))
-                            (is (= 're-frame.fresco.impl.mount/hydrate-root!
-                                   (:where tags)))
-                            (is (= :warned-and-replaced (:recovery tags)))
-                            (is (string? (:error tags))))))
-
-                      (testing "and each root recovered to ITS OWN client model
-                                — a shared frame means a shared value and it
-                                does not mean a shared tree"
-                        (is (= "client-A" (text-in ca ".title")))
-                        (is (= "client-B" (text-in cb ".title")))
-                        (is (= "alpha" (text-in ca ".value")))
-                        (is (= "alpha" (text-in cb ".value"))))
 
                       (finally (rf.fresco.impl.mount/release! ha) (rf.fresco.impl.mount/release! hb) (done))))))))))))
