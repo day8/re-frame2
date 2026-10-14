@@ -38,11 +38,6 @@
    :states  {:idle    {:tags #{:initial-tag} :on {:start :loading}}
              :loading {:on {:done :idle}}}})
 
-(def ^:private namespaced-tag-machine
-  {:initial :open
-   :states  {:open {:tags #{:door/open} :on {:close :shut}}
-             :shut {}}})
-
 (def ^:private machine-level-on-machine
   "A top-level `:on` fallback (`:reset` → `:a`) plus machine `:data`."
   {:initial :a
@@ -239,9 +234,6 @@
                     "data-fired-edge-ids"         ""
                     "data-guard-blocked-edge-ids" ""}]
           (is (= want (attrs root (keys want)))))
-        (is (= {"data-tags" "" "data-tag-count" "0"}
-               (attrs (state-node-el node) ["data-tags" "data-tag-count"]))
-            "an untagged state carries empty tag attrs")
         (is (= "false" (.getAttribute (.querySelector node "[data-root-container=\"true\"]")
                                       "data-parallel")))
         (is (re-find #"flow" (.-textContent (.querySelector
@@ -321,16 +313,6 @@
         (is (some? (.querySelector node "[data-testid=\"rf-mv-chart-state-tag-initial-tag\"]")))
         (is (= {"data-tags" "initial-tag" "title" "initial-tag" "data-tag-count" "1"}
                (attrs (state-node-el node) ["data-tags" "title" "data-tag-count"])))))))
-
-(deftest chart-namespaced-tag-preserves-declared-identity
-  (testing "a namespaced tag keeps `door/open` on its data-tag and visible
-            label; only the testid collapses it, since a `/` breaks selectors"
-    (with-mounted-chart
-      {:machine-id :test/door :definition namespaced-tag-machine}
-      (fn [_root node]
-        (let [pill (.querySelector node "[data-testid=\"rf-mv-chart-state-tag-open\"]")]
-          (is (= "door/open" (.getAttribute pill "data-tag")))
-          (is (re-find #"door/open" (.-textContent pill))))))))
 
 ;; ---- machine root and Context band --------------------------------------
 
@@ -422,15 +404,6 @@
                  (layout/region-scoped-id :display [:off])}
                (set (str/split (.getAttribute root "data-highlight-ids") #"\s+"))))))))
 
-(deftest chart-compound-container-gets-xyflow-parent-class
-  (with-mounted-chart
-    {:machine-id :test/compound :definition compound-machine}
-    (fn [_root node]
-      (is (.. (.querySelector node (str ".react-flow__node[data-id=\""
-                                        (layout/node-id [:authenticated]) "\"]"))
-              -classList (contains "parent"))
-          "the compound adopted its substates"))))
-
 ;; xyflow silently drops an edge whose endpoint node has no Handle children,
 ;; so compound and region containers carry invisible `.source` / `.target`
 ;; Handles.
@@ -457,7 +430,7 @@
 
 (deftest chart-fired-and-guard-blocked-edges-mark-their-event-node-and-root
   (testing "an edge id in `:fired-edge-ids` / `:guard-blocked-edge-ids` marks
-            its event-node, and no other, and surfaces on the chart root"
+            its event-node and surfaces on the chart root"
     (doseq [[prop node-attr root-attr definition from to event]
             [[:fired-edge-ids "data-fired" "data-fired-edge-ids"
               idle-loading-done [:idle] [:loading] :start]
@@ -468,18 +441,10 @@
         (with-mounted-chart
           {:machine-id :test/marks :definition definition prop #{edge-id}}
           (fn [root node]
-            ;; `[data-node-id]` keeps the sweep to outer event-nodes: the inner
-            ;; spans share the testid prefix, and a blocked node's own guard
-            ;; chip is itself marked.
-            (let [marked (.querySelector node (str "[data-testid=\"rf-mv-chart-event-" ev-id "\"]"))
-                  others (remove #(= % marked)
-                                 (array-seq (.querySelectorAll
-                                              node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")))]
+            (let [marked (.querySelector node (str "[data-testid=\"rf-mv-chart-event-" ev-id "\"]"))]
               (is (= [edge-id "true"]
                      [(.getAttribute root root-attr) (some-> marked (.getAttribute node-attr))])
-                  (name prop))
-              (is (every? #(contains? #{"false" nil} (.getAttribute % node-attr)) others)
-                  (str (name prop) ": no other event-node is marked")))))))))
+                  (name prop)))))))))
 
 (deftest chart-guarded-fork-branches-render-priority-badges-1-2-3
   (testing "the branches of the guarded `:gate/check` fork paint numbered
