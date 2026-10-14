@@ -66,19 +66,6 @@
         (is (= 1 (count skips)))
         (is (= :server (get-in (first skips) [:tags :rf.fx/platform])))))))
 
-(deftest frame-tagged-client-allows-client-only-fx
-  (let [traces (collect-traces! ::tagged-client)
-        fired? (register-browser-only-fx!)]
-    (rf/make-frame {:id :platform-gating-test/client :platform :client})
-    (is (= :client (:platform (:config (rf.frame/frame :platform-gating-test/client)))))
-    (rf/with-frame :platform-gating-test/client
-      (rf/dispatch-sync [:platform-gating-test/save]))
-    (rf/unregister-listener! :trace ::tagged-client)
-    (is (true? @fired?) "the frame's own :client platform lets the fx run")
-    ;; Over the empty production ring this negative would pass either way.
-    (when rf.interop/debug-enabled?
-      (is (empty? (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces))))))
-
 (deftest two-frames-in-one-process-gate-by-their-own-platform
   (let [fired?    (register-browser-only-fx!)
         fires-on? (fn [frame-id]
