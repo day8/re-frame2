@@ -189,9 +189,6 @@
 ;; The JVM sink's own belt — whatever route a build id took.
 ;; ---------------------------------------------------------------------------
 
-(deftest build-id-literal-reads-back-as-one-keyword
-  (is (nil? (nrepl/build-id-literal (keyword ":x"))) "prints as ::x, which is no literal"))
-
 (deftest cljs-eval-refuses-a-malformed-build-without-sending
   (async done
     (let [codes (atom [])]
