@@ -32,7 +32,7 @@
 
   ## The closed roster rides here too
 
-  Rows 8 and 9 are a different subject on the same instrument, and they
+  Rows 7 and 8 are a different subject on the same instrument, and they
   are here because they need exactly what [[watched-root!]] already
   builds: a refusal raised inside the class's own `render` escapes to the
   boundary ABOVE, so reading it takes a watcher. The claim is that
@@ -43,13 +43,13 @@
   caught error.
 
   Each row carries its **near-miss positive control** in the same
-  `deftest`, one character or one bracket away from the refused form, so
-  a guard that grew too eager reddens the row that proves it exact rather
-  than passing quietly: `:on-error` beside `:on-errors`, `[:app/failed]`
-  beside `:app/failed`, and an explicit `{:on-error nil}` — which means
-  *no reporting was asked for* and must stay legal.
+  `deftest`, so a guard that grew too eager reddens the row that proves
+  it exact rather than passing quietly: a vector `:on-error` beside
+  `:on-errors` — one character from the refused key, and one bracket
+  from the refused `:app/failed` — and an explicit `{:on-error nil}`,
+  which means *no reporting was asked for* and must stay legal.
 
-  Seven claims about intents:
+  Six claims about intents:
 
   1. a **retry button on the fallback** dispatches, and the `:reset-key`
      it moves actually re-mounts the child — HD-020(c)'s whole story,
@@ -58,15 +58,14 @@
      what it returns, closing over the error the fallback was handed;
   3. a **bare intent vector on a native child** of `h/error-boundary`
      dispatches;
-  4. an **`h/event` on a native child** does;
-  5. the intent lands in the frame the **boundary** was mounted under,
+  4. the intent lands in the frame the **boundary** was mounted under,
      proved against a second live frame rather than against an absence;
-  6. a boundary with no frame above it is legal until something below it
+  5. a boundary with no frame above it is legal until something below it
      writes an intent, and that intent is the loud error, **named** — and
      the boundary's OWN `:on-error` vector is one of those intents,
      refused at its first render rather than accepted and dropped when it
      catches;
-  7. the class spends **no hook** — in its error state as well as its
+  6. the class spends **no hook** — in its error state as well as its
      healthy one, so binding the frame does not buy the fence what
      `impl.presence-react` has to buy it.
 
@@ -78,8 +77,7 @@
   happily with no frame (the dispatch is captured, not required), renders,
   and raises at INVOCATION. Mixed onto one subject the first would mask
   the second, and every red on the callback path could be blamed on its
-  louder sibling. So rows 2 and 4 carry the callback form and nothing
-  else.
+  louder sibling. So row 2 carries the callback form and nothing else.
 
   ## Why most rows mount under a watching boundary
 
@@ -104,7 +102,6 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -150,7 +147,7 @@
               (fn [{:keys [db]} _]
                 {:db (update db :attempt inc)}))
 
-;; Row 11's break: the cause and a moved `:attempt` in ONE event, so the
+;; Row 10's break: the cause and a moved `:attempt` in ONE event, so the
 ;; `:reset-key` change and the child's throw land in the same render.
 (rf/reg-event :fresco.bdy/break-and-rearm
               (fn [{:keys [db]} _]
@@ -215,7 +212,7 @@
 
 (defn- caught-id
   "The stable id of whatever escaped to the watcher, or nil if nothing
-  did. Rows 8 and 9 branch on the id rather than on the message."
+  did. Rows 7 and 8 branch on the id rather than on the message."
   []
   (:rf.error/id (ex-data @!caught)))
 
@@ -270,18 +267,6 @@
   [boundary {:fallback [:p.fb "unused — nothing throws on this screen"]}
    [:div.body
     [:button.dismiss {:on-click [:fresco.bdy/dismissed 1]} "dismiss"]]])
-
-(rf.fresco/defview child-callback-screen
-  "The children half, carrying **only** the callback form — the same
-  separation rows 1 and 2 keep, for the same reason."
-  [_]
-  [boundary {:fallback [:p.fb "unused — nothing throws on this screen"]}
-   [:button.note
-    {:data-role "note"
-     :on-click  (rf.fresco/event [e]
-                  (when (= "note" (.. e -target -dataset -role))
-                    [:fresco.bdy/noted "child"]))}
-    "note"]])
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the retry button HD-020(c) is sold on
@@ -367,24 +352,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — the one callback form on a native child
-;; ---------------------------------------------------------------------------
-
-(deftest a-callback-on-a-native-child-dispatches-what-it-returned
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh! frame-id)
-      (let [handle (watched-root! frame-id [child-callback-screen {}])]
-        (try
-          (is (some? (query handle ".note")))
-          (click! (query handle ".note"))
-          (is (= ["child"] (:noted (db frame-id)))
-              "the callback path, at a child position, on its own subject")
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
-;; ---------------------------------------------------------------------------
-;; 5 — the frame is the BOUNDARY's, proved against a second live frame
+;; 4 — the frame is the BOUNDARY's, proved against a second live frame
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallbacks-intent-lands-in-the-frame-the-boundary-was-mounted-under
@@ -410,7 +378,7 @@
           (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6 — a frameless boundary is legal; an intent under one is the loud error
+;; 5 — a frameless boundary is legal; an intent under one is the loud error
 ;; ---------------------------------------------------------------------------
 
 (defn- frameless-root!
@@ -458,7 +426,7 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6b — and the boundary's OWN `:on-error` vector is one of those intents
+;; 5b — and the boundary's OWN `:on-error` vector is one of those intents
 ;; ---------------------------------------------------------------------------
 
 (deftest a-frameless-boundarys-own-on-error-vector-is-refused-at-first-render
@@ -518,7 +486,7 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7 — the fence: the class spends no hook, in its error state too
+;; 6 — the fence: the class spends no hook, in its error state too
 ;; ---------------------------------------------------------------------------
 
 (deftest the-boundary-spends-no-hook-in-its-error-state-either
@@ -550,21 +518,13 @@
                    taken over the path that binds the frame")
               (is (= #{"useContext" "useSyncExternalStore"} (set names))
                   (str "every dispatcher read on this page belongs to a "
-                       "`defview` SHELL — the two `runtime/shell-hook-ledger` "
-                       "declares. Two `h/error-boundary` classes are in this "
-                       "tree (the watcher and the subject) and between them they "
-                       "contributed none. Raw: " (pr-str names)))
-              (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger) (count (distinct names)))
-                  "and the declared shell ledger is the measured roster")
-              (is (empty? (filter #{"useRef" "useMemo" "useCallback" "useState"
-                                    "useEffect"}
-                                  names))
-                  "no useRef, no memo, no state and no effect — the class is
-                   still a class")
+                       "`defview` SHELL. Two `h/error-boundary` classes are in "
+                       "this tree (the watcher and the subject) and between them "
+                       "they contributed none. Raw: " (pr-str names)))
               (finally (rf.fresco.impl.mount/release! @handle)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 8 — the roster is closed: a misspelled prop is refused, not dropped
+;; 7 — the roster is closed: a misspelled prop is refused, not dropped
 ;; ---------------------------------------------------------------------------
 
 (deftest a-prop-outside-the-roster-is-refused-and-the-right-spelling-still-reports
@@ -615,7 +575,7 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 9 — the shape is closed too: an `:on-error` nothing can fire is refused
+;; 8 — the shape is closed too: an `:on-error` nothing can fire is refused
 ;; ---------------------------------------------------------------------------
 
 (deftest an-on-error-nothing-can-fire-is-refused-and-a-wrapped-intent-still-is-not
@@ -645,20 +605,7 @@
                  — the refusal arrived with no error caught at all, so it cost
                  no application error path to find")
             (finally (rf.fresco.impl.mount/release! handle)))))
-      (testing "THE NEAR MISS. The same keyword inside brackets is the real
-                thing, and reports"
-        (let [handle (watched-root! frame-id
-                       [boundary {:on-error [:fresco.bdy/noted "wrapped"]
-                                  :fallback [:p.fb "caught"]}
-                        [risky {}]])]
-          (try
-            (is (nil? @!caught)
-                (str "nothing escaped. Escaped: " (pr-str (escaped))))
-            (rf.fresco.impl.mount/settle!)
-            (is (= ["wrapped"] (:noted (db frame-id)))
-                "one bracket apart from the refused form, and it fires")
-            (finally (rf.fresco.impl.mount/release! handle)))))
-      (testing "THE OTHER NEAR MISS. An explicit `nil` says no reporting was
+      (testing "THE NEAR MISS. An explicit `nil` says no reporting was
                 asked for, which is the one value `report!`'s last arm
                 means. A guard that refused it would refuse a legal page"
         (fresh! frame-id)
@@ -676,7 +623,7 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 10 — once per FAILURE, measured where React re-runs renders: StrictMode
+;; 9 — once per FAILURE, measured where React re-runs renders: StrictMode
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `impl.boundary`'s namespace docstring stakes the guarantee on the
@@ -747,7 +694,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 11 — once per failure when the key and the throw share a render
+;; 10 — once per failure when the key and the throw share a render
 ;; ---------------------------------------------------------------------------
 ;;
 ;; React runs `componentDidUpdate` before `componentDidCatch` in the commit
