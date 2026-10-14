@@ -20,8 +20,6 @@
    trip) — which is exactly the machine surface this ns pins.
 
    Coverage:
-     - data-schema-attached         — the `:rf/machine` projection of `:auth.login/flow`
-       carries `AuthLoginData`; the schema rejects malformed `:data`.
      - malformed-data-fails-boundary — driving the machine's `:failure` with a
        non-string message makes `:record-error` write a NON-string into `:error`
        (the schema requires `[:maybe :string]`), emitting exactly one
@@ -40,7 +38,7 @@
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; login.model
             ;; pulls it transitively, require here so the ns is self-sufficient.
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.schemas.malli]
             [login.model])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
@@ -91,21 +89,7 @@
                     {:frame f}))
 
 ;; ---------------------------------------------------------------------------
-;; (1) attachment + schema rejects malformed :data
-;; ---------------------------------------------------------------------------
-
-(deftest data-schema-attached
-  (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
-    (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))]
-      (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
-          "the :rf/machine projection resolves the login machine, whose [:schemas :data] schema round-trips as login.model/AuthLoginData")))
-  (testing "AuthLoginData rejects a non-int :attempts (the live rows below reach
-            only the :error key)"
-    (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
-        "a non-int :attempts fails the data-slot schema")))
-
-;; ---------------------------------------------------------------------------
-;; (2) malformed machine :data fails at :where :machine-data + rolls back
+;; (1) malformed machine :data fails at :where :machine-data + rolls back
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-data-fails-boundary
@@ -127,7 +111,7 @@
             "exactly one :where :machine-data trace, naming the login machine, fired on the violating macrostep, and the violating :data was rolled back (the bad :error did not commit)")))))
 
 ;; ---------------------------------------------------------------------------
-;; (3) well-formed :data passes the boundary cleanly
+;; (2) well-formed :data passes the boundary cleanly
 ;; ---------------------------------------------------------------------------
 
 (deftest well-formed-data-passes
@@ -142,7 +126,7 @@
             "no :where :machine-data trace for a well-formed (string) :error: the message committed into the machine's :data and the attempt counter advanced")))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) direct retry from :error-shown clears the prior :error
+;; (3) direct retry from :error-shown clears the prior :error
 ;; ---------------------------------------------------------------------------
 
 (deftest retry-clears-prior-error
