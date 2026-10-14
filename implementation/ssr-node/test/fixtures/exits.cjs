@@ -35,23 +35,17 @@
 // so a flag set after the pool is up reaches the next REPLACEMENT and nothing
 // already running.
 //
-//   `eval`             — the thread exits (code 7) while this module is
-//                        being evaluated, before `boot` exists to be called.
-//   `boot`             — the `boot` hook exits with code 0. A clean exit is
-//                        still a startup that never finished.
-//   `boot-even-thread` — `boot` exits only on an even thread id. A pool
-//                        constructs its isolates back to back, so their ids
-//                        are consecutive and exactly one of a pair exits —
-//                        the only way to put a healthy sibling beside it.
-//
-// Never `require` this file in the test process with the flag armed: `eval`
-// would exit THAT thread, which is the whole test run.
+//   `boot-even-thread` — the `boot` hook exits cleanly (code 0), and only on
+//                        an even thread id. A pool constructs its isolates
+//                        back to back, so their ids are consecutive and
+//                        exactly one of a pair exits — the only way to put a
+//                        healthy sibling beside it. A clean exit is still a
+//                        startup that never finished.
 
 const { threadId } = require('node:worker_threads');
 
 const EXIT_AT_FLAG = 'RF2_SSR_NODE_EXIT_AT';
 const exitAt = process.env[EXIT_AT_FLAG];
-if (exitAt === 'eval') process.exit(7);
 
 const ENTRY = { stateAllowlist: [':for-exit'], runtimeAllowlist: [] };
 
@@ -64,7 +58,7 @@ module.exports = {
   },
 
   boot() {
-    if (exitAt === 'boot' || (exitAt === 'boot-even-thread' && threadId % 2 === 0)) process.exit(0);
+    if (exitAt === 'boot-even-thread' && threadId % 2 === 0) process.exit(0);
   },
 
   render({ entry }, emit) {
