@@ -22,7 +22,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.frame :as rf.frame]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.link :as rf.routing.link]
@@ -84,23 +83,16 @@
 ;; ---- plain left-click → preventDefault + dispatch ----------------------
 
 (deftest plain-left-click-intercepts
-  (testing "button 0 + no modifiers → preventDefault + :rf.route/url-requested"
+  (testing "button 0 + no modifiers → preventDefault + :rf.route/url-requested
+            stamped :source :router, carrying the link's navigation policy and
+            no address key beside :url"
     (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched source prevented?]}
-          (click! {:to :route/cart} (mk-event {}))]
-      (is prevented? "preventDefault was called on plain left-click")
-      (is (= :router source)
-          "the route-link dispatch stamps :source :router (not :unknown / :ui)")
-      ;; The whole payload: an address key beside :url fails here.
-      (is (= [:rf.route/url-requested {:url "/cart"}] dispatched)))))
-
-(deftest plain-left-click-carries-the-link-navigation-policy
-  (testing ":replace?, :scroll and :bypass-leave? ride the click's dispatch"
-    (rf/reg-route :route/cart {} "/cart")
-    (is (= [:rf.route/url-requested
-            {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
-           (:dispatched (click! {:to :route/cart :replace? true :scroll :preserve :bypass-leave? true}
-                                (mk-event {})))))))
+    (doseq [[props payload] [[{:to :route/cart} {:url "/cart"}]
+                             [{:to :route/cart :replace? true :scroll :preserve :bypass-leave? true}
+                              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]]]
+      (is (= {:dispatched [:rf.route/url-requested payload] :source :router :prevented? true}
+             (click! props (mk-event {})))
+          (pr-str props)))))
 
 ;; ---- modifier-key clicks defer to browser ------------------------------
 
@@ -139,167 +131,67 @@
 
 ;; ---- caller-supplied :on-click can pre-empt ----------------------------
 
-(deftest caller-on-click-pre-empts-when-preventing-default
-  (testing "if the caller's :on-click calls preventDefault, the framework's interception is skipped"
+(deftest caller-on-click-pre-empts-only-by-preventing-default
+  (testing "the caller's :on-click runs first, and the framework's interception
+            is skipped only when it calls preventDefault"
     (rf/reg-route :route/cart {} "/cart")
-    (is (nil? (:dispatched (click! {:to :route/cart :on-click (fn [e] (.preventDefault e))}
-                                   (mk-event {})))))))
+    (doseq [[on-click dispatches?] [[(fn [e] (.preventDefault e)) false]
+                                    [(fn [_e] nil)                true]]]
+      (is (= dispatches?
+             (some? (:dispatched (click! {:to :route/cart :on-click on-click} (mk-event {})))))))))
 
-(deftest caller-on-click-runs-but-does-not-block
-  (testing "if the caller's :on-click does NOT preventDefault, the framework still intercepts"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [custom-fired? (atom false)
-          {:keys [dispatched]}
-          (click! {:to :route/cart :on-click (fn [_e] (reset! custom-fired? true))}
-                  (mk-event {}))]
-      (is @custom-fired? "the caller's on-click ran")
-      (is (= :rf.route/url-requested (first dispatched))
-          "the framework dispatched :rf.route/url-requested"))))
-
-;; ---- the click must carry the RENDER-TIME frame -------------------------
+;; ---- `:prefetch :intent` — the DOM intent arm -----------------------------
 ;;
-;; A real browser click runs long after render, when the render-time
-;; `with-frame` / frame-provider scope has unwound. `:route/link` is
-;; registered via `reg-view*`, so it gets no injected render-time frame
-;; capture: `route-link-render` captures the rendering frame itself and
-;; dispatches into it. Resolving the frame at click time would raise
-;; `:rf.error/no-frame-context` with no scope, or route to the wrong frame
-;; under a different one.
+;; Hover, focus and touch-start each dispatch `[:rf.route/prefetch {address}]`,
+;; composing with a caller handler of the same name. The render-time frame
+;; both the click and the warm-up dispatch into, and Governing Law 1 (a render
+;; alone dispatches nothing), are the retained-link test's at the end.
 
-(defn- click-after-scope-unwound!
-  "Render `route-link` with `props` while a `with-frame` scope pins
-  `render-frame`, capture the on-click closure, THEN invoke it with the
-  ambient frame scope set to `click-scope-frame` (nil ⇒ no scope at all).
-  Returns the target frame the `:rf.route/url-requested` dispatch routed to
-  (off the `:rf.event/dispatched` trace), its `:source`, and the error id if
-  the click raised."
-  [props render-frame click-scope-frame]
-  (let [target (atom nil)
-        source (atom nil)
-        cb-key (keyword (gensym "delayed-click-"))]
+(defn- fire-intent!
+  "Render `route-link` with `props`, invoke the handler at `attr-key` with a
+  synthetic event, and return the `[:rf.route/prefetch …]` vector it dispatched."
+  [props attr-key]
+  (let [dispatched (atom nil)
+        cb-key     (keyword (gensym "intent-capture-"))]
     (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
-                   (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
-          ;; :source is hoisted to the trace's top level; :frame stays in :tags.
-          (reset! target (-> ev :tags :frame))
-          (reset! source (:source ev)))))
+                   (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
+          (reset! dispatched (-> ev :tags :rf.event/v)))))
     (try
-      (let [on-click (rf/with-frame render-frame
-                       (let [[_ attrs] (rf.routing.link/route-link-render props)]
-                         (:on-click attrs)))
-            raised (try
-                     (binding [rf.frame/*current-frame* click-scope-frame]
-                       (on-click (mk-event {})))
-                     nil
-                     (catch :default e
-                       (or (:rf.error/id (ex-data e)) :threw)))]
-        {:target-frame @target
-         :source       @source
-         :raised       raised})
+      ((get (second (rf.routing.link/route-link-render props)) attr-key) (mk-event {}))
+      @dispatched
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
-
-(deftest delayed-click-ignores-wrong-ambient-frame-rf2-o3nam4
-  (testing "a link rendered under :route/owner and clicked after the render
-            scope unwound dispatches into :route/owner, with no ambient frame
-            at click time and with a different one"
-    (rf/make-frame {:id :route/owner})
-    (rf/make-frame {:id :route/other})
-    (rf/reg-route :route/cart {} "/cart")
-    (doseq [ambient [nil :route/other]]
-      (is (= {:target-frame :route/owner :source :router :raised nil}
-             (click-after-scope-unwound! {:to :route/cart} :route/owner ambient))
-          (str "ambient frame at click time: " (pr-str ambient))))))
-
-;; ---- `:prefetch :intent` — the DOM intent arm -----------------------------
-;;
-;; Hover, focus and touch-start each dispatch `[:rf.route/prefetch {address}]`
-;; to the render-time frame, composing with a caller handler of the same name.
-;; A render alone dispatches nothing (Governing Law 1).
-
-(defn- fire-intent!
-  "Render `route-link` with `props` under `render-frame` (nil ⇒ ambient), invoke
-  the handler at `attr-key` (none when absent) with a synthetic event, and
-  report what was dispatched: the `[:rf.route/prefetch …]` vector, the
-  `:source` tag, and the TARGET frame the dispatch routed to."
-  ([props attr-key] (fire-intent! props attr-key nil))
-  ([props attr-key render-frame]
-   (let [dispatched (atom nil)
-         source     (atom nil)
-         target     (atom nil)
-         cb-key     (keyword (gensym "intent-capture-"))]
-     (rf.trace.tooling/register-listener!
-       cb-key
-       (fn [ev]
-         (when (and (= :rf.event/dispatched (:operation ev))
-                    (vector? (-> ev :tags :rf.event/v))
-                    (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
-           (reset! dispatched (-> ev :tags :rf.event/v))
-           (reset! source     (:source ev))
-           (reset! target     (-> ev :tags :frame)))))
-     (try
-       (let [attrs (second (if render-frame
-                             (rf/with-frame render-frame (rf.routing.link/route-link-render props))
-                             (rf.routing.link/route-link-render props)))]
-         (when-let [h (get attrs attr-key)]
-           (h (mk-event {})))
-         {:dispatched @dispatched
-          :source     @source
-          :target     @target})
-       (finally
-         (rf.trace.tooling/unregister-listener! cb-key))))))
 
 (deftest prefetch-intent-dispatches-on-each-credible-intent-position
   (testing "hover, focus and touch-start each warm the link's own destination"
     (rf/reg-route :route/article {:params [:map [:slug :string]]} "/articles/:slug")
     (doseq [pos [:on-mouse-enter :on-focus :on-touch-start]]
-      (is (= {:dispatched [:rf.route/prefetch {:to :route/article :params {:slug "x"}}]
-              :source     :router}
-             (select-keys (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos)
-                          [:dispatched :source]))
+      (is (= [:rf.route/prefetch {:to :route/article :params {:slug "x"}}]
+             (fire-intent! {:to :route/article :params {:slug "x"} :prefetch :intent} pos))
           (str pos " dispatched the address-only prefetch event")))))
 
 (deftest a-link-without-prefetch-installs-no-intent-handlers
   (testing "a passive link installs none of the intent positions, so a caller's
-            own hover handler is the only thing on the anchor"
+            own hover handler is the only thing on the anchor, passed through
+            untouched rather than wrapped"
     (rf/reg-route :route/cart {} "/cart")
     (let [own   (fn [_] nil)
           attrs (second (rf.routing.link/route-link-render {:to :route/cart :on-mouse-enter own}))]
-      (is (identical? own (:on-mouse-enter attrs))
-          "the caller's handler is passed through untouched — not wrapped")
-      (is (not-any? #(contains? attrs %) [:on-focus :on-touch-start])))))
+      (is (= {:on-mouse-enter own} (select-keys attrs rf.routing.link/prefetch-intent-keys))))))
 
 (deftest prefetch-intent-composes-with-a-caller-handler
   (testing "the framework handler runs the caller's handler of the same name
             and still dispatches — compose, not replace"
     (rf/reg-route :route/cart {} "/cart")
-    (let [ran (atom [])
-          {:keys [dispatched]}
-          (fire-intent! {:to :route/cart :prefetch :intent
-                         :on-mouse-enter (fn [_] (swap! ran conj :caller))}
-                        :on-mouse-enter)]
-      (is (= [:caller] @ran) "the caller's hover handler ran")
-      (is (= [:rf.route/prefetch {:to :route/cart}] dispatched)
-          "and the prefetch still dispatched"))))
-
-(deftest prefetch-intent-dispatches-to-the-render-time-frame
-  (testing "the warm-up targets the frame that RENDERED the link, exactly as the
-            click handler does (Spec 012 §Route-plan prefetch)"
-    (rf/make-frame {:id :route/owner})
-    (rf/reg-route :route/cart {} "/cart")
-    (is (= :route/owner
-           (:target (fire-intent! {:to :route/cart :prefetch :intent} :on-mouse-enter :route/owner))))))
-
-(deftest a-passive-render-dispatches-nothing
-  (testing "Governing Law 1 — rendering a :prefetch :intent link dispatches
-            NOTHING until an intent actually fires"
-    (rf/reg-route :route/cart {} "/cart")
-    ;; attr-key nil: render only, fire no handler.
-    (is (nil? (:dispatched (fire-intent! {:to :route/cart :prefetch :intent} nil)))
-        "a render is not an intent")))
+    (let [ran        (atom [])
+          dispatched (fire-intent! {:to :route/cart :prefetch :intent
+                                    :on-mouse-enter (fn [_] (swap! ran conj :caller))}
+                                   :on-mouse-enter)]
+      (is (= [[:caller] [:rf.route/prefetch {:to :route/cart}]] [@ran dispatched])))))
 
 (deftest an-unsupported-prefetch-value-fails-loud-at-render
   (testing ":intent is the only accepted value — an unsupported mode, nil
