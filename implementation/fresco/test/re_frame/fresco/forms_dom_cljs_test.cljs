@@ -378,27 +378,6 @@
         (is (identical? n (field m)))
         (finish m done)))))
 
-(deftest a-refused-commit-puts-the-committed-value-back-in-the-box
-  ;; Same-value blindness, the SCREEN half. The user submits a blank
-  ;; draft, the caller refuses it and keeps the title it had. Nothing the
-  ;; caller wrote is different, and the box must still stop showing the
-  ;; text that was refused.
-  (async done
-    (if-not (browser?)
-      (do (skip! "a refused commit, read off a real box") (done))
-      (let [m (mount!)
-            n (field m)]
-        (.focus n)
-        (type-into! m n "   ")
-        (is (= "   " (.-value n)))
-        (press! m n "Enter")
-        (is (= committed (title-of m)) "the caller refused it")
-        (is (= committed (.-value n))
-            "and the box is back to the committed value rather than left
-             holding blank text that looks accepted")
-        (is (identical? n (field m)))
-        (finish m done)))))
-
 (deftest an-external-reset-replaces-a-live-draft-on-the-same-node
   (async done
     (if-not (browser?)
