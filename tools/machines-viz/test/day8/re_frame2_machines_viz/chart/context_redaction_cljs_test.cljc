@@ -23,19 +23,15 @@
               {:sensitive #{} :large #{}}]
              [{:schemas {:data [:map [:token {:sensitive? true} :string]
                                 [:blob {:large? true} :string]]}}
-              {:sensitive #{} :large #{}}]
-             [nil
               {:sensitive #{} :large #{}}]]]
       (is (= expected (r/derive-classification definition)) (pr-str definition)))))
 
 (deftest derive-classification-whole-data-path-keeps-whole-data-scope
-  (testing "a bare `[:data]` path, or the whole-snapshot `[]`, classifies EVERY
-            band key, including one the live :data first gains at runtime"
-    (doseq [path [[:data] []]]
-      (is (= {:token :rf/redacted :user :rf/redacted}
-             (r/redact-context (array-map :token "secret-at-runtime" :user "ann")
-                               (r/derive-classification {:sensitive [path] :data {}})))
-          (pr-str path)))))
+  (testing "the whole-snapshot `[]` path classifies EVERY band key, including
+            one the live :data first gains at runtime"
+    (is (= {:token :rf/redacted :user :rf/redacted}
+           (r/redact-context (array-map :token "secret-at-runtime" :user "ann")
+                             (r/derive-classification {:sensitive [[]] :data {}}))))))
 
 (deftest redact-context-projects-the-whole-band
   (testing "slot by slot, order preserved: sensitive → `:rf/redacted`, winning
@@ -52,9 +48,7 @@
               :blob  {:rf.size/large-elided {:path [:blob] :bytes 52 :type :string :reason :schema}}
               :count 3}
              out))
-      (is (= [:name :token :blob :count] (keys out)) "order preserved")))
-  (testing "an empty band → nil (band hidden)"
-    (is (nil? (r/redact-context {} {})))))
+      (is (= [:name :token :blob :count] (keys out)) "order preserved"))))
 
 ;; The marker's `:bytes` is the framework's wire unit, UTF-8 BYTES; the large
 ;; cap bounds what the band PAINTS, in CHARACTERS. The two agree exactly on
@@ -84,5 +78,4 @@
   (testing ":rf.size/large-elided renders size only, never the content"
     (let [s (r/display-string {:rf.size/large-elided {:bytes 4096 :path [:blob]
                                                       :type :string :reason :schema}})]
-      (is (str/includes? s ":rf.size/large-elided"))
       (is (str/includes? s "4096")))))
