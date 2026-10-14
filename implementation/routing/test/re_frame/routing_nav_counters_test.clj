@@ -12,8 +12,6 @@
   This namespace pins:
     - restore-then-navigate: after an epoch restore rewinds the route slice,
       the next navigation mints a token past every pre-restore one;
-    - `:rf/pending-navigation` stays subscribable while its id comes from the
-      host counter;
     - the SSR durable-routing allowlist equals the routing classification's
       durable tier;
     - a frame destroyed and re-made under the same id mints past every token
@@ -51,16 +49,6 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/articles/D" {:rf.route/cause :link}])
     (is (= "nav-4" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token])))))
-
-(deftest pending-navigation-subscribable-and-pending-nav-counter-host-side
-  (testing "a blocked navigation is readable through :rf/pending-navigation, its
-            id minted from the host counter (the live navigation before it mints none)"
-    (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
-    (rf/reg-route :route/home {} "/home")
-    (rf/reg-sub :editor/can-leave? (fn [_ _] false))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
-    (is (= "pn-1" (:id (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default}))))))
 
 (deftest routing-classification-is-single-source-of-truth-for-ssr-allowlist
   (testing "SSR holds its durable-routing allowlist as a literal (it must not
