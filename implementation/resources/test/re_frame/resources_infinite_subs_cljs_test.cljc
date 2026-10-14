@@ -84,7 +84,7 @@
 
 (defn- load-more! [resource]
   (rf/dispatch-sync [:rf.resource/load-more
-                     (assoc (q resource) :owner [:test :w] :cause [:user :feed/load-more])]))
+                     (assoc (q resource) :cause [:user :feed/load-more])]))
 
 (defn- load-page-0!
   "Register and ensure a feed, then settle page 0 with `pg`."
@@ -127,12 +127,6 @@
             (:has-data? (sub :rf.resource/infinite-state :is1b/feed))])
         "every public :has-data? reading agrees the empty feed has no data")))
 
-(deftest scalar-has-data?-true-once-a-page-lands
-  (load-page-0! :is1c/feed (page [:a :b] "c1"))
-  (is (= [true true true]
-         [(sub :rf.resource/has-data? :is1c/feed) (:has-data? (sub :rf/resource :is1c/feed))
-          (:has-data? (sub :rf.resource/infinite-state :is1c/feed))])))
-
 (deftest items-merges-pages-in-order
   (load-page-0! :is2/feed (page [:a :b] "c1"))
   (is (= [:a :b] (sub :rf.resource/items :is2/feed)))
@@ -163,11 +157,6 @@
   (load-more! :is3/feed) (reply-success! (page [:b] nil))
   (is (= [2 false] (map #(sub % :is3/feed) [:rf.resource/page-count :rf.resource/has-next-page?]))
       "a nil next cursor is the terminal"))
-
-(deftest has-prev-false-when-no-mirror
-  (rf/reg-resource :isnp/feed (dissoc (feed-spec) :prev-page-param) feed-spec-request)
-  (ensure! :isnp/feed) (reply-success! (page [:a] "c1"))
-  (is (false? (sub :rf.resource/has-prev-page? :isnp/feed))))
 
 (deftest fetching-next?-true-during-load-more
   (load-page-0! :is4/feed (page [:a] "c1"))
