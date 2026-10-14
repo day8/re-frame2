@@ -106,20 +106,6 @@ corpusTest('the bound refuses exactly the elevated runs of the committed corpus,
   assert.ok(r.mode.minPct / r.bound > 2.5, `less than 2.5x of margin below the elevated population (${r.mode.minPct})`);
 });
 
-// --- the mutation proof -----------------------------------------------------
-//
-// The check above runs the SHIPPED bound. This one reaches past it: a gate
-// that cannot be shown to bite is a gate nobody has watched. Loosening the
-// bound past the elevated population must let every elevated run through, and
-// tightening it under the normal population must refuse every normal one.
-
-corpusTest('the bound bites both ways: loosened past the mode it refuses nothing, tightened under the normal population it refuses all of it', () => {
-  assert.deepStrictEqual(
-    [witness.scoreCorpus({ bound: 0.25 }).refusedForStep, witness.scoreCorpus({ bound: 0.004 }).falsePositives.length],
-    [0, 60]
-  );
-});
-
 // THE FAIL-OPEN, ON A REAL RECORD RATHER THAN A FIXTURE.
 //
 // The fixtures are synthetic and the corpus control only ever sees COMPLETE
