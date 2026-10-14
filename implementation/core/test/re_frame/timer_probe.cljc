@@ -44,9 +44,10 @@
   4. trace facts — `suppress` / completion produce data-only trace facts
      (`re-frame.reply/trace-summary`); the probe never invents a private
      trace shape.
-  5. elision — every wire-bearing slot routes through the shared
+  5. elision — the probe has no elider of its own: a timer reply's
+     wire-bearing slots are summarised by the shared
      `re-frame.reply/trace-summary` → `re-frame.elision/elide-wire-value`
-     walker (NOT a family-private elider).
+     walker, as every family's are.
   6. retry / abort / teardown AS DATA — the args map carries `:retry`
      (declarative backoff policy, data not code) and the abort is
      requested by `request-abort!` returning the abort outcome AS DATA;
@@ -379,21 +380,6 @@
     (doseq [[[_ wid] _] entries]
       (forget! frame-id wid))
     records))
-
-;; ---------------------------------------------------------------------------
-;; Property 4 + 5 — trace summary. A data-only summary of a timer reply for a
-;; managed-async trace row, routing every wire-bearing slot through the shared
-;; `re-frame.reply/trace-summary` → `re-frame.elision/elide-wire-value` walker.
-;; Never a family-private elider (Managed-Effects §Tracing).
-;; ---------------------------------------------------------------------------
-
-(defn trace-reply
-  "Build a DATA-ONLY trace summary of a timer reply for a managed-async trace
-  row, delegating to the shared `re-frame.reply/trace-summary`. Identity facts
-  ride verbatim; wire slots elide through the one shared walker. `opts` is
-  forwarded (e.g. `:frame`). Never a family-private elider."
-  ([reply] (trace-reply reply nil))
-  ([reply opts] (rf.reply/trace-summary reply opts)))
 
 ;; ---------------------------------------------------------------------------
 ;; Property 1 + 9 — the (test-only) fx handler. A real managed-timer fx would

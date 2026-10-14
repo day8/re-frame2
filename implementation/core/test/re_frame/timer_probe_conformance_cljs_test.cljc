@@ -150,10 +150,3 @@
                {:work/id [:rf.work/timer :idle/logout 1] :released (:handle r2) :reason :rf.timer/frame-destroyed}}
              (set records)))
       (is (empty? (rf.timer-probe/in-flight :rf/default))))))
-
-(deftest trace-reply-routes-through-shared-walker
-  (testing "the probe's trace summary is the shared re-frame.reply/trace-summary,
-            never a family-private elider"
-    (let [reply (rf.timer-probe/complete-elapsed base-args {:fired-at 42} {:started-at 1 :completed-at 2})]
-      (is (= (rf.reply/trace-summary reply {:frame :rf/default})
-             (rf.timer-probe/trace-reply reply {:frame :rf/default}))))))
