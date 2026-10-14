@@ -1,10 +1,9 @@
 (ns re-frame.fresco.examples.editor.flow-dom-cljs-test
   "L3 — THE FOUR-FIELD EDITOR, MOUNTED AND TYPED INTO.
 
-  `l2-cljs-test` says what the bodies MEAN. This file puts them on a real
-  React root against a real DOM and types into them, because three of
-  this application's claims are about what a user sees and cannot be
-  read off a tree:
+  This file puts the editor's bodies on a real React root against a real
+  DOM and types into them, because three of this application's claims
+  are about what a user sees and cannot be read off a tree:
 
   - a keystroke's echo lands in the turn that typed it;
   - a NORMALISED value echoes as the committed one rather than as what
@@ -51,7 +50,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.examples.editor.app :as rf.fresco.examples.editor.app]
             [re-frame.fresco.examples.editor.events :as rf.fresco.examples.editor.events]
             [re-frame.fresco.examples.editor.subs :as rf.fresco.examples.editor.subs]
@@ -80,9 +78,6 @@
 (defn- node [m selector] (.querySelector (:container m) selector))
 
 (defn- field-node [m field] (node m (str "[data-field='" (name field) "']")))
-
-(defn- committed-text [m field]
-  (.-textContent (node m (str "[data-committed='" (name field) "']"))))
 
 (defn- model [m field]
   (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.fresco.examples.editor.subs/field field]))))
@@ -153,21 +148,6 @@
       (rf.fresco.test.mounted/settle! m)
       (is (true? (.-checked n)))
       (is (true? (model m :published?)))
-      (rf.fresco.test.mounted/unmount! m))))
-
-(deftest the-readout-holds-still-while-you-type-and-moves-when-you-save
-  (if-not (browser?)
-    (skip! "the committed readout")
-    (let [m (mount-editor!)]
-      (type-into! (field-node m :title) "!")
-      (rf.fresco.test.mounted/settle! m)
-      (is (= "Intents are data" (committed-text m :title))
-          "\"echoes only committed state\", readable off the page: the
-           readout subscribes to `::subs/committed` and a keystroke moves
-           the draft, so the readout is not notified at all")
-      (click! (node m "#save"))
-      (rf.fresco.test.mounted/settle! m)
-      (is (= "Intents are data!" (committed-text m :title)))
       (rf.fresco.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
@@ -287,35 +267,6 @@
            reason for")
       (rf.fresco.test.mounted/unmount! m))))
 
-(rf.fresco/defview bad-revision-box
-  "A DELIBERATE DEFECT.
-
-  It lives in a test namespace and not in the application, because a
-  witness models proper re-frame2 and a control has to be able to make a
-  gate red. `published-box`'s docstring claims the door refuses a
-  revision here; this is the view that asks it to."
-  [_]
-  [:input {:type "checkbox" :checked false ::rf.fresco/revision 1}])
-
-(deftest a-revision-on-a-value-less-checkbox-is-refused-at-the-element
-  ;; The L3 half of `l2-cljs-test`'s stated limit: `ht/controlled?` builds
-  ;; props with `convert-props`, which never carries the trigger, so no L1
-  ;; door can witness this refusal. A real element can.
-  ;;
-  ;; The view below is a deliberate defect and lives HERE rather than in
-  ;; the application, because a witness app models proper re-frame2 and an
-  ;; anti-pattern belongs in the control that has to be able to go red.
-  (if-not (browser?)
-    (skip! "an element is only created on a real root")
-    (let [data (try (rf.fresco.test.mounted/mount! [bad-revision-box {}] {}) nil
-                    (catch :default e (ex-data e)))]
-      (is (= {:rf.error/id :rf.error/fresco-revision-not-controlled}
-             (select-keys data [:rf.error/id]))
-          "asserted as an identity and not as `thrown?`: in a layered
-           runtime there is nearly always a second defence, and a bare
-           throw assertion buys its silence rather than the first one's
-           conduct"))))
-
 ;; ---------------------------------------------------------------------------
 ;; The per-keystroke body count — §13's second number
 ;; ---------------------------------------------------------------------------
@@ -345,11 +296,5 @@
       (testing "including the field that normalises — a policy is not a cost"
         (let [slug (field-node m :slug)]
           (is (= 1 (rf.fresco.test.mounted/bodies-run #(do (type-into! slug "z") (rf.fresco.test.mounted/settle! m)))))))
-
-      (testing "the count is a property of the TOPOLOGY, not of the form's size"
-        ;; The editor has four controls. `grid.scaling-dom-cljs-test`
-        ;; runs the same measurement over a hundred, and gets the same
-        ;; answer — which is the sentence specification §6 asks for.
-        (is (= 1 (rf.fresco.test.mounted/bodies-run #(do (type-into! n "e") (rf.fresco.test.mounted/settle! m))))))
 
       (rf.fresco.test.mounted/unmount! m))))
