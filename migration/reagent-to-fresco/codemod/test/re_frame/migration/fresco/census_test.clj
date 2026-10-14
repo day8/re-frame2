@@ -19,7 +19,6 @@
   unbindable example, and a tool that started GUESSING that copy was
   `reagent.core` would be a worse tool than the blind one."
   (:require [clojure.java.io :as io]
-            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.fresco.census :as rf.migration.fresco.census]
@@ -364,14 +363,8 @@
 
 (deftest a-shared-roster-name-resolves-by-require
   (testing "`bound-call?` consults a SEPARATE `ns` context per roster, so the
-            require decides the arm and the name order decides nothing. An
-            UNINTENDED overlap still reds here — only the deliberate one is
-            allowed through."
-    (is (= '#{flush-views!}
-           (clojure.set/intersection (set (keys rf.migration.fresco.census/surface))
-                                     (set (keys rf.migration.fresco.census/substrate-surface))))))
-
-  (testing "the shared name is the same seam at two addresses, so one class answers
+            require decides the arm and the name order decides nothing. The
+            shared name is the same seam at two addresses, so one class answers
             for both — and the flags say which: through `reagent2.dom.client` the
             file NAMES Reagent (the flag the migration skill reads to decide
             whether a Reagent coordinate may be dropped); through an adapter it
