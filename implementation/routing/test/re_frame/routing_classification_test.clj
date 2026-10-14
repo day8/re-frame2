@@ -46,14 +46,13 @@
 
 (defn- route-paths
   "The paths a `:source :route` owner claims on `axis`
-  (`:sensitive-declarations` or `:declarations`) of `frame-id`'s elision
+  (`:sensitive-declarations` or `:declarations`) of `:rf/default`'s elision
   registry."
-  ([axis] (route-paths axis :rf/default))
-  ([axis frame-id]
-   (->> (get (elision-reg frame-id) axis)
-        (filter (fn [[_ owners]] (some #(= :route (:source %)) owners)))
-        (map key)
-        set)))
+  [axis]
+  (->> (get (elision-reg :rf/default) axis)
+       (filter (fn [[_ owners]] (some #(= :route (:source %)) owners)))
+       (map key)
+       set))
 
 (defn- visit!
   ([url]
@@ -85,21 +84,16 @@
 
 ;; ---- lowering and the singleton drop ----------------------------------------
 
-(deftest route-change-swaps-classification
+(deftest route-change-and-route-miss-replace-the-classification
+  ;; Only the entering route's classification survives a swap, and a miss
+  ;; (activation with no route metadata) drops it.
   (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
   (rf/reg-route :route/b {:sensitive [[:params :b-secret]]} "/b/:b-secret")
-  (visit! "/a?a-secret=1")
-  (is (= #{[:rf.runtime/routing :current :query :a-secret]} (route-paths :sensitive-declarations)))
-  (visit! "/b/xyz")
-  (is (= #{[:rf.runtime/routing :current :params :b-secret]} (route-paths :sensitive-declarations))
-      "only the entering route's classification survives the swap"))
-
-(deftest not-found-drops-classification
-  (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
-  (visit! "/oauth?token=secret")
-  (is (seq (route-paths :sensitive-declarations)))
-  (visit! "/no-such-route")
-  (is (empty? (route-paths :sensitive-declarations))))
+  (is (= [#{[:rf.runtime/routing :current :query :a-secret]}
+          #{[:rf.runtime/routing :current :params :b-secret]}
+          #{}]
+         (mapv #(do (visit! %) (route-paths :sensitive-declarations))
+               ["/a?a-secret=1" "/b/xyz" "/no-such-route"]))))
 
 (deftest frame-destroy-drops-classification
   (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
@@ -126,19 +120,15 @@
   (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
   (visit! "/a?a-secret=AAA" :rf/default)
   (visit! "/b?b-secret=BBB" :frame/b)
-  (is (= [#{[:rf.runtime/routing :current :query :a-secret]}
-          #{[:rf.runtime/routing :current :query :b-secret]}]
-         [(route-paths :sensitive-declarations :rf/default)
-          (route-paths :sensitive-declarations :frame/b)]))
-  (testing "each frame's egress redacts by its own classification only"
-    (let [egress (fn [frame-id]
-                   (-> (:rf.db/runtime (rf/frame-state-value frame-id))
-                       (assoc-in [:rf.runtime/routing :current :query] {:a-secret "AAA" :b-secret "BBB"})
-                       (rf.elision/elide-wire-value {:frame frame-id})
-                       (get-in [:rf.runtime/routing :current :query])))]
-      (is (= [{:a-secret sentinel :b-secret "BBB"}
-              {:a-secret "AAA" :b-secret sentinel}]
-             [(egress :rf/default) (egress :frame/b)])))))
+  ;; each frame's egress redacts by its own classification only
+  (let [egress (fn [frame-id]
+                 (-> (:rf.db/runtime (rf/frame-state-value frame-id))
+                     (assoc-in [:rf.runtime/routing :current :query] {:a-secret "AAA" :b-secret "BBB"})
+                     (rf.elision/elide-wire-value {:frame frame-id})
+                     (get-in [:rf.runtime/routing :current :query])))]
+    (is (= [{:a-secret sentinel :b-secret "BBB"}
+            {:a-secret "AAA" :b-secret sentinel}]
+           [(egress :rf/default) (egress :frame/b)]))))
 
 (deftest clear-keys-are-not-classification-keys-ignored-by-extract
   (is (= [nil nil]
