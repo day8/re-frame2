@@ -432,49 +432,30 @@
          r#  (do ~@body)]
      [r# (quot (- (System/nanoTime) t0#) 1000000)]))
 
-(deftest launch-drains-huge-stdout-and-reports-success
+(deftest launch-drains-both-pipes-and-honours-its-budget
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
-    (let [f    (tmp-existing-file)
-          shim (str "var b='x'.repeat(" one-mib-plus ");"
-                    "process.stdout.write(b);process.exit(0);")]
-      (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
-        (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
-          (is (= {:ok true} (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))
-              "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout"))))))
-
-(deftest launch-drains-huge-stderr-and-reports-bounded-failure
-  (if-not (node-available?)
-    (skip-or-fail "node not on PATH")
-    (let [f (tmp-existing-file)]
-      (testing "huge stderr + nonzero exit ⇒ bounded non-timeout diagnostic"
-        (let [shim (str "var b='y'.repeat(" one-mib-plus ");"
-                        "process.stderr.write(b);process.exit(7);")]
-          (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
-            (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
-              (is (re-matches #"y{1,8192}"
-                              (str (:message (rf.testbed.open-in-editor-server/launch!
-                                               (.getAbsolutePath f) nil nil nil))))
-                  "a drained stderr flood is a real failure carrying the flood's
-                   head — not the deadlock timeout — and that head is bounded,
-                   so a runaway child costs no unbounded parent memory")))))
-      (testing "small stderr control still round-trips verbatim"
-        (with-redefs [rf.testbed.open-in-editor-server/launch-shim "process.stderr.write('controlled failure');process.exit(7);"]
-          (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 8000]
-            (is (= {:ok false :message "controlled failure"}
-                   (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil)))))))))
-
-(deftest launch-genuine-timeout-honours-short-budget
-  (if-not (node-available?)
-    (skip-or-fail "node not on PATH")
-    (let [f (tmp-existing-file)]
-      (with-redefs [rf.testbed.open-in-editor-server/launch-shim "setInterval(function(){},1000);"] ;; never exits
-        (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* 500]
-          (let [[res ms] (timed (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil))]
-            (is (= {:ok false :message "launch-editor timed out"} res)
-                "a non-exiting child times out")
-            (is (< ms 5000)
-                "the short budget was honoured — nowhere near the default 10 s stall")))))))
+    (let [f      (.getAbsolutePath (tmp-existing-file))
+          launch (fn [shim budget-ms]
+                   (with-redefs [rf.testbed.open-in-editor-server/launch-shim shim]
+                     (binding [rf.testbed.open-in-editor-server/*launch-timeout-ms* budget-ms]
+                       (timed (rf.testbed.open-in-editor-server/launch! f nil nil nil)))))
+          flood  (fn [stream ch exit-code]
+                   (str "var b='" ch "'.repeat(" one-mib-plus ");"
+                        "process." stream ".write(b);process.exit(" exit-code ");"))]
+      (is (= {:ok true} (first (launch (flood "stdout" "x" 0) 8000)))
+          "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout")
+      (is (re-matches #"y{1,8192}" (str (:message (first (launch (flood "stderr" "y" 7) 8000)))))
+          "a drained stderr flood is a real failure carrying the flood's head — not
+           the deadlock timeout — and that head is bounded, so a runaway child
+           costs no unbounded parent memory")
+      (is (= {:ok false :message "controlled failure"}
+             (first (launch "process.stderr.write('controlled failure');process.exit(7);" 8000)))
+          "a small stderr round-trips verbatim")
+      (let [[res ms] (launch "setInterval(function(){},1000);" 500)]
+        (is (= [{:ok false :message "launch-editor timed out"} true] [res (< ms 5000)])
+            "a child that never exits times out within the short budget, nowhere
+             near the default 10 s stall")))))
 
 (deftest terminate!-force-kills-a-child-that-ignores-graceful-destroy
   ;; The child traps SIGTERM, so on POSIX the force-destroy fallback is what
