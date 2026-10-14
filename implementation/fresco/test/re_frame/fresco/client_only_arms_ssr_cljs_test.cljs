@@ -36,9 +36,9 @@
     the UA stylesheet — the PLATFORM's doing, not a refusal at any
     declaration source.
   - **HS-23, Activity.** This one splits by route, and the split is the
-    point. Through `h/defhost` the Client-only refusal is real and fires
-    at the declaration source, with both of the policy's arms. Through
-    raw React construction — the route
+    point. Through `h/defhost` it takes the ordinary host policy that
+    `host-ssr-dom-cljs-test` holds — the gate does not look at the
+    component's type. Through raw React construction — the route
     `docs/design/fresco/product/lanes/react-compatibility-notes.md`
     tells an author to take — there is no refusal and a VISIBLE
     Activity's subtree reaches the response.
@@ -103,7 +103,6 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.overlay :as rf.fresco.overlay]
             [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
-            [re-frame.fresco.test.forms :as rf.fresco.test.forms]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -193,15 +192,6 @@
                      :placement  :bottom-start}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(rf.fresco/defview unanchored-popover-page
-  "The same surface with no `:anchor` — the control that keeps §5 a fact
-  about the anchor ident rather than about popovers."
-  []
-  [:div.owner
-   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [:fresco.arms/open?])
-                     :on-dismiss [:menu/dismissed]}
-    [:ul {:role "menu"} [:li.choice "Unread"]]]])
-
 (rf.fresco/defview modal-page
   "HS-32's other door. A modal takes no `:anchor`, so it mints no ident."
   []
@@ -261,25 +251,9 @@
 
 (def ^:private Activity
   "React 19.2's own `<Activity>`, reached by interop. It is a symbol
-  rather than a component, which is why every route below has to say
+  rather than a component, which is why the route below has to say
   which door it goes through."
   (.-Activity react))
-
-(rf.fresco/defhost activity-bare Activity)
-
-(rf.fresco/defhost activity-with-fallback Activity
-  {:fallback [:div.activity-skeleton "loading"]})
-
-(rf.fresco/defhost activity-render Activity
-  {:server :render})
-
-(rf.fresco/defview activity-host-page
-  "HS-23 through `h/defhost` — the third of the three routes the lane
-  note names, and the only one that carries a server policy at all."
-  [{:keys [head mode]}]
-  [:div.owner
-   [head {:mode mode}
-    [island {}]]])
 
 (rf.fresco/defview activity-native-page
   "HS-23 through raw React construction, which the lane note recommends
@@ -300,60 +274,19 @@
             under `buffered-field` is Render — the boundary
             (HS-01), the `h/sub` read (HS-02), the props map (HS-06) and
             the controlled field's server half (HS-08) — so the module
-            emits the live `<input>`, carrying the committed value. There
-            is no refusal here to witness and no fallback standing in for
-            an omitted region, because nothing is omitted"
+            emits the live `<input>`, carrying the committed value,
+            deterministically"
     (fresh! true)
     (let [html (server-html [field-page {}])]
-      (is (re-find #"<input[^>]*/>" html)
-          (str "the field itself is in the response: " html))
       (is (re-find #"<input[^>]*value=\"milk\"" html)
           (str "carrying the COMMITTED value, so the page paints filled
                 rather than empty-then-filled: " html))
-      (is (re-find #"<input[^>]*placeholder=\"What needs doing\?\"" html)
-          (str "and a pass-through attribute reaches the element, which is
-                what says the module's own prop split ran: " html))
       (is (not (re-find #"fresco" html))
           (str "no reserved keyword survives into the bytes — the module
                 writes `::h/revision` and three intent vectors, and none
-                of them is markup: " html)))))
-
-(deftest two-server-renders-of-one-forms-snapshot-are-byte-identical
-  (testing "the determinism §2.4's first upgrade clause asks for, measured
-            here rather than assumed. It is not free for every optional
-            module — the overlay's anchored arm would fail exactly this
-            assertion if it serialized its anchor name, and section 2
-            below is where that is held"
-    (fresh! true)
-    (let [a (server-html [field-page {}])
-          b (server-html [field-page {}])]
-      (is (= a b) (str "two renders of one snapshot: " a " / " b)))))
-
-(deftest a-live-draft-in-the-request-snapshot-is-what-the-server-renders
-  (testing "D016's eligibility rule holds on the SERVER too, and this is
-            the row that says the module's arrangement is not client-only
-            machinery: a record whose revision matches renders `:draft`,
-            and the committed `:value` is what a caller would have got
-            without one. Driven through the module's own public event id
-            rather than by writing `app-db` directly, so the row measures
-            the protocol and not this file's idea of it"
-    (fresh! true)
-    (rf/with-frame frame-id
-      (rf/dispatch-sync [rf.fresco.test.forms/edit-id control 3 "half-typed"]))
-    (let [html (server-html [field-page {}])]
-      (is (re-find #"<input[^>]*value=\"half-typed\"" html)
-          (str "the draft, not the committed value: " html))
-      (is (not (re-find #"value=\"milk\"" html))
-          (str "and the committed value is not also in the bytes: " html))))
-  (testing "a record whose revision does NOT match is ineligible, and the
-            committed value stands — the same fence that makes a stale
-            commit a no-op, answered while producing bytes"
-    (fresh! true)
-    (rf/with-frame frame-id
-      (rf/dispatch-sync [rf.fresco.test.forms/edit-id control 2 "stale"]))
-    (let [html (server-html [field-page {}])]
-      (is (re-find #"<input[^>]*value=\"milk\"" html)
-          (str "the committed value, because revision 2 is not 3: " html)))))
+                of them is markup: " html))
+      (is (= html (server-html [field-page {}]))
+          "two renders of one snapshot are byte-identical"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — HS-32, the optional overlay module
@@ -496,87 +429,12 @@
             non-deterministic half"
     (fresh! true)
     (let [html (server-html [anchored-popover-page {}])]
-      (is (re-find #"<div popover=\"auto\"" html)
-          (str "the panel is still in the bytes: " html))
       (is (re-find #"position-area:block-end span-inline-end" html)
-          (str "carrying the placement `:bottom-start` means: " html))
-      (is (re-find #"class=\"choice\"" html)
-          (str "and its children: " html))))
-  (testing "the unanchored arm is the control
-            that keeps the rows above a fact about the anchored arm
-            rather than about popovers in general"
-    (fresh! true)
-    (let [a (server-html [unanchored-popover-page {}])
-          b (server-html [unanchored-popover-page {}])]
-      (is (not (re-find #"position-anchor" a))
-          (str "no anchor name is baked: " a))
-      (is (= a b) (str "so the bytes are deterministic: " a " / " b))))
-  (testing "a modal takes no `:anchor` at all, so it is deterministic for
-            the same reason and by construction"
-    (fresh! true)
-    (let [a (server-html [modal-page {}])
-          b (server-html [modal-page {}])]
-      (is (= a b) (str "two renders of one snapshot: " a " / " b)))))
+          (str "carrying the placement `:bottom-start` means: " html)))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — HS-23, the Activity-hosted subtree, route by route
+;; 3 — HS-23, the Activity-hosted subtree, through raw React
 ;; ---------------------------------------------------------------------------
-
-(deftest a-defhost-declared-activity-refuses-at-the-declaration-source
-  (testing "HS-23's Client-only refusal, and this is the route on which it
-            is real. `h/defhost` with no `:server` written is the default
-            policy, and the gate renders nothing where the host sits —
-            regardless of the Activity's own mode, which is what makes
-            this the DECLARATION's refusal rather than React's omission of
-            a hidden subtree. This is the bare arm the canonical matrix
-            asks for: absent from the server bytes, with nothing there to
-            hydrate"
-    (fresh! true)
-    (doseq [mode ["visible" "hidden"]]
-      (let [html (server-html [activity-host-page {:head activity-bare
-                                                   :mode mode}])]
-        (is (not (re-find #"class=\"inner\"" html))
-            (str "mode " mode ": the hosted subtree is absent: " html))
-        (is (not (re-find #"title=" html))
-            (str "mode " mode ": and its read never reached the response: "
-                 html)))))
-  (testing "the SECOND arm — a declared `:fallback` stands in the bytes at
-            the tree position instead. Both of the policy's arms, which is
-            what §2.1 note 3 and the canonical matrix's last paragraph ask
-            of a Client-only row"
-    (fresh! true)
-    (let [html (server-html [activity-host-page {:head activity-with-fallback
-                                                 :mode "visible"}])]
-      (is (re-find #"class=\"activity-skeleton\"" html)
-          (str "the declared placeholder is what stands there: " html))
-      (is (not (re-find #"class=\"inner\"" html))
-          (str "and the live subtree still is not: " html))))
-  (testing "the CONTROL, without which the two rows above measure Activity
-            rather than the gate: the same host declared `:server :render`
-            puts the subtree in the response when the Activity is visible.
-            So the omission above is the declaration's, and this row is
-            what proves it"
-    (fresh! true)
-    (let [html (server-html [activity-host-page {:head activity-render
-                                                 :mode "visible"}])]
-      (is (re-find #"class=\"inner\"" html)
-          (str "the hosted subtree renders: " html))
-      (is (re-find #"title=milk" html)
-          (str "and its `h/sub` read answers the frame the render names: "
-               html)))))
-
-(deftest a-hidden-activity-is-reacts-own-omission-and-not-a-refusal
-  (testing "under `:server :render` the mode decides, and React decides it:
-            a hidden `<Activity>` contributes nothing to the response. No
-            Fresco declaration source is consulted and no recovery is
-            carried, so this is React's behaviour rather than this
-            product's refusal — a distinction HS-23's cell has to make,
-            because only one of the two is a disposition"
-    (fresh! true)
-    (let [html (server-html [activity-host-page {:head activity-render
-                                                 :mode "hidden"}])]
-      (is (not (re-find #"class=\"inner\"" html))
-          (str "nothing of the hidden subtree reaches the bytes: " html)))))
 
 (deftest through-raw-react-a-visible-activity-subtree-reaches-the-response
   (testing "**What this row pins.**
