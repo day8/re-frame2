@@ -2,14 +2,12 @@
 ;;;; cover open AND closed issues. `gh issue list` defaults to `--state open`,
 ;;;; so without an explicit `--state all` a closed issue that already owns the
 ;;;; friction (a landed fix, an intentional rejection) is invisible and the
-;;;; skill drafts a twin. The argv is extracted from SKILL.md verbatim and run
-;;;; through a model of gh's documented state filter over a fixture set.
+;;;; skill drafts a twin. The argv is extracted from SKILL.md verbatim.
 ;;;;
 ;;;; Run: bb tests/duplicate_search_test.clj   (from skills/re-frame2-pair-retro/)
 
 (ns duplicate-search-test
   (:require [clojure.java.io :as io]
-            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is run-tests]]))
 
@@ -29,30 +27,12 @@
   [cmd]
   (or (second (re-find #"--state[= ](\S+)" cmd)) "open"))
 
-(def ^:private fixture-issues
-  ;; One closed semantic owner, and two unrelated issues sharing a keyword.
-  [{:number 4101 :state "closed" :keywords #{"restore" "epoch" "schema" "friction"}}
-   {:number 4200 :state "open"   :keywords #{"epoch" "depth"}}
-   {:number 4050 :state "closed" :keywords #{"epoch" "keyboard"}}])
-
-(defn- gh-list
-  "Model of `gh issue list --state <s> --search <kw>`: filter by state, then keyword overlap."
-  [state keywords]
-  (->> fixture-issues
-       (filter #(or (= state "all") (= state (:state %))))
-       (filter #(seq (set/intersection keywords (:keywords %))))))
-
 (deftest prescribed-query-is-all-state-and-repo-narrow
   (let [cmds (prescribed-list-commands @skill-md)]
     (is (seq cmds) "SKILL.md must prescribe a `gh issue list` duplicate query")
     (doseq [cmd cmds]
       (is (str/includes? cmd "--repo day8/re-frame2") (str "the search stays narrow to day8/re-frame2: " cmd))
       (is (= "all" (argv-state cmd)) (str "the search must pass --state all explicitly: " cmd)))))
-
-(deftest closed-owner-is-discovered-under-the-prescribed-state
-  (let [state (argv-state (first (prescribed-list-commands @skill-md)))]
-    (is (some #(= 4101 (:number %)) (gh-list state #{"restore" "epoch" "friction"}))
-        (str "the closed owner #4101 must be discoverable; under gh's open-only default it is invisible (searched: " state ")"))))
 
 (deftest failed-query-reports-not-checked
   (is (re-find #"(?i)duplicate status was not checked" @skill-md)
