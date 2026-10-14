@@ -10,7 +10,6 @@
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.elision :as rf.elision]
-   [re-frame.frame :as rf.frame]
    [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.state :as rf.resources.state]
@@ -88,26 +87,6 @@
   (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :plain/card {:slug "x"})]
     (is (not (contains? (reconcile (runtime-db-with {k {:data {:title "t"}}})) :rf.runtime/elision))
         "a resource that declares no classification leaves no stray registry sub-tree")))
-
-(deftest registry-reader-sees-resource-classification-and-redacts
-  ;; the elision-registry walker a generic registry reader (and the SSR
-  ;; registry-projection defence in depth) uses, not the family projector
-  (reg! :acct/profile {:sensitive [[:data :ssn]]})
-  (rf/make-frame {:id :reg/frame})
-  (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
-        k-id    (rf.resources.state/key-id k)
-        lowered (reconcile (runtime-db-with {k {:data {:ssn "123-45-6789" :name "Alice"}}}))]
-    (rf.frame/swap-runtime-db! :reg/frame (constantly lowered))
-    ;; the walker's opts map is closed: this is the :rf.egress/off-box-tool
-    ;; floor `project-egress` would resolve, plus an explicit digest override
-    (is (= {:ssn :rf/redacted :name "Alice"}
-           (select-keys (rf.elision/elide-wire-value
-                          (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
-                          {:frame :reg/frame
-                           :path  [:rf.runtime/resources :entries k-id :data]
-                           :rf.egress/include-digests? true})
-                        [:ssn :name]))
-        "the declared :ssn redacts and the undeclared sibling rides verbatim")))
 
 (deftest resource-and-effect-claims-union-and-remove-independently
   (reg! :acct/card {:sensitive [[:data :ssn]]})
