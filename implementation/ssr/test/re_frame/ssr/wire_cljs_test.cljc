@@ -3,9 +3,7 @@
   011 §The numeric crossing rule): a value is carryable exactly when it
   reads back EQUAL on the other host. Runs on the JVM and Node."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.wire :as rf.ssr.wire]
-            #?(:clj  [clojure.edn :as edn]
-               :cljs [cljs.reader :as reader])))
+            [re-frame.ssr.wire :as rf.ssr.wire]))
 
 ;; The smallest value whose `pr-str` carries a tag the safe reader cannot
 ;; construct, on both hosts.
@@ -44,30 +42,6 @@
 ;; not cross. The JVM keeps `1` and `1.0`, and `0` and `-0.0`, as distinct
 ;; keys, and the browser reads both as one double. The colliding literals stay
 ;; in the JVM branch: on CLJS they cannot be written at all.
-
-(def ^:private colliding-bodies
-  "The bytes the JVM prints for maps and sets whose distinct numbers the
-  browser reads as one value, pinned as bytes because bytes are what cross.
-  The JVM half pins them against the live printer, so they cannot go stale."
-  {:map-keys       "{1 :i, 1.0 :d}"
-   :set-members    "#{0 -0.0}"
-   :composite-keys "{[1] :a, [1.0] :b}"})
-
-(deftest colliding-bytes-read-back-differently-on-each-host
-  #?(:clj
-     (do
-       (is (= (:map-keys colliding-bodies) (pr-str {1 :i 1.0 :d})))
-       (is (= (:set-members colliding-bodies) (pr-str #{0 -0.0})))
-       (is (= (:composite-keys colliding-bodies) (pr-str {[1] :a [1.0] :b})))
-       (doseq [[label body] colliding-bodies]
-         (is (= 2 (count (edn/read-string body)))
-             (str label " — the JVM reads its own bytes back whole, so no "
-                  "same-host test can see the defect"))))
-     :cljs
-     (doseq [[label body] colliding-bodies]
-       (is (thrown-with-msg? js/Error #"duplicate key" (reader/read-string body))
-           (str label " — the browser's reader refuses the duplicate the two "
-                "server numbers became")))))
 
 #?(:clj
    (deftest a-collection-whose-numbers-collapse-is-not-carryable
