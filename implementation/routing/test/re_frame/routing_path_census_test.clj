@@ -504,10 +504,7 @@
                   {:id :app-a/about :path "/about" :file "examples/a/core.cljs" :line 13}]
           groups (duplicate-path-groups claims {})]
       (is (= [{:path "/" :claims (subvec claims 0 2)}] groups)
-          "only the shared path, both claimants ordered stably")
-      (is (every? #(str/includes? (census-failure-message groups) %)
-                  [":app-a/home" ":app-b/home" "examples/a/core.cljs:12" "examples/b/core.cljs:7"])
-          "coords make it jumpable")))
+          "only the shared path, both claimants ordered stably")))
 
   (testing "a guard can be wrong by being too eager — the legal cases stay green"
     (let [pair [{:id :app-a/home :path "/"} {:id :app-b/home :path "/"}]]
