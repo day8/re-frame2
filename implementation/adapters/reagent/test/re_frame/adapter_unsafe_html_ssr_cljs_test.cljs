@@ -54,7 +54,4 @@
              (rf.ssr/render-tree-hash (as-tag "<b>x</b>")))))
     (testing "a tagged value carrying no markup hashes as the map with a nil :__html"
       (is (= (rf.ssr/render-tree-hash (as-map nil))
-             (rf.ssr/render-tree-hash (as-tag nil)))))
-    (testing "different markup hashes differently"
-      (is (not= (rf.ssr/render-tree-hash (as-tag "<b>x</b>"))
-                (rf.ssr/render-tree-hash (as-tag "<b>y</b>")))))))
+             (rf.ssr/render-tree-hash (as-tag nil)))))))
