@@ -19,7 +19,6 @@
   onto the `scrollX` / `scrollY` fields the handlers read."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.scroll :as rf.routing.scroll]
@@ -37,10 +36,7 @@
     {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 (rf.routing/reset-counters!)
-                (rf.routing/reset-scroll-cache!)
-                ;; The always-on error-emit listener registry is a `defonce`
-                ;; atom, so a recorder from one test would leak into the next.
-                (rf.error-emit/clear-error-listeners!))}))
+                (rf.routing/reset-scroll-cache!))}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -66,19 +62,6 @@
 
 (defn- unsupported [traces]
   (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %)) traces))
-
-(defn- record-always-on-errors!
-  "Record the ALWAYS-ON error-emit channel and return the atom it fills. The
-  dev-trace recorder is compiled out under `:advanced` + `goog.DEBUG=false`,
-  so only this channel tells an always-on rejection from a dev-only one."
-  []
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! :scroll-always-on/recorder
-                           (fn [record] (swap! seen conj record)))
-    seen))
-
-(defn- unsupported-records [records]
-  (filterv #(= :rf.error/unsupported-scroll-strategy (:error %)) records))
 
 (defn- scroll-xy []
   [(.-scrollX js/window) (.-scrollY js/window)])
@@ -140,33 +123,30 @@
     (with-trace-recorder! [traces]
       (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
                                            {:strategy {:to :element :selector "#article"}})
-      (let [errs (unsupported @traces)]
-        ;; `:recovery` rides on the envelope, not in :tags (Spec 009 §Core fields).
-        (is (= [{:strategy  {:to :element :selector "#article"}
-                 :supported [:top :restore :preserve]
-                 :frame     :rf/default
-                 :recovery  :no-scroll}]
-               (mapv #(assoc (select-keys (:tags %) [:strategy :supported :frame])
-                             :recovery (:recovery %))
-                     errs))
-            "one loud rejection naming the value, the vocabulary and the frame")
-        (is (string? (:reason (:tags (first errs)))))
-        (is (= [0 700] (scroll-xy)) "and no scroll")))))
+      ;; `:recovery` rides on the envelope, not in :tags (Spec 009 §Core fields).
+      (is (= [[{:strategy  {:to :element :selector "#article"}
+                :supported [:top :restore :preserve]
+                :frame     :rf/default
+                :reason    rf.routing.scroll/unsupported-strategy-reason
+                :recovery  :no-scroll}]
+              [0 700]]
+             [(mapv #(assoc (select-keys (:tags %) [:strategy :supported :frame :reason])
+                            :recovery (:recovery %))
+                    (unsupported @traces))
+              (scroll-xy)])
+          "one loud rejection naming the value, the vocabulary and the frame, and no scroll"))))
 
 (deftest scroll-handler-positive-control-the-three-supported-strategies
   (testing "each supported strategy drives its own branch and emits no
-            unsupported-strategy error on either channel: the dev trace, or the
-            always-on record a production host keeps"
-    (let [records (record-always-on-errors!)]
-      (doseq [[args expected] [;; no fragment element in the stub, so :top lands at (0,0)
-                               [{:strategy :top}                            [0 0]]
-                               [{:strategy :restore :saved-pos [12 3400.5]} [12 3400.5]]
-                               ;; a documented no-op, which is not a rejection
-                               [{:strategy :preserve}                       [0 700]]]]
-        (set-scroll! 0 700)
-        (with-trace-recorder! [traces]
-          (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args))
-          (is (= [expected []] [(scroll-xy) (unsupported @traces)])
-              (str (:strategy args)))))
-      (is (empty? (unsupported-records @records))
-          "no always-on rejection for any supported strategy"))))
+            unsupported-strategy error (one emit feeds both the dev trace and
+            the always-on record, so the trace speaks for both)"
+    (doseq [[args expected] [;; no fragment element in the stub, so :top lands at (0,0)
+                             [{:strategy :top}                            [0 0]]
+                             [{:strategy :restore :saved-pos [12 3400.5]} [12 3400.5]]
+                             ;; a documented no-op, which is not a rejection
+                             [{:strategy :preserve}                       [0 700]]]]
+      (set-scroll! 0 700)
+      (with-trace-recorder! [traces]
+        (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} args))
+        (is (= [expected []] [(scroll-xy) (unsupported @traces)])
+            (str (:strategy args)))))))
