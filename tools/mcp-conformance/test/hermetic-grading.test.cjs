@@ -26,13 +26,12 @@ function finalize(report) {
   return { code, sentinels, flushed };
 }
 
-test('CLEAN report ⇒ pass sentinel emitted exactly once and exit 0 (rf2-j538f7.19 AC7)', () => {
-  assert.deepEqual(finalize({ clean: true }), { code: 0, sentinels: 1, flushed: 0 });
-});
-
-test('DIRTY report ⇒ NO pass sentinel, diagnostics flushed and exit 2 (rf2-j538f7.19 AC7)', () => {
-  assert.deepEqual(
-    finalize({ clean: false, browser: { state: 'dirty' }, shadow: { state: 'alive' }, issues: [] }),
-    { code: 2, sentinels: 0, flushed: 1 },
-  );
+test('only a CLEAN report emits the pass sentinel and exits 0; a DIRTY one flushes diagnostics and exits 2 (rf2-j538f7.19 AC7)', () => {
+  for (const [report, expected] of [
+    [{ clean: true }, { code: 0, sentinels: 1, flushed: 0 }],
+    [{ clean: false, browser: { state: 'dirty' }, shadow: { state: 'alive' }, issues: [] },
+      { code: 2, sentinels: 0, flushed: 1 }],
+  ]) {
+    assert.deepEqual(finalize(report), expected);
+  }
 });
