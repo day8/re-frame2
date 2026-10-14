@@ -54,8 +54,8 @@ Once per clone is enough. The installer writes to `<git-common-dir>/hooks`,
 and linked worktrees share that directory — no `core.hooksPath` indirection,
 nothing per-worktree. A worktree created a month after the install is guarded
 the moment it exists. That is asserted, not assumed: `test-pre-commit.sh`
-layer 6 adds a worktree after installing and checks it resolves the same hooks
-directory.
+layer 6 adds a worktree after installing and commits through the hooks it
+inherits.
 
 To ask whether a checkout is currently guarded:
 
@@ -108,8 +108,8 @@ there. It drains stdin (git writes the old/new sha pairs to it), so any block
 added after it must take the list from `$_rf2_rewrites`.
 
 Layer 7 of `test-pre-commit.sh` drives real `git pull`s of all three shapes
-above. It has to: layer 6 calls the hook directly, and calling a hook directly
-proves the message is right while saying nothing about whether git ever runs it.
+above. It has to: calling a hook directly proves the message is right while
+saying nothing about whether git ever runs it.
 That gap is precisely where the seven-week silence hid a second time.
 
 ## The two boundaries, and the floor under them
@@ -440,8 +440,8 @@ trailers in this repository's log carry `@anthropic.com` and the documented
 harness default is `Claude <claude@anthropic.com>`, so the address is both
 sufficient and precise. A name substring is neither — it refuses
 `Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>`, a colleague turned
-away for their own name. Layer 10b pins three human spellings against 10a's two
-assistant ones.
+away for their own name. Layer 10b pins two human spellings, both carrying
+`claude`, against 10a's two assistant ones.
 
 The fourth shape is the first shape's URL with its key removed, which is how
 the harness writes it into a **PR body**; it slips past all three keyed rules,
@@ -615,11 +615,13 @@ coverage at all:
 9. Fresh checkout installs clean; `--check` then certifies it
 10. Every registered block reaches the installed hooks (a partial install
     was the bead's actual failure mode)
-11. A worktree created after the install shares the primary's hooks dir
-12. From that inherited install, a worker tracker commit is refused …
-13. … and an ordinary source commit from the same worktree is not
-14. Strip a block from the installed hook: `--check` fails and `post-merge`
-    says so; re-running the installer repairs it and the advisory goes quiet
+11. A worktree created after the install inherits it: from there, a worker
+    tracker commit is refused …
+12. … and an ordinary source commit from the same worktree is not
+13. Strip a block from the installed hook: `--check` fails; re-running the
+    installer repairs it
+14. (The advisory that reports a stale install, and its silence on a healthy
+    one, are driven through real pulls in 15-18.)
 
 From the rf2-zt65l audit reopen, driving real pulls between a throwaway upstream
 and a clone — the layer above calls the hook by hand, which cannot tell you
@@ -641,7 +643,7 @@ From rf2-51uz1, on the other side of the same boundary — the checkpoint helper
     export runs `--include-memories` (bd v1.1.2 drops them bare, rf2-fifk0)
 20. `--pre-pull` refuses while the working export is ahead of HEAD, and is
     silent once it is not
-21. A failed or empty export commits nothing and leaves the tracker untouched
+21. A failed export commits nothing and leaves the tracker untouched
 22. A memory reorder is not a change, so it is not a commit
 23. A worker worktree is refused the committing arm — the tracker database is
     the mayor's to commit — while `--pre-pull`, the read-only question, still
@@ -656,8 +658,8 @@ the checkout both incidents came from, and the one every layer above no-ops in:
     empty export
 26. An export at exactly 9/10 of HEAD commits normally — the floor is pinned at
     the threshold, not at a comfortable margin
-27. `git commit --no-verify` lands a deliberate mass delete: the escape the
-    message names actually works
+27. (The escape the message names, `git commit --no-verify`, is git's own
+    and is not re-tested here.)
 28. A tracker over a 0-row HEAD, and a commit that stages no tracker path at
     all, are both untouched
 
@@ -672,8 +674,7 @@ nothing passes a "there must be none here" clause vacuously and silently:
 31. The same forbidden line INDENTED is permitted (the escape hatch), as are
     git's own `#` template comments and the `git commit -v` diff body
 32. A real `git commit` carrying a trailer is refused, quoting the line and
-    citing the rule; an ordinary one is untouched; `--no-verify` lands a
-    deliberate override
+    citing the rule; an ordinary one is untouched
 33. The CI arm refuses a branch that introduces one and names the commit,
     passes a clean branch, and — the range property — stays green when the
     BASE itself carries an offender
@@ -689,8 +690,8 @@ The marker's verbs and decoration, and the identity:
 36. An author or committer `noreply@anthropic.com` is refused — by the hook
     through `--author`, the environment and an amend, and by the CI arm naming
     the commit, the identity and the fix, which then turns the branch green;
-    a human, a human named Claude, another address at that domain and a
-    message naming the address in prose all pass
+    a human named Claude, another address at that domain and a message
+    naming the address in prose all pass
 37. A commit recorded as the assistant on the BASE does not red a clean branch
 
 The MCP-staleness block in `post-merge`, through `post-merge-hook-test.cjs`:
