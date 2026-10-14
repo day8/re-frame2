@@ -299,10 +299,13 @@
 ;;     namespaces and the remedy. Load order never picks a survivor, and every
 ;;     other id keeps working.
 ;;
-;; The usual source of an ambiguous id is a handler moved between namespaces:
-;; re-evaluating the old namespace without the form does not remove its slot,
-;; so the id stays ambiguous until `(rf/clear kind id)` and a re-evaluation of
-;; the namespace that should own it.
+;; A handler moved between namespaces under hot reload leaves nothing behind:
+;; the registrar's reload sweep (`rf.registrar/sweep-reload-cycle!`) forgets
+;; the old namespace's slot. Anywhere the sweep does not reach — a REPL
+;; re-evaluation, or an old namespace that registers nothing once the handler
+;; has moved out — the slot stays, and the id is ambiguous until
+;; `(rf/clear kind id)` and a re-evaluation of the namespace that should own
+;; it.
 
 (defn- live-candidates
   "The descriptors of one `provenance-ns → descriptor` store entry that a live
@@ -1605,8 +1608,8 @@
   refresh threw `ex`.
 
   A cross-namespace duplicate (`:rf.error/image-duplicate-id`) — what moving a
-  `reg-*` to another namespace leaves behind, since re-evaluating the old
-  namespace does not remove its slot — is named STRUCTURALLY: the
+  `reg-*` to another namespace leaves behind wherever the hot-reload sweep
+  does not remove the old namespace's slot — is named STRUCTURALLY: the
   `:registration` `[kind id]`, every namespace registering it, and a `:reason`
   naming the recovery. The assembly exception adds nothing to those, and
   leaving it off keeps the `:reason` as the line the dev console leads with.
