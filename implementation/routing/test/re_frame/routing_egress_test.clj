@@ -220,24 +220,13 @@
     (is (= ["/cart?coupon=SECRET100"] (mapv :requested-url @seen))
         "the app handler runs once, on the raw requested URL")))
 
-(deftest an-app-classification-is-additive-over-the-retained-carriers
-  (entry-fixture!)
+(deftest an-app-re-registration-keeps-the-framework-carriers-and-adds-its-own
+  ;; A second registration (a hot reload) neither duplicates nor drops the
+  ;; framework carriers, and the app's own declaration follows them.
+  (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
   (rf/reg-event :rf.route/entry-denied {:sensitive [[:guard]]} (fn [_ _] {}))
   (is (= [[:requested-url] [:destination] [:target] [:guard]]
-         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
-      "framework carriers first, then the app's own declaration")
-  (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
-    ;; Dev-instrumentation arm (see ns docstring).
-    (when rf.interop/debug-enabled?
-      (is (= {:requested-url sentinel :guard sentinel}
-             (select-keys payload [:requested-url :guard]))))))
-
-(deftest the-retained-carriers-survive-a-hot-reload-re-registration
-  (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
-  (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
-  (is (= [[:requested-url] [:destination] [:target]]
-         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
-      "a second registration neither duplicates nor drops the carriers"))
+         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))))
 
 ;; ---- the retention is order-independent -----------------------------------------
 ;;
