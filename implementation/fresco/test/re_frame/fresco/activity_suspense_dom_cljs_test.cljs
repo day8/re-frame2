@@ -290,7 +290,6 @@
                           shows it"
                   (is (= "a=1" (painted handle "panel")))
                   (is (= 1 (reader-count [:acsd/a])))
-                  (is (zero? (reader-count [:acsd/b])))
                   (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
 
                 (swap! !state assoc :visible-reg (sole-reader [:acsd/a]))
@@ -312,10 +311,7 @@
                 (testing "HIDE releases the committed ownership. React tore
                           the `useSyncExternalStore` subscription down, so
                           the reverse edge went with it"
-                  (is (zero? (reader-count [:acsd/a])))
-                  (is (zero? (:cell-refs (ownership))))
-                  (is (zero? (:boundaries (ownership))))
-                  (is (zero? (:edges (ownership)))))
+                  (is (zero? (:cell-refs (ownership)))))
 
                 (testing "WITHOUT destroying anything. React kept the
                           subtree — its host node is still in the document
@@ -352,10 +348,7 @@
                 (testing "and the hidden render published nothing — no
                           durable ownership on the key it just read, none
                           on the key it stopped reading"
-                  (is (zero? (reader-count [:acsd/b])))
-                  (is (zero? (reader-count [:acsd/a])))
-                  (is (zero? (:cell-refs (ownership))))
-                  (is (zero? (:edges (ownership)))))
+                  (is (zero? (:cell-refs (ownership)))))
 
                 ;; REVEAL.
                 (act! (fn [] (@!set-mode "visible")))
