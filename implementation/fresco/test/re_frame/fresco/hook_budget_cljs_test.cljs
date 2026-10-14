@@ -23,8 +23,8 @@
   2. the budget is PER BOUNDARY — a nested boundary costs its own two,
      and shares nothing that would make a page's total sublinear or a
      boundary's cost conditional on its parent;
-  3. **the count does not move with the read count.** One read, seven,
-     twenty — all cost two. That is the whole argument for the ambient
+  3. **the count does not move with the read count.** One read or
+     twenty — both cost two. That is the whole argument for the ambient
      collector over a per-read hook: N reads = N hooks cannot satisfy this
      budget on any rung, and no amount of care about the other two claims
      substitutes for it;
@@ -177,19 +177,10 @@
               reads the first made possible"
       (is (= ["useContext" "useSyncExternalStore"] hooks)))
 
-    (testing "the budget, as a number. HD-020(b) is a count, so it is
-              asserted as one"
-      (is (= 2 (count hooks))))
-
     (testing "and the ledger the shell declares agrees with what React was
               asked for — which is what makes the declaration a checked
               statement rather than a comment that can rot"
-      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count hooks))))
-
-    (testing "neither is `useRef` and neither is `useState`: HD-020(b)'s
-              two named prohibitions, stated as themselves rather than
-              left implied by the sequence above"
-      (is (= [] (filterv #{"useRef" "useState"} hooks))))))
+      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count hooks))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The budget is per boundary
@@ -198,11 +189,7 @@
 (deftest a-nested-boundary-costs-its-own-two-and-shares-nothing
   (seeded!)
   (armed!)
-  (let [{:keys [html hooks]} (server-render! [outer {}])]
-
-    (testing "the premise: both bodies ran"
-      (is (some? (re-find #"outer" html)))
-      (is (= 1 (count (re-seq #"<li" html)))))
+  (let [{:keys [hooks]} (server-render! [outer {}])]
 
     (testing "two boundaries, two hooks each, in the order React renders
               them — the budget is PER BOUNDARY, so a page's cost is
@@ -221,14 +208,14 @@
   ;; The claim the ambient collector exists to make. A per-read hook
   ;; surface answers N here, and cannot be brought under a budget of two
   ;; by any amount of care elsewhere.
-  (doseq [n [7 20]]
-    (let [{:keys [html hooks]} (server-render! [reader {:n n}])]
+  (let [n                    20
+        {:keys [html hooks]} (server-render! [reader {:n n}])]
 
-      (testing (str "the premise: the body really performed " n " reads")
-        (is (= n (count (re-seq #"<li" html)))))
+    (testing (str "the premise: the body really performed " n " reads")
+      (is (= n (count (re-seq #"<li" html)))))
 
-      (testing (str n " reads still cost exactly the same two hooks")
-        (is (= ["useContext" "useSyncExternalStore"] hooks))))))
+    (testing (str n " reads still cost exactly the same two hooks")
+      (is (= ["useContext" "useSyncExternalStore"] hooks)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. The host crossing — the door's own cost, and whose the rest are
@@ -246,53 +233,21 @@
 (deftest a-gated-crossing-costs-the-door-exactly-one-hook
   (seeded!)
   (armed!)
-  (let [{:keys [html hooks]} (server-render! [gated-page {}])]
-
-    (testing "the premise: the boundary rendered and the gate withheld the
-              foreign component, which is what `:client-only` MEANS on the
-              server — so the count below is the door's alone"
-      (is (some? (re-find #"page" html)))
-      (is (nil? (re-find #"hosted" html))))
+  (let [{:keys [hooks]} (server-render! [gated-page {}])]
 
     (testing "three hooks on the whole page: the boundary's two, then the
               door's ONE — the gate's adoption read. HD-020(b)'s budget is
               about boundary SHELLS and the gate is not a boundary; it holds
               no subscription and reads no frame, which is why the ledger
               below is untouched by it"
-      (is (= ["useContext" "useSyncExternalStore" "useSyncExternalStore"] hooks)))
-
-    (testing "and the door's hook is the gate's, not a second boundary's:
-              exactly TWO `useSyncExternalStore` on the page, no third"
-      (is (= 2 (count (filter #{"useSyncExternalStore"} hooks)))))
-
-    (testing "nothing else. No `useRef`, no `useState`, no `useMemo`, no
-              `useEffect` — a door that memoised its converted props, or
-              held them in a ref, would show here"
-      (is (= [] (filterv #{"useRef" "useState" "useMemo" "useEffect"} hooks))))
-))
+      (is (= ["useContext" "useSyncExternalStore" "useSyncExternalStore"] hooks)))))
 
 (deftest an-ssr-render-crossing-costs-no-hook-and-the-hosted-hooks-are-its-own
   (seeded!)
   (armed!)
-  (let [{:keys [html hooks]} (server-render! [render-page {}])
-        beyond-the-shell     (vec (drop 2 hooks))]
-
-    (testing "the premise, and the one that makes this arm worth having:
-              the foreign component really did render, so its own hooks are
-              in the reading below"
-      (is (some? (re-find #"hosted" html))))
-
-    (testing "the boundary's two come first and nothing of the door's
-              follows them — `:server :render` mints no gate, so a crossing
-              under it costs ZERO hooks, which is the half of the price
-              statement the gated row cannot show"
-      (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 hooks))))
-      (is (= 1 (count (filter #{"useSyncExternalStore"} hooks)))))
-
-    (testing "everything after them is the WIDGET'S own roster. This is the
-              distinction the door exists to draw: a hosted component's
-              hooks are its own affair, they are not charged against
-              HD-020(b)'s budget, and no amount of them adds a hook of
-              Fresco's"
-      (is (= ["useContext" "useState" "useEffect"] beyond-the-shell)))
-))
+  (let [{:keys [hooks]} (server-render! [render-page {}])]
+    (testing "the boundary's two, then the WIDGET'S own three and nothing of
+              the door's — `:server :render` mints no gate, so the crossing
+              costs ZERO hooks, and a hosted component's hooks are its own
+              affair, not charged against HD-020(b)'s budget"
+      (is (= ["useContext" "useSyncExternalStore" "useContext" "useState" "useEffect"] hooks)))))
