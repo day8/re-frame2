@@ -92,40 +92,21 @@
   registry's empty default)."
   "re-frame2.xray.column-widths.v1")
 
-(defonce ^:private storage-key (atom default-storage-key))
-
-(defn set-storage-key!
-  "Replace the localStorage key Xray uses for column-widths
-  persistence. `nil` resets to the default. Hosts that mount multiple
-  Xray instances (Story testbeds) can set distinct keys so each
-  instance's widths stay isolated."
-  [k]
-  (reset! storage-key (or k default-storage-key))
-  nil)
-
-(defn get-storage-key
-  "Return the current localStorage key for column-widths persistence."
-  []
-  @storage-key)
-
 ;; Raw browser access lives in the shared `local-storage` seam.
-;; The key is resolved per call through
-;; `get-storage-key` so a runtime `set-storage-key!` re-key takes
-;; effect immediately.
 
 (defn- read-raw
   []
-  (ls/get-item (get-storage-key)))
+  (ls/get-item default-storage-key))
 
 (defn- write-raw!
   [s]
-  (ls/set-item! (get-storage-key) s))
+  (ls/set-item! default-storage-key s))
 
 (defn clear!
   "Remove the persisted column-widths slot. Used by tests to reset
   between scenarios. No-op when localStorage is unavailable."
   []
-  (ls/remove-item! (get-storage-key)))
+  (ls/remove-item! default-storage-key))
 
 (defn ->edn
   "Serialise `widths` (`{table-id {col-id px}}`) into a stable EDN

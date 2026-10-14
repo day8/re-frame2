@@ -123,14 +123,3 @@
   the spec references against."
   (into #{} (map :mount) panel-enum))
 
-(def panel-ids
-  "Set of every panel `:id` — stable identity axis."
-  (into #{} (map :id) panel-enum))
-
-(defn ids-by-tier
-  "Map of `tier-kw -> #{panel-id ...}` for assertions over the tier
-  partition."
-  []
-  (reduce (fn [acc {:keys [id tier]}]
-            (update acc tier (fnil conj #{}) id))
-          {} panel-enum))
