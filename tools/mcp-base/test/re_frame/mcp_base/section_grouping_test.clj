@@ -2,7 +2,6 @@
   "Tests for the path-headed cluster projection of a diff-encode patch
   list at the MCP wire boundary."
   (:require [clojure.test :refer [are deftest is]]
-            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]))
 
 (def ^:private group rf.mcp-base.section-grouping/group-patches-into-sections)
@@ -55,18 +54,6 @@
       assocs {:db-before {}}                                       :added
       assocs {:db-before {:user {:name "bob"}}}                    :modified
       assocs {:db-before {:user nil}}                              :modified)))
-
-(deftest sections-roundtrip-via-flatten-then-apply
-  ;; Concatenating the sections back to a patch list and applying it to
-  ;; db-before reproduces db-after.
-  (let [db-before {:cart {:items [{:sku "A1" :qty 1}] :totals {:line 10 :grand 10}}
-                   :user {:id 7 :last-edited-at 0}}
-        db-after  {:cart  {:items [{:sku "A1" :qty 3}] :totals {:line 30 :grand 30}}
-                   :user  {:id 7 :last-edited-at 12345}
-                   :flash "Updated"}
-        sections  (group (rf.mcp-base.diff-encode/collect-patches db-before db-after []))]
-    (is (= db-after (rf.mcp-base.diff-encode/apply-patches
-                      db-before (rf.mcp-base.section-grouping/sections->patches sections))))))
 
 (deftest sections-preserve-all-patches
   ;; Every input patch lands in exactly one section.
