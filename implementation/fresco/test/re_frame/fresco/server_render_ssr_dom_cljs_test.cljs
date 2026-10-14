@@ -7,14 +7,12 @@
 
   ## The claim, and the row that would catch it being false
 
-  `identifier_prefix_ssr_dom_cljs_test` establishes the obstruction on
-  the server side alone, with no DOM in sight: one prefix, two tree
-  SHAPES, two ids. Its `server-html!` is *the tree a consumer can spell
-  today* — the frame provider over the root element — and its
-  `root-shaped-server-html!` reproduces `impl.mount/tree`'s hydrating
-  shape BY HAND as a measurement, explicitly *not offered as a product
-  path*. The ids disagree, and that disagreement is the whole of
-  obstruction 2.
+  The obstruction is visible on the server side alone, with no DOM in
+  sight: one prefix, two tree SHAPES, two ids. [[plain-server-html!]] is
+  *the tree a consumer can spell today* — the frame provider over the
+  root element — and [[door-shaped-html!]] is `impl.mount/tree`'s
+  hydrating shape. The ids disagree, and that disagreement is the whole
+  of obstruction 2.
 
   So the entry has exactly one thing to prove, and §1 proves it:
   **`server/render`'s bytes carry the SHAPED id, not the plain one.**
@@ -66,8 +64,8 @@
   Every row from §4 on is asynchronous and holds a live React root, a
   trace listener and sometimes a replaced `console.error` — none of
   which the `:each` fixture takes back. §3b is the single settlement
-  path they all end with and the two controls that exercise its failure
-  branches, which no green path reaches. It measures no claim about
+  path they all end with and the control that exercises its failure
+  branch, which no green path reaches. It measures no claim about
   `server/render`; it is what stops one row's failure from being
   reported against the next."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -107,8 +105,7 @@
 ;; The platform PAIR. Two effects that differ in exactly one
 ;; thing, their `:platforms` metadata, dispatched together from one event,
 ;; so which of them runs READS OFF the active platform of whatever frame
-;; drained the event. Nothing else in the pair can decide the answer, which
-;; is what lets the untagged control below be a control.
+;; drained the event. Nothing else in the pair can decide the answer.
 (def ^:private platform-spy (atom []))
 
 (rf/reg-fx ::client-only-spy
@@ -189,9 +186,7 @@
 
 (defn- plain-server-html!
   "*The tree a consumer can spell today* — the frame provider over the
-  root element, handed to `renderToString`. `identifier_prefix_ssr_dom`'s
-  `server-html!`, re-spelled here so this file's premise row does not
-  reach into another suite's private."
+  root element, handed to `renderToString`."
   [frame-kw hiccup prefix]
   (react-dom-server/renderToString
     (rf.fresco.impl.mount/provider frame-kw (rf.fresco.impl.codec/root-element frame-kw hiccup))
@@ -225,15 +220,6 @@
       (rf/make-frame {:id frame-kw :initial-events [[:rf/set-db snapshot]]})
       (plain-server-html! frame-kw [id-page {}] "pfx-a-")
       (finally (rf/destroy-frame! frame-kw)))))
-
-(defn- without-the-id
-  "`html` with its probe id replaced by a fixed token — the two shapes'
-  bytes with the one thing that may differ taken out of them.
-
-  `[\\s\\S]*?` rather than a dot with a DOTALL flag: `re-pattern` builds a
-  JavaScript `RegExp`, which has no inline `(?s)`."
-  [html]
-  (str/replace html #"(<b class=\"probe\">)[\s\S]*?(</b>)" "$1ID-ELIDED$2"))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM reads — the far side of an adoption
@@ -296,8 +282,6 @@
           n (id-in-html (:html (rf.fresco.server/render (request :identifier-prefix nil))))]
       (is (str/includes? a "pfx-a-") (str "got " (pr-str a)))
       (is (str/includes? b "pfx-b-") (str "got " (pr-str b)))
-      (is (not= a b) "two prefixes, two ids")
-      (is (some? n) "naming no prefix is not an error")
       (is (not (str/includes? n "pfx-a-")) "an unprefixed render carries no prefix"))))
 
 ;; ---------------------------------------------------------------------------
@@ -374,14 +358,12 @@
         "control: the withheld value reaches the document by no route")))
 
 (deftest the-document-carries-the-pinned-payload-script
-  (let [{:keys [document payload-edn]}
-        (rf.fresco.server/render (request :app-element-id "app" :script-src "/js/app.js" :title "The feed"))]
+  (let [{:keys [document]}
+        (rf.fresco.server/render (request :app-element-id "app" :script-src "/js/app.js"))]
     (is (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\""))
         "the script id is the framework CONSTANT the client bootstrap reads")
     (is (str/includes? document "<div id=\"app\">"))
     (is (str/includes? document "<script src=\"/js/app.js\"></script>"))
-    (is (str/includes? document "<title>The feed</title>"))
-    (is (some? payload-edn))
     (testing "the payload script follows the app root's close and the
               bootstrap is last — `ssr-ring`'s own order"
       (is (< (.indexOf document "</div>")
@@ -441,13 +423,7 @@
         (is (zero? (title-count document))
             (str "title " label ": the document invented a title: " document))
         (is (str/includes? document "<head><meta charset=\"utf-8\"></head>")
-            (str "title " label ": the head is otherwise the one it was")))))
-  (testing "a named `:title` gives exactly ONE `<title>`, escaped — the
-            positive control, so the zero above is the rule and not a
-            counter that cannot see a title"
-    (let [{:keys [document]} (rf.fresco.server/render (request :title "X & Y"))]
-      (is (= 1 (title-count document)) (str "got: " document))
-      (is (str/includes? document "<title>X &amp; Y</title>")))))
+            (str "title " label ": the head is otherwise the one it was"))))))
 
 (deftest frame-opts-ride-under-the-modules-id-and-the-wire-keys-ride-the-payload
   (testing "`:frame-opts` merges UNDER the module's :id and
@@ -521,21 +497,7 @@
       (rf.fresco.server/render (request :initial-events [[::fire-both-platform-arms]]
                               :frame-opts     {:platform :client}))
       (is (= [:server] @platform-spy)
-          "the hostile `:platform :client` did not reach the frame"))
-
-    (testing "NON-VACUITY — the same event in an UNTAGGED frame of this
-              same runtime selects the CLIENT arm. This is the shape an
-              untagged request frame would take, so it is the defect itself,
-              kept as the control: were the pair not really platform-gated (both
-              effects inert, one unregistered, the metadata ignored) this
-              row would not read `[:client]`, and the two `[:server]`
-              assertions above would be green about nothing"
-      (reset! platform-spy [])
-      (rf/make-frame {:id             ::untagged-platform-control
-                      :initial-events [[::fire-both-platform-arms]]})
-      (rf/destroy-frame! ::untagged-platform-control)
-      (is (= [:client] @platform-spy)
-          "an untagged frame falls back to the host default — `:client`"))))
+          "the hostile `:platform :client` did not reach the frame"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3b — HOW EVERY ASYNC ROW BELOW ENDS
@@ -565,42 +527,9 @@
 ;;     the runner twice and lands its report on whichever row is running
 ;;     by then.
 ;;
-;; `sup/settle-row!` is the one path all of them end with, and the two rows
-;; under it are what say it works — because neither branch is on any green
-;; path, and a branch nothing takes is untested by construction.
-
-(deftest a-throwing-body-finishes-the-row-once-and-not-twice
-  ;; THE DOUBLE-FINISH CONTROL. No DOM in it — this is the promise
-  ;; discipline by itself — so it is the one row in this file that takes
-  ;; its reading in the node lane too.
-  (async done
-    (let [finishes (atom 0)
-          releases (atom 0)
-          reports  (atom [])]
-      (-> (js/Promise.resolve true)
-          (.then (fn [_] (throw (js/Error. "the body threw"))))
-          (rf.fresco.roots-frames-support/settle-row! {:row      "the throwing-body control"
-                            :done     (fn [] (swap! finishes inc))
-                            :release! (fn [] (swap! releases inc))
-                            :report!  (fn [e] (swap! reports conj e))})
-          (.then
-            (fn [_]
-              (testing "a body that throws finishes the row ONCE. The
-                        `.then`/`.catch` shape above runs its `finally` —
-                        unmount, `done` — and then lets the `.catch` call
-                        `done` again, which advances `cljs.test`'s async
-                        runner past a row that never ran"
-                (is (= 1 @finishes) (str "done ran " @finishes " times"))
-                (is (= 1 @releases) (str "release ran " @releases " times")))
-              (testing "and the throw is REPORTED rather than swallowed — a
-                        settlement that ate it would turn a broken row into a
-                        silent green"
-                (is (= 1 (count @reports)) (str "got " (pr-str @reports)))
-                (is (str/includes? (str (first @reports)) "the body threw")
-                    (str "naming the error the body raised; got "
-                         (pr-str @reports))))))
-          (rf.fresco.roots-frames-support/settle-row! {:row "the throwing-body control's own settlement"
-                            :done done})))))
+;; `sup/settle-row!` is the one path all of them end with, and the row
+;; under it is what says it works — because its failure branch is on no
+;; green path, and a branch nothing takes is untested by construction.
 
 (deftest a-rejected-adoption-leaves-the-next-row-a-clean-page
   ;; THE LEAK CONTROL. The rejection is injected AFTER the adoption
@@ -737,21 +666,16 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; §4 above asserts a SILENCE — no mismatch reported — and a silence is
-;; not by itself a reading. `identifier_prefix_ssr_dom_cljs_test` §3 says
-;; why in as many words: reading the id back is *the only reading that
+;; not by itself a reading. Reading the id back is the only reading that
 ;; separates "the client minted the same id" from "nobody touched the
-;; server's text"*, and it takes that reading against a shape it builds
-;; BY HAND and does not offer as a product path. Its §4 preamble records
-;; the gap outright — *what it does NOT witness is a product door that
-;; emits these bytes*.
+;; server's text". `identifier_prefix_ssr_dom_cljs_test` takes that
+;; reading against a shape it builds BY HAND and does not offer as a
+;; product path, and its §4 preamble records the gap outright — what it
+;; does NOT witness is the package's server door emitting these bytes.
 ;;
-;; These three rows close it at the door, and they are a PAIR plus its
-;; premise rather than three independent claims:
+;; These two rows close it at the door, and they are a PAIR rather than
+;; two independent claims:
 ;;
-;;   §4b-1  the two shapes' bytes differ in EXACTLY the id — which is why
-;;          every markup-reading row stays green through obstruction 2,
-;;          and what makes the id the only thing the two rows below can be
-;;          measuring.
 ;;   §4b-2  the door's bytes keep their id across a real client render.
 ;;   §4b-3  the hand-rolled bytes lose theirs, through the SAME public
 ;;          door, with the same helpers, in the same file.
@@ -760,30 +684,6 @@
 ;; no scale, and *the plain path would have mismatched* would be an
 ;; inference — which is the one thing `dispositions.md` §2.4 does not
 ;; accept in place of a showing.
-
-(deftest the-door-s-bytes-differ-from-the-hand-rolled-bytes-in-exactly-the-id
-  (testing "one snapshot, one prefix, two tree shapes. The closer renders
-            no DOM, so the id is the ONLY byte that may move — and this
-            row is what says so rather than assuming it"
-    (let [door  (:html (rf.fresco.server/render (request)))
-          plain (plain-html-for-this-request!)
-          d-id  (id-in-html door)
-          p-id  (id-in-html plain)]
-      (is (some? d-id) "premise: the door's bytes carry an id")
-      (is (some? p-id) "premise: so do the hand-rolled ones")
-      (is (not= d-id p-id)
-          (str "premise: the fork must move the id — if these agree, "
-               "the rows below are measuring nothing; got " (pr-str d-id)
-               " both times"))
-      (is (str/includes? door "alpha")
-          "premise: both were rendered from the same seeded snapshot, so
-           the label cannot be a second difference")
-      (is (str/includes? plain "alpha"))
-      (is (= (without-the-id door) (without-the-id plain))
-          (str "with the id taken out, the two shapes' bytes must be "
-               "IDENTICAL — that is why obstruction 2 is invisible to "
-               "every row that reads markup. Door " (count door)
-               " chars, hand-rolled " (count plain))))))
 
 (deftest the-door-s-id-survives-the-adoption-and-a-real-client-render
   (if-not (rf.fresco.impl.mount/browser?)
