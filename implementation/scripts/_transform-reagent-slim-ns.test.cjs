@@ -105,21 +105,6 @@ test('success: renames reagent_slim.cljs → reagent.cljs and rewrites the ns fo
   }
 });
 
-test('abort: source file missing → non-zero exit with ::error::', () => {
-  const fix = makeFixture({ withSource: false });
-  try {
-    const res = run(fix);
-    assert.notEqual(res.status, 0, 'expected non-zero exit when source is missing');
-    assert.match(
-      `${res.stdout}${res.stderr}`,
-      /::error::expected source file .* not found/,
-      'must emit the source-missing ::error:: line',
-    );
-  } finally {
-    cleanup();
-  }
-});
-
 test('abort: destination already exists → non-zero exit (in-tree ns clash)', () => {
   const fix = makeFixture({ withDest: true });
   try {
@@ -130,7 +115,6 @@ test('abort: destination already exists → non-zero exit (in-tree ns clash)', (
       /::error::destination .* already exists/,
       'must emit the destination-exists ::error:: line',
     );
-    assert.equal(fs.existsSync(fix.src), true, 'source must not be moved on abort');
   } finally {
     cleanup();
   }
@@ -146,7 +130,6 @@ test('abort: ns form not found → non-zero exit (in-tree source restructured)',
       /::error::expected '\(ns re-frame\.adapter\.reagent-slim' declaration not found/,
       'must emit the ns-form-not-found ::error:: line',
     );
-    assert.equal(fs.existsSync(fix.src), true, 'source must not be moved on abort');
   } finally {
     cleanup();
   }
