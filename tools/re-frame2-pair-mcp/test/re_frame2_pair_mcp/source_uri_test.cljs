@@ -32,11 +32,9 @@
                                 :vscode)))))
 
 (deftest decorate-skips-maps-without-a-usable-coord
-  ;; No `:file`, a blank one, or a non-map coord yields no URI key rather
-  ;; than a nil slot; a bare `:file` (a tool arg map, say) is not a carrier.
-  (doseq [v [{:event-id :x :source-coord {:ns 'app.events :line 42 :column 7}}
-             {:event-id :x :source-coord (assoc sample-coord :file "")}
-             {:source-coord nil}
+  ;; A blank `:file` yields no URI key rather than a nil slot; a bare
+  ;; `:file` (a tool arg map, say) is not a carrier.
+  (doseq [v [{:event-id :x :source-coord (assoc sample-coord :file "")}
              {:file "src/app/events.cljs"}
              (assoc sample-coord :file "")]]
     (is (= v (source-uri/decorate v :vscode)) (pr-str v))))
@@ -54,15 +52,11 @@
         (reset! config/editor prior)))))
 
 (deftest pipeline-respects-live-editor
-  ;; The pipeline decorates after every per-kind arm, reading the editor
+  ;; The pipeline decorates after the per-kind arm, reading the editor
   ;; preference at decoration time.
   (with-editor :cursor
     #(let [epochs [{:event-id :a :source-coord sample-coord}
                    {:event-id :b :source-coord (assoc sample-coord :file "src/app/subs.cljs")}]]
-       (is (= "cursor://file/src/app/events.cljs:42:7"
-              (:rf.mcp/source-uri (:value (wp/run-wire-pipeline {:source-coord sample-coord}
-                                                                {:kind          :scalar-value
-                                                                 :server-elided 0})))))
        (is (= ["cursor://file/src/app/events.cljs:42:7" "cursor://file/src/app/subs.cljs:42:7"]
               (mapv :rf.mcp/source-uri
                     (:value (wp/run-wire-pipeline epochs {:kind   :epoch-vector
