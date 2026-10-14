@@ -27,12 +27,9 @@
 
   ## THIS FILE FAILS RATHER THAN SKIPS IN A FLAG-OFF BUILD
 
-  [[the-perf-flag-is-actually-on]] is first and is not a courtesy: a
-  perf-emission suite whose every row is wrapped in `(when
-  rf.performance/enabled? …)` reads as a pass in a build where the flag is
-  off, which is a gate nobody has watched fire. If this file is ever
-  compiled into a runner without the goog-defines, it goes red and says
-  which flag is missing.
+  No row is wrapped in `(when rf.performance/enabled? …)`, so a runner
+  without the goog-defines reads an empty measure stream and every row
+  goes red.
 
   ## Why `renderToString`
 
@@ -52,7 +49,6 @@
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.core :as rf]
-            [re-frame.performance :as rf.performance :include-macros true]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
@@ -153,23 +149,6 @@
   "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/title-row")
 (def ^:private note-name
   "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/note-row")
-
-;; ---------------------------------------------------------------------------
-;; 0 — the runner is the runner this file claims to need
-;; ---------------------------------------------------------------------------
-
-(deftest the-perf-flag-is-actually-on
-  (testing "This suite asserts EMISSION, and emission is a compile-time
-            decision. A build without the goog-defines would make every
-            row below vacuous, so the flags are a row rather than a
-            precondition nobody checks."
-    (is (= {:enabled? true :retain-entries? true}
-           {:enabled? rf.performance/enabled? :retain-entries? rf.performance/retain-entries?})
-        (str "This ns needs a build with "
-             "(:closure-defines {re-frame.performance/enabled? true "
-             "re-frame.performance/retain-entries? true}); run it there. "
-             "Without retain-entries? each measure is cleared right after emit "
-             "and a synchronous getEntriesByType read finds nothing."))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — one measure per boundary render, named by the head
