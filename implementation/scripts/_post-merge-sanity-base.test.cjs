@@ -325,27 +325,6 @@ function withDispatchFixture(body) {
   }
 }
 
-test('ARM D2: the shipped dispatch step reds when the dispatch fails (rf2-amh0)', () => {
-  withDispatchFixture((h) => {
-    const r = h.run(dispatchBody(), {
-      files: 'expensive-tests.yml',
-      ref: 'main',
-      failFor: 'expensive-tests.yml',
-    });
-    assert.notEqual(
-      r.status,
-      0,
-      'a canary that cannot dispatch must FAIL. A green meaning "we tried" reads to ' +
-        `every reader as "it ran"\n${r.output}`,
-    );
-    assert.match(
-      r.output,
-      /::error::post-merge workflow sanity could not dispatch expensive-tests\.yml/,
-      'and must say so where a reader sees it without opening the log',
-    );
-  });
-});
-
 test('ARM D3: a successful dispatch forwards the branch ref verbatim (rf2-amh0)', () => {
   withDispatchFixture((h) => {
     const r = h.run(dispatchBody(), { files: 'expensive-tests.yml', ref: 'main' });
@@ -366,6 +345,11 @@ test('ARM D4: a failing dispatch still attempts the rest, then reds once (rf2-am
       failFor: 'expensive-tests.yml',
     });
     assert.notEqual(r.status, 0, `the failure must red the step\n${r.output}`);
+    assert.match(
+      r.output,
+      /::error::post-merge workflow sanity could not dispatch expensive-tests\.yml/,
+      'and must say so where a reader sees it without opening the log',
+    );
     assert.deepEqual(
       r.ghCalls,
       ['workflow run expensive-tests.yml --ref main', 'workflow run other-cron.yml --ref main'],
