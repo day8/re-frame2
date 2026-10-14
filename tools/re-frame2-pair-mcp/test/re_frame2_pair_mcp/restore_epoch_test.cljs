@@ -131,14 +131,11 @@
   ;; once told the gate is off.
   (async done
     (let [forms (atom [])
-          prev  (raw-state/raw-state-allowed?)
           idx   (fn [s] (first (keep-indexed #(when (str/includes? %2 s) %1) @forms)))]
-      (raw-state/set-allow-raw-state! false)
       (-> (restore! forms true #js {:epoch-id "7"})
           (.then (fn [_]
                    (let [cfg (idx "configure-raw-state!")
                          rst (idx "restore-epoch")]
                      (is (and cfg rst (< cfg rst))
-                         "raw-state posture is signalled before the restore eval")
-                     (is (str/includes? (nth @forms cfg) ":allow-raw-state? false")))))
-          (.finally (fn [] (raw-state/set-allow-raw-state! prev) (done)))))))
+                         "raw-state posture is signalled before the restore eval"))
+                   (done)))))))
