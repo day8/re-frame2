@@ -452,7 +452,7 @@ Each fixture defines an invariant the implementation upholds. The harness:
 
 For Mode B fixtures, comparison happens inline at each call; there is no top-level `:fixture/expect` to evaluate after drain.
 
-The harness reports per-fixture pass/fail; aggregate score is the count of passing fixtures over total fixtures.
+The harness reports per-fixture pass/fail; aggregate score is `passed / claimed-applicable` — passing fixtures over the fixtures whose capabilities the implementation claims ([§Capability tagging](#capability-tagging)).
 
 Each fixture is a single file of <200 lines including registrations and expectations. Adding a fixture is a small focused change.
 
