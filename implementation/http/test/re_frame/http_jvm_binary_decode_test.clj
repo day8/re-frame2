@@ -13,7 +13,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
