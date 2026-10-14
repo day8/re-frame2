@@ -341,6 +341,42 @@
                     :standard-coordinate {:standard true}
                     :app-coordinate      {:ns provenance}}}))))
 
+;; ---- the hot-reload cycle (dev builds) ------------------------------------
+;;
+;; Re-evaluating a namespace replaces each registration it makes again, but a
+;; registration it no longer makes — a handler moved to another namespace,
+;; renamed or deleted — keeps its source-store slot. A shadow-cljs development
+;; build runs every `^:dev/before-load` hook before it reloads code and every
+;; `^:dev/after-load` hook after, so the two hooks on `begin-reload-cycle!` and
+;; `sweep-reload-cycle!` (below `clear-all!`) bracket one reload, with no setup
+;; in the application. Between them `register!` notes, per source namespace,
+;; each `[kind id]` that namespace registers; the sweep then forgets, for every
+;; namespace that registered anything, each registration it did not make again.
+;;
+;; Only a reload is recorded. Registrations made at runtime, at the REPL or in
+;; a test never count, because no cycle is open then. A namespace that
+;; registered nothing in the cycle is untouched, and that includes one whose
+;; LAST registration moved out: its old slot stays, and the id it shares is
+;; ambiguous until `(rf/clear kind id)`. Nothing runs the hooks in a release
+;; build, and the recording sits behind `rf.interop/debug-enabled?`, so Closure
+;; removes all of it.
+
+(defonce ^:private reload-cycle
+  ;; nil outside a hot-reload cycle. During one: source namespace → the set of
+  ;; `[kind id]` that namespace registered since the cycle began.
+  (atom nil))
+
+(defn- note-reload-registration!
+  "Record that `stored` — the descriptor `register!` just wrote to the source
+  store — was made during the open hot-reload cycle, if one is open. A
+  registration with no source namespace cannot be reloaded, so it is not
+  recorded."
+  [kind id stored]
+  (when (some? @reload-cycle)
+    (when-let [provenance (get stored rf.source-store/provenance-ns-key)]
+      (swap! reload-cycle update provenance (fnil conj #{}) [kind id])))
+  nil)
+
 ;; ---- registration ---------------------------------------------------------
 
 (defonce ^:private replacement-hooks
@@ -742,7 +778,9 @@
     ;; made here (that is image assembly, `re-frame.image-assembly`). `metadata`
     ;; written into the resolver map intentionally stays untouched; the store
     ;; keeps its own provenance-stamped copy.
-    (rf.source-store/record-descriptor! kind id metadata)
+    (let [stored (rf.source-store/record-descriptor! kind id metadata)]
+      (when rf.interop/debug-enabled?
+        (note-reload-registration! kind id stored)))
     ;; RECORDING THE CHANGE COMPLETES BEFORE ANYTHING REACTS TO IT.
     ;;
     ;; These two hook batches are not peers. `registration-hooks` finish
@@ -961,6 +999,69 @@
   (when rf.interop/debug-enabled?
     (when-let [clear! (rf.late-bind/get-fn-cached :trace.tooling/clear-dedup-table!)]
       (clear!)))
+  nil)
+
+;; ---- the hot-reload sweep (dev builds) ------------------------------------
+;;
+;; The two hooks that bracket a hot-reload cycle; see the section comment above
+;; `reload-cycle`. Both are public only so shadow-cljs can find them, and so a
+;; test can drive one cycle by calling them around the registrations a reload
+;; would re-evaluate.
+
+(defn ^:no-doc ^:dev/before-load begin-reload-cycle!
+  "Open a hot-reload cycle: from now until [[sweep-reload-cycle!]],
+  `register!` records which namespace makes each registration. Discards any
+  cycle a failed reload left open. Returns nil."
+  []
+  (when rf.interop/debug-enabled?
+    (reset! reload-cycle {}))
+  nil)
+
+(defn- forget-stale-registration!
+  "Forget the registration namespace `provenance` made of `[kind id]`. When no
+  other namespace registers the id, that is [[unregister!]]. Otherwise the
+  other registrations stay, and the registrar's latest-writer slot, if it held
+  the forgotten one, moves to the one survivor, or empties when several remain
+  (the id is ambiguous until one is cleared)."
+  [kind id provenance]
+  (rf.source-store/forget-descriptor! kind id provenance)
+  (let [survivors (rf.source-store/descriptors-for kind id)
+        reg       (active-registrar)]
+    (cond
+      (empty? survivors)
+      (unregister! kind id)
+
+      (= provenance (rf.source-store/provenance-ns (-> @reg (get kind) (get id))))
+      (swap! reg update kind
+             (fn [id->metadata]
+               (if (= 1 (count survivors))
+                 (assoc id->metadata id (val (first survivors)))
+                 (dissoc id->metadata id)))))))
+
+(defn ^:no-doc ^:dev/after-load sweep-reload-cycle!
+  "Close the hot-reload cycle [[begin-reload-cycle!]] opened. Every namespace
+  that registered anything during it loses each registration it did not make
+  again — a handler moved to another namespace, renamed or deleted — so a
+  moved id resolves to its new home and a deleted one is gone. A namespace
+  that registered nothing keeps everything. With no cycle open (the first
+  boot) it does nothing. Marks the live-frame projection dirty when anything
+  was forgotten, so frames with explicit `:images` re-assemble; a frame made
+  without `:images` reads the store at its next cascade anyway. Returns nil."
+  []
+  (when rf.interop/debug-enabled?
+    (when-let [made @reload-cycle]
+      (reset! reload-cycle nil)
+      (let [stale (vec (for [[kind id->ns] @(rf.source-store/active-source-store)
+                             [id ns->desc] id->ns
+                             provenance    (keys ns->desc)
+                             :let  [ids (get made provenance)]
+                             :when (and ids (not (contains? ids [kind id])))]
+                         [kind id provenance]))]
+        (doseq [[kind id provenance] stale]
+          (forget-stale-registration! kind id provenance))
+        (when (seq stale)
+          (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
+            (mark-dirty!))))))
   nil)
 
 ;; ---- lookup ---------------------------------------------------------------
