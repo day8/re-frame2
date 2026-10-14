@@ -772,8 +772,8 @@
 (defn phase-b-shape
   "The phase-B window shape as data: `{:rounds :sampling :frames}`.
 
-  ONE authority, read by the design line and by
-  `read-profile-grid-cljs-test`'s live-shape row. A witness that
+  ONE authority, read by [[phase-b-slot-plan]] and by
+  `read-profile-slots-cljs-test`'s published nine-arm row. A witness that
   restated the three numbers would go green on the shape it remembered
   rather than the shape the window runs, which is the same vacuity
   `read-profile-baseline-cljs-test` avoids."
