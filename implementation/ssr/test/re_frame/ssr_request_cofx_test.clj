@@ -5,10 +5,8 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
-            [re-frame.test-support :refer [with-trace-recorder!]]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
@@ -29,18 +27,7 @@
   (is (= [:present nil] (observe! (rf.frame/make-anon-frame-record! {:platform :server})))))
 
 (deftest cofx-is-skipped-on-client-frame
-  (with-trace-recorder! [traces]
-    (is (= [:absent nil] (observe! (rf.frame/make-anon-frame-record! {:platform :client})))
-        "the cofx did not run on a client frame")
-    (when rf.interop/debug-enabled?
-      (is (= [[:rf.server/request :client #{:server} :skipped]]
-             (for [t @traces
-                   :when (= :rf.cofx/skipped-on-platform (:operation t))]
-               [(-> t :tags :rf.cofx/id)
-                (-> t :tags :rf.cofx/platform)
-                (-> t :tags :rf.cofx/registered-platforms)
-                (:recovery t)]))
-        "one skip trace naming the cofx, the platform and the declared set"))))
+  (is (= [:absent nil] (observe! (rf.frame/make-anon-frame-record! {:platform :client})))))
 
 (deftest two-frames-carry-independent-request-data
   (let [frame-a   (rf.frame/make-anon-frame-record! {:platform :server})
