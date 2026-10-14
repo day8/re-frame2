@@ -33,21 +33,19 @@
   (try (thunk) nil (catch #?(:clj Throwable :cljs :default) e e)))
 
 (deftest replace-on-derived-container-throws
-  (is (= {:rf.error/id :rf.error/derived-container-replaced
-          :where       'rf/replace-container!
-          :recovery    :no-recovery}
-         (select-keys (ex-data (thrown-by #(rf.substrate.adapter/replace-container!
-                                              (derived-container) 42)))
-                      [:rf.error/id :where :recovery]))))
-
-(deftest replace-on-derived-container-emits-error-trace
   (let [seen (atom [])
         k    ::derived-replaced-capture]
     (rf.trace.tooling/register-listener! k (fn [ev]
                                              (when (= :error (:op-type ev))
                                                (swap! seen conj ev))))
-    (try (thrown-by #(rf.substrate.adapter/replace-container! (derived-container) 99))
-         (finally (rf.trace.tooling/unregister-listener! k)))
+    (try
+      (is (= {:rf.error/id :rf.error/derived-container-replaced
+              :where       'rf/replace-container!
+              :recovery    :no-recovery}
+             (select-keys (ex-data (thrown-by #(rf.substrate.adapter/replace-container!
+                                                  (derived-container) 42)))
+                          [:rf.error/id :where :recovery])))
+      (finally (rf.trace.tooling/unregister-listener! k)))
     (when rf.interop/debug-enabled?
       (is (= [{:operation :rf.error/derived-container-replaced
                :category  :rf.error/derived-container-replaced
