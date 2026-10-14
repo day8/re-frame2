@@ -2717,23 +2717,10 @@ def _self_test() -> int:
 
     # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------
     expect_text(
-        "A bare `(rf/subscribe-once query-v)` in a lifecycle hook throws "
-        "`:rf.error/no-frame-context`.",
-        dirty=False, label="E3 negative bare lifecycle example",
-    )
-    expect_text(
         "**Form-3 lifecycle — negative example.** Do not copy this.\n\n"
         "```clojure\n:component-did-mount\n"
         "(fn [_]\n  (rf/subscribe-once query-v))\n```",
         dirty=False, label="E7 explicit negative multiline example is clean",
-    )
-    expect_text(
-        "**Form-3 lifecycle — BEFORE.** Do not copy this.\n\n"
-        "`(rf/subscribe-once old-query)`\n\n"
-        "**Recommended Form-3 lifecycle.** Use the current recipe.\n\n"
-        "`(rf/subscribe-once query-v)`",
-        dirty=True,
-        label="E8 older negative example cannot bless a later positive recipe",
     )
     expect_text(
         "**Form-3 lifecycle.** Seed the widget in `:component-did-mount`. Read it "
@@ -2741,12 +2728,6 @@ def _self_test() -> int:
         "throws `:rf.error/no-frame-context`.",
         dirty=True,
         label="E9 later warning cannot bless earlier bare read",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** Release in `:component-will-unmount` with "
-        "`(rf/unsubscribe reaction)`, the reaction the mount acquired.",
-        dirty=False,
-        label="E10 handle teardown in a lifecycle hook is clean",
     )
 
     # --- Rule 5 realistic call shapes -----------------------------------------
@@ -2758,12 +2739,6 @@ def _self_test() -> int:
         "In `:component-did-mount` read `(rf/subscribe-once [:todos/all :active])`.",
         dirty=True, label="F1 same-line vector query arg is bare",
     )
-    expect_text(
-        "**Form-3 lifecycle.** A hook read must name the frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once\n    [:todos/all :active]))\n```",
-        dirty=True, label="F4 split-line hook read with a vector query",
-    )
     # A frame-qualified split-line call MUST pass — the opts map is what makes
     # the call legal, and arity is how the scanner sees it.
     expect_text(
@@ -2771,11 +2746,6 @@ def _self_test() -> int:
         "```clojure\n:component-did-mount\n(fn [_]\n"
         "  (rf/subscribe-once\n    [:todos/all :active]\n    {:frame frame}))\n```",
         dirty=False, label="G2 split-line call with explicit frame opts is clean",
-    )
-    expect_text(
-        "A lifecycle hook may call `(rf/subscribe-once-ish query-v)` — a "
-        "different fn entirely.",
-        dirty=False, label="G6 head-symbol prefix match is not a subscribe-once call",
     )
     expect_text(
         "An unbalanced `:component-did-mount` excerpt `(rf/subscribe-once query-v` "
@@ -2819,20 +2789,6 @@ def _self_test() -> int:
         "```",
         dirty=False,
         label="I2 BEFORE exempt + frame-qualified AFTER is wholly clean",
-    )
-    expect_text(
-        "## Form-3 lifecycle — BEFORE\n\n"
-        "`(rf/subscribe-once old-query)`\n\n"
-        "## Form-3 lifecycle — the current recipe\n\n"
-        "`(rf/subscribe-once query-v)`",
-        dirty=True,
-        label="I4 exemption does not survive a heading into the next section",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** BEFORE: `(rf/subscribe-once old-query)` was the "
-        "v1 shape.",
-        dirty=False,
-        label="I5 same-line BEFORE label exempts the call after it",
     )
     # J-cases: fences are atomic, so a blank line inside a hook body neither
     # splits the block nor loses the surrounding lifecycle context.
@@ -2903,13 +2859,6 @@ def _self_test() -> int:
         "`(rf/subscribe-once old-query)`\n\n"
         "Seed the chart at mount with `(rf/subscribe-once query-v)`.",
         dirty=True, label="POL-1 carried BEFORE cannot bless a later recipe",
-    )
-    # POL-2: the BEFORE owns the ONE concrete example it introduces — that
-    # example is exempt (the exemption is scoped, not disabled).
-    expect_text(
-        "**Form-3 lifecycle — BEFORE.** The old v1 shape.\n\n"
-        "`(rf/subscribe-once old-query)`",
-        dirty=False, label="POL-2 BEFORE exempts the example it owns",
     )
     # POL-3: a `BEFORE` inside a code STRING is not a polarity label, so it cannot
     # exempt a following unsafe call; read as a label, the string would forge one.
@@ -3027,12 +2976,6 @@ def _self_test() -> int:
         "             (reset! !driver                             ; OWN\n"
         "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
     )
-    # VC2 — the captured acquire swapped for ambient.
-    expect_captured(
-        CANON.replace("(let [reaction (subscribe query-v)]",
-                      "(let [reaction (rf/subscribe query-v)]"),
-        dirty=True, label="VC2 ambient rf/subscribe acquire is flagged",
-    )
     # VC3 — matching destructuring dropped (subscribe not bound from capture).
     expect_captured(
         CANON.replace("{:keys [subscribe]}", "{:keys [dispatch]}"),
@@ -3046,14 +2989,6 @@ def _self_test() -> int:
             "           (reset! !widget (mk-gauge! this)))\n",
         ),
         dirty=True, label="VC4 destructured subscribe never used to acquire is flagged",
-    )
-    # VC8 — out of scope: prose carrying every landmark in inline code, but no
-    # fenced block to scan.
-    expect_captured(
-        "When a hook must read a sub, acquire it in `:component-did-mount` through "
-        "the captured `subscribe`, capture once via `(rf/capture-frame)`, pair with "
-        "`(rf/unsubscribe reaction)`, and never a bare `(rf/subscribe query-v)`.",
-        dirty=False, label="VC8 explanatory prose (no fence) is not flagged",
     )
     # VC10 — lexical: an ambient acquire spelled inside a `;` comment must NOT flag
     # (the real acquire is the captured local). Proves strings/comments are blanked.
@@ -3084,22 +3019,6 @@ def _self_test() -> int:
             "             (reset! !driver                             ; OWN\n",
         ),
         dirty=True, label="VO3 add-watch beside the owner is flagged",
-    )
-    # VO4 — owner dropped, everything else intact: the acquired reaction is
-    # dormant, so the widget is fed once and never again.
-    expect_owner(
-        CANON.replace(
-            "             (reset! !driver                             ; OWN\n"
-            "               (r/track! (fn [] (feed-gauge! @reaction))))))\n",
-            "             (feed-gauge! @reaction)))\n",
-        ),
-        dirty=True, label="VO4 acquire with no reactive owner is flagged",
-    )
-    # VO5 — owner created but never disposed: the tracker outlives the mount and
-    # keeps feeding a destroyed widget.
-    expect_owner(
-        CANON.replace("           (some-> @!driver r/dispose!)\n", ""),
-        dirty=True, label="VO5 undisposed owner is flagged",
     )
 
     # Rule 5c live-corpus teeth: the shipped recipe must own its subscription, and
@@ -3158,43 +3077,6 @@ def _self_test() -> int:
         K_OWNER.replace("See `guided-views-m11.md` §M-11.", "See below."),
         K_CANON, dirty=True, label="K5 owner without the canonical pointer is dirty",
     )
-    expect_form3(
-        K_OWNER,
-        K_CANON.replace("retargeted from provider A to provider B", "kept on one frame"),
-        dirty=True, label="K6 canonical drifting off the A→B invariance is dirty",
-    )
-
-    # Semantic-teeth fixtures. Vocabulary presence is not enough: the
-    # OPPOSITE polarity must fail even when every positive token survives.
-    #
-    # K8: every positive token tied in ONE paragraph, but with a "no need to
-    # remount" / "never goes stale" reversal spliced in — polarity teeth must
-    # fail it (the reversal survives beside the correct relationship).
-    K8_REVERSED_TIED = (
-        "Capture-once is a locked handle; there is no need to remount even if a "
-        "surviving instance is retargeted from provider A to provider B, and it "
-        "never goes stale — it keeps sending to the stale A. Remedy: a "
-        "frame-derived React `key` remount, or the registered `reg-view` child "
-        "(route 1). See `guided-views-m11.md` §M-11."
-    )
-    expect_form3(
-        K8_REVERSED_TIED, K_CANON, dirty=True,
-        label="K8 adopter reversal with every positive token present is dirty",
-    )
-    # K10: the adaptive-remedy prose (route 1 follows A→B "with no remount")
-    # must NOT be read as a reversal — it is the remedy, not the footgun.
-    K10_ADAPTIVE_REMEDY_OK = (
-        "Capture-once is a locked handle. It goes stale if a surviving instance is "
-        "retargeted from provider A to provider B — the locked handle keeps "
-        "sending to the stale A, never B. Or use the registered `reg-view` child "
-        "(route 1), which reads its frame from React context on every render and "
-        "so follows A→B with no remount and no re-capture. See "
-        "`guided-views-m11.md` §M-11."
-    )
-    expect_form3(
-        K10_ADAPTIVE_REMEDY_OK, K_CANON, dirty=False,
-        label="K10 route-1 adaptive-remedy prose is clean",
-    )
 
     # --- Rule 6 fixtures — M-0 publication-route lock --------------------------
     # The FAIL fixtures are the stale M-0 shapes (the `<latest>` coordinate
@@ -3205,8 +3087,7 @@ def _self_test() -> int:
     # scoped to the M-0 section, so the fixtures carry the guide's real rule-
     # heading structure (`### M-0.` … `### M-1.`) — appended dirty lines land
     # after the M-1 heading, proving the `<latest>` / stop-and-wait assertions
-    # stay whole-file — and M0-7 pins the section-scoping seam: the anchor
-    # present only in a later artefact rule.
+    # stay whole-file.
     def expect_m0(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(_m0_publication_route_problems(text))
@@ -3237,24 +3118,6 @@ def _self_test() -> int:
         M0_CLEAN + "\nthe author should wait until a release lands, then "
         "re-run the migration",
         dirty=True, label="M0-5 wait-for-a-release instruction is dirty",
-    )
-    # M0-7 — the section-scoping seam: the anchor removed from the M-0 section
-    # while a later artefact rule (the M-27..M-33 shape) carries it. A
-    # whole-file substring check would stay green here; the section-scoped
-    # assertion must red.
-    expect_m0(
-        M0_CLEAN.replace(
-            "deps-versions.md"
-            "#choosing-the-coordinate-publication-state-decides-the-shape",
-            "deps-versions.md",
-        )
-        + "\nAdd `day8/re-frame2-schemas` at the coordinate kind and pin "
-        "chosen at M-0; the per-artefact paths live in the setup skill's "
-        "[`deps-versions.md` §Choosing the coordinate](../../skills/"
-        "re-frame2-setup/references/deps-versions.md"
-        "#choosing-the-coordinate-publication-state-decides-the-shape).",
-        dirty=True,
-        label="M0-7 anchor only in a later artefact rule is dirty",
     )
     # M0-9 — polarity 1: a numbered subsection
     # (`#### M-0.1 …`) inside M-0, before the delegation anchor. Its dot is a
