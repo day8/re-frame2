@@ -262,39 +262,26 @@
               (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                       [:rf.runtime/ssr :hydration :server-hash])])))))
 
-(deftest ssr-example-client-hydration-matching-hash-is-silent
-  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES the
-            payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
+(deftest ssr-example-client-hydration-verifies-the-render-hash
+  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES
+            the payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch,
+            and a DIVERGENT one emits it (the verify step the example's `run`
+            wires via :render-tree-fn)"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-match frame"
-                                                          :platform :client
-                                                          :ssr {:detect-mismatch? true}})
-          client-tree  [:div.page [:h1 "Recent articles"]]
-          payload      {:rf/version 1 :rf/render-hash (rf.ssr/render-tree-hash client-tree)
-                        :rf/app-db {:articles []} :rf/runtime-db {}}
-          traces       (capture-traces!
-                         #(rf.ssr/hydrate! {:frame client-frame :payload payload
-                                            :render-tree-fn (fn [] client-tree)}))]
-      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (pr-str (mapv :operation traces))))))
-
-(deftest ssr-example-client-hydration-divergent-hash-fires-mismatch
-  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash DIVERGES
-            from the payload's emits :rf.ssr/hydration-mismatch (the verify step
-            the example's `run` wires via :render-tree-fn)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-divergent frame"
-                                                          :platform :client
-                                                          :ssr {:detect-mismatch? true}})
-          payload      {:rf/version 1 :rf/render-hash "server00"
-                        :rf/app-db {:articles []} :rf/runtime-db {}}
-          traces       (capture-traces!
-                         #(rf.ssr/hydrate! {:frame client-frame :payload payload
-                                            :render-tree-fn (fn [] [:div.page [:h1 "Recent articles"]])}))]
-      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (pr-str (mapv :operation traces))))))
+    (let [client-tree [:div.page [:h1 "Recent articles"]]
+          mismatch?   (fn [render-hash]
+                        (let [frame (rf.frame/make-anon-frame-record! {:doc      "ssr-example verify frame"
+                                                                       :platform :client
+                                                                       :ssr      {:detect-mismatch? true}})]
+                          (boolean
+                            (some #(= :rf.ssr/hydration-mismatch (:operation %))
+                                  (capture-traces!
+                                    #(rf.ssr/hydrate! {:frame          frame
+                                                       :payload        {:rf/version 1 :rf/render-hash render-hash
+                                                                        :rf/app-db {:articles []} :rf/runtime-db {}}
+                                                       :render-tree-fn (fn [] client-tree)}))))))]
+      (is (= [false true] [(mismatch? (rf.ssr/render-tree-hash client-tree)) (mismatch? "server00")])))))
 
 (deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
   (testing "examples/capabilities/ssr/ssr — a present-but-non-map :rf/app-db slice
