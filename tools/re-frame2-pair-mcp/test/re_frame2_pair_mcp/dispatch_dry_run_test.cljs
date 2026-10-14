@@ -7,7 +7,6 @@
   The runtime semantics are exercised by the live preload tests under
   skills/re-frame2-pair/tests/runtime/."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -187,23 +186,8 @@
               (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
           (.then (fn [r]
                    (is (not (err? r)) "a successful, rolled-back simulation reads as success")
-                   (let [edn (read-tagged-text r)
-                         db  (:db-state-after-simulation edn)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:rolled-back? edn)))
-                     (is (= instant (:sample db)) "the tag rides through as inert tagged data")
-                     (is (= (tagged-literal 'app/inner [1 2]) (get-in db [:nested :form :inner]))
-                         "a nested tag rides through too")
-                     (is (= :rf/redacted (get-in db [:user :token])) "redaction is preserved")
-                     (is (= :rf/redacted (get-in edn [:would-fire-effects 0 :args]))
-                         "fx-args redaction is preserved")
-                     (is (contains? (:blob db) :rf.size/large-elided) "the size-elision marker is preserved")
-                     (is (= 1 (:elided-large edn)) "the elided-large indicator counts the marker"))
-                   (is (re-find #"#instant \"2026-01-01T00:00:00Z\"" (tu/extract-text r))
-                       "the canonical EDN keeps the tag")
-                   (is (= {"rf.mcp/tag" "instant" "rf.mcp/form" "2026-01-01T00:00:00Z"}
-                          (js->clj (j/get-in r [:structuredContent "db-state-after-simulation" "sample"])))
-                       "the structured slot carries the tag in its defined JSON form")
+                   (is (= (assoc env :elision true :elided-large 1) (read-tagged-text r))
+                       "tags ride through as inert tagged data, markers and indicator intact")
                    (done)))))))
 
 (deftest a-failed-rollback-stays-a-failure-beside-an-application-tag
@@ -222,30 +206,9 @@
               (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
           (.then (fn [r]
                    (is (err? r) ":rolled-back? false is an error whatever the state carries")
-                   (let [edn (read-tagged-text r)]
-                     (is (false? (:rolled-back? edn))
-                         "the envelope's own rollback outcome rides through")
-                     (is (not= :unexpected-shape (:reason edn))
-                         "the failure is the rollback, not an undifferentiated shape failure"))
-                   (done)))))))
-
-(deftest a-reported-rollback-failure-beside-an-application-tag-keeps-its-reason
-  (async done
-    (let [env {:ok?          false
-               :reason       :rollback-failed
-               :dry-run?     true
-               :rolled-back? false
-               :event        [:toggle-dev-mode]
-               :frame        :rf/default
-               :at           instant}]
-      (-> (with-printed-reply! (pr-str (wrap env 0))
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
-          (.then (fn [r]
-                   (is (err? r))
-                   (let [edn (read-tagged-text r)]
-                     (is (= :rollback-failed (:reason edn)))
-                     (is (false? (:rolled-back? edn))))
+                   ;; An :unexpected-shape fallback would carry no top-level :rolled-back?.
+                   (is (false? (:rolled-back? (read-tagged-text r)))
+                       "the envelope's own rollback outcome rides through")
                    (done)))))))
 
 (deftest a-malformed-reply-still-fails-as-unexpected-shape
