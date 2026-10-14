@@ -34,9 +34,7 @@
   panel's selection rule gives it precedence over trace order. The
   Static Sim engine does not read it; Sim reads the Static side's own
   `:rf.xray.static.machines/selected-id`."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.defaults :as defaults]
-            [day8.re-frame2-xray.theme.tokens
+  (:require [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]))
 
 (defn dispatch-jump-via
@@ -45,21 +43,17 @@
   pill render inside the `browse-list` / `definition-detail` reg-views
   and thread that reg-view's injected `dispatch` in here, so the three
   events land on the SURROUNDING instance frame — not a `:rf/xray`
-  literal. `dispatch-fn` defaults to a `default-frame-id`-bound
-  dispatcher for callers without a captured one.
+  literal.
 
   Safe to call with a nil `machine-id` — the mode + tab flips still
   fire (so the user lands on Dynamic Machines) but the selection
   dispatch is suppressed (no value to write)."
-  ([machine-id]
-   (dispatch-jump-via machine-id
-                      #(rf/dispatch % {:frame defaults/default-frame-id})))
-  ([machine-id dispatch-fn]
-   (dispatch-fn [:rf.xray/set-mode :dynamic])
-   (dispatch-fn [:rf.xray/select-tab :machines])
-   (when (some? machine-id)
-     (dispatch-fn [:rf.xray/select-machine-id machine-id]))
-   nil))
+  [machine-id dispatch-fn]
+  (dispatch-fn [:rf.xray/set-mode :dynamic])
+  (dispatch-fn [:rf.xray/select-tab :machines])
+  (when (some? machine-id)
+    (dispatch-fn [:rf.xray/select-machine-id machine-id]))
+  nil)
 
 (defn pill
   "Render the right-pane Instances pill. Sits inside the 4-mode sub-
