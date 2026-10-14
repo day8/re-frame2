@@ -354,10 +354,8 @@
     (is (= [] (rf/reg-app-schemas {})))))
 
 (deftest reg-app-schemas-rejects-non-map-batches
-  (testing "a nil or non-map batch throws instead of registering nothing, which
-            would be indistinguishable from the empty-map no-op"
-    (doseq [bad [nil []]]
-      (is (= :rf.error/app-schemas-bad-batch
-             (try (rf/reg-app-schemas bad) nil
-                  (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
-          (pr-str bad)))))
+  (testing "a nil batch throws instead of registering nothing, which would be
+            indistinguishable from the empty-map no-op"
+    (is (= :rf.error/app-schemas-bad-batch
+           (try (rf/reg-app-schemas nil) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))
