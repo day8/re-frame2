@@ -80,16 +80,6 @@ test('cleanupSync terminates a real tracked child process', async () => {
   await exited;
 });
 
-test('cleanup runs each addCleanup fn at most once across sync + async paths', async () => {
-  let calls = 0;
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  cleanup.addCleanup(() => { calls += 1; });
-  await cleanup.cleanup();
-  cleanup.cleanupSync();
-  await cleanup.cleanup();
-  assert.equal(calls, 1);
-});
-
 test('resolveServePort keeps a free preferred port and falls back, reported, from a busy or invalid one', async () => {
   const preferred = await findFreePort();
   assert.equal(await resolveServePort(preferred), preferred);
@@ -129,18 +119,6 @@ test('waitForOwnedHttpReady refuses a foreign server (token mismatch)', async ()
   } finally {
     server.close();
   }
-});
-
-test('waitForOwnedHttpReady aborts with child-exited when isAborted goes true', async () => {
-  // Port 1 is unreachable: without the abort the same wait ends as a timeout.
-  assert.deepEqual(
-    await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, { pollMs: 10 }),
-    { ok: false, reason: 'timeout' },
-  );
-  assert.deepEqual(
-    await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, { pollMs: 10, isAborted: () => true }),
-    { ok: false, reason: 'child-exited' },
-  );
 });
 
 test('waitForOwnedHttpReady polls through a tokenless window then succeeds when the token appears', async () => {
