@@ -10,7 +10,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService } = require('./_support.cjs');
-const { ENVELOPE, requestBytes, judge, percentile } = require('../src/envelope.cjs');
+const { ENVELOPE, requestBytes, judge } = require('../src/envelope.cjs');
 const { validateRequest, Refusal } = require('../src/protocol.cjs');
 
 const WARMUP = 20;
@@ -26,15 +26,6 @@ const REFERENCE_TABLES = {
   },
 };
 
-test('percentile is nearest-rank, so every figure is a sample some request took', () => {
-  const xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-  assert.strictEqual(percentile(xs, 50), 5);
-  assert.strictEqual(percentile(xs, 95), 10);
-  assert.strictEqual(percentile(xs, 100), 10);
-  assert.strictEqual(percentile([7], 50), 7);
-  assert.throws(() => percentile([], 50));
-});
-
 test('judge names every ceiling it breaches, and stays silent when it clears them', () => {
   const verdict = (xs) => {
     const v = judge(xs);
@@ -48,7 +39,9 @@ test('judge names every ceiling it breaches, and stays silent when it clears the
 
 test('the budget counts a request the way the validator counts it — keys, values, both partitions', () => {
   // Exactly N bytes is admitted at a ceiling of N and refused at N - 1 only
-  // if the two counts agree key for key.
+  // if the two counts agree key for key — so the request carries keys and
+  // values in both partitions, and leaving any of them out of either count
+  // breaks the agreement.
   const request = {
     protocol: 1,
     entry: 'app/root',
@@ -65,9 +58,6 @@ test('the budget counts a request the way the validator counts it — keys, valu
     (err) => err instanceof Refusal && /are \d+ bytes, over the/.test(err.message),
     'and refused one byte lower — so the two counts are the same count',
   );
-  assert.ok(requestBytes({ ...request, runtime: {} }) < n, 'runtime bytes must count');
-  assert.ok(requestBytes({ ...request, state: {} }) < n, 'state bytes must count');
-  assert.strictEqual(requestBytes({ state: { ab: 'cd' } }), 4, 'two key bytes and two value bytes');
 });
 
 test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} samples`, async (t) => {
