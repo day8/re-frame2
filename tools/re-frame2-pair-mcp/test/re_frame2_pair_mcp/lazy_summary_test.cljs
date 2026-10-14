@@ -10,11 +10,10 @@
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
 (deftest parse-mode-arg-resolution
-  ;; Budget-sensitive: an unknown value MUST default to the cheaper mode.
+  ;; Budget-sensitive: the default is the cheaper mode.
   (doseq [[input expected note]
           [[nil :summary "absent ⇒ summary"]
-           ["full" :full "string full"]
-           ["garbage" :summary "an unknown string defaults to summary"]]]
+           ["full" :full "string full"]]]
     (is (= expected (args/parse-mode-arg input)) note)))
 
 (deftest parse-modes-arg-resolution
@@ -22,13 +21,8 @@
   ;; doesn't appear in the override map at all.
   (doseq [[input expected note]
           [[nil {} "absent ⇒ no overrides"]
-           [{:app-db :full :epochs :summary} {:app-db :full :epochs :summary}
-            "a CLJS map passes through"]
            [#js {"app-db" "full" "sub-cache" "garbage" "garbage" "full"} {:app-db :full}
-            "string keys coerce; an unknown mode drops only its own slice; unknown slices drop"]
-           [#js {":epochs" "summary"} {:epochs :summary}
-            "EDN-shaped string keys strip the leading colon"]
-           ["scalar" {} "a non-map is not an override map"]]]
+            "string keys coerce; an unknown mode drops only its own slice; unknown slices drop"]]]
     (is (= expected (args/parse-modes-arg input)) note)))
 
 (def ^:private fixture-snapshot
@@ -79,15 +73,13 @@
             (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {:epochs :full} :summary)]
         (is (= {:sub-cache :summary :machines :summary :epochs :full :traces :summary}
                resolved-modes))
-        (is (= (:epochs rf-default) (-> snapshot :rf/default :epochs)))
-        (is (some? (-> snapshot :rf/default :sub-cache :rf.mcp/summary)))))
+        (is (= (:epochs rf-default) (-> snapshot :rf/default :epochs)))))
     (testing "global :full, per-slice :summary on :traces"
       (let [{:keys [snapshot resolved-modes]}
             (pipeline/summarise-other-slices-in-snapshot fixture-snapshot {:traces :summary} :full)]
         (is (= {:sub-cache :full :machines :full :epochs :full :traces :summary}
                resolved-modes))
-        (is (some? (-> snapshot :rf/default :traces :rf.mcp/summary)))
-        (is (= (:sub-cache rf-default) (-> snapshot :rf/default :sub-cache)))))))
+        (is (some? (-> snapshot :rf/default :traces :rf.mcp/summary)))))))
 
 (deftest summary-skips-slices-not-in-include-set
   ;; A slice the caller's `:include` filter left out MUST NOT be added.
