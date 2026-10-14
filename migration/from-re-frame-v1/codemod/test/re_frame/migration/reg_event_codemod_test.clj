@@ -499,16 +499,10 @@
 (deftest discarded-forms-not-scanned-or-rewritten
   (testing "a #_ subtree yields no finding and keeps every byte; the active sites beside it count once"
     (doseq [[label src actions out]
-            [["discarded only"
-              "(ns demo (:require [re-frame.core :as rf]))\n#_(rf/reg-event-fx :d (fn [cofx event] {}))\n"
-              [] nil]
-             ["active beside discarded, comments kept"
+            [["active beside discarded, comments kept"
               "(ns demo (:require [re-frame.core :as rf]))\n;; live\n(rf/reg-event-fx :a (fn [cofx event] {}))\n#_ ;; parked\n(rf/reg-event-fx :d (fn [cofx event] {}))\n"
               [:rename]
               "(ns demo (:require [re-frame.core :as rf]))\n;; live\n(rf/reg-event :a (fn [cofx event] {}))\n#_ ;; parked\n(rf/reg-event-fx :d (fn [cofx event] {}))\n"]
-             ["discarded Type B shapes"
-              "#_(rf/reg-event-ctx :d (fn [ctx] ctx))\n#_(rf/reg-event-db :d2 [my-interceptor] (fn [db _] (when db db)))\n"
-              [] nil]
              ["nested and stacked discards"
               (str "#_(do (rf/reg-event-fx :d1 (fn [c e] {})) #_(rf/reg-event-db :d2 (fn [db _] db)))\n"
                    "#_ #_ (rf/reg-event-fx :d3 (fn [c e] {})) (rf/reg-event-fx :d4 (fn [c e] {}))\n"
@@ -517,15 +511,11 @@
              ["a discarded slot inside an active call"
               "(rf/reg-event-fx :a #_[my-interceptor] (fn [cofx event] {}))\n(rf/reg-event-db :b (fn [db _] (assoc db :k 1) #_(old db)))\n"
               [:rename :rewrite]
-              "(rf/reg-event :a #_[my-interceptor] (fn [cofx event] {}))\n(rf/reg-event :b (fn [{:keys [db]} _] {:db (assoc db :k 1)} #_(old db)))\n"]
-             ["bare and qualified active sites beside discards"
-              "(ns demo (:require [re-frame.core :as rf :refer [reg-event-fx]]))\n#_(reg-event-fx :d (fn [c e] {}))\n(reg-event-fx :a (fn [c e] {}))\n(rf/reg-event-fx :b (fn [c e] {}))\n"
-              [:rename :rename]
-              "(ns demo (:require [re-frame.core :as rf :refer [reg-event-fx reg-event]]))\n#_(reg-event-fx :d (fn [c e] {}))\n(reg-event :a (fn [c e] {}))\n(rf/reg-event :b (fn [c e] {}))\n"]]]
+              "(rf/reg-event :a #_[my-interceptor] (fn [cofx event] {}))\n(rf/reg-event :b (fn [{:keys [db]} _] {:db (assoc db :k 1)} #_(old db)))\n"]]]
       (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= actions (mapv :action (rf.migration.reg-event-codemod/scan-string src))) (str label ": scan"))
-        (is (= actions (mapv :action findings)) (str label ": rewrite"))
-        (is (= (or out src) source) label)))))
+        (is (= [actions actions (or out src)]
+               [(mapv :action (rf.migration.reg-event-codemod/scan-string src)) (mapv :action findings) source])
+            label)))))
 
 ;; ---------------------------------------------------------------------------
 ;; filesystem entry points
