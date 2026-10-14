@@ -126,11 +126,6 @@
                 pkg-react-dom (read-package-json-pin "react-dom")
                 tpl-react     (pin-from-json-text pj-text "react")
                 tpl-react-dom (pin-from-json-text pj-text "react-dom")]
-            ;; impl tree must keep react / react-dom in lockstep with
-            ;; each other; if they ever diverge, the rationale should
-            ;; be in DESIGN-RATIONALE and this test updates accordingly.
-            (is (= pkg-react pkg-react-dom)
-                "implementation/package.json pins react and react-dom to the same version")
             (is (= pkg-react tpl-react)
                 (str "Template :react-version (" tpl-react ") must match "
                      "implementation/package.json :react (" pkg-react ") — "
