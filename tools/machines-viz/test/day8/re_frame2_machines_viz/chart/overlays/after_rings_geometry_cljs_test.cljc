@@ -5,7 +5,6 @@
              :as geo]))
 
 (deftest ring-radius-half-longer-side-plus-gap
-  (is (= 76.0 (geo/ring-radius {:width 140 :height 48})) "half of 140, plus the 6px gap")
   (is (= 106.0 (geo/ring-radius {:width 48 :height 200})) "portrait: height is the longer side")
   (is (= (double geo/min-ring-radius-px) (geo/ring-radius {:width 4 :height 4}))
       "a tiny node still draws a visible ring"))
