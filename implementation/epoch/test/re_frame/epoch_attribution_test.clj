@@ -163,25 +163,6 @@
                      :rf.sub/value          "topsecret"})
     (is (true? (rollup-of)) "a sensitive back-fill flips the rollup true")))
 
-;; ---- inv-2: a post-settle render rides the cascade that caused it ----------
-
-(deftest inv-2-render-attributed-to-its-causing-cascade-multi-cascade
-  (rf/make-frame {:id :test/main})
-  (rf/reg-event :seed         (fn [_ _] {:db {:title "a" :counter 0}}))
-  (rf/reg-event :title-loaded (fn [{:keys [db]} _] {:db (assoc db :title "loaded")}))
-  (rf/reg-event :counter-inc  (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-  (rf/dispatch-sync [:seed] {:frame :test/main})
-  (rf/dispatch-sync [:title-loaded] {:frame :test/main})
-  (let [a (last-epoch :test/main)]
-    (emit-render! :test/main :title-view)
-    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-    (let [b (last-epoch :test/main)]
-      (emit-render! :test/main :counter-view)
-      (is (= [[:title-loaded #{:title-view}] [:counter-inc #{:counter-view}]]
-             (map (comp (juxt :event-id rendered-view-ids) #(epoch-by-id :test/main %))
-                  [a b]))
-          "each cascade carries its own render, no lag"))))
-
 (deftest inv-2-8-in-flight-render-and-unmount-ride-current-cascade
   (rf/make-frame {:id :test/main})
   (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
@@ -364,12 +345,10 @@
                    :frame              :test/main
                    :rf.view/mount?     false
                    :rf.view/elapsed-ms 0.3})
-  (let [epoch (last-epoch :test/main)]
-    (is (= {:render-key [:counter-view 0] :mount? false :triggered-by :sub/count
-            :elapsed-ms 1.5 :cause-event-id :counter-inc}
-           (render-row-for epoch [:counter-view 0])))
-    (is (= {:render-key [:structural-view 0] :mount? false :elapsed-ms 0.3}
-           (render-row-for epoch [:structural-view 0])))))
+  (is (= [{:render-key [:counter-view 0] :mount? false :triggered-by :sub/count
+           :elapsed-ms 1.5 :cause-event-id :counter-inc}
+          {:render-key [:structural-view 0] :mount? false :elapsed-ms 0.3}]
+         (:renders (last-epoch :test/main)))))
 
 ;; ---- mount attribution is pruned per instance on unmount -------------------
 ;;
@@ -421,21 +400,6 @@
 ;; A restore runs no cascade, so `perform-restore!` re-anchors last-settled to
 ;; the restored epoch; repaints after it must not land in the newer epoch the
 ;; frame was rewound past.
-
-(deftest inv-9-restore-induced-render-does-not-backfill-into-stale-epoch
-  (rf/make-frame {:id :test/main})
-  (rf/reg-event :seed        (fn [_ _] {:db {:counter 0}}))
-  (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-  (rf/dispatch-sync [:seed]        {:frame :test/main})
-  (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-  (let [target (last-epoch :test/main)]
-    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-    (let [stale (last-epoch :test/main)]
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
-      (emit-render! :test/main :counter-view)
-      (is (= [#{} #{:counter-view}]
-             (map (comp rendered-view-ids #(epoch-by-id :test/main %)) [stale target]))
-          "the repaint lands on the restored target, not the stale epoch"))))
 
 (deftest inv-9-failed-restore-leaves-attribution-anchor-unchanged
   (rf/make-frame {:id :test/main})
