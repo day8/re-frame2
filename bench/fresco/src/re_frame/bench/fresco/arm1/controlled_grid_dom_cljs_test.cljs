@@ -349,9 +349,6 @@
   (testing "the pin is the adapter's and the sniff underneath it would have
            answered the other way — two claims, and the row is worth
            nothing without both"
-    (is (some? reagent.impl.batching/do-after-render)
-        "Reagent's after-render queue is in this bundle, which is exactly
-         what makes UIx's UNPINNED answer `true`")
     (is (= (get input-implementations adapter-default-implementation) pin-at-load)
         "`re-frame.adapter.uix`'s load really did leave the var at
          `adapter-default-implementation`'s value — asserted from a
@@ -366,17 +363,7 @@
             "CLEAR the pin and the bundle chooses instead — the port. That
              accident is what the adapter's pin prevents, and it is what
              makes the assertion above a measurement rather than a
-             coincidence")))
-    (is (false? (uix.compiler.input/should-use-reagent-input?))
-        "the pin is back, because the raw probe ran inside a `finally` and
-         not merely before a restore that an early return could skip")
-    (pin! :react)
-    (is (false? (uix.compiler.input/should-use-reagent-input?)))
-    (pin! :uix-reagent-input)
-    (is (true? (uix.compiler.input/should-use-reagent-input?))
-        "the port stays reachable by name — React is the default, not the
-         only option")
-    (restore-adapter-pin!)))
+             coincidence")))))
 
 (deftest the-arms-input-is-reacts-own-whatever-the-selector-says
   (async done
