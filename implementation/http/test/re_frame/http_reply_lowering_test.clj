@@ -7,7 +7,7 @@
   builders are pinned host-symmetrically in `http-reply-lowering-cljs-test`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.late-bind :as rf.late-bind]

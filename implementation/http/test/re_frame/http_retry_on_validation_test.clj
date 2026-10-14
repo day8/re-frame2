@@ -8,7 +8,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.test-support :as rf.test-support]))
 

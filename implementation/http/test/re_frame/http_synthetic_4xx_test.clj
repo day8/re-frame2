@@ -10,7 +10,7 @@
   cascade catches the arm being routed to `finalise-failure!` or reclassified."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
