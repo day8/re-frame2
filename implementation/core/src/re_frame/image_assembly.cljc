@@ -56,7 +56,9 @@
   The DEFAULT image (EP-0023 §Default Image Semantics) is the implicit selector
   over the WHOLE default source store: `reg-*` mutates the source store, and the
   default image projects ALL of its descriptors (+ the framework standards) into
-  a sealed generation. It is the no-explicit-`:images` frame path. `default-image`
+  a sealed generation. `make-frame` reaches it for a frame made without
+  `:images` over an EXPLICIT descriptor pool; over the live store such a frame
+  seals nothing (`re-frame.live-frame/live-view`). `default-image`
   is a marker image value (`:rf.image/default? true`) that rides the SAME
   `assemble*` pipeline + the SAME resolved-generation cache as an explicit image
   — the only difference is selection (the whole pool rather than an `:include-ns`
@@ -1699,9 +1701,10 @@
   generation, FAILING LOUD if that projection contains same-kind same-id
   collisions.
 
-  This is the no-explicit-`:images` frame path: `reg-*` mutates the default
-  source store, and the default image is the implicit selector over that store.
-  It runs through the SAME `assemble*` pipeline + the SAME resolved-generation
+  `make-frame` uses it for a frame made without `:images` over an explicit
+  descriptor pool (a frame made without `:images` over the live store seals
+  nothing — `re-frame.live-frame/live-view`). The default image is the implicit
+  selector over the whole store. It runs through the SAME `assemble*` pipeline + the SAME resolved-generation
   cache as an explicit image — selection (the whole pool, via the `default-image`
   marker), the framework-standard union, collision validation, reference checks,
   and sealing are byte-identical. So a cross-namespace same-`(kind, id)`

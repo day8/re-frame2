@@ -24,6 +24,7 @@
     :rf.error/sub-input-fn-exception
     :rf.error/sub-input-fn-bad-return
     :rf.error/no-such-handler
+    :rf.error/ambiguous-registration
     :rf.error/no-frame-context
     :rf.error/bad-frame-provider-arg
     :rf.error/bad-unsubscribe-arg
