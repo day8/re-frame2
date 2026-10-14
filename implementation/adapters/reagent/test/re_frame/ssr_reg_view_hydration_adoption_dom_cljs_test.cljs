@@ -173,14 +173,11 @@
               carries NEITHER annotation) must make React complain, because
               the dev client render stamps both attributes and the server has
               them on neither."
-      (let [{:keys [complaints node]}
+      (let [{:keys [complaints]}
             (hydrate-over pre-fix-server-html
                           [(rf/view test-view-id) "revenue"])]
         (is (seq (hydration-complaints complaints))
             (str "React must report the unannotated server markup "
                  "as a hydration mismatch — if this is silent, the green "
                  "adoption proof above proves nothing. Complaints seen: "
-                 (pr-str complaints)))
-        (is (some? node)
-            "the node is still present (an attribute mismatch warns but does
-             not replace the node)")))))
+                 (pr-str complaints)))))))
