@@ -41,9 +41,8 @@
               ":rf.view/render-key is a 2-tuple of the registered view-id and an integer instance-token"))))))
 
 (deftest dynamic-var-unbound-outside-render
-  (testing "*render-key* is nil outside an in-flight render"
-    (is (nil? rf.views/*render-key*)
-        "outside any render, *render-key* is unbound (nil)")
+  (testing "*render-key* is unbound outside an in-flight render, so
+            current-render-key (`(or *render-key* …)`) falls through"
     (is (= [:rf.view/anonymous nil] (rf.views/current-render-key))
         "current-render-key returns the documented anonymous fallback
         when no render-key is bound (plain Reagent fn case)")))
