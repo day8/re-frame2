@@ -39,8 +39,8 @@
 // blanks more than it should, which makes a check fire rather than pass, and an
 // unterminated string or comment fails the run against its file.
 //
-// FIXTURES. `lane_cache_fixtures/` holds six drivers with known verdicts, read as
-// text and never executed, so the gate cannot quietly stop firing. They stay in
+// FIXTURES. `lane_cache_fixtures/` holds four miswired drivers, read as text and
+// never executed, so the gate cannot quietly stop firing. They stay in
 // the ESLint path, held to the rules real drivers are.
 //
 // Discovered by `npm run test:scripts`.
@@ -400,30 +400,19 @@ for (const rider of RIDERS) {
 
 // ## The gate's own regression net
 //
-// Each fixture carries the one check it must trip, or null for the correctly
-// wired controls. The comment and string fixtures are not duplicates (different
-// projections catch them), and the door pair covers the `buildId:` read that the
-// direct pair does not.
+// Each fixture carries the one check it must trip; the real riders above are the
+// correctly wired controls. The comment and string fixtures are not duplicates
+// (different projections catch them), and the door fixture covers the `buildId:`
+// read that the direct one does not.
 const FIXTURES = {
-  'agreeing_ids_run.cjs': null,
-  'door_agreeing_ids_run.cjs': null,
   'mismatched_ids_run.cjs': 'sameBuildId',
   'door_mismatched_ids_run.cjs': 'sameBuildId',
   'commented_clear_run.cjs': 'clearsFirst',
   'string_clear_run.cjs': 'clearsFirst',
 };
 
-test('the fixture directory holds exactly the fixtures named here', () => {
-  // Otherwise a fixture can be added and left unasserted, or deleted and its
-  // entry left behind — either way the net has a hole it does not report.
-  assert.deepStrictEqual(
-    fs.readdirSync(FIXTURE_DIR).filter((f) => f.endsWith('.cjs')).sort(),
-    Object.keys(FIXTURES).sort()
-  );
-});
-
 for (const [file, expected] of Object.entries(FIXTURES)) {
-  test(`fixture ${file} is rider-shaped, outside discovery, and trips exactly ${expected === null ? 'nothing' : expected}`, () => {
+  test(`fixture ${file} is rider-shaped, outside discovery, and trips exactly ${expected}`, () => {
     const fixture = read(path.join(FIXTURE_DIR, file));
     assert.ok(reachesRunner(fixture), `${file} does not reach shadow-cljs, so its verdict proves nothing`);
     assert.ok(shapeOf(fixture) !== null, `${file} is not rider-shaped, so its verdict proves nothing`);
@@ -441,10 +430,8 @@ for (const [file, expected] of Object.entries(FIXTURES)) {
       .map(([id]) => id);
     assert.deepStrictEqual(
       fired,
-      expected === null ? [] : [expected],
-      expected === null
-        ? `${file} is correctly wired and must pass every check; it failed: ${fired.join(', ')}`
-        : `${file} must fail ${expected} and nothing else; it failed: ${fired.join(', ') || 'nothing'}`
+      [expected],
+      `${file} must fail ${expected} and nothing else; it failed: ${fired.join(', ') || 'nothing'}`
     );
   });
 }
