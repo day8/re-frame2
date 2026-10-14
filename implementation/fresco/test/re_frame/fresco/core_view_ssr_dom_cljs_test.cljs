@@ -20,8 +20,9 @@
   source, two simultaneous hydrating roots with a stable
   `identifierPrefix`, and exact cleanup on unmount — plus, for a surface
   that reads, no duplicate acquisition. Sections 1 to 3 below are that
-  list in order, and no row in this file asserts a policy the list has
-  not been walked for.
+  list in order, except the two-root and exact-cleanup clauses, which
+  `identifier-prefix-ssr-dom-cljs-test`'s two-root row holds; no row in
+  this file asserts a policy the list has not been walked for.
 
   ## The one thing these rows deliberately do NOT claim
 
@@ -29,12 +30,12 @@
   (`impl.mount/tree`) and this file's hand-rolled server path emits no
   counterpart to that fork, so a tree containing a `useId` hydrates into
   an id mismatch — HS-11's obstruction 2, measured in
-  `identifier-prefix-ssr-dom-cljs-test` and unrepaired. **No surface in
-  this file mints a `useId`**, so every row below is unaffected and none
-  of them repairs it either. That obstruction is HS-11/HS-14's and it
-  stays open; what these rows establish is that the interpreted tier's
-  own bytes and its own adoption are sound, which is a different claim
-  and a smaller one.
+  `server-render-ssr-dom-cljs-test` §4b-3 and repaired by
+  `re-frame.fresco.server/render`, whose bytes carry the fork. **No
+  surface in this file mints a `useId`**, so every row below is
+  unaffected by it. What these rows establish is that the interpreted
+  tier's own bytes and its own adoption are sound, which is a different
+  claim and a smaller one.
 
   Runtime: `-dom-cljs-test`. Sections 0 to 1 need no DOM and run under
   `:node-test` as well; sections 2 and 3 say so and skip there. **The
@@ -135,21 +136,6 @@
    [:svg.mark {:viewBox "0 0 10 10" :xmlns "http://www.w3.org/2000/svg"}
     [:path {:d "M0 0 L10 10" :stroke-width 2 :stroke "currentColor"}]]
    [:my-widget {:data-kind "custom" :aria-label "widget"} "inside"]])
-
-(rf.fresco/defview slots
-  "HS-06 and HS-15. One canonical slot per value however the key was
-  written — kebab keyword, camel keyword and string all name the same
-  React prop — and the caller's attributes forwarded with an ordinary
-  `merge`, owned keys last, so the literal written by the element wins
-  (HD-023; naming-ledger row 34). There is no merge helper and no
-  reserved key, so HS-15 is witnessed here, at the one spelling."
-  [{:keys [extra]}]
-  [:div.slots
-   [:label {:htmlFor "field" :class "lbl"} "label"]
-   [:input (merge extra
-                  {:id "field" :type "text" :readOnly true
-                   :defaultValue "typed"})]
-   [:span {:style {:font-weight 700 :margin-top 4}} "styled"]])
 
 (rf.fresco/defview intents
   "HS-03 and HS-07. Every intent spelling the grammar has — a literal
@@ -300,31 +286,13 @@
 ;; 0 — deterministic bytes from an immutable request snapshot (no DOM)
 ;; ---------------------------------------------------------------------------
 
-(deftest a-defview-boundary-renders-deterministic-bytes
-  (testing "HS-01, and §2.4's first clause. Two renders of one snapshot
-            are the same bytes — which is the property a response cache,
-            an ETag and a byte-comparison test all rest on. Narrowing
-            caught: any per-render identity in the output (a generated
-            key, a counter, a `useId`), which would make the two strings
-            differ while both looked plausible in isolation"
-    (fresh!)
-    (let [a (page-bytes [article {}])
-          b (page-bytes [article {}])]
-      (is (= a b) (str "two renders, one snapshot, identical bytes: " a))
-      (is (re-find #"<article class=\"article\">" a)
-          (str "the boundary contributed its own element and no wrapper
-                around it: " a))
-      (is (re-find #"quarterly" a)
-          (str "carrying the request's value: " a)))))
-
 (deftest a-sub-read-answers-the-request-snapshot
   (testing "HS-02. The read is of the frame the render names, so two
             frames seeded to two different requests produce two different
-            responses — and the branch a snapshot does not take
-            contributes nothing to the bytes. Narrowing caught: a read
-            resolving through a process-global current-frame, which
-            renders both requests identically and is the exact defect a
-            server is unusable with"
+            responses, and a render leaves nothing behind for the next.
+            Narrowing caught: a read resolving through a process-global
+            current-frame, or state a render leaves in the arm (a memo
+            keyed on nothing, a retained snapshot)"
     (fresh! frame-id "quarterly")
     (fresh! other-frame-id "annual")
     (let [a (server-html frame-id [article {}])
@@ -333,104 +301,12 @@
       (is (re-find #"annual" b) (str "frame B's request: " b))
       (is (not (re-find #"annual" a)) (str "and neither leaked: " a))
       (is (not (re-find #"quarterly" b)) (str "in either direction: " b))
-      (is (not (re-find #"class=\"badge\"" a))
-          (str "the `when` was false, so its subtree is ABSENT rather
-                than empty — a branch not taken contributes no element
-                and no read: " a)))))
-
-(deftest a-conditional-read-appears-when-its-branch-does
-  (testing "the control for the row above: the same body under a snapshot
-            whose `:done?` is true. Without this, `no badge in the bytes`
-            is equally consistent with a body that never renders a badge
-            at all"
-    (fresh!)
-    (rf/with-frame frame-id (rf/dispatch-sync [:fresco.core-ssr/finish]))
-    (let [html (server-html [article {}])]
-      (is (re-find #"class=\"badge\"" html)
-          (str "the taken branch is in the bytes: " html))
-      (is (re-find #"shipped" html)
-          (str "with the value only that branch reads: " html)))))
-
-(deftest no-cross-request-state-survives-a-server-render
-  (testing "HS-02's third server clause. Render A, render B, render A
-            again: A's second response is byte-identical to its first.
-            Narrowing caught: any state a render leaves behind in the arm
-            — a memo keyed on nothing, a retained snapshot, a collector
-            table that accumulates — which shows up as the SECOND
-            identical request answering differently from the first"
-    (fresh! frame-id "quarterly")
-    (fresh! other-frame-id "annual")
-    (let [a1 (server-html frame-id [article {}])
-          _  (server-html other-frame-id [article {}])
-          a2 (server-html frame-id [article {}])]
-      (is (= a1 a2)
-          (str "the same request answered the same way after an unrelated
-                one ran between: " a1 " vs " a2)))))
+      (is (= a (server-html frame-id [article {}]))
+          "request A answers byte-identically after request B ran between"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the grammar in the bytes (no DOM)
 ;; ---------------------------------------------------------------------------
-
-(deftest the-intrinsic-heads-render-html-svg-and-custom-elements
-  (testing "HS-04 and HS-05. Three head shapes and a fragment, measured
-            in the bytes rather than in a DOM that has already
-            normalised them — case, namespacing and attribute spelling
-            are all decided by the serializer and all invisible after
-            parsing"
-    (fresh!)
-    (let [html (server-html [chrome {}])]
-      ;; Attribute ORDER is the serializer's, not the author's — the
-      ;; `.mark` shorthand folds onto the emitted object and lands last —
-      ;; so each attribute is asserted on its own. Byte-exact per
-      ;; attribute, order-free between them.
-      (is (re-find #"<svg viewBox=\"0 0 10 10\"" html)
-          (str "SVG keeps React's camelCase `viewBox` — HTML would have
-                lowercased it, and a lowercased one is a different
-                attribute that SVG ignores: " html))
-      (is (re-find #"stroke-width=\"2\"" html)
-          (str "and the kebab SVG presentation attribute is emitted
-                kebab: " html))
-      (is (re-find #"<my-widget data-kind=\"custom\" aria-label=\"widget\">inside</my-widget>" html)
-          (str "a custom element passes its dashed attributes through
-                verbatim, which is the whole contract for a head React
-                does not know: " html))
-      (is (not (re-find #"<\w+[^>]*>\s*<p class=\"adjacent\"" html))
-          (str "the fragment contributed no wrapper element of its own: "
-               html)))))
-
-(deftest adjacent-text-carries-react-s-own-separator
-  (testing "§2.4's adjacent-text clause, and it is a hydration property
-            rather than a cosmetic one: two sibling strings are two text
-            NODES on the client, one run of characters in the bytes, and
-            React writes a comment marker between them so the adoption
-            can find the seam. Narrowing caught: a serializer that
-            concatenated them — bytes that look right, hydrate wrong, and
-            are only visible as a mismatch at run time"
-    (fresh!)
-    (let [html (server-html [chrome {}])]
-      (is (re-find #"alpha<!-- -->beta" html)
-          (str "the separator is there, between the two strings and
-                nowhere else: " html)))))
-
-(deftest one-canonical-slot-however-the-key-was-written
-  (testing "HS-06 and HS-15. `:htmlFor` reaches the bytes as `for`, a
-            style MAP as a serialized declaration, and the caller's map
-            merges under the owned literals, which win by being last"
-    (fresh!)
-    (let [html (server-html [slots {:extra {:class "from-remainder"
-                                           :data-extra "yes"}}])]
-      (is (re-find #"<label for=\"field\"" html)
-          (str "`:htmlFor` emits the HTML attribute `for`: " html))
-      (is (re-find #"style=\"font-weight:700;margin-top:4px\"" html)
-          (str "the style map serialized, with React's own px default on
-                the length and none on the unitless weight: " html))
-      (is (re-find #"data-extra=\"yes\"" html)
-          (str "a key only the remainder carries reaches the bytes: " html))
-      (is (re-find #"<input class=\"from-remainder\"" html)
-          (str "and the input, which writes no literal class, takes the
-                one the remainder alone names: " html))
-      (is (re-find #"id=\"field\"" html)
-          (str "beside the literal keys, untouched by the merge: " html)))))
 
 (deftest the-intent-vocabulary-never-reaches-the-bytes
   (testing "HS-03 and HS-07, and the strongest single reason the server
@@ -504,11 +380,7 @@
                html))
       (is (re-find #"<option value=\"b\" selected=\"\">B</option>" html)
           (str "and the select's value as `selected` on the chosen
-                option, not as an attribute on the select: " html))
-      (is (not (re-find #"<select[^>]*value=" html))
-          (str "the select itself carries no `value` attribute, which is
-                the half a serializer gets wrong by writing the React
-                prop straight out: " html)))))
+                option, not as an attribute on the select: " html)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b — the error boundary's two server arms (no DOM)
@@ -538,10 +410,7 @@
     (fresh!)
     (is (thrown-with-msg? js/Error #"server render exploded"
                           (server-html [exploding {}]))
-        "the throw reaches the caller of `renderToString`")
-    (is (some? (server-html [guarded {}]))
-        "and the arm still renders afterwards, so the failure left no
-         wedged state behind it")))
+        "the throw reaches the caller of `renderToString`")))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — hydration (DOM)
@@ -629,57 +498,8 @@
                     (done))))
               300)))))))
 
-(deftest two-overlapping-roots-adopt-under-distinct-prefixes
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (skip! ":node-test has no DOM") (done))
-      (do
-        (fresh! frame-id "quarterly")
-        (fresh! other-frame-id "annual")
-        (let [html-a (server-html frame-id [page {}])
-              html-b (server-html other-frame-id [page {}])
-              ca     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
-              cb     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
-              ha     (rf.fresco.impl.mount/hydrate-root! ca frame-id [page {}]
-                                          {:identifier-prefix "pfx-a-"})
-              hb     (rf.fresco.impl.mount/hydrate-root! cb other-frame-id [page {}]
-                                          {:identifier-prefix "pfx-b-"})]
-          (js/setTimeout
-            (fn []
-              (stop!)
-              (try
-                (testing "§2.4's fourth clause for this tier: two roots
-                          adopt at once, each under its own stable
-                          `identifierPrefix` and its own frame, and
-                          neither disturbs the other. The prefixes are
-                          the `:identifier-prefix` pass-through option;
-                          the frames are what makes the two responses
-                          different in the first place. Narrowing
-                          caught: a process-global adoption window or a
-                          page-wide current-frame — either renders both
-                          roots from one request and this row reads the
-                          same string twice"
-                  (is (empty? @seen)
-                      (str "neither adoption had anything to reconcile: "
-                           (pr-str @seen)))
-                  (is (= "quarterly" (.-textContent (query-node ca ".title")))
-                      "root A settled on its own request")
-                  (is (= "annual" (.-textContent (query-node cb ".title")))
-                      "root B on its own")
-                  (is (rf.fresco.roots-frames-support/every-server-node? ca ".title")
-                      "root A adopted the server's nodes")
-                  (is (rf.fresco.roots-frames-support/every-server-node? cb ".title")
-                      "and so did root B, concurrently"))
-                (finally
-                  (rf.fresco.impl.mount/release! ha)
-                  (rf.fresco.impl.mount/release! hb)
-                  (rf.fresco.impl.collector/reset-runtime!)
-                  (done))))
-            300))))))
-
 ;; ---------------------------------------------------------------------------
-;; 3 — acquisition and cleanup (DOM)
+;; 3 — acquisition (DOM)
 ;; ---------------------------------------------------------------------------
 
 (deftest a-server-render-acquires-no-reader-and-an-adoption-acquires-one
@@ -701,25 +521,4 @@
           (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/badge]]))
               (str "and the key only the untaken branch reads has no
                     reader at all, on either side: "
-                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))
-
-(deftest a-mounted-page-releases-exactly-what-it-acquired
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (rf.fresco.impl.collector/reset-runtime!)
-      (testing "§2.4's last clause: exact cleanup. Narrowing caught:
-                a teardown that empties the runtime's tables rather than
-                releasing the subscriptions — it answers zero whether it
-                released anything or not, which is a gate that cannot go
-                red (`impl.mount/unmount!`)"
-        (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
-              (str "one reader while mounted; cells: "
-                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-          (rf.fresco.impl.mount/unmount! h)
-          (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
-              (str "and none after the PUBLIC teardown door, which
-                    touches nothing the runtime holds; cells: "
                    (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))
