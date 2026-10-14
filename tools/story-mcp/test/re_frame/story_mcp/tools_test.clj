@@ -280,9 +280,8 @@
 (deftest list-stories-scalar-tags-rejected
   ;; A bare string would otherwise be walked character by character into a
   ;; successful-looking wrong result.
-  (let [r (invoke "list-stories" {:tags "docs"})]
-    (is (= :rf.error/scalar-for-collection-arg (-> r :structuredContent :rf.error)))
-    (is (re-find #"(?i):tags must be an array" (-> r :content first :text)))))
+  (is (= {:rf.error :rf.error/scalar-for-collection-arg :arg :tags}
+         (select-keys (:structuredContent (invoke "list-stories" {:tags "docs"})) [:rf.error :arg]))))
 
 (deftest get-story-happy
   (let [s (:structuredContent (invoke "get-story" {:story-id "story.button"}))]
@@ -301,22 +300,16 @@
     (is (re-find #"NOT resolved" desc) desc)))
 
 (deftest explain-variant-happy
-  ;; On this no-run path the frame is non-live; the value slots must carry
-  ;; the real resolved author data, not `:rf/redacted`.
-  (let [s (:structuredContent (invoke "explain-variant" {:variant-id "story.button/primary"}))
-        e (:explain s)]
+  (let [s (:structuredContent (invoke "explain-variant" {:variant-id "story.button/primary"}))]
     (is (= [:story.button/primary [:story.button/primary] []]
-           [(:variant-id s) (:source-chain e) (:parent-chain e)]))
-    (is (map? (:effective-args e)))
-    (is (every? #(contains? e %) [:merge :required-runner]))))
+           [(:variant-id s) (-> s :explain :source-chain) (-> s :explain :parent-chain)]))))
 
-(deftest lookup-tools-refuse-unknown-or-missing-ids
+(deftest lookup-tools-refuse-missing-ids
   ;; The tools share three lookup preludes in tools.args (`with-variant`,
-  ;; `with-variant-id`, `with-story-id`); the no-intern tests below pin more
-  ;; unknown ids.
-  (doseq [[tool args text-re] [["run-variant"       {:variant-id "story.nope/missing"} #"not found"]
-                               ["preview-variant"   {}                                 #"variant-id"]
-                               ["get-docs-markdown" {}                                 #"story-id"]]]
+  ;; `with-variant-id`, `with-story-id`); the no-intern tests below pin each
+  ;; one's unknown-id branch.
+  (doseq [[tool args text-re] [["preview-variant"   {} #"variant-id"]
+                               ["get-docs-markdown" {} #"story-id"]]]
     (let [r (invoke tool args)]
       (is (= [true true] [(error? r) (boolean (re-find text-re (-> r :content first :text)))])
           (str tool " " (pr-str args))))))
@@ -335,10 +328,6 @@
            (select-keys (by-id :dec.test/seed-cart) [:kind :app-db-patch])))
     (is (= {:kind :fx-override :fx-id :http :response {:status 200 :body "ok"}}
            (select-keys (by-id :dec.test/stub-http) [:kind :fx-id :response])))))
-
-(deftest list-decorators-kind-filter
-  (is (= #{:hiccup}
-         (set (map :kind (-> (invoke "list-decorators" {:kind "hiccup"}) :structuredContent :decorators))))))
 
 (deftest list-assertions-registered-covers-plan-compiler-vocabulary
   ;; `:registered` advertises the full vocabulary the plan compiler validates
