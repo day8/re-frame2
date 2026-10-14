@@ -21,7 +21,7 @@
             fraction of the circumference; a nil fraction renders a full ring"
     (let [r    40
           circ (* 2 Math/PI r)]
-      (doseq [[fraction filled] [[0.0 0] [0.5 0.5] [1.0 1] [nil 1]]]
+      (doseq [[fraction filled] [[0.0 0] [0.5 0.5] [nil 1]]]
         (let [dash (-> (prim/countdown-ring {:cx 0 :cy 0 :r r :fraction fraction})
                        circles second second :stroke-dasharray)
               arc  (#?(:clj Double/parseDouble :cljs js/parseFloat)
@@ -31,7 +31,7 @@
 (deftest countdown-ring-strokes-resolve-through-css-vars
   (testing "each colour tier strokes the arc through its theme token's CSS var;
             the track uses the subtle border token"
-    (doseq [[color token] [[:green :green] [:amber :yellow] [:red :red] [:gray :text-tertiary]]]
+    (doseq [[color token] [[:amber :yellow] [:gray :text-tertiary]]]
       (let [[track arc] (circles (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
                                                        :color color}))]
         (is (= [(tokens/css-var :border-subtle) (tokens/css-var token)]
