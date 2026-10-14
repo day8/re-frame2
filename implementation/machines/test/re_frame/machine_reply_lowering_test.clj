@@ -103,55 +103,46 @@
 ;; A destroyed singleton keeps its `reg-machine` DEFINITION, so a completion
 ;; carrier queued before the destroy RESOLVES at its address. Delivering it
 ;; would lazily re-create the parent from its initial snapshot to fold a dead
-;; child's result. Each carrier must instead be dropped as stale, for all
-;; three ways a child finishes (Spec 005 §Async completions §Stale suppression).
+;; child's result, so it is dropped as stale (Spec 005 §Async completions
+;; §Stale suppression). Failure carriers pass the same gate; their cases are
+;; spawn-carrier-currency-cljs-test's.
 
 (defn- reg-pair!
-  "A child that finishes on `:finish` (plain final), `:fail` (error final) or
-  `:throw` (an action exception), under a parent that spawns it on `:go`,
-  declares `:on-done` and `:on-error`, and destroys ITSELF on `:drop`."
+  "A child that finishes on `:finish`, under a parent that spawns it on `:go`,
+  folds its result with `:on-done`, and destroys ITSELF on `:drop`."
   [child-id parent-id]
   (rf/reg-machine child-id
     {:initial :running
      :data    {}
-     :states  {:running {:on {:finish :done
-                              :fail   :failed
-                              :throw  {:action (fn [_] (throw (ex-info "child failure" {})))}}}
-               :done    {:final? true}
-               :failed  {:final? true :error? true}}})
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
   (rf/reg-machine parent-id
     {:initial :idle
      :data    {}
      :states  {:idle    {:on {:go :working}}
                :working {:on    {:drop {:action (fn [_] {:fx [[:rf.machine/destroy parent-id]]})}}
                          :spawn {:machine-id child-id
-                                 :on-done    (fn [{data :data}] (assoc data :folded? true))
-                                 :on-error   {:target :error}}}
-               :error   {}}}))
+                                 :on-done    (fn [{data :data}] (assoc data :folded? true))}}}}))
 
 (deftest stale-carrier-does-not-recreate-a-destroyed-parent
   (rf/reg-event ::kick (fn [_ [_ events]] {:fx (mapv (fn [e] [:dispatch e]) events)}))
-  (doseq [[child parent trigger kind] [[:rl/schild :rl/sparent :finish :done]
-                                       [:rl/xchild :rl/xparent :fail   :error]
-                                       [:rl/tchild :rl/tparent :throw  :error]]
-          :let [instance (keyword "rl" (str (name child) "#1"))]]
-    (reg-pair! child parent)
-    (rf/dispatch-sync [parent [:go]])
-    (rf.machines.test-support/reset-captured!)
-    ;; The child finishes while its parent is live, so the carrier is minted and
-    ;; queued BEHIND the parent's own :drop.
-    (rf/dispatch-sync [::kick [[instance [trigger]] [parent [:drop]]]])
-    (is (nil? (snapshot parent)) (str trigger ": the destroyed parent was not re-created"))
-    (is (= [{:actor-id              parent
-             :invoke-id             [:working]
-             :kind                  kind
-             :rf.reply/status       :stale
-             :rf.reply/work-status  :suppressed
-             :rf.reply/stale-reason :rf.machine.spawn/state-exited}]
-           (mapv #(select-keys (:tags %) [:actor-id :invoke-id :kind :rf.reply/status
-                                          :rf.reply/work-status :rf.reply/stale-reason])
-                 (rf.machines.test-support/events-of :rf.machine.spawn/stale-completion)))
-        (str trigger ": the carrier is dropped with exactly one stale trace"))))
+  (reg-pair! :rl/schild :rl/sparent)
+  (rf/dispatch-sync [:rl/sparent [:go]])
+  (rf.machines.test-support/reset-captured!)
+  ;; The child finishes while its parent is live, so the carrier is minted and
+  ;; queued BEHIND the parent's own :drop.
+  (rf/dispatch-sync [::kick [[:rl/schild#1 [:finish]] [:rl/sparent [:drop]]]])
+  (is (nil? (snapshot :rl/sparent)) "the destroyed parent was not re-created")
+  (is (= [{:actor-id              :rl/sparent
+           :invoke-id             [:working]
+           :kind                  :done
+           :rf.reply/status       :stale
+           :rf.reply/work-status  :suppressed
+           :rf.reply/stale-reason :rf.machine.spawn/state-exited}]
+         (mapv #(select-keys (:tags %) [:actor-id :invoke-id :kind :rf.reply/status
+                                        :rf.reply/work-status :rf.reply/stale-reason])
+               (rf.machines.test-support/events-of :rf.machine.spawn/stale-completion)))
+      "the carrier is dropped with exactly one stale trace"))
 
 ;; A declarative child cannot itself finish after its parent's destroy ends
 ;; it, so finality-time staleness is driven against a frame value that holds a
