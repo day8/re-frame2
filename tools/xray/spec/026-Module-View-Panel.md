@@ -11,14 +11,15 @@
 
 Status: **shipped** — rf2-wtg9z4 + **rf2-32siq3.12** (the EP-0023 image/frame
 model). The tab presents each EP-0023 live image-loaded frame as an execution
-context carrying its resolved image (the generation's `[kind id]` descriptors).
-A process not using image-loaded frames shows the honest no-image caption. The
+context carrying its resolved image (the generation's `[kind id]` descriptors),
+and each frame made without `:images` as resolving the live registration store
+(§8.5). A process with no frame shows the honest empty caption. The
 former MODULES section (per-module provenance read off a realm's installed app
 value via `re-frame.realm/installed-app`) and the (realm, frame) REALMS section
 (`re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`) were **removed** with
 the realm substrate (no public facade under EP-0023, deleted outright by
 EP-0024). There is no `re-frame.realm` namespace; the live panel
-(`panels/module_view.cljs`) reads only the EP-0023 image-loaded-frame registry.
+(`panels/module_view.cljs`) reads only the frames registry.
 
 ## EP-0023 / EP-0024 — the public model is `image -> frame -> event stream`
 
@@ -44,8 +45,8 @@ runtime structure earns its own L4 tab rather than piling into App-db. It is a
 event-coupled lens.
 
 It surfaces the EP-0023 public nouns — image, frame, and frame-derived
-resolution (§8) — reading the live image-loaded-frame registry. It dispatches
-nothing and pins nothing.
+resolution (§8) — reading the live frames registry. It dispatches nothing and
+pins nothing.
 
 ## §2 Layout
 
@@ -59,6 +60,11 @@ model (§8):
 │     resolves  this frame resolves (kind id) through its image   │
 │       event :counter/inc    docs.counter.v2                     │
 │       sub   :counter/value  docs.counter.v2                     │
+│   :app/main                                                     │
+│     image     live registration store · 9 descriptors · 3 kinds │
+│     resolves  this frame resolves (kind id) live from the store │
+│       event :app/save       ambiguous — app.a app.b             │
+│       event :app/load       app.a                               │
 ```
 
 The FRAMES section presents the EP-0023 `image -> frame` model (an image as
@@ -110,9 +116,10 @@ Cmd-K palette picks it up automatically (the palette reads
 ## §6 Data sources & privacy
 
 - `:rf.xray/image-view` — the FRAMES/IMAGES composite (see §8.3). Reads the
-  live image-loaded frames + each frame's sealed generation at recompute time.
-  **Read-only** — enumerating image-loaded frames and reading sealed
-  generations pins nothing and dispatches nothing.
+  live image-loaded frames + each frame's sealed generation, and the
+  registrations each frame made without `:images` resolves live, at recompute
+  time. **Read-only** — enumerating frames, reading sealed generations and
+  querying registrations pins nothing and dispatches nothing.
 - The surface carries frame/image **ids and structural descriptors** — frame
   ids, image ids, `[kind id]` pairs, and provenance namespace strings / inline
   coordinates. These are **structural descriptors**, not app-db values. No
@@ -302,25 +309,24 @@ the leak comparison — the assertion the .29 dogfooding review verifies.
 
 ### §8.2 Demand-gating & empty state
 
-The EP-0023 sections are demand-gated. EP-0023's public model is OPT-IN: a
-process that never calls `rf/make-frame` with `:images` has no image-loaded
-frames (no `frames` record carries a `:generation` — EP-0024, rf2-tu2vr7), so
-`project-image-view` reports `:images?` false and the FRAMES section renders
-the calm **no-image caption** (`image_view_helpers/no-images-caption`) naming
-the `rf/image` / `rf/make-frame` remedy — the honest *not-using-images-yet*
-state, not a broken surface. A frame whose generation resolves zero descriptors
-does not flip `:images?` (there is no image content to show).
+The EP-0023 sections are demand-gated. A process that has made no frame with
+`rf/make-frame` has nothing to show, so `project-image-view` reports `:images?`
+false and the FRAMES section renders the calm **empty caption**
+(`image_view_helpers/no-images-caption`) naming the `rf/make-frame` remedy —
+the honest *no-frame-yet* state, not a broken surface. A frame that resolves
+the live store always flips `:images?`; an image-loaded frame whose generation
+resolves zero descriptors does not (there is no image content to show).
 
 ### §8.3 Data sources & privacy
 
 - `:rf.xray/image-view` — the FRAMES/IMAGES composite; reads the image-loaded
   frames (`re-frame.live-frame/image-view-frames` — the EP-0024 one-registry
   read that projects each `frames` record carrying a `:generation` into an inert
-  frame view, each carrying its sealed generation) at recompute time via the
-  fail-soft `image_view_reads` seam, and projects via the pure
-  `image_view_helpers/project-image-view`. **Read-only** — enumerating
-  image-loaded frames and reading sealed generations pins nothing and dispatches
-  nothing (a sealed generation is an immutable VALUE, not a routing path).
+  frame view, each carrying its sealed generation) and the frames made without
+  `:images` (§8.5) at recompute time via the fail-soft `image_view_reads`
+  seam, and projects via the pure `image_view_helpers/project-image-view`.
+  **Read-only** — enumerating frames, reading sealed generations and querying
+  registrations pins nothing and dispatches nothing.
 - The surface carries frame/image **ids and structural descriptors** — frame
   ids, image ids, `[kind id]` pairs, and provenance namespace strings / inline
   coordinates. These are **structural descriptors**, not app-db values. No
@@ -331,13 +337,13 @@ does not flip `:images?` (there is no image content to show).
 ### §8.4 Implementation & tests
 
 - `panels/image_view_helpers.cljc` — the pure `data → data` projection
-  (`descriptor-provenance` · `project-generation` · `project-frame-row` ·
-  `project-frames` · `project-image-view` ·
-  `provenance-summary` · `image-row-summary` · `no-images-caption`);
-  JVM-testable.
-- `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
+  (`descriptor-provenance` · `project-generation` · `project-live-store-image` ·
+  `project-frame-row` · `project-frames` · `project-image-view` ·
+  `provenance-summary` · `image-row-summary` · `ambiguous-summary` ·
+  `no-images-caption`); JVM-testable.
+- `panels/image_view_reads.cljc` — the READ-TIME fail-soft live read seam
   (`live-frames` — over `re-frame.live-frame/image-view-frames`, the EP-0024
-  one-registry read · `image-view-data`) over the core
+  one-registry read · `live-store-frames` — §8.5 · `image-view-data`) over the core
   surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
   SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
@@ -413,4 +419,32 @@ does not flip `:images?` (there is no image content to show).
   bidirectional disjointness, the constructed overlapping-glob case the string
   proxy would miss, and the negative leaky-image case — plus the fail-soft
   live-read seam end-to-end and frame-derived resolution through a real
-  generation).
+  generation) + `panels/image_view_live_store_cljs_test.cljc` (§8.5 on both
+  hosts, through frames made by `rf/make-frame`) + W2 in
+  `panels/module_view_fresco_boundary_dom_cljs_test.cljs` (the live-store
+  row and its ambiguous id painted in a real DOM).
+
+### §8.5 Frames that resolve the live registration store
+
+A frame made without `:images` seals no image generation: it resolves the
+registration store live (framework
+[Spec 002 §Image resolution and composition](../../../spec/002-Frames.md)), so
+`image-view-frames` does not list it. `image_view_reads/live-store-frames`
+enumerates `rf/frame-ids` instead, skipping image-loaded and direct (no-id)
+frames, and reads each remaining frame through the PUBLIC registrar query the
+pair tool also uses:
+
+- **What it can run** — `(rf/registrations {:frame f :kind k})` for every
+  queryable registrar kind. Its row is marked as resolving the live store
+  (`:live-store? true`; "live registration store" on the image line) and lists
+  those descriptors with their provenance, exactly as an image row does.
+- **What it refuses as ambiguous** — that query omits an id more than one
+  namespace registers, so the read compares it against
+  `(rf/registrations {:source :store :kind k})` and confirms each missing id
+  through `(rf/handler-meta {:frame f :kind k :id id})`, whose
+  `:rf.error/ambiguous-registration` names the namespaces. The row lists each
+  such id first, outside the descriptor cap, as `ambiguous — <ns> <ns>`, so it
+  never silently vanishes.
+- **What is not listed** — a frame the frame-targeted query refuses (one that
+  neither seals an image nor resolves the store live, such as a test fixture's
+  ambient frame).
