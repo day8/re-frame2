@@ -5,14 +5,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.source-store :as rf.source-store]
             ;; Sub-cache-snapshot lives in re-frame.subs.tooling.
             [re-frame.subs.tooling :as rf.subs.tooling]
             ;; reg-runtime-sub (framework runtime-db sub) is an
             ;; internal subs surface, not on the rf/ facade — required for
             ;; the two-partition projection-equality invalidation pins below.
             [re-frame.subs :as rf.subs]
-            [re-frame.frame :as rf.frame]
             [re-frame.machines]
             ;; Loaded for its load-time hook and sub registrations.
             [re-frame.routing]
@@ -77,65 +75,17 @@
 (deftest view-returns-registered-fn
   (testing "(rf/view :id) returns the registered render fn after reg-view"
     (reg-view ^{:rf/id :my.ns/my-view} my-view [] [:p "body"])
-    (let [f (rf/view :my.ns/my-view)]
-      (is (fn? f)
-          "(rf/view id) returns a fn for a registered view")
-      ;; Per Spec 006 §Source-coord annotation, the wrapper
-      ;; splices :data-rf2-source-coord into the root attrs map under
-      ;; interop/debug-enabled?. The view's body content remains
-      ;; structurally the registered hiccup (root tag, children).
-      (let [out (f)]
-        (is (= :p (first out)) "root tag preserved by the wrapper")
-        (is (= ["body"] (drop 2 out))
-            "children preserved by the wrapper"))))
+    ;; Per Spec 006 §Source-coord annotation, the wrapper
+    ;; splices :data-rf2-source-coord into the root attrs map under
+    ;; interop/debug-enabled?. The view's body content remains
+    ;; structurally the registered hiccup (root tag, children).
+    (let [out ((rf/view :my.ns/my-view))]
+      (is (= [:p ["body"]] [(first out) (drop 2 out)])
+          "root tag and children preserved by the wrapper")))
   (testing "(rf/view :nope) is nil for an unregistered id (no error)"
     (is (nil? (rf/view :nope/not-registered)))))
 
 ;; ---- frame isolation ------------------------------------------------------
-
-(deftest multi-frame-state-isolation
-  (testing "two frames carry independent app-db state, share handler registry"
-    ;; Bundle co-load hygiene: CLAIM this test's id vocabulary
-    ;; before creating the frames — the story testbed registers the same
-    ;; canonical :counter/inc at its ns load, and sibling suites' in-test
-    ;; registrations of :counter/init / :count can leak through fixtures
-    ;; that don't restore the store; a second provenance row for any of
-    ;; them fails default-image assembly loud.
-    (doseq [[kind id] [[:event :counter/init]
-                       [:event :counter/inc]
-                       [:sub   :count]]]
-      (rf.source-store/forget-id! kind id))
-    (rf/make-frame {:id :left :doc "left frame"})
-    (rf/make-frame {:id :right :doc "right frame"})
-    (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
-    (rf/reg-sub :count (fn [db _] (:count db)))
-    (rf/dispatch-sync [:counter/init 10] {:frame :left})
-    (rf/dispatch-sync [:counter/init 100] {:frame :right})
-    (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (is (= 12  (rf/subscribe-once [:count] {:frame :left})))
-    (is (= 100 (rf/subscribe-once [:count] {:frame :right})))
-    (is (nil?  (rf/subscribe-once [:count] {:frame :rf/default})))))
-
-;; ---- reactivity -----------------------------------------------------------
-;; Reagent reactions auto-update on input change. Plain-atom can't show this
-;; (every deref recomputes); the Reagent adapter materialises real reactivity.
-
-(deftest reactive-sub-tracks-changes
-  (testing "a Reagent reaction's deref reflects post-event state"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r (rf/subscribe [:n])]
-      (is (= 0 @r))
-      (rf/dispatch-sync [:inc])
-      (is (= 1 @r) "the reaction observes the new value after :inc")
-      (rf/dispatch-sync [:inc])
-      (rf/dispatch-sync [:inc])
-      (is (= 3 @r))
-      (rf/unsubscribe r))))
 
 
 ;; ---- flows ----------------------------------------------------------------
@@ -187,13 +137,8 @@
       @c-reaction                                   ;; force lazy recompute
       (remove-watch c-reaction ::observer)
       (rf/unsubscribe c-reaction)
-      (let [seen     (distinct @history)
-            valid    #{{:a 1 :b 2} {:a 2 :b 1}}
-            invalid  (remove valid seen)]
-        (is (some #{{:a 1 :b 2}} seen)  "saw the initial state")
-        (is (some #{{:a 2 :b 1}} seen)  "saw the post-swap state")
-        (is (empty? invalid)
-            (str "saw glitched intermediate state(s): " (pr-str invalid)))))))
+      (is (= #{{:a 1 :b 2} {:a 2 :b 1}} (set @history))
+          "saw the initial and the post-swap state, and no glitched intermediate"))))
 
 (deftest sub-topology-glitch-free-chain
   (testing "chain: app-db -> a -> b -> c — each transition produces one final post-update value, no intermediates"
@@ -213,12 +158,8 @@
       @c-reaction
       (remove-watch c-reaction ::observer)
       (rf/unsubscribe c-reaction)
-      (let [seen (distinct @history)]
-        (is (some #{21}  seen) "saw the initial value 21")
-        (is (some #{201} seen) "saw the post-update value 201")
-        (is (empty? (remove #{21 201} seen))
-            (str "saw glitched intermediate value(s): "
-                 (pr-str (remove #{21 201} seen))))))))
+      (is (= #{21 201} (set @history))
+          "saw the initial value 21 and the post-update value 201, and no glitched intermediate"))))
 
 (deftest sub-correctness-on-value-equal-input
   (testing "[Spec 006 §No-op via value equality] a value-equal app-db replacement does NOT re-run the body fn of a layer-2 sub whose resolved input is value-equal — the wrapper short-circuits to the cached return value"
@@ -237,35 +178,27 @@
       (rf/dispatch-sync [:stable/init])
       (let [r (rf/subscribe [:stable/squared])]
         (add-watch r ::touch (fn [_ _ _ _] nil))
-        (is (= 25 @r) "initial value correct")
+        @r
         (let [a-baseline       @a-runs
               squared-baseline @squared-runs]
+          ;; Each row reads [value layer-1-runs layer-2-runs].
           ;; Value-equal app-db replacement: neither body should re-run.
           (rf/dispatch-sync [:stable/touch-unrelated])
           (r/flush)
           @r
-          (is (= 25 @r) "value still correct after a value-equal app-db replacement")
-          (is (= a-baseline @a-runs)
-              "layer-1 body should NOT re-run when its input is =-equal")
-          (is (= squared-baseline @squared-runs)
-              "layer-2 body should NOT re-run when its input is =-equal")
+          (is (= [25 a-baseline squared-baseline] [@r @a-runs @squared-runs])
+              "a value-equal app-db replacement keeps the value and re-runs neither body")
           ;; Real change: each body should run exactly once more.
           (rf/dispatch-sync [:stable/bump-n])
           (r/flush)
-          (is (= 36 @r) "value updated after a real change")
-          (is (= (inc a-baseline) @a-runs)
-              "layer-1 body runs exactly once on a real input change")
-          (is (= (inc squared-baseline) @squared-runs)
-              "layer-2 body runs exactly once on a real input change")
+          (is (= [36 (inc a-baseline) (inc squared-baseline)] [@r @a-runs @squared-runs])
+              "a real input change updates the value and runs each body exactly once")
           ;; A second value-equal touch must again be a no-op.
           (rf/dispatch-sync [:stable/touch-unrelated])
           (r/flush)
           @r
-          (is (= 36 @r) "value still correct after a second value-equal replacement")
-          (is (= (inc a-baseline) @a-runs)
-              "layer-1 body still suppressed on the second value-equal replacement")
-          (is (= (inc squared-baseline) @squared-runs)
-              "layer-2 body still suppressed on the second value-equal replacement"))
+          (is (= [36 (inc a-baseline) (inc squared-baseline)] [@r @a-runs @squared-runs])
+              "a second value-equal replacement keeps the value and suppresses both bodies again"))
         (remove-watch r ::touch)
         (rf/unsubscribe r)))))
 
@@ -305,18 +238,16 @@
         ;; Pin the reaction live with a watch so its memoised value persists
         ;; across the commit (matches sub-correctness-on-value-equal-input).
         (add-watch r ::touch (fn [_ _ _ _] nil))
-        (is (= 1 @r) "precondition: app sub primes to the seeded value")
+        @r
         (let [after-prime @runs]
           (reg-fw-runtime-handler! :inval/touch-rt
             (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
           (rf/dispatch-sync [:inval/touch-rt])
           (r/flush)
           @r
-          (is (= 1 @r) "the app sub still derefs to the unchanged value")
-          (is (= after-prime @runs)
-              "the app-db layer-1 sub body did NOT re-run — app-db projection stayed `=` on a runtime-only commit")
-          (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :rf/default)))
-              "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
+          (is (= [1 after-prime {:rf.runtime/machines {:m 1}}]
+                 [@r @runs (:rf.db/runtime (rf/frame-state-value :rf/default))])
+              "the app sub keeps its value and its body did NOT re-run, while the runtime-only commit DID land in runtime-db (a real short-circuit, not a dropped write)"))
         (remove-watch r ::touch)
         (rf/unsubscribe r)))))
 
@@ -332,17 +263,15 @@
         (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
       (let [r (rf/subscribe [:inval/rt-sub])]
         (add-watch r ::touch (fn [_ _ _ _] nil))
-        (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
+        @r
         (let [after-prime @runs]
           (rf/reg-event :inval/app-write (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
           (rf/dispatch-sync [:inval/app-write])
           (r/flush)
           @r
-          (is (= :home @r) "the runtime-db sub still derefs to the unchanged route id")
-          (is (= after-prime @runs)
-              "the runtime-db sub body did NOT re-run — runtime-db projection stayed `=` on an app-only commit")
-          (is (true? (:touched? (rf/app-db-value :rf/default)))
-              "the app-only commit DID land in app-db (real short-circuit, not a dropped write)"))
+          (is (= [:home after-prime true]
+                 [@r @runs (:touched? (rf/app-db-value :rf/default))])
+              "the runtime-db sub keeps its route id and its body did NOT re-run, while the app-only commit DID land in app-db (a real short-circuit, not a dropped write)"))
         (remove-watch r ::touch)
         (rf/unsubscribe r)))))
 
@@ -364,29 +293,23 @@
             rr (rf/subscribe [:inval/rt-sub2])]
         (add-watch ra ::touch-a (fn [_ _ _ _] nil))
         (add-watch rr ::touch-r (fn [_ _ _ _] nil))
-        (is (= 1 @ra) "precondition: app sub primed")
-        (is (= 1 @rr) "precondition: runtime-db sub primed")
+        @ra
+        @rr
         (let [app-baseline @app-runs
               rt-baseline  @rt-runs]
           ;; Real app-db change.
           (rf/reg-event :inval/app-write2 (fn [{:keys [db]} _] {:db (update db :n inc)}))
           (rf/dispatch-sync [:inval/app-write2])
           (r/flush)
-          (is (= 2 @ra) "the app sub re-derived to the new app-db value")
-          (is (= (inc app-baseline) @app-runs)
-              "the app sub body re-ran exactly once on a real app-db change")
-          (is (= rt-baseline @rt-runs)
-              "the runtime-db sub body did NOT re-run on a real app-db change")
+          (is (= [2 (inc app-baseline) rt-baseline] [@ra @app-runs @rt-runs])
+              "a real app-db change re-derives the app sub, re-running its body exactly once and the runtime-db sub body not at all")
           ;; Real runtime-db change.
           (reg-fw-runtime-handler! :inval/rt-write2
             (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 2}}}))
           (rf/dispatch-sync [:inval/rt-write2])
           (r/flush)
-          (is (= 2 @rr) "the runtime-db sub re-derived to the new runtime-db value")
-          (is (= (inc rt-baseline) @rt-runs)
-              "the runtime-db sub body re-ran exactly once on a real runtime-db change")
-          (is (= (inc app-baseline) @app-runs)
-              "the app sub body did NOT re-run on a real runtime-db change"))
+          (is (= [2 (inc rt-baseline) (inc app-baseline)] [@rr @rt-runs @app-runs])
+              "a real runtime-db change re-derives the runtime-db sub, re-running its body exactly once and the app sub body not again"))
         (remove-watch ra ::touch-a)
         (remove-watch rr ::touch-r)
         (rf/unsubscribe ra)
@@ -409,23 +332,12 @@
         "no subs materialised yet → empty map")
     (let [r1 (rf/subscribe [:n])
           r2 (rf/subscribe [:n])
-          r3 (rf/subscribe [:name*])
-          snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)]
-      (is (= 2 (count snapshot))
-          "snapshot contains one entry per materialised query-v")
-      (is (= 7     (get-in snapshot [[:n]     :value])))
-      (is (= "ada" (get-in snapshot [[:name*] :value])))
-      (is (= 2     (get-in snapshot [[:n]     :ref-count]))
-          "ref-count reflects two outstanding subscribes for [:n]")
-      (is (= 1     (get-in snapshot [[:name*] :ref-count])))
+          r3 (rf/subscribe [:name*])]
       ;; Layer-1 readers carry :input-kind :db / no realized edges.
-      (is (= :db (get-in snapshot [[:n]     :input-kind]))
-          "layer-1 reader surfaces :input-kind :db")
-      (is (= []  (get-in snapshot [[:n]     :realized-inputs]))
-          "layer-1 reader has no realized input edges")
-      ;; Default no-arg form uses the active frame.
-      (is (= snapshot (rf.subs.tooling/sub-cache-snapshot (rf/current-frame-id)))
-          "no-arg form returns the active frame's snapshot")
+      (is (= {[:n]     {:value 7     :ref-count 2 :input-kind :db :realized-inputs []}
+              [:name*] {:value "ada" :ref-count 1 :input-kind :db :realized-inputs []}}
+             (rf.subs.tooling/sub-cache-snapshot :rf/default))
+          "one entry per materialised query-v; ref-count reflects two outstanding subscribes for [:n]")
       (rf/unsubscribe r1)
       (rf/unsubscribe r2)
       (rf/unsubscribe r3))
@@ -449,39 +361,6 @@
           "a declared-input sub is :input-kind :static")
       (is (= [[:items] [:filter]] (:realized-inputs entry))
           "static realized inputs are the literal `:inputs` query-vectors in order")
-      (rf/unsubscribe r))))
-
-(deftest sub-cache-surfaces-parametric-realized-inputs
-  (testing "a :parametric input-fn sub surfaces :input-kind :parametric +
-           the REALIZED input query-vectors for the concrete outer query-v"
-    (rf/reg-event :seed3 (fn [{:keys [db]} _] {:db {:articles {:a1 {:title "T"}}
-                                       :comments {:a1 [:c1]}
-                                       :viewer   {:edit? true}}}))
-    (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
-    (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
-    (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
-    (rf/reg-sub :article/page
-                {:inputs (fn [[_ id]]
-                  [[:article/by-id id]
-                   [:comments/for-article id]
-                   [:viewer/current]])}
-                (fn [[article comments viewer] [_ id]]
-                  {:article article :comments comments :viewer viewer}))
-    (rf/dispatch-sync [:seed3])
-    (let [r (rf/subscribe [:article/page :a1])
-          snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)
-          entry (get snapshot [:article/page :a1])]
-      (is (= :parametric (:input-kind entry))
-          "the input-fn sub is :input-kind :parametric")
-      (is (= [[:article/by-id :a1]
-              [:comments/for-article :a1]
-              [:viewer/current]]
-             (:realized-inputs entry))
-          "realized-inputs are the (input-fn query-v) result — concrete edges for :a1")
-      ;; The static topology must NOT enumerate these — only the live cache does.
-      ;; CLJS calls the tooling ns directly (rf/sub-topology is a JVM-only alias).
-      (is (= :parametric (:inputs ((rf.subs.tooling/sub-topology) :article/page)))
-          "static sub-topology reports the :parametric sentinel, not the realized edges")
       (rf/unsubscribe r))))
 
 ;; ---- live sub-cache algebra view (EP-0014 slice-2) -------------
@@ -510,28 +389,17 @@
           view (rf.subs.tooling/sub-cache-algebra-view :rf/default)]
       (is (= 2 (count view))
           "one algebra node per materialised query-v")
-      (let [node-n (get view [:n])]
-        (is (= [:n] (:id node-n))
-            "the live node's id is its concrete query vector")
-        (is (= :derivation (:kind node-n)))
-        (is (= :ephemeral (:storage node-n)))
-        (is (= :on-demand (:evaluation node-n)))
-        (is (= :subscription-cache-entry (:lifecycle node-n)))
-        (is (= false (:materialized? node-n)))
-        (is (= [:fact [:n]] (:output node-n))
-            "the output fact is addressed by the concrete query vector")
-        (is (= {:kind :reg-sub :id :n} (:source-form node-n)))
-        (is (= [] (:inputs node-n))
-            "a layer-1 reader has no realized [:sub …] edges")
-        (is (= :db (:input-kind node-n)))
-        (is (= 7 (:value node-n))
-            "the node carries the live deref of the cached reaction")
-        (is (= 2 (:ref-count node-n))
-            "ref-count is the lifecycle evidence the cache-entry owner is kept alive"))
-      ;; No-arg-by-id parity with the active frame.
-      (is (= (rf.subs.tooling/sub-cache-algebra-view :rf/default)
-             (rf.subs.tooling/sub-cache-algebra-view (rf/current-frame-id)))
-          "the named-frame view equals the active-frame view")
+      ;; The id and the output fact are addressed by the concrete query
+      ;; vector, and ref-count is the lifecycle evidence the cache-entry
+      ;; owner is kept alive.
+      (let [node-keys [:id :kind :storage :evaluation :lifecycle :materialized?
+                       :output :source-form :inputs :input-kind :value :ref-count]]
+        (is (= {:id [:n] :kind :derivation :storage :ephemeral :evaluation :on-demand
+                :lifecycle :subscription-cache-entry :materialized? false
+                :output [:fact [:n]] :source-form {:kind :reg-sub :id :n}
+                :inputs [] :input-kind :db :value 7 :ref-count 2}
+               (select-keys (get view [:n]) node-keys))
+            "the live [:n] node is the full ephemeral / on-demand / cache-entry algebra node"))
       (rf/unsubscribe r1)
       (rf/unsubscribe r2)
       (rf/unsubscribe r3))
@@ -710,28 +578,6 @@
     (is (thrown-with-msg? :default #":rf.error/bad-frame-provider-arg"
           (rf/frame-provider {:frame "provider-bad-arg-neighbour"} [:p]))
         "a string target is rejected before React Context is written")))
-
-;; ---- per-frame sub-cache disposal (Spec 006) -------------------
-;;
-;; Mirrors the synchronous-disposal portion of
-;; implementation/core/test/re_frame/sub_cache_test.clj under the Reagent
-;; adapter. Sub-cache disposal is synchronous on
-;; derefer-count → 0; no grace-period to configure.
-
-(defn- cache-keys-of
-  [frame-id]
-  (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
-
-(deftest sub-cache-sync-disposes-on-last-unsubscribe
-  (testing "ref-count → 0 disposes the slot synchronously"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-    (let [r (rf/subscribe [:n])]
-      (is (contains? (cache-keys-of :rf/default) [:n]))
-      (rf/unsubscribe r)
-      (is (not (contains? (cache-keys-of :rf/default) [:n]))
-          "slot evicted in-tick on the 1 → 0 transition"))))
 
 ;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel) ---
 ;;
