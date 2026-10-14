@@ -74,10 +74,11 @@
           (str "registration order " (mapv first order))))))
 
 (deftest a-frame-frozen-by-a-move-names-the-implementation-it-still-runs
-  ;; the move leaves the frame on its prior generation, running coord.move-a's
-  ;; handler, while coord.move-b is the namespace that registered the id last
+  ;; the frame's image selects both namespaces, so the move leaves it on its
+  ;; prior generation, running coord.move-a's handler, while coord.move-b is the
+  ;; namespace that registered the id last
   (reg-from! 'coord.move-a 30 :coord/moved)
-  (rf/make-frame {:id :coord/frozen})
+  (rf/make-frame {:id :coord/frozen :images [(image-of :coord/img-move "coord.move-*")]})
   (reg-from! 'coord.move-b 40 :coord/moved)
   (is (= (coord 'coord.move-a 30) (handler-exception-coord :coord/frozen :coord/moved))))
 

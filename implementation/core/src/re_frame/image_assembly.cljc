@@ -207,13 +207,15 @@
   `:rf.standard/replaceable?` (default false) and `:rf.standard/requires-conformance`
   (default `#{}`). Idempotent per `[kind id]` — re-registering replaces the slot
   (the standard owner's hot-reload path). Bumps the standard generation so the
-  resolved-generation cache invalidates. Returns the stamped descriptor."
+  resolved-generation cache invalidates, and hands the registrar the standard
+  keys, so an application `reg-*` of this `[kind id]` is refused. Returns the
+  stamped descriptor."
   [kind id descriptor]
   (let [desc (-> descriptor
                  (assoc :kind kind :id id :standard true)
                  (update :rf.standard/replaceable? boolean)
                  (update :rf.standard/requires-conformance #(set (or % #{}))))]
-    (swap! standard-registry assoc [kind id] desc)
+    (rf.registrar/set-standard-keys! (keys (swap! standard-registry assoc [kind id] desc)))
     (swap! standard-generation* inc)
     desc))
 
@@ -223,6 +225,7 @@
   invalidates."
   []
   (reset! standard-registry {})
+  (rf.registrar/set-standard-keys! nil)
   (swap! standard-generation* inc)
   nil)
 

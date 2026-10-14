@@ -5,9 +5,11 @@
   The repro registers through the real `rf/reg-*` macros from real namespaces,
   so each registration carries the provenance a hot-reload refactor produces:
   an event handler moved from one namespace to another while the old
-  namespace's slot survives. The default-image frame then cannot resolve that
-  id, keeps its prior generation for every id, and must say so once per failed
-  refresh.
+  namespace's slot survives. A frame whose image selects both namespaces then
+  cannot resolve that id, keeps its prior generation for every id, and must say
+  so once per failed refresh. (A frame made without `:images` seals nothing, so
+  it never freezes: it raises `:rf.error/ambiguous-registration` for the one id
+  — `re-frame.live-default-frame-test`.)
 
   JVM-only: it creates namespaces and `eval`s registration forms in them."
   (:require [clojure.string :as str]
@@ -50,7 +52,8 @@
                               (fn [{:keys [db]} _] {:db (assoc db :count-version 1)})))
       (eval-in-ns 'probe.a '(rf/reg-event :probe/ev {:doc "a"}
                               (fn [{:keys [db]} _] {:db (assoc db :who :a)})))
-      (rf/make-frame {:id :probe/frame})
+      (rf/make-frame {:id     :probe/frame
+                      :images [(rf/image {:id :probe/image :select-ns {:include ["probe.**"]}})]})
       (rf/dispatch-sync [:probe/ev] {:frame :probe/frame})
       (is (= :a (:who (rf/app-db-value :probe/frame))))
 

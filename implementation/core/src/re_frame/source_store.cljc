@@ -216,6 +216,17 @@
 
 ;; ---- recording ------------------------------------------------------------
 
+(defn provenance-ns
+  "The canonical source namespace string `descriptor` records under, or nil
+  for a registration with no namespace provenance. Resolution order is the one
+  [[record-descriptor!]] documents: an explicit `:rf.provenance/ns`, then the
+  descriptor's `:ns` slot, then the `:ns` of the live
+  `rf.source-coords/*pending-coords*` binding (the production-surviving path)."
+  [descriptor]
+  (canonical-ns (or (get descriptor provenance-ns-key)
+                    (:ns descriptor)
+                    (:ns rf.source-coords/*pending-coords*))))
+
 (defn record-descriptor!
   "Record `descriptor` for `(kind, id)` under its source namespace in the
   active source store, returning the descriptor as stored (with `:kind` /
@@ -263,11 +274,7 @@
   preserves every provenance-distinct descriptor, and image assembly
   (`re-frame.image-assembly`) projects sealed generations from it."
   [kind id descriptor]
-  (let [pn   (canonical-ns (or (get descriptor provenance-ns-key)
-                               (:ns descriptor)
-                               ;; Production-surviving fallback: the live
-                               ;; *pending-coords* binding's :ns.
-                               (:ns rf.source-coords/*pending-coords*)))
+  (let [pn   (provenance-ns descriptor)
         ;; Stamp `:kind` / `:id` (the store key, so deterministic) — image
         ;; assembly reads them off the descriptor — plus the
         ;; canonical provenance string so `(rf/handler-meta {:source :store :kind kind :id id})` consumers

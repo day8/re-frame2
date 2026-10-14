@@ -455,8 +455,18 @@
       ;; can fence the enqueue to the EXACT incarnation the resolve returns.
       expected-incarnation (assoc :rf.frame/expected-incarnation expected-incarnation))))))
 
-(defn- resolve-handler [event-id]
-  (rf.registrar/lookup :event event-id))
+(defn- resolve-handler
+  "The event's registration, or nil. A frame made without `:images` throws
+  `:rf.error/ambiguous-registration` from the lookup when more than one
+  namespace registers `event-id`; that comes back as `{::ambiguous ex}`, so
+  the drain reports it and moves on to the next event."
+  [event-id]
+  (try
+    (rf.registrar/lookup :event event-id)
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.registrar/ambiguous-registration? e)
+        {::ambiguous e}
+        (throw e)))))
 
 (def ^:private framework-private-handler-metas
   "event-id → handler-meta, for framework-OWNED events that are deliberately
@@ -3178,8 +3188,15 @@
             ;; may be attributed to a same-id successor.
         (when (and (not= ::stale-incarnation handler-meta)
                    (rf.frame/event-owner-live? frame))
-          (if (nil? handler-meta)
+          (cond
+            (nil? handler-meta)
             (rf.router.diagnostics/handle-no-handler! event-id event frame)
+
+            (::ambiguous handler-meta)
+            (rf.router.diagnostics/handle-ambiguous-handler!
+              (::ambiguous handler-meta) event-id event frame)
+
+            :else
             (run-handler-pipeline! envelope event-id event frame
                                    frame-record handler-meta)))))))
 
@@ -3218,7 +3235,9 @@
 
    3. `rf.registrar/*generation*` — bound to the target frame's resolved
       IMAGE GENERATION for the WHOLE cascade WHEN the carried `:frame`
-      names an EP-0023 image-loaded frame. This is the EP-0023 restatement of the
+      names an EP-0023 image-loaded frame (for a frame made without
+      `:images`, `rf.registrar/*live-view*` is bound to one snapshot of the
+      registration store instead — `rf.live-frame/call-with-record-resolution`). This is the EP-0023 restatement of the
       `target frame -> resolved image generation -> registration
       resolution` invariant in image/frame terms. The resolution
       chokepoint (`rf.registrar/lookup`) — event-handler lookup, every cofx
@@ -3275,10 +3294,9 @@
             (let [active-record (rf.frame/frame (:frame envelope))]
               (when (and active-record
                          (identical? owner-token (:drain-lock active-record)))
-                (if-let [generation (:generation active-record)]
-                  (binding [rf.registrar/*generation* generation]
-                    (process-event* envelope active-record))
-                  (process-event* envelope active-record))))))))))))
+                (rf.live-frame/call-with-record-resolution
+                  active-record
+                  #(process-event* envelope active-record))))))))))))
 
 (def ^:private drain-depth-default
   ;; The most events one FAMILY may dequeue — an external event (or a
@@ -4255,7 +4273,11 @@
                           (catch #?(:clj Throwable :cljs :default) e
                             ;; Resolution is callback-bearing. A destroy+throw
                             ;; is inert; otherwise preserve the existing error.
-                            (when (continue?) (throw e)))))
+                            ;; An ambiguous id has no meta to gate on: it is
+                            ;; reported once, where the event is processed.
+                            (when (and (continue?)
+                                       (not (rf.registrar/ambiguous-registration? e)))
+                              (throw e)))))
          no-emit?     (rf.trace/no-emit?-from-meta handler-meta)]
     (when (and (continue?) (not no-emit?))
       (rf.trace/with-call-site (:call-site envelope)

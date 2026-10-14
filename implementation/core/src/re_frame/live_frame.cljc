@@ -5,7 +5,9 @@
   image values into ONE sealed image generation (via
   `re-frame.image-assembly/assemble`) — AND record-config opts in one call, and
   returns the frame VALUE (the lifecycle token). The resolved generation lives on
-  the frame's record (the `:generation` slot), NOT in a second registry.
+  the frame's record (the `:generation` slot), NOT in a second registry. A frame
+  made WITHOUT `:images` seals nothing: it resolves the registration store live
+  (§Live resolution, below).
 
   > A frame id names a running context in a registry. A frame value is the
   > lifecycle token a creation API returns. (EP-0023 §Frame / EP-0024)
@@ -113,8 +115,10 @@
   registration resolution). The resolution-routing contract is carried by an
   EP-0023 frame OBJECT that holds its generation directly. Two frames running
   DIFFERENT images resolve the same
-  `[kind id]` to their OWN image's descriptor; absence (a nil target / no
-  generation) falls through to the registrar atom path (absence-is-default).
+  `[kind id]` to their OWN image's descriptor. A frame made without `:images`
+  binds a [[live-view]] of the registration store instead; any other target (a
+  nil target, a frame the test fixture seated) binds nothing and resolves
+  through the registrar atom.
 
   ## Production elision
 
@@ -270,6 +274,127 @@
         (live-frame-ids)))
 
 ;; ===========================================================================
+;; Live resolution — a frame made without `:images` (Spec 002 §Image
+;; resolution and composition)
+;; ===========================================================================
+;;
+;; A frame `make-frame` builds without `:images` seals nothing. Each cascade
+;; resolves against ONE snapshot of the registration store taken when the
+;; cascade begins ([[live-view]], bound as `rf.registrar/*live-view*`), so an
+;; event, its interceptors and its `:fx` cannot be split by a registration that
+;; lands mid-event, and the next event sees it.
+;;
+;; The store keeps one descriptor per `[kind id]` per source namespace
+;; (`re-frame.source-store`), so resolving an id is a read, not an assembly:
+;;
+;;   * a framework STANDARD resolves to the standard — an application
+;;     registration of one is refused when it is made
+;;     (`rf.registrar/register!`);
+;;   * a single descriptor is the answer;
+;;   * the framework's own copy of a REPLACEABLE DEFAULT gives way to the
+;;     application registration that supersedes it
+;;     (`rf.image-assembly/framework-default-descriptor?`);
+;;   * any other id registered from more than one namespace is AMBIGUOUS, and
+;;     using it throws `:rf.error/ambiguous-registration`, naming the
+;;     namespaces and the remedy. Load order never picks a survivor, and every
+;;     other id keeps working.
+;;
+;; The usual source of an ambiguous id is a handler moved between namespaces:
+;; re-evaluating the old namespace without the form does not remove its slot,
+;; so the id stays ambiguous until `(rf/clear kind id)` and a re-evaluation of
+;; the namespace that should own it.
+
+(defn- live-candidates
+  "The descriptors of one `provenance-ns → descriptor` store entry that a live
+  frame chooses between: all of them, less the framework's own copy of a
+  replaceable default when an application registration supersedes it."
+  [ns->desc]
+  (if (and (> (count ns->desc) 1)
+           (rf.image-assembly/framework-default-descriptor? (get ns->desc nil)))
+    (dissoc ns->desc nil)
+    ns->desc))
+
+(defn- throw-ambiguous-registration!
+  "Throw `:rf.error/ambiguous-registration` for `[kind id]`, whose `candidates`
+  come from more than one namespace."
+  [kind id candidates]
+  (let [namespaces (vec (sort-by str (keys candidates)))]
+    (rf.error/throw-error!
+      :rf.error/ambiguous-registration
+      'rf/make-frame
+      (str (pr-str [kind id]) " is registered by more than one namespace "
+           (pr-str namespaces) ", so a frame made without :images runs neither."
+           " Recover with (rf/clear " (pr-str kind) " " (pr-str id) "), then"
+           " re-evaluate the namespace that should own the id.")
+      {:recovery :clear-the-id-and-re-evaluate-its-owner
+       :extra    {:kind         kind
+                  :id           id
+                  :registration [kind id]
+                  :namespaces   namespaces}})))
+
+(defn live-view
+  "Build the resolver a frame made without `:images` resolves through for one
+  cascade — the value `rf.registrar/*live-view*` is bound to. It closes over ONE
+  snapshot of the active source store and the framework standards:
+
+    (view kind id) — the descriptor `[kind id]` resolves to, nil when nothing
+                     registers it, or a throw of
+                     `:rf.error/ambiguous-registration` when more than one
+                     namespace does;
+    (view kind)    — the `{id descriptor}` map of every id of `kind` the frame
+                     can run (an ambiguous id is not one of them).
+
+  Two derefs and a closure per cascade: nothing is assembled, sealed or
+  cached."
+  []
+  (let [store     @(rf.source-store/active-source-store)
+        standards @rf.image-assembly/standard-registry]
+    (fn
+      ([kind]
+       (reduce-kv (fn [acc [k id] descriptor]
+                    (if (= k kind) (assoc acc id descriptor) acc))
+                  (reduce-kv (fn [acc id ns->desc]
+                               (let [candidates (live-candidates ns->desc)]
+                                 (if (= 1 (count candidates))
+                                   (assoc acc id (val (first candidates)))
+                                   acc)))
+                             {}
+                             (get store kind))
+                  standards))
+      ([kind id]
+       (or (get standards [kind id])
+           (let [candidates (live-candidates (-> store (get kind) (get id)))]
+             (case (count candidates)
+               0 nil
+               1 (val (first candidates))
+               (throw-ambiguous-registration! kind id candidates))))))))
+
+(defn live-store-frame?
+  "True when `frame-target` (a frame value or id) names a frame made without
+  `:images`, which resolves the registration store live. Pure."
+  [frame-target]
+  (true? (rf.frame/frame-slot (rf.frame/frame-value->id frame-target) :live-store?)))
+
+(defn ^:no-doc call-with-record-resolution
+  "Run `thunk` under the registration resolution frame `record` names, and
+  return its value: the record's sealed generation bound as
+  `rf.registrar/*generation*`; for a frame made without `:images`, a fresh
+  [[live-view]] bound as `rf.registrar/*live-view*`; for any other record (or
+  nil) no binding, so lookups read the registrar atom. The seam
+  [[call-with-frame-resolution]] and the router's per-event resolution share,
+  so a cascade binds ONE view of the registrations for its whole run."
+  [record thunk]
+  (if-let [generation (:generation record)]
+    (binding [rf.registrar/*generation* generation
+              rf.registrar/*live-view*  nil]
+      (thunk))
+    (if (:live-store? record)
+      (binding [rf.registrar/*generation* nil
+                rf.registrar/*live-view*  (live-view)]
+        (thunk))
+      (thunk))))
+
+;; ===========================================================================
 ;; Frame-derived live registration resolution (EP-0023 §Frame-derived live
 ;; registration resolution)
 ;; ===========================================================================
@@ -331,12 +456,13 @@
 
 (defn call-with-frame-resolution
   "Invoke `thunk` with `rf.registrar/*generation*` bound to `frame-target`'s
-  resolved image generation WHEN the target names an image-loaded frame;
-  otherwise invoke `thunk` with NO binding (the absence-is-default
-  registrar-atom path). Returns the thunk's value. This is the frame-derived
+  resolved image generation WHEN the target names an image-loaded frame, with
+  `rf.registrar/*live-view*` bound to a [[live-view]] when it names a frame made
+  without `:images`, and with NO binding otherwise (the registrar-atom path).
+  Returns the thunk's value. This is the frame-derived
   resolution seam: every event / subscription / fx / cofx / view / resource
   `(kind, id)` lookup inside `thunk` resolves through the targeted frame's OWN
-  image generation coherently (ALL-OR-NOTHING — `rf.registrar/lookup` is the single
+  view coherently (ALL-OR-NOTHING — `rf.registrar/lookup` is the single
   chokepoint they all funnel through).
 
   READ-TIME COALESCED FLUSH: when a `reg-*` source-store change
@@ -353,10 +479,10 @@
   sets one flag and is flushed ONCE, by whichever comes first — this read or
   the scheduled tick.
 
-  This flush is NOT gated on `rf.interop/debug-enabled?`: `make-frame` seals a
-  generation unconditionally, so a production gate would freeze each frame's
-  view of the registration pool at construction time — every handler
-  registered afterwards would dispatch as `:rf.error/no-such-handler`. The
+  This flush is NOT gated on `rf.interop/debug-enabled?`: a frame made with
+  `:images` seals a generation, so a production gate would freeze its view of
+  the registration pool at construction time — every handler registered
+  afterwards would dispatch as `:rf.error/no-such-handler`. The
   consult is by late-bind KEYWORD and its publisher is rooted from
   `make-frame`, so an app that never constructs a frame still DCEs the whole
   reprojection + assembly graph and pays nothing here.
@@ -365,11 +491,10 @@
   return token) or a frame id — the generation is read from the record by id, so
   a value target and its id resolve the SAME generation, and a re-`make-frame`
   swap onto the record is observed through either. A nil target, a non-frame
-  value, or a frame whose record carries no generation binds nothing and runs
-  `thunk` on the default registrar-atom path. DERIVED from the carried frame target, never an ambient binding
-  (EP-0002 carried-invariant). The default (no-generation) path pays one
-  normalize + one record read and then runs `thunk` with ZERO dynamic-binding
-  cost."
+  value, or a frame whose record carries neither a generation nor the live
+  mark binds nothing and runs `thunk` on the registrar-atom path. DERIVED from
+  the carried frame target, never an ambient binding (EP-0002
+  carried-invariant)."
   [frame-target thunk]
   ;; LATE-BOUND consult (not a direct fn reference): the flush body pulls the
   ;; whole reprojection + image-assembly graph, which must DCE out of
@@ -379,17 +504,15 @@
   ;; so a bundle that never constructs a frame still folds the graph away —
   ;; the keyword consult here roots nothing on its own.
   ;;
-  ;; NOT gated on `rf.interop/debug-enabled?`. `make-frame` seals a
-  ;; generation unconditionally and this seam binds it for every lookup in the
-  ;; cascade, so skipping the flush in production would freeze the frame's
+  ;; NOT gated on `rf.interop/debug-enabled?`. A frame made with `:images`
+  ;; seals a generation and this seam binds it for every lookup in the
+  ;; cascade, so skipping the flush in production would freeze that frame's
   ;; view of the registration pool at construction time and turn every
   ;; later-registered handler into `:rf.error/no-such-handler`.
   (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
     (flush!))
-  (if-let [gen (frame-resolution-generation frame-target)]
-    (binding [rf.registrar/*generation* gen]
-      (thunk))
-    (thunk)))
+  (call-with-record-resolution (rf.frame/frame (rf.frame/frame-value->id frame-target))
+                               thunk))
 
 ;; ===========================================================================
 ;; :images validation (EP-0023 §Image Composition — \"`:images`, always a
@@ -472,10 +595,12 @@
   `make-frame` fails at registration). Nothing is built: dispatch resolves the
   chain, so a re-registered interceptor is picked up on the next event and a
   factory runs only for a reference that survives that dispatch's
-  `:interceptor-overrides`."
+  `:interceptor-overrides`. A frame made without `:images` (`generation` nil)
+  checks the chain against a [[live-view]] of the registration store."
   [interceptors generation]
   (when (some? interceptors)
-    (binding [rf.registrar/*generation* generation]
+    (binding [rf.registrar/*generation* generation
+              rf.registrar/*live-view*  (when (nil? generation) (live-view))]
       (rf.interceptor-registry/check-chain! interceptors)))
   nil)
 
@@ -876,14 +1001,17 @@
                        collision (`:rf.error/image-duplicate-id`);
                      * PRESENT empty `:images []`  → an ERROR — pass at least one
                        image, or OMIT `:images` for the default;
-                     * ABSENT `:images` (`make-frame {}`) → the DEFAULT IMAGE
-                       generation over the active source store
-                       (`assemble-default`): the implicit selector over the WHOLE
-                       store + framework standards, FAILING LOUD on a
-                       cross-namespace same-`[kind id]` collision the SAME way
-                       (`:rf.error/image-duplicate-id` — load order never decides
-                       the survivor). App isolation is requested through the same
-                       image API (`rf/image` + `:select-ns`), not a new scope.
+                     * ABSENT `:images` (`make-frame {}`) → NO generation: the
+                       frame resolves the registration store LIVE, plus the
+                       framework standards (§Live resolution). A `[kind id]`
+                       registered from more than one namespace raises
+                       `:rf.error/ambiguous-registration` when it is used —
+                       load order never decides the survivor — while every
+                       other id keeps working. With an explicit `descriptors`
+                       pool the frame seals that pool's default projection
+                       instead (`assemble-default`), since the pool is a value.
+                       App isolation is requested through the same image API
+                       (`rf/image` + `:select-ns`), not a new scope.
     :id            the frame id (optional). When supplied, the frame is
                    registered under this id in the ONE `frames` registry;
                    re-`make-frame`-ing the same id is IDEMPOTENT REPLACEMENT —
@@ -973,23 +1101,20 @@
          ;;     same-`[kind id]` collision (`:rf.error/image-duplicate-id`);
          ;;   * PRESENT empty `:images []`   → an ERROR (`validate-images!` rejects
          ;;     it: pass at least one image, or OMIT `:images` for the default);
-         ;;   * ABSENT `:images` (`make-frame {}`) → resolve the DEFAULT image
-         ;;     generation over the ACTIVE source store (`assemble-default`) — the
-         ;;     implicit selector over the whole store + framework standards. The
-         ;;     default projection FAILS LOUD on a cross-namespace same-`[kind id]`
-         ;;     collision the SAME way (`:rf.error/image-duplicate-id`); load order
-         ;;     never silently decides the survivor on the default path either.
+         ;;   * ABSENT `:images` (`make-frame {}`) → NO generation: the frame
+         ;;     resolves the live registration store (§Live resolution), so a
+         ;;     duplicate id fails where it is used, not here. An explicit
+         ;;     descriptor pool is a value rather than the live store, so with
+         ;;     one the frame seals the pool's default projection
+         ;;     (`assemble-default`).
          ;; App isolation is requested through the same image API as every other
          ;; selection (`rf/image` + `:select-ns`), NOT a new scope concept — a
          ;; frame that must see only its own registrations passes an explicit image.
-         ;; The two arities mirror `assemble`/`assemble-default`: the LIVE source
-         ;; store (`descriptors` nil) or an explicit descriptor pool (tests /
-         ;; harnesses / a pre-snapshotted store).
-         generation  (if (some? images)
-                       (resolve-generation! images descriptors)
-                       (if (nil? descriptors)
-                         (rf.image-assembly/assemble-default)
-                         (rf.image-assembly/assemble-default descriptors)))
+         generation  (cond
+                       (some? images)      (resolve-generation! images descriptors)
+                       (some? descriptors) (rf.image-assembly/assemble-default descriptors)
+                       :else               nil)
+         live-store? (nil? generation)
          ;; The frame's `:interceptors` refs resolve against that generation
          ;; here, before any record exists, so a typo fails at the call that
          ;; made it rather than at the first dispatch.
@@ -1005,27 +1130,27 @@
          ;; `:initial-db` / `:on-create` likewise flows through to the engine's
          ;; fail-loud guard). We thread two reserved construction inputs
          ;; through the config:
-         ;;   :rf.frame/generation   — the resolved generation. ALWAYS present
-         ;;                            (EP-0026 §Default Image): a PRESENT `:images`
-         ;;                            resolves the selected generation; an ABSENT
-         ;;                            `:images` resolves the DEFAULT image
-         ;;                            generation over the active source store. So
-         ;;                            every frame carries a generation and resolves
-         ;;                            through it — the absence-is-default
-         ;;                            registrar-atom fall-through never fires
-         ;;                            on the make-frame path. The engine seats it
+         ;;   :rf.frame/generation   — the resolved generation, nil for a frame
+         ;;                            made without `:images`. The engine seats it
          ;;                            into the `:generation` slot and strips it
          ;;                            from the stored config. Installed BEFORE the
          ;;                            `:initial-events` setup runs, so a setup
          ;;                            cascade resolves through the frame's OWN
          ;;                            image generation, not the global registrar.
+         ;;   :rf.frame/live-store?  — true for a frame made without `:images`,
+         ;;                            seated into the `:live-store?` slot: the
+         ;;                            frame resolves the registration store live
+         ;;                            (a setup cascade included), never the
+         ;;                            registrar atom the test fixture's frame
+         ;;                            reads.
          ;;   :rf.frame/adapter      — the active-substrate adapter binding, KEPT
          ;;                            in the stored config so tooling (Xray's
          ;;                            image/frame view) can read it by id.
          ;; (There is no `:rf.frame/capabilities` input: images declare no host
          ;; capabilities, EP-0026.)
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
-                         true            (assoc :rf.frame/generation generation)
+                         true            (assoc :rf.frame/generation generation
+                                                :rf.frame/live-store? live-store?)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `upsert-frame!` is idempotent on an existing id (surgical update
@@ -1089,22 +1214,21 @@
        ;; preserves the OLD row — and because the restore runs while this
        ;; attempt still OWNS the id, the row it restores is still the row it
        ;; displaced.
-       ;; The generation this call DISPLACES, read INSIDE the per-id
-       ;; construction claim so it is exactly what `upsert-frame!` is about to
+       ;; The record this call DISPLACES, read INSIDE the per-id construction
+       ;; claim so its resolution is exactly what `upsert-frame!` is about to
        ;; replace: nil on a first creation (nothing cached yet), the previous
-       ;; sealed generation on the same-id re-construction path that IS image
-       ;; hot-reload. Reading it outside the claim would race the reprojection
-       ;; writer. The refresh itself fires AFTER the commit — a construction
-       ;; that throws rolls the record back, and evicting against a generation
-       ;; that was never installed would churn a cache for nothing.
-       (let [displaced-generation (volatile! nil)]
+       ;; record on the same-id re-construction path that IS image hot-reload.
+       ;; Reading it outside the claim would race the reprojection writer. The
+       ;; refresh itself fires AFTER the commit — a construction that throws
+       ;; rolls the record back, and evicting against a generation that was
+       ;; never installed would churn a cache for nothing.
+       (let [displaced-record (volatile! nil)]
          (rf.frame/call-with-frame-construction-claim!
            runnable-id :construction
            (fn []
              (let [[had-pool-row? prior-pool]
                    (record-frame-generation-pool! runnable-id descriptors)]
-               (vreset! displaced-generation
-                        (rf.frame/frame-generation runnable-id))
+               (vreset! displaced-record (rf.frame/frame runnable-id))
                (try
                  (rf.frame/upsert-frame! runnable-id record-config token-box)
                  (catch #?(:clj Throwable :cljs :default) e
@@ -1116,9 +1240,14 @@
          ;; `upsert-frame!` can flush a pending reprojection that swaps a
          ;; different generation on, and the diff must be against the one the
          ;; next subscribe will resolve through.
+         ;; A displaced frame with no generation resolved live (or through the
+         ;; registrar), so its cached subs were built against neither image:
+         ;; compare from an empty generation, which condemns every sub the
+         ;; incoming generation resolves.
          (invalidate-subs-for-generation-change!
            runnable-id
-           @displaced-generation
+           (when-let [displaced @displaced-record]
+             (or (:generation displaced) {}))
            (rf.frame/frame-generation runnable-id)))
        ;; THE CONSTRUCTION-WINDOW INVARIANT: a PARTIALLY-CONSTRUCTED frame is
        ;; never observable as live, so a registration that lands while a frame
@@ -1292,11 +1421,12 @@
   a swap that moves one registration does not churn the rest of the frame's
   cache, and other frames are never touched (the generation is per-record).
 
-  A no-op when there was no previous generation (frame CREATION — there is no
-  cache yet), when the generations are `=` (the reprojection path already
-  guards this, and a rolled-back construction restores the old value), or when
-  no `:sub` moved (an `:event`-only image edit leaves every reaction valid).
-  Returns nil."
+  A no-op when `old-generation` is nil (frame CREATION — there is no cache
+  yet), when the generations are `=` (the reprojection path already guards
+  this, and a rolled-back construction restores the old value), or when no
+  `:sub` moved (an `:event`-only image edit leaves every reaction valid). A
+  `new-generation` of nil (re-made without `:images`) condemns every sub the old
+  one resolved. Returns nil."
   [id old-generation new-generation]
   (when (and (some? old-generation)
              (not= old-generation new-generation))
@@ -1779,8 +1909,8 @@
       ;; fresh projections without a dispatch. On the JVM there is no such
       ;; boundary to serve — an executor tick would run a CONCURRENT sweep
       ;; racing the caller thread's synchronous cascades (nondeterministic
-      ;; rf.trace/epoch bookkeeping contamination, since every frame is
-      ;; image-loaded and every reg-* would arm a tick) — and the read-time
+      ;; rf.trace/epoch bookkeeping contamination, since every reg-* made
+      ;; while an image-loaded frame exists would arm a tick) — and the read-time
       ;; coalesced flush in
       ;; `call-with-frame-resolution` already guarantees a dirty projection
       ;; is flushed before the next resolution, on the resolving thread
@@ -1800,10 +1930,18 @@
   affected explicit-image frames, automatically). Reprojection itself is
   per-frame conditional (`reproject-live-frame!` only swaps a frame whose
   composition actually re-resolved differently), so marking dirty on EVERY
-  `reg-*` is safe — an unaffected frame is left untouched at flush time. Ignores
-  its hook-event arg (the dirty mark is registration-set-wide, not per id).
-  Returns nil."
-  [_event]
+  `reg-*` is safe — an unaffected frame is left untouched at flush time.
+
+  A FIRST registration of a `:sub` also refreshes the sub-cache of every frame
+  made without `:images`: such a frame has no generation to diff, and a cached
+  parent whose declared input was unregistered when it was built is reached
+  through that input's id (`rf.subs.cache/invalidate-frame-subs!`). A
+  re-registration needs nothing here — `re-frame.subs.cache`'s replacement hook
+  refreshes every frame. Returns nil."
+  [{:keys [kind id was]}]
+  (when (and (= :sub kind) (nil? was))
+    (doseq [frame-id (rf.frame/live-store-frame-ids)]
+      (rf.subs.cache/invalidate-frame-subs! frame-id #{id})))
   (mark-dirty-and-schedule!))
 
 (defonce ^{:private true
@@ -1924,15 +2062,13 @@
   * NO DEBUG GATE, because the invariant it maintains — a frame's sealed
     generation reflects the registration pool at resolution time — is a
     CORRECTNESS invariant, not a diagnostic. `make-frame` assembles a
-    generation UNCONDITIONALLY (EP-0026 §Default Image: every frame is
-    image-loaded, so the absence-is-default registrar-atom fall-through never
-    fires on the make-frame path), and `rf.registrar/lookup` resolves through that
-    generation for every dispatch / subscribe / fx / cofx inside
-    `call-with-frame-resolution`. Gating only the MAINTAINER would leave the
-    PRODUCER unconditional: under `-Dre-frame.debug=false` (and `:advanced` +
-    `goog.DEBUG=false`) the generation would freeze at `make-frame` time and
-    every later `reg-*` would be invisible to dispatch — a
-    `rf.registrar/lookup` succeeding on the atom while the same lookup inside
+    generation for every frame made with `:images`, and `rf.registrar/lookup`
+    resolves through that generation for every dispatch / subscribe / fx /
+    cofx inside `call-with-frame-resolution`. Gating only the MAINTAINER would
+    leave the PRODUCER unconditional: under `-Dre-frame.debug=false` (and
+    `:advanced` + `goog.DEBUG=false`) the generation would freeze at
+    `make-frame` time and every later `reg-*` would be invisible to dispatch —
+    a `rf.registrar/lookup` succeeding on the atom while the same lookup inside
     the cascade returns nil and the event fails with
     `:rf.error/no-such-handler`. \"Production stops `reg-*`-ing after boot, so
     there is nothing to reproject\" does not hold: nothing orders all

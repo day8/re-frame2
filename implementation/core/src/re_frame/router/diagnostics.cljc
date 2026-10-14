@@ -28,6 +28,41 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(defn handle-ambiguous-handler!
+  "Emit `:rf.error/ambiguous-registration` when a dispatched event's id is
+  registered by more than one namespace and its frame — one made without
+  `:images` — resolves the registration store live, so it runs neither. `ex`
+  is the throw the frame's lookup raised; its ex-data names the
+  `:registration`, the `:namespaces` and the remedy `:reason`. The event does
+  not run, every other id keeps working, and the drain continues.
+
+  The record is always-on (it survives `goog.DEBUG=false`): the cause is a
+  production-reachable registration mistake — a handler moved between
+  namespaces, or a late-loaded module duplicating an id — and nothing else
+  would say why the event did nothing. Reached through the
+  `:error-emit/emit-error-both` hook, like [[handle-no-handler!]]."
+  [ex event-id event frame]
+  (when-let [emit-error-both!
+             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (let [{:keys [registration namespaces reason]} (ex-data ex)]
+      (emit-error-both!
+        :rf.error/ambiguous-registration
+        event
+        event-id
+        frame
+        nil                                 ;; the event never ran
+        0                                   ;; elapsed-ms
+        (rf.interop/now-ms)                 ;; time
+        {:rf.trace/event-id event-id
+         :rf.event/v        event
+         :frame             frame
+         :registration      registration
+         :namespaces        namespaces
+         :reason            reason}
+        {:registration registration
+         :namespaces   namespaces
+         :reason       reason}))))
+
 (defn handle-no-handler!
   "Emit `:rf.error/no-such-handler` when a dispatched event has no
   registered handler on its (explicitly carried) target frame. The
