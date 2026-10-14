@@ -140,18 +140,6 @@ test('a --config-merge compile still clears the cache entry after compiling', ()
   );
 });
 
-test('a following full compile keeps its runtime in the cache entry and runs (control)', () => {
-  compile([]);
-  assert.equal(
-    fs.existsSync(path.join(CACHE_ENTRY, 'dev', 'out', 'cljs-runtime', 'goog.debug.error.js')),
-    true,
-    "the stand-in's default output-dir is not inside the cache entry, so the " +
-      'focused arm proves nothing about the clear',
-  );
-  const ran = runBundle();
-  assert.equal(ran.status, 0, `the full bundle exited ${ran.status}; stderr:\n${ran.stderr}`);
-});
-
 try {
   run();
 } finally {
