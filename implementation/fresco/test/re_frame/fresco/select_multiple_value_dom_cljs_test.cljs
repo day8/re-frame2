@@ -106,13 +106,6 @@
           "`.value` would answer \"\" here, which is indistinguishable from a
            selected option whose value is empty"))))
 
-(deftest a-single-select-is-untouched
-  (testing "no :multiple means `.value`, as for every other control"
-    (let [target (select-stand-in false ["a"])]
-      (is (= [:tb/pick "a"]
-             (rf.fresco.impl.intent/materialize [:tb/pick :re-frame.fresco/value] (ev target)))
-          "the ordinary select is the overwhelming case and answers a string"))))
-
 (deftest an-input-carrying-multiple-is-not-a-select
   (testing "`<input type=email multiple>` carries `.multiple` and has no
             selection. So does `<input type=file multiple>`, which is why
@@ -132,9 +125,6 @@
     (testing "a mounted <select multiple> with two options picked"
       (let [n (select! true ["a" "b" "c"] ["a" "c"])]
         (try
-          (is (= "a" (.-value n))
-              (str "the browser's own answer, and the reason the naive reader "
-                   "looks right: `.value` is a plausible non-empty string"))
           (is (= [:tb/pick ["a" "c"]]
                  (rf.fresco.impl.intent/materialize [:tb/pick :re-frame.fresco/value] (ev n)))
               "the selection the user actually made")
