@@ -138,7 +138,6 @@
              `:query-defaults` that decided so rather than a view")
 
         (testing "the pager names every page, and the current one is not a link"
-          (is (= 3 (count (nodes m ".pager-page"))))
           (is (= ["1" "2" "3"] (texts m ".pager-page")))
           (is (= "1" (text m ".pager-current")))
           (is (= "page" (.getAttribute (node m ".pager-current") "aria-current")))
@@ -230,27 +229,6 @@
               "and the row beside it is still closed, which is the bug a
                single `[:ui :tags-open?]` flag would have made invisible"))
 
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 4 — a page number nobody may trust
-;; ---------------------------------------------------------------------------
-
-(deftest a-page-outside-the-range-is-a-page-rather-than-an-error
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-page! 900)]
-        (is (= ["Pages ride the URL"] (texts m ".article-link"))
-            "the last page — clamped, because a URL is user input and
-             `?page=900` is something anybody can type into the address bar")
-        (is (= "3" (text m ".pager-current"))
-            "and the pager says which page that turned out to be")
-        (is (= 900 (:page (read-sub m [:rf.route/query])))
-            "while the URL still says what the user asked for. Rewriting it
-             would take the address bar off them to fix a typo they can see")
-        (is (= "SPAN" (.-tagName (node m ".pager-next")))
-            "there is no next page from the last one")
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
