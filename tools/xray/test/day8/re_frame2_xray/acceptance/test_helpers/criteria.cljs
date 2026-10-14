@@ -115,6 +115,7 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.trace :as rf.trace]
+            [day8.re-frame2-xray.panels.image-view-reads :as image-view-reads]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
@@ -350,11 +351,22 @@
   Clearing returns the page to the `:dynamic` default the hook falls back
   to, so this harness leaves no trace outside its own frames — which is
   the posture criteria 4 and 6 assert about Xray and this file should
-  not itself break."
+  not itself break.
+
+  ## XRAY'S FRAME RUNS XRAY'S OWN IMAGE, AS PRODUCTION SEATS IT
+
+  [[xray-frame]] is made with `:images [(xray-image)]`, the frame
+  `image-view-reads/seat-xray-frame!` builds. A frame made without
+  `:images` resolves the whole store live, and Xray does not count that as
+  seated, so the preload's readiness tick — armed at page load, landing at
+  whichever row next yields to a timer — would re-seat it mid-row. The
+  re-seat changes the frame's resolution, which recomputes every cached
+  Xray sub and repaints the panels inside criterion 2's control window.
+  Seated here, the tick finds nothing to do."
   []
   (reset! !last-uncaught nil)
   (registry/register-xray-handlers!)
-  (rf/make-frame {:id xray-frame})
+  (rf/make-frame {:id xray-frame :images [(image-view-reads/xray-image)]})
   (rf/make-frame {:id app-frame})
   (rf/make-frame {:id second-app-frame})
   (rf/make-frame {:id other-frame})
