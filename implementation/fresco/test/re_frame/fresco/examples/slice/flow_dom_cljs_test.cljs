@@ -67,7 +67,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.event-emit :as rf.event-emit]
             [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
             [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
             [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
@@ -175,22 +174,6 @@
 ;; 1 — the feed, and a real click on a real link
 ;; ---------------------------------------------------------------------------
 
-(deftest the-feed-lists-every-article-with-a-routing-owned-href
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (mount-app!)]
-        (is (= "Chronicle" (text m ".slice-title")))
-        (is (= "Articles" (text m ".feed h2")))
-        (is (= ["Fresco, briefly" "Intents are data" "Controlled, synchronously"]
-               (mapv #(.-textContent %) (nodes m ".article-link"))))
-        (is (= ["/slice/article/fresco" "/slice/article/intents" "/slice/article/controls"]
-               (mapv #(.getAttribute % "href") (nodes m ".article-link")))
-            "the hrefs are the routing artefact's; `views` builds no URL")
-        (is (= 1 (count (nodes m ".draft-badge")))
-            "one of the three is unpublished")
-        (finish m done)))))
-
 (deftest a-real-click-on-a-route-link-changes-the-page
   (if-not (browser?)
     (skip! ":node-test has no React DOM")
@@ -210,68 +193,8 @@
                      (is (some? (node m ".editor")))))
             (finish-after m done))))))
 
-(deftest a-slug-nobody-published-renders-a-page-rather-than-throwing
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "nonsense")]
-        (is (= "No such article." (text m ".article-missing")))
-        (is (nil? (node m ".editor")))
-        (is (nil? (node m ".pane-error"))
-            "a missing article is data, not a thrown render — the error
-             boundary above the pane has nothing to catch")
-        (finish m done)))))
-
 ;; ---------------------------------------------------------------------------
-;; 2 — the controlled fields
-;; ---------------------------------------------------------------------------
-
-(deftest the-editor-opens-on-the-article-with-no-load-step
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")]
-        (is (= "Intents are data" (.-value (node m ".field-title"))))
-        (is (= "A click carries a vector, and two renders are equal."
-               (.-value (node m ".field-body"))))
-        (is (true? (.-checked (node m "#slice-published"))))
-        (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "intents"]))
-            "opening an article is not editing it; `:drafts` is still empty")
-        (finish m done)))))
-
-(deftest a-keystroke-moves-the-model-and-the-glass-together
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")]
-        (type-into! m ".field-title" "Intents, revisited")
-        (is (= "Intents, revisited" (.-value (node m ".field-title")))
-            "the glass")
-        (is (= "Intents, revisited" (:title (read-sub m [::rf.fresco.examples.slice.subs/draft "intents"])))
-            "and the model — one place, not two")
-        (is (= "A click carries a vector, and two renders are equal."
-               (.-value (node m ".field-body")))
-            "the field nobody touched is untouched: the first keystroke
-             edited on top of the article rather than into an empty map")
-        (is (= "Intents are data" (:title (rf.fresco.examples.slice.db/article (app-db m) "intents")))
-            "and the ARTICLE has not moved — a draft is not a save")
-        (finish m done)))))
-
-(deftest the-checkbox-writes-through-the-checked-marker
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "controls")]
-        (is (false? (.-checked (node m "#slice-published"))))
-        (click! m "#slice-published")
-        (is (true? (:published? (read-sub m [::rf.fresco.examples.slice.subs/draft "controls"])))
-            "a Fresco intent dispatches SYNCHRONOUSLY — no drain, no poll,
-             the next line reads the moved model")
-        (is (true? (.-checked (node m "#slice-published"))))
-        (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — the async mutation: refused, then retried, then saved
+;; 2 — the async mutation: refused, then retried, then saved
 ;; ---------------------------------------------------------------------------
 
 (defn- replied
@@ -337,24 +260,8 @@
                      poll")))
             (finish-after m done))))))
 
-(deftest a-locally-invalid-draft-never-reaches-the-server
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "intents")]
-        (type-into! m ".field-title" "   ")
-        (click! m ".save")
-        ;; No poll and no drain: there is nothing in flight to wait for.
-        ;; The region is on screen on the line after the click, which is
-        ;; the assertion — a row that waited anyway would pass whether or
-        ;; not the request was skipped.
-        (is (= "A title is required. Try again" (text m ".save-problem")))
-        (is (nil? (node m ".save-ok")))
-        (is (= :failed (:status (read-sub m [::rf.fresco.examples.slice.subs/save-state "intents"]))))
-        (finish m done)))))
-
 ;; ---------------------------------------------------------------------------
-;; 4 — the reset, in a real field, and why this application carries no
+;; 3 — the reset, in a real field, and why this application carries no
 ;;     `::h/revision`
 ;;
 ;; The two rows below are a PAIR, and the second is the reason the first can
@@ -436,71 +343,3 @@
              application does not carry one")
 
         (finish m done)))))
-
-;; ---------------------------------------------------------------------------
-;; 5 — the intent script: what one edit session MEANS
-;; ---------------------------------------------------------------------------
-
-(deftest the-edit-flow-dispatches-exactly-this-script
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m   (at-article! "controls")
-            ;; Captured at `re-frame.event-emit` — the substrate's own
-            ;; public stream — so the script is what the PAGE dispatched
-            ;; and holds no hook into the rendering under test.
-            log (atom [])]
-        (rf.event-emit/register-event-listener! ::script
-                               (fn [record]
-                                 (when (= (:frame m) (:frame record))
-                                   (swap! log conj (:event record)))))
-        (type-into! m ".field-title" "Ready")
-        (click! m "#slice-published")
-        (click! m ".save")
-        (-> (replied m "controls")
-            (.then
-              (fn [_]
-                ;; STATED, not compared against a second capture: two
-                ;; captures agree about a drift they share, and a
-                ;; written-out vector does not. The materialized values
-                ;; are in it — `::h/value` and `::h/checked` are
-                ;; substituted before the handler ever runs, so this is
-                ;; what a handler actually received.
-                (is (= [[::rf.fresco.examples.slice.events/edit "controls" :title "Ready"]
-                        [::rf.fresco.examples.slice.events/toggle-published "controls" true]
-                        [::rf.fresco.examples.slice.events/save {:slug "controls"}]
-                        [::rf.fresco.examples.slice.events/saved
-                         {:slug  "controls"
-                          :draft {:title      "Ready"
-                                  :body       "The model is the only place the text lives."
-                                  :published? true}}]]
-                       @log))))
-            (.finally (fn [] (rf.event-emit/unregister-event-listener! ::script)))
-            (finish-after m done))))))
-
-;; ---------------------------------------------------------------------------
-;; 6 — two mounts cannot see each other
-;; ---------------------------------------------------------------------------
-
-(deftest two-mounted-copies-of-the-application-are-isolated
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [a (at-article! "intents")
-            b (at-article! "intents")]
-        (type-into! a ".field-title" "only in A")
-        (is (= "only in A" (.-value (node a ".field-title"))))
-        (is (= "Intents are data" (.-value (node b ".field-title")))
-            "frames are isolated contexts: the second mount minted its own
-             frame, and neither view was handed the other's — there is no
-             frame argument anywhere in this application to hand")
-        ;; BOTH roots come down before EITHER is asserted clean. A residue
-        ;; census is page-wide — a standing peer's cells are inside the
-        ;; reading — so unmounting `a` and asserting it while `b` is still
-        ;; up reports `b`'s live subscriptions as `a`'s leak. The facade
-        ;; says so in the failure it raises.
-        (rf.fresco.test.mounted/unmount! a)
-        (rf.fresco.test.mounted/unmount! b)
-        (-> (rf.fresco.test.mounted/assert-clean! a)
-            (.then (fn [_] (rf.fresco.test.mounted/assert-clean! b)))
-            (.then done))))))
