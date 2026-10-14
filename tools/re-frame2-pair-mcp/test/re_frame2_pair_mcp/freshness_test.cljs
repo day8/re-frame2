@@ -223,7 +223,7 @@
     (jvm-reply {} unrelated-client)
     {:liveness :no-runtime :runtime-count 0 :compile-cycle 1 :build-flushed-at flushed-at}]
 
-   ["one connected runtime with no heartbeat anywhere"
+   ["one connected runtime, a fresh heartbeat only on an unrelated relay client"
     (jvm-reply {7 {}} unrelated-client)
     {:liveness :unknown :unknown-reason :heartbeat-unavailable
      :runtime-count 1 :compile-cycle 1 :build-flushed-at flushed-at}]
@@ -235,10 +235,6 @@
    ["a matched relay heartbeat older than the stale threshold"
     (jvm-reply {7 {}} (assoc unrelated-client 7 {:last-pong (- now-ms 45000)}))
     {:liveness :no-runtime :heartbeat-age-ms 45000 :runtime-count 1}]
-
-   ["a fresh heartbeat on unrelated relay clients only"
-    (jvm-reply {7 {}} (assoc unrelated-client 1 {:last-pong (- now-ms 2)}))
-    {:liveness :unknown :unknown-reason :heartbeat-unavailable :runtime-count 1}]
 
    ["future and non-numeric timestamps on the build's own runtime"
     (jvm-reply {7 {:last-pong "soon"}} {7 {:last-pong (+ now-ms 60000)}})
