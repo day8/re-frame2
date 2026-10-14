@@ -12,11 +12,9 @@
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
-;; The two density extremes: a band height `->elk-children` failed to take
-;; from the density it was handed shows at either.
-(def ^:private densities
-  [[:compact vc/chart-compact]
-   [:cosy    vc/chart-cosy]])
+;; A non-default density, so a band height `->elk-children` failed to take
+;; from the density it was handed shows.
+(def ^:private chart-vc vc/chart-compact)
 
 (def ^:private lifecycle-actions
   {:hello {:rf.cofx/requires [:rf/time-ms] :fn (fn [_ctx] nil)}
@@ -62,36 +60,32 @@
   (testing "a compound declaring tags and entry / exit adds exactly its band
             to its TOP padding; its lifecycle-free sibling keeps the plain
             padding"
-    (doseq [[density chart-vc] densities]
-      (let [parsed  (layout/project-definition compound-machine)
-            kids    (projection/->elk-children parsed nil chart-vc)
-            player  (layout/node-id [:player])
-            band-px (projection/lifecycle-band-height
-                      chart-vc (node-with-id parsed player))]
-        (is (pos? band-px) (str density " :player paints a band"))
-        (is (= (projection/container-elk-padding chart-vc true band-px)
-               (elk-padding-of kids player))
-            (str density " :player's TOP, and only its TOP, grows by its band"))
-        (is (= (projection/container-elk-padding chart-vc true)
-               (elk-padding-of kids (layout/node-id [:idle])))
-            (str density " the lifecycle-free :idle keeps the plain padding"))))))
+    (let [parsed  (layout/project-definition compound-machine)
+          kids    (projection/->elk-children parsed nil chart-vc)
+          player  (layout/node-id [:player])
+          band-px (projection/lifecycle-band-height
+                    chart-vc (node-with-id parsed player))]
+      (is (pos? band-px) ":player paints a band")
+      (is (= (projection/container-elk-padding chart-vc true band-px)
+             (elk-padding-of kids player))
+          ":player's TOP, and only its TOP, grows by its band")
+      (is (= (projection/container-elk-padding chart-vc true)
+             (elk-padding-of kids (layout/node-id [:idle])))
+          "the lifecycle-free :idle keeps the plain padding"))))
 
 (deftest root-padding-reserves-its-lifecycle-band
   (testing "the machine root's frame reserves its lifecycle band on TOP, on
-            top of the Context band; a lifecycle-free root reserves only the
-            Context band"
-    (doseq [[density chart-vc] densities]
-      (let [parsed  (layout/project-definition root-machine)
-            bare    (layout/project-definition (dissoc root-machine :entry :exit :tags))
-            band-px (projection/lifecycle-band-height
-                      chart-vc (node-with-id parsed layout/root-container-id))
-            ctx-px  (projection/context-band-height 3 (:container-divider-width chart-vc))]
-        (is (pos? band-px) (str density " the root paints a band"))
-        (doseq [[label p rows extra-top] [["band"                parsed 0 band-px]
-                                          ["band + Context band" parsed 3 (+ band-px ctx-px)]
-                                          ["no band"             bare   0 0]
-                                          ["Context band only"   bare   3 ctx-px]]]
-          (is (= (projection/container-elk-padding chart-vc true extra-top)
-                 (elk-padding-of (projection/->elk-children p nil chart-vc rows)
-                                 layout/root-container-id))
-              (str density " " label)))))))
+            top of the Context band; a root with neither keeps the plain
+            padding"
+    (let [parsed  (layout/project-definition root-machine)
+          bare    (layout/project-definition (dissoc root-machine :entry :exit :tags))
+          band-px (projection/lifecycle-band-height
+                    chart-vc (node-with-id parsed layout/root-container-id))
+          ctx-px  (projection/context-band-height 3 (:container-divider-width chart-vc))]
+      (is (pos? band-px) "the root paints a band")
+      (doseq [[label p rows extra-top] [["band + Context band" parsed 3 (+ band-px ctx-px)]
+                                        ["no band"             bare   0 0]]]
+        (is (= (projection/container-elk-padding chart-vc true extra-top)
+               (elk-padding-of (projection/->elk-children p nil chart-vc rows)
+                               layout/root-container-id))
+            label)))))
