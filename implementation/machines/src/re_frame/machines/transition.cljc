@@ -2595,7 +2595,7 @@
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
   Materialises any `:data` fn-form against `mat-snap` + `event` (Spec 005
-  §`:spawn` map keys); on failure returns a `rf.machines.result/fail` Result
+  §Spec-spec keys); on failure returns a `rf.machines.result/fail` Result
   stamped with `failure-extra`. On success builds the spawn-args via
   `args-builder` (mode-specific wiring of `:rf/parent-id` /
   `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `rf.machines.result/ok`

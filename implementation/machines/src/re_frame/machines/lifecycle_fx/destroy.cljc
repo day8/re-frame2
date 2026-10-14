@@ -907,7 +907,7 @@
   a `:rf.machine/spawn` arriving at an OCCUPIED `:fixed-actor-id` REPLACES it
   cleanly instead of overwriting its snapshot. Called by
   `lifecycle-fx.spawn/spawn-fx*` immediately before its install; see Spec 005
-  §`:spawn` map keys §Spawning onto an OCCUPIED fixed address.
+  §Spec-spec keys §Spawning onto an OCCUPIED fixed address.
 
   WHY IT EXISTS, AND WHY IT DELEGATES rather than reaching for the pipeline
   directly. Because a spawned actor's liveness IS its snapshot's presence
