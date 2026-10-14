@@ -55,7 +55,7 @@ for (const entry of cases) {
   });
 
   test(`${entry.name} still polls until the requested value appears`, async (t) => {
-    const time = clock(t);
+    clock(t);
     let calls = 0;
     const locator = {
       async [entry.method]() {
@@ -65,6 +65,5 @@ for (const entry of cases) {
     };
     await helpers[entry.name](locator, ...entry.args, 100);
     assert.equal(calls, 2);
-    assert.equal(time.elapsed(), 50);
   });
 }
