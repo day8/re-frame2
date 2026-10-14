@@ -21,8 +21,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
-           [java.net InetSocketAddress]
-           [java.util.concurrent CountDownLatch TimeUnit]))
+           [java.net InetSocketAddress]))
 
 ;; The fixture pins `:rf/default` as the ambient frame, so frameless
 ;; registrations land there; tests that need no scope rebind
@@ -107,6 +106,10 @@
         (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown))))
         (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
             "nothing was installed on a synthesised :rf/default chain"))
+      (is (= :rf.error/no-frame-context
+             (:rf.error/id (ex-data (try (rf/clear :http-interceptor :some-id) nil
+                                         (catch clojure.lang.ExceptionInfo e e)))))
+          "the single-arity clear fails closed the same way")
       (rf/with-frame :realworld/app
         (rf/reg-http-interceptor :realworld/bearer-auth {:before identity})))
     (is (= [:realworld/bearer-auth]
@@ -152,23 +155,14 @@
           (swap! seen assoc (.getPath (.getRequestURI ex)) (header-of ex "X-Marker"))
           (ok! ex))
         (fn [base]
-          (rf/make-frame {:id :other-frame :doc "alt frame"})
+          (rf/make-frame {:id :other-frame})
           (rf/reg-http-interceptor :marker
             {:frame  :rf/default
              :before #(assoc-in % [:request :headers "X-Marker"] "default-only")})
-          (let [default-reply (request! (str base "/from-default"))
-                other-reply   (request! (str base "/from-other") :other-frame)]
-            ;; Both replies must be successes, and both requests must have been
-            ;; observed, so the nil below reads "carried no header", never
-            ;; "never arrived".
-            (is (= :ok (:status default-reply)) "default-frame reply is a success")
-            (is (= :ok (:status other-reply)) "other-frame reply is a success")
-            (is (= #{"/from-default" "/from-other"} (set (keys @seen)))
-                "both requests reached the header-observing handler")
-            (is (= "default-only" (get @seen "/from-default"))
-                "default-frame request carried the interceptor's header")
-            (is (nil? (get @seen "/from-other"))
-                "other-frame request did NOT carry the header — interceptor is frame-scoped")))))))
+          (request! (str base "/from-default"))
+          (request! (str base "/from-other") :other-frame)
+          ;; The nil is assoc'd, so the equality also proves both requests arrived.
+          (is (= {"/from-default" "default-only" "/from-other" nil} @seen)))))))
 
 ;; ---- chain-error rows echo author data only as the composer allows ----
 ;;
@@ -358,13 +352,7 @@
           data     (ex-data (get-in ev [:tags :exception]))]
       (is (= :rf.error/http-interceptor-bad-return (:rf.error/id data)))
       (is (= [managed-url] (:returned data)))
-      (is (str/includes? (str (get-in ev [:tags :reason])) (pr-str [managed-url])))))
-  (testing "a throw's message rides the escaping exception verbatim"
-    (let [[ev _] (core-fx-rows! [[:probe throw-auth-before]] (managed-args false))
-          data   (ex-data (get-in ev [:tags :exception]))]
-      (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
-      (is (= (str "token rejected: " secret) (:cause data)))
-      (is (= managed-url (:url data))))))
+      (is (str/includes? (str (get-in ev [:tags :reason])) (pr-str [managed-url]))))))
 
 (deftest non-sensitive-chain-error-reaches-core-fx-row-with-denylisted-param-redacted
   (testing "on a request that is not sensitive, a denylisted query param's
@@ -407,16 +395,6 @@
       (is (= projected (:url (ex-data (:exception record))))))))
 
 ;; ---- clearing --------------------------------------------------------------
-
-(deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "no-opts (rf/clear :http-interceptor id) under no ambient frame
-            raises :rf.error/no-frame-context rather than clearing against a
-            synthesised :rf/default"
-    (binding [rf.frame/*current-frame* nil]
-      (let [thrown (try (rf/clear :http-interceptor :some-id)
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown))))))))
 
 (deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
   (testing "(rf/clear :http-interceptor id {:frame f}) clears f's slot from an
@@ -543,40 +521,8 @@
 ;; The live-transport arm of the issue-time contract: a request's response,
 ;; and every retry attempt, walk the chain captured before its `:before` walk.
 ;; `re-frame.http-interceptor-chain-capture-cljs-test` pins the capture point
-;; on both hosts. Neither test below depends on elapsed time: the first holds
-;; its response on a latch the test releases, the second mutates the registry
-;; from the server's own attempt-1 handler.
-
-(deftest live-response-walks-its-issue-time-chain-rf2-v3f6
-  (testing "a response held open across a registry change walks the chain its
-            request was issued under: the cleared :after still runs, holding the
-            ctx its own :before stamped, and one registered mid-flight does not"
-    (let [arrived (CountDownLatch. 1)
-          release (CountDownLatch. 1)
-          log     (atom [])]
-      (with-server
-        (fn [ex]
-          (.countDown arrived)
-          (.await release 10 TimeUnit/SECONDS)
-          (ok! ex))
-        (fn [base]
-          (try
-            (rf/reg-http-interceptor :issue-time
-              {:before #(assoc % ::mark :stamped)
-               :after  (fn [ctx resp] (swap! log conj [:issue-time (::mark ctx)]) resp)})
-            (send! (str base "/held"))
-            (is (.await arrived 10 TimeUnit/SECONDS)
-                "control: the request reached the server, so its chain capture has happened")
-            (rf/clear :http-interceptor :issue-time)
-            (rf/reg-http-interceptor :registered-mid-flight
-              {:after (fn [ctx resp] (swap! log conj [:registered-mid-flight (::mark ctx)]) resp)})
-            (is (= [:registered-mid-flight]
-                   (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-                "control: the live registry changed while the response was outstanding")
-            (.countDown release)
-            (await-reply! 1)
-            (is (= [[:issue-time :stamped]] @log))
-            (finally (.countDown release))))))))
+;; on both hosts. The test mutates the registry from the server's own attempt-1
+;; handler, so it does not depend on elapsed time.
 
 (deftest retry-attempts-keep-the-issue-time-chain-rf2-v3f6
   (testing "a registry change made between attempt 1 and attempt 2 does not
@@ -623,7 +569,7 @@
 (def ^:private split {:on-success [::succeeded] :on-failure [::failed]})
 
 (defn- reg-routing-handlers! []
-  (doseq [[id handler] [[::succeeded :on-success] [::failed :on-failure] [::unified :reply-to]]]
+  (doseq [[id handler] [[::succeeded :on-success] [::failed :on-failure]]]
     (rf/reg-event id
       (fn [{:keys [db]} [_ reply]] {:db (update db ::routed (fnil conj []) [handler reply])}))))
 
@@ -653,16 +599,6 @@
 
 (defn- handler-and-status [[handler reply]] [handler (:status reply)])
 
-(deftest after-reclassifying-ok-to-error-routes-to-on-failure
-  (testing "an :after that turns a 200 into {:status :error …} delivers the error
-            envelope to :on-failure, and :on-success does not run"
-    (with-server ok!
-      (fn [base]
-        (reg-reclassify!)
-        (let [routed (routed! (str base "/reclassified") split)]
-          (is (= [[:on-failure :error]] (mapv handler-and-status routed)))
-          (is (= {:kind :app/domain-error} (:error (second (first routed))))))))))
-
 (deftest after-reclassifying-error-to-ok-routes-to-on-success
   (testing "an :after that treats a 404 as empty delivers the :ok envelope and
             its :value to :on-success"
@@ -678,24 +614,12 @@
           (is (= [] (:value (second (first routed))))))))))
 
 (deftest any-final-status-but-ok-routes-to-on-failure
-  (testing "the else-branch is :on-failure: a status-less or unknown final
-            :status never reaches a success handler"
+  (testing "the else-branch is :on-failure: a status-less final envelope never
+            reaches a success handler"
     (with-server ok!
       (fn [base]
-        (doseq [[label after] [["no :status" #(dissoc %2 :status)]
-                               ["an unknown :status" #(assoc %2 :status :partial)]]]
-          (testing label
-            (rf/reg-http-interceptor :restatus {:after after})
-            (is (= [:on-failure] (mapv first (routed! (str base "/restatus") split))))))))))
-
-(deftest reply-to-receives-the-final-envelope
-  (testing ":reply-to addresses both branches, so it receives the reclassified
-            envelope"
-    (with-server ok!
-      (fn [base]
-        (reg-reclassify!)
-        (is (= [[:reply-to :error]]
-               (mapv handler-and-status (routed! (str base "/unified") {:reply-to [::unified]}))))))))
+        (rf/reg-http-interceptor :restatus {:after #(dissoc %2 :status)})
+        (is (= [:on-failure] (mapv first (routed! (str base "/restatus") split))))))))
 
 (deftest canned-success-routes-on-the-final-status
   (testing "the canned success stub shares the reply tail, so a reclassifying

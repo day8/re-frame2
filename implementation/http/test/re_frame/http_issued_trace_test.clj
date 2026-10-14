@@ -225,34 +225,20 @@
       (rf/reg-event :prep/done (fn [_ _] {}))
       (rf/reg-event :prep/go
         (fn [_ _]
-          {:fx [[:rf.http/managed {:request    {:url    "http://127.0.0.1:0/x"
+          {:fx [[:rf.http/managed {:request    {:url    "http://127.0.0.1:0/x?q=hunter2"
                                                 :method :post
                                                 :body   (fn [] (throw (ex-info "boom-thunk" {})))}
                                    :request-id :prep
+                                   :sensitive? true
                                    :reply-to   [:prep/done]}]]}))
       (rf/dispatch-sync [:prep/go])
       (let [issued  (first (rows traces :rf.http/issued))
             failure (first (rows traces :rf.http/transport))]
         (is (< (:id issued) (:id failure)) "the issued row precedes the failure row")
         (is (= (dispatch-id issued) (dispatch-id failure))
-            "both rows sit in the issuing bundle")))))
-
-(deftest sensitive-request-issued-row-redacts-the-url
-  (with-traces
-    (fn [traces]
-      (rf/reg-event :priv/done (fn [_ _] {}))
-      (rf/reg-event :priv/go
-        (fn [_ _]
-          {:fx [[:rf.http/managed {:request    {:url    "http://127.0.0.1:0/x?q=hunter2"
-                                                :method :post
-                                                :body   (fn [] (throw (ex-info "stop-here" {})))}
-                                   :sensitive? true
-                                   :reply-to   [:priv/done]}]]}))
-      (rf/dispatch-sync [:priv/go])
-      (let [row (first (rows traces :rf.http/issued))]
-        (is (true? (:sensitive? row)) "the row is stamped sensitive")
-        (is (= "http://127.0.0.1:0/x?q=:rf/redacted" (get-in row [:tags :url]))
-            "the query value is scrubbed from the url")))))
+            "both rows sit in the issuing bundle")
+        (is (= [true "http://127.0.0.1:0/x?q=:rf/redacted"] [(:sensitive? issued) (get-in issued [:tags :url])])
+            "a sensitive request's issued row is stamped and its query value scrubbed")))))
 
 ;; ---- registry altitude --------------------------------------------------------
 

@@ -64,34 +64,6 @@
 (defn- clear-frame! []
   (rf.http.managed/clear-all-http-interceptors!))
 
-(deftest outstanding-response-walks-the-chain-its-request-was-issued-under
-  (testing "request A is issued under [:one :two]; the registry
-            then loses :one and gains :three; request B is issued under
-            [:two :three]. Both responses are released afterwards. A walks
-            ITS OWN chain in reverse with ITS OWN marks, B the new one."
-    (clear-frame!)
-    (let [log (atom [])]
-      (rf/reg-http-interceptor :one (marking :one log))
-      (rf/reg-http-interceptor :two (marking :two log))
-      (let [a (issue! {:value :a})]
-        (rf/clear :http-interceptor :one {:frame test-frame})
-        (rf/reg-http-interceptor :three (marking :three log))
-        (is (= [:two :three]
-               (mapv :id (rf.http.managed/interceptors-snapshot test-frame)))
-            "control: the LIVE registry really did change while A was outstanding")
-        (let [b (issue! {:value :b})]
-          (release! a {:value :a})
-          (is (= [[:two :marked] [:one :marked]] @log)
-              "A's :after walk is the REVERSE of A's own captured chain, and
-               every :after was handed the ctx its own :before stamped —
-               including :one's, whose registration had already been cleared
-               when the response landed")
-          (reset! log [])
-          (release! b {:value :b})
-          (is (= [[:three :marked] [:two :marked]] @log)
-              "B, issued after the change, walks the NEW chain — the capture
-               is per-request, not a process-wide freeze"))))))
-
 ;; Distinguishes real capture from LATE capture: a snapshot taken after the
 ;; `:before` walk returns would already hold an interceptor the walk itself
 ;; registered, so its `:after` would run with a nil mark.

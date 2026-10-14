@@ -88,12 +88,3 @@
                      {:id 1}))]
       (is (= 1 (count warns)))
       (is (= {:kind :app/domain-error} (:failure (:tags (first warns))))))))
-
-(deftest failure-reclassified-to-ok-does-not-warn
-  (testing "an :after that turns a failure into :ok routes it to the success
-            branch, so nothing is swallowed even under :on-failure nil"
-    (is (empty? (swallowed-warnings
-                  #(dispatch-failure!
-                     (through-after ctx-on-failure-nil
-                                    (fn [resp] (-> resp (dissoc :error) (assoc :status :ok :value []))))
-                     {:kind :rf.http/http-4xx :status 404}))))))

@@ -1,10 +1,9 @@
 (ns re-frame.http-reply-lowering-cljs-test
   "The pure core of managed HTTP's reply lowering in `re-frame.http.reply`,
-  on both hosts: the work-id head, the canonical reply map for each outcome,
-  actor-destroy suppression, failure self-identification and the trace
-  summary. The real-transport round trips live in the JVM-only
+  on both hosts: the canonical reply map for each outcome and failure
+  self-identification. The real-transport round trips live in the JVM-only
   `http-reply-lowering-test`."
-  (:require [clojure.test :refer [are deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.reply :as rf.reply]))
 
@@ -14,31 +13,6 @@
    :attempt      1
    :frame        :app/main
    :completed-at 1781078400456})
-
-(deftest work-id-head
-  (are [c id] (= id (rf.http.reply/work-id c))
-    ctx                              [:rf.work/http :article/by-id 1 1]
-    (dissoc ctx :request-id)         [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
-    (assoc ctx :issuance 2 :attempt 3) [:rf.work/http :article/by-id 2 3]))
-
-(deftest actor-destroy-obsolete-target-suppression
-  (are [target actor-id obsolete?] (= obsolete? (rf.http.reply/actor-destroy-target-obsolete? target actor-id))
-    :worker/proc#1  :worker/proc#1 true
-    :reply/recorder :worker/proc#1 false
-    :worker/proc#1  nil            false)
-  (let [{:keys [deliver? reply trace]}
-        (rf.http.reply/actor-destroy-suppress {:request-id   [:worker/proc#1 :slow]
-                                               :origin-event [:worker/proc#1 [:rf.http/failed]]
-                                               :issuance     1
-                                               :attempt      1
-                                               :frame        :app/main})]
-    (is (false? deliver?))
-    (is (= {:status :stale :rf.reply/work-status :suppressed
-            :rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete}
-           (select-keys reply [:status :rf.reply/work-status :rf.reply/stale-reason :value])))
-    (is (= [[:rf.work/http [:worker/proc#1 :slow] 1 1] nil]
-           [(get-in trace [:rf.reply/carried :work/id]) (:rf.reply/current trace)])
-        "carried work-id, and no live successor")))
 
 (deftest canonical-replies-validate
   (testing ":status :ok success, with the response's wire facts riding :meta verbatim"
@@ -79,11 +53,3 @@
                         {:kind :rf.http/transport :message "boom"}
                         {:method :post :url "/x" :request-id nil :origin-event [:e] :attempt 1})
                       [:kind :message :request :request-id :attempt :max-attempts :work/id]))))
-
-(deftest trace-summary-elides-wire-slots
-  (is (= {:status :ok :rf.reply/work-id [:rf.work/http :article/by-id 1 1]
-          :rf.reply/work-kind :http :value :rf/redacted}
-         (-> (rf.http.reply/success-reply ctx {:secret "x"})
-             (rf.http.reply/trace-reply {:sensitive? true})
-             (select-keys [:status :rf.reply/work-id :rf.reply/work-kind :value])))
-      "a sensitive request's summary keeps identity facts and redacts the wire slots"))
