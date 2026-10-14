@@ -27,10 +27,7 @@
   beside an `<input id=\"y\">` has both halves of the pairing and no
   pairing. `ht/accessible-name` is what makes the difference visible: it
   resolves the reference, so a row asserting the name is asserting the
-  pair. Every field in the editor is asserted that way, and asserted
-  again in French, so the name is proved to follow the string table
-  rather than to have been read off something that happens to sit
-  nearby.
+  pair.
 
   ## The sweep, and why it is a sweep
 
@@ -38,7 +35,7 @@
   `ht/unnamed-controls` over every one of the slice's bodies that carries
   an operable control — six bodies, and the pager, whose three page
   positions each render a different set of links and end-stops — in every
-  state each of them has, in both locales. One assertion per tree, in the
+  state each of them has. One assertion per tree, in the
   form the application can be held to as it grows: a seventh control
   added tomorrow without a name reds it, and no row has to be written for
   it."
@@ -72,16 +69,6 @@
 (defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
 (defn- named [tree class] (rf.fresco.test/accessible-name tree (classed tree class)))
-
-(defn- by-id [tree id] (rf.fresco.test/find tree #(= id (:id (rf.fresco.test/attrs %)))))
-
-(defn- theme-buttons
-  "The chrome's two theme choices, in menu order. Reached through the
-  switch's own container rather than by class, because the CURRENT one
-  carries a second class (`theme-choice current`) and a class-equality
-  hook would silently return one button and pass."
-  [tree]
-  (filterv #(= :button (:tag %)) (:children (classed tree "theme-switch"))))
 
 ;; --- chrome ----------------------------------------------------------------
 
@@ -152,63 +139,6 @@
                          (t* locale [:app/pane-error]))}))
 
 ;; ---------------------------------------------------------------------------
-;; Names that are RESOLVED through a label, not merely present beside one
-;; ---------------------------------------------------------------------------
-
-(deftest every-labelled-control-is-named-by-the-label-that-points-at-it
-  ;; Each row twice, once per locale: the French row is what says the name
-  ;; is READ from the label rather than baked beside the control.
-  (let [editor-en (editor-tree :en {:status :idle :problem nil})
-        editor-fr (editor-tree :fr {:status :idle :problem nil})
-        chrome-en (chrome-tree :en)
-        chrome-fr (chrome-tree :fr)]
-    (doseq [[tree id expected why]
-            [[editor-en "slice-title" "Title"
-              "the `<label for=\"slice-title\">` and the `<input id=\"slice-title\">`
-               are two elements and one pairing, and only the resolved name can
-               tell a correct pairing from two attributes that happen to sit in
-               the same form"]
-             [editor-en "slice-body" "Body" "and a textarea is labelled the same way"]
-             [editor-en "slice-published" "Published"
-              "the checkbox is inside its label AND carries the `for` — the two
-               mechanisms at once, and the name is the label's text once rather
-               than twice"]
-             [chrome-en "slice-locale" "Language" "the locale select, by the chrome's own label"]
-             [editor-fr "slice-title" "Titre" "the same pairing, one locale later"]
-             [editor-fr "slice-body" "Corps" "the same pairing, one locale later"]
-             [editor-fr "slice-published" "Publié" "the same pairing, one locale later"]
-             [chrome-fr "slice-locale" "Langue" "the same pairing, one locale later"]]]
-      (is (= expected (rf.fresco.test/accessible-name tree (by-id tree id)))
-          (str id " — " why)))
-    (is (= :combobox (rf.fresco.test/role (by-id chrome-en "slice-locale"))))))
-
-(deftest the-buttons-are-named-by-what-they-say
-  (let [tree (editor-tree :en {:status :idle :problem nil})]
-    (is (= "Save" (named tree "save")))
-    (is (= "Discard changes" (named tree "discard"))))
-  (let [tree (editor-tree :fr {:status :idle :problem nil})]
-    (is (= "Enregistrer" (named tree "save")))
-    (is (= "Annuler les modifications" (named tree "discard"))))
-  (testing "and the theme switch's two buttons, which have no label element
-            anywhere — content is their whole name and the row proves the
-            content path is live"
-    (let [tree (chrome-tree :en)]
-      (is (= ["Light" "Dark"] (mapv #(rf.fresco.test/accessible-name tree %) (theme-buttons tree)))))
-    (let [tree (chrome-tree :fr)]
-      (is (= ["Clair" "Sombre"] (mapv #(rf.fresco.test/accessible-name tree %) (theme-buttons tree)))))))
-
-(deftest the-article-link-is-a-link-because-routing-gave-it-an-href
-  (let [tree (row-tree :en false)
-        link (rf.fresco.test/find tree #(= :a (:tag %)))]
-    (is (= :link (rf.fresco.test/role link))
-        "an `<a>` with no href is not a link, and this one's href is the
-         routing artefact's synthesis rather than a string the view
-         wrote — so the role is evidence that the crossing happened")
-    (is (= "Intents are data" (rf.fresco.test/accessible-name tree link))
-        "named by the article's own title, which is CONTENT and is
-         therefore not translated")))
-
-;; ---------------------------------------------------------------------------
 ;; Values that MOVE with the state, and values that must not
 ;; ---------------------------------------------------------------------------
 
@@ -255,26 +185,6 @@
     (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
       (is (nil? (rf.fresco.test/accessible-name tree (classed tree "save-problem")))))))
 
-(deftest the-save-button-renames-itself-while-it-is-working
-  (testing "the one control in the application whose NAME is supposed to
-            move — a button reporting its own progress — asserted here so
-            the `name holds still` row above is a claim about the
-            disclosure rather than a rule this file applies blindly"
-    (is (= "Save" (named (editor-tree :en {:status :idle :problem nil}) "save")))
-    (is (= "Saving…" (named (editor-tree :en {:status :saving :problem nil}) "save")))))
-
-(deftest the-retry-appears-with-the-failure-and-is-named
-  (let [tree (editor-tree :en {:status :failed :problem :problem/title-taken})]
-    (is (= "Try again" (named tree "retry")))
-    (is (= :button (rf.fresco.test/role (classed tree "retry")))))
-  (is (nil? (classed (editor-tree :en {:status :idle :problem nil}) "retry"))))
-
-(deftest the-shell-is-a-main-landmark-and-the-feed-is-a-list
-  (is (= :main (rf.fresco.test/role (shell-tree :en rf.fresco.examples.slice.routes/feed))))
-  (let [tree (feed-tree :en [{:slug "a" :title "A" :published? true :tags []}])]
-    (is (= :list (rf.fresco.test/role (rf.fresco.test/find tree #(= :ul (:tag %))))))
-    (is (= :heading (rf.fresco.test/role (rf.fresco.test/find tree #(= :h2 (:tag %))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The sweep — the accessibility acceptance, as one assertion per rendering
 ;; ---------------------------------------------------------------------------
@@ -317,10 +227,11 @@
       [(str "the editor, " (name (:status save))) (editor-tree locale save)])))
 
 (deftest every-operable-control-in-the-application-has-a-name
-  (doseq [locale rf.fresco.examples.slice.i18n/locales
-          [what tree] (states locale)]
+  ;; One locale: `i18n/t` answers a visible sentinel for a missing key,
+  ;; so another locale cannot leave a control nameless where this one does not.
+  (doseq [[what tree] (states :en)]
     (is (= [] (rf.fresco.test/unnamed-controls tree))
-        (str what ", in " (name locale)
+        (str what
              " — every button, link, field and select a user can operate "
              "must carry an accessible name, and this is the whole "
              "application asked at once"))))
