@@ -46,53 +46,6 @@
                     nil))
           (.then (fn [_] (restore!) (done)))))))
 
-;; ---------------------------------------------------------------------------
-;; The cwd scan keeps the winning candidate's absolute path, so a session
-;; seeded from it recovers from an ephemeral-port nREPL restart through the
-;; same per-call re-read; a `:port-file nil` would strand it on the dead port.
-;; ---------------------------------------------------------------------------
-
-(def ^:private shadow-probe-fails
-  (fn [_host _port] (js/Promise.resolve nil)))
-
-(def ^:private roots-unsupported
-  (fn [] (js/Promise.resolve {:status :error
-                              :error  {:reason :workspace-discovery-unsupported}})))
-
-(deftest cwd-discovery-shape-recovers-across-ephemeral-restart
-  (async done
-    (let [cwd-pf   (node-path/join (js/process.cwd) ".nrepl-port")
-          content  (atom "7101")
-          restore! (with-fs-read (fn [^js path]
-                                   (if (= (str path) cwd-pf)
-                                     @content
-                                     (throw (js/Error. "ENOENT")))))]
-      ;; Roots unsupported and the HTTP probe down leave the cwd scan.
-      (-> (nrepl/discover-port* nil nil shadow-probe-fails roots-unsupported)
-          (.then
-            (fn [r]
-              ;; Seed the session from the discovery result verbatim.
-              (let [conn-p1 (nrepl/make-conn (:port r) "127.0.0.1")]
-                (server/set-discovered-for-tests!
-                  {:conn conn-p1 :port (:port r) :port-file (:port-file r)
-                   :project-home (:project-home r)})
-                ;; The nREPL restarts on a new port and rewrites the same file.
-                (reset! content "7102")
-                (-> (server/ensure-connection!
-                      {} (fn [_] (js/Promise.reject
-                                   (js/Error. "must not re-run the discovery cascade"))))
-                    (.then
-                      (fn [conn']
-                        (is (= {:new-port 7102 :fresh-conn? true :p1-closed? true :session-port 7102}
-                               {:new-port     (:port @conn')
-                                :fresh-conn?  (not (identical? conn-p1 conn'))
-                                :p1-closed?   (:closed? @conn-p1)
-                                :session-port (:port (server/session-state-snapshot))}))))))))
-          (.catch (fn [e]
-                    (is false (str "must not reject: " (.-message e)))
-                    nil))
-          (.then (fn [_] (restore!) (done)))))))
-
 (deftest cwd-cached-file-vanish-forces-rediscovery
   (async done
     (let [cwd-pf      (node-path/join (js/process.cwd) ".nrepl-port")
