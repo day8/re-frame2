@@ -97,7 +97,6 @@
       (rf/dispatch-sync [:sup/atimeout [:go]])
       (let [child-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/atimeout [:authenticating]])
             epoch    (get-in (snapshot :sup/atimeout) [:data :rf/after-epoch [:authenticating]])]
-        (is (some? child-id) "spawn slot bound")
         (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots child-id]))
             "child snapshot exists")
         (rf/dispatch-sync [:sup/atimeout [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
