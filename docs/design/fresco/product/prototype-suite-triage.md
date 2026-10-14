@@ -505,7 +505,8 @@ bake is taken from. Re-expression added a package witness beside them; it moved 
 - `ssr/hframe_ssr_cljs_test.cljs` → `test/re_frame/fresco/hframe_ssr_cljs_test.cljs`, whole.
   All four claims — the per-request id a body reads, determinism when it is kept out of markup,
   the authorable hazard that breaks determinism, and the ambient carry's refusal inside a server
-  render — are about the RUNTIME under `renderToString` rather than about the tree's shape, so
+  render *(admitted at tip: the bench row is now
+  `the-ambient-carry-is-admitted-server-side-to-the-requests-own-frame`)* — are about the RUNTIME under `renderToString` rather than about the tree's shape, so
   each moved across unchanged. The third is the one the package could not previously make:
   `server_render_ssr_dom_cljs_test`'s `two-renders-of-one-request-are-the-same-bytes` had never
   been watched failing, and a determinism check nobody has seen red is a claim about a check.
