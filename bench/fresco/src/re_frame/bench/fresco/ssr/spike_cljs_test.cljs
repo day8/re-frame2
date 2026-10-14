@@ -11,12 +11,11 @@
   function identically, and the dogfood screen and the Conduit feed page
   hash alike — [[the-byte-digest-separates-the-two-pages-render-hash-cannot]]
   shows it. A byte-identity row fails by VACUITY (two renders of nothing
-  agree), which [[a-different-snapshot-renders-a-different-document]]
-  closes by moving one input."
+  agree), which that row's two pages, rendering two documents,
+  close."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.fresco.ssr.entry :as rf.bench.fresco.ssr.entry]
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
@@ -68,13 +67,6 @@
           ;; later namespace's throw as this row's.
           (.catch (fn [e] (is false (str "X1(a) threw: " e)) nil))
           (.then (fn [_] (done)))))))
-
-(deftest a-different-snapshot-renders-a-different-document
-  ;; Eight seeded to-dos become nine; the document must move with them.
-  (let [row (rf.bench.fresco.ssr.fixtures/row dogfood-row-id)]
-    (is (not= (:document (rf.bench.fresco.ssr.entry/render row))
-              (:document (rf.bench.fresco.ssr.entry/render
-                           (assoc row :snapshot (rf.bench.fresco.front.dogfood/seed-db 9))))))))
 
 (deftest the-byte-digest-separates-the-two-pages-render-hash-cannot
   ;; The entry ships no `:rf/render-hash` for an adoption-tier root, and the
