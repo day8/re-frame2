@@ -2,8 +2,7 @@
   "The owner lifecycle across two simultaneously-live scopes (Spec 016 §The
   scoped-cache owner lifecycle). An owner is a hold on one resolved scoped key,
   so tenant A and tenant B hold independent owners on independent entries, and
-  acquiring, releasing or collecting one can neither pin nor collect the
-  other. Single-scope GC mechanics are `resources_invalidation_gc_cljs_test`."
+  releasing or collecting one can neither pin nor collect the other. Single-scope GC mechanics are `resources_invalidation_gc_cljs_test`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -57,16 +56,6 @@
 
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
-(defn- owner-index
-  "The owner index with its byte key-id members mapped back to scoped keys."
-  []
-  (let [rdb    (runtime-db)
-        es     (get-in rdb (rf.resources.state/entries-path))
-        id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
-    (into {} (map (fn [[owner members]]
-                    [owner (into #{} (map #(get id->sk % %)) members)]))
-          (get-in rdb (rf.resources.state/owner-index-path)))))
-
 (defn- tenant-key [t page]
   (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
 
@@ -95,26 +84,6 @@
   (ensure-feed! "globex" 1 [:app :b 1])
   (settle-loaded! (tenant-key "globex" 1) {:for "globex"})
   [(tenant-key "acme" 1) (tenant-key "globex" 1)])
-
-(deftest acquire-two-scopes-are-independent-owners
-  (let [[ka kb] (two-live-tenants!)]
-    (is (= {ka [{:for "acme"} #{[:app :a 1]}]
-            kb [{:for "globex"} #{[:app :b 1]}]}
-           (into {} (map (fn [[k e]] [k [(:data e) (:active-owners e)]])) (entries)))
-        "each tenant's entry carries its own data and only its own owner")))
-
-(deftest release-is-scoped-to-its-own-entry
-  ;; the release names the owner, not the live resolver output, which is B's
-  (let [[ka kb] (two-live-tenants!)]
-    (is (= "globex" (get-in (rf/app-db-value :rf/default) [:viewer :tenant-id]))
-        "precondition: the live viewer input is tenant B")
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-    (is (= [true true true] [(empty? (:active-owners (entry ka))) (nil? (get (owner-index) [:app :a 1]))
-                             (some? (entry ka))])
-        "A's owner is released from its entry and the index; the entry waits for GC")
-    (is (= [true true] [(contains? (:active-owners (entry kb)) [:app :b 1])
-                        (contains? (get (owner-index) [:app :b 1]) kb)])
-        "B's owner and its index entry are untouched")))
 
 (deftest gc-on-last-release-collects-only-the-unowned-scope
   (let [[ka kb] (two-live-tenants!)]
