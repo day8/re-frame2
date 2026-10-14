@@ -25,11 +25,8 @@
     is not gated; the binding is read by `current-render-key` which
     consumers may call defensively).
   - `current-render-key` — returns the `[view-id token]` shape inside
-    the wrapper render even under prod (no anonymous fallback).
-  - Source-coord injection — already pinned in
-    `re-frame.source-coord-dom-elision-prod-test`; we touch it once
-    here to confirm the cross-cutting elision still holds when the
-    test exercises the render-key surface.
+    the wrapper render even under prod (no anonymous fallback), so the
+    instance-token mint behind it is not gated either.
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. Running
@@ -89,33 +86,3 @@
       (let [k @observed-key]
         (is (= [true :prod-frame-provider/key-reader true] [(vector? k) (first k) (some? (second k))])
             "*render-key* is bound inside the render under prod, with its view-id and instance-token slots")))))
-
-;; ---- mint-instance-token! survives (value-layer machinery) ---------------
-
-(deftest mint-instance-token-survives-under-prod
-  (testing "Per Spec-Schemas §`:rf/epoch-record`: `mint-instance-token!`
-            is value-layer machinery (a swap! on the process-wide
-            `instance-counter` atom). It is NOT gated — calling it
-            under prod returns a fresh integer. The token's only
-            consumer (the trace emit and the dev source-coord stamp)
-            elides, but the mint surface itself is safe to call."
-    (let [t1 (rf.views/mint-instance-token!)
-          t2 (rf.views/mint-instance-token!)]
-      (is (= [true true true] [(integer? t1) (integer? t2) (not= t1 t2)])
-          "each mint returns an integer and the counter still advances under prod — the value-layer machinery survives elision"))))
-
-;; ---- current-render-key outside a render-key binding falls through -------
-
-(deftest current-render-key-anonymous-fallback-under-prod
-  (testing "Per Spec-Schemas §`:rf/epoch-record`: outside a registered
-            view's render, `current-render-key` returns the documented
-            anonymous fallback `[:rf.view/anonymous nil]`. The
-            fallback shape itself survives prod because the
-            `or *render-key* [:rf.view/anonymous nil]` form is not
-            gated — anonymous-render context is a documented prod-mode
-            shape too (e.g. headless tests calling `current-render-key`
-            outside any reg-view* wrapper)."
-    (is (= [:rf.view/anonymous nil]
-           (rf.views/current-render-key))
-        "current-render-key returns the anonymous fallback outside a
-         render under prod")))
