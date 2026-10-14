@@ -1,6 +1,7 @@
 (ns re-frame.machine-depth-abort-failure-cljs-test
   "A runaway `:raise` cycle that trips the depth limit is a FAILED macrostep: one
-  error-grade depth-exceeded trace, no benign no-op, and the snapshot rolled back."
+  error-grade, frame-tagged depth-exceeded trace, no benign no-op, and the
+  snapshot rolled back."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Installs the late-bind hooks + reserved fxs `reg-machine` relies on.
@@ -26,8 +27,10 @@
   (let [evs      (rf.machines.test-support/with-trace-capture seen
                    (rf/dispatch-sync [:rf2-y3jv8q/raise [:go]])
                    @seen)
-        op-types (fn [op] (into [] (comp (filter #(= op (:operation %))) (map :op-type)) evs))]
-    (is (= [[:error] [] :start]
+        op-types (fn [op] (into [] (comp (filter #(= op (:operation %)))
+                                         (map (juxt :op-type (comp :frame :tags))))
+                                evs))]
+    (is (= [[[:error :rf/default]] [] :start]
            [(op-types :rf.error/machine-raise-depth-exceeded)
             (op-types :rf.machine.event/unhandled-no-op)
             (rf.machines.test-support/machine-state :rf2-y3jv8q/raise)]))))
