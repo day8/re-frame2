@@ -143,22 +143,20 @@
     :width           — viewport width in px (default 480)
     :slowest-marker? — when true, the longest phase gets a yellow fill
                        + `← slow` annotation (default true)
-    :testid          — overrides the root SVG data-testid
 
   Returns nil when there are no phases to render so the panel can
   fall back to a `n/a` placeholder. Pure fn — JVM-runnable."
   ([wire] (render wire {}))
-  ([wire {:keys [width slowest-marker? testid]
+  ([wire {:keys [width slowest-marker?]
           :or   {width 480
-                 slowest-marker? true
-                 testid "rf-xray-waterfall"}}]
+                 slowest-marker? true}}]
    (let [rows       (normalise-phases wire)
          slowest    (when slowest-marker? (slowest-phase wire))
          n-rows     (count rows)
          bar-area-w (max 40 (- width label-width value-width (* 2 bar-padding)))
          svg-h      (max row-height (* n-rows row-height))]
      (when (seq rows)
-       [:svg {:data-testid testid
+       [:svg {:data-testid "rf-xray-waterfall"
               :data-row-count (str n-rows)
               :width  width
               :height svg-h
