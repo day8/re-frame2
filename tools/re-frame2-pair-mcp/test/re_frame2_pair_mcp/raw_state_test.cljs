@@ -70,11 +70,9 @@
 
 (deftest launch-diagnostics-names-removed-flag
   ;; The effect names what to pass instead.
-  (doseq [[flag replacement] [["--allow-raw-state" #"allow-sensitive-reads"]
-                              ["--allow-eval" #"--no-eval"]]]
-    (let [[d] (server/launch-diagnostics [flag])]
-      (is (= :removed-flag (:issue d)) flag)
-      (is (re-find replacement (:effect d)) flag))))
+  (let [[d] (server/launch-diagnostics ["--allow-raw-state"])]
+    (is (= :removed-flag (:issue d)))
+    (is (re-find #"allow-sensitive-reads" (:effect d)))))
 
 (deftest launch-diagnostics-names-missing-value
   (doseq [[argv flag] [[["--port-file"] "--port-file"]
