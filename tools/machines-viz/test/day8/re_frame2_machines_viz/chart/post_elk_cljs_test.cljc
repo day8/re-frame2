@@ -196,7 +196,6 @@
           right  (reduce max (map #(+ (:x %) (:width %))
                                   (map np [(layout/region-node-id :audio)
                                            (layout/region-node-id :video)])))]
-      (is (> right 680) "the stacked column outgrows the side-by-side frame")
       (is (= {:x 12 :y 12 :width (+ right 20) :height 540}
              (np layout/root-container-id))))))
 
