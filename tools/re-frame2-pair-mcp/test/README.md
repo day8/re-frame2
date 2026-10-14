@@ -48,8 +48,7 @@ What this layer covers:
   pins the function shape (args coercion, eval-form composition,
   wire envelope, error surfaces) without touching the network.
 - Cross-cutting concerns — `cache_test.cljs`, `wire_cap_test.cljs`,
-  `dedup_test.cljs`, `dedup_benchmark_test.cljs`,
-  `sensitive_filter_test.cljs`, `path_slicing_test.cljs`,
+  `dedup_test.cljs`, `sensitive_filter_test.cljs`, `path_slicing_test.cljs`,
   `elision_test.cljs`, `lazy_summary_test.cljs`,
   `cursor_pagination_test.cljs`, `args_test.cljs`,
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
@@ -63,8 +62,7 @@ What this layer covers:
   to `re-frame.ssr-conformance-test` / `re-frame.machines-conformance-test`
   / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
   on the framework side.
-- Snapshot pipeline / wire shape — `list_subscriptions_test.cljs`,
-  `wire_cap_test.cljs`,
+- Snapshot pipeline / wire shape — `wire_cap_test.cljs`,
   `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
   stubbed at `nrepl/cljs-eval-value`.
@@ -161,11 +159,12 @@ override discovery).
 #### `live-fresco-wire.cjs` — the Fresco evidence door, actually run
 
 The one witness in this tree that executes a Pair tool against a real
-Fresco provider. `fresco_tool_test.cljs` stubs the eval with canned
-envelopes and `fresco_wire_test.cljs` compares emitted strings with the
-provider's source; both are static seam checks, and neither sends the
-emitted form, compiles it, evaluates it in a runtime, or carries a
-result back through the schema gate.
+Fresco provider. `fresco_tool_test.cljs` reads the emitted form's text,
+the conformance corpus stubs the eval with canned envelopes, and
+`fresco_wire_test.cljs` compares emitted strings with the provider's
+source; all three are static seam checks, and none sends the emitted
+form, compiles it, evaluates it in a runtime, or carries a result back
+through the schema gate.
 
 This one does. It boots the Fresco slice example application
 (`re-frame.fresco.examples.slice`) through its own `-main` over
@@ -237,8 +236,7 @@ cases:
   (idempotency).
 
 Every case also asserts stdout purity — teardown emits nothing but MCP
-frames on stdout. The `shutdown!` teardown logic has hermetic CLJS unit
-counterparts in `re_frame2_pair_mcp/shutdown_test.cljs`.
+frames on stdout.
 
 Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`).
 
