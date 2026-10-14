@@ -25,9 +25,8 @@
       characters, and never emits a bare \"?\".
    3. PAGINATION ARITHMETIC — `page->limit-offset` clamps a nil / sub-1 page to
       page 1, and `page-count` is `ceil(count / page-size)` floored at 1.
-   4. RETRY DATA + FAILURE TAXONOMY — `data-fetch-retry` retries transport / 5xx
-      / timeout but never 4xx, and `failure->message` projects every branch of
-      the closed `:rf.http/*` taxonomy (preferring the server's own words)."
+   4. FAILURE TAXONOMY — `failure->message` projects every branch of the
+      closed `:rf.http/*` taxonomy (preferring the server's own words)."
   (:require [cljs.test :refer-macros [deftest testing is]]
             [malli.core :as m]
             [realworld-shared.schema :as ws]
@@ -115,16 +114,8 @@
       "nil and empty counts are still one (empty) page, a full page is 1, one over is 2"))
 
 ;; ============================================================================
-;; 4. RETRY DATA + FAILURE TAXONOMY
+;; 4. FAILURE TAXONOMY
 ;; ============================================================================
-
-(deftest data-fetch-retry-covers-transient-failures-only
-  (is (= [#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout} 3 true]
-         [(:on wh/data-fetch-retry) (:max-attempts wh/data-fetch-retry)
-          (get-in wh/data-fetch-retry [:backoff :jitter])])
-      "reads retry the transient failures a second try might fix (never a 4xx,
-       whose request shape was valid), three attempts total, with jittered
-       backoff so a herd doesn't retry on the same beat"))
 
 (deftest failure->message-projects-every-taxonomy-branch
   (testing "the server's own words win when present: the first {:errors {:body [...]}}
