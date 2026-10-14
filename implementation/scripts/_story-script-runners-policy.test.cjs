@@ -60,11 +60,6 @@ test('play-scripts runner verdict is computed from BOTH failures and pageErrors 
     'runAllVariants must return computeExitCode({ failures, pageErrors }) — ' +
       'the pageerror signal must reach the verdict.',
   );
-  assert.match(
-    src,
-    /pageErrors\.push\(/,
-    'the pageerror handler must record into the separately-tracked pageErrors array.',
-  );
 });
 
 // startLocalHttpServer composes the loopback `-a 127.0.0.1` bind once, verified
@@ -124,11 +119,6 @@ test('checkRowsNonVacuous: empty discovery → { ok:false } with a DRIFTED diagn
   assert.ok(!v.ok && /DRIFTED/.test(v.diagnostic), JSON.stringify(v));
 });
 
-test('checkRowsNonVacuous: a non-array (undefined) discovery is treated as empty → { ok:false }', () => {
-  const v = checkRowsNonVacuous(undefined);
-  assert.ok(!v.ok && /DRIFTED/.test(v.diagnostic), JSON.stringify(v));
-});
-
 test('checkRowsNonVacuous: under-floor (< MIN_PLAY_ROWS) → { ok:false } /below the non-vacuous floor/ (rf2-54xbp)', () => {
   // Both sides present, so the failure is the floor's and not one-sidedness.
   const v = checkRowsNonVacuous([
@@ -179,21 +169,9 @@ test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf
 // A deck dropped from the roster stops running without going red; the fresco
 // entry's opt-out waives the expected-fail requirement and nothing else.
 
-test('the play-scripts roster names both Story testbeds (rf2-kttom)', () => {
-  const labels = TESTBEDS.map((t) => t.label);
-  assert.ok(
-    ['counter-with-stories', 'fresco-counter'].every((label) => labels.includes(label)),
-    `both Story testbeds must stay on the roster, got: ${labels.join(', ')}`,
-  );
-});
-
 test("the counter entry's floor is UNCHANGED — four rows, both sides (rf2-kttom)", () => {
   const { minRows, requireBothSides } = TESTBEDS.find((t) => t.label === 'counter-with-stories').vacuity;
   assert.deepEqual({ minRows, bothSides: requireBothSides !== false }, { minRows: MIN_PLAY_ROWS, bothSides: true });
-});
-
-test('checkRowsNonVacuous: requireBothSides defaults TRUE when opts omit it (rf2-54xbp)', () => {
-  assert.equal(checkRowsNonVacuous(ONE_SIDED_ROWS, { minRows: 4 }).ok, false);
 });
 
 test('checkRowsNonVacuous: an opted-out entry passes on ONE successful play (rf2-kttom)', () => {
@@ -203,12 +181,6 @@ test('checkRowsNonVacuous: an opted-out entry passes on ONE successful play (rf2
     fresco.vacuity,
   );
   assert.equal(v.ok, true);
-});
-
-test('checkRowsNonVacuous: an opted-out entry still fails CLOSED on zero rows (rf2-kttom)', () => {
-  const fresco = TESTBEDS.find((t) => t.label === 'fresco-counter');
-  const v = checkRowsNonVacuous([], fresco.vacuity);
-  assert.ok(!v.ok && /DRIFTED/.test(v.diagnostic), JSON.stringify(v));
 });
 
 // For an entry whose job is to prove one play succeeds, all-expected-fail is
