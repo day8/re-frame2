@@ -62,9 +62,8 @@
         [:span "ok"])
       ((rf/view :rf2-9hoos/reader))
       (let [subs (get-in (first (:rf.view/rendered @observed)) [:tags :rf.view/deref-subs])]
-        (is (vector? subs) ":rf.view/deref-subs is a vector")
-        (is (= #{[:rf2-9hoos/a] [:rf2-9hoos/b]} (set subs))
-            ":rf.view/deref-subs lists exactly the two subs the view deref'd")))))
+        (is (= [true #{[:rf2-9hoos/a] [:rf2-9hoos/b]}] [(vector? subs) (set subs)])
+            ":rf.view/deref-subs is a vector listing exactly the two subs the view deref'd")))))
 
 (deftest deref-subs-is-per-view-not-cascade-wide
   (testing ":rf.view/deref-subs is scoped to the view that read the sub — a sub a
@@ -88,10 +87,9 @@
                                        (get-in % [:tags :rf.view/id])) evs))
             sib-ev  (first (filter #(= :rf2-9hoos/only-sibling
                                        (get-in % [:tags :rf.view/id])) evs))]
-        (is (= [[:rf2-9hoos/mine]] (get-in mine-ev [:tags :rf.view/deref-subs]))
-            "only-mine's read-set is exactly its own sub")
-        (is (= [[:rf2-9hoos/sibling]] (get-in sib-ev [:tags :rf.view/deref-subs]))
-            "only-sibling's read-set is exactly its own sub — no bleed")))))
+        (is (= [[[:rf2-9hoos/mine]] [[:rf2-9hoos/sibling]]]
+               [(get-in mine-ev [:tags :rf.view/deref-subs]) (get-in sib-ev [:tags :rf.view/deref-subs])])
+            "each view's read-set is exactly its own sub — no bleed")))))
 
 (deftest structural-render-has-no-deref-subs
   (testing "a view that reads no subs (a pure structural render) omits
@@ -103,9 +101,8 @@
         [:span "no subs"])
       ((rf/view :rf2-9hoos/structural))
       (let [ev (first (:rf.view/rendered @observed))]
-        (is (some? ev))
-        (is (not (contains? (:tags ev) :rf.view/deref-subs))
-            ":rf.view/deref-subs omitted when the view derefs no subs")))))
+        (is (= [true false] [(some? ev) (contains? (:tags ev) :rf.view/deref-subs)])
+            ":rf.view/rendered fired, and :rf.view/deref-subs is omitted when the view derefs no subs")))))
 
 ;; ===========================================================================
 ;; 2. mount-vs-rerender — :rf.view/mount?
@@ -117,10 +114,8 @@
    backs :rf.view/mount? (a real Reagent instance reuses its render-key across
    re-renders, so the same key recurs)"
     (let [rk [:rf2-9hoos/instance 42]]
-      (is (true? (rf.views/first-render?! rk))
-          "first sighting of the render-key → mount")
-      (is (false? (rf.views/first-render?! rk))
-          "second sighting (a re-render of the same instance) → rerender"))))
+      (is (= [true false] [(rf.views/first-render?! rk) (rf.views/first-render?! rk)])
+          "first sighting of the render-key → mount; second sighting (a re-render of the same instance) → rerender"))))
 
 (deftest distinct-instances-each-mount
   (testing "two distinct component instances (distinct instance-tokens)
@@ -134,8 +129,7 @@
         (render)   ;; instance A — fresh token → mount
         (render))  ;; instance B — fresh token → mount
       (let [evs (:rf.view/rendered @observed)]
-        (is (= 2 (count evs)))
-        (is (every? #(true? (get-in % [:tags :rf.view/mount?])) evs)
+        (is (= [true true] (mapv #(get-in % [:tags :rf.view/mount?]) evs))
             "both fresh instances report :rf.view/mount? true")))))
 
 ;; ===========================================================================
