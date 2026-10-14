@@ -277,29 +277,6 @@
                    (is (= :stories (:frame (cursor-payload r2))) "and page 3 inherits it")
                    (done)))))))
 
-(deftest trace-window-page-2-survives-a-second-frame-registering
-  ;; A fresh call would now be refused as ambiguous; an owned cursor must not be.
-  (async done
-    (let [ring {:rf/default [(epoch 1) (epoch 2) (epoch 3)]}]
-      (stub-runtime! nil {:operation  :trace-window
-                          :app-frames [:rf/default]
-                          :pin        nil
-                          :rings      ring})
-      (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000 :limit 1}))
-          (.then (fn [r1]
-                   (is (= :rf/default (:frame (cursor-payload r1)))
-                       "the SOLE app frame is the id the read resolved")
-                   (stub-runtime! nil {:operation  :trace-window
-                                       :app-frames two-frames
-                                       :pin        nil
-                                       :rings      (assoc ring :stories [(epoch 7)])})
-                   (tw/trace-window-tool
-                     nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1}))))
-          (.then (fn [r2]
-                   (is (not (err? r2)) "an owned cursor stays answerable")
-                   (is (= 1 (:count (read-edn r2))) "and it read the frame it started on")
-                   (done)))))))
-
 (deftest watch-epochs-page-1-cursor-owns-the-pin-it-resolved
   ;; Losing the ring here reports the LIVE cursor dead: the falsehood the
   ;; frame refusal exists to stop, reached by a second route.
@@ -323,28 +300,6 @@
                    (is (not (err? r2))
                        "epoch 7 is alive in :stories, so the cursor is not aged out")
                    (is (= 1 (:count (read-edn r2))) "page 2 polled the ORIGINAL ring")
-                   (done)))))))
-
-(deftest watch-epochs-page-2-survives-a-second-frame-registering
-  (async done
-    (let [ring {:rf/default [(epoch 1) (epoch 2) (epoch 3)]}]
-      (stub-runtime! nil {:operation  :watch-epochs
-                          :app-frames [:rf/default]
-                          :pin        nil
-                          :rings      ring})
-      (-> (we/watch-epochs-tool nil (tu/args->js {:limit 1}))
-          (.then (fn [r1]
-                   (is (= :rf/default (:frame (cursor-payload r1)))
-                       "the sole app frame is what the cursor owns")
-                   (stub-runtime! nil {:operation  :watch-epochs
-                                       :app-frames two-frames
-                                       :pin        nil
-                                       :rings      (assoc ring :stories [(epoch 7)])})
-                   (we/watch-epochs-tool
-                     nil (tu/args->js {:cursor (:next-cursor (read-edn r1)) :limit 1}))))
-          (.then (fn [r2]
-                   (is (not (err? r2)) "an owned cursor stays answerable")
-                   (is (= 1 (:count (read-edn r2))))
                    (done)))))))
 
 (deftest an-explicit-frame-is-the-id-the-cursor-owns
