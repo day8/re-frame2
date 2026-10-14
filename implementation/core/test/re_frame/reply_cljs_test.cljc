@@ -144,25 +144,18 @@
 ;; The functor laws (Managed-Effects §Reply mapping and the functor law).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private target {:event [:article/replied {:id 42}] :delivery :append})
-
-(def ^:private a-reply {:status :ok :value {:id 42}})
-
-(deftest functor-naturality-law
-  (testing "(complete (map-completed-event f t) r) == (f (complete t r))"
-    (let [f (fn [event] [:parent/relay event])]
-      (is (= (f (rf.reply/complete target a-reply))
-             (rf.reply/complete (rf.reply/map-completed-event f target) a-reply))))))
-
-(deftest functor-composition-law
-  (testing "(map-completed-event f (map-completed-event g t)) completes as
-            (map-completed-event (comp f g) t); f and g do not commute, so a
-            composition in the wrong order fails"
-    (let [f (fn [e] [:f e])
-          g (fn [e] [:g e])]
-      (is (= (rf.reply/complete (rf.reply/map-completed-event (comp f g) target) a-reply)
-             (rf.reply/complete (rf.reply/map-completed-event f (rf.reply/map-completed-event g target))
-                                a-reply))))))
+(deftest functor-laws
+  (let [target {:event [:article/replied {:id 42}] :delivery :append}
+        reply  {:status :ok :value {:id 42}}
+        done   #(rf.reply/complete % reply)
+        f      (fn [e] [:f e])
+        g      (fn [e] [:g e])]
+    (testing "naturality: (complete (map-completed-event f t) r) == (f (complete t r))"
+      (is (= (f (done target)) (done (rf.reply/map-completed-event f target)))))
+    (testing "composition: f and g do not commute, so a composition in the wrong
+              order fails"
+      (is (= (done (rf.reply/map-completed-event (comp f g) target))
+             (done (rf.reply/map-completed-event f (rf.reply/map-completed-event g target))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale suppression: the correctness boundary.
