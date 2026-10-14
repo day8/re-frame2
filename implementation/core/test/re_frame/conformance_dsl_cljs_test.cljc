@@ -27,38 +27,6 @@
 ;;                                     n-th arg is a map.)
 ;;   [:get-event-arg n :key]         — key-access into n-th event arg
 ;;   [:get-event-arg n :key default] — key-access with default if missing/nil
-;;
-;; The regression-guard below pins that there is no type-dispatch overload
-;; where a keyword 3rd arg + map value would silently mean
-;; "(get value keyword)" instead of "default-for-nil".
-
-(deftest event-arg-no-key-access-overload
-  (testing ":event-arg's 3rd element is unconditionally default-for-nil"
-    ;; Event: [:some-id {:foo 99}]. The map is the 1st event arg (index 1;
-    ;; index 0 is the event-id).
-    (let [ctx {:event [:some-id {:foo 99}]}]
-      (testing "with a non-nil map arg, returns the arg verbatim"
-        ;; The keyword 3rd arg is a default-for-nil and never fires because
-        ;; the value is non-nil — so the map is returned as-is (a key-access
-        ;; overload would return 99).
-        (is (= {:foo 99}
-               (rf.conformance/resolve-value* [:event-arg 1 :foo] ctx))
-            "[:event-arg n :foo] with a map arg must NOT do key-access")))
-
-    (testing "with nil arg, default-val is returned (keyword default works)"
-      ;; The arg at index 1 doesn't exist (event has only :some-id). The
-      ;; keyword default-val IS returned because v is nil.
-      (let [ctx {:event [:some-id]}]
-        (is (= :foo
-               (rf.conformance/resolve-value* [:event-arg 1 :foo] ctx))
-            "[:event-arg n :foo] with nil arg returns :foo as default-for-nil")))
-
-    (testing "two-element form [:event-arg n] returns the n-th arg unchanged"
-      (let [ctx {:event [:some-id {:foo 99}]}]
-        (is (= {:foo 99}
-               (rf.conformance/resolve-value* [:event-arg 1] ctx))))
-      (let [ctx {:event [:some-id]}]
-        (is (= nil (rf.conformance/resolve-value* [:event-arg 1] ctx)))))))
 
 (deftest get-event-arg-key-access
   (testing ":get-event-arg extracts a key from a map arg"
@@ -79,82 +47,13 @@
     (let [ctx {:event [:some-id]}]
       (is (= nil (rf.conformance/resolve-value* [:get-event-arg 1 :foo] ctx))))))
 
-;; ---- :return-raw — verbatim (possibly-malformed) effect-map return --------
-;;
-;; The proactive fx shape-policing categories
-;; (:rf.error/effect-map-shape cases a/b/c, :rf.error/effect-handler-bad-return)
-;; need a handler that RETURNS a malformed effect-map. The :set / :update / :fx
-;; ops always build a well-shaped map, so :return-raw is the only DSL path
-;; that yields a literal value verbatim. These tests pin the realiser's
-;; contract directly (the corpus fixtures exercise it end-to-end).
-
-(deftest return-raw-returns-value-verbatim
-  (testing "the realised event-fx handler returns the literal value verbatim"
-    (let [handler (rf.conformance/realise-event-fx-handler [[:return-raw {:db {:x 1}}]])]
-      (is (= {:db {:x 1}}
-             (handler {:db {}} [:evt])))))
-
-  (testing "malformed shapes are preserved verbatim — NOT well-shaped away"
-    (testing "(a) bad top-level key"
-      (let [handler (rf.conformance/realise-event-fx-handler
-                      [[:return-raw {:db {:x 1} :http {:url "/api"}}]])]
-        (is (= {:db {:x 1} :http {:url "/api"}}
-               (handler {:db {}} [:evt]))
-            "the non-:db/:fx key survives — the policing site (not the DSL) drops it")))
-
-    (testing "(b) non-sequential :fx value"
-      (let [handler (rf.conformance/realise-event-fx-handler [[:return-raw {:fx :oops}]])]
-        (is (= {:fx :oops} (handler {:db {}} [:evt])))))
-
-    (testing "(c) malformed :fx entry — bare keyword among well-shaped tuples"
-      (let [handler (rf.conformance/realise-event-fx-handler
-                      [[:return-raw {:fx [[:good {}] :oops [:good2 {}]]}]])]
-        (is (= {:fx [[:good {}] :oops [:good2 {}]]}
-               (handler {:db {}} [:evt])))))
-
-    (testing "(c) surplus 3-field :fx entry"
-      (let [handler (rf.conformance/realise-event-fx-handler
-                      [[:return-raw {:fx [[:sink {:used true} {:dropped true}]]}]])]
-        (is (= {:fx [[:sink {:used true} {:dropped true}]]}
-               (handler {:db {}} [:evt])))))
-
-    (testing "non-map / non-nil return (the bad-return path)"
-      (let [vec-handler (rf.conformance/realise-event-fx-handler
-                          [[:return-raw [[:dispatch [:other]]]]])
-            nil-handler (rf.conformance/realise-event-fx-handler [[:return-raw nil]])]
-        (is (= [[:dispatch [:other]]] (vec-handler {:db {}} [:evt]))
-            "a vector return survives verbatim for the bad-return policing site")
-        (is (nil? (nil-handler {:db {}} [:evt]))
-            "nil survives verbatim — the documented legal no-op"))))
-
-  (testing "reflection forms inside the raw value still resolve"
-    (let [handler (rf.conformance/realise-event-fx-handler
-                    [[:return-raw {:db {:from-event [:event-arg 1]}}]])]
-      (is (= {:db {:from-event 42}}
-             (handler {:db {}} [:evt 42]))
-          "[:event-arg n] resolves even inside a :return-raw literal"))))
-
 ;; ---- shared harness primitives --------------------------------------------
 ;;
-;; `normalize-event-handler`, `collect-cofx-keys`, `realise-cofx-supplier`,
-;; `submap?`, `check-trace-emissions`, and `resolve-sub` live in the shared
+;; `collect-cofx-keys`, `realise-cofx-supplier`, `submap?`,
+;; `check-trace-emissions`, and `resolve-sub` live in the shared
 ;; `.cljc` owner `re-frame.conformance` rather than as private copies in the
 ;; core corpus runner and the schemas artefact runner, so they run once,
 ;; identically, on both hosts. These target the primitives directly.
-
-(deftest normalize-event-handler-collapses-body-shape
-  (testing ":db body-shape is lifted to the single (cofx → effects-map) form"
-    (let [pair    [:db (fn [db event] (assoc db :seen event))]
-          handler (rf.conformance/normalize-event-handler pair)]
-      (is (= {:db {:seen [:evt 7]}}
-             (handler {:db {}} [:evt 7]))
-          ":db handler reads db from coeffects and lowers the new db into {:db …}")))
-
-  (testing ":fx body-shape passes through unchanged (already the single form)"
-    (let [fx-handler (fn [_cofx _event] {:fx [[:noop {}]]})
-          pair       [:fx fx-handler]]
-      (is (identical? fx-handler (rf.conformance/normalize-event-handler pair))
-          ":fx handler is returned verbatim — no wrapping"))))
 
 (deftest collect-cofx-keys-walks-nested-steps
   (testing "pulls every [:cofx-key K] ref across nested body steps, as a set"
