@@ -164,7 +164,7 @@ A form the skill missed fails in one of these ways:
 | `[:dispatch-n [ev1 ev2]]` in `:fx` | Nothing is dispatched; `:rf.error/no-such-fx` | One `[:dispatch ev]` row per event |
 | `[:dispatch-later {:ms 100 :dispatch [:tick]}]` | Nothing is dispatched; `:rf.error/no-such-handler` for a `nil` event | `[:dispatch-later {:ms 100 :event [:tick]}]` |
 | A v1 `reg-fx` handler, `(fn [value] …)` | In ClojureScript it runs with the context map as `value`, reads `nil`s, and nothing is reported | Add a leading context parameter: `(fn [_ctx value] …)` |
-| The same event, sub or fx id registered from two namespaces (v1's last-write-wins override) | The frame fails to build with `:rf.error/image-duplicate-id`, naming both namespaces | Rename one, or put the override in a later [image](images.md#composing-images-the-later-one-wins) |
+| The same event, sub or fx id registered from two namespaces (v1's last-write-wins override) | Neither runs: using the id raises `:rf.error/ambiguous-registration`, naming both namespaces | Rename one, or put the override in a later [image](images.md#composing-images-the-later-one-wins) |
 
 ## Establish a root frame
 

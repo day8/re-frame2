@@ -268,8 +268,9 @@ test never carries it. Wire it in through the project's test alias / build.
 
 **Mount under the application's own image composition.** Every kit mount
 builds a fresh frame, from the default image unless told otherwise — every
-registration loaded — and the default image refuses a `[kind id]` registered
-from two namespaces (`:rf.error/image-duplicate-id`). An application that
+registration loaded — and the default image refuses to run a `[kind id]`
+registered from two namespaces (`:rf.error/ambiguous-registration` where it is
+used). An application that
 deliberately overrides a library registration builds its frames from disjoint
 ordered images, the later winning; hand the kit that same vector with
 `:images`, on `hm/mount!`, `hm/hydrate!` and `hm/shadow!` alike:

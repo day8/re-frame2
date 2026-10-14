@@ -374,7 +374,7 @@ diverge from there, which points at the original cause.
 Both frames are built from the default image unless you pass `:images`. An
 application that builds its frames from explicit images, for example to keep
 a deliberate override of a library registration that the default image
-refuses with `:rf.error/image-duplicate-id`, passes the same vector here.
+refuses with `:rf.error/ambiguous-registration`, passes the same vector here.
 `hm/mount!` and `hm/hydrate!` take the same option
 ([Mount options](15-testing.md#mount-options)).
 

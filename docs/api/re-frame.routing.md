@@ -205,7 +205,7 @@ Loading `re-frame.routing` registers these events, and the subscriptions, effect
 
 Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/cancel`, `:rf.route/prefetch` and `:rf.route/replan-resources`. `route-link` dispatches `:rf.route/url-requested`, and the runtime dispatches the other three; an SSR app also dispatches `:rf.route/handle-url-change` with the request URL.
 
-`:rf.route/navigation-blocked` and `:rf.route/entry-denied` are the two events an application registers its own handler for. Registering a handler under any other routing event id makes frame creation throw `:rf.error/image-duplicate-id`.
+`:rf.route/navigation-blocked` and `:rf.route/entry-denied` are the two events an application registers its own handler for. Registering a handler under any other routing event id makes that id ambiguous: a frame made without `:images` raises `:rf.error/ambiguous-registration` when it uses it.
 
 ### `[:rf.route/navigate {request}]`
 

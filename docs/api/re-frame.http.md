@@ -472,7 +472,7 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 - **Description**: Installs `route-map` as stubs that stay in place until `uninstall-managed-request-stubs!`, for stubs that span several `deftest`s. It registers the `:rf.http/managed-test-stub` fx, the stable `:fx-overrides` target, and returns that fx-id.
     - Unlike `with-request-stubs`, it does not reroute `:rf.http/managed`. Dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}`, or wrap dispatches in `with-fx-overrides`, to route through it.
     - A nested install saves the previous stub handler, and the matching uninstall restores it (LIFO).
-    - A frame created without an id before the install cannot see `:rf.http/managed-test-stub`: its redirect falls through with `:rf.error/override-fallthrough` and the real request is sent. Install first, or use `with-request-stubs`.
+    - A frame made with `:images` and without an id before the install cannot see `:rf.http/managed-test-stub`: its redirect falls through with `:rf.error/override-fallthrough` and the real request is sent. Install first, or use `with-request-stubs`. A frame made without `:images` reads the registrar live, so it sees the stub whenever it was made.
 - **Example**:
   ```clojure
   ;; Stubs that span several deftests — install once, route via :fx-overrides.

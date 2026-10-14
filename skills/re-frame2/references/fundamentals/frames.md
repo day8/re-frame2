@@ -189,7 +189,7 @@ Two per-adapter React-context components, one verb each — **roots ensure; prov
 
 ## Images — the registration-set half (EP-0023)
 
-The multi-frame public model is **`image -> frame -> event stream`**: an **image** is the selected registration set a frame runs, this leaf's frame is the isolated execution context. A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped; frame ids are process-local and unique. Everything else about the registration-set half — the `rf/image` grammar, image-order composition (shadow report via `rf/frame-generation`), hot-reload via re-`make-frame`, when to reach for an explicit image, and the frame-isolation rule — is [`images.md`](images.md).
+The multi-frame public model is **`image -> frame -> event stream`**: an **image** is the selected registration set a frame runs, this leaf's frame is the isolated execution context. A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` reads it live, the implicit *default image*. Registration ids are image-scoped; frame ids are process-local and unique. Everything else about the registration-set half — the `rf/image` grammar, image-order composition (shadow report via `rf/frame-generation`), hot-reload via re-`make-frame`, when to reach for an explicit image, and the frame-isolation rule — is [`images.md`](images.md).
 
 ## Deeper material
 

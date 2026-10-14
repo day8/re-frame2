@@ -351,7 +351,8 @@ Related: [Images](images.md).
 ### **generation**
 
 The frozen table of registrations a frame's [image](#image) resolves into: for each
-kind and id, which handler answers. Every frame has one. Calling `make-frame` again
+kind and id, which handler answers. Every frame made with `:images` has one; a frame
+made without `:images` reads the registrar live instead. Calling `make-frame` again
 with the same `:id` and new `:images` swaps the frame onto a new generation.
 
 Related: [Images](images.md).

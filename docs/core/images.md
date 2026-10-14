@@ -52,20 +52,24 @@ loaded, with globally unique ids" is not what a frame should run.
 
 The default image works only while ids are unique across everything that's loaded.
 When two loaded namespaces register the same `(kind, id)` with different
-implementations (two surfaces that both define `:todo/add`, say), the frame fails to
-assemble with `:rf.error/image-duplicate-id`, naming the kind, the id and both source
-namespaces.
+implementations (two surfaces that both define `:todo/add`, say), that id is
+ambiguous: a frame created with no `:images` raises `:rf.error/ambiguous-registration`
+where it uses the id, naming the kind, the id and both source namespaces, and every
+other id keeps working. An explicit image that selects both namespaces fails to
+assemble with `:rf.error/image-duplicate-id`.
 
-The registrar keeps both registrations, and assembly will not guess which one should
+The registrar keeps both registrations, and re-frame2 will not guess which one should
 win. You have three ways out, each covered below: rename one id, narrow each frame to
 its own slice with an explicit image, or compose a later image that overrides the
-other.
+other. When the second registration is stale, typically a handler you moved to another
+namespace, `(rf/clear kind id)` and then re-evaluating the namespace that should own
+the id clears it.
 
 ??? info "From re-frame v1"
 
     In v1 the second `reg-event` of an id replaced the first, and you found out when the
-    wrong handler ran. re-frame2 keeps both and stops at assembly with a named error,
-    before any event touches state ([fail loud, not silent](glossary.md#fail-loud-not-silent)).
+    wrong handler ran. re-frame2 keeps both and runs neither, raising a named error
+    where the id is used ([fail loud, not silent](glossary.md#fail-loud-not-silent)).
 
 ## Naming an image: `rf/image`
 
@@ -306,9 +310,9 @@ override:
 
 An empty vector means nothing was overridden, so
 `(empty? (:rf.gen/shadows (rf/frame-generation frame)))` asserts that no image
-overrode another. A default-image frame has a generation too, and its shadow report is
-`[]`. For a target that is not a live frame (an unknown or destroyed frame id),
-`rf/frame-generation` throws `:rf.error/frame-no-generation` rather than returning
+overrode another. A frame created with no `:images` reads the registrar live and has no
+generation. For it, and for a target that is not a live frame (an unknown or destroyed
+frame id), `rf/frame-generation` throws `:rf.error/frame-no-generation` rather than returning
 `[]` or `nil`.
 
 ??? note "The rest of the generation, and frame-targeted queries"
@@ -390,7 +394,7 @@ save a file and the live frames pick up the change without losing state.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/image-duplicate-id` from a frame with no `:images` | Two loaded namespaces register the same `(kind, id)` | Rename one id, or give each frame its own image ([When two registrations collide](#when-two-registrations-collide)) |
+| `:rf.error/ambiguous-registration` from a frame with no `:images` | Two loaded namespaces register the same `(kind, id)`, often a handler moved between namespaces | Rename one id, give each frame its own image, or clear a stale registration ([When two registrations collide](#when-two-registrations-collide)) |
 | `:rf.error/image-within-image-collision` after adding a test double | The fake is in the same image as the registration it replaces | Put the fake in a later image |
 | `:rf.error/image-zero-match` | An `:include` glob matches no loaded namespace: a typo, a missing `require`, or a namespace removed as dead code | Fix the glob, or require the namespace |
 | An explicit image is missing a registration | It was made through a function alias or generated code, so it has no source namespace | Add `:ns` to its metadata |
@@ -458,12 +462,14 @@ Reloading one frame never changes a sibling that shared its generation, and the 
 generation is never mutated. Only a frame with an `:id` can be re-made this way; a
 frame created without one is a local object, so discard it and make a new one.
 
-### The default image is a sealed generation
+### The default image resolves live
 
-`make-frame` with no `:images` key resolves a sealed default generation over the whole
-registrar, framework standards included. It goes through the same assembly checks as
-an explicit selection, which is why the default path also fails on a cross-namespace
-duplicate id instead of letting load order pick a winner. The one exception is a
+`make-frame` with no `:images` key seals no generation. The frame looks each id up in
+the whole registrar, framework standards included, against one view of it taken as
+each event begins, so an event, its interceptors and its effects resolve together and
+the next event sees any new registration. Nothing is assembled, so none of the errors
+above apply: an id two namespaces register raises `:rf.error/ambiguous-registration`
+where it is used, instead of letting load order pick a winner. The one exception is a
 replaceable framework default, described next: when your app registers the same id,
 the framework's own copy is dropped.
 
@@ -474,8 +480,9 @@ whether your registration of the same id is an error or the documented recipe.
 
 - A **framework standard** implements how a frame executes registrations:
   `:rf/set-db`, the interceptor algorithm, queue ordering, app-db commit semantics.
-  An app registration of the same id fails assembly with
-  `:rf.error/image-standard-replacement-forbidden`. There is no opt-in.
+  An app `reg-*` of the same id is refused when it is made, and an image defining one
+  inline fails assembly, both with `:rf.error/image-standard-replacement-forbidden`.
+  There is no opt-in.
 - A **replaceable framework default** is the framework's placeholder for a decision
   your application makes, registered so the feature works when you register nothing.
   The framework marks each one with the reserved `:rf/framework-default?` metadata
@@ -488,11 +495,12 @@ whether your registration of the same id is an error or the documented recipe.
   [HTTP carriers](how-to/keep-secrets-out-of-traces.md#http-carriers-redact-by-header-and-query-param-name).
 
 So `(rf/reg-event :rf.route/entry-denied …)` in your own namespace is not a
-duplicate-id collision. Once your registration exists, assembly drops the framework's
+collision. Once your registration exists, frames run it and drop the framework's
 copy. Two details:
 
-- Two app registrations of one framework-default id are still
-  `:rf.error/image-duplicate-id`, like any other duplicate.
+- Two app registrations of one framework-default id are still ambiguous, like any
+  other duplicate: `:rf.error/ambiguous-registration` where a frame with no `:images`
+  uses it, and `:rf.error/image-duplicate-id` from an image that selects both.
 - Putting `:rf/framework-default?` on your own registration does nothing. The key
   counts only on a registration with no source namespace, which is how the
   framework's own copy is identified, and a `reg-*` macro always records the namespace

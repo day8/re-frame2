@@ -195,8 +195,9 @@ has happened by the first assertion. The stored destination leaves out an empty
 with a user present the guard allows it.
 
 Read what the handler stored rather than registering a spy under
-`:rf.route/entry-denied`: the app registers that id already, and `make-frame` refuses
-one id registered by two namespaces with `:rf.error/image-duplicate-id`.
+`:rf.route/entry-denied`: the app registers that id already, and a frame made without
+`:images` runs neither registration of an id two namespaces register, raising
+`:rf.error/ambiguous-registration`.
 
 A frame interceptor that guards navigations, as in
 [Require sign-in on a route](how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes),
@@ -207,8 +208,7 @@ is tested like [any other interceptor](../core/interceptors.md#testing-an-interc
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; a URL that cannot be built — a missing path param, or with `re-frame.schemas` loaded a value the schema rejects — raises `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial |
-| `make-frame` throws `:rf.error/image-duplicate-id` | The test registers an id the app already registers, such as `:rf.route/entry-denied` | Assert on what the app's handler does, or register the test's handler under an id of its own |
-| A spy registered in the test is never called | It was registered inside `with-new-frame`, after the frame was made | Register it before `make-frame` |
+| `:rf.error/ambiguous-registration` when the frame uses an id | The test registers an id the app already registers, such as `:rf.route/entry-denied` | Assert on what the app's handler does, or register the test's handler under an id of its own |
 | A link-click or Back/Forward test sees the `:restore` scroll default | The dispatch has no `:rf.route/cause`, so it counts as `:initial` | Pass the cause, as in [Simulating a link click or Back/Forward](#simulating-a-link-click-or-backforward) |
 | Handlers registered in one test are visible in the next | The reset fixture is missing | Add `ts/make-reset-runtime-fixture`; it rolls back registrations made during each test |
 | There is no browser URL to assert on | Test frames are not `:url-bound?`, so nothing writes the address bar | Assert on the route subs, or on `route-url` of the expected address |

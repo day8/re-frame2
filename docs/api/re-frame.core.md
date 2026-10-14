@@ -877,7 +877,7 @@ Which function makes the frame depends on who owns its lifetime:
     - `:rf.error/make-frame-bad-opts`: `opts` is not a map, including `nil`.
     - `:rf.error/make-frame-bad-images`: `:images` is not a vector, or is `[]`.
     - `:rf.error/unknown-preset`: `:preset` is not `:default`, `:test` or `:story`.
-    - `:rf.error/image-duplicate-id`: two namespaces register the same `[kind id]` in one image's selection, including the default image. Rename one, narrow `:select-ns`, or put the intended override in a later image.
+    - `:rf.error/image-duplicate-id`: two namespaces register the same `[kind id]` in one image's selection, including the default projection of an explicit descriptor pool. Rename one, narrow `:select-ns`, or put the intended override in a later image. A frame made without `:images` over the registrar is still made, and using that id raises `:rf.error/ambiguous-registration` instead.
     - `:rf.error/image-zero-match`: an image's `:select-ns :include` pattern matches no loaded registration (a typo, or a namespace not required).
     - `:rf.error/image-duplicate-image-id`: images in a multi-image `:images` vector share an `:id`, or one has no `:id`.
     - `:rf.error/image-within-image-collision`: an inline registration collides with a selected one in the same image.
@@ -916,7 +916,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 | Key | Value | Default | Meaning |
 |---|---|---|---|
 | `:id` | A keyword. | A generated `:rf.frame/<n>` id. | The frame's id. A frame made without one is listed by `frame-ids` under its generated id; address it through the value `make-frame` returns. |
-| `:images` | A non-empty vector of [images](#image). | The default image. | The registrations the frame runs. The default image runs every registration; a frame with no app registrations passes `[(rf/image {:id :my/empty})]`. |
+| `:images` | A non-empty vector of [images](#image). | The default image. | The registrations the frame runs. The default image runs every registration, looked up live as each event begins, and an id two namespaces register raises `:rf.error/ambiguous-registration` where it is used; a frame with no app registrations passes `[(rf/image {:id :my/empty})]`. |
 | `:adapter` | Any value. | None. | Recorded on the frame for tools. Rendering always uses the adapter installed by `init!`. |
 | `:doc`, `:tags` | A string; a set of keywords. | None. | Registration metadata, read back with [`frame-meta`](#frame-meta). |
 | `:initial-events` | A vector of setup steps. | None. | Events dispatched into the new frame when it is created; see below. |
@@ -1738,7 +1738,7 @@ The registrar holds every registration (events, subs, fx, cofx, interceptors, ma
   ```
 - **Description**: Returns every registration of one kind, with the full metadata map per id: source coordinates, `:sensitive`, `:rf/machine?`, `:platforms`, the doc string. The argument is always a map, and it names exactly one source.
     - `{:source :store …}` reads the process-wide registrar and never consults a frame's image, so it answers the same inside any frame; this is what a tool inspecting a host application wants. `:store` is the only `:source` value.
-    - `{:frame f …}` returns only the ids that frame's image carries, resolved through its generation (see [`frame-generation`](#frame-generation)). `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame carrying a generation raises `:rf.error/frame-no-generation`.
+    - `{:frame f …}` returns only the ids that frame runs: those its generation carries (see [`frame-generation`](#frame-generation)), or, for a frame made without `:images`, every registered id except one that two namespaces register. `f` is a frame-id keyword or a live frame value; one that does not resolve to a live frame raises `:rf.error/frame-no-generation`.
     - Naming both `:source` and `:frame`, naming neither, a `:source` other than `:store`, or a non-map argument (usually a leftover positional call) raises `:rf.error/registrar-query-needs-source`. There is no default source.
     - `:kind :flow` and `:kind :frame` raise `:rf.error/registrar-kind-not-queryable`, naming the function to use instead (`re-frame.flows/flows`, `flow-meta`, `flows-snapshot`; `frame-ids`, `frame-meta`), rather than returning a misleading `{}`.
     - Any other `:kind` outside the registrar kinds raises `:rf.error/unknown-registry-kind`, naming the queryable set.
