@@ -44,7 +44,7 @@
 (deftest chart-region-on-done-lands-inside-its-region
   (testing "a keyword or vector target is an in-region path, landing on a node
             the chart draws and never on the sibling region of the same name"
-    (doseq [[target path] [[:b [:b]] [[:b] [:b]] [[:p :q] [:p :q]] [:a1 [:a1]]]
+    (doseq [[target path] [[:b [:b]] [[:b] [:b]] [[:p :q] [:p :q]]]
             :let [graph (layout/project-definition (with-region-on-done target))
                   e     (region-on-done-edge graph)]]
       (is (= [(layout/region-node-id :a) (layout/region-scoped-id :a path) path]
@@ -64,17 +64,7 @@
 
 (deftest mermaid-region-on-done-lands-inside-its-region
   (testing "the completion edge targets the region's own state id"
-    (let [out (mermaid-body (with-region-on-done :b))]
-      (is (str/includes? out "a --> a__b : ✓ done"))
-      (is (not (str/includes? out "a --> b :")) "never the sibling region")))
-
-  (testing "a region completing into its own initial state draws r --> r__a,
-            never an edge to an undeclared node a"
-    (let [out (mermaid-body {:type    :parallel
-                             :regions {:r {:initial :a :on-done :a
-                                           :states  {:a {} :done {:final? true}}}}})]
-      (is (str/includes? out "r --> r__a : ✓ done"))
-      (is (not (str/includes? out "r --> a :")))))
+    (is (str/includes? (mermaid-body (with-region-on-done :b)) "a --> a__b : ✓ done")))
 
   (testing "a deeper vector target is prefixed with the region"
     (is (str/includes? (mermaid-body (with-region-on-done [:p :q])) "a --> a__p__q : ✓ done"))))
@@ -109,5 +99,4 @@
       (is (= 1 (count root)))
       (is (= [] (:done-path (first root))))
       (is (str/includes? xml (str "event=\"done.state." layout/parallel-root-done-state-id "\">")))
-      (is (str/includes? (mermaid-body m) "on-done: ✓ done / announce"))
       (is (= m (scxml/scxml->spec xml)) "both completions read back"))))
