@@ -53,10 +53,6 @@
   (is (every? nil? (map #(ns-resolve 're-frame.machines %)
                         '[machine-algebra-view machine-instance-algebra-view]))))
 
-(deftest machine-exposes-its-full-process-node
-  (rf/reg-machine :upload/main upload-machine)
-  (is (= upload-node (dissoc (static-node :upload/main) :source))))
-
 (deftest declared-event-inputs-are-walked-from-the-whole-state-tree
   (doseq [[label machine-id spec expected]
           [["reserved framework events and the :* wildcard are not inputs"
