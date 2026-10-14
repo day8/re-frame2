@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.test-utils
   "Shared test helpers: wire-envelope extractors, async-safe stub
-  installers for the nREPL eval globals, the dedup inverse, and test-only
-  handles on mcp-base's token rule and overflow hint."
+  installers for the nREPL eval globals, the dedup inverse, and a test-only
+  handle on mcp-base's token rule."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
@@ -97,6 +97,3 @@
 (defn token-estimate
   [s]
   (rf.mcp-base.overflow/token-estimate s))
-
-(def overflow-hint-fallback
-  rf.mcp-base.overflow/overflow-hint-fallback)
