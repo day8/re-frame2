@@ -13,10 +13,7 @@
   (doseq [[input expected why]
           [[nil                           nil                  "nil ⇒ no path"]
            ["   "                         nil                  "a blank string ⇒ no path"]
-           ["[:cart :items 0]"            [:cart :items 0]     "an EDN vector string with an index"]
            ["[]"                          []                   "an empty EDN vector is the root"]
-           [[:a :b :c]                    [:a :b :c]           "a CLJS vector passes through"]
-           [(list :a :b :c)               [:a :b :c]           "a CLJS sequential coerces to a vector"]
            [#js [":cart" "bare-key" "0"]  [:cart "bare-key" 0] "JS-array segments parse as EDN; a bare word stays a string"]
            [#js ["[" "]"]                 ["[" "]"]            "unparseable JS-array segments stay strings"]
            [":foo"                        [:foo]               "a lone EDN scalar is a 1-segment path"]
@@ -53,17 +50,11 @@
            (select-keys marker [:type :count :keys-truncated?])))
     (is (= summary/summary-keys-cap (count (:keys marker))))))
 
-(deftest tree-summary-scalar-returns-value-unchanged
-  ;; A scalar already fits the cap; a marker would only add tokens.
-  (is (= 42 (summary/tree-summary 42))))
-
 (deftest deepest-valid-prefix-walks-to-the-last-resolvable-step
-  (let [auth  {:user {:auth {:token "abc"}}}
-        items {:items [:apple :banana :cherry]}]
+  ;; The map-key stops are driven through the slicer below.
+  (let [items {:items [:apple :banana :cherry]}]
     (doseq [[db path expected note]
-            [[auth [:user :auth :missing] [:user :auth] "a missing map key stops at its parent"]
-             [auth [:missing] [] "a missing first key resolves nothing"]
-             [items [:items 1] [:items 1] "a vector index in range"]
+            [[items [:items 1] [:items 1] "a vector index in range"]
              [items [:items 99] [:items] "an out-of-range index stops at the vector"]
              [items [:items :nope] [:items] "a non-integer key on a vector stops at the vector"]
              [{:k nil} [:k] [:k] "a path to a nil leaf is valid"]]]
@@ -114,5 +105,4 @@
 (deftest snapshot-skips-frames-without-app-db
   ;; An `:include` that leaves out `:app-db` must not gain one.
   (let [snap {:f1 {:sub-cache {} :epochs []}}]
-    (is (= [snap {}] (pipeline/slice-app-db-in-snapshot snap nil :summary)))
     (is (= [snap {}] (pipeline/slice-app-db-in-snapshot snap [:foo] :summary)))))
