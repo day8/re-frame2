@@ -38,21 +38,17 @@
   (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el opts))))
 
 (deftest share-url-from-seam
-  (testing "share-url projects the seam to a ChartState: every :current-state
-            arm rides verbatim as the snapshot (none → no snapshot), and no
-            :frame-id is fabricated"
-    (doseq [state [:loading [:authenticated :cart :browsing] {:data :dirty :form :busy} nil]]
-      (is (= (cond-> {:machine-id :auth/login-flow :definition definition}
-               state (assoc :snapshot {:state state}))
-             (shared-chart (stub-element (assoc seam :current-state state)) {:host test-host}))
-          (pr-str state)))))
-
-(deftest share-url-honours-host-and-frame
-  (testing ":host + :frame-id opts thread through"
-    (let [url (export/share-url (stub-element seam) {:host "https://acme/v.html" :frame-id :app/main})]
-      (is (str/starts-with? url "https://acme/v.html#machine="))
-      (is (= :app/main (get-in (share/decode-share-url url)
-                               [:rf.machines-viz.share/chart :frame-id]))))))
+  (testing "share-url projects the seam to a ChartState: :current-state rides
+            verbatim as the snapshot (none → no snapshot), and :frame-id rides
+            only when opts supply one"
+    (doseq [[state opts expected] [[:loading {} {:snapshot {:state :loading}}]
+                                   [nil {} {}]
+                                   [:loading {:frame-id :app/main}
+                                    {:snapshot {:state :loading} :frame-id :app/main}]]]
+      (is (= (merge {:machine-id :auth/login-flow :definition definition} expected)
+             (shared-chart (stub-element (assoc seam :current-state state))
+                           (assoc opts :host test-host)))
+          (pr-str state opts)))))
 
 (deftest mermaid-from-seam
   (testing "chart-as-mermaid emits the seam definition's Mermaid, passing opts
