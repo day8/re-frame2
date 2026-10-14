@@ -43,28 +43,11 @@
   (let [db (rf.frame/frame-app-db-value frame-id)]
     (:received db)))
 
-;; ---- 1. Synchronous direct rf/dispatch ------------------------------------
-;;
-;; The binding is established and torn down PER EVENT, so the same pattern
-;; fired next on :tenant-b stays on :tenant-b.
+;; The synchronous cases — a direct `rf/dispatch` from a handler body, and
+;; `:fx [[:dispatch ...]]` — are pinned for the React adapters by the shared
+;; suite's `assert-dfc-*` rows (`re-frame.adapter.react-shared-suite`).
 
-(deftest sync-dispatch-isolation-between-frames
-  (testing "synchronous dispatch from :tenant-a handler stays in :tenant-a; :tenant-b is untouched"
-    (seed-frames!)
-    (rf/reg-event :rf-l5q3/fan
-                     (fn [_ [_ payload]]
-                       (rf/dispatch [:rf-l5q3/leaf payload])
-                       {}))
-    (rf/reg-event :rf-l5q3/leaf
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (update db :received (fnil conj []) payload)}))
-    (rf/dispatch-sync [:rf-l5q3/fan :a-payload] {:frame :rf-l5q3/tenant-a})
-    (rf/dispatch-sync [:rf-l5q3/fan :b-payload] {:frame :rf-l5q3/tenant-b})
-    (is (= [[:a-payload] [:b-payload] true]
-           [(received :rf-l5q3/tenant-a) (received :rf-l5q3/tenant-b) (empty? (received :rf/default))])
-        "each tenant sees only its own payload, and :rf/default sees nothing")))
-
-;; ---- 2. setTimeout-deferred direct rf/dispatch ----------------------------
+;; ---- 1. setTimeout-deferred direct rf/dispatch ----------------------------
 ;;
 ;; The setTimeout callback runs on a fresh stack after `process-event!`'s
 ;; binding has popped, and EP-0002 puts no `:rf/default` floor beneath it.
@@ -101,24 +84,7 @@
               10))
           10)))))
 
-;; ---- 3. :fx [[:dispatch ...]] — the canonical pattern ----------------------
-;;
-;; The fx-walker threads `{:frame frame-id}` through to the :dispatch fx.
-
-(deftest fx-dispatch-from-handler-routes-to-handlers-frame
-  (testing ":fx [[:dispatch ...]] routes to the handler's frame — canonical pattern"
-    (seed-frames!)
-    (rf/reg-event :rf-l5q3/parent-fx
-                     (fn [_ _]
-                       {:fx [[:dispatch [:rf-l5q3/landed-fx]]]}))
-    (rf/reg-event :rf-l5q3/landed-fx
-                     (fn [{:keys [db]} _]
-                       {:db (update db :received (fnil conj []) :landed-fx)}))
-    (rf/dispatch-sync [:rf-l5q3/parent-fx] {:frame :rf-l5q3/tenant-a})
-    (is (= [[:landed-fx] true] [(received :rf-l5q3/tenant-a) (empty? (received :rf/default))])
-        ":fx [[:dispatch ...]] threads the frame through fx/do-fx — lands on :tenant-a only")))
-
-;; ---- 4a. :dispatch-later — async with frame capture -----------------------
+;; ---- 2. :dispatch-later — async with frame capture ------------------------
 ;;
 ;; `:dispatch-later` captures `frame-id` in the timer's closure.
 
@@ -147,7 +113,7 @@
             50))
         50))))
 
-;; ---- 4b. capture-frame :dispatch — async with explicit capture -------------
+;; ---- 3. capture-frame :dispatch — async with explicit capture --------------
 ;;
 ;; `(:dispatch (rf/capture-frame))` returns a dispatch op locked to the frame
 ;; current at creation, for plain-fn callers that don't speak re-frame fx.
