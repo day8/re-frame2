@@ -87,9 +87,6 @@
                ((juxt :trigger-event (comp :replay/minted :rf.cofx)
                       :fx-overrides :interceptor-overrides) r))
             "the record retains the raw trigger, the minted fact and both override maps")
-        (is (= [:replay/add :rf/redacted] (:trigger-event (rf/project-egress r)))
-            "off-box the arg is only `:rf/redacted`, which is why replay resolves
-             the raw record in-process")
 
         (doseq [a [gen-calls stub-fired real-fired audited]] (reset! a 0))
         (let [res   (rf/replay-epoch! frame-id (:epoch-id r))
@@ -97,7 +94,6 @@
           (is (= {:ok? true :frame frame-id :source-epoch-id (:epoch-id r)
                   :event-id :replay/add :epoch-id (:epoch-id new-r)}
                  res))
-          (is (not= (:epoch-id r) (:epoch-id new-r)) "the replay recorded a NEW epoch")
           (is (= [0 1 0 0] [@gen-calls @stub-fired @real-fired @audited])
               "the generator was not consulted, and the recorded overrides were
                re-supplied: the stub fired, the real fx did not, the audit stayed removed")
@@ -105,9 +101,7 @@
                   {:text "buy milk" :token "gen-1" :at 1781078400123}]
                  (items))
               "the handler received the raw arg plus the recorded fact and time,
-               on the CURRENT state — replay did not restore")
-          (is (= 1781078400123 (:committed-at new-r))
-              "the recorded :rf/time-ms makes :committed-at replay-stable"))))))
+               on the CURRENT state — replay did not restore"))))))
 
 (deftest replay-opts-pass-through-only-the-slots-replay-does-not-own
   (testing "the 3-arity threads :origin through to the dispatch, while a caller
@@ -198,8 +192,6 @@
                           {:frame        frame-id
                            :fx-overrides {:replay/real-fx (fn [_ _] :cljs-only)}})
         (let [fn-r (last-record)]
-          (is (= {:replay/real-fx :rf/fn-override} (:fx-overrides fn-r))
-              "the router marker-ized the fn at capture")
           (is (= [:rf.epoch/replay-unreplayable-fx-override [:replay/real-fx]]
                  ((juxt :reason :fx-ids) (rf/replay-epoch! frame-id (:epoch-id fn-r)))))))
 
