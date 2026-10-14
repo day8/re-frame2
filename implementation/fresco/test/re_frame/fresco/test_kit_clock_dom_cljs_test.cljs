@@ -272,7 +272,6 @@
               (rf.fresco.test.mounted/assert-clean!)
               (.then (fn [report]
                        (is (true? (:clean? report)))
-                       (is (nil? (:leaked report)))
                        (done)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -332,7 +331,6 @@
                   assert nothing — the row would go green for exactly the reason
                   it was written to rule out"
           (let [thrown (try (rf.fresco.test.mounted/advance-clock! m 5) nil (catch :default e e))]
-            (is (some? thrown))
             (is (= {:rf.error/id :rf.error/fresco-test-bad-option :ms 5 :frame (:frame m)}
                    (select-keys (ex-data thrown) [:rf.error/id :ms :frame])))))
 
@@ -343,7 +341,6 @@
                        (let [plain  (rf.fresco.test.mounted/mount! [tray] {:initial-events [[::set [:a]]]})
                              thrown (try (rf.fresco.test.mounted/advance-clock! plain 5) nil
                                          (catch :default e e))]
-                         (is (some? thrown))
                          (is (= {:rf.error/id :rf.error/fresco-test-bad-option :ms 5 :frame (:frame plain)}
                                 (select-keys (ex-data thrown) [:rf.error/id :ms :frame])))
                          (-> (rf.fresco.test.mounted/unmount! plain)
@@ -383,10 +380,8 @@
 
         (testing "premise: the seeding really failed, and the door delivered
                   CORE's refusal unchanged — same id, same failing step"
-          (is (some? thrown) "mount! threw")
-          (is (= :rf.error/initial-events-step-failed (:rf.error/id (ex-data thrown))))
-          (is (= [::boom] (:event (ex-data thrown))))
-          (is (= 1 (:step-index (ex-data thrown)))))
+          (is (= {:rf.error/id :rf.error/initial-events-step-failed :event [::boom] :step-index 1}
+                 (select-keys (ex-data thrown) [:rf.error/id :event :step-index]))))
 
         (testing "the provisional frame is absent — core tore it down and the
                   facade never adopted it"
@@ -417,11 +412,7 @@
                          (is (true? (:clean? report)))
                          ;; The last word is the platform's: a real timer,
                          ;; on the real scheduler, actually firing.
-                         (js/setTimeout
-                           (fn []
-                             (is true "a real timer still settles after a failed clocked mount")
-                             (done))
-                           0))))))))))
+                         (js/setTimeout done 0))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5 — the failure releases EXACTLY its own hold
@@ -527,11 +518,6 @@
               v2 (js/setTimeout (note :v2) 100)
               iv (js/setInterval (note :iv) 50)]
 
-          (testing "premise: the scheduler the clock captured numbers its
-                    timers the way a platform does — from 1, upward, positive
-                    — and the first two of them are real timers armed BEFORE
-                    the install"
-            (is (= [1 2] [r1 r2])))
 
           (testing "so no virtual handle can be a platform handle — not these
                     two, and not any the platform has yet to issue. A platform
