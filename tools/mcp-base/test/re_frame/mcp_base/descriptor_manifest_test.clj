@@ -114,22 +114,12 @@
 ;; Drift-check
 ;; ---------------------------------------------------------------------------
 
-(deftest check-passes-when-in-sync
-  (let [m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
-        edn (rf.mcp-base.descriptor-manifest/render-edn m)]
-    (is (= {:ok? true :added [] :removed [] :changed []}
-           (rf.mcp-base.descriptor-manifest/check m edn edn)))))
-
-(deftest check-detects-missing-file
-  (let [m (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)]
-    (is (= {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true}
-           (rf.mcp-base.descriptor-manifest/check m (rf.mcp-base.descriptor-manifest/render-edn m) nil)))))
-
 (deftest check-tolerates-crlf-committed
   ;; A CRLF working-tree checkout must not read as drift.
   (let [m  (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
         lf (rf.mcp-base.descriptor-manifest/render-edn m)]
-    (is (true? (:ok? (rf.mcp-base.descriptor-manifest/check m lf (str/replace lf "\n" "\r\n")))))))
+    (is (= {:ok? true :added [] :removed [] :changed []}
+           (rf.mcp-base.descriptor-manifest/check m lf (str/replace lf "\n" "\r\n"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Drift-report formatting — the shared, pure diagnostic body. The two
@@ -146,33 +136,17 @@
          (set rf.mcp-base.descriptor-manifest/governed-slots))))
 
 (deftest drift-report-lines-missing-file
-  ;; A missing committed file reports every generated tool as added, under
-  ;; the consumer's missing-file header.
-  (let [res   {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true}
-        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
+  ;; A missing committed file fails the check and reports every generated
+  ;; tool as added, under the consumer's missing-file header.
+  (let [m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
+        res (rf.mcp-base.descriptor-manifest/check m (rf.mcp-base.descriptor-manifest/render-edn m) nil)]
+    (is (= {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true} res))
     (is (= ["DRIFT: <file> does not exist. Run: <server command>"
             "Regenerate with: <server command>"
             "  Tools the registry has that the committed file lacks (new/renamed tool):"
             "    + alpha"
             "    + beta"]
-           lines))))
-
-(deftest drift-report-lines-changed-per-slot
-  ;; A changed row prints the tool name, then one line per drifting
-  ;; governed slot as `<slot>: <pr-str old> -> <pr-str new>`.
-  (let [old   {:description "d" :input-keys ["event"] :gated-input-keys []
-               :required ["event"] :output? false :annotations [] :typicalTokens 300}
-        new   (assoc old :input-keys ["event" "force"] :typicalTokens 999)
-        res   {:ok? false :added [] :removed []
-               :changed [{:name "alpha" :old old :new new}]}
-        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
-    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
-            "Regenerate with: <server command>"
-            "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
-            "    ~ alpha"
-            "        input-keys: [\"event\"] -> [\"event\" \"force\"]"
-            "        typicalTokens: 300 -> 999"]
-           lines))))
+           (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)))))
 
 (deftest drift-report-lines-structurally-broken-committed
   ;; An unparseable committed file has no readable rows, so every generated
@@ -200,11 +174,13 @@
 
 (deftest drift-report-lines-end-to-end-from-check
   ;; The formatter consumes a real `check` result: alpha gains an input
-  ;; key and beta is dropped, reported in canonical block order.
+  ;; key and a new typicalTokens and beta is dropped, reported in canonical
+  ;; block order with one `<slot>: <old> -> <new>` line per drifting slot.
   (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
         committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
-        alpha+        (assoc-in (second sample-descriptors)
-                                [:inputSchema :properties :force] {:type "boolean"})
+        alpha+        (-> (second sample-descriptors)
+                          (assoc-in [:inputSchema :properties :force] {:type "boolean"})
+                          (assoc :typicalTokens 999))
         gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [alpha+])
         gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
         res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)
@@ -215,5 +191,6 @@
             "    - beta"
             "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
             "    ~ alpha"
-            "        input-keys: [\"event\"] -> [\"event\" \"force\"]"]
+            "        input-keys: [\"event\"] -> [\"event\" \"force\"]"
+            "        typicalTokens: 300 -> 999"]
            lines))))
