@@ -2,7 +2,8 @@
   "Every `:spawn-all` child gets exactly one JOIN-side terminal beside its own
   `:rf.machine/done` finality row: a non-decisive fold publishes it at fold time
   (`child-completed`), a decisive fold through the resolution trace, and
-  duplicate or post-resolution carriers add none."
+  duplicate or post-resolution carriers add none. Resolution cancels only the
+  join's live survivors."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -99,11 +100,16 @@
             (select-keys (child-completed-tags) [:kind :rf.reply/status])]))))
 
 (deftest decisive-folds-keep-the-resolution-authority
+  ;; The decisive child closed itself at finality, so the join cancels only
+  ;; the live survivor: one terminal authority per child attempt.
   (doseq [[parent-kw child-kw extra event rows]
           [[:jct/p3 :jct/p3c {:join :any :on-some-complete [:race/won]} :go
             [[:rf.machine/done :completed] [:rf.machine.spawn-all/some-completed :completed]]]
            [:jct/p4 :jct/p4c {:join :all :on-all-complete [:all/done] :on-any-failed [:all/failed]} :fail
             [[:rf.machine/done :failed] [:rf.machine.spawn-all/any-failed :failed]]]]]
-    (let [a (get-in (reg-join-parent! parent-kw child-kw extra) [:children :a])]
+    (let [{a :a b :b} (:children (reg-join-parent! parent-kw child-kw extra))]
       (rf/dispatch-sync [a [event]])
-      (is (= rows (terminal-rows-for a)) (str extra)))))
+      (is (= [rows [[:rf.machine.spawn/cancelled-on-join-resolution :cancelled]
+                    [:rf.machine/destroyed :cancelled]]]
+             [(terminal-rows-for a) (terminal-rows-for b)])
+          (str extra)))))
