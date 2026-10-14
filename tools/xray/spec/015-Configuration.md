@@ -854,7 +854,7 @@ visible bridge between `configure!` and the reactive surface.
 frame as an EP-0023 image-loaded frame and asserts the framework's
 `:rf.trace/frame-no-emit?` gate alongside it, in one place —
 `seat-xray-frame!` in
-`tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljs`,
+`tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljc`,
 driven by `mount.cljs`'s `ensure-xray-frame!`:
 
 ```clojure
