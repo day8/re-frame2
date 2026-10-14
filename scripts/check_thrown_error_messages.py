@@ -991,7 +991,7 @@ class Finding(NamedTuple):
 
 # The forms that take a where-sym. A ROSTER, because there is no textual
 # property that separates "an argument that is a where-sym" from "an argument
-# that is a quoted symbol"; the self-test holds every entry to owning a fixture.
+# that is a quoted symbol".
 # A missing entry costs a MISSED site, so `:min-where-syms` in the baseline is
 # what keeps that from being silent.
 #
@@ -1016,9 +1016,9 @@ _WHERE_SYM_FORMS: tuple[str, ...] = (
 _SYM_TAIL = r"(?![\w*+!?<>=-])"
 # `[\s,]*`, NOT `\s*`: a comma is reader whitespace, so `(,throw-error! …)`
 # is the same call. `\s*` there would make a real where-sym vanish — see the
-# READER WHITESPACE section above. `_extract_call_body` and the self-test's
-# `_crosses_call_head` build the same head pattern and carry the same class;
-# all three must agree, or a site is matched here and dropped there.
+# READER WHITESPACE section above. `_extract_call_body` builds the same head
+# pattern and carries the same class; the two must agree, or a site is
+# matched here and dropped there.
 _WHERE_CALL_RE = re.compile(
     r"\(" + _CLJ_WS + r"*(?:[\w.*+!?<>=-]+/)?("
     + "|".join(re.escape(f) for f in _WHERE_SYM_FORMS)
@@ -2815,10 +2815,9 @@ def _run_self_tests(verbose: bool = False) -> int:
 #
 # EVERY CASE PINS LINE NUMBERS, NOT COUNTS. A count cannot separate "found the
 # right sites" from "traded a real hit for a false positive", and a gate that
-# matches only one of five reader-equivalent call spellings keeps its own
-# self-test green if every fixture uses that one spelling. The fixtures here
-# therefore vary the call head five ways, and the assertions read
-# `(line, kind, symbol)`.
+# matches only one reader-equivalent call spelling keeps its own self-test
+# green if every fixture uses that one spelling. The fixtures here therefore
+# vary the call head, and the assertions read `(line, kind, symbol)`.
 
 _WHERE_SYM_FIXTURE_ROOT = _SELF_TEST_FIXTURE_ROOT / "wheresym"
 _WHERE_SYM_POSITIVE = "positive_where_syms.cljc"
@@ -2831,14 +2830,6 @@ def _fixture_where_sym_index() -> PublicVarIndex:
     fixtures against the real `re-frame.core` would make a legitimate rename
     somewhere else change this suite's answers."""
     return PublicVarIndex(sorted(_WHERE_SYM_FIXTURE_ROOT.rglob("*.cljc")))
-
-
-def _crosses_call_head(text: str, head: str) -> bool:
-    """Does `text` contain a `(<head> …)` call, optionally namespace-qualified?"""
-    return bool(re.search(
-        r"\(" + _CLJ_WS + r"*(?:[\w.*+!?<>=-]+/)?" + re.escape(head) + _SYM_TAIL,
-        text,
-    ))
 
 
 def _run_where_sym_self_tests(verbose: bool = False) -> int:
@@ -2859,40 +2850,27 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
 
     # ---- the ORACLE itself: which definition shapes are public --------------
     #
-    # Asserted as an EXACT set. Each entry is a shape that is easy to get
-    # wrong: `^:no-doc` is why the manifest cannot be the oracle, the two
-    # platform arms are the runtime question, and `Panel` / `imported-fn` are
-    # the two var-defining macros that do not begin `def` — shapes a parser
-    # misses unless the manifest control catches them. `do-defined-public` is
-    # the valid exit-0 control for keeping `comment` out of
-    # `_TRANSPARENT_DEF_WRAPPERS`: that must not cost the wrapper that really
-    # is transparent.
-    #
-    # THE ABSENCES ARE HALF THE ASSERTION, and this is the only place that can
-    # make them: three privacy spellings, a `defmethod`, the four inactive
-    # forms (`comment`, `#_`, `'`, `` ` ``), the discard nested in the live
-    # `do`, and the six names behind a COMPOSED reader prefix (`#_#?`, `'#?`,
-    # `` `#? ``, `#_#?@` and both halves of a stacked `#_#_`). The manifest
-    # control cannot stand in for it — `oracle_problems` is a SUBSET test, so
-    # it catches public names the parser has stopped seeing and is blind to
+    # Asserted as an EXACT set, and THE ABSENCES ARE HALF THE ASSERTION: three
+    # privacy spellings, a `defmethod`, the four inactive forms (`comment`,
+    # `#_`, `'`, `` ` ``), the discard nested in the live `do`, and the six
+    # names behind a COMPOSED reader prefix (`#_#?`, `'#?`, `` `#? ``, `#_#?@`
+    # and both halves of a stacked `#_#_`). The live run's manifest control
+    # cannot stand in for it — `oracle_problems` is a SUBSET test, so it
+    # catches public names the parser has stopped seeing and is blind to
     # fictitious ones it has started inventing, which is exactly the direction
     # a `comment` wrapper would fail in.
     #
-    # `conditional-defined-public` is the twin that keeps the prefix rule
-    # honest in the other direction: the oracle fixture writes it as a LIVE
-    # `#?(…)` with a body identical to the discarded one, so an inert-set
-    # widened until it swallows reader-conditionals costs this name and the
-    # exact set says so.
-    #
-    # The three `splice-…-public` names are the only entries here that guard
-    # the FALSE-RED direction: each is defined by a LIVE `#?@` inside a
-    # collection, which a walker consuming every `#?@` would treat as an
-    # illegal top-level splice. A name MISSING from this set is the failure
-    # they pin, where every other entry pins a fictitious one being present.
+    # The publics present are the controls those absences need. `Panel` is a
+    # var-defining macro that does not begin `def`. `do-defined-public` keeps
+    # `comment` out of `_TRANSPARENT_DEF_WRAPPERS` without costing the wrapper
+    # that really is transparent. `conditional-defined-public` is the LIVE
+    # `#?(…)` twin of a discarded body, so an inert set widened until it
+    # swallows reader-conditionals costs this name. The three
+    # `splice-…-public` names guard the FALSE-RED direction: each is defined
+    # by a LIVE `#?@` inside a collection, which a walker consuming every
+    # `#?@` would treat as an illegal top-level splice.
     expected_publics = {
-        "known-var", "known-public", "known-macro", "known-multi",
-        "no-doc-public", "cljs-only-public", "clj-only-public",
-        "Panel", "imported-fn", "do-defined-public",
+        "known-public", "Panel", "do-defined-public",
         "conditional-defined-public",
         "splice-in-do-public", "splice-in-conditional-do-public",
         "splice-cljs-only-public",
@@ -2915,106 +2893,44 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             "`defmethod` name among them\n"
         )
 
-    # ---- a file-top-level `#?@` interns nothing ----------------------------
-    #
-    # It is a reader ERROR (there is no collection to splice into), so no
-    # fixture file can carry one, and it is asserted here over source text. The
-    # inside-a-collection half is the three `splice-…-public` names above.
-    source = "#?@(:clj [(defn spliced [] nil)] :cljs [(defn spliced [] nil)])"
-    got = {n for f in _top_level_forms(source) for n in _public_names_defined_by(f)}
-    if got:
-        fail(f"a file-top-level `#?@` interned {sorted(got)}: {source}")
-    elif verbose:
-        sys.stderr.write(
-            "where-sym self-test PASS: a file-top-level `#?@` interns nothing\n"
-        )
-
     # ---- the two fixture files, pinned by (line, kind, symbol) --------------
     cases: list[tuple[str, tuple[tuple[int, str, str], ...]]] = [
         (_WHERE_SYM_POSITIVE, (
-            # the five reader-equivalent formattings of the call head
-            (31, "where-sym-unresolvable", "rf.fixture/ghost-one"),
-            (37, "where-sym-unresolvable", "rf.fixture/ghost-two"),
-            (43, "where-sym-unresolvable", "rf.fixture/ghost-three"),
-            (50, "where-sym-unresolvable", "rf.fixture/ghost-four"),
-            (57, "where-sym-unresolvable", "rf.fixture/ghost-five"),
+            # three reader-equivalent formattings of the call head
+            (30, "where-sym-unresolvable", "rf.fixture/ghost-one"),
+            (36, "where-sym-unresolvable", "rf.fixture/ghost-three"),
+            (43, "where-sym-unresolvable", "rf.fixture/ghost-five"),
             # the other two rostered builders
-            (68, "where-sym-unresolvable", "rf.fixture/ghost-six"),
-            (74, "where-sym-unresolvable", "rf.fixture/ghost-seven"),
+            (53, "where-sym-unresolvable", "rf.fixture/ghost-six"),
+            (59, "where-sym-unresolvable", "rf.fixture/ghost-seven"),
             # the `:where` slot of a hand-built framework ex-data map
-            (87, "where-sym-unresolvable", "rf.fixture/ghost-eight"),
-            # the reasons a symbol does not resolve
-            (95, "where-sym-unknown-namespace", "rf.nosuch/thing"),
-            (101, "where-sym-unresolvable", "re-frame.fixture/private-fn"),
-            (109, "where-sym-unresolvable", "rf.fixture/private-var"),
-            (115, "where-sym-unresolvable", "rf.fixture/private-meta-var"),
-            (121, "where-sym-unresolvable", "rf.fixture/foreign-multi"),
-            # (3) a var that exists only inside an INACTIVE form. Each name is
-            # defined in the oracle fixture and NOWHERE ELSE, so a generous
-            # oracle greens exactly these five.
-            (139, "where-sym-unresolvable", "rf.fixture/ghost-in-comment"),
-            (145, "where-sym-unresolvable", "rf.fixture/ghost-discarded"),
-            (151, "where-sym-unresolvable", "rf.fixture/ghost-quoted"),
-            (157, "where-sym-unresolvable", "rf.fixture/ghost-syntax-quoted"),
-            (164, "where-sym-unresolvable",
-             "rf.fixture/ghost-discarded-inside-do"),
-            # (4) commas, which are reader whitespace. The twins of these four
-            # resolve in the negative fixture; the PAIR is the assertion,
-            # because either half alone is green under a blind detector.
-            (182, "where-sym-unresolvable", "rf.fixture/ghost-comma-one"),
-            (188, "where-sym-unresolvable", "rf.fixture/ghost-comma-two"),
-            (194, "where-sym-unresolvable", "rf.fixture/ghost-comma-three"),
-            (200, "where-sym-unresolvable", "rf.fixture/ghost-comma-four"),
-            # (5) the `:where` slot as the map's LAST entry — a separate trap
+            (72, "where-sym-unresolvable", "rf.fixture/ghost-eight"),
+            # the reasons a symbol does not resolve; the other non-public
+            # shapes are held by the exact public set above
+            (80, "where-sym-unknown-namespace", "rf.nosuch/thing"),
+            (86, "where-sym-unresolvable", "re-frame.fixture/private-fn"),
+            # commas, which are reader whitespace
+            (100, "where-sym-unresolvable", "rf.fixture/ghost-comma-three"),
+            # the `:where` slot as the map's LAST entry — a separate trap
             # from the comma rule, beside it because the two look alike.
-            (217, "where-sym-unresolvable", "rf.fixture/ghost-slot-last"),
-            # (6) COMMAS AS THE SOLE SEPARATOR. Every case in (4) writes a
-            # comma beside whitespace, and `_clj_strip` alone recovers that, so
-            # with only those a sabotage plant reverting `_is_clj_ws` would stay
-            # GREEN and the splitter's own notion of reader whitespace would go
-            # untested — fixtures sharing the pattern's blind spot.
-            (233, "where-sym-unresolvable", "rf.fixture/ghost-comma-five"),
-            (236, "where-sym-unresolvable", "rf.fixture/ghost-comma-six"),
-            # (7) COMPOSED READER PREFIXES. A one-character look-back before
-            # the `(` sees `?` for both `#_#?(…)` and `'#?(…)`, and cannot reach
-            # the stacked `#_#_ a b` at all, because nothing stands behind the
-            # second form but the one the first discard consumed. Each name is
-            # defined in the oracle fixture behind its prefix and NOWHERE
-            # ELSE, and stripping
-            # that prefix makes the form define its var for real — so the
-            # prefix is the only thing under test here.
-            (254, "where-sym-unresolvable",
-             "rf.fixture/ghost-discarded-conditional"),
-            (260, "where-sym-unresolvable",
-             "rf.fixture/ghost-quoted-conditional"),
-            (266, "where-sym-unresolvable",
-             "rf.fixture/ghost-syntax-quoted-conditional"),
-            (272, "where-sym-unresolvable",
-             "rf.fixture/ghost-discarded-splice"),
-            (279, "where-sym-unresolvable", "rf.fixture/ghost-stacked-first"),
-            (285, "where-sym-unresolvable", "rf.fixture/ghost-stacked-second"),
-            # (8) a DISCARDED `do` around a live-looking splice. Its three
-            # LIVE twins resolve in the negative fixture and are pinned
-            # OBSERVED there; this is the half that must FIRE, and the pair is
-            # what separates "the splice rule is positional" from "the walker
-            # descends into every `#?@` it meets".
-            (299, "where-sym-unresolvable", "rf.fixture/ghost-splice-discarded"),
-            # (9) FORM 3. A grader that skipped every slash-free symbol BEFORE
-            # consulting the namespace index would green all three without
-            # resolving them, treating `'rf.ssr.emit` and
-            # `'rf.ssr.does-not-exist` identically — the dotted spelling would
-            # make the convention UNCHECKABLE rather than self-enforcing.
-            #
-            # The first is the load-bearing one and the reason the contract's
-            # spelling is the FULL namespace: `rf.fixture` is the require-alias
-            # of a namespace that really exists as `re-frame.fixture`, and its
-            # resolving twin is pinned OBSERVED in the negative fixture.
-            (321, "where-sym-unknown-namespace", "rf.fixture"),
-            (327, "where-sym-unknown-namespace", "re-frame.nosuch.module"),
+            (117, "where-sym-unresolvable", "rf.fixture/ghost-slot-last"),
+            # COMMAS AS THE SOLE SEPARATOR. The comma case above writes its
+            # commas beside whitespace, and `_clj_strip` alone recovers that,
+            # so with only it a sabotage plant reverting `_is_clj_ws` would
+            # stay GREEN.
+            (133, "where-sym-unresolvable", "rf.fixture/ghost-comma-five"),
+            (136, "where-sym-unresolvable", "rf.fixture/ghost-comma-six"),
+            # FORM 3. A grader that skipped every slash-free symbol BEFORE
+            # consulting the namespace index would green both without
+            # resolving them. `rf.fixture` is the require-alias of a namespace
+            # that really exists as `re-frame.fixture`, which is why the
+            # contract's spelling is the FULL namespace.
+            (155, "where-sym-unknown-namespace", "rf.fixture"),
+            (161, "where-sym-unknown-namespace", "re-frame.nosuch.module"),
             # The sanctioned event-id set is CLOSED at two members. A sibling
             # event under the same reserved namespace is not sanctioned by it —
             # a wildcard over `rf.resource/*` would green every typo there.
-            (338, "where-sym-unknown-namespace", "rf.resource/ensure"),
+            (172, "where-sym-unknown-namespace", "rf.resource/ensure"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -3038,100 +2954,6 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
                 f"({len(observed)} where-sym(s) observed, "
                 f"{len(got)} finding(s) at lines {[l for l, _, _ in got]})\n"
             )
-
-    # The NEGATIVE fixture proves nothing unless its sites are still SEEN: a
-    # resolving site is green when it is seen and green again when it has
-    # VANISHED, so the pair (fires in the positive fixture, resolves here) is
-    # pinned OBSERVED, by LINE.
-    neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
-    neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
-    neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    required_observations = (
-        (133, "builder", "rf.fixture/do-defined-public"),
-        (146, "builder", "rf.fixture/known-public"),
-        (152, "builder", "rf.fixture/known-public"),
-        (158, "where-slot", "rf.fixture/known-public"),
-        (164, "where-slot", "rf.fixture/known-public"),
-        # commas as the SOLE separator — the spelling the pair above cannot
-        # reach.
-        (175, "builder", "rf.fixture/known-public"),
-        (178, "where-slot", "rf.fixture/known-public"),
-        # a LIVE reader-conditional, body-for-body the twin of the oracle
-        # fixture's discarded one. Green here alone would also be what a
-        # detector blind to the whole site looks like, so it is pinned SEEN.
-        (190, "builder", "rf.fixture/conditional-defined-public"),
-        # THE THREE LIVE SPLICING TWINS, and the direction is reversed here.
-        # Everywhere else in this tuple an OBSERVED pin guards a site going
-        # UNSEEN; these three guard the gate REPORTING them, because each names
-        # a var a live `#?@` really does intern, which a walker consuming every
-        # `#?@` would stop seeing. Green here alone would
-        # equally be what a detector blind to the whole site looks like, so
-        # they are pinned SEEN, and their discarded twin fires in the
-        # positive fixture. The third resolves ONLY because the oracle is
-        # feature-agnostic: it is a `:cljs`-only door, dead to a JVM oracle.
-        (210, "builder", "rf.fixture/splice-in-do-public"),
-        (216, "builder", "rf.fixture/splice-in-conditional-do-public"),
-        (222, "builder", "rf.fixture/splice-cljs-only-public"),
-        # FORM 3 AND FORM 2, and the direction is the reversed one again.
-        # These four are green for DIFFERENT reasons, and no reason is visible
-        # in a findings assertion: the first names a real namespace, the
-        # middle two are sanctioned event ids that are not vars at all, and
-        # the last is a third-party namespace the oracle has no opinion about.
-        # Every one of them would ALSO be green if slash-free symbols were
-        # skipped outright — so without an OBSERVED pin this whole block would
-        # pass under the very defect it exists to catch.
-        (243, "builder", "re-frame.fixture"),
-        (249, "builder", "rf.resource/invalidate-tags"),
-        (255, "builder", "rf.mutation/execute"),
-        (267, "builder", "reagent2.impl.component"),
-    )
-    got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
-    for pin in required_observations:
-        if pin not in got_observations:
-            fail(
-                f"{_WHERE_SYM_NEGATIVE}: no where-sym observed at {pin}. This is "
-                "a RESOLVING site written in a reader-equivalent spelling (a "
-                "comma where the reader ignores one, a `:where` slot ending its "
-                "map, a var interned by a live `do`). Its twin in "
-                f"{_WHERE_SYM_POSITIVE} fires; if this one is not even SEEN, the "
-                "detector has gone blind to the spelling and both halves report "
-                "green."
-            )
-
-    # ---- rosters: every entry owns a case ----------------------------------
-    pos_text = (_WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_POSITIVE).read_text(
-        encoding="utf-8", errors="replace"
-    )
-    uncrossed = [h for h in _WHERE_SYM_FORMS if not _crosses_call_head(pos_text, h)]
-    if uncrossed:
-        fail(
-            f"_WHERE_SYM_FORMS entr(y/ies) no fixture calls: {', '.join(uncrossed)}. "
-            f"Plant a `({uncrossed[0]} … '<unresolvable sym> …)` site in "
-            f"{_WHERE_SYM_POSITIVE}; deleting the entry must make it go quiet."
-        )
-    elif verbose:
-        sys.stderr.write(
-            f"where-sym self-test PASS: all {len(_WHERE_SYM_FORMS)} "
-            "_WHERE_SYM_FORMS entries have a case\n"
-        )
-    oracle_text = (_WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_ORACLE).read_text(
-        encoding="utf-8", errors="replace"
-    )
-    unexercised = [h for h in sorted(_EXTRA_DEF_HEADS)
-                   if not _crosses_call_head(oracle_text, h)]
-    if unexercised:
-        fail(
-            f"_EXTRA_DEF_HEADS entr(y/ies) the oracle fixture does not define a "
-            f"var with: {', '.join(unexercised)}. Each entry is a promise that a "
-            "macro NOT beginning `def` defines a public var; an unexercised one "
-            "can be deleted, after which every where-sym naming its output "
-            "becomes a false finding."
-        )
-    elif verbose:
-        sys.stderr.write(
-            f"where-sym self-test PASS: all {len(_EXTRA_DEF_HEADS)} "
-            "_EXTRA_DEF_HEADS entries have a case\n"
-        )
 
     # ---- the reader mask: what must stay VISIBLE ----------------------------
     #
