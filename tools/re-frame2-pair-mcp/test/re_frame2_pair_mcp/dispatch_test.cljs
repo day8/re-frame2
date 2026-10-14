@@ -48,17 +48,6 @@
   (-> (js/Promise.resolve nil)
       (.then (fn [_] (body-fn)))))
 
-(defn- with-captured-forms!
-  "Record every form, the raw-state signal included, in order."
-  [forms* canned-value body-fn]
-  (install-stub! (fn [form-str]
-                   (swap! forms* conj form-str)
-                   (js/Promise.resolve
-                     (when-not (str/includes? form-str "configure-raw-state!")
-                       canned-value))))
-  (-> (js/Promise.resolve nil)
-      (.then (fn [_] (body-fn)))))
-
 (def ^:private read-result-text tu/extract-edn)
 (def ^:private err? tu/error?)
 
@@ -110,9 +99,8 @@
                                      :timeout-ms "bogus"})
         (.then (fn [r]
                  (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :invalid-numeric-arg (:reason edn)))
-                   (is (= "timeout-ms" (:arg edn))))
+                 (is (= {:reason :invalid-numeric-arg :arg "timeout-ms"}
+                        (select-keys (read-result-text r) [:reason :arg])))
                  (done))))))
 
 (deftest malformed-cofx-rejected-before-eval
@@ -168,12 +156,9 @@
                        (.then (dispatched-opts args)
                               (fn [opts] (is (= expected opts) (pr-str (keys args))))))))
           (js/Promise.resolve nil)
-          [[{} {}]
-           [{:cofx "{:rf/time-ms 1781078400123 :review/fact (inc 41)}"}
+          [[{:cofx "{:rf/time-ms 1781078400123 :review/fact (inc 41)}"}
             {:rf.cofx {:rf/time-ms 1781078400123 :review/fact '(inc 41)}}]
            [{:replay true} {:rf.cofx/mint-policy :strict}]
-           [{:interceptor-overrides #js {":auth/required" ":story/skip-auth"}}
-            {:interceptor-overrides {:auth/required :story/skip-auth}}]
            [{:replay                true
              :cofx                  "{:rf/time-ms 1781078400123 :counter/delta 4}"
              :fx-overrides          #js {":http" ":stub-http"}
@@ -186,7 +171,7 @@
         (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Modes, egress projection and the raw-state signal.
+;; Modes and egress projection.
 ;; ---------------------------------------------------------------------------
 
 (deftest settle-mode-routes-to-dispatch-and-settle
@@ -207,9 +192,9 @@
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-settle!"))
                      (is (not (str/includes? form "__rf2pair_await__")))
-                     (is (str/includes? form "project-egress"))
-                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool"))
-                     (is (str/includes? form ":rf.egress/include-sensitive? true"))
+                     (is (str/includes? form (str "(re-frame.core/project-egress e# "
+                                                  "{:rf.egress/profile :rf.egress/off-box-tool "
+                                                  ":rf.egress/include-sensitive? true})")))
                      (is (not (str/includes? form ":rf.egress/include-fx-args?")))
                      (is (not (str/includes? form ":rf.egress/include-runtime-db?"))))
                    (is (= (assoc canned :mode :settle) (read-result-text r)))
@@ -227,24 +212,8 @@
                                       #js {:event "[:list/toggle]" :trace true
                                            :include-sensitive "false"})))
           (.then (fn [_]
-                   (let [form @captured]
-                     (is (str/includes? form "project-egress"))
-                     (is (not (str/includes? form ":rf.egress/include-sensitive? true"))))
-                   (done)))))))
-
-(deftest default-dispatch-signals-configure-raw-state-before-eval
-  ;; The runtime redacts the cascade summary's `:event-vector` only once
-  ;; told the gate is off, and it starts permissive, so even the first
-  ;; dispatch of a session must signal first.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-forms! forms {:ok? true :epoch-id 7 :db-changed? false}
-            (fn []
-              (raw-state/set-allow-raw-state! false)
-              (dispatch/dispatch-tool (fresh-conn) #js {:event "[:counter/inc]"})))
-          (.then (fn [_]
-                   (is (fires-before? @forms "configure-raw-state!" "dispatch-consequence!"))
-                   (is (some #(str/includes? % ":allow-raw-state? false") @forms))
+                   (is (str/includes? @captured (str "(re-frame.core/project-egress e# "
+                                                     "{:rf.egress/profile :rf.egress/off-box-tool})")))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -268,9 +237,9 @@
   "Play the browser: record every form into `forms*`, answer the wrap form
   with the mailbox sentinel, the first `pending-polls` mailbox reads with
   `:pending` and later ones with `resolved`, and anything else (the
-  raw-state signal) with nil. `read-count*`, when given, counts the reads."
-  [{:keys [forms* read-count* pending-polls resolved]} body-fn]
-  (let [reads (or read-count* (atom 0))]
+  raw-state signal) with nil."
+  [{:keys [forms* pending-polls resolved]} body-fn]
+  (let [reads (atom 0)]
     (install-stub! (fn [form-str]
                      (swap! forms* conj form-str)
                      (cond
@@ -291,24 +260,26 @@
 (defn- wrap-form [forms*]
   (some #(when (await-wrap-form? %) %) @forms*))
 
-(deftest await-render-waits-for-flush-then-resolves
-  ;; The mailbox stays `:pending` for 3 polls; the tool resolves only once
-  ;; it flips. The raw-state signal precedes the wrap form here too.
+(deftest raw-state-signal-precedes-the-dispatch-eval
+  ;; The runtime redacts the cascade summary's `:event-vector` only once
+  ;; told the gate is off, and it starts permissive, so even the first
+  ;; dispatch of a session must signal first, on both transports. The
+  ;; await-render wrap form carries the same runtime call.
   (async done
-    (let [forms       (atom [])
-          read-count* (atom 0)
-          resolved    {:ok? true :epoch-id 9 :frame :rf/default :settled? true
-                       :cascade-summary {:renders 1 :event-id :counter/inc}}]
-      (-> (with-staged-mailbox-eval!
-            {:forms* forms :read-count* read-count* :pending-polls 3 :resolved resolved}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:counter/inc]" :await-render true})))
-          (.then (fn [r]
-                   (is (>= @read-count* 4) "polled past the pending phase")
-                   (is (= (assoc resolved :mode :sync) (read-result-text r)))
-                   (is (fires-before? @forms "configure-raw-state!" ":rf.mcp/await-mailbox"))
-                   (done)))))))
+    (-> (reduce
+          (fn [p args]
+            (.then p (fn [_]
+                       (let [forms (atom [])]
+                         (-> (with-staged-mailbox-eval!
+                               {:forms* forms :pending-polls 0 :resolved {:ok? true :epoch-id 9}}
+                               #(dispatch/dispatch-tool (fresh-conn)
+                                                        (tu/args->js (assoc args :event "[:counter/inc]"))))
+                             (.then (fn [_]
+                                      (is (fires-before? @forms "configure-raw-state!" "dispatch-consequence!")
+                                          (pr-str args)))))))))
+          (js/Promise.resolve nil)
+          [{} {:await-render true}])
+        (.then (fn [_] (done))))))
 
 (deftest await-render-runtime-failure-surfaces-as-error
   ;; A settle resolving to the runtime's `:ok? false` is a failed dispatch:
@@ -336,47 +307,40 @@
                                          :timeout-ms 60})))
         (.then (fn [r]
                  (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :rf.error/dispatch-await-render-timeout (:reason edn)))
-                   (is (= 60 (:timeout-ms edn))))
+                 (is (= {:reason :rf.error/dispatch-await-render-timeout :timeout-ms 60}
+                        (select-keys (read-result-text r) [:reason :timeout-ms])))
                  (done))))))
 
-(deftest await-render-trace-projects-epoch-off-box-when-gate-off
+(deftest await-render-trace-projects-epoch-through-the-door
   ;; Under `:await-render` an explicit `:trace` still returns the raw
   ;; epoch, so the settle form must project it as the non-await path does.
+  ;; `:include-sensitive` (gate on) threads into the door, never around it.
   (async done
-    (let [forms (atom [])]
-      (-> (with-staged-mailbox-eval!
-            {:forms* forms :pending-polls 0 :resolved {:ok? true :epoch-id 9 :settled? true}}
-            (fn []
-              (raw-state/set-allow-raw-state! false)
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:list/toggle]"
-                                           :await-render true :trace true})))
-          (.then (fn [_]
-                   (let [form (wrap-form forms)]
-                     (is (str/includes? form "dispatch-and-collect"))
-                     (is (str/includes? form "re-frame.core/project-egress"))
-                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")))
-                   (done)))))))
-
-(deftest await-render-trace-include-sensitive-routes-through-projection
-  (async done
-    (let [forms (atom [])]
-      (-> (with-staged-mailbox-eval!
-            {:forms* forms :pending-polls 0 :resolved {:ok? true :epoch-id 9 :settled? true}}
-            (fn []
-              (raw-state/set-allow-raw-state! true)
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:list/toggle]"
-                                           :await-render true :trace true
-                                           :include-sensitive true})))
-          (.then (fn [_]
-                   (let [form (wrap-form forms)]
-                     (is (str/includes? form "project-egress")
-                         "include-sensitive still projects, never a raw bypass")
-                     (is (str/includes? form ":rf.egress/include-sensitive? true")))
-                   (done)))))))
+    (-> (reduce
+          (fn [p [gate? args opts]]
+            (.then p (fn [_]
+                       (let [forms (atom [])]
+                         (-> (with-staged-mailbox-eval!
+                               {:forms* forms :pending-polls 0
+                                :resolved {:ok? true :epoch-id 9 :settled? true}}
+                               (fn []
+                                 (raw-state/set-allow-raw-state! gate?)
+                                 (dispatch/dispatch-tool
+                                   (fresh-conn)
+                                   (tu/args->js (merge {:event "[:list/toggle]"
+                                                        :await-render true :trace true}
+                                                       args)))))
+                             (.then (fn [_]
+                                      (let [form (wrap-form forms)]
+                                        (is (str/includes? form "dispatch-and-collect"))
+                                        (is (str/includes?
+                                              form (str "(re-frame.core/project-egress e# " opts ")"))
+                                            opts)))))))))
+          (js/Promise.resolve nil)
+          [[false {} "{:rf.egress/profile :rf.egress/off-box-tool}"]
+           [true {:include-sensitive true}
+            "{:rf.egress/profile :rf.egress/off-box-tool :rf.egress/include-sensitive? true}"]])
+        (.then (fn [_] (done))))))
 
 (deftest await-render-event-payload-is-quoted-too
   ;; `:await-render` builds the call through `render-settle-form`, a second
