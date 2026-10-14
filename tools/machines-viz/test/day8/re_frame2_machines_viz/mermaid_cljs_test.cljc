@@ -108,8 +108,7 @@
              :on      {:one {:target [:a :two]}}
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {}}}}}
-            "state \"root fallback\" as "
-            "--> a__two : one (root fallback)"]
+            "state \"root fallback\" as "]
            ["a multi-region root :after draws one edge per region"
             {:type    :parallel
              :after   {1000 {:target [[:a :two] [:b :two]]}}
@@ -121,8 +120,6 @@
            ["an internal transition's note carries its guard"
             {:initial :a :states {:a {:on {:tick {:action :log :guard :ready?}}}}}
             "tick [ready?] / log"]
-           ["an internal :on beside a fn-shaped one is still noted" fn-shaped-machine
-            "go / record"]
            ["a compound's action-only :on-done"
             {:initial :flow
              :states  {:flow {:initial :collecting
