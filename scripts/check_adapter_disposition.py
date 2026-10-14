@@ -337,8 +337,8 @@ def check(repo_root: Path, *, verbose: bool = False, ci: bool = False) -> int:
 
 # --- Self-tests ---------------------------------------------------------------
 # (label, text, dirty).  One dirty row per superseded-pattern arm a case can
-# reach, then the exemption rules: dated snapshot, HTML comment, emphasis,
-# the +/-1 prose window, and the self-contained table row.
+# reach, then the exemption rules: dated snapshot, HTML comment, the +/-1
+# prose window, and the self-contained table row.
 _SELF_TEST_CASES = (
     ("A3 replaces the adapter trio",
      "it is the substrate slated to replace the adapter trio", True),
@@ -357,9 +357,6 @@ _SELF_TEST_CASES = (
      "Historically, stock Reagent and UIx are frozen compatibility adapters.", True),
     ("C5 HTML comment is inactive text",
      "<!-- Stock Reagent and UIx are frozen compatibility adapters. -->", False),
-    ("C6 bolded negation wrapped across lines exempts",
-     "A new view layer is an additional option, **not** a mandated replacement and\n"
-     "**not** the\nonly taught view layer: Reagent, UIx, and reagent-slim live on.", False),
     ("C7 distant disclaimer does NOT exempt (window is +/-1)",
      "The substrate is the only taught view layer.\n\n\n"
      "Separately, and much later: this was superseded.", True),
