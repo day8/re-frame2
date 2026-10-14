@@ -572,7 +572,11 @@
         "classification and the identity-bearing structure survive")
     (is (= [[:rf.work/resource projected egress-generation] wid wid]
            [wid (get-in node [:work-ledger :record :work/id]) (second (first (:host-transient node)))])
-        "every work-id copy and the host-transient address name one projected work-id")))
+        "every work-id copy and the host-transient address name one projected work-id")
+    ;; Forwarders may project a graph more than once; whole-graph equality
+    ;; catches a fresh handle in any identity-bearing position.
+    (is (= redacted (rf.derivation.egress/project-graph redacted egress-frame))
+        "a second projection is a no-op")))
 
 (defn- egress-sensitive-value-contributors
   "`egress-live-contributors` plus a live sub whose value sits at the
@@ -631,14 +635,6 @@
         (when registered?
           (try (rf/destroy-frame! nil)
                (catch #?(:clj Throwable :cljs :default) _ nil)))))))
-
-(deftest g-graph-egress-is-idempotent
-  ;; Forwarders may project a graph more than once. Whole-graph equality
-  ;; catches a fresh handle in any identity-bearing position.
-  (rf/make-frame {:id egress-frame})
-  (let [raw  (rf.derivation.graph/live-derivation-graph egress-frame (egress-live-contributors))
-        once (rf.derivation.egress/project-graph raw egress-frame)]
-    (is (= once (rf.derivation.egress/project-graph once egress-frame)))))
 
 ;; A live sub node's `:value` is the sub's own output, so egress redacts it by
 ;; the sub's REGISTRATION classification, as the `:sub/run` trace does for the
@@ -712,13 +708,9 @@
         "only :value changes: query-vector identity, structure and edges are untouched")
     (doseq [[q v] partner-subs]
       (is (= (trace-projected-value egress-frame q v) (live-value redacted q))
-          (str "graph egress of " q " equals its :sub/run trace projection")))))
-
-(deftest g-graph-egress-of-classified-subs-is-idempotent
-  (register-partner-subs!)
-  (rf/make-frame {:id egress-frame})
-  (let [once (rf.derivation.egress/project-graph (partner-graph egress-frame partner-subs) egress-frame)]
-    (is (= once (rf.derivation.egress/project-graph once egress-frame)))))
+          (str "graph egress of " q " equals its :sub/run trace projection")))
+    (is (= redacted (rf.derivation.egress/project-graph redacted egress-frame))
+        "re-projecting leaves a classified value, :large marker included, unchanged")))
 
 (deftest g-graph-egress-resolves-the-sub-in-the-inspected-frames-generation
   ;; The token sub is declared only in the inspected frame's image, so the
@@ -786,11 +778,6 @@
   [xs]
   #?(:clj (byte-array (map unchecked-byte xs)) :cljs (into-array xs)))
 
-(deftest g-distinct-resource-identities-stay-distinct-nodes-at-egress
-  (rf/make-frame {:id egress-frame})
-  (let [[_ redacted] (egress-search-results {:q "Aa"} {:q "BB"})]
-    (is (= 2 (count (resource-node-keys redacted))))))
-
 (deftest g-opaque-handle-digest-is-hmac-sha256
   ;; Known answers prove the digest IS HMAC-SHA-256 on this host.
   (let [hmac #'rf.derivation.egress/hmac-sha256-hex
@@ -812,14 +799,16 @@
         [raw redacted]      (egress-search-results params)
         [_ [_ _ [tag hex]]] (first (resource-node-keys redacted))
         [_ redacted']       (egress-search-results {:f (fn [] nil)})
-        [_ [_ _ handle']]   (first (resource-node-keys redacted'))]
+        [_ [_ _ handle']]   (first (resource-node-keys redacted'))
+        [_ colliding]       (egress-search-results {:q "Aa"} {:q "BB"})]
     (is (= [:rf.resource/opaque true] [tag (some? (re-matches #"[0-9a-f]{64}" (str hex)))])
         "64 lowercase hex chars, untruncated")
     (is (not= (#'re-frame.schemas.digest/sha256-hex (rf.identity/canonical-bytes params)) hex)
         "keyed, not an unkeyed SHA-256")
     (is (= redacted (rf.derivation.egress/project-graph raw egress-frame))
         "the same value gets the same handle within one runtime")
-    (is (= rf.privacy/redacted-sentinel handle') "a value outside the CEDN-1 domain fails closed")))
+    (is (= rf.privacy/redacted-sentinel handle') "a value outside the CEDN-1 domain fails closed")
+    (is (= 2 (count (resource-node-keys colliding))) "params sharing a 32-bit String hash stay distinct")))
 
 ;; ===========================================================================
 ;; (g+) The real resource contributor applies classification and scoped-key
