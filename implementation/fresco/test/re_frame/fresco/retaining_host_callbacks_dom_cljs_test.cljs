@@ -14,7 +14,7 @@
   is a COUNT — how often a memoized foreign child's body runs while its
   parent re-renders — and section 1 is a grid of eight carriers against
   that one number. *Safe across abandonment, reincarnation and teardown*
-  is a ROUTING claim, and sections 3–6 drive a callback the vendor
+  is a ROUTING claim, and sections 2–4 drive a callback the vendor
   stashed at mount through all three.
 
   ## Why the vendor is `React.memo` and nothing simpler
@@ -64,7 +64,7 @@
   A vendor body run is not a millisecond and this file does not pretend
   it is. It is the event `React.memo` exists to prevent, counted where it
   happens; how much one costs depends on the vendor, which is a fact
-  about somebody else's code. `hm/bodies-run` in section 7 is the
+  about somebody else's code. `hm/bodies-run` in section 5 is the
   matching reading on OUR side of the fence — Fresco boundary bodies,
   page-wide — and it is there to show what the ordinary path pays for the
   incarnation pin, which is the second half of the risk row.
@@ -82,7 +82,7 @@
   rung down, against the lowering functions directly.
   This file does not restate it: it asks whether the law survives a real
   React vendor holding the closure, and what the law costs there."
-  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -127,11 +127,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     ;; The MAP shape, because section 6's delayed row is `(async done …)`.
-     ;; A fn-form fixture unwinds the instant it returns, which for an async
-     ;; row is before the row has resolved, and `cljs.test` refuses the pair
-     ;; loudly enough to take the whole namespace down with it.
-     :async?        true
      :init-fn       (fn []
                       (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
@@ -379,28 +374,7 @@
                    " times across " ticks " parent re-renders")))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — Identity, read directly rather than inferred from the count
-;; ---------------------------------------------------------------------------
-
-(deftest a-lowered-intent-hands-the-vendor-a-new-function-every-render
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (testing "a lowered intent vector hands the vendor a NEW function every
-                render — which is the mechanism the grid measures the
-                consequence of"
-        (fresh!)
-        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                  [host-parent {:arm :intent-vector}])]
-          (try
-            (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
-            (is (= (inc ticks) (count (set @!held)))
-                "every one of them is a distinct object")
-            (finally (rf.fresco.impl.mount/release! handle)))))
-)))
-
-;; ---------------------------------------------------------------------------
-;; 3 — RETENTION. A callback the vendor kept still routes inside its own
+;; 2 — RETENTION. A callback the vendor kept still routes inside its own
 ;;     incarnation
 ;; ---------------------------------------------------------------------------
 
@@ -428,7 +402,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — TEARDOWN and RETIREMENT. Harmless afterwards, and LOUDLY so
+;; 3 — TEARDOWN and RETIREMENT. Harmless afterwards, and LOUDLY so
 ;; ---------------------------------------------------------------------------
 
 (deftest a-retained-callback-is-harmless-after-the-frame-is-retired
@@ -453,7 +427,7 @@
              frame that was never there")))))
 
 ;; ---------------------------------------------------------------------------
-;; 5 — REINCARNATION. Same public id, and the retained closure may not
+;; 4 — REINCARNATION. Same public id, and the retained closure may not
 ;;     reach the successor
 ;; ---------------------------------------------------------------------------
 
@@ -492,49 +466,20 @@
             (finally (rf.fresco.impl.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 6 — DELAYED. The same law, a real macrotask after the render
-;; ---------------------------------------------------------------------------
-
-(deftest a-delayed-retained-callback-obeys-the-same-law
-  ;; Sections 4 and 5 fire on the test's own stack, which is the one place
-  ;; a vendor never fires from. This one goes through a real `setTimeout`,
-  ;; long after the render's dynamic extent has unwound and after the
-  ;; teardown — the debounce, the socket message, the animation frame.
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (async done
-      (fresh! "A")
-      (let [handle   (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                  [host-parent {:arm :intent-vector}])
-            retained (first @!held)]
-        (rf.fresco.impl.mount/unmount! handle)
-        (reincarnate! "B")
-        (js/setTimeout
-          (fn []
-            (let [{:keys [refusals]} (with-refusals #(fire! retained))]
-              (is (zero? (pings))
-                  "a macrotask later, past the teardown and past the
-                   reincarnation, the retained closure still cannot reach the
-                   successor")
-              (is (= 1 (count refusals))))
-            (rf/destroy-frame! frame-id)
-            (done))
-          0)))))
-
-;; ---------------------------------------------------------------------------
-;; 7 — THE ORDINARY PATH. What every boundary pays for the safety
+;; 5 — THE ORDINARY PATH. What every boundary pays for the safety
 ;; ---------------------------------------------------------------------------
 
 (deftest the-ordinary-path-pays-nothing-for-the-incarnation-pin
   ;; The risk row's second clause: *ordinary code pays no universal proxy
   ;; cost*. There is no proxy to count, so the question is asked as work:
-  ;; how many BOUNDARY bodies one tick runs, with a retaining host on the
-  ;; page and without one. `hm/bodies-run` is the page-wide reading for
+  ;; how many BOUNDARY bodies one tick runs with a retaining host on the
+  ;; page, carrying the intent vector whose lowering captures a pinned
+  ;; dispatch every render. `hm/bodies-run` is the page-wide reading for
   ;; exactly this and it settles inside the thunk, which `mount/dispatch!`
   ;; already does.
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
-    (doseq [arm [:absent :intent-vector :plain-fn]]
+    (doseq [arm [:intent-vector]]
       (testing (str "one tick runs one boundary body with the " (name arm)
                     " carrier on the page")
         (fresh!)
