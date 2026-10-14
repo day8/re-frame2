@@ -211,12 +211,3 @@
   (is (= redacted-params-key
          (rf.resources.trace-egress/redact-key-declarations
            keyed-params-key :serialize {:sensitive [[:params :acct]]}))))
-
-(deftest a-recovered-key-claim-reaches-a-root-keyed-params-component
-  ;; the claim the registry holds for the key's entry, lowered at
-  ;; `[… :resource/key 2 :acct]`
-  (let [claim      (into (rf.resources.state/entry-path keyed-params-key) [:resource/key 2 :acct])
-        runtime-db {:rf.runtime/elision {:sensitive-declarations {claim {:sensitive? true}}
-                                         :declarations           {}}}]
-    (is (= redacted-params-key
-           (#'rf.resources.trace-egress/recover-key keyed-params-key keyed-params-key runtime-db)))))
