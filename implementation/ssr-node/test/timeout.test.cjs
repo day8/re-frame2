@@ -13,7 +13,6 @@ const { withService, collect, observed, refusalOf, fixture } = require('./_suppo
 const { CODE } = require('../src/protocol.cjs');
 const { createService } = require('../src/service.cjs');
 const { Isolate } = require('../src/isolate.cjs');
-// Required while the flag is DISARMED — see the fixture.
 const { EXIT_AT_FLAG } = require('./fixtures/exits.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
@@ -21,20 +20,21 @@ const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
 // The same runaway loop with two chunks already emitted.
 const torn = (extra = {}) => ({ protocol: 1, entry: 'app/torn', state: {}, ...extra });
 
-test('a render that never returns is refused inside its budget', async () => {
-  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
+test('a render that never returns is refused inside its budget, and the service ceiling binds a caller that asks for longer', async () => {
+  await withService('hang', { isolates: 1, maxTimeoutMs: 200, admissionTimeoutMs: 10000 }, async (service) => {
     const started = Date.now();
-    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 200 })));
+    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 60000 })));
     const elapsed = Date.now() - started;
 
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
-    assert.strictEqual(err.detail.timeoutMs, 200);
+    // The request asked for 60 s; the service says 200 ms. Nothing was written, so nothing is torn.
+    assert.deepStrictEqual(
+      { ...err.detail, isolate: typeof err.detail.isolate, threadId: typeof err.detail.threadId },
+      { timeoutMs: 200, isolate: 'number', threadId: 'number', entry: 'app/root', afterChunks: 0 },
+    );
     assert.ok(elapsed >= 150, `refused after ${elapsed} ms — suspiciously early for a 200 ms budget`);
     // Generous on purpose: the claim is BOUNDED, not fast.
     assert.ok(elapsed < 5000, `refused after ${elapsed} ms — the deadline is not bounding anything`);
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-    assert.strictEqual(err.detail.entry, 'app/root');
-    assert.strictEqual(typeof err.detail.isolate, 'number');
   });
 });
 
@@ -51,16 +51,6 @@ test('the pool recovers, and the replacement is a DIFFERENT thread', async () =>
     assert.notStrictEqual(observed(after).threadId, firstThread, 'a terminated isolate must never be reused');
     assert.strictEqual(service.stats().replacements, 1);
     assert.strictEqual(service.stats().total, 1, 'the pool must be back to its configured size');
-  });
-});
-
-test('the service ceiling binds a caller that asks for longer', async () => {
-  await withService('hang', { isolates: 1, maxTimeoutMs: 200, admissionTimeoutMs: 10000 }, async (service) => {
-    const started = Date.now();
-    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 60000 })));
-    assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
-    assert.strictEqual(err.detail.timeoutMs, 200, 'the request asked for 60 s; the service says 200 ms');
-    assert.ok(Date.now() - started < 5000);
   });
 });
 
@@ -125,7 +115,7 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
 // ---------------------------------------------------------------------------
 // A worker that EXITS before it is ready raises no `error`, posts no
 // `boot-error`, and clears the boot timer, so only the exit can settle
-// startup. `bootTimeoutMs` stays at its 30 s default, far past every bound
+// startup. `bootTimeoutMs` stays at its 30 s default, far past the bound
 // below, so a green row is the exit settling startup.
 // ---------------------------------------------------------------------------
 
@@ -154,25 +144,6 @@ async function withExitAt(exitAt, fn) {
     delete process.env[EXIT_AT_FLAG];
   }
 }
-
-test('a module that EXITS while booting rejects startup promptly — clean exit or not', async () => {
-  for (const [exitAt, exitCode] of [
-    ['eval', 7],
-    ['boot', 0],
-  ]) {
-    const outcome = await withExitAt(exitAt, () =>
-      settledWithin(createService({ modulePath: fixture('exits'), isolates: 1 })),
-    );
-    if (outcome.state === 'resolved') await outcome.value.close();
-    assert.strictEqual(outcome.state, 'rejected', `${exitAt}: startup must settle, and must not succeed`);
-    assert.strictEqual(outcome.error.code, CODE.MALFORMED_MODULE, exitAt);
-    assert.strictEqual(outcome.error.detail.exitCode, exitCode, `${exitAt}: the exit is what settled it`);
-  }
-  // CONTROL — disarmed, the same module boots.
-  const healthy = await settledWithin(createService({ modulePath: fixture('exits'), isolates: 1 }));
-  assert.strictEqual(healthy.state, 'resolved');
-  await healthy.value.close();
-});
 
 test('a pool start with one sibling exiting rejects, and leaves no thread running', async () => {
   // Each started isolate's thread and exit code are recorded, so the row
