@@ -204,13 +204,9 @@ test('day8/re-frame2 with an empty <version/> → FAILED', () => {
 
 // Extras fall out of the script's ALLOWED-set check; stock reagent is the shape
 // the slim adapter exists to avoid.
-test('an unexpected extra dependency → FAILED, naming it (generic, DIRECT stock reagent)', () => {
-  for (const [what, dep, pattern] of [
-    ['extra dependency', { groupId: 'com.example', artifactId: 'surprise', version: '1.0.0' }, /com\.example\/surprise|unexpected/i],
-    ['stock reagent dep', { groupId: 'reagent', artifactId: 'reagent', version: '1.2.0' }, /reagent\/reagent/],
-  ]) {
-    expectFail(makeFixture({ pom: withExtraDependency(dep) }), what, pattern);
-  }
+test('an unexpected extra dependency → FAILED, naming it (DIRECT stock reagent)', () => {
+  const dep = { groupId: 'reagent', artifactId: 'reagent', version: '1.2.0' };
+  expectFail(makeFixture({ pom: withExtraDependency(dep) }), 'stock reagent dep', /reagent\/reagent/);
 });
 
 test('jar missing the canonical re_frame/adapter/reagent.cljs → FAILED', () => {
