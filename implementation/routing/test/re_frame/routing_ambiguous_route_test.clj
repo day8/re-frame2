@@ -5,7 +5,7 @@
   `:rf.error/ambiguous-registration` rather than falling through to whatever
   else matches: the navigation fails closed to `:rf.route/not-found`, and one
   always-on record names the route, the namespaces and the remedy. Every other
-  route keeps working (Spec 012 §Route registration).
+  route keeps working (Spec 012 §The route table is data).
 
   Every frame here is built through the public `rf/make-frame`, and the probes
   register through the real `rf/reg-route` macro from real namespaces, so each

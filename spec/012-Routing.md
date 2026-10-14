@@ -151,6 +151,8 @@ slot; the middle slot is the pure reflection-metadata map:
   "/files/*rest")
 ```
 
+**A route id registered from more than one namespace is ambiguous, not shadowed.** It is the same collision as any other duplicate id, and load order never picks a survivor ([002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)). A frame made without `:images` keeps every registration of that id in its route table, so a URL whose highest-ranked match is one of them raises `:rf.error/ambiguous-registration` instead of falling through to a lower-ranked route: `match-url` throws it, and a navigation fails closed to `:rf.route/not-found` (`:reason :match-error`) and reports it once on the always-on axis, naming the namespaces and the remedy. Every other URL matches as before. An image that selects both registrations fails assembly with `:rf.error/image-duplicate-id` instead.
+
 #### Path-pattern grammar (canonical)
 
 The `:path` value is a **string in the canonical path-pattern grammar** below. The grammar is **part of the pattern contract**, not implementation-specific. Every conforming implementation parses and emits this grammar; conformance fixtures (`routing-match-url.edn`, `routing-navigate.edn`) assume it.
@@ -1180,7 +1182,7 @@ A route loader that fetches through managed HTTP (the common case — an `:on-ma
 
 ## Standard runtime events
 
-Two named events are part of the routing contract. Implementations register a handler for each; user code dispatches them; tests can fire them directly. Their handlers are the framework's own: an application registering a handler under either id makes frame creation throw `:rf.error/image-duplicate-id`. The only routing events an application replaces are `:rf.route/navigation-blocked` and `:rf.route/entry-denied` ([§Replaceable framework defaults](#replaceable-framework-defaults)).
+Two named events are part of the routing contract. Implementations register a handler for each; user code dispatches them; tests can fire them directly. Their handlers are the framework's own: an application registering a handler under either id makes that id ambiguous — a frame made without `:images` raises `:rf.error/ambiguous-registration` where it uses the id, and an image that selects both registrations fails assembly with `:rf.error/image-duplicate-id`. The only routing events an application replaces are `:rf.route/navigation-blocked` and `:rf.route/entry-denied` ([§Replaceable framework defaults](#replaceable-framework-defaults)).
 
 | Event | When it fires | Default behaviour |
 |---|---|---|
