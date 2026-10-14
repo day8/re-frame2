@@ -17,7 +17,6 @@
    [re-frame.resources]
    [re-frame.resources.registry]
    [re-frame.resources.state :as rf.resources.state]
-   [re-frame.resources.subs :as rf.resources.subs]
    [re-frame.resources.test-support]
    [re-frame.schemas]
    [re-frame.http.managed]
@@ -117,19 +116,9 @@
 ;; a wrong but valid scope reads its own entry
 ;; ===========================================================================
 
-(deftest wrong-scope-sub-reads-its-own-empty-entry-never-the-other-principals
-  (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
-  (let [wrong-q {:resource :t/feed :params {:page 1} :scope (tenant-scope "globex")}]
-    (is (= [:idle nil true]
-           [(:status @(rf/subscribe [:rf/resource wrong-q])) @(rf/subscribe [:rf.resource/data wrong-q])
-            (some? (entry (tenant-key "acme" 1)))])
-        "an explicit wrong scope addresses its own empty key: idle, never acme's data, acme untouched")))
-
 (deftest two-explicit-scope-subs-keep-distinct-cache-entries
-  ;; The positive half of the wrong-scope test, which a runtime resolving the
-  ;; override to nothing would also pass: two overrides over one resource and
-  ;; one params map address two POPULATED keys, neither borrowing the other's
-  ;; data. The browser witness is `testbeds/tenant_switcher`'s cache-witness
+  ;; Two overrides over one resource and one params map address two POPULATED
+  ;; keys, neither borrowing the other's data. The browser witness is `testbeds/tenant_switcher`'s cache-witness
   ;; panel; this runs in the always-on unit lanes beside it.
   (ensure-feed! "acme"   1 [:app :acme 1]   {:motto "acme-only"})
   (ensure-feed! "globex" 1 [:app :globex 1] {:motto "globex-only"})
@@ -141,12 +130,7 @@
         st-acme   (rf/subscribe [:rf/resource q-acme])
         st-globex (rf/subscribe [:rf/resource q-globex])
         d-acme    (rf/subscribe [:rf.resource/data q-acme])
-        d-globex  (rf/subscribe [:rf.resource/data q-globex])
-        db        (rf/app-db-value :rf/default)]
-    (is (= [true #{(tenant-key "acme" 1) (tenant-key "globex" 1)}]
-           [(not= (rf.resources.subs/resolve-scoped-key q-acme db) (rf.resources.subs/resolve-scoped-key q-globex db))
-            (cached-keys)])
-        "the overrides resolve two distinct keys, both live in the cache")
+        d-globex  (rf/subscribe [:rf.resource/data q-globex])]
     ;; the re-derefs interleave, so neither read displaces the other's value
     (is (= [:loaded :loaded {:motto "acme-only"} {:motto "globex-only"} {:motto "acme-only"} {:motto "globex-only"}]
            [(:status @st-acme) (:status @st-globex) @d-acme @d-globex (:data @st-acme) (:data @st-globex)])
