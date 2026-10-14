@@ -32,11 +32,9 @@
                 (when (= decoded (rf.mcp-base.cursor/b64-decode cand)) cand))))
           b64-alphabet)))
 
-(deftest b64-round-trips
-  (is (= "café — 日本" (rf.mcp-base.cursor/b64-decode (rf.mcp-base.cursor/b64-encode "café — 日本")))))
-
 (deftest encode-decode-round-trips
-  (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}]
+  ;; A non-ASCII payload pins the UTF-8 codec under the base64.
+  (let [payload {:v 1 :offset 25 :total 137 :sig "café — 日本"}]
     (is (= payload (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor payload)
                                                      offset-cursor?)))))
 
