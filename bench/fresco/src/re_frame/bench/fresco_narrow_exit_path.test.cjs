@@ -100,9 +100,8 @@ test('every fault at once: each is named, and a lost position takes the code', (
     warmupMax: 20,
     clamped: ['re-frame2/write (3.0x quantum per sample)'],
   });
-  assert.strictEqual(v.code, 1, 'a lost position outranks every other fault');
   const text = v.lines.join('\n');
-  for (const fault of [
+  const unnamed = [
     /no finite position/,
     /REFUSED by the arm-order guard/,
     /moved with the control size/,
@@ -110,9 +109,9 @@ test('every fault at once: each is named, and a lost position takes the code', (
     /does not equal the published total/,
     /warm-up never settled/,
     /sits on the clock quantum/,
-  ]) {
-    assert.match(text, fault);
-  }
+  ].filter((fault) => !fault.test(text));
+  // A lost position outranks every other fault.
+  assert.deepStrictEqual({ code: v.code, unnamed: unnamed.map(String) }, { code: 1, unnamed: [] });
 });
 
 // --- the wiring: what keeps `verdict` the exit -----------------------------
@@ -133,9 +132,9 @@ test('NOTHING downstream of `verdict` reads a condition on its own', () => {
 });
 
 test('the summary `main` builds fills every field `verdict` reads', () => {
-  // A field left out reads as a cleared gate, which is how the warm-up was green.
+  // A field left out reads as a cleared gate.
   const call = MAIN.slice(MAIN.indexOf('const v = verdict({'));
-  for (const field of [
+  const missing = [
     'positionsLost',
     'orderRefuse: report.refuse',
     'leaked',
@@ -146,9 +145,8 @@ test('the summary `main` builds fills every field `verdict` reads', () => {
     'warmupUnsettled: arms.filter((a) => !settled[a])',
     'warmupMax: WARMUP_MAX',
     'clamped',
-  ]) {
-    assert.ok(call.includes(field), `the summary must carry \`${field}\``);
-  }
+  ].filter((field) => !call.includes(field));
+  assert.deepStrictEqual(missing, [], 'the summary must carry every field');
 });
 
 let failed = 0;
