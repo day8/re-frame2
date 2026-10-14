@@ -8,10 +8,10 @@
 
   `runtime-cljs-test`'s
   `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
-  settles four escapes — a stored handler, a handler invoked, an
-  author-held `delay`, and a stashed lazy seq — all of which run when
+  settles three escapes — an author-held `delay`, a stashed lazy seq,
+  and a stored handler called later — all of which run when
   **no** body is running, so `read-key!` finds no frame and throws.
-  `boundary-crossing-cljs-test` settles the fifth — a lazy seq handed
+  `boundary-crossing-cljs-test` settles the fourth — a lazy seq handed
   across a boundary and realised in the child's render, where a frame IS
   bound and the guard is satisfied — by forcing it at the crossing,
   inside the window of the body that wrote it.
