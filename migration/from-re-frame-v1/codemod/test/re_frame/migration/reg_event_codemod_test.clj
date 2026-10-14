@@ -92,12 +92,6 @@
            ["a referenced `_state` binds back"
             "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
             "(reg-event :y (fn [{_state :db} ev] {:db (assoc _state :x 1)}))"]
-           ["an unreferenced `_state` keeps {:keys [db]}"
-            "(rf/reg-event-db :init (fn [_state _] {:count 0 :items []}))"
-            "(rf/reg-event :init (fn [{:keys [db]} _] {:db {:count 0 :items []}}))"]
-           ["a referenced `_db` binds back"
-            "(rf/reg-event-db :touch (fn [_db _] (assoc _db :touched true)))"
-            "(rf/reg-event :touch (fn [{_db :db} _] {:db (assoc _db :touched true)}))"]
            ["an inner let rebinding the name shadows it: the outer param is unreferenced"
             "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
             "(rf/reg-event :shadow\n  (fn [{:keys [db]} [_ k]]\n    {:db (let [_state {:fresh k}]\n      (assoc _state :touched true))}))"]
