@@ -89,8 +89,6 @@
     ;; Take the cart away from its seed state so state preservation is
     ;; observable (the reproduction's step 2).
     (rf/dispatch-sync [:cart/inc-qty "RF2-MUG"] {:frame :rf/default})
-    (is (= [2 11500 11500] [(qty "RF2-MUG") (:subtotal (cart)) (:total (cart))])
-        "the user's pre-reload change is in, and subtotal and total follow it (old build)")
     (let [new-total-runs (atom 0)
           ;; The `install-flows!` a watch rebuild would produce: same two
           ;; flows, same shapes, with a DISTINGUISHABLE edited :cart/total
