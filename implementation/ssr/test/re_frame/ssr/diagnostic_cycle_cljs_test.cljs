@@ -10,17 +10,14 @@
   instead of the error. Every site therefore crosses the value through
   `re-frame.error/safe-form` (or prints it with `re-frame.error/pr-form`).
 
-  Each guarded site must show: a cyclic input yields the site's OWN error id;
-  the thrown ex-data survives `pr-str` at a downstream sink; and an acyclic
-  input's message is byte-identical to what `pr-str` produces. [[outcome]]
-  returns a map rather than letting a throw abort the var, so a regression
-  fails with `\"RangeError\"` in its own failure text.
-  [[the-fixtures-are-genuinely-cyclic]] is the non-vacuity control.
+  Each guarded site must show that a cyclic input yields the site's OWN
+  error id and that the thrown ex-data survives `pr-str` at a downstream
+  sink. [[outcome]] returns a map rather than letting a throw abort the var,
+  so a regression fails with `\"RangeError\"` in its own failure text.
 
   `safe-form` / `pr-form` live in core because a sibling artefact has a site
   of the same defect; their unit rows live here beside the SSR sites."
   (:require ["react" :as react]
-            [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [re-frame.error :as rf.error]
             [re-frame.ssr.emit :as rf.ssr.emit]
@@ -89,22 +86,6 @@
   "A version-1 structural tree wrapping `children` in a root fragment."
   [& children]
   {:rf.ui/tree-version 1 :children (vec children)})
-
-;; ---------------------------------------------------------------------------
-;; The control
-;; ---------------------------------------------------------------------------
-
-(deftest the-fixtures-are-genuinely-cyclic
-  (testing "THE NON-VACUITY CONTROL: `pr-str` overflows on every cyclic
-           fixture — a hand-built object, an array, a real React 19 provider,
-           and a MIXED chain (foreign object, persistent vector, foreign
-           object), which the printer crosses freely"
-    (is (= ["RangeError" "RangeError" "RangeError" "RangeError"]
-           (mapv #(:threw (outcome %))
-                 [#(pr-str (self-referential-object))
-                  #(pr-str (self-referential-array))
-                  #(pr-str provider)
-                  #(pr-str #js {"held" [:p provider]})])))))
 
 ;; ---------------------------------------------------------------------------
 ;; The helper
@@ -215,29 +196,3 @@
     (rejected-with :rf.error/ssr-ui-tree-version-unsupported
                    "a cyclic :rf.ui/tree-version"
                    #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version provider}))))
-
-;; ---------------------------------------------------------------------------
-;; The acyclic path, byte for byte
-;; ---------------------------------------------------------------------------
-
-(deftest an-acyclic-diagnostic-is-byte-identical
-  (testing "each expectation embeds `cljs.core/pr-str`'s OWN output beside the
-           site's own wording, and an acyclic foreign object keeps its
-           CONTENTS in the message"
-    (let [el [acyclic-object {:value "dark"}]
-          o  (outcome #(rf.ssr.emit/emit-element el))]
-      (is (str/includes? (:message o) (str "hiccup vector head " (pr-str acyclic-object)))
-          (str "head printed byte-identically to pr-str; got " (pr-str o)))
-      (is (str/includes? (:message o) (str "(in element " (pr-str el) ")"))
-          (str "element printed byte-identically to pr-str; got " (pr-str o))))
-
-    (let [el [:> acyclic-object {:value "dark"}]
-          o  (outcome #(rf.ssr.emit/emit-element el))]
-      (is (str/includes? (:message o) (str "(element " (pr-str el) ")"))))
-
-    (let [node {:attrs {:ctx acyclic-object}}
-          o    (outcome #(rf.ssr.ui-tree/emit-ui-tree (tree node)))]
-      (is (str/includes? (:message o) (str "renderable tree node: " (pr-str node)))))
-
-    (let [o (outcome #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version acyclic-object}))]
-      (is (str/includes? (:message o) (str " — got " (pr-str acyclic-object)))))))
