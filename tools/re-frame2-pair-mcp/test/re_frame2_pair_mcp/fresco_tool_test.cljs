@@ -5,32 +5,14 @@
   Each tool ships ONE self-describing form that RESOLVES
   `re-frame.fresco.tool` at runtime and calls the read off it, rather than
   routing through a `re-frame2-pair.runtime` wrapper: the door is optional,
-  so the preload must not require it. The schema gate and the envelope
-  passthrough are pinned by the conformance corpus; that the provider
-  publishes the reads these forms name is
+  so the preload must not require it. The schema gate, the envelope
+  passthrough and each tool's read name are pinned by the conformance
+  corpus; that the provider publishes the reads these forms name is
   [[re-frame2-pair-mcp.fresco-wire-test]]; the analyzer half, against a
   build without the door, is `test/live-fresco-wire.cjs`."
-  (:require [cljs.test :refer-macros [deftest is async]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.test-utils :as tu]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.fresco-tool :as fresco-tool]))
-
-(defn- fresh-conn []
-  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    (swap! conn assoc :probed-builds #{:app})
-    conn))
-
-(defn- with-captured-form!
-  [seen canned body-fn]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn
-               ([_conn _build form] (reset! seen form) (js/Promise.resolve canned))
-               ([_conn _build form _opts] (reset! seen form) (js/Promise.resolve canned)))]
-    (set! nrepl/cljs-eval-value stub)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (deftest projection-form-resolves-the-door-and-calls-it-nullary
   (let [form (fresco-tool/projection-form "read-mounted-boundaries")
@@ -56,22 +38,3 @@
   (is (nil? (re-find (re-pattern (str (str/replace fresco-tool/tier-ns "." "\\.")
                                       "/[a-zA-Z0-9?!*<>=+_-]"))
                      (fresco-tool/projection-form "read-mounted-boundaries")))))
-
-(deftest each-tool-emits-a-runtime-resolved-door-call
-  ;; Each tool sends its read's projection form bare — no preload wrapper.
-  (async done
-    (let [seen   (atom nil)
-          canned {:ok? true :schema fresco-tool/consumed-evidence-schema}]
-      (-> (reduce
-            (fn [p [read-fn tool-fn]]
-              (.then p (fn [_]
-                         (-> (with-captured-form! seen canned
-                               (fn [] (tool-fn (fresh-conn) #js {})))
-                             (.then (fn [_]
-                                      (is (= (fresco-tool/projection-form read-fn) @seen)
-                                          read-fn)))))))
-            (js/Promise.resolve nil)
-            [["read-mounted-boundaries" fresco-tool/read-mounted-boundaries-tool]
-             ["read-read-attribution"   fresco-tool/read-read-attribution-tool]
-             ["explain-render"          fresco-tool/explain-render-tool]])
-          (.then (fn [_] (done)))))))
