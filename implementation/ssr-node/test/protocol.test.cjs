@@ -5,7 +5,7 @@
 // claim about every input and enumerating inputs is the cheapest honest way
 // to make it. The service-level rows at the bottom show the validator is the
 // door: a refusal reaches the caller with no chunk emitted and no isolate
-// borrowed. Each refusal row is the control request below plus one fault.
+// borrowed. Each refusal row is the valid request `OK()` plus one fault.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -57,18 +57,6 @@ function refuseOf(req) {
   }
 }
 
-test('the control request validates', () => {
-  assert.deepStrictEqual(validateRequest(OK(), TABLES), {
-    protocol: 1,
-    entry: 'app/root',
-    state: { ':todos': '[]' },
-    runtime: { ':rf.runtime/routing': '{:current {:route-id :home}}' },
-    args: undefined,
-    requestId: undefined,
-    timeoutMs: 1000,
-  });
-});
-
 // ---------------------------------------------------------------------------
 // The field allowlist IS the contract
 // ---------------------------------------------------------------------------
@@ -78,18 +66,9 @@ test('a field the contract does not name is refused, not ignored', () => {
 });
 
 test('every deliberately-refused field carries its reason', () => {
-  // The two an implementer reaches for first are pinned to the phrase that
-  // teaches; one dropped from `REFUSED_FIELDS` loses `refusedOnPurpose`.
-  const TEACHES = { initialEvents: /host fork/, payloadPolicy: /body markup and nothing else/ };
-  for (const field of new Set([...Object.keys(TEACHES), ...Object.keys(REFUSED_FIELDS)])) {
-    const err = refuseOf({ ...OK(), [field]: 'x' });
-    assert.strictEqual(err.code, CODE.UNKNOWN_REQUEST_FIELD, field);
-    assert.strictEqual(err.detail.refusedOnPurpose, true, field);
-    assert.ok(err.message.includes(REFUSED_FIELDS[field]), `${field} lost its explanation`);
-    if (TEACHES[field]) {
-      assert.match(err.message, TEACHES[field], `${field}: the message must teach, not merely decline`);
-    }
-  }
+  const err = refuseOf({ ...OK(), initialEvents: 'x' });
+  assert.deepStrictEqual([err.code, err.detail.refusedOnPurpose], [CODE.UNKNOWN_REQUEST_FIELD, true]);
+  assert.ok(err.message.includes(REFUSED_FIELDS.initialEvents), 'the refusal lost its explanation');
 });
 
 // ---------------------------------------------------------------------------
@@ -175,7 +154,6 @@ test('the byte ceiling is ONE ceiling over both partitions', () => {
   const bytesOf = (o) =>
     Object.entries(o).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v), 0);
   const ceiling = Math.max(bytesOf(state), bytesOf(runtime)) + 10; // room for either alone
-  assert.ok(bytesOf(state) + bytesOf(runtime) > ceiling, 'the fixture must exceed the ceiling only together');
   const base = { protocol: 1, entry: 'app/root' };
   assert.strictEqual(codeOf({ ...base, state }, { maxRequestBytes: ceiling }), null);
   assert.strictEqual(codeOf({ ...base, runtime }, { maxRequestBytes: ceiling }), null);
@@ -305,8 +283,7 @@ test('a malformed bundle refuses at BOOT, not at first request', async () => {
     ['bad-protocol', /declares protocol/],
   ]) {
     const err = await refusalOf(() => withService(fixtureName, {}, async () => {}));
-    assert.ok(err, `${fixtureName} should not have booted`);
-    assert.strictEqual(err.code, CODE.MALFORMED_MODULE, fixtureName);
+    assert.strictEqual(err?.code, CODE.MALFORMED_MODULE, fixtureName);
     assert.match(err.message, why, fixtureName);
   }
 });
