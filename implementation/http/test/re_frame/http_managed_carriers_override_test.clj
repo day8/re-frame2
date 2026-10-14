@@ -7,11 +7,11 @@
   The http artefact seeds `:rf.http/managed` through the fn-form `reg-fx`,
   which records no source namespace, and marks it a replaceable framework
   default (`:rf/framework-default? true`). The public macro records the
-  namespace it is written in, so the default image holds two descriptors for
-  `[:fx :rf.http/managed]`; the marker is what lets assembly drop the
+  namespace it is written in, so the source store holds two descriptors for
+  `[:fx :rf.http/managed]`; the marker is what lets a frame drop the
   framework's copy once an application has registered its own, instead of
-  failing every later `rf/make-frame {}` with `:rf.error/image-duplicate-id`.
-  Two APPLICATION namespaces registering the id remain a duplicate.
+  raising `:rf.error/ambiguous-registration` wherever the id is used. Two
+  APPLICATION namespaces registering the id remain ambiguous.
 
   JVM-only: the second application namespace is made by evaluating the macro
   form with `*ns*` bound, and the redaction case drives a real request
@@ -100,7 +100,7 @@
                    {:request    {:method :get
                                  :url    (str "http://127.0.0.1:" (:port srv) "/x")}
                     :on-failure nil}]]}))
-        ;; make-frame throws :rf.error/image-duplicate-id if assembly kept both.
+        ;; handler-meta throws :rf.error/ambiguous-registration if the frame kept both.
         (let [f (rf/make-frame {})
               m (rf/handler-meta {:frame f :kind :fx :id :rf.http/managed})]
           (is (= [{:headers ["X-Honeycomb-Team"]} this-ns]
@@ -125,12 +125,14 @@
 
 (deftest two-application-registrations-still-collide
   (testing "the override is not a winner rule: two APPLICATION namespaces each
-            re-registering `:rf.http/managed` are ambiguous, and default-image
-            assembly still refuses to let load order decide"
+            re-registering `:rf.http/managed` are ambiguous, and a frame made
+            without `:images` refuses to let load order decide"
     (rf/reg-fx :rf.http/managed
       {:carriers {:headers ["X-Honeycomb-Team"]}}
       rf.http.managed/managed-handler)
     (reg-carriers-in-ns! 're-frame.http-managed-carriers-override-test.second-app
                          {:headers ["X-Other-Team"]})
-    (is (= :rf.error/image-duplicate-id
-           (thrown-error-id #(rf/make-frame {}))))))
+    (let [f (rf/make-frame {})]
+      (is (= :rf.error/ambiguous-registration
+             (thrown-error-id
+               #(rf/handler-meta {:frame f :kind :fx :id :rf.http/managed})))))))

@@ -3,32 +3,32 @@
 
   Every door that mints a frame — `hm/mount!`, `hm/hydrate!`, and
   `hm/shadow!` through them — takes core's own `:images` option and hands
-  it to `rf/make-frame` as given. Omitting it is the default image, the
-  whole source store, exactly as before.
+  it to `rf/make-frame` as given. Omitting it gives a frame that resolves
+  the whole source store live.
 
-  ## Why the default image is not enough
+  ## Why omitting `:images` is not enough
 
   An application that overrides a library's registration — one `[kind id]`
   registered from two namespaces — is a supported composition, but not an
-  implicit one. The default image refuses it (`:rf.error/image-duplicate-id`),
-  because it will not let load order pick the winner; disjoint ordered
-  images are how the override is SAID, and the later image wins. A test
-  kit that always built from the default image could not mount such an
-  application at all.
+  implicit one. A frame made without `:images` finds that id ambiguous
+  (`:rf.error/ambiguous-registration` where it is used), because it will
+  not let load order pick the winner; disjoint ordered images are how the
+  override is SAID, and the later image wins. A test kit that could not
+  pass `:images` could not run such an application's override at all.
 
   [[register-the-override!]] builds that shape from invented ids: one
   `[:fx :kit.transport/send]` registered from `kit.library` and again from
   `kit.app`, each recording which implementation ran and in which frame.
   Every row registers it inside its own body and never at load, because a
-  load-time collision would sit in the shared source store and refuse the
-  default image of every suite loaded after this one. The reset fixture's
+  load-time collision would sit in the shared source store and leave the id
+  ambiguous for every suite loaded after this one. The reset fixture's
   source-store restore takes both rows back out after each row.
 
   ## What each row holds fixed
 
   | Row | Claim |
   |---|---|
-  | [[an-override-the-default-image-refuses-mounts-under-ordered-images]] | the default image refuses (the control) and the ordered composition mounts, with the later image's implementation live |
+  | [[an-override-is-ambiguous-without-images-and-mounts-under-ordered-images]] | a mount without `:images` finds the id ambiguous (the control) and the ordered composition mounts, with the later image's implementation live |
   | [[two-owned-mounts-each-resolve-their-own-winner]] | two mounts, two orders, two winners, and two clean teardowns |
   | [[initial-events-and-the-clock-are-unchanged-beside-images]] | seed steps still run in order before the render, and a timer a seed step arms is still the mount's virtual clock's |
   | [[core-refuses-a-composition-it-cannot-build]] | a collision WITHIN one selected image, and an empty `:images`, are refused with core's own ids, and leave nothing behind |
@@ -172,7 +172,7 @@
 
 (defn- server-bytes!
   "The bytes an SSR route would deliver for the screen, rendered on a
-  throwaway default-image frame BEFORE any override exists, and released
+  throwaway frame made without `:images` BEFORE any override exists, and released
   so the runtime a hydration is measured on is empty."
   []
   (let [bytes-frame ::server
@@ -204,37 +204,38 @@
           ms))
 
 ;; ---------------------------------------------------------------------------
-;; The override: refused by default, mounted when composed
+;; The override: ambiguous without images, mounted when composed
 ;; ---------------------------------------------------------------------------
 
-(deftest an-override-the-default-image-refuses-mounts-under-ordered-images
+(deftest an-override-is-ambiguous-without-images-and-mounts-under-ordered-images
   (if-not (rf.fresco.impl.mount/browser?)
     (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (register-the-override!)
-      (let [before   (rf.fresco.test.mounted/census)
-            children (body-children)
-            default  (attempt #(rf.fresco.test.mounted/mount! [screen {}]))]
-        (testing "THE CONTROL: with no :images the mount runs the default image,
-                  which refuses the override rather than let load order pick a
-                  winner — so the green below is differential, not vacuous"
-          (is (= {:rf.error/id :rf.error/image-duplicate-id :kind :fx :id fx-id}
-                 (select-keys (:refused default) [:rf.error/id :kind :id])))
-          (is (nil? (:image (:refused default)))
-              "refused by the DEFAULT image, which carries no id"))
-        (testing "and the refusal leaves nothing behind"
-          (is (= before (rf.fresco.test.mounted/census)))
-          (is (= children (body-children))))
-        (if-some [m (mounted-or-fail! "mount! with ordered :images"
-                                      (attempt #(rf.fresco.test.mounted/mount!
-                                                  [screen {}] {:images app-wins})))]
-          (do
-            (testing "the ordered composition mounts, and the frame runs the
-                      LATER image's implementation"
-              (rf.fresco.test.mounted/dispatch-and-settle! m [::announce "hello"])
-              (is (= [[:app (:frame m) "hello"]] @!deliveries)))
-            (-> (clean! [m]) (.then (fn [_] (done)))))
-          (done))))))
+      (if-some [d (mounted-or-fail! "mount! with no :images"
+                                    (attempt #(rf.fresco.test.mounted/mount! [screen {}])))]
+        (do
+          (testing "THE CONTROL: with no :images the frame resolves the store
+                    live, where the override is AMBIGUOUS rather than a winner
+                    load order picked — so the green below is differential,
+                    not vacuous"
+            (is (= :rf.error/ambiguous-registration
+                   (:rf.error/id (:refused (attempt #(rf/handler-meta
+                                                       {:frame (:frame d) :kind :fx :id fx-id})))))))
+          (-> (clean! [d])
+              (.then
+                (fn [_]
+                  (if-some [m (mounted-or-fail! "mount! with ordered :images"
+                                                (attempt #(rf.fresco.test.mounted/mount!
+                                                            [screen {}] {:images app-wins})))]
+                    (do
+                      (testing "the ordered composition mounts, and the frame runs the
+                                LATER image's implementation"
+                        (rf.fresco.test.mounted/dispatch-and-settle! m [::announce "hello"])
+                        (is (= [[:app (:frame m) "hello"]] @!deliveries)))
+                      (-> (clean! [m]) (.then (fn [_] (done)))))
+                    (done))))))
+        (done)))))
 
 (deftest two-owned-mounts-each-resolve-their-own-winner
   (if-not (rf.fresco.impl.mount/browser?)
@@ -304,7 +305,7 @@
             (is (= {:rf.error/id :rf.error/image-duplicate-id :image :kit.image/both :kind :fx :id fx-id}
                    (select-keys refused [:rf.error/id :image :kind :id]))
                 (str "refused by " (pr-str (:image refused))
-                     " — nil is the default image, which means :images never arrived"))))
+                     " — nil means :images never arrived"))))
         (testing "an empty :images is core's :rf.error/make-frame-bad-images,
                   passed through rather than read as 'use the default'"
           (is (= :rf.error/make-frame-bad-images
