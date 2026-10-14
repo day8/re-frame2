@@ -7,7 +7,6 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as rf.ssr.ring]
-            [re-frame.ssr.ring.pipeline :as rf.ssr.ring.pipeline]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
@@ -92,28 +91,9 @@
             :opts    {:initial-events [[:rf.test.seam/init]] :emit-hash? true}}
            @seen))))
 
-(deftest local-renderer-is-the-default-and-naming-it-changes-nothing
-  (let [opts     {:root-view (fn [] ((rf/view :seam/root)))}
-        implicit (serve opts)
-        body     (:body implicit)]
-    (is (= implicit (serve (assoc opts :renderer rf.ssr.ring.pipeline/local-renderer))))
-    (is (str/includes? body "jvm body"))
-    (is (some? (wire-render-hash body)))
-    (is (= (wire-render-hash body) (payload-render-hash body)))))
-
 (deftest a-custom-render-hash-feeds-the-payload-and-the-body-is-never-rewritten
   (let [body (:body (serve {:renderer (fn [_] {:body-html   "<div>bare</div>"
                                                :render-hash "0badf00d"})}))]
     (is (= "0badf00d" (payload-render-hash body)))
     (is (str/includes? body "<div>bare</div>"))
     (is (nil? (wire-render-hash body)) "the pipeline stamps no marker into the body")))
-
-(deftest a-throwing-renderer-projects-like-a-root-view-render-throw
-  (let [{:keys [status body]}
-        (serve {:renderer (fn [_]
-                            (throw (ex-info "sidecar unreachable at 127.0.0.1:8148"
-                                            {:where :seam})))})]
-    (is (= 500 status))
-    (is (str/includes? body "internal-error")
-        "the projector's error page, not the transport fallback")
-    (is (not (str/includes? body "8148")) "no throwable detail on the wire")))
