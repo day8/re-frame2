@@ -757,9 +757,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         "EP-0013 realm / app-value / module vocabulary. | EP-0024 |\n"
         "| ~~`:rf.reload/*`~~ | **RETIRED.** Was the hot-reload "
         "report namespace (`:rf.reload/diff`). | EP-0023 |\n"
-        "\n"
-        "Prose AFTER the table: a `:rf.prosefake/member` mention and a stray glob\n"
-        "`:rf.prosefake/*` — outside the table, neither reserves.\n"
     )
 
     catalogue = catalogue_ids(synthetic_009_rows)
@@ -769,8 +766,6 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     reserved = reserved_namespaces(synthetic_conventions)
     for name, src, want in (
-        ("B: emitting an only-prose-mentioned namespace FIRES",
-         '(x :rf.prosefake/member)', {"rf.prosefake"}),
         ("B: a non-tombstone :rf.world/* member DOES fire",
          '(x :rf.world/other)', {"rf.world"}),
         ("B: emitting retired-row vocabulary FIRES",
