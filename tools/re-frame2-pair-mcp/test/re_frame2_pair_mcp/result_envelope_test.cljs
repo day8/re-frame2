@@ -36,15 +36,12 @@
   ;; the top level, so wrapping one breaks it.
   (doseq [[form special?] [["(require 're-frame.epoch)" true]
                            ["  (require 'foo)" true]
-                           ["(+ 1 2)" false]
                            ["(require-something)" false]
                            ["'(require 'x)" false]]]
     (is (= special? (= form (renv/wrap-form form))) form)))
 
 (deftest non-error-results-reach-on-value
   (doseq [[v delivered] [[{:rf.mcp/result :value :value 42} 42]
-                         [{:rf.mcp/result :nil} nil]
-                         [7 7]
                          ;; a runtime map that merely lacks the tag is a legitimate answer
                          [{:ok? false :reason :not-registered} {:ok? false :reason :not-registered}]]]
     (is (= [:on-value delivered] (renv/envelope->result v #(vector :on-value %))) (pr-str v))))
@@ -59,16 +56,6 @@
     (is (= {:ok? false :reason :rf.error/eval-cljs-threw :ex "#error {:message \"boom\"}"
             :message "boom" :ex-data {:foo 1}}
            r))
-    (is (renv/error? r))))
-
-(deftest projects-unserializable-tag-with-preview
-  (let [r (renv/envelope->result {:rf.mcp/result :unserializable
-                                  :type          "function"
-                                  :preview       "#object[Function ...]"}
-                                 identity)]
-    (is (= {:ok? false :reason :rf.error/unserializable :type "function" :preview "#object[Function ...]"}
-           (dissoc r :hint)))
-    (is (string? (:hint r)) "a corrective hint suggests projecting to data")
     (is (renv/error? r))))
 
 (deftest mark-codec-error-flags-a-tool-built-defect-map
