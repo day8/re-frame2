@@ -15,8 +15,8 @@
   per registered machine. Each row
   carries enough data for the L4-left list AND the L4-right header to
   render without recomputing: machine-id, state-count, live-instance
-  count, and the lifted source-coord (when present in the registered
-  spec's metadata).
+  count, and the call-site source-coord (when the registration metadata
+  carries one).
 
   ## Sort axes
 
@@ -92,22 +92,19 @@
 ;; ---- source-coord lifting -----------------------------------------------
 
 (defn lift-source-coord
-  "Pull the source-coord map off a registered machine's spec (the
-  return value of the `:rf/machine` registrar projection). Per Spec 005 +
-  Spec 009 the registrar lifts the `defmacro`/`reg-machine` call site
-  into the spec's metadata; the canonical slot is `:source-coord` (the
-  same shape `editor-uri/editor-uri` consumes).
+  "The `reg-machine` call-site coord of a machine registration. Per Spec 001
+  §Source-coordinate capture the macro merges `:file` / `:line` / `:column` /
+  `:ns` into the REGISTRATION METADATA — the `handler-meta` of the machine's
+  `:event` entry — and not into its `:rf/machine` spec map, so this takes the
+  registration, the same read the Static Routes and Schemas panels make.
 
-  Returns nil when the definition is missing OR carries no source-coord
-  — the chip degrades gracefully (no chip rather than a broken link).
-  Pure data — JVM-runnable.
-
-  Also accepts the alternate `:source` slot — the same lenient policy
-  `open_in_editor.cljs/coerce-coord` applies on the dispatch surface."
-  [definition]
-  (when (map? definition)
-    (or (get definition :source-coord)
-        (get definition :source))))
+  Returns nil when the registration is missing OR carries no `:file` — the
+  chip degrades gracefully (no chip rather than a broken link).
+  Pure data — JVM-runnable."
+  [registration]
+  (let [coord (select-keys registration [:file :line :column :ns])]
+    (when (some? (:file coord))
+      coord)))
 
 (defn format-source-coord
   "Render a source-coord as a compact `file:line` display string. nil
@@ -192,6 +189,8 @@
   Inputs:
     `machine-id`  — the registered machine keyword.
     `definition`  — the `:rf/machine` registrar projection map (nil if missing).
+    `coord`       — the registration's call-site coord (`lift-source-coord`),
+                    or nil.
     `snapshots`   — `{machine-id snapshot}` for the target-frame.
 
   Output:
@@ -200,22 +199,22 @@
      :live-count    <int>
      :source-coord  <map-or-nil>
      :source-label  <\"file:line\"-or-nil>}"
-  [machine-id definition snapshots]
-  (let [coord (lift-source-coord definition)]
-    {:machine-id   machine-id
-     :state-count  (state-count definition)
-     :live-count   (live-instance-count snapshots machine-id)
-     :source-coord coord
-     :source-label (format-source-coord coord)}))
+  [machine-id definition coord snapshots]
+  {:machine-id   machine-id
+   :state-count  (state-count definition)
+   :live-count   (live-instance-count snapshots machine-id)
+   :source-coord coord
+   :source-label (format-source-coord coord)})
 
 (defn project-rows
-  "Project every registered machine into a vector of rows. Sorted
-  alphabetically by default; the view applies the user's sort axis
-  via `apply-sort`. Pure data — JVM-runnable."
-  [machines definitions snapshots]
+  "Project every registered machine into a vector of rows, in `machines`
+  order; `apply-sort` applies the user's sort axis. `coords` is
+  `{machine-id coord}`. Pure data — JVM-runnable."
+  [machines definitions coords snapshots]
   (->> (or machines [])
        (map (fn [id]
-              (project-row id (get definitions id) (or snapshots {}))))
+              (project-row id (get definitions id) (get coords id)
+                           (or snapshots {}))))
        vec))
 
 ;; ---- search + sort ------------------------------------------------------
@@ -274,8 +273,8 @@
                    out>}
 
   Pure data — JVM-runnable."
-  [machines definitions snapshots search-query sort-key selected-id]
-  (let [rows     (project-rows machines definitions snapshots)
+  [machines definitions coords snapshots search-query sort-key selected-id]
+  (let [rows     (project-rows machines definitions coords snapshots)
         filtered (apply-search rows search-query)
         sorted   (apply-sort filtered sort-key)
         ;; Default to first row when user's pick is absent OR filtered out.
