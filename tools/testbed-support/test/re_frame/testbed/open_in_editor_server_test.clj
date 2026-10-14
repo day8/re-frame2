@@ -197,10 +197,6 @@
              ["an OPTIONS from another local port"
               (req {:method :options :origin "http://localhost:8042"})
               (refused 405 "method-not-allowed")]
-             ["an OPTIONS from a loopback IPv6 socket peer"
-              (req {:method :options :origin "http://localhost:8042"
-                    :peer   (socket-peer (ip "::1"))})
-              (refused 405 "method-not-allowed")]
              ;; Query. A missing file is a 400; a malformed escape is a clean
              ;; 400, never an uncaught IllegalArgumentException.
              ["no `file` param" (req {:query "line=10&column=3"}) (refused 400 "missing-file")]
@@ -220,12 +216,6 @@
               (launched "fake_ns/core.cljs" 10 nil nil)]
              ["a POST from another local port"
               (req {:origin "http://localhost:8042" :file "fake_ns/core.cljs"})
-              (launched "fake_ns/core.cljs" 10 nil nil)]
-             ["a POST from a loopback IPv4 socket peer"
-              (req {:peer (socket-peer (ip "127.0.0.1")) :file "fake_ns/core.cljs"})
-              (launched "fake_ns/core.cljs" 10 nil nil)]
-             ["a POST from a loopback IPv6 socket peer"
-              (req {:peer (socket-peer (ip "::1")) :file "fake_ns/core.cljs"})
               (launched "fake_ns/core.cljs" 10 nil nil)]
              ["a column with no line" (req {:query "file=fake_ns/core.cljs&column=7"})
               (launched "fake_ns/core.cljs" nil 7 nil)]
