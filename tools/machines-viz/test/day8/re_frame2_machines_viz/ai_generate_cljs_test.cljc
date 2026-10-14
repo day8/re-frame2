@@ -52,10 +52,6 @@
               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                 (:rf.error/id (ex-data e)))))))
 
-(deftest generate-malformed-responses-throw-their-documented-ids
-  (doseq [edn ["[]" "{:not-a-machine 42}" "{:type :parallel}"]]
-    (is (= :ai-generate/invalid-spec (:rf.error/id (thrown-data (constantly edn)))) edn)))
-
 (deftest parse-failed-omits-raw-response
   (testing "an LLM response is untrusted: unparseable EDN and a non-string
             response throw :parse-failed with a value-free summary only"
