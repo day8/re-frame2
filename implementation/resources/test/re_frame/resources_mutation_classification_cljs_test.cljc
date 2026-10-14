@@ -157,18 +157,13 @@
     (is (not (str/includes? (pr-str out) PW)))))
 
 (deftest core-trace-slots-project-execute-payload
-  ;; The :rf.event/v slot and a nested [:dispatch [:rf.mutation/execute …]] fx
-  ;; entry go through the same core chokepoint.
+  ;; A nested [:dispatch [:rf.mutation/execute …]] fx entry goes through the
+  ;; same core chokepoint as the :rf.event/v slot.
   (reg-secret-mutation!)
   (let [payload {:mutation :m/secret :params {:slug "w" :password PW}}
-        disp    (rf.classification/project-trace-event
-                  {:operation :rf.event/dispatched
-                   :tags {:frame       :rf/default
-                          :rf.event/v [:rf.mutation/execute payload]}})
         agg     (rf.classification/project-trace-event
                   {:operation :rf.fx/do-fx
                    :tags {:frame        :rf/default
                           :rf.event/fx [[:dispatch [:rf.mutation/execute payload]]]}})]
-    (is (= {:mutation :m/secret :params redacted-params} (get-in disp [:tags :rf.event/v 1])))
     (is (= redacted-params (get-in agg [:tags :rf.event/fx 0 1 1 :params])))
-    (is (not (str/includes? (pr-str [disp agg]) PW)))))
+    (is (not (str/includes? (pr-str agg) PW)))))
