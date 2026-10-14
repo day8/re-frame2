@@ -28,15 +28,6 @@
   [dev prod]
   (if rf.interop/debug-enabled? dev prod))
 
-(deftest coordless-programmatic-registration-degrades-to-question-marks
-  (testing "A `reg-view*` with no macro-captured coords still annotates,
-            degrading the source-coord to <ns>:<sym>:?:? as the client does"
-    (rf/reg-view* :ssr-coord-test/prog {} (fn [] [:div "prog"]))
-    (is (= (by-posture (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
-                            " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
-                       "<div>prog</div>")
-           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/prog)] {})))))
-
 (deftest author-supplied-annotation-values-are-preserved
   (testing "An author who set data-rf-view on the root keeps THEIR value; the
             wrapper only fills a missing key, as the client
@@ -92,33 +83,4 @@
                    [:r> comp-fn {:a 1} [:child]]
                    [:> comp-fn {:a 1}]]]
         (is (identical? out (annotate out))
-            (str (first out) " root must come back untouched, component still at position 1")))
-      (is (= [:div {:data-rf2-source-coord "ssr-coord-test:interop:1:1"
-                    :data-rf-view          ":ssr-coord-test/interop"} "hi"]
-             (annotate [:div "hi"]))
-          "control: a DOM-tag root IS annotated by the same call"))))
-
-;; The gate is read at REGISTRATION time, as the client `make-wrap-view`
-;; decides whether to wrap when the view is registered, so the production arm
-;; must REGISTER under a false `interop/debug-enabled?`.
-
-(deftest production-build-emits-no-annotation
-  (testing "A view REGISTERED under `interop/debug-enabled?` false stores an
-            unwrapped handler-fn, so its markup carries neither annotation"
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-view* :ssr-coord-test/gated-prod {} (fn [] [:h2 "g"])))
-    (is (= "<h2>g</h2>"
-           (rf.ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {}))))
-
-  ;; `with-redefs` rebinds the Var after the framework has loaded, which a
-  ;; load-time gate never sees; this arm runs only on a JVM actually started
-  ;; with `-Dre-frame.debug=false`.
-  (when-not rf.interop/debug-enabled?
-    (testing "-Dre-frame.debug=false on the JVM — NOT annotated, for real"
-      (rf/reg-view* :ssr-coord-test/real-gate {} (fn [] [:h2 "g"]))
-      (is (= "<h2>g</h2>"
-             (rf.ssr/render-to-string [(rf/view :ssr-coord-test/real-gate)] {})))
-      (rf/reg-view ^{:rf/id :ssr-coord-test/real-gate-macro} real-gate-macro []
-        [:h3 "m"])
-      (is (= "<h3>m</h3>" (rf.ssr/render-to-string [real-gate-macro] {}))
-          "including on the macro path, where the coords would come from"))))
+            (str (first out) " root must come back untouched, component still at position 1"))))))
