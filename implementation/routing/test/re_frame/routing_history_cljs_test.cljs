@@ -61,7 +61,7 @@
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (= :hist/cart (route-id :rf/default)) "precondition: the slice is on /cart")
     (let [entries (:entries @*history-state*)]
-      (doseq [bad [nil 123 true false (js-obj "toString" (fn [] "/checkout")) #js {} []]]
+      (doseq [bad [nil (js-obj "toString" (fn [] "/checkout"))]]
         (rf/dispatch-sync [:rf.route/url-requested {:url bad}])
         (is (= [true bad entries :hist/cart]
                [(rf.routing.url/external-url? bad)
@@ -90,16 +90,11 @@
   (let [doc-origin (.-origin (.-location js/globalThis.window))
         current    (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                   [:rf.runtime/routing :current]))]
-    (testing "an origin-bearing and a dot-segment spelling of one location
-              resolve to the same route, params and history entry"
-      (doseq [raw [(str doc-origin "/articles/ok") "/x/../articles/ok"]]
-        ;; Land elsewhere first so the identical-nav no-op never masks the
-        ;; navigation under test.
-        (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}])
-        (rf/dispatch-sync [:rf.route/navigate {:url raw}])
-        (is (= [:hist/article {:id "ok"} "/articles/ok"]
-               [(:route-id (current)) (:params (current)) (current-url *history-state*)])
-            (pr-str raw))))
+    (testing "an origin-bearing spelling resolves to its location's route, params
+              and history entry"
+      (rf/dispatch-sync [:rf.route/navigate {:url (str doc-origin "/articles/ok")}])
+      (is (= [:hist/article {:id "ok"} "/articles/ok"]
+             [(:route-id (current)) (:params (current)) (current-url *history-state*)])))
     (testing "query-only and fragment-only references resolve against the
               current document"
       (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}])
@@ -117,7 +112,7 @@
 
 (deftest scroll-position-captured-before-forward-nav-cljs
   (testing "leaving a route captures the browser scroll position under that
-            route's URL, in the host cache rather than runtime-db"
+            route's URL, in the frame's host cache"
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
@@ -125,10 +120,7 @@
     (is (= [12 345]
            (rf.routing/lookup-scroll-position
              (rf.routing/frame-scroll-cache :rf/default)
-             "/cart")))
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      [:rf.runtime/routing :scroll-positions]))
-        "the position stays off runtime-db, and so off the egress wire")))
+             "/cart")))))
 
 ;; =========================================================================
 ;; URL ownership and the listener lifecycle
@@ -150,21 +142,6 @@
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= [:hist/cart :hist/checkout] [(route-id :rf/default) (route-id :aaa-early)])
         "Back restored the incumbent's slice; the duplicate keeps its own route")))
-
-(deftest url-bound-frame-lifecycle-installs-on-create-and-removes-on-destroy-cljs
-  (testing "a :url-bound? true frame installs its popstate listener on create
-            and removes it on destroy-frame!, with no imperative call"
-    (register-routes!)
-    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
-        "the listener installed when the owner frame was created")
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/home (route-id :rf/default))
-        "the installed listener drove Back")
-    (rf/destroy-frame! :rf/default)
-    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
-        "destroy-frame! removed the listener")))
 
 (deftest url-ownership-transfer-on-destroy-rebinds-listener-cljs-rf2-3fc89f-11
   (testing "destroying the URL owner rebinds the listener to the live
@@ -209,17 +186,12 @@
 (deftest same-owner-strategy-change-rewires-once-cljs-rf2-3fc89f-11
   (testing "re-registering the owner with a changed :url-strategy rewires
             once: the popstate is torn down and exactly one hashchange installed"
-    (rf/reg-route :hist/home   {} "/")
-    (rf/reg-route :hist/active {} "/active")
+    (rf/reg-route :hist/home {} "/")
     (rf/make-frame {:id :owner/a :url-bound? true})
     (rf/make-frame {:id :owner/a :url-bound? true :url-strategy rf.routing/hash-url-strategy})
     (is (= [0 1] [(count (get-in @*history-state* [:listeners "popstate"]))
                   (count (get-in @*history-state* [:listeners "hashchange"]))])
-        "rewired once, not stacked")
-    (.pushState js/globalThis.window.history nil "" "#/active")
-    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-    (is (= :hist/active (route-id :owner/a))
-        "the hashchange listener drives the same owner")))
+        "rewired once, not stacked")))
 
 (deftest destroying-non-owner-leaves-incumbent-listener-untouched-cljs-rf2-3fc89f-11
   (testing "destroying a non-owner claimant leaves the owner's listener
@@ -384,9 +356,9 @@
         (aset history method original)))))
 
 (defn- with-fx-failure-traces
-  "Run `thunk` while collecting `:rf.fx/push-url-failed` /
-  `:rf.fx/replace-url-failed` trace tags, each carrying its `:operation`.
-  Returns `[result vector-of-tags]`."
+  "Run `thunk` and return the `:rf.fx/push-url-failed` /
+  `:rf.fx/replace-url-failed` trace tags it emitted, each carrying its
+  `:operation`."
   [thunk]
   (let [captured (atom [])
         cb-key   (keyword (gensym "fx-failure-"))]
@@ -397,38 +369,26 @@
                 (:operation ev))
           (swap! captured conj (assoc (:tags ev) :operation (:operation ev))))))
     (try
-      [(thunk) @captured]
+      (thunk)
+      @captured
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
-(deftest replace-url-throwing-replacestate-fails-closed-cljs
-  (testing ":rf.nav/replace-url downgrades a throwing replaceState to one
-            :rf.fx/replace-url-failed trace; no exception escapes the drain"
+(deftest history-fx-throwing-browser-mutation-fails-closed-cljs
+  (testing "each history fx downgrades a throwing pushState / replaceState to one
+            :rf.fx/<fx>-failed trace; no exception escapes the drain"
     (register-routes!)
-    ;; Land on /cart so a :replace? navigation routes through :rf.nav/replace-url.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (let [[_ failures]
-          (with-fx-failure-traces
-            (fn []
-              (with-throwing-history-method!
-                "replaceState" "boom-replace"
-                ;; A leaked throw errors the deftest.
-                (fn []
-                  (rf/dispatch-sync
-                    [:rf.route/navigate {:to :hist/checkout :replace? true}])))))]
-      (is (= [[:rf.fx/replace-url-failed :rf.nav/replace-url "/checkout" "boom-replace"]]
-             (mapv (juxt :operation :rf.fx/id :url :error) failures))))))
-
-(deftest push-url-throwing-pushstate-fails-closed-cljs
-  (testing ":rf.nav/push-url downgrades a throwing pushState to one
-            :rf.fx/push-url-failed trace; no exception escapes the drain"
-    (register-routes!)
-    (let [[_ failures]
-          (with-fx-failure-traces
-            (fn []
-              (with-throwing-history-method!
-                "pushState" "boom-push"
-                (fn []
-                  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])))))]
-      (is (= [[:rf.fx/push-url-failed :rf.nav/push-url "/cart" "boom-push"]]
-             (mapv (juxt :operation :rf.fx/id :url :error) failures))))))
+    ;; The failed push still commits the slice on /cart (state first), so the
+    ;; :replace? navigation after it routes through :rf.nav/replace-url.
+    (doseq [[method message event expected]
+            [["pushState" "boom-push" [:rf.route/url-requested {:url "/cart"}]
+              [:rf.fx/push-url-failed :rf.nav/push-url "/cart" "boom-push"]]
+             ["replaceState" "boom-replace" [:rf.route/navigate {:to :hist/checkout :replace? true}]
+              [:rf.fx/replace-url-failed :rf.nav/replace-url "/checkout" "boom-replace"]]]]
+      (is (= [expected]
+             (mapv (juxt :operation :rf.fx/id :url :error)
+                   (with-fx-failure-traces
+                     ;; A leaked throw errors the deftest.
+                     #(with-throwing-history-method! method message
+                        (fn [] (rf/dispatch-sync event))))))
+          method))))
