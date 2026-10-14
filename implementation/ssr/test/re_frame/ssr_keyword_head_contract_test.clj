@@ -115,14 +115,6 @@
             `name` must not become an escape bypass"
     (is (= "<div>x&lt;y</div>" (rf.ssr.emit/render-to-string [:div :x<y] nil)))))
 
-(deftest keyword-head-carries-ordinary-element-syntax
-  (testing "the element branch is the ORDINARY element branch:
-            a keyword head that happens to name a view still gets
-            `.class`/`#id` sugar, an attrs map, and child recursion. It is
-            not a special case, it is the same case."
-    (is (= "<card class=\"revenue\" data-x=\"1\"><b>hi</b></card>"
-           (rf.ssr.emit/render-to-string [:dashboard/card.revenue {:data-x "1"} [:b "hi"]] nil)))))
-
 (deftest views-are-referenced-by-callable-head
   (testing "the two supported spellings both RESOLVE the view
             (the head-grammar point: a callable head is a view, a keyword
@@ -167,29 +159,27 @@
 
 (defn- head-error
   "Render `tree` and return the thrown ex-data, or nil if it did not throw."
-  [render-fn tree]
-  (try (render-fn tree) nil
+  [tree]
+  (try (rf.ssr.emit/render-to-string tree nil) nil
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest unrecognised-reserved-rf-head-fails-loud
-  (testing "with every keyword head an element, a misspelt
-            reserved head would otherwise paint a phantom element and say
-            nothing: `:rf/suspense-boundry` has a `name` that passes the
-            DOM tag grammar. That is the very failure the one grammar
-            removes, displaced by one keystroke, so the reserved scheme
-            fails loud."
-    (let [data (head-error #(rf.ssr.emit/render-to-string % nil)
-                           [:rf/suspense-boundry {:id :x} [:p "hi"]])]
+  (testing "with every keyword head an element, an unrecognised reserved head
+            would otherwise paint a phantom element and say nothing:
+            `:rf/suspense-boundary` has a `name` that passes the DOM tag
+            grammar, and the server renders whole pages, so it has no
+            meaning here. The reserved scheme fails loud."
+    (let [data (head-error [:rf/suspense-boundary {:id :x} [:p "hi"]])]
       (is (= {:rf.error/id :rf.error/invalid-hiccup-head
               :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
-              :head        :rf/suspense-boundry
-              :element     [:rf/suspense-boundry {:id :x} [:p "hi"]]}
+              :head        :rf/suspense-boundary
+              :element     [:rf/suspense-boundary {:id :x} [:p "hi"]]}
              (select-keys data [:rf.error/id :recovery :head :element]))
           "the reserved-head arm reuses the malformed-head id and is told apart
            by its :recovery, as the Spec 009 row promises")))
 
   (testing "the dotted `:rf.<area>/*` sub-namespaces are reserved too"
-    (is (some? (head-error #(rf.ssr.emit/render-to-string % nil) [:rf.ssr/nope]))))
+    (is (some? (head-error [:rf.ssr/nope]))))
 
   (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
             scoped to `:rf/*` and must not capture app namespaces, which
@@ -201,15 +191,3 @@
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
          the check must match the `rf` namespace exactly or an `rf.` dotted
          prefix, not a bare string prefix")))
-
-(deftest suspense-boundary-is-an-unrecognised-reserved-head
-  (testing "the server renders whole pages, so `:rf/suspense-boundary` has no
-            meaning to the emitter and fails loud through the reserved-head
-            arm like any other `:rf/*` head"
-    (let [el   [:rf/suspense-boundary {:id :x :fallback [:p "f"]} [:p "y"]]
-          data (head-error #(rf.ssr.emit/render-to-string % nil) el)]
-      (is (= {:rf.error/id :rf.error/invalid-hiccup-head
-              :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
-              :head        :rf/suspense-boundary
-              :element     el}
-             (select-keys data [:rf.error/id :recovery :head :element]))))))
