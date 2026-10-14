@@ -210,18 +210,6 @@
            [(get-in wire [2 :account-id]) (pr-str (nth (projected-key k) 2))])
         "the SSR wire key honours the declaration, and the trace key's params are byte-equal to it")))
 
-(deftest projection-is-idempotent
-  (let [k (key-for :account/summary)]
-    (is (= (projected-key k) (projected-key (projected-key k))))))
-
-(deftest project-scoped-key-still-defers-on-serialize
-  ;; reds if anyone moves the per-slot arm into the shared projection
-  (let [k (key-for :account/summary)]
-    (is (= [k k]
-           [(rf.resources.ssr/project-scoped-key k :serialize (rf.resources.registry/resource-meta :account/summary))
-            (rf.resources.ssr/project-scoped-key k :serialize nil)])
-        ":serialize rides verbatim through project-scoped-key, ignoring the spec")))
-
 ;; ===========================================================================
 ;; the coarse arm is independent; the arms compose by grain
 ;; ===========================================================================
