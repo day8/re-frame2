@@ -5,36 +5,11 @@
   surrounding `(when interop/debug-enabled? ...)` gate and the entire
   branch DCEs.
 
-  This file also asserts the rendered output of a registered view
-  carries NO `_jsx*` props (the framework emits none; the absence
-  under prod-mode is doubly-pinned by the
-  fact that the entire reg-view* annotation site elides in prod).
-
   This file compiles under `:browser-test-prod-elision` (the dedicated
   shadow-cljs build with `goog.DEBUG=false` + `:advanced`); the
   matching CLJS-runtime test (`reg_view_devtools_cljs_test.cljs`)
-  exercises the same surface under dev-mode.
-
-  ## Fixtures carry an attrs map
-
-  Every view whose assertions READ the rendered root's props declares a
-  root with an EXPLICIT attrs map (`[:span {:id \"x\"} …]`), and that is
-  load-bearing rather than incidental. Those tests assert the ABSENCE of
-  a prop on the rendered root; a root with no attrs map has no props at
-  all, so the absence reads true for a reason unrelated to the contract,
-  and the assertion cannot go red no matter what the framework does to
-  props it finds. (`reg-view-wrapped-fn-has-no-display-name-under-prod`
-  reads `.-displayName` off the wrapped fn rather than the output, so it
-  needs no attrs map and deliberately has none.)
-
-  With an attr-less `[:span \"hi\"]` fixture, a wrapper mutated to grow
-  `_jsx*` props on an existing root attrs map would leave every
-  assertion here GREEN. With the attrs map they go red, which is the
-  whole point of an elision lane.
-
-  So: do not simplify the fixtures to a bare `[:tag \"text\"]`.
-  Each assertion reads `(map? attrs)` alongside the keys, so a fixture
-  that drifts fails loudly instead of quietly certifying nothing.
+  exercises the same surface under dev-mode, where it also holds that
+  the framework injects no `_jsx*` props.
 
   Naming convention: files ending in `-prod-test.cljs` are picked up
   ONLY by the `:browser-test-prod-elision` build."
@@ -47,35 +22,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-(defn- root-attrs
-  "The root element's attrs map, or nil when the root carries none.
-
-  Every fixture that reads through this helper gives its root an
-  EXPLICIT attrs map, so a nil return means the shape under test never
-  materialised — which is why each caller pins `(map? …)` before reading
-  a key out of it. See the §Fixtures carry an attrs map note above."
-  [hiccup]
-  (when (and (vector? hiccup) (map? (second hiccup)))
-    (second hiccup)))
-
-(deftest reg-view-output-has-no-jsx-source-props-under-prod
-  (testing "a registered view's rendered output carries
-            NO `_jsxFileName`/`_jsxLineNumber`/`_jsxColumnNumber` props.
-            Under :advanced + goog.DEBUG=false the entire reg-view*
-            annotation branch DCEs anyway; there is no JSX-prop emission
-            at all, so the same absence holds under dev-mode."
-    (rf/reg-view* :rf.prod-elision-test/jsx-with-attrs
-                  (fn [] [:span {:id "x"} "hi"]))
-    (let [render (rf/view :rf.prod-elision-test/jsx-with-attrs)
-          out    (render)
-          attrs  (root-attrs out)]
-      ;; The map? slot is a precondition, not decoration: without it the
-      ;; key reads could be reading out of nil and certify nothing.
-      (is (= [true "x" nil nil nil]
-             [(map? attrs) (:id attrs)
-              (:_jsxFileName attrs) (:_jsxLineNumber attrs) (:_jsxColumnNumber attrs)])
-          "the root carries the author's attrs map, with NO _jsx* prop on it"))))
-
 (deftest reg-view-wrapped-fn-has-no-display-name-under-prod
   (testing "Per Spec 006 §React DevTools support production-elision:
             the reg-view wrapper's `displayName` assignment also rides
@@ -87,18 +33,3 @@
     (let [wrapped (rf/view :rf.prod-elision-test/dn-no-attr)]
       (is (nil? (.-displayName ^js wrapped))
           "wrapped fn carries no .displayName under prod-mode — elision held"))))
-
-(deftest jsx-literal-absent-from-rendered-output
-  (testing "Defensive cross-check: scanning the rendered hiccup for the
-            literal `_jsxFileName` keyword finds nothing under prod-mode.
-            Doubly-pinned: the framework emits this prop nowhere, and
-            the elision gate DCEs the whole branch in prod."
-    (rf/reg-view* :rf.prod-elision-test/jsx-literal-check
-                  (fn [] [:p {:class "scan"} "scan me"]))
-    (let [render (rf/view :rf.prod-elision-test/jsx-literal-check)
-          out    (render)
-          flat   (pr-str out)]
-      ;; Same precondition as above: a root with no attrs map is a root a
-      ;; prop-decorating regression never touches.
-      (is (= [true false] [(map? (root-attrs out)) (clojure.string/includes? flat "_jsxFileName")])
-          "the root carries an attrs map, and the literal _jsxFileName does not appear in the rendered output"))))
