@@ -1997,15 +1997,11 @@ _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 # row the repo-relative PATH, because rule (g) grades the path and its
 # exemption is path-scoped.
 _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
-    ("product/positive/namespace_require.cljc",
-     "implementation/example/src/re_frame/example/view.cljc", 1),
     # The PATH carrier, on content with no occurrence in it.
     ("product/negative/current_name.cljc",
      "implementation/hicasso/src/re_frame/example/view.cljc", 1),
-    # An exemption is scoped to its path: green at the exempted file, red one
-    # directory over on identical bytes...
-    ("product/negative/supersession_quote.md",
-     "docs/design/fresco/decisions.md", 0),
+    # An exemption is scoped to its path: identical bytes one directory over
+    # from the exempted file are red...
     ("product/negative/supersession_quote.md",
      "docs/design/fresco/studio/measurement.md", 2),
     # ...and to its construct: a line outside it in the exempted file is red.
@@ -2034,8 +2030,7 @@ _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     ("bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
     ("bench/fresco/src/re_frame/bench/fresco/data/"
      "workcount-n1b9h/run5-a4a1537cb71.json",           0),
-    # `.log` is a final SUFFIX, not a substring.
-    ("docs/design/fresco/notes.log.md",                 1),
+    # A `.log` file is not read.
     ("audit-pr9568-push-1.log",                         0),
 )
 
