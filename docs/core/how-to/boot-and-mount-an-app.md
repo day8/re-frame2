@@ -133,6 +133,32 @@ The adapter tracks that root like every other root it creates, so
 `rf/destroy-adapter!` releases it too. `reagent-adapter/unmount!` releases it
 explicitly; both are safe to repeat.
 
+### Moved, renamed and deleted handlers
+
+Saving a namespace re-runs its `reg-*` forms, and each one replaces that
+namespace's earlier registration of the same id. re-frame also tidies up after
+the reload: once shadow-cljs has loaded the changed code, every namespace that
+registered anything forgets each registration it did not make again. A handler
+you move to another namespace runs from its new home, and one you rename or
+delete is gone. There is nothing to set up, and it happens only in development
+builds.
+
+Two cases fall outside it:
+
+- **Moving a namespace's last registration out.** That namespace then registers
+  nothing during the reload, so re-frame cannot tell it was reloaded, and its
+  old registration stays. Using the id raises
+  `:rf.error/ambiguous-registration`, naming both namespaces. Clear it at the
+  REPL with `(rf/clear :event :the/id)` (use the id's kind) and save the
+  namespace that should own it, or reload the page.
+- **Registrations a reload does not re-run.** A registration belongs to the
+  namespace its `reg-*` form is written in. One made by a function your boot
+  calls once is not made again by a reload, so it is forgotten when the rest of
+  its namespace reloads; call that function from your `^:dev/after-load` hook
+  too. For the same reason, a helper function that calls `reg-*` for several
+  namespaces registers everything as its own namespace, so write such a helper
+  as a macro.
+
 ## Host listeners
 
 Some apps also install browser listeners, such as `storage`, `online`, or
