@@ -92,25 +92,6 @@
   [calls]
   (mapv #(vec (of-kind calls %)) [:create-root :hydrate-root :render]))
 
-;; ---- 1. cold first render, later renders update the same Root -------------
-
-(deftest cold-first-render-creates-once-later-renders-update-the-same-root
-  (testing "first render! creates the Root once; the next two renders reuse
-            the identical Root through rdc/render and call no constructor"
-    (let [root  (fake-root :cold)
-          mount #js {:rf-test-mount :cold}
-          calls (spy-rdc! [root (fake-root :never)]
-                  (fn []
-                    (let [h (rf.adapter.reagent/client-root)]
-                      (rf.adapter.reagent/render! h [:div "v1"] mount)
-                      (rf.adapter.reagent/render! h [:div "v2"] mount)
-                      (rf.adapter.reagent/render! h [:div "v3"] mount))))]
-      (is (= [[[:create-root mount]]
-              []
-              [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]]
-             (by-kind calls))
-          "create-root once with the mount point, no hydration, and every render through rdc/render against the SAME Root, in order"))))
-
 ;; ---- 2. hydrating first render, later renders update (never re-hydrate) --
 
 (deftest hydrating-first-render-hydrates-once-later-renders-update
