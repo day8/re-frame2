@@ -718,7 +718,7 @@
         ;; One real application event FIRST, so the ring under inspection is
         ;; non-empty and `unchanged` below is a claim about real records.
         (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
-        (let [{:keys [app-container embed-node unmount]}
+        (let [{:keys [app-container app-root embed-node unmount]}
               (mount-embed! embed-app-frame embed-xray-frame)
               tab-testid (fn [] (some-> (detail-panel-node embed-node)
                                         (.getAttribute "data-testid")))
@@ -765,5 +765,6 @@
                         nil))
               (.then (fn [_]
                        (when unmount (unmount))
+                       (react-dom/flushSync (fn [] (.unmount app-root)))
                        (.remove app-container)
                        (done)))))))))

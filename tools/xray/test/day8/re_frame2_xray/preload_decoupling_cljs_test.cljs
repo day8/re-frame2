@@ -32,9 +32,8 @@
   browser-global install need a `js/document` / `js/window`; node-test
   has neither, so — mirroring `keybinding_cljs_test` — we install
   hand-rolled stubs for the duration of the relevant tests and restore
-  the absent binding afterwards. `can-stub?` skips the stub-driven
-  bodies cleanly on the `:browser-test` host (where the globals are
-  non-configurable)."
+  the absent binding afterwards. A host that will not take the stubs
+  fails the row rather than passing it with no assertions."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -129,10 +128,11 @@
 (defn- with-stub-dom*
   "Run `f` with `js/document` + `js/window` stubbed (a fresh keydown-
   listener tracker on document, a plain object as window). Restores the
-  prior bindings afterwards. No-op on a host that won't let us stub
-  (real browser)."
+  prior bindings afterwards. Fails the calling test on a host that won't
+  let us stub, since `f` then runs nothing."
   [f]
-  (when (and (can-stub? "document") (can-stub? "window"))
+  (if-not (and (can-stub? "document") (can-stub? "window"))
+    (is false "could not stub js/document and js/window, so the row ran nothing")
     (let [{:keys [doc listeners]} (mk-stub-document)
           win                     (js-obj)]
       (set! js/document doc)
