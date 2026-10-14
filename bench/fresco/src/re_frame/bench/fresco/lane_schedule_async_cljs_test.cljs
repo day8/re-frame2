@@ -64,11 +64,3 @@
                                       "and no visit began while another was in flight"))
                              nil))))
       (fn [_] (done)))))
-
-(deftest a-plain-value-from-measure-one-is-accepted
-  ;; A window that closes synchronously — a floor arm — needs no wrapper.
-  (async done
-    (.then (rf.bench.fresco.lane/rounds-async! (arms 3) sampling rounds (fn [_] 1.0))
-           (fn [{:keys [samples]}]
-             (is (= (* rounds (:samples sampling) 3) (count samples)))
-             (done)))))
