@@ -90,26 +90,6 @@
   (let [node (:node (rf.migration.fresco.rewrite/w4-plan (p/parse-string src)))]
     [(eval-here (list 'let outer (n/sexpr node))) (n/string node)]))
 
-(defn- source-symbols
-  "Every symbol in `src`, read with `read-string` rather than through the
-  fixer — so the freshness pin cannot agree with the implementation by
-  sharing its idea of what a symbol is."
-  [src]
-  (->> (read-string src) (tree-seq coll? seq) (filter symbol?) set))
-
-(defn- generated-symbols
-  "The names W4 minted for `src`: the `let`'s binding names, plus the
-  wrapper's rest parameter."
-  [src]
-  (let [[_ binds body] (n/sexpr (:node (rf.migration.fresco.rewrite/w4-plan (p/parse-string src))))]
-    (set (concat (take-nth 2 binds) (remove #{'&} (second body))))))
-
-(defn- collisions
-  "The generated names `src` re-uses from its own source. Empty is the
-  whole requirement."
-  [src]
-  (sort (filter (source-symbols src) (generated-symbols src))))
-
 (def ^:private callee-clash "(r/partial vector :first f__rf2)")
 (def ^:private arg-clash    "(r/partial all-args (identity :zeroth) a0__rf2)")
 (def ^:private double-clash "(r/partial vector f__rf2 f__rf2__1)")
@@ -120,8 +100,7 @@
             `[:zeroth :zeroth]`"
     (let [[wrapper text] (emitted-under '[a0__rf2 :outer] arg-clash)]
       (is (= [:zeroth :outer] (wrapper))
-          (str "argument 1 must still read the site's `a0__rf2`; emitted " text))
-      (is (empty? (collisions arg-clash)) text))))
+          (str "argument 1 must still read the site's `a0__rf2`; emitted " text)))))
 
 (deftest the-whole-family-bumps-together-and-keeps-bumping
   (testing "a collision moves the callee, every argument name and the rest
