@@ -143,8 +143,8 @@
   path — a branch nothing takes is untested by construction. So two
   adopting suites carry rejection controls, written against their own
   row shapes and releasables: `server-render-ssr-dom-cljs-test`'s §3b —
-  a throwing body and a rejected adoption, through the public door with
-  a console capture open — and `roots-frames-hydration-dom-cljs-test`'s
+  a rejected adoption, through the public door with a console capture
+  open — and `roots-frames-hydration-dom-cljs-test`'s
   H7, which adopts two roots through the impl door. What they assert is
   that THIS function reports once and runs the row's teardown; the other
   adopting suites hand it the same kinds of releasable, so they keep no
