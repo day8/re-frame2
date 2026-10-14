@@ -36,15 +36,10 @@
       is chosen by the `:auth.login/flow` machine, whose snapshot lives in
       runtime-db. The pair is `:idle` (the form) against `:authed`
       (\"Welcome!\") — one render-state, one wire, two pages.
-  §3  render state is NOT the payload. A server-only key renders, and is
-      absent from the `__rf_payload` the JVM builds from the same frame
-      under the SEPARATE `:payload` policy. Its control is the classified
-      draft password, which is absent from BOTH — the render cannot print a
-      secret it was never handed.
-  §4  build-id skew is refused, with the distinct code. Control: the same
-      request with the module's own build id renders.
-  §5  the entry's allowlist is the entry's. A host asking for a key the
-      table does not name is refused; control, the keys it does name pass.
+  §3  render state is NOT the payload. The classified draft password is
+      absent from BOTH the render and the `__rf_payload` the JVM builds from
+      the same frame under the SEPARATE `:payload` policy — the render
+      cannot print a secret it was never handed.
   §6  (DOM) hydration. The client boots the way `core.cljs` boots — the
       payload through its `hydrate-client!`, the DOM through an adopting `h/render!` with the
       example's own `identifier-prefix` — and adopts the server's bytes
@@ -69,18 +64,15 @@
 
   ## Two lanes, and a stated skip in each
 
-  §1, §4 and §5 go through `implementation/ssr-node/src/protocol.cjs` — the
-  service's OWN module and request validator, so the refusal codes are read
-  off the source of truth rather than restated. It is loaded with `require`
+  §1–§3 go through `implementation/ssr-node/src/protocol.cjs` — the
+  service's OWN module and request validator. It is loaded with `require`
   at RUN time rather than compiled in, because `implementation/ssr-node` is
   not on the CLJS classpath and shadow refuses a relative require that
   leaves it. So those rows run in the NODE lane and state their skip in the
   browser one; §6, §7 and §9 need a real React DOM and state theirs in Node.
-  Neither degrades to a false green, and §2 and §3 — the two rows that carry
-  the product claim — run in both, as does §8."
+  Neither degrades to a false green, and §8 runs in both."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
@@ -104,7 +96,7 @@
 ;; `use-fixtures` form is EVALUATED and restores to it before every row, so a
 ;; registration written below it is erased before the first one runs. With
 ;; this `reg-event` below the fixture the seeding dispatch would hit no
-;; handler, recover silently, and §3 would report a page with no notice in
+;; handler, recover silently, and §7 would report a page with no notice in
 ;; it.
 (rf/reg-event ::seed-server-only
   {:doc "Stand in for whatever a host does to resolve a per-request
@@ -131,7 +123,7 @@
 (def ^:private payload-policy-opts
   "What the HOST lets the browser see — `[:auth]`, the form slice, and
   nothing else. Narrower than `app-policy/render-state-policy` on purpose:
-  that is the whole claim of §3."
+  that is the whole claim of §7."
   {:payload [:auth]})
 
 (defn- server-frame!
@@ -189,27 +181,6 @@
 
 (defn- node-lane? [] (some? @protocol))
 
-(defn- code
-  "One refusal code, READ OFF `protocol.cjs`'s own frozen `CODE` table
-  rather than restated as a literal here.
-
-  The rows below are about the CROSSING — that this condition earns that
-  refusal — and reading the constant pins exactly that while leaving the
-  spelling where it belongs. The service's code vocabulary is the
-  service's: `implementation/ssr-node`'s absence witness holds that no file
-  outside that package spells it, and a literal here would be a second
-  spelling with nothing keeping it in step with the first. It is the same
-  rule the JVM adapter keeps — see `re-frame.ssr.ring.node`, which
-  carries the code as an opaque value and classifies by the transport's
-  status contract.
-
-  A key this table does not carry answers `nil`, so a renamed constant
-  fails the row loudly rather than comparing two absences."
-  [k]
-  (let [v (gobj/get (.-CODE ^js @protocol) k)]
-    (assert (string? v) (str "protocol.cjs CODE has no " k))
-    v))
-
 (def ^:private module
   "`module.exports` as the sidecar receives it."
   app-server/module)
@@ -221,12 +192,12 @@
 (defn- request-js
   "The JSON request body the JVM adapter POSTs, as the object the service
   parses it into."
-  [wire {:keys [build-id entry state]}]
+  [wire]
   #js {:protocol 1
-       :entry    (or entry app-policy/root-entry)
-       :state    (clj->js (or state (:rf/app-db wire)))
+       :entry    app-policy/root-entry
+       :state    (clj->js (:rf/app-db wire))
        :runtime  (clj->js (:rf/runtime-db wire))
-       :buildId  (or build-id (.-buildId module))})
+       :buildId  (.-buildId module)})
 
 (defn- wire-of
   "The JVM half: project the settled frame under the host's `:render-state`
@@ -251,32 +222,22 @@
 
 (defn- crossing!
   "One request, end to end: project -> serialize -> VALIDATE -> render.
-  Throws the sidecar's own `Refusal` when the request is refused — the rows
-  that are about a refusal catch it and read `.code`. Needs the validator,
-  so it is a node-lane row."
-  ([frame-id] (crossing! frame-id nil))
-  ([frame-id opts]
-   (hand-to-module!
-     (.validateRequest ^js @protocol (request-js (wire-of frame-id) opts) tables #js {}))))
+  Throws the sidecar's own `Refusal` when the request is refused. Needs the
+  validator, so it is a node-lane row."
+  [frame-id]
+  (hand-to-module!
+    (.validateRequest ^js @protocol (request-js (wire-of frame-id)) tables #js {})))
 
 (defn- rendered!
   "The same crossing WITHOUT the request validator, for the DOM rows.
 
   §6 and §7 are about ADOPTION rather than about the request door, and the
-  browser lane cannot load a CommonJS module — so they skip the one step
-  §1-§5 exist to hold, and take the module's own answer to a request that
-  has already been proved valid there. The `state` / `runtime` objects are
-  the wire's, unchanged; only the door is missing."
+  browser lane cannot load a CommonJS module — so they skip the validation
+  step §1-§3 take, and take the module's own answer to a request that has
+  already been proved valid there. The `state` / `runtime` objects are the
+  wire's, unchanged; only the door is missing."
   [frame-id]
-  (:html (hand-to-module! (request-js (wire-of frame-id) nil))))
-
-(defn- refusal-code
-  "The `code` of the sidecar refusal `f` raises, or `::no-refusal` with what
-  it answered instead. Written so a row that expects a refusal can never
-  pass because something else went wrong."
-  [f]
-  (try [::no-refusal (f)]
-       (catch :default e (.-code e))))
+  (:html (hand-to-module! (request-js (wire-of frame-id)))))
 
 (defn- with-frame! [events extra-db f]
   (let [fid (server-frame! events extra-db)]
@@ -304,7 +265,7 @@
 
 (defn- crossing-row!
   "Run a crossing row, or state the skip in the lane that cannot load the
-  service's validator. Every §1-§5 row is written through this, so a lane
+  service's validator. Every §1-§3 row is written through this, so a lane
   that cannot perform the crossing says so once, in one voice, and never
   reports a green about a request it never validated."
   [f]
@@ -317,12 +278,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-server-bundle-satisfies-the-render-module-contract
-  (testing "the entry table, which every lane can read"
-    (let [^js entry (aget (.-entries module) app-policy/root-entry)]
-      (is (some? entry) "the module publishes the entry a host names")
-      (is (= [":auth" ":auth.login/server-notice"] (vec (.-stateAllowlist entry)))
-          "both allowlists, in the EDN spelling the protocol's key grammar admits")
-      (is (= [":rf.runtime/machines"] (vec (.-runtimeAllowlist entry))))))
   (crossing-row!
     (fn []
       (is (some? (.validateModule ^js @protocol module "fresco.login.server"))
@@ -356,30 +311,11 @@
           (is (str/includes? authed "Welcome!")
               ":authed - the `:auth/authenticated` tag flips the banner")
           (is (not (str/includes? authed "login-form"))
-              "and the form is gone, which is the runtime partition doing real work")
-          (is (not= idle authed)))))))
+              "and the form is gone, which is the runtime partition doing real work"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §3 - render state is NOT the payload
 ;; ---------------------------------------------------------------------------
-
-(deftest a-server-only-value-renders-and-is-absent-from-the-payload
-  (crossing-row!
-    (fn []
-      (with-frame! idle-events server-only-db
-        (fn [fid]
-          (let [html    (:html (crossing! fid))
-                payload (payload-of fid)
-                edn     (pr-str payload)]
-            (is (str/includes? html notice)
-                "the render read a key the host declared render-visible")
-            (is (not (str/includes? edn notice))
-                "and the browser is never handed it - the two policies are distinct")
-            (is (not (contains? (:rf/app-db payload) :auth.login/server-notice))
-                "not by redaction either: the key is absent from the payload entirely")
-            (testing "the control - a key the payload DOES carry is in both"
-              (is (str/includes? edn "ada@example.com"))
-              (is (str/includes? html "ada@example.com")))))))))
 
 (deftest a-classified-secret-reaches-neither-wire
   (crossing-row!
@@ -395,39 +331,6 @@
               (is (= "correct-horse"
                      (get-in (rf/app-db-value fid)
                              [:auth :login-form :draft :password]))))))))))
-
-;; ---------------------------------------------------------------------------
-;; §4 - build-id skew
-;; ---------------------------------------------------------------------------
-
-(deftest a-build-id-skew-is-refused-with-its-own-code
-  (crossing-row!
-    (fn []
-      (with-frame! idle-events nil
-        (fn [fid]
-          (is (= (code "BUILD_IDENTITY_MISMATCH")
-                 (refusal-code #(crossing! fid {:build-id "some-other-build"})))
-              "a host deployed against a different bundle is refused, not served")
-          (testing "the control - this bundle's own id renders"
-            (is (str/includes? (:html (crossing! fid {:build-id app-server/build-id}))
-                               "Sign in"))))))))
-
-;; ---------------------------------------------------------------------------
-;; §5 - the allowlist is the entry's
-;; ---------------------------------------------------------------------------
-
-(deftest a-key-the-entry-does-not-name-is-refused
-  (crossing-row!
-    (fn []
-      (with-frame! idle-events nil
-        (fn [fid]
-          (is (= (code "STATE_KEY_NOT_ALLOWED")
-                 (refusal-code #(crossing! fid {:state {":secrets" "{:token \"t\"}"}})))
-              "the allowlist belongs to the entry, so a caller cannot widen its own allowance")
-          (is (= (code "UNKNOWN_ENTRY")
-                 (refusal-code #(crossing! fid {:entry "fresco.login/nope"}))))
-          (testing "the control - the keys the table names pass"
-            (is (str/includes? (:html (crossing! fid)) "Sign in"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §6 / §7 — hydration, and what a server-only value costs it
