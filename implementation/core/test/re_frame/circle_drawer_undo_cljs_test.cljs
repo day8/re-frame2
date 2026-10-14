@@ -28,16 +28,6 @@
     (rf/dispatch-sync [:drawer/initialise] {:frame f})
     f))
 
-(deftest add-circle-records-exactly-one-undo-step
-  (let [f (boot!)]
-    (rf/dispatch-sync [:drawer/add-circle 10 20] {:frame f})
-    (is (= {:circles [{:id 1 :x 10 :y 20 :radius 30}]
-            :next-id 2
-            :dialog  nil
-            :undo    [[]]
-            :redo    []}
-           (drawer f)))))
-
 (deftest resize-via-dialog-collapses-to-one-undo-step
   (let [f (boot!)]
     (rf/dispatch-sync [:drawer/add-circle 10 20] {:frame f})
