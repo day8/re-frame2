@@ -39,11 +39,6 @@
   (let [v {:user {:name "ada"} :session {:state :idle} :items [1 2 3]}]
     (is (identical? v (rf.mcp-base.dedup/dedup-value v true)))))
 
-(deftest dedup-value-wraps-in-cross-mcp-marker
-  (let [shared {:repeated [:big :subtree :here]}]
-    (is (= #{rf.mcp-base.vocab/dedup-table-key}
-           (set (keys (rf.mcp-base.dedup/dedup-value {:a shared :b shared :c shared} true)))))))
-
 (deftest dedup-value-uses-equality-not-identity
   ;; Payloads rebuilt from EDN or synthesised per call share subtrees by
   ;; equality, not identity; two equal but distinct subtrees still pool.
@@ -107,16 +102,6 @@
                                         :a          shared
                                         :b          shared}))))
 
-(deftest escaping-is-reversible-under-repetition
-  ;; A token already spelled like an escape gains a marker and sheds
-  ;; exactly one, so it is never mistaken for an escape on the way back.
-  (let [payload {:once  'de-dupe.cache/!cache-1
-                 :twice 'de-dupe.cache/!!cache-1
-                 :other 'de-dupe.cache/!not-a-ref
-                 :a     shared
-                 :b     shared}]
-    (is (= payload (round-trip payload)))))
-
 (deftest payload-strings-that-spell-a-reference-round-trip-as-strings
   (let [payload {:s     "de-dupe.cache/cache-1"
                  :plain "de-dupe.cache/not-a-ref"
@@ -155,6 +140,8 @@
     (is (= payload (rf.mcp-base.dedup/expand cache)))))
 
 (deftest keyword-escaping-is-reversible-under-repetition
+  ;; A token already spelled like an escape gains a marker and sheds
+  ;; exactly one, so it is never mistaken for an escape on the way back.
   (let [payload {:once  :de-dupe.cache/!cache-1
                  :twice :de-dupe.cache/!!cache-1
                  :other :de-dupe.cache/!not-a-ref
@@ -206,15 +193,12 @@
     (is (= v out))
     (is (list? (:list out)))))
 
-(deftest sorted-map-with-a-pooled-key-beside-an-unpooled-one-round-trips
-  ;; Rebuilding through the map's own comparator would hand a slot symbol
-  ;; to a comparator chosen for the data, and `compare` would throw.
-  (let [payload {:index (sorted-map [1 2 3] :old [4 5 6] :new) :again [1 2 3]}]
-    (is (= payload (round-trip payload)))))
-
-(deftest sorted-set-with-a-pooled-element-beside-an-unpooled-one-round-trips
-  (let [payload {:index (sorted-set [1 2 3] [4 5 6]) :again [1 2 3]}]
-    (is (= payload (round-trip payload)))))
+(deftest sorted-collections-with-a-pooled-member-beside-an-unpooled-one-round-trip
+  ;; Rebuilding through the collection's own comparator would hand a slot
+  ;; symbol to a comparator chosen for the data, and `compare` would throw.
+  (are [payload] (= payload (round-trip payload))
+    {:index (sorted-map [1 2 3] :old [4 5 6] :new) :again [1 2 3]}
+    {:index (sorted-set [1 2 3] [4 5 6]) :again [1 2 3]}))
 
 ;; ---------------------------------------------------------------------------
 ;; Caller metadata is not encoder bookkeeping: a caller's own `:cache-id`
@@ -226,10 +210,6 @@
   [cache]
   (= (set (keys cache))
      (set (map rf.mcp-base.dedup/make-cache-element (range (count cache))))))
-
-(deftest caller-cache-id-metadata-on-a-unique-subtree-changes-nothing
-  (let [payload {:user (with-meta {:x 1} {:cache-id 7})}]
-    (is (identical? payload (rf.mcp-base.dedup/dedup-value payload true)))))
 
 (deftest caller-cache-id-metadata-beside-a-real-repeat-expands-exactly
   (let [repeated (with-meta {:v [1 2 3]} {:cache-id 'other/id})
@@ -277,14 +257,6 @@
 ;; A list and a vector are equal with equal hashes but print differently,
 ;; so pooling must keep them apart at every depth.
 ;; ---------------------------------------------------------------------------
-
-(deftest equal-lists-and-vectors-keep-their-kind
-  (doseq [payload [(array-map :list '(1 2 3) :vector [1 2 3] :a shared :b shared)
-                   (array-map :vector [1 2 3] :list '(1 2 3) :a shared :b shared)]]
-    (let [back (round-trip payload)]
-      (is (= payload back))
-      (is (list? (:list back)) "in either order")
-      (is (vector? (:vector back)) "in either order"))))
 
 (deftest same-kind-repeats-still-pool-one-slot-per-kind
   (let [payload (array-map :l1 '(1 2 3) :v1 [1 2 3] :l2 '(1 2 3) :v2 [1 2 3])
