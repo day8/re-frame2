@@ -405,12 +405,15 @@
 
 (def configure!
   "Top-level Xray boot configuration. Keys live under the `:rf.xray/*`
-  reserved namespace and cover editor integration, layout and launch,
-  keybindings, egress, persisted settings defaults, filters, render
-  policy, trace sampling, and logging. See
-  `day8.re-frame2-xray.config/configure!` for the complete key inventory
-  and precedence rules. Hosts normally call this once before Xray
-  auto-opens. Returns nothing."
+  reserved namespace: editor integration (`:rf.xray/editor`,
+  `:rf.xray/project-root`), layout and launch
+  (`:rf.xray/layout-host-selector`, `:rf.xray/auto-open?`), keybindings
+  (`:rf.xray/keybinding-enabled?`), egress (`:rf.xray/egress-profile`),
+  persisted-settings defaults (`:rf.xray/settings`) and filters
+  (`:rf.xray/filters`, `:rf.xray/filters-auto-hide-error-overrides?`).
+  Unknown keys are ignored. See `day8.re-frame2-xray.config/configure!`
+  for each key's contract and the precedence rules. Hosts normally call
+  this once before Xray auto-opens. Returns nothing."
   config/configure!)
 
 (def set-auto-open!

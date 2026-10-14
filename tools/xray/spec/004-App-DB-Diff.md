@@ -22,7 +22,7 @@ that you weren't expecting (a reset, a clobber).
 
 A **sectioned state inspector with inline diff** — the focused epoch's
 post-state, with its pre-state carried into the shared inspector for
-added, modified and removed annotations. APP STATE is separate from
+added, modified and removed annotations. The `app-db` section is separate from
 the reserved framework areas; the operator can expand any subtree
 without switching to another panel. Path navigation is the shared
 inspector's **zoom-into-node** gesture — double-click or `Enter`
@@ -47,7 +47,7 @@ in a second diff list. The former pinned-slices strip is retired
 
 ## Default view
 
-APP STATE comes first, followed by the reserved-area sections from
+The `app-db` section comes first, followed by the reserved-area sections from
 `app-db-diff-helpers/current-state-sections`. Each section uses the
 shared `edn-inspector` widget; machine and spawned-instance areas
 fan out by identity, while singleton areas remain single sections.
