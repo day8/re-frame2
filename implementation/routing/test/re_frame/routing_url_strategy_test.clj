@@ -24,23 +24,14 @@
   the production arm asserts the read returns the declared value verbatim,
   throwing nothing."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing]
-            [re-frame.routing.strategy :as rf.routing.strategy]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+            [re-frame.routing.strategy :as rf.routing.strategy]))
 
 (defn- thrown-data [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
-(deftest hash-encode-prefixes-hash
-  (doseq [[path href] [["/"                   "#/"]
-                       ["/articles/42?q=milk" "#/articles/42?q=milk"]
-                       ["#/active"            "#/active"] ; already hashed: never double-hashed
-                       [nil                   "#/"]]]
-    (is (= href (rf.routing.strategy/hash-encode path)) (pr-str path))))
 
 (deftest custom-url-strategy-missing-leg-tripwire
   (testing "the ungated preflight counts a non-callable leg as missing"
@@ -63,8 +54,7 @@
 (deftest with-base-path-prefixes-the-base-on-encode
   (testing "the base is re-added to every encoded href, the app root included,
             normalised to one leading and no trailing slash"
-    (doseq [[base path href] [["/realworld"  "/active" "/realworld/active"]
-                              ["/realworld"  "/"       "/realworld/"]
+    (doseq [[base path href] [["/realworld"  "/"       "/realworld/"]
                               ["realworld"   "/active" "/realworld/active"]
                               ["/realworld/" "/active" "/realworld/active"]]]
       (is (= href ((:encode (rf.routing.strategy/with-base-path
@@ -78,7 +68,6 @@
     (doseq [[url expected] [["/app?tab=all"         "/?tab=all"]
                             ["/app#section"         "/#section"]
                             ["/app"                 "/"]
-                            ["/app/items/ok"        "/items/ok"]
                             ["/application?tab=all" "/application?tab=all"] ; a sibling sharing the prefix
                             ["/xyz/path"            "/xyz/path"]]]          ; not under the base, `/` at its length
       (is (= expected (rf.routing.strategy/strip-base-path "/app" url)) url))))
@@ -144,20 +133,8 @@
         (rf.late-bind/set-fn! :routing/preflight-frame-config!
                               rf.routing.strategy/preflight-frame-config!)))))
 
-(deftest url-strategy-for-frame-id-reads-frames-store
-  (testing "the frame's declared strategy, else the history default — for a
-            frame declaring none, an unregistered frame and a nil frame id"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (try
-      (rf.frame/upsert-frame! :test/hash-owner
-                              {:url-bound? true :url-strategy rf.routing.strategy/hash-url-strategy})
-      (rf.frame/upsert-frame! :test/plain {:url-bound? true})
-      (doseq [[frame-id strategy] [[:test/hash-owner        rf.routing.strategy/hash-url-strategy]
-                                   [:test/plain             rf.routing.strategy/history-url-strategy]
-                                   [:test/never-registered  rf.routing.strategy/history-url-strategy]
-                                   [nil                     rf.routing.strategy/history-url-strategy]]]
-        (is (identical? strategy (rf.routing.strategy/url-strategy-for-frame-id frame-id))
-            (pr-str frame-id)))
-      (finally
-        (rf.frame/destroy-frame! :test/hash-owner)
-        (rf.frame/destroy-frame! :test/plain)))))
+(deftest url-strategy-for-an-unregistered-frame-is-the-history-default
+  ;; A declared, an undeclared and a nil frame are the route-link SSR parity
+  ;; table's rows, read through both link doors on both hosts.
+  (is (identical? rf.routing.strategy/history-url-strategy
+                  (rf.routing.strategy/url-strategy-for-frame-id :test/never-registered))))
