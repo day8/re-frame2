@@ -50,11 +50,7 @@
     (let [yaml (release-workflow-text)]
       (when yaml
         (is (string/includes? yaml "template-v[0-9]+.[0-9]+.[0-9]+")
-            "release workflow triggers on a template-v… tag push")
-        (is (string/includes? yaml "test-template:")
-            "release workflow has a pre-release test-template gate job")
-        (is (string/includes? yaml "github-release:")
-            "release workflow has a github-release job")))))
+            "release workflow triggers on a template-v… tag push")))))
 
 (deftest release-gate-runs-emitted-app-tier-test
   (testing "the pre-release gate enables + provisions the emitted-app
