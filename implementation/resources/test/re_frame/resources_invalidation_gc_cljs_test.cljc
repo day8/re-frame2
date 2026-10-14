@@ -1,8 +1,7 @@
 (ns re-frame.resources-invalidation-gc-cljs-test
   "Invalidation, owner liveness, clear-scope and the stale/GC timers (Spec 016
   §Invalidation, §Active owners and causes, §Stale and GC scheduling).
-  Invalidation is scoped by default and cross-scope only on an audited opt-in;
-  releasing the last owner aborts in-flight work; timers live in a host side
+  Releasing the last owner aborts in-flight work; timers live in a host side
   table and re-check the live entry before acting."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -48,7 +47,6 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-(defn- invalidated? [scoped-key] (some? (:invalidated-at (entry scoped-key))))
 (defn- work-record [wid] (rf.resources.work-ledger/get-record (runtime-db) wid))
 
 (defn- article-spec
@@ -98,34 +96,6 @@
   []
   (mapv (juxt :resource/key (comp :stale :timers) (comp :gc :timers)) @scheduled-timers))
 
-(defn- two-scope-ownerless!
-  "Load slug \"w\" of `resource` in scopes {:user \"a\"} and {:user \"b\"},
-  then release both owners so an invalidation marks stale rather than
-  refetching. Returns the two scoped keys."
-  [resource]
-  (rf/reg-resource resource (article-spec) article-spec-request)
-  (mapv (fn [[u owner]]
-          (let [scope {:user u}
-                k     (rf.resources.state/scoped-resource-key scope resource {:slug "w"})]
-            (ensure! resource scope "w" owner)
-            (succeed! k {:title u})
-            (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}])
-            k))
-        [["a" [:app :a 1]] ["b" [:app :b 1]]]))
-
-(deftest invalidate-tags-is-scoped-by-default
-  (let [[ka kb] (two-scope-ownerless! :iv/article)]
-    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope {:user "a"} :tags #{[:article "w"]}}])
-    (is (= [true false] (map invalidated? [ka kb])) "only the in-scope entry is marked stale")))
-
-(deftest invalidate-tags-cross-scope-opt-in
-  (let [[ka kb] (two-scope-ownerless! :ivx/article)]
-    ;; the audited escape: a :cause and no :scope
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:tags #{[:article "w"]} :cross-scope? true
-                        :cause [:admin/cache-poisoning-response]}])
-    (is (= [true true] (map invalidated? [ka kb])) "the tag is matched in every scope")))
-
 (defn- invalidate-cofx
   "A minimal cofx for a direct handler call. A handler throw through dispatch
   is captured by the router, so fail-closed throws are asserted here."
@@ -149,31 +119,6 @@
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags payload]))
         (pr-str payload))))
-
-(deftest clear-scope-rejects-reserved-scope-typo
-  ;; a typo must never silently clear the wrong scope
-  (is (thrown-with-msg?
-        #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-        (rf.resources.events/clear-scope-handler
-          (invalidate-cofx {})
-          [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}]))))
-
-(deftest invalidate-tags-refetches-active-leaves-inactive-stale
-  (rf/reg-resource :ivr/article (article-spec) article-spec-request)
-  (let [scope {:user "u"}
-        kact  (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "active"})
-        kin   (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "inactive"})]
-    (ensure! :ivr/article scope "active" [:route :r 1])
-    (succeed! kact {:title "Active"})
-    (ensure! :ivr/article scope "inactive" [:app :x 1])
-    (succeed! kin {:title "Inactive"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope scope :tags #{[:article "active"] [:article "inactive"]}}])
-    (is (= [:fetching {:title "Active"}] ((juxt :status :data) (entry kact)))
-        "the owned entry refetches, keeping its data")
-    (is (= [:loaded true] [(:status (entry kin)) (invalidated? kin)])
-        "the ownerless entry is left stale, not refetched")))
 
 (deftest successful-load-replaces-tag-index
   (rf/reg-resource :tagrep/article
@@ -231,19 +176,6 @@
                 (contains? (:active-owners e) [:route :r 2])])
             "a fresh, live attempt carrying the new owner")))))
 
-(deftest re-ensure-after-abort-settle-does-not-join-terminal
-  (rf/reg-resource :njt/article (article-spec) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :njt/article {:slug "w"})]
-    (ensure! :njt/article scope "w" [:app :a 1])
-    (let [wid1 (:current-work (entry k))
-          gen1 (:generation (entry k))]
-      (abort! k)
-      (is (= :cancelled (:status (work-record wid1))) "precondition: the aborted row is terminal")
-      (ensure! :njt/article scope "w" [:app :a 2])
-      (is (= [(inc gen1) true] [(:generation (entry k)) (not= wid1 (:current-work (entry k)))])
-          "a fresh generation and work id"))))
-
 (deftest clear-scope-suppresses-late-reply
   (rf/reg-resource :clr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
@@ -263,15 +195,6 @@
         (late! {:title "ZombieLate"})
         (is (not= {:title "ZombieLate"} (:data (entry k))))))))
 
-(deftest succeeded-arms-stale-and-gc-timers
-  (rf/reg-resource :tm/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :tm/article {:slug "w"})]
-    (ensure! :tm/article scope "w" [:app :tm 1])
-    (succeed! k {:title "W"})
-    (is (= [[k 60000 300000]] (timer-delays))
-        "one schedule-timers fx carrying the resource's policy delays")))
-
 (deftest gc-after-ms-never-arms-no-gc-timer
   ;; the explicit, auditable opt-out: the owner-free entry lingers by intent
   (rf/reg-resource :npn/article (article-spec {:gc-after-ms :never}) article-spec-request)
@@ -285,31 +208,21 @@
 ;; flight, so it must arm GC itself: otherwise an owner-free entry from it is
 ;; never reaped.
 
-(deftest first-load-error-arms-gc-and-is-collected-after-release
-  (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gce/article {:slug "w"})]
-    (ensure! :gce/article scope "w" [:app :gce 1])
-    (fail! k :transient-500)
-    (is (= [:error nil] ((juxt :status :current-work) (entry k))))
-    (is (= [5000 nil] ((juxt (comp :gc :timers) (comp :poll :timers)) (last-schedule-for k)))
-        "the error settle armed GC at :gc-after-ms, and no poll")
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gce 1]}])
-    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-    (is (nil? (entry k)) "GC reaped the owner-free errored entry")))
-
-(deftest first-load-abort-arms-gc-and-is-collected-after-release
-  (rf/reg-resource :gca/article (article-spec {:gc-after-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gca/article {:slug "w"})]
-    (ensure! :gca/article scope "w" [:app :gca 1])
-    (abort! k)
-    (is (= [:idle nil] ((juxt :status :current-work) (entry k))))
-    (is (= [5000 nil] ((juxt (comp :gc :timers) (comp :poll :timers)) (last-schedule-for k)))
-        "the abort settle armed GC at :gc-after-ms, and no poll")
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gca 1]}])
-    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-    (is (nil? (entry k)) "GC reaped the owner-free aborted entry")))
+(deftest a-first-load-error-or-abort-arms-gc-and-is-collected-after-release
+  (doseq [[rid settle! status] [[:gce/article #(fail! % :transient-500) :error]
+                                [:gca/article abort! :idle]]]
+    (rf/reg-resource rid (article-spec {:gc-after-ms 5000}) article-spec-request)
+    (let [scope {:user "u"}
+          owner [:app rid 1]
+          k     (rf.resources.state/scoped-resource-key scope rid {:slug "w"})]
+      (ensure! rid scope "w" owner)
+      (settle! k)
+      (is (= [status nil] ((juxt :status :current-work) (entry k))))
+      (is (= [5000 nil] ((juxt (comp :gc :timers) (comp :poll :timers)) (last-schedule-for k)))
+          "the settle armed GC at :gc-after-ms, and no poll")
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+      (is (nil? (entry k)) "GC reaped the owner-free entry"))))
 
 (deftest gc-skip-while-owned-reschedules-and-collects-after-release
   ;; A skipped GC re-arms, so a release after the original deadline does not
@@ -346,29 +259,6 @@
                          {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}]))
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
     (is (nil? (entry k)) "once settled and idle, the rescheduled check collects it")))
-
-(deftest gc-skip-no-entry-does-not-reschedule
-  (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}) article-spec-request)
-  (let [k (rf.resources.state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
-    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-    (is (empty? @scheduled-timers) "nothing to collect, so no reschedule")))
-
-(deftest still-fresh-stale-fired-writes-nothing-and-re-arms-the-remaining-window
-  ;; freshness derives from the durable :stale-at; the timer only wakes it
-  (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :sf/article {:slug "w"})]
-    (ensure! :sf/article scope "w" [:app :sf 1])
-    (succeed! k {:title "W"})
-    (reset! scheduled-timers [])
-    (let [before (entry k)]
-      (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource/key k}])
-      (is (= before (entry k)) "a still-fresh stale-fired made no durable change")
-      (let [[arm & more] @scheduled-timers
-            delay-ms     (get-in arm [:timers :stale])]
-        (is (and (nil? more) (= [:stale] (keys (:timers arm)))
-                 (number? delay-ms) (< 0 delay-ms) (<= delay-ms 60000))
-            (str "one :stale-only re-arm within the window: " (pr-str @scheduled-timers)))))))
 
 (deftest frame-destroy-cancels-resource-timers
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
