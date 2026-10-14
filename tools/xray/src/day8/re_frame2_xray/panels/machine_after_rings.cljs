@@ -182,16 +182,13 @@
   ;;   1. THE MACHINE. `pick-focused-transition` is the SAME rule the
   ;;      Machine Inspector picks its record by — `panel-tree` resolves
   ;;      it once and hands it to both the chart and the Prev/Next nav —
-  ;;      so those three cannot drift. Reading `(:selected-id mi-data)`
-  ;;      off `:rf.xray/machine-inspector-data` instead would take
-  ;;      `pick-selected`'s answer: the PICKER slot when one is set, else
-  ;;      the first row of a list `project-machine-rows` sorts
-  ;;      ALPHABETICALLY. The Dynamic panel has no picker — it binds to
-  ;;      the focused event's first transition record — so with two
-  ;;      machines registered the rings would fold for whichever id
-  ;;      sorted first while the chart drew the other one, and the
-  ;;      operator would read a countdown that belongs to a machine not
-  ;;      on screen.
+  ;;      so those three cannot drift. Any rule that fell back to a
+  ;;      default machine — the first registered id, say — would not: the
+  ;;      Dynamic panel has no picker and binds to the focused event's
+  ;;      first transition record, so with two machines registered the
+  ;;      rings would fold for the default while the chart drew the other
+  ;;      one, and the operator would read a countdown that belongs to a
+  ;;      machine not on screen.
   ;;
   ;;      An explicit `:rf.xray/select-machine-id` outranks trace order
   ;;      when the focused cascade touched the selected machine, so
