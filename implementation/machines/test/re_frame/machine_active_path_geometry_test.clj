@@ -131,17 +131,13 @@
                     (= before (kid))    :kept
                     :else               :respawned)})))
 
-(deftest compound-self-target-with-reenter-restarts-the-target
-  (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1]
-         (:steps (drive-spawning-ancestor! :geo/self-reenter [:restart-reenter])))))
-
-(deftest child-declared-ancestor-target-restarts-the-ancestor-and-its-child
-  (is (= {:steps [:exit-step3 :exit-process :act :enter-process :enter-step1] :kid :respawned}
-         (drive-spawning-ancestor! :geo/child-ancestor [:restart-from-child]))))
-
-(deftest ancestor-declared-self-target-keeps-the-ancestor-and-its-child
-  (is (= {:steps [:exit-step3 :act :enter-step1] :kid :kept}
-         (drive-spawning-ancestor! :geo/self-ancestor [:restart]))))
+(deftest self-and-ancestor-targets-on-a-spawning-compound
+  (let [restart {:steps [:exit-step3 :exit-process :act :enter-process :enter-step1] :kid :respawned}]
+    (doseq [[id event expected]
+            [[:geo/self-reenter   [:restart-reenter]    restart]
+             [:geo/child-ancestor [:restart-from-child] restart]
+             [:geo/self-ancestor  [:restart]            {:steps [:exit-step3 :act :enter-step1] :kid :kept}]]]
+      (is (= expected (drive-spawning-ancestor! id event)) (str id)))))
 
 ;; ---- (3) the parent-declared COMPOUND descendant --------------------------
 
