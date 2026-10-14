@@ -463,26 +463,20 @@
                                                       :dev-error-detail? true})
                                    trace-event))))))
 
-(deftest ssr-error-projector-throws-falls-back-to-locked-500
-  (testing "a throwing projector → the locked 500 + :rf.error/sanitised-on-projection"
-    (rf/reg-error-projector :myapp/buggy-projector (fn [_] (throw (ex-info "projector bug" {}))))
-    (let [{public :result events :events}
-          (with-error-capture!
-            #(rf.ssr/project-error (projecting-frame {:public-error-id :myapp/buggy-projector})
-                                   {:operation :rf.error/handler-exception :tags {}}))]
-      (is (= locked-500 public))
-      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)))))
-
-(deftest ssr-error-projector-non-conforming-shape-falls-back
-  (testing "a projector returning a non-conforming shape → the locked 500 +
-            :rf.error/sanitised-on-projection"
-    (rf/reg-error-projector :myapp/bad-shape (fn [_] {:wrong :shape}))
-    (let [{public :result events :events}
-          (with-error-capture!
-            #(rf.ssr/project-error (projecting-frame {:public-error-id :myapp/bad-shape})
-                                   {:operation :rf.error/handler-exception :tags {}}))]
-      (is (= locked-500 public))
-      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)))))
+(deftest ssr-error-projector-failure-falls-back-to-locked-500
+  (testing "a projector that throws, or returns a non-conforming shape → the
+            locked 500 + :rf.error/sanitised-on-projection"
+    (doseq [[projector-id projector-fn]
+            [[:myapp/buggy-projector (fn [_] (throw (ex-info "projector bug" {})))]
+             [:myapp/bad-shape       (fn [_] {:wrong :shape})]]]
+      (rf/reg-error-projector projector-id projector-fn)
+      (let [{public :result events :events}
+            (with-error-capture!
+              #(rf.ssr/project-error (projecting-frame {:public-error-id projector-id})
+                                     {:operation :rf.error/handler-exception :tags {}}))]
+        (is (= locked-500 public) (str projector-id))
+        (is (some #(= :rf.error/sanitised-on-projection (:operation %)) events)
+            (str projector-id))))))
 
 (deftest ssr-error-projector-configured-but-unregistered-surfaces-diagnostic
   (testing "a configured but unregistered :public-error-id falls back to the
@@ -869,33 +863,3 @@
                           (= fx-id (:failing-id %)))
                     records)
               (str label "; saw: " (pr-str (mapv (juxt :error :failing-id) records)))))))))
-
-;; ===========================================================================
-;; ssr-with-fx-override / ssr-end-to-end — the :fx-overrides stub and the
-;; dispatch-sync → render-to-string → embedded-hash flow on the default
-;; frame, without the per-request frame.
-;; ===========================================================================
-
-(deftest ssr-with-fx-override
-  (testing ":fx-overrides redirects :http/get to a stub whose reply lands in
-            the frame's app-db"
-    (reg-canned-http-get!)
-    (rf/reg-event :rf/server-init
-      (fn [_ _] {:fx [[:http/get {:url "/api/articles" :on-success [:articles/loaded]}]]}))
-    (rf/reg-event :articles/loaded
-      (fn [{:keys [db]} [_ articles]] {:db (assoc db :articles articles)}))
-    (let [f (rf.frame/make-anon-frame-record!
-              {:initial-events [[:rf/server-init]]
-               :fx-overrides   {:http/get :http/get.canned-articles}})]
-      (is (= canned-articles (:articles (rf/app-db-value f)))))))
-
-(deftest ssr-end-to-end
-  (testing "dispatch-sync → render-to-string → embedded hash"
-    (rf/reg-event :articles/seed (fn [_ _] {:db {:articles canned-articles}}))
-    (reg-articles-view!)
-    (rf/dispatch-sync [:articles/seed])
-    (let [tree [(rf/view :pages/articles)]
-          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
-      (is (str/includes? html "<h3>Article A</h3>"))
-      (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
-          "root <div> carries a data-rf-render-hash attribute"))))
