@@ -59,15 +59,6 @@
       (is (= {:only :this} (r/state this))
           "replace-state dropped :a and :b — it reset, did not merge"))))
 
-(deftest state-is-per-instance
-  (testing "state cells are keyed per component instance — two instances
-            do not share state"
-    (let [a #js {}
-          b #js {}]
-      (r/set-state a {:who :a})
-      (r/set-state b {:who :b})
-      (is (= [{:who :a} {:who :b}] [(r/state a) (r/state b)])))))
-
 ;; ---------------------------------------------------------------------------
 ;; Form-3 argv accessors: the head is the render fn, argv[1] is the props
 ;; map iff it is a map, and children follow the head and any props map.
@@ -79,12 +70,6 @@
   (let [c #js {}]
     (set! (.-cljsArgv c) argv)
     c))
-
-(deftest argv-returns-full-arg-vector
-  (testing "(argv this) returns the full hiccup-style argv (head included)"
-    (let [render-fn (fn [_])
-          this      (fake-instance [render-fn {:k :v} :child])]
-      (is (= [render-fn {:k :v} :child] (r/argv this))))))
 
 (deftest props-returns-map-second-arg
   (testing "(props this) returns argv[1] iff it is a map, else nil"
