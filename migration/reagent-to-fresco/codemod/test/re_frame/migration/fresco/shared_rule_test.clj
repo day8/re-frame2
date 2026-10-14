@@ -15,9 +15,10 @@
 
   `codec/html-attr-slots` and `intent/event-prop?` live in `.cljs` this
   JVM cannot load, so [[re-frame.migration.fresco.dest]] carries small
-  transcriptions of both. Those are conventions, not pins; the rows below
-  assert the transcription's behaviour so a reader can diff two short
-  tables by eye.
+  transcriptions of both. Those are conventions, not pins. The rows below
+  assert `event-prop?`'s behaviour so a reader can diff two short tables
+  by eye; the golden corpus's `w3-named-values` case exercises every
+  HTML-attribute slot.
 
   ## The donor's two deltas
 
@@ -101,10 +102,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-destination-vocabulary
-  (testing "`html-attr-slot?` mirrors the codec's, prefix families included"
-    (is (= [true true true false]
-           (mapv rf.migration.fresco.dest/html-attr-slot? ["className" "data-kind" "aria-label" "variant"]))))
-
   (testing "`event-prop?` mirrors `intent/event-prop?`, INCLUDING its type
             gate — a prop key spelled `on-click` as a SYMBOL is not an event
             position, so the tool must not refuse there — and `on` followed
