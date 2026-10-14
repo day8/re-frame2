@@ -89,7 +89,7 @@
                (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (= {:rf.error/id :rf.error/reg-sub-bad-args
             :where       'rf/reg-sub
-            :recovery    :no-recovery
+            :recovery    :fix-registration
             :id          :sub/malformed}
            (select-keys data [:rf.error/id :where :recovery :id])))
     (is (nil? (rf.registrar/lookup :sub :sub/malformed)))))
