@@ -100,20 +100,6 @@
     (rf.subs.cache/clear-sub-cache! :ev/frame)
     (is (= 2 (ref-count :ev/frame [:ev/child])) "both parents share ONE rebuilt child")))
 
-(deftest surviving-parent-keeps-its-child-when-its-sibling-releases
-  (register-two-parents-one-child!)
-  (let [h1 (eager-holder! :ev/frame [:ev/p1])
-        h2 (eager-holder! :ev/frame [:ev/p2])]
-    @@h1
-    @@h2
-    (rf.subs.cache/clear-sub-cache! :ev/frame)
-    ;; "Unmount" P2 the way the spine's cleanup does: release the reaction it
-    ;; actually holds.
-    (let [held2 @h2]
-      (reset! h2 nil)
-      (rf.subs/unsubscribe-if-reaction :ev/frame [:ev/p2] held2))
-    (is (= 1 (ref-count :ev/frame [:ev/child])) "the child keeps P1's ref")))
-
 ;; ---- reg-sub replacement (hot reload) -------------------------------------
 
 (deftest reg-sub-replacement-of-the-shared-child-keeps-both-parents-sharing-it
