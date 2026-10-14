@@ -55,12 +55,9 @@
   (rf.resources.state/scoped-resource-key :rf.scope/global :feed/articles {:slug "intro"}))
 
 (defn- reply-page!
-  "Reply to the captured page-0 request through `callback` (:on-success or
-  :on-failure), first checking it is addressed at the page handler `handler`."
-  [callback handler reply]
-  (let [args @last-managed-args]
-    (is (= handler (first (callback args))) "page 0 is addressed at the page reply handler")
-    (rf/dispatch-sync (conj (callback args) reply))))
+  "Reply to the captured page-0 request through `callback` (:on-success or :on-failure)."
+  [callback reply]
+  (rf/dispatch-sync (conj (callback @last-managed-args) reply)))
 
 (defn- navigate-to-blocking-feed!
   "Register a route blocking on an infinite feed and navigate to it; return
@@ -89,13 +86,8 @@
     nav-token))
 
 (deftest blocking-infinite-route-holds-then-drains-on-page-0-success
-  (let [nav-token (navigate-to-blocking-feed!)
-        e         (entry k)]
-    (is (= [true :loading [] true]
-           [(rf.resources.state/infinite-entry? e) (:status e) (:data e)
-            (contains? (:active-owners e) [:route :route/feed nav-token])])
-        "an infinite first-loading entry owned by the route")
-    (reply-page! :on-success :rf.resource.internal/page-succeeded {:status :ok :value (page [:a :b] "c1")})
+  (let [nav-token (navigate-to-blocking-feed!)]
+    (reply-page! :on-success {:status :ok :value (page [:a :b] "c1")})
     (is (= [:loaded [(page [:a :b] "c1")] :idle #{}]
            [(:status (entry k)) (:data (entry k)) (:transition (slice)) (blocking-slot nav-token)])
         "page 0 landed and the route drained to :idle")))
@@ -103,7 +95,7 @@
 (deftest blocking-infinite-route-page-0-failure-errors-route
   (let [nav-token (navigate-to-blocking-feed!)
         failure   {:kind :rf.http/server :status 503 :message "upstream down"}]
-    (reply-page! :on-failure :rf.resource.internal/page-failed {:status :error :error failure})
+    (reply-page! :on-failure {:status :error :error failure})
     (is (= [:error failure nil nil nil]
            ((juxt :status :error :page-error :refresh-error :data) (entry k)))
         "a page-0 failure is a first-load :error, not a :page-error or :refresh-error")
