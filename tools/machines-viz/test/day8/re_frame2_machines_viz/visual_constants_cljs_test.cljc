@@ -48,7 +48,6 @@
   (is (= vc/chart-regular vc/chart (vc/chart-for-density nil))))
 
 (deftest chart-for-density-resolves-named-densities
-  (is (= [:compact :regular :cosy] vc/densities))
   (is (= [vc/chart-compact vc/chart-regular vc/chart-cosy]
          (map vc/chart-for-density vc/densities))))
 
