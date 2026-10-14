@@ -17,7 +17,7 @@ A six-step shape:
 
 1. **The HTML form** renders with `method="POST" action="/<route>"` and a hidden CSRF token. Standard Pattern-Forms slice drives the field values (server-rendered from `app-db`).
 2. **The host adapter receives the POST**. Per [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract), the host owns the wire layer; it MUST parse the request body (form-urlencoded or multipart), bind it to `*current-request*` under a `:form-params` slot, and create a per-request frame. What it binds is what the wire carried: HTML form encoding has no types and no keywords, so the parsed body is strings keyed by strings. The host is not obliged to keywordise or coerce, and re-frame2 defines no contract saying it does.
-3. **`:rf/server-init` normalises the body, then dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, and `:form-params` from the supplied request coeffect; on POST it decodes that wire shape into domain values and dispatches the domain event (e.g. `[:cart/add-item decoded]`); on GET it dispatches the standard page-load loader (Pattern-SSR-Loaders applies). This dispatch is the pattern's single normalisation seam — see [§`:rf/server-init` routes GET vs POST, and owns normalisation](#rfserver-init-routes-get-vs-post-and-owns-normalisation).
+3. **`:rf/server-init` normalises the body, then dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, and `:form-params` from the supplied request coeffect; on POST it decodes that wire shape into domain values and dispatches the domain event (e.g. `[:cart/add-item decoded]`); on GET it dispatches `[:rf.route/handle-url-change uri]`, the route handshake of [011 §Routing and SSR](011-SSR.md#routing-and-ssr). This dispatch is the pattern's single normalisation seam — see [§`:rf/server-init` routes GET vs POST, and owns normalisation](#rfserver-init-routes-get-vs-post-and-owns-normalisation).
 4. **The domain event handler validates the form-params in its own body** and branches on the result — the same shape it already uses for the CSRF check. On failure it writes the submitted values back into the form slice's `:draft` and structured errors into its `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)), emits `[:rf.server/set-status 400]`, and lets the drain settle; the standard SSR render reads the slice and emits the form again, populated, with the errors beside the fields. On success it runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render. The handler's `:schema` metadata is a development tripwire that does not run in a production build, so it cannot be the thing that rejects a bad POST — see [§Validation is the handler's job](#validation-is-the-handlers-job).
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` handler intercepts the native submission, calls `(.preventDefault e)`, and dispatches the *same* domain event the server dispatched. The handler tree is identical; only the dispatch site differs.
@@ -209,14 +209,14 @@ exactly the knowledge this pattern spends its effort not needing.
   (m/decode schema (update-keys form-params keyword) mt/string-transformer))
 
 (rf/reg-event :rf/server-init
-  {:doc              "Per-request boot for SSR. Routes GET → page loader; POST → form action."
+  {:doc              "Per-request boot for SSR. Routes GET → the URL's route; POST → form action."
    :platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn handler-server-init [{:keys [rf.server/request]} _]
     (let [{:keys [request-method uri form-params]} request
           route (route/match uri)]                     ;; /cart/add → :route/cart-add
       (case request-method
-        :get  {:fx [[:dispatch [:page/load route]]]}
+        :get  {:fx [[:dispatch [:rf.route/handle-url-change uri]]]}
         :post (let [{:keys [event schema]} (route->action route)]
                 {:fx [[:dispatch [event (decode-form-params schema form-params)]]]})))))
 ```
@@ -508,7 +508,7 @@ A form-action implementation conforms to this convention when:
 - The form slice's `:draft` is typed **structurally** — keys optional, and the value type admitting the string an undecodable field arrives as — so the failure arm's write of the just-rejected submission survives `reg-app-schema`'s whole-candidate check in a development build.
 - The host adapter parses POST bodies (form-urlencoded and multipart) and binds them to `*current-request*` under a `:form-params` slot. The parsed body carries whatever the wire carried — string keys, string values — and neither the host nor the framework is obliged to normalise it.
 - Exactly one layer owns that normalisation, and it is the POST dispatch site: `:rf/server-init` decodes the parsed body into domain values before dispatching the action event. An implementation that leaves the decoding to the action handler, or that relies on host middleware without saying so, is non-conformant — the handler's contract is that its args have the same shape on both platforms.
-- `:rf/server-init` routes GET → page loader; POST → action event. Apps MAY collapse the two when the route's action and loader share an event.
+- `:rf/server-init` routes GET through `[:rf.route/handle-url-change uri]` ([011 §Routing and SSR](011-SSR.md#routing-and-ssr)); POST → action event.
 - The action handler validates `form-params` **in its own body** and branches on the result. This check is what runs on a production server; it is NEVER skipped, even when client validation matches.
 - The action handler ALSO carries a `:schema`, as the dev tripwire and the introspection surface, and that `:schema` is **structural**: it describes the envelope — a map whose `:csrf-token` is optional and unconstrained — and constrains no field value. It MUST admit both call sites (the server's POST envelope and the client's field-only dispatch) **and** every malformed submission the 400 arm exists to answer, since a `:schema` rejection happens at the router and would pre-empt that arm in a development build. The conformance criterion above is not satisfied by the `:schema` alone ([010 §Production builds](010-Schemas.md#production-builds)).
 - The view is reader-conditional at every browser-owned callback. A view this pattern describes as running on both platforms MUST carry no unguarded `js/…` reference or DOM-event interop outside a `#?(:cljs …)` branch: `js` is a ClojureScript-only namespace, so an unguarded reference fails JVM compilation outright and the SSR path cannot render the form at all. The `:clj` branch is `nil`, which is also what preserves the form's native POST.
@@ -534,5 +534,5 @@ A form-action implementation conforms to this convention when:
 - [014-HTTPRequests.md §Header denylist (always-on)](014-HTTPRequests.md#1-header-denylist-always-on) — the canonical sensitive-header set, including `X-CSRF-Token` / `X-XSRF-Token`.
 - [014-HTTPRequests.md §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive) — how the action's per-request / per-call `:sensitive? true` flag propagates to the request-side traces for the JS-fetch path.
 - [Pattern-Forms.md](Pattern-Forms.md) — the form-slice shape, the seven standard events, the per-field-error-visibility rule, and `:_form` form-level errors. This pattern reuses all of it on the server side.
-- [Pattern-SSR-Loaders.md](Pattern-SSR-Loaders.md) — the sibling pattern for the GET path: parallel data fetch during the drain. A page may use both — Loaders for the initial render, FormAction for subsequent POSTs.
+- [Pattern-SSR-Loaders.md](Pattern-SSR-Loaders.md) — retired. The GET path's blocking page data is the route's `:resources` ([016 §SSR and hydration](016-Resources.md#ssr-and-hydration)); FormAction handles the POSTs.
 - [012-Routing.md](012-Routing.md) — the route-table that the action-event registry keys against.
