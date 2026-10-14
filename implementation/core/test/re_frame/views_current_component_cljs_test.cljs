@@ -18,16 +18,12 @@
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
 
-(deftest current-frame-with-no-adapter-hook
-  (with-hook :adapter/current-component nil
-    #(is (nil? (rf.views/current-frame)))))
-
-(deftest current-frame-honours-dynamic-var-without-hook
-  (with-hook :adapter/current-component nil
-    #(binding [rf.frame/*current-frame* :test/dynamic-frame]
-       (is (= :test/dynamic-frame (rf.views/current-frame))))))
-
-(deftest current-frame-tolerates-hook-returning-nil
-  ;; A real adapter's current-component answers nil outside a render.
-  (with-hook :adapter/current-component (constantly nil)
-    #(is (nil? (rf.views/current-frame)))))
+(deftest current-frame-without-an-in-flight-component
+  ;; [hook, dynamic frame, expected]. A real adapter's current-component
+  ;; answers nil outside a render.
+  (doseq [[hook dynamic expected] [[nil             nil                 nil]
+                                   [(constantly nil) nil                 nil]
+                                   [nil             :test/dynamic-frame :test/dynamic-frame]]]
+    (with-hook :adapter/current-component hook
+      #(binding [rf.frame/*current-frame* dynamic]
+         (is (= expected (rf.views/current-frame)))))))
