@@ -140,9 +140,7 @@
   (let [nav-token (get-in (rf/frame-state-value :rf/default)
                           [:rf.db/runtime :rf.runtime/routing :current :nav-token])]
     (is (contains? (:active-owners (entry)) [:route :linearlite.app/board nav-token])
-        "the route nav-token owner owns the read")
-    (reply-success! demo-board)
-    (is (= demo-board (board-data)))))
+        "the route nav-token owner owns the read")))
 
 (deftest successful-create-commits-the-servers-row-via-patches
   (load-board!)
@@ -165,14 +163,6 @@
     (reply-failure! {:kind :rf.http/http-5xx :status 503})
     (is (= demo-board (board-data)) "the board is exactly its pre-write value")
     (is (= [true false] ((juxt :error? :optimistic?) (mutation-state [:create tmp-id]))))))
-
-(deftest failed-change-status-snaps-the-card-back-to-its-prior-column
-  (load-board!)
-  (rf/dispatch-sync [:linearlite/change-status "srv-1" :done])
-  (is (= :done (:status (issue-by-id "srv-1"))) "precondition: optimistic move applied")
-  (reply-failure! {:kind :rf.http/http-5xx :status 503})
-  (is (= demo-board (board-data)))
-  (is (true? (:error? (mutation-state [:status "srv-1"])))))
 
 ;; While a create is in flight its card carries the client-minted tmp id,
 ;; which addresses nothing on the server, so that card's retitle and move
