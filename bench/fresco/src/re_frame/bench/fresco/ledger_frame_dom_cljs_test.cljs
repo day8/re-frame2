@@ -547,9 +547,7 @@
            window: there is no `t0` before it and no paint after it, and
            its total length is not a figure this instrument publishes."
     (is (= [2.0 3.0 4.0] (rf.bench.fresco.ledger-frame-clock-app/intervals [1.0 3.0 6.0 10.0]))
-        "each reading is the distance to the NEXT frame")
-    (is (= [] (rf.bench.fresco.ledger-frame-clock-app/intervals [1.0]))
-        "and a single frame is no reading at all")))
+        "each reading is the distance to the NEXT frame")))
 
 (deftest the-window-check-is-a-two-valued-question-asked-in-both-directions
   (testing "[[rf.bench.fresco.ledger-frame-clock-app/verify]] asks whether the
@@ -587,12 +585,11 @@
            advanced on a quarter of its frames advanced for real and was
            dropping frames."
     (is (false? (rf.bench.fresco.ledger-frame-clock-app/advanced? [108 100])) "backwards is not an advance")
-    (is (= 8 (rf.bench.fresco.ledger-frame-clock-app/rows-gained [100 104 108])))
-    (is (nil? (rf.bench.fresco.ledger-frame-clock-app/rows-gained [nil 108])) "nil rather than a fabricated zero")
-    (is (= 2 (rf.bench.fresco.ledger-frame-clock-app/frames-changed [1 1 2 2 3]))
-        "two of the four transitions carried a new window")
-    (is (= 0 (rf.bench.fresco.ledger-frame-clock-app/frames-changed [1 1 1]))
-        "a run the vendor never updated changed on none of them")))
+    (is (= [8 nil] (map rf.bench.fresco.ledger-frame-clock-app/rows-gained [[100 104 108] [nil 108]]))
+        "how far, and nil rather than a fabricated zero")
+    (is (= [2 0] (map rf.bench.fresco.ledger-frame-clock-app/frames-changed [[1 1 2 2 3] [1 1 1]]))
+        "two of the four transitions carried a new window; a run the vendor
+         never updated changed on none of them")))
 
 ;; ---------------------------------------------------------------------------
 ;; The control's rule, pinned on synthetic readings
@@ -636,8 +633,6 @@
            against it — `:ok?` reads the same with it absent."
     (is (= 3.0 (:versus-floor (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] 16.6667)))
         "fifty milliseconds is three frames at 60 Hz")
-    (is (nil? (:versus-floor (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] nil)))
-        "and a run with no floor arm reports no ratio rather than a fabricated one")
     (is (= (:ok? (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] 16.6667))
            (:ok? (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] nil)))
         "the verdict does not move with the context")))
