@@ -309,8 +309,9 @@
                    "adapter: none lets it succeed silently, and none throws some "
                    "other error in its place. "
                    "CARRYING a frame out of the render is a THIRD thing, and its "
-                   "recovery is neither of the above: `(rf/capture-frame)` resolves "
-                   "ambiently, so it refuses here, but `(rf/capture-frame <frame-id>)` "
+                   "recovery is neither of the above: `(rf/capture-frame)` answers "
+                   "this boundary's frame unless an enclosing `with-frame` carries "
+                   "another, and `(rf/capture-frame <frame-id>)` "
                    "never consults the resolver at all. Write "
                    "`(rf/capture-frame (h/frame))` — h/frame is this substrate's own "
                    "deterministic read of the rendering boundary's frame id, and the "
@@ -453,8 +454,9 @@
   `capture-frame` as what Spec 002 calls *the ONE public carry
   primitive*. The two-step spelling, against the adapters' one-step
   `(rf/capture-frame)`, is the taught asymmetry, and it has a one-
-  sentence reason: **ambient frame lookup is what Fresco's stricter body
-  discipline withdraws** (see [[ambient-frame-refusal]]).
+  sentence reason: **inside a body the one-step answers only while no
+  other frame is carried — under an enclosing `with-frame` naming another
+  frame it refuses** (see [[ambient-frame-refusal]]).
 
   THE LOAD-BEARING FACT is narrower than it looks. The refusal deletes
   the ambient FIND, never the carrying, so `rf/with-frame` and
