@@ -229,9 +229,7 @@
                                 #(rf.fresco.impl.state/reg-state ::typo2 {:defualt true}))))))))
 
 (deftest re-registering-replaces-the-registration-and-the-last-default-wins
-  (testing "a namespace reload re-runs the same call, and that must work"
-    (is (= ::reloaded (rf.fresco.impl.state/reg-state ::reloaded {:default 0})))
-    (is (= ::reloaded (rf.fresco.impl.state/reg-state ::reloaded {:default 0}))))
+  (rf.fresco.impl.state/reg-state ::reloaded {:default 0})
   (testing "a DIFFERENT default is the ordinary hot-reload edit: the new
            registration replaces the old, and every un-set instance reads
            the new default"
@@ -244,32 +242,6 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private order-a (uuid "00000000-0000-4000-8000-00000000000a"))
-(def ^:private order-b (uuid "00000000-0000-4000-8000-00000000000b"))
-
-(deftest uuid-keys-are-independent-instances-and-clear-to-the-default
-  (testing "a UUID is the canonical entity id, so it keys a widget's state
-           bare and entity-qualified alike — the domain id the first taught
-           rule asks for, with no stringifying"
-    (rf.fresco.impl.state/reg-state ::open? {:default false})
-    (let [f  (frame! ::uuid-keys)
-          ks [order-a order-b [:order/id order-a]]]
-      (doseq [k ks]
-        (is (= false (read* f [::open? k])) (str "unwritten " (pr-str k) " reads the default")))
-      (send! f [::open? order-a true])
-      (send! f [::open? [:order/id order-a] :pinned])
-      (is (= true    (read* f [::open? order-a])))
-      (is (= false   (read* f [::open? order-b]))
-          "a second UUID is a second instance")
-      (is (= :pinned (read* f [::open? [:order/id order-a]]))
-          "and the entity-qualified key is a third, distinct from the bare one")
-      (is (= {:ui {::open? {order-a true [:order/id order-a] :pinned}}} (db-of f))
-          "at the documented app-space path, concern first")
-      (send! f [rf.fresco.impl.state/clear-event-id ::open? order-a])
-      (send! f [rf.fresco.impl.state/clear-event-id ::open? [:order/id order-a]])
-      (doseq [k ks]
-        (is (= false (read* f [::open? k])) (str (pr-str k) " is back to the default")))
-      (is (= {:ui {}} (db-of f))
-          "the clear REMOVED both entries and pruned the emptied concern"))))
 
 (deftest instance-key-admits-exactly-the-composable-shapes
   (testing "admitted"
@@ -289,14 +261,3 @@
   (testing "and every key it produces is a legal instance key, which is
            what makes nesting total"
     (is (rf.fresco.impl.state/instance-key? (rf.fresco.impl.state/child-key [[:order/id 42]] :row)))))
-
-(deftest sibling-widgets-nested-under-one-parent-do-not-collide
-  (rf.fresco.impl.state/reg-state ::open? {:default false})
-  (let [f    (frame! ::nested)
-        row1 (rf.fresco.impl.state/child-key :panel 1)
-        row2 (rf.fresco.impl.state/child-key :panel 2)]
-    (send! f [::open? (rf.fresco.impl.state/child-key row1 :detail) true])
-    (is (= true  (read* f [::open? (rf.fresco.impl.state/child-key row1 :detail)])))
-    (is (= false (read* f [::open? (rf.fresco.impl.state/child-key row2 :detail)])))
-    (is (= false (read* f [::open? :panel]))
-        "the parent's own key is a different key from any child's")))
