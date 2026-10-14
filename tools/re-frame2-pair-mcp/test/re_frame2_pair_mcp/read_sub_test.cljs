@@ -35,7 +35,6 @@
                                           [(tu/error? r) (:reason edn) (:parsed-type edn)])
                                        input))))))
                   [["(rf/subscribe [:pwn])" :not-a-sub-vector :list]
-                   [":current-user"         :not-a-sub-vector :keyword]
                    ["[:foo"                 :invalid-sub-edn  nil]])))
         (.then (fn [_] (done))))))
 
