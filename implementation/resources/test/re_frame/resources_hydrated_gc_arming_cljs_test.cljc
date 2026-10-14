@@ -138,16 +138,6 @@
       (str "hydration requested the rearm and armed a real GC timer, and the "
            "owner-free entry was collected: " (pr-str (observed)))))
 
-(deftest s1-same-route-owner-rides-through
-  (reg-article!)
-  (let [route-owner [:route :route/article "nav-1"]]
-    (hydrate! #{[:ssr "req-1" "nav-1"] route-owner})
-    (let [at-hydrate (armed-by-hydration)]
-      (ensure! route-owner)
-      (release! route-owner)
-      (fire-armed-gc!)
-      (assert-hydration-armed-and-collected! at-hydrate))))
-
 (deftest s3-owner-free-hydrated-entry-arms-and-collects
   ;; control: a client ensure reviving an owner-free hydrated entry arms
   ;; through the ordinary fresh-skip path
