@@ -217,3 +217,17 @@
              (set (filter #{:probe/ev :probe/other}
                           (keys (rf/registrations {:frame :probe/frame :kind :event})))))
           "the frame's catalogue lists the ids it can run"))))
+
+(deftest a-mistyped-frame-target-lists-the-frames-a-query-can-read
+  (rf/make-frame {:id :probe/frame})
+  (doseq [query [#(rf/registrations {:frame :probe/fraem :kind :event})
+                 #(rf/handler-meta {:frame :probe/fraem :kind :event :id :probe/ev})]]
+    (let [data (thrown-data query)]
+      (is (= :rf.error/frame-no-generation (:rf.error/id data)))
+      (is (some #{:probe/frame} (:live-frame-ids data))
+          "the frame made without :images is one the query reads, so it is listed")
+      (is (str/includes? (:reason data) ":probe/frame")
+          "and the message names it")))
+  (is (not-any? #{:probe/frame}
+                (:live-frame-ids (thrown-data #(rf/frame-generation :probe/fraem))))
+      "rf/frame-generation reads only a frame carrying a generation, so it lists only those"))
