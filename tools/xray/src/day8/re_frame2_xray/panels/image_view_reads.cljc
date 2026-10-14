@@ -5,7 +5,9 @@
   ## The two jobs
 
   1. **Live reads (READ-TIME fail-soft).** The EP-0023 public model — the
-     live-frame registry + sealed image generations — is read here, kept OUT of
+     live-frame registry + sealed image generations, and the frames made
+     without `:images` that resolve the registration store live — is read
+     here, kept OUT of
      the pure `image_view_helpers.cljc` algebra so that algebra stays
      JVM-testable `data -> data`. Every read is `try`-guarded and degrades to
      the empty value, so an image/frame browse never throws AT READ TIME on a
@@ -57,9 +59,12 @@
   the `re-frame.core` facade, so the tool reads the owning namespaces directly,
   exactly as it does for the realm substrate."
   (:require [clojure.set :as set]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.image :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.panels.image-view-helpers :as h]))
 
@@ -80,16 +85,89 @@
   (try
     (let [reg (rf.live-frame/image-view-frames)]
       (if (map? reg) reg {}))
-    (catch :default _ {})))
+    (catch #?(:clj Exception :cljs :default) _ {})))
+
+(def ^:private queryable-kinds
+  "The registrar kinds a frame-targeted `rf/registrations` query answers: the
+  registrar's closed kind set less `:frame` and `:flow`, the two
+  reserved-but-empty slots the query refuses."
+  (disj rf.registrar/kinds :frame :flow))
+
+(defn- ambiguous-namespaces
+  "The namespaces registering `[kind id]` when frame `frame-id` refuses the id
+  as ambiguous, read off the `:rf.error/ambiguous-registration` that
+  `rf/handler-meta` raises for it. nil when the frame resolves the id, or
+  lacks it."
+  [frame-id kind id]
+  (try
+    (rf/handler-meta {:frame frame-id :kind kind :id id})
+    nil
+    (catch #?(:clj Exception :cljs :default) e
+      (let [data (ex-data e)]
+        (when (= :rf.error/ambiguous-registration (:rf.error/id data))
+          (mapv str (:namespaces data)))))))
+
+(defn- live-store-frame-view
+  "The frame view of `frame-id`, a frame that resolves the registration store
+  live: every `[kind id]` it can run, read through the public
+  `(rf/registrations {:frame f :kind k})`, and every id the process registers
+  that the frame refuses as ambiguous, with the namespaces registering it.
+  The query omits an ambiguous id, so it is found by comparing against the
+  store and confirmed through `rf/handler-meta`. Throws when the query refuses
+  the frame (one that neither seals an image nor resolves the store live)."
+  [frame-id]
+  (let [registrations (into {}
+                            (for [kind      queryable-kinds
+                                  [id meta] (rf/registrations {:frame frame-id :kind kind})]
+                              [[kind id] meta]))
+        ambiguous     (vec (for [kind  queryable-kinds
+                                 id    (keys (rf/registrations {:source :store :kind kind}))
+                                 :when (not (contains? registrations [kind id]))
+                                 :let  [namespaces (ambiguous-namespaces frame-id kind id)]
+                                 :when namespaces]
+                             {:kind kind :id id :namespaces namespaces}))
+        adapter       (rf.frame/frame-adapter frame-id)]
+    (cond-> {:rf.frame/id            frame-id
+             :rf.frame/live-store?   true
+             :rf.frame/registrations registrations
+             :rf.frame/ambiguous     ambiguous}
+      (some? adapter) (assoc :rf.frame/adapter adapter))))
+
+(defn- public-frame-id?
+  "True for a frame id made with `:id`, rather than the reserved
+  `:rf.frame/<gensym>` id a direct (no-id) frame carries."
+  [frame-id]
+  (and (keyword? frame-id) (not= "rf.frame" (namespace frame-id))))
+
+(defn live-store-frames
+  "The frames made without `:images` as `{frame-id frame-view}`. Such a frame
+  seals no generation and resolves the registration store live, so
+  `live-frames` does not list it. Enumerates `rf/frame-ids`, skipping
+  image-loaded and direct (no-id) frames; a frame the frame-targeted
+  registrations query refuses is not listed. Fail-soft per frame, and to `{}`
+  as a whole. Pure-read."
+  []
+  (try
+    (let [image-loaded (set (rf.live-frame/live-frame-ids))]
+      (into {}
+            (keep (fn [frame-id]
+                    (when (and (public-frame-id? frame-id)
+                               (not (contains? image-loaded frame-id)))
+                      (try
+                        [frame-id (live-store-frame-view frame-id)]
+                        (catch #?(:clj Exception :cljs :default) _ nil)))))
+            (rf/frame-ids)))
+    (catch #?(:clj Exception :cljs :default) _ {})))
 
 (defn image-view-data
-  "Project the live EP-0023 image/frame model into the view-facing data:
-  the live-frame registry → frame-rows, each carrying its
-  resolved image (its generation's `[kind id]` descriptors). Fail-soft
-  composition of `live-frames` + the pure `h/project-image-view`. Pure-read
+  "Project the live EP-0023 image/frame model into the view-facing data: every
+  image-loaded frame carrying its resolved image (its generation's `[kind id]`
+  descriptors), and every frame made without `:images` carrying the
+  registrations it resolves live. Fail-soft composition of `live-frames` +
+  `live-store-frames` + the pure `h/project-image-view`. Pure-read
   `() -> data`."
   []
-  (h/project-image-view (live-frames)))
+  (h/project-image-view (merge (live-store-frames) (live-frames))))
 
 ;; ===========================================================================
 ;; Xray-as-its-own-image — the dogfooding (EP-0023 §Xray Beside The Target)
@@ -246,14 +324,14 @@
            target-gen (rf.image-assembly/assemble [target-image])]
        (empty? (set/intersection (application-resolver-keyset xray-gen)
                                  (application-resolver-keyset target-gen))))
-     (catch :default _ false)))
+     (catch #?(:clj Exception :cljs :default) _ false)))
   ([target-image pool]
    (try
      (let [xray-gen   (rf.image-assembly/assemble [(xray-image)] pool)
            target-gen (rf.image-assembly/assemble [target-image] pool)]
        (empty? (set/intersection (application-resolver-keyset xray-gen)
                                  (application-resolver-keyset target-gen))))
-     (catch :default _ false))))
+     (catch #?(:clj Exception :cljs :default) _ false))))
 
 (defn xray-frame-seated?
   "True iff an image-loaded frame is already registered under `frame-id` (its
