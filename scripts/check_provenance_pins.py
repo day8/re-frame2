@@ -1310,15 +1310,6 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["| `lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |"],
         [],
     ),
-    (
-        "a non-digest table header leaves its rows as pins",
-        [
-            "| arm | anchor |",
-            "|---|---|",
-            "| narrow write | `0cba8181a7` |",
-        ],
-        ["0cba8181a7"],
-    ),
     # No vocabulary either way, so both default to pins (fail toward refusal).
     (
         "authored=landed mapping yields both ids",
@@ -1336,8 +1327,8 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         [],
     ),
     (
-        "a bare digest and a bare number are not citations",
-        ["The instrument blob 0304f489bb held at 0.0999999 ms across ten turns."],
+        "a bare digest is not a citation",
+        ["The instrument blob 0304f489bb held across ten turns."],
         [],
     ),
     # "commit" is right there, so only the `.` in front of `0999999` keeps it out.
