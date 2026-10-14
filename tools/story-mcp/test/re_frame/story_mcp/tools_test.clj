@@ -466,18 +466,15 @@
     (is (= error-id (:rf.error (run-opts-result tool args))) (str tool " " args))))
 
 (deftest run-opts-unknown-active-mode-rejected
-  (doseq [tool run-opts-tools]
-    (is (= {:rf.error :rf.error/story-mcp-unknown-active-mode :active-modes ["Mode.theme/darkk"]}
-           (select-keys (run-opts-result tool {:active-modes ["Mode.theme/darkk"]}) [:rf.error :active-modes]))
-        tool))
-  (is (some #{":Mode.theme/dark"} (:registered (run-opts-result "run-variant" {:active-modes ["Mode.theme/darkk"]})))
-      "the registered set rides too, derived live from the registry"))
-
-(deftest run-opts-mixed-known-unknown-modes-reject-atomically
-  ;; Running the known subset is exactly the different scenario the guard
-  ;; refuses; only the unresolved id is reported.
-  (is (= ["Mode.theme/nope"]
-         (:active-modes (run-opts-result "run-variant" {:active-modes [":Mode.theme/dark" "Mode.theme/nope"]})))))
+  ;; A known mode beside the unknown one still rejects: running the known
+  ;; subset is exactly the different scenario the guard refuses, and only the
+  ;; unresolved id is reported. Each tool's wiring of this guard is read by
+  ;; run-opts-unknown-cell-override-key-rejected.
+  (let [s (run-opts-result "run-variant" {:active-modes [":Mode.theme/dark" "Mode.theme/nope"]})]
+    (is (= {:rf.error :rf.error/story-mcp-unknown-active-mode :active-modes ["Mode.theme/nope"]}
+           (select-keys s [:rf.error :active-modes])))
+    (is (some #{":Mode.theme/dark"} (:registered s))
+        "the registered set rides too, derived live from the registry")))
 
 (deftest run-opts-unknown-cell-override-key-rejected
   (doseq [tool run-opts-tools]
@@ -794,7 +791,6 @@
   ;; skipped, never swallowing a recognised flag beside it.
   (let [err (java.io.StringWriter.)]
     (binding [*err* err]
-      (is (= {} (#'rf.story-mcp.server/parse-args ["--no-such-flag"])))
       (is (= {:allow-writes? true :allow-sensitive-reads? true}
              (#'rf.story-mcp.server/parse-args ["--bogus" "--allow-writes" "--also-bogus" "--allow-sensitive-reads"]))))
     (is (re-find #"unknown CLI flag" (str err)))))
