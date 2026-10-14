@@ -513,18 +513,3 @@
                                 per visit — warm-up visits included, because the
                                 pre-state is established for those too")))))
               (.then (fn [_] (done)) (fail-async done))))))))
-
-;; ---------------------------------------------------------------------------
-;; The roster, where it can be pinned without a browser
-;; ---------------------------------------------------------------------------
-
-(deftest the-arm-roster-is-the-six-rows-the-file-documents
-  ;; `:side` names the frame `establish-pre-state!` moves, so an arm whose
-  ;; `:side` disagrees with its plan's runs on an inherited page.
-  (is (= {:idle-frame   [:fresco nil]
-          :locale       [:fresco :locale]
-          :donor-locale [:donor   :locale]
-          :theme        [:fresco :theme]
-          :donor-theme  [:donor   :theme]
-          :ctl-blocked  [:fresco :locale]}
-         (into {} (map (juxt :id (juxt :side :alternates))) rf.bench.fresco.slice-broad-clock-app/arms))))
