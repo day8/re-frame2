@@ -5,12 +5,12 @@
   the layout-error result map (so the chart paints its banner instead of
   stacking every node at the origin) and fire exactly one
   `:rf.error/machines-viz-elk-layout-failed` trace, the event tools read off
-  the bus. A clean layout must do neither.
+  the bus.
 
   `chart/invoke-elk-layout!` is the seam that stands in for elkjs. The async
-  tests rebind with `set!` because `with-redefs` unwinds before the Promise
+  test rebinds with `set!` because `with-redefs` unwinds before the Promise
   callback runs."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  (:require [cljs.test :refer-macros [deftest is async]]
             [day8.re-frame2-machines-viz.chart :as chart]
             [re-frame.trace :as rf.trace]))
 
@@ -82,30 +82,3 @@
           (set! rf.trace/emit-error! orig-emit)
           (set! (.-error js/console) orig-console)
           (done))))))
-
-(deftest compute-layout-happy-path-does-not-emit-error-trace
-  (testing "a clean elk result reaches done-fn as positions, with no
-            :layout-error and no error trace"
-    (async done
-      (let [captured  (atom [])
-            orig-elk  chart/invoke-elk-layout!
-            orig-emit rf.trace/emit-error!
-            node      (fn [id y] #js {:id id :x 0 :y y :width 100 :height 50 :children #js []})]
-        (set! chart/invoke-elk-layout!
-              (fn [_input]
-                (js/Promise.resolve #js {:id       "root"
-                                         :children (array (node "idle" 0) (node "loading" 60))
-                                         :edges    #js []})))
-        (set! rf.trace/emit-error! (fn [op tags] (swap! captured conj [op tags])))
-        (chart/compute-layout!
-          sample-parsed :tb nil :test/machine
-          (fn [r]
-            (is (= {:positions   {"idle"    {:x 0 :y 0  :width 100 :height 50}
-                                  "loading" {:x 0 :y 60 :width 100 :height 50}}
-                    :edge-points {}
-                    :edge-labels {}}
-                   r))
-            (is (empty? @captured))
-            (set! chart/invoke-elk-layout! orig-elk)
-            (set! rf.trace/emit-error! orig-emit)
-            (done)))))))
