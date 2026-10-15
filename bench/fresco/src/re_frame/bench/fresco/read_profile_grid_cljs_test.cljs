@@ -8,7 +8,7 @@
   ;; One even and one odd total, with different frame divisors.
   (is (= [(/ 0.05 32) (/ 0.1 4)]
          (mapv (fn [[r s f]] (rf.bench.fresco.read-profile-app/phase-b-grid-ms r {:warmup 2 :samples s} f))
-               [[8 8 32] [9 7 4]]))))
+               [[8 8 32] [1 1 4]]))))
 
 (deftest the-design-line-prints-the-derived-grid-at-both-parities
   (doseq [[r s expected] [[8 8 ["kept = 64 samples/arm (EVEN" "grid = 0.001563 ms/commit"]]
