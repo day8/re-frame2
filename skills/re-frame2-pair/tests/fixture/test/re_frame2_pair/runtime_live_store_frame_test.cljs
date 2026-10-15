@@ -5,7 +5,9 @@
   `rf/frame-generation` refuses it; the read reports it as resolving the live
   store instead, with the registrations the public `{:frame f}` registrar query
   answers for it and every id it refuses as ambiguous, named with the
-  namespaces that register it.
+  namespaces that register it. `orient` bases its registry on the same query,
+  so it counts what such a frame runs rather than falling back to the process
+  store.
 
   Every frame here is made through the public `rf/make-frame`, and each rival
   registration names its namespace through `:ns` metadata, which is the
@@ -76,3 +78,30 @@
                  (catch :default e e))]
       (is (some? e) "an id naming no frame throws up the eval boundary")
       (is (= :rf.error/frame-no-generation (:rf.error/id (ex-data e)))))))
+
+(deftest orient-counts-what-a-live-store-frame-runs
+  (rf/reg-event :pair-live/inc {:ns 'app.counter} (fn [db _] db))
+  (rf/reg-event :pair-live/save {:ns 'app.a} (fn [db _] db))
+  (rf/reg-event :pair-live/save {:ns 'app.b} (fn [db _] db))
+  (rf/make-frame {:id :pair-live/main})
+  (let [view (#'rt/frame-registry-view :pair-live/main)]
+    (is (= :frame (:basis view)) "orient's registry is the frame's, not the process fallback")
+    (is (= :pair-live/main (:frame view)))
+    (is (= (count (rf/registrations {:frame :pair-live/main :kind :event}))
+           (get-in view [:counts :event]))
+        "its counts are what the frame-targeted registrations query answers")
+    (is (some #{:pair-live/inc} (:events view)) "an event the frame runs is listed")
+    (is (not (some #{:pair-live/save} (:events view)))
+        "an id the frame refuses as ambiguous is not")))
+
+(deftest orient-still-reads-an-image-frame-and-falls-back-for-no-frame
+  (rf/reg-event :pair-live/inc {:ns 'app.counter} (fn [db _] db))
+  (rf/make-frame {:id     :pair-live/sealed
+                  :images [(rf/image {:select-ns {:include ["app.counter"]}})]})
+  (let [view (#'rt/frame-registry-view :pair-live/sealed)]
+    (is (= :frame (:basis view)) "a frame made with :images is read through its generation")
+    (is (some #{:pair-live/inc} (:events view)) "and lists its image's registrations")
+    (is (= (count (rf/registrations {:frame :pair-live/sealed :kind :event}))
+           (get-in view [:counts :event]))))
+  (is (nil? (#'rt/frame-registry-view :pair-live/no-such-frame))
+      "a target naming no frame yields nil, so orient falls back to the process view"))

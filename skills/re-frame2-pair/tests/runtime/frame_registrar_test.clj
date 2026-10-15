@@ -1,7 +1,7 @@
 ;;;; tests/runtime/frame_registrar_test.clj — the MCP `handler-meta` /
-;;;; `list-handlers` / `describe-image` tools resolve registrations through the
-;;;; OPERATING FRAME's image generation, so the preload must route through the
-;;;; public `:frame` facade reads (`rf/handler-meta`, `rf/registrations`,
+;;;; `list-handlers` / `describe-image` tools and `orient`'s registry resolve
+;;;; registrations as the OPERATING FRAME does, so the preload must route through
+;;;; the public `:frame` facade reads (`rf/handler-meta`, `rf/registrations`,
 ;;;; `rf/frame-generation`), and `describe-image` must describe a frame that
 ;;;; resolves the live registration store while still failing loud on an
 ;;;; unknown one.
@@ -41,9 +41,12 @@
     (is (rt/mentions? :ambiguous live) "and names the ids the frame refuses as ambiguous")))
 
 (deftest orient-rebased-on-frame-registry-view
-  (let [orient (rt/defn-named 'orient)]
-    (is (rt/calls? 'rf/frame-generation (rt/defn-named 'frame-registry-view))
-        "frame-registry-view must resolve through rf/frame-generation")
+  (let [orient (rt/defn-named 'orient)
+        view   (rt/defn-named 'frame-registry-view)]
+    (is (rt/calls? 'rf/registrations view)
+        "frame-registry-view must resolve through (rf/registrations {:frame …})")
+    (is (not (rt/calls? 'rf/frame-generation view))
+        "not rf/frame-generation, which refuses a frame made without :images")
     (is (rt/calls? 'frame-registry-view orient)
         "orient must base its :registry on the operating frame's generation")
     (is (rt/calls? 'process-registry-view orient)

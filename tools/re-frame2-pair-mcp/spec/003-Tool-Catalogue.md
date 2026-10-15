@@ -3381,7 +3381,7 @@ On a miss:
 - `{:ok? false :reason :missing-id}` — `id` arg absent or blank.
 - `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
 - `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine` (machines are not in the image generation resolver).
-- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no live frame carrying a generation).
+- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no frame that carries an image or resolves the store live, and `:rf.error/ambiguous-registration` when a frame made without `:images` refuses the id because more than one namespace registers it).
 
 **Composite-key subs**: pass the vector form as a string —
 `{:kind "sub" :id "[:rf/composite [:items :by-id 42]]"}`.
@@ -3533,7 +3533,7 @@ this read.)
 response is `isError: true`" rule — rf2-01jwrq):
 
 - `{:ok? false :reason :ambiguous-frame …}` — multi-frame session, no `frame` and no session pin.
-- `{:ok? false :reason :describe-image-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation` when an explicit `frame` names no live frame carrying a generation).
+- `{:ok? false :reason :describe-image-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation` when an explicit `frame` names no frame that carries an image or resolves the store live).
 - `{:ok? false :reason :unexpected-shape :value …}` — the runtime eval came back blank/non-map (a degraded read — dropped WebSocket / navigated tab).
 
 Because `describe-image` is `:cacheable?` and the response cache bypasses
