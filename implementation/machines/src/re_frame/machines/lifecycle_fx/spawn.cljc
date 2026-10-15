@@ -469,10 +469,10 @@
   when the runtime-db swap landed, `:skipped` when the exact-owner recheck
   fenced the swap (an earlier callback destroyed A / published same-id B).
   The caller (`spawn-fx*`)
-  runs NO post-install tail (classification / spawn-order /
+  runs NO post-install tail (classification /
   `:rf.machine.lifecycle/spawned` / `:start`) unless install COMMITTED and
-  the exact owner is STILL current — a bare-id `swap-runtime-db!` /
-  `rf.machines.spawn-order/record!` otherwise resolves to the CURRENT incarnation B.
+  the exact owner is STILL current — a bare-id write otherwise resolves to
+  the CURRENT incarnation B.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
@@ -522,7 +522,7 @@
   ;; Return the swap outcome EXPLICITLY (`:committed` / `:skipped`) so the
   ;; caller can fence its own post-install tail on it (an outcome the caller
   ;; could ignore would let a `:skipped` install still run classification /
-  ;; spawn-order / lifecycle-spawned against B).
+  ;; lifecycle-spawned against B).
   ;; The pre-swap `(continue?)` check fences a LISTENER, but the
   ;; WRITE ITSELF is callback-bearing: a synchronous container watch can
   ;; destroy A / publish same-id B DURING the physical install. The bare
@@ -548,9 +548,7 @@
                          ;; `#<n>` suffix of `spawned-id` cannot order actors
                          ;; of different machine types and is absent entirely
                          ;; on a `:fixed-actor-id`, so frame destroy has no
-                         ;; other durable fact to read; the transient
-                         ;; `rf.machines.spawn-order/record!` below is a cache that any
-                         ;; restore / hydration / `replace-runtime-db!` wipes.
+                         ;; other durable fact to read.
                          ;; Gated on the same `initial-snap` as the snapshot
                          ;; assoc: the order tracks exactly the actors that have
                          ;; snapshots.
@@ -1246,10 +1244,10 @@
         ;; The emissions ahead of `install-spawn!`'s swap are
         ;; callback-bearing: on the direct-call path a listener can destroy A /
         ;; publish same-id B on the trace's own stack. Run the framework-owned tail —
-        ;; per-instance classification, the spawn-order record, and the
+        ;; per-instance classification and the
         ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
         ;; AND the exact owner is STILL current after those callbacks. Otherwise
-        ;; the bare-id `rf.machines.spawn-order/record!` / classification writes + the
+        ;; the bare-id classification writes + the
         ;; lifecycle-spawned trace would commit into B's name. The initial
         ;; `(continue?)` gate at the cascade top fences only the earlier
         ;; `:rf.machine.spawn/spawned` trace-listener callback; this fences the
@@ -1276,17 +1274,12 @@
         ;; `lower-at-spawn!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
         ;; same-id B DURING the classification lowering. Recheck `(continue?)`
-        ;; AFTER it before the spawn-order record / lifecycle trace / `:start`
-        ;; dispatch tail — otherwise the bare-id `rf.machines.spawn-order/record!` records A's
-        ;; ghost child into B's spawn-order channel and the lifecycle-spawned
+        ;; AFTER it before the lifecycle trace / `:start`
+        ;; dispatch tail — otherwise the lifecycle-spawned
         ;; trace / bootstrap dispatch land against B. The install itself is already
         ;; exact (`install-spawn!`); this fences the classification-lowering seam
         ;; the earlier `(= :committed installed) (continue?)` gate ran ahead of.
         (when (continue?)
-        ;; Record the spawned actor in the frame's spawn-order channel so
-        ;; frame-destroy can walk in reverse-creation order per Spec 005
-        ;; §Cross-Spec Interactions §1.
-        (rf.machines.spawn-order/record! frame-id spawned-id)
         ;; The REGISTRAR-substrate "instance appeared" observation, the
         ;; symmetric partner of
         ;; `:rf.machine.lifecycle/created` (handler registered) and

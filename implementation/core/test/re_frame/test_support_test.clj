@@ -86,7 +86,6 @@
    :schemas/clear-by-frame!           1
    :machines/reset-timers!            1
    :fx/reset-dispatch-later-timers!   1
-   :machines/reset-spawn-order!       1
    :routing/reset-counters!           1
    :routing/reset-nav-counters!       1
    :routing/reset-url-claims!         1

@@ -52,7 +52,6 @@
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.result :as rf.machines.result]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.ssr :as rf.machines.ssr]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]
@@ -457,13 +456,7 @@
 ;; per Spec 005 §Cross-Spec Interactions §1.
 (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy!
                    rf.machines.lifecycle-fx.frame-destroy/teardown-on-frame-destroy!)
-;; Test-isolation hook fired by
-;; `re-frame.test-support/make-reset-runtime-fixture`. Drops the per-frame
-;; spawn-order vectors so a stale entry from a sibling test cannot
-;; contaminate a frame-destroy walk in the next test.
-(rf.late-bind/set-fn! :machines/reset-spawn-order!
-                   rf.machines.spawn-order/reset-all!)
-(rf.late-bind/set-fn! :machines/spawn-fx               spawn-fx)
+(rf.late-bind/set-fn! :machines/spawn-fx              spawn-fx)
 (rf.late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 ;; The lazy actor-handler resolver. Core's dispatch consults this hook on
 ;; `:rf.error/no-such-handler` BEFORE erroring:

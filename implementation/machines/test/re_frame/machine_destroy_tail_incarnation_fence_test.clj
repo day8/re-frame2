@@ -37,22 +37,23 @@
 
 (defn- seed-live-actor!
   "Seed `actor-id` into `frame-id` as a live spawned actor of `actor-type`:
-  snapshot, spawn-order entry and lowered classification."
+  snapshot, durable spawn-order entry and lowered classification."
   [frame-id]
   (rf.frame/swap-runtime-db!
     frame-id
-    #(assoc-in % [:rf.runtime/machines :snapshots actor-id]
-               {:state           :running
-                :data            {:rf/self-id actor-id :token "secret"}
-                :rf/machine-type actor-type}))
-  (rf.machines.spawn-order/record! frame-id actor-id)
+    #(-> %
+         (assoc-in [:rf.runtime/machines :snapshots actor-id]
+                   {:state           :running
+                    :data            {:rf/self-id actor-id :token "secret"}
+                    :rf/machine-type actor-type})
+         (rf.machines.spawn-order/record-in-runtime-db actor-id)))
   (rf.machines.classification/lower-at-spawn! frame-id actor-id classified-spec))
 
 (deftest destroyed-trace-loss-fences-destroy-tail
   ;; The effect is called directly, so its `:rf.machine/destroyed` listener runs
   ;; on the destroying stack. It destroys A and re-seeds the same actor in a
-  ;; same-id B; ownership is rechecked after the trace, so A's spawn-order
-  ;; forget and the rest of its tail never reach B.
+  ;; same-id B; ownership is rechecked after the trace, so the rest of A's
+  ;; tail never reaches B.
   (let [frame-a :rf2-i4aj9c/destroyed-frame
         fired?  (atom false)
         b-birth (atom nil)]
@@ -73,7 +74,8 @@
         (rf.frame/call-with-event-owner-token frame-a token-a
           #(rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id)))
       (is (= [@b-birth [actor-id]]
-             [(rf.machines.test-support/runtime-db frame-a) (rf.machines.spawn-order/frame-order frame-a)]))
+             [(rf.machines.test-support/runtime-db frame-a)
+              (rf.machines.spawn-order/durable-order (rf.machines.test-support/runtime-db frame-a))]))
       (finally
         (rf.trace.tooling/unregister-listener! ::destroy-tail-fence)))))
 

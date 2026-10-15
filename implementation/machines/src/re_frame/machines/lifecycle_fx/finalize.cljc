@@ -65,7 +65,6 @@
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.result :as rf.machines.result]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.registrar :as rf.registrar]
@@ -315,7 +314,7 @@
         ;; runs outside any drain (inside the event's drain, that trace's
         ;; listeners run after the drain). Every subsequent framework-owned action —
         ;; teardown, registrar unregister, HTTP/timer cancellation,
-        ;; rf.machines.classification/spawn-order drop, the `:on-error` dispatch, and the
+        ;; the rf.machines.classification drop, the `:on-error` dispatch, and the
         ;; runtime-db / fx publication — is A-derived tail; running it after A
         ;; is lost erases or mutates B. `owner-continuation` yields
         ;; `(constantly true)` for a non-router pure-fn / conformance caller
@@ -652,7 +651,7 @@
     ;; below is A-derived framework-owned tail that would erase or mutate B: the
     ;; teardown projection (dissoc B's snapshot / clear its slot), the
     ;; `:rf.machine/destroyed` trace, the HTTP/timer cancellation, the
-    ;; classification + spawn-order drop, the registrar unregister, the
+    ;; classification drop, the registrar unregister, the
     ;; `:on-error` dispatch, and the runtime-db / fx publication. Return the
     ;; inert outcome — runtime-db untouched, no fx — before ANY of them.
     ;; Already-delivered callbacks stand (no rollback); the router's own
@@ -685,7 +684,7 @@
         ;; gate fences only the earlier completion callbacks (validator / done
         ;; trace / `:on-done`); without a recheck between
         ;; these LATER teardown callbacks and the framework-owned actions that
-        ;; follow, the HTTP/timer cancellation, classification/spawn-order
+        ;; follow, the HTTP/timer cancellation, classification
         ;; drop, registrar unregister, and `:on-error` dispatch could all run
         ;; against B (a bare frame-id / machine-id resolves to the CURRENT
         ;; incarnation). Recheck `owner-gone?` before each next framework action;
@@ -707,9 +706,9 @@
           ;; MONOTONIC), leaving B's re-armed timers untouched.
           (rf.machines.timer/cancel-actor-timers! frame-id machine-id owner-gone?))
         ;; RECHECK after the timer-cancellation callbacks before the
-        ;; classification / spawn-order work: without it a
+        ;; classification work: without it a
         ;; `:rf.machine.timer/cancelled` listener that published same-id B would let the
-        ;; A-derived classification drop and spawn-order forget resolve their
+        ;; A-derived classification drop resolve its
         ;; bare frame/actor ids to the CURRENT incarnation B.
         (when-not (owner-gone?)
           ;; Drop this actor's per-instance classification declarations from the
@@ -723,22 +722,8 @@
           (rf.machines.classification/drop-at-destroy! frame-id machine-id machine owner-token))
         ;; `drop-at-destroy!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
-        ;; same-id B DURING the drop. Recheck ownership AFTER it before the
-        ;; spawn-order forget — under one shared
-        ;; precheck a mid-drop successor B would see the bare-id `rf.machines.spawn-order/forget!`
-        ;; erase B's freshly-recorded entry (the finalize sibling of the
-        ;; ordinary-destroy drop seam). The
-        ;; drop write is itself exact; this fences the forget that follows it.
-        (when-not (owner-gone?)
-          ;; Forget the finished actor from the per-frame spawn-order channel — the
-          ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
-          ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
-          ;; Without it a finished actor stays recorded → a later stale
-          ;; `[:rf.machine/destroy id]` sees it live → `teardown-live-actor!`
-          ;; RE-RUNS (phantom destroyed trace + re-fired resource release,
-          ;; violating silent-idempotent destroy) and frame-destroy emits a
-          ;; phantom straggler destroy for it.
-          (rf.machines.spawn-order/forget! frame-id machine-id))
+        ;; same-id B DURING the drop. Recheck ownership AFTER it, before the
+        ;; registrar unregister.
         (when-not (owner-gone?)
           ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
           ;; `:rf.registry/handler-cleared` trace.
@@ -752,7 +737,7 @@
           ;; is the PROGRAM that made the address creatable and outlives it
           ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
           ;; remains the public spelling for permanent removal. The identical
-          ;; gate stands at `destroy/teardown-live-actor!` step (8); a
+          ;; gate stands at `destroy/teardown-live-actor!` step (7); a
           ;; non-machine entry squatting here still gets cleared.
           (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
             (rf.registrar/unregister! :event machine-id)))

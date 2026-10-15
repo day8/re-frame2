@@ -35,8 +35,7 @@
   it empties, mirroring `:spawned`.
 
   The pure constructors/removers for the slot live in
-  `re-frame.machines.spawn-order` alongside the transient process-side
-  cache of the same order.
+  `re-frame.machines.spawn-order`.
 
   These constructors are the single source of truth for the literal
   path vectors that `src/` reads and writes (`get-in` / `update-in` /

@@ -23,7 +23,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]
@@ -89,11 +88,9 @@
 
 (deftest timer-cancel-loss-fences-loop-and-tail
   (testing "A has two armed timers. The FIRST cancellation's listener destroys A,
-            publishes same-id B, re-arms B's timer under the SECOND key and
-            records B's spawn-order. B's timer survives, exactly one
-            :on-destroy cancellation fires, finalize never forgets B's
-            spawn-order entry, and finalize returns the inert outcome."
-    (rf.machines.spawn-order/reset-all!)
+            publishes same-id B and re-arms B's timer under the SECOND key.
+            B's timer survives, exactly one :on-destroy cancellation fires,
+            and finalize returns the inert outcome."
     (reset! rf.machines.timer/after-timers {})
     (let [frame-a    :rf2-4ipqe4/timer-loss-frame
           machine-id :rf2-4ipqe4/timer-loss
@@ -113,8 +110,7 @@
             (when (compare-and-set! fired? false true)
               (rf.frame/destroy-frame! frame-a)
               (rf/make-frame {:id frame-a})
-              (seed-timer! frame-a machine-id 200 ::b-tok-2)
-              (rf.machines.spawn-order/record! frame-a machine-id)))))
+              (seed-timer! frame-a machine-id 200 ::b-tok-2)))))
       (try
         (let [rt-a (rf.machines.test-support/runtime-db frame-a)
               ret  (finalize-under-owner frame-a machine-id rt-a)]
@@ -122,11 +118,9 @@
           ;; :reason :on-frame-destroy — the loop never reaches it.
           (is (= {:b-k2-token  ::b-tok-2
                   :on-destroy  1
-                  :spawn-order [machine-id]
                   :ret         {:rf.db/runtime rt-a :fx []}}
                  {:b-k2-token  (get-in @rf.machines.timer/after-timers [frame-a k2 :token])
                   :on-destroy  (count (filter #(= :on-destroy (get-in % [:tags :reason])) @cancelled))
-                  :spawn-order (rf.machines.spawn-order/frame-order frame-a)
                   :ret         ret})))
         (finally
           (rf.trace.tooling/unregister-listener! ::timer-fence))))))
@@ -134,7 +128,6 @@
 (deftest timer-cancel-live-owner-cancels-all
   (testing "control: with no loss, finalize cancels BOTH timers and tears the
             actor's snapshot down — the fence is scoped to owner loss"
-    (rf.machines.spawn-order/reset-all!)
     (reset! rf.machines.timer/after-timers {})
     (let [frame-a    :rf2-4ipqe4/timer-live-frame
           machine-id :rf2-4ipqe4/timer-live
@@ -167,7 +160,6 @@
             child's unregister) destroys A and publishes same-id B: the stale
             spawn-error (:on-error) dispatch never routes into B and finalize
             returns the inert outcome"
-    (rf.machines.spawn-order/reset-all!)
     (let [frame-a        :rf2-4ipqe4/registrar-loss-frame
           parent-id      :rf2-4ipqe4/registrar-loss-parent
           child-id       :rf2-4ipqe4/registrar-loss-child
@@ -249,7 +241,6 @@
             the spawn install write: no A-derived snapshot lands on B, B's
             commit epoch is not bumped, and no spawn-order entry or
             :rf.machine.lifecycle/spawned is attributed after the loss"
-    (rf.machines.spawn-order/reset-all!)
     (rf/reg-machine :rf2-4ipqe4/spawn-write-child
       {:initial :running
        :states  {:running {:on {:go :done}}
@@ -283,10 +274,9 @@
                                     :start      [:go]})))
           ;; b-birth is nil unless the watch ran, so this also proves the
           ;; fence was exercised.
-          (is (= [@b-birth @b-commit [] []]
+          (is (= [@b-birth @b-commit []]
                  [(rf.machines.test-support/runtime-db frame-a)
                   (rf.frame/frame-commit-epoch frame-a)
-                  (rf.machines.spawn-order/frame-order frame-a)
                   (filterv #(= :rf.machine.lifecycle/spawned (:operation %)) @traces)])))
         (finally
           (rf.trace.tooling/unregister-listener! ::spawn-write-fence)

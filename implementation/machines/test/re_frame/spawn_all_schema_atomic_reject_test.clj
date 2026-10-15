@@ -7,7 +7,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             ;; the registered-validator path and Malli's validate/explain
             [re-frame.schemas]
@@ -54,7 +53,7 @@
                                {:id :bad2 :machine-id :sa/strict :data {:n -2}}])
     (is (= {:rf/spawn-all-rejected? true} (get-in (machines-db) [:spawned :sup/mixed [:forking]])))
     (is (= #{:sup/mixed} (set (keys (:snapshots (machines-db))))))
-    (is (= [] (rf.machines.spawn-order/frame-order :rf/default)))
+    (is (nil? (:spawn-order (machines-db))))
     (is (= [{:n -2} {:n -1}]
            (sort-by :n (mapv #(select-keys (get-in % [:tags :value]) [:n]) (schema-failures)))))))
 

@@ -13,7 +13,6 @@
    [re-frame.machines]
    [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
    [re-frame.machines.paths :as rf.machines.paths]
-   [re-frame.machines.spawn-order :as rf.machines.spawn-order]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
@@ -68,7 +67,6 @@
   unregistered-type record); when `destroy?`, it first destroys A and publishes
   same-id B. Returns what the frame id holds afterwards."
   [frame-a children {:keys [trigger destroy?]}]
-  (rf.machines.spawn-order/reset-all!)
   (rf.machines.test-support/reset-captured!)
   (rf/make-frame {:id frame-a})
   (let [token-a       (rf.frame/frame-incarnation-token frame-a)

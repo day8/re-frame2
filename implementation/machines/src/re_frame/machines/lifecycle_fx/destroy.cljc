@@ -62,7 +62,6 @@
             [re-frame.machines.lifecycle-fx.teardown :as rf.machines.lifecycle-fx.teardown]
             [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]))
 
@@ -80,7 +79,7 @@
 ;; that stack only when the effect is called directly, outside any drain; inside
 ;; the drain those listeners run after it. Each boundary that runs on the stack
 ;; can synchronously destroy A and publish a same-id successor B. Every subsequent
-;; framework-owned action (classification / timer / spawn-order / registrar /
+;; framework-owned action (classification / timer / registrar /
 ;; resource-owner / the durable teardown projection) resolves a bare frame /
 ;; actor id to the CURRENT incarnation B, so running it after A is lost erases
 ;; or mutates B. The fence captures A's continuation + raw token ONCE at the
@@ -133,32 +132,18 @@
       singleton — whose definition survives its teardown — would still read
       live, so a second `[:rf.machine/destroy <id>]` would re-run the whole
       pipeline: phantom `:rf.machine/destroyed` trace plus re-fired resource
-      release, the exact violation `finalize.cljc` names for the sibling
-      spawn-order channel. Destroying a NEVER-STARTED singleton is a genuine
-      no-op for the same reason.
+      release. Destroying a NEVER-STARTED singleton is a genuine no-op for
+      the same reason.
     - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`
-      in `runtime-db` — or, when `runtime-db` does not carry it, in the
-      frame's LIVE runtime-db. The second read is gated on a hit in the
-      transient `spawn-order` cache, which is what makes it cheap: only an
-      id a spawn committed in this process can be in the stale-read window
-      at all.
+      in `runtime-db` or in the frame's LIVE runtime-db.
 
-  The `runtime-db` argument is often a drain-time `old-db`, captured when
-  the `:rf.machine/destroy` effect entered. A spawn and a destroy
-  back-to-back in one `:fx` vector therefore present an actor that IS
-  live and yet absent from that value — the window the third clause
-  covers.
-
-  The cache is never trusted outright: no production
-  runtime-state install clears the cache, so after a `restore-epoch!` /
-  `replace-frame-state!` that rewinds PAST a spawn, a cache entry names an
-  actor the installed durable value DISCARDED. A bare-cache clause would
-  report such an actor live and run a full teardown — trace, `:exit`
-  cascade and all — for something no longer in the frame, in violation of
-  Spec 005 §Destroy is silent-idempotent. Re-reading the LIVE runtime-db
-  covers the stale-`old-db` window exactly (`rf.machines.spawn-order/record!` runs
-  only after `install-spawn!` commits, so a cached id whose actor is live
-  always has a live snapshot) while giving durable state the last word.
+  The `runtime-db` argument is a value the caller read before the probe —
+  the `:rf.machine/destroy` effect reads it once, at entry — so the probe
+  also reads the frame's live runtime-db, which costs one `get-in`. Both
+  reads are durable state, so an in-process runtime-state install
+  (`restore-epoch!`, `replace-frame-state!`) that rewinds PAST a spawn
+  leaves the discarded actor absent from both, and destroying it is the
+  silent no-op Spec 005 §Destroy is silent-idempotent requires.
 
   A truly-already-destroyed actor has both signals gone — the unified
   teardown projection and registrar cleanup run atomically per
@@ -176,8 +161,7 @@
                 ;; it is the shared TYPE, and it outlives every instance.
                 (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
            (snapshot-present? runtime-db actor-id)
-           (and (some #(= actor-id %) (rf.machines.spawn-order/frame-order frame-id))
-                (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id)))))
+           (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id))))
 
 (declare reap-tracked-children!)
 
@@ -212,13 +196,9 @@
        — `destroy-resolved!` emits here so the
        trace lands after `:exit`; `destroy-single-actor!`'s
        callers own the emit, so they pass nil;
-    7. forget the actor from the per-frame spawn-order channel
-       REGARDLESS of whether the runtime-db swap landed — by the time
-       frame-destroy runs the container may already be nil but the
-       spawn-order entry still needs clearing;
-    8. when the swap landed, clear any PER-INSTANCE registrar entry (normal
+    7. when the swap landed, clear any PER-INSTANCE registrar entry (normal
        spawned actors have none) — never a machine DEFINITION;
-    9. release the actor's resource owners — fire
+    8. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind) so a resource the actor
        `ensure`d under its machine-owner key does not leak the owner (keep
@@ -295,13 +275,7 @@
       ;; exact owner survives (a mid-write watch that lost A flips `owner-gone?`).
       (when (and emit-destroyed!-fn (not (owner-gone?)))
         (emit-destroyed!-fn))
-      ;; (7) forget the actor from the per-frame spawn-order channel — rechecked
-      ;; after the destroyed trace so a listener that published same-id B (on
-      ;; the direct-call path) cannot have A's forget erase B's own
-      ;; freshly-recorded spawn-order entry.
-      (when-not (owner-gone?)
-        (rf.machines.spawn-order/forget! frame-id actor-id))
-      ;; (8) when the projection landed, clear any registrar entry
+      ;; (7) when the projection landed, clear any registrar entry
       ;; (`:rf.registry/handler-cleared`, callback-bearing). When the effect is
       ;; called directly, outside any drain, the `:rf.machine/destroyed` trace
       ;; at (6) is ITSELF a callback boundary: a listener can destroy A and
@@ -320,12 +294,12 @@
       ;; — silently delete an authoring artefact the destroy never named.
       ;; `rf/clear` remains the public spelling for permanent removal. A plain
       ;; `reg-event` handler squatting here carries no `:rf/machine? true`, so
-      ;; `spec-from-registry` returns nil and step (8) still clears it — which
+      ;; `spec-from-registry` returns nil and step (7) still clears it — which
       ;; is the stale/externally-installed case this step exists for.
       (when (and db-swapped? (not (owner-gone?))
                  (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
         (rf.registrar/unregister! :event actor-id))
-      ;; (9) release the actor's resource owners once it is gone, so
+      ;; (8) release the actor's resource owners once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
       ;; keep refetching/polling. Rechecked after the unregister callback: a lost
       ;; owner must not fire `:rf.resource/release-owner` against B's live owners.
@@ -342,8 +316,7 @@
   the active configuration's `:exit` cascade, apply the
   unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
-  `:rf.http/managed` requests, clear any registrar entry, and
-  forget the actor from the per-frame spawn-order channel.
+  `:rf.http/managed` requests, and clear any registrar entry.
   The ordered teardown pipeline is shared with `destroy-resolved!` via
   `teardown-live-actor!`.
 
@@ -590,17 +563,16 @@
   is a **silent idempotent no-op**: subsequent destroy attempts emit NO
   `:rf.machine/destroyed` trace, perform NO teardown, and raise NO error.
   The liveness probe must distinguish *already-destroyed* (the actor was
-  alive and the teardown projection ran) from *not-yet-materialised-snapshot*
-  (the actor IS alive in this drain — a spawn + destroy back-to-back in the
-  same `:fx` vector, before the snapshot swap landed). Liveness is the
-  shared `actor-live?` probe — registrar entry / snapshot / spawn-order,
-  identical for every shape (a tracked slot naming a dead actor is STALE
-  OWNERSHIP BOOKKEEPING, pruned by `destroy-tracked!` without re-running
-  lifecycle teardown, never a liveness signal).
+  alive and the teardown projection ran) from *alive* — including an actor
+  a spawn earlier in the same `:fx` vector has just installed. Liveness is
+  the shared `actor-live?` probe — registrar entry / snapshot in the given
+  or the live runtime-db, identical for every shape (a tracked slot naming
+  a dead actor is STALE OWNERSHIP BOOKKEEPING, pruned by `destroy-tracked!`
+  without re-running lifecycle teardown, never a liveness signal).
 
   A truly-already-destroyed actor has ALL the probe's signals gone — the
-  unified teardown projection, registrar cleanup, and `rf.machines.spawn-order/forget!`
-  run atomically per `destroy-single-actor!` and `finalize-machine`.
+  unified teardown projection and registrar cleanup run atomically per
+  `destroy-single-actor!` and `finalize-machine`.
   See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
 
   `fence` carries the destroy-effect's exact-incarnation gate +
@@ -887,9 +859,9 @@
   actor's liveness identical to its snapshot's presence and nothing else, which
   is exactly this predicate.
 
-  `actor-live?`'s spawn-order clause is not needed here either: it covers the
-  drain-time stale `old-db` window, and both callers read the frame's LIVE
-  `runtime-db`, which by definition has no such window.
+  `actor-live?`'s second snapshot read is not needed here either: it covers a
+  `runtime-db` value read before the probe, and this predicate reads the
+  frame's LIVE `runtime-db` itself.
 
   TWO CALLERS, ONE PROBE, OPPOSITE VERDICTS. Occupancy at a SUPPLIED
   `:fixed-actor-id` means REPLACE — `destroy-occupant-for-replacement!` below.
@@ -913,7 +885,7 @@
   directly. Because a spawned actor's liveness IS its snapshot's presence
   (Spec 005 §Liveness is derived from runtime-db), a bare `assoc-in` at the
   snapshot path would be simultaneously the new actor's
-  BIRTH and the occupant's unannounced DEATH — none of the nine ordered
+  BIRTH and the occupant's unannounced DEATH — none of the eight ordered
   teardown steps would run and all three of Spec 005 §What auto-cancels on
   destroy's named guarantees would be silently void (the occupant's authored
   `:exit` would never fire, its armed `:after` timers would stay armed on the
@@ -941,7 +913,7 @@
   registered machine's own registration key, a registrar cleanup there
   would delete that shared DEFINITION, stranding the replacement (whose snapshot
   resolves its handler back through exactly that key) and every sibling actor of
-  the type with it. `teardown-live-actor!` step (8) preserves EVERY
+  the type with it. `teardown-live-actor!` step (7) preserves EVERY
   definition-bearing address on EVERY destroy path, so this call site needs no
   exception of its own. Preservation costs no re-registration: a re-registration
   would fire the hot-reload hooks and a `:rf.registry/handler-cleared` +

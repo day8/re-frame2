@@ -11,7 +11,6 @@
             [re-frame.machines]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -96,7 +95,6 @@
 ;; ---- spawn-tail fence -----------------------------------------------------
 
 (deftest spawn-trace-listener-loss-fences-install
-  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine :rf2-3evq0x/spawn-child
     {:initial :running
      :states  {:running {:on {:go :done}}
@@ -123,8 +121,6 @@
                                                     {:machine-id :rf2-3evq0x/spawn-child :start [:go]}))
         (is (= @b-birth (rf.machines.test-support/runtime-db frame-a))
             "B's runtime-db is byte-identical to its birth value (no A-derived install)")
-        (is (empty? (rf.machines.spawn-order/frame-order frame-a))
-            "no A-derived spawn-order entry recorded against B")
         (is (empty? @dispatches) "no :start dispatch fired into B")
         (finally
           (rf.trace.tooling/unregister-listener! ::spawn-trace-fence)
