@@ -149,12 +149,12 @@
           (is (refused {:rf.error/id :rf.error/http-no-reply-target} #(invoke request)))
           (doseq [k [:reply-to :on-success :on-failure]]
             (is (refused {:rf.error/id :rf.error/http-bad-reply-target :key k}
-                         #(invoke (assoc request k :items/loaded)))
-                (str "a bare-keyword " k)))
+                         #(invoke (assoc request k {:not :a-vector})))
+                (str "a map-valued " k)))
           (is (refused {:rf.error/id :rf.error/http-bad-reply-target
                         :reason      :mixed-addressing
                         :keys        [:reply-to :on-failure]}
-                       #(invoke (assoc request :reply-to [:a] :on-failure nil)))))))))
+                       #(invoke (assoc request :reply-to nil :on-failure nil)))))))))
 
 ;; ---- canned stubs ---------------------------------------------------------
 
