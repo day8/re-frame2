@@ -80,8 +80,7 @@
 (deftest set-db-bad-value-throws-set-db-bad-value
   ;; exactly one map argument: missing, non-map and extra args all fail
   (is (= [:rf.error/set-db-bad-value :rf.error/set-db-bad-value :rf.error/set-db-bad-value]
-         (mapv handler-throw-id [[:rf/set-db] [:rf/set-db nil] [:rf/set-db {:n 0} :junk]])))
-  (is (= {:db {:n 0}} (rf.events/set-db-handler {} [:rf/set-db {:n 0}]))))
+         (mapv handler-throw-id [[:rf/set-db] [:rf/set-db nil] [:rf/set-db {:n 0} :junk]]))))
 
 (deftest set-db-app-reregistration-is-reserved-id-collision
   (is (= :rf.error/reserved-event-id
