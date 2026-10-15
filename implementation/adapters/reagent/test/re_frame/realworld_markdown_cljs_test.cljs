@@ -1,40 +1,11 @@
 (ns re-frame.realworld-markdown-cljs-test
-  "Contract tests for the shared RealWorld article-body markdown renderer
-   (`realworld-shared.markdown`), built on a real CommonMark library
-   (`io.github.nextjournal/markdown`, hiccup-emitting mode).
-
-   The renderer source is example code (`examples/real-apps/realworld_shared/...`), but the
-   contract lives HERE in the adapter test tree per the
-   test-free-examples policy — the same posture as the shared wire-contract
-   suite (`realworld_shared_contract_cljs_test.cljs`). Runs under the always-on `:node-test` gate (markdown-it
-   is pure JS — no DOM — so it tokenizes fine in plain Node).
-
-   Two contracts:
-
-   1. SAFE BY CONSTRUCTION (XSS). The renderer emits HICCUP DATA — never an
-      HTML string, never `:dangerouslySetInnerHTML` — so React escapes all
-      text. Adversarial input must NOT yield executable markup:
-        - a `<script>` / raw-HTML injection is inert (escaped text, no
-          `:script` element, no dangerously-set-inner-html anywhere);
-        - an `<img onerror=...>` injection is inert (no live `:img` element
-          synthesised from raw HTML);
-        - a `[text](javascript:...)` link drops the unsafe `:href` (the link
-          text survives) and likewise for `data:` image `:src`.
-
-   2. CommonMark FIDELITY. A GFM table, a nested list, and an image render
-      correctly."
+  "Shared CommonMark output preserves content while raw HTML and unsafe URL schemes remain inert."
   (:require [clojure.walk :as walk]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing is]]
             [realworld-shared.markdown :as md]))
 
-;; ---------------------------------------------------------------------------
-;; Hiccup tree-walk helpers (the renderer returns pure hiccup data)
-;; ---------------------------------------------------------------------------
-
 (defn- elements
-  "All hiccup element vectors in `tree` (depth-first), i.e. vectors whose
-   head is a keyword tag."
   [tree]
   (let [acc (atom [])]
     (walk/postwalk
@@ -46,24 +17,18 @@
     @acc))
 
 (defn- tags
-  "The set of element tag keywords present in `tree`."
   [tree]
   (into #{} (map first) (elements tree)))
 
 (defn- attrs-of
-  "All attribute maps (the second element of an element vector, when a map)
-   present in `tree`."
   [tree]
   (into []
         (keep (fn [node]
-                (when (and (vector? node)
-                           (keyword? (first node))
-                           (map? (second node)))
+                (when (map? (second node))
                   (second node))))
         (elements tree)))
 
 (defn- strings-of
-  "All string leaves in `tree` concatenated — the visible text."
   [tree]
   (let [acc (atom [])]
     (walk/postwalk
@@ -73,20 +38,8 @@
       tree)
     (str/join " " @acc)))
 
-(defn- href-tag-keyword?
-  "The language fence encodes the language INTO the tag keyword
-   (`:code.language-js`). Guard against a false `:script`/etc. positive by
-   only matching exact tags."
-  [tag wanted]
-  (= tag wanted))
-
-;; ===========================================================================
-;; 1. SAFE BY CONSTRUCTION
-;; ===========================================================================
-
+;; The parser also rejects schemes; pin our sanitization layer directly.
 (deftest safe-url-predicate-allowlist
-  ;; The defensive sanitization primitive, tested in isolation (markdown-it
-  ;; also rejects these schemes upstream, so this pins OUR layer directly).
   (testing "allowlisted absolute schemes + relative navigation are safe"
     (is (= [] (remove md/safe-url? ["https://example.com" "http://example.com" "mailto:a@b.c"
                                     "/relative/path" "#fragment" "./sibling" "../parent"]))))
@@ -103,64 +56,44 @@
                  "[x](javascript:alert(1))"
                  "![y](data:text/html;base64,PHNjcmlwdD4=)"]]
       (let [tree (md/render src)]
-        (is (not (some #(contains? % :dangerouslySetInnerHTML) (attrs-of tree)))
-            (str "no :dangerouslySetInnerHTML for input: " (pr-str src)))))))
+        (is (not (some #(contains? % :dangerouslySetInnerHTML) (attrs-of tree))))))))
 
 (deftest script-injection-is-inert
   (testing "a <script> injection never becomes a live :script element"
     (let [tree (md/render "Hello\n\n<script>window.__pwned = true</script>\n\nbye")]
-      ;; The raw source survives only as inert (React-escaped) text so the
-      ;; user can SEE what was in the document.
       (is (= [false true]
-             [(contains? (tags tree) :script) (str/includes? (strings-of tree) "window.__pwned")])
-          "raw <script> does not become a :script hiccup element; its source is preserved as inert escaped text")))
+             [(contains? (tags tree) :script) (str/includes? (strings-of tree) "window.__pwned")]))))
 
   (testing "raw inline HTML with an attribute is inert (no live element)"
     (let [tree (md/render "before <b onclick=\"boom()\">x</b> after")]
-      ;; The raw <b ...> is NOT promoted to a live :b element with an
-      ;; onclick — it is rendered as inert escaped text.
       (is (= [false true]
              [(boolean (some #(contains? % :onclick) (attrs-of tree)))
-              (str/includes? (strings-of tree) "onclick")])
-          "no live onclick attribute is synthesised from raw HTML; the raw HTML (incl. the onclick attr) renders as inert text"))))
+              (str/includes? (strings-of tree) "onclick")])))))
 
 (deftest img-onerror-injection-is-inert
   (testing "a raw <img onerror=...> injection never becomes a live :img with onerror"
     (let [tree (md/render "<img src=x onerror=alert(1)>")]
-      (is (not (some #(contains? % :onerror) (attrs-of tree)))
-          "no live onerror handler is synthesised from raw HTML")
-      ;; If a defensive renderer ever DID emit an :img, its src must not be
-      ;; the bare `x` from raw HTML — but the contract is simply: no live
-      ;; onerror. The raw markup survives as inert escaped text.
-      (is (str/includes? (strings-of tree) "onerror")
-          "the raw <img onerror=...> renders as inert escaped text"))))
+      (is (= [true true]
+             [(not (some #(contains? % :onerror) (attrs-of tree)))
+              (str/includes? (strings-of tree) "onerror")])))))
 
 (defn- attr-values
-  "All values of attribute `k` across every element attribute map in `tree`."
   [tree k]
   (into [] (keep #(get % k)) (attrs-of tree)))
 
 (deftest unsafe-link-href-never-reaches-a-live-attribute
-  ;; Two layers neutralise a dangerous link scheme: markdown-it's own
-  ;; `validateLink` rejects `javascript:`/`vbscript:`/`data:` (the link
-  ;; degrades to literal text, no anchor), and our `sanitize-hiccup` drops
-  ;; any unsafe `:href` that survives. Either way the contract is the same:
-  ;; the unsafe URL never appears as a live `:href`, and the link text is
-  ;; preserved (as anchor text or as inert literal text).
   (testing "a javascript: link never yields a live :href; text survives"
     (let [tree (md/render "click [here](javascript:alert(document.cookie))")]
-      (is (not (some #(str/includes? (str %) "javascript:") (attr-values tree :href)))
-          "no :href carries the javascript: scheme")
-      (is (str/includes? (strings-of tree) "here")
-          "the link text survives (as anchor text or inert literal text)")))
+      (is (= [true true]
+             [(not (some #(str/includes? (str %) "javascript:") (attr-values tree :href)))
+              (str/includes? (strings-of tree) "here")]))))
 
   (testing "vbscript: and data: links never yield a live :href"
     (doseq [scheme ["vbscript:msgbox(1)" "data:text/html,<script>alert(1)</script>"]]
       (let [tree (md/render (str "[x](" scheme ")"))]
         (is (empty? (filter #(or (str/includes? (str %) "vbscript:")
                                  (str/includes? (str %) "data:"))
-                            (attr-values tree :href)))
-            (str "no live :href for unsafe scheme: " scheme)))))
+                            (attr-values tree :href)))))))
 
   (testing "a safe http(s) / relative / mailto href IS preserved on an anchor"
     (doseq [[href expect] [["https://example.com" "https://example.com"]
@@ -168,9 +101,8 @@
                            ["mailto:a@b.c"        "mailto:a@b.c"]
                            ["#anchor"             "#anchor"]]]
       (let [tree    (md/render (str "[x](" href ")"))
-            anchors (filter #(href-tag-keyword? (first %) :a) (elements tree))]
-        (is (some (fn [a] (= expect (:href (second a)))) anchors)
-            (str "safe href preserved: " href))))))
+            anchors (filter #(= :a (first %)) (elements tree))]
+        (is (some (fn [a] (= expect (:href (second a)))) anchors))))))
 
 (deftest unsafe-image-src-never-reaches-a-live-attribute
   (testing "a javascript:/data: image src never yields a live :src"
@@ -178,12 +110,7 @@
       (let [tree (md/render (str "![alt](" src ")"))]
         (is (empty? (filter #(or (str/includes? (str %) "javascript:")
                                  (str/includes? (str %) "data:"))
-                            (attr-values tree :src)))
-            (str "no live :src for unsafe scheme: " src))))))
-
-;; ===========================================================================
-;; 2. CommonMark FIDELITY (tables, nested lists, images)
-;; ===========================================================================
+                            (attr-values tree :src))))))))
 
 (deftest renders-gfm-table
   (testing "a GFM table renders as a real table structure"
@@ -195,20 +122,17 @@
       (is (= [true true true]
              [(contains? ts :table)
               (or (contains? ts :th) (contains? ts :td))
-              (every? #(str/includes? text %) ["A" "1"])])
-          "a :table element with cells is emitted, carrying the header and body cell text"))))
+              (every? #(str/includes? text %) ["A" "1"])])))))
 
 (deftest renders-nested-list
   (testing "a nested unordered list renders nested :ul structure"
     (let [tree (md/render (str "- top\n"
                                "  - nested-a\n"
                                "  - nested-b\n"))
-          ;; count :ul elements anywhere in the tree — a nested list yields >1
           uls  (filter #(= :ul (first %)) (elements tree))
           text (strings-of tree)]
       (is (= [true true]
-             [(>= (count uls) 2) (every? #(str/includes? text %) ["top" "nested-a" "nested-b"])])
-          "a nested list produces at least two :ul elements (outer + inner), and every list item's text is present"))))
+             [(>= (count uls) 2) (every? #(str/includes? text %) ["top" "nested-a" "nested-b"])])))))
 
 (deftest renders-image
   (testing "an image renders as a real :img with src + alt"
@@ -216,8 +140,7 @@
           imgs (filter #(= :img (first %)) (elements tree))]
       (is (some (fn [i] (= ["https://example.com/kitten.png" "a kitten"]
                            ((juxt :src :alt) (second i))))
-                imgs)
-          "an :img is emitted with its safe :src and its :alt preserved"))))
+                imgs)))))
 
 (deftest renders-baseline-shapes
   (testing "headings, emphasis, code, and blockquote render"
@@ -225,8 +148,7 @@
                                "A **bold** and *italic* and `code` span.\n\n"
                                "> a quote\n"))
           ts   (tags tree)]
-      (is (= [] (remove ts [:h1 :strong :em :code :blockquote]))
-          "ATX heading, bold, italic, inline code and blockquote are all emitted")))
+      (is (= [] (remove ts [:h1 :strong :em :code :blockquote])))))
 
   (testing "a blank / nil source renders an empty fragment without throwing"
     (is (= [[:<>] [:<>] [:<>]] (map md/render [nil "" "   \n  "])))))
