@@ -11,6 +11,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
