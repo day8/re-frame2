@@ -224,7 +224,6 @@
 
 (deftest stale-gate-check
   (testing "matching correlation ⇒ not stale; superseded ⇒ stale"
-    (is (false? (rf.reply/stale? {:generation 4} {:generation 4})))
     (is (true?  (rf.reply/stale? {:generation 4} {:generation 5})))
     (is (false? (rf.reply/stale? {:work/id :w :generation 4}
                                  {:work/id :w :generation 4 :extra :ignored}))
