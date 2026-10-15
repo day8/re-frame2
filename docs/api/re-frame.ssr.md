@@ -322,28 +322,26 @@ What the client sees is the projected `:status`.
   ```clojure
   (reg-error-projector id ?metadata projector-fn) → id
   ```
-- **Description**: Registers an error projector under `id`; a frame selects it with `:ssr {:public-error-id id}`. `projector-fn` is `(fn [trace-event] :rf/public-error)`. Returns `id`.
+- **Description**: Registers an error projector under `id`; a frame selects it with `:ssr {:public-error-id id}`. `projector-fn` is `(fn [trace-event] :rf/public-error)`, or returns `nil` to leave that error to the default projector. Returns `id`.
     - `trace-event` is `{:operation <error id> :op-type :error :tags {…}}`. `:operation` is the `:rf.error/*` id, such as `:rf.error/handler-exception`, `:rf.error/sub-exception` or `:rf.error/ssr-render-failed`; `:tags` carries that error's detail: `:frame`, `:exception` when something threw, and discriminators such as `:kind` and `:where`.
     - Any `:rf.error/*` record stamped with the request frame reaches the projector, except the degradations listed [above](#error-projection). A request under the Ring handler meets `:rf.error/fx-handler-exception`, `:rf.error/sub-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:rf.error/schema-validation-failure` and `:rf.error/ssr-render-failed` (any throw while rendering the body, every Node-renderer failure included). `:rf.error/handler-exception`, `:rf.error/interceptor-exception`, `:rf.error/coeffect-exception`, `:rf.error/flow-eval-exception` and `:rf.error/cofx-value-invalid` raised by an `:initial-events` step never reach it: the step aborts frame construction and the request answers through `:on-error`. `:rf.error/no-such-route` never arrives: `route-url` throws it at the call site, so a miss inside a handler reaches the projector as `:rf.error/handler-exception`.
     - The return shape is closed. It must carry exactly the four [`public-error-keys`](#public-error-keys): `:status` (an integer in `400`–`599`), `:code` (a keyword), `:message` (a string) and `:retryable?` (a boolean). Nothing may be missing and nothing added, including a `:details` of your own; only the runtime adds `:details`, after validation, under `:ssr {:dev-error-detail? true}`.
-    - A non-conforming return makes [`project-error`](#project-error) emit `:rf.error/sanitised-on-projection` and serve [`fallback-public-error`](#fallback-public-error) instead, on every error, for as long as that projector is registered.
-    - A custom projector does not inherit the default's tag checks. `:rf.error/no-such-handler` is a `404` only when `[:tags :kind]` is `:route`, and `:rf.error/schema-validation-failure` is a `400` only when `[:tags :where]` is `:event`. Check the tag as the example does. Otherwise an unregistered event id answers `404`, and a server-side `:where :fx-args` failure is reported as the client's fault ([`default-error-projector-fn`](#default-error-projector-fn) explains why). To add a few cases and keep the default's mapping for the rest, return `(ssr/default-error-projector-fn trace-event)` from your last arm.
+    - A `nil` return defers: [`project-error`](#project-error) applies [`default-error-projector-fn`](#default-error-projector-fn) to the same trace event and records nothing. So handle your own cases and return `nil` for the rest, and the default's `404` and `400` arms still answer them.
+    - Any other non-conforming return makes [`project-error`](#project-error) emit `:rf.error/sanitised-on-projection` and serve [`fallback-public-error`](#fallback-public-error) instead, on every error, for as long as that projector is registered.
+    - An arm of your own for a category the default gates must check the same tag. `:rf.error/no-such-handler` is a `404` only when `[:tags :kind]` is `:route`, and `:rf.error/schema-validation-failure` is a `400` only when `[:tags :where]` is `:event`. Check the tag as the example does. Otherwise an unregistered event id answers `404`, and a server-side `:where :fx-args` failure is reported as the client's fault ([`default-error-projector-fn`](#default-error-projector-fn) explains why).
 - **Example**:
   ```clojure
   (rf/reg-error-projector :app/public-error
     (fn [trace-event]
-      ;; Gate the 404 on `:kind :route`: only a URL that matched no route
-      ;; is a missing page. An unregistered event id or frame id arrives
-      ;; under the same category and is a server defect: 500, not 404.
-      (if (and (= :rf.error/no-such-handler (:operation trace-event))
-               (= :route (get-in trace-event [:tags :kind])))
+      ;; Reword the route-miss 404, gated on `:kind :route` as the default
+      ;; gates it: an unregistered event id or frame id arrives under the
+      ;; same category and is a server defect. Everything else returns nil,
+      ;; so the default projector answers it.
+      (when (and (= :rf.error/no-such-handler (:operation trace-event))
+                 (= :route (get-in trace-event [:tags :kind])))
         {:status     404
          :code       :not-found
          :message    "We couldn't find that page."
-         :retryable? false}
-        {:status     500
-         :code       :internal-error
-         :message    "Something went wrong."
          :retryable? false})))
   ```
 
@@ -376,7 +374,8 @@ What the client sees is the projected `:status`.
   ```
 - **Description**: Applies `frame-id`'s error projector to a trace event and returns the client-safe public error. The frame's `:ssr {:public-error-id …}` selects the projector; with none named, the default projector applies.
     - Under `:ssr {:dev-error-detail? true}`, the result carries an extra `:details` key holding the raw trace event. It is absent by default.
-    - If the projector throws or returns a non-conforming shape, `project-error` emits `:rf.error/sanitised-on-projection` and returns [`fallback-public-error`](#fallback-public-error), so a projector bug cannot bypass the projection.
+    - If the projector returns `nil`, [`default-error-projector-fn`](#default-error-projector-fn) answers the same trace event, and nothing is recorded.
+    - If the projector throws or returns any other non-conforming value, `project-error` emits `:rf.error/sanitised-on-projection` and returns [`fallback-public-error`](#fallback-public-error), so a projector bug cannot bypass the projection.
     - A configured `:public-error-id` that names no registered projector gets the same fallback, and the `:rf.error/sanitised-on-projection` record carries `:projection-failure-reason :missing-projector`.
 - **Example**:
   ```clojure
@@ -403,7 +402,7 @@ What the client sees is the projected `:status`.
   fallback-public-error
   ;; => {:status 500 :code :internal-error :message "Something went wrong" :retryable? false}
   ```
-- **Description**: The generic `500` public error. The runtime returns it whenever the active projector throws or returns a non-conforming shape.
+- **Description**: The generic `500` public error. The runtime returns it whenever the active projector throws or returns a non-conforming value other than `nil`.
 
 ## Frame `:ssr` config
 

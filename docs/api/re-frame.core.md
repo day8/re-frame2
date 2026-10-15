@@ -1374,7 +1374,7 @@ SSR registers no subscriptions: `:rf/head` and `:rf/public-error` are data shape
 
 - **Kind**: macro
 - **Signature**: `(reg-error-projector id ?metadata projector-fn) → id`
-- **Description**: Registers a projector `(fn [trace-event] :rf/public-error)` that turns an error trace into the public error a server response shows. A frame selects one with its `:ssr {:public-error-id …}` metadata. See [`reg-error-projector`](re-frame.ssr.md#reg-error-projector).
+- **Description**: Registers a projector `(fn [trace-event] :rf/public-error)` that turns an error trace into the public error a server response shows, or returns `nil` to leave that error to the default projector. A frame selects one with its `:ssr {:public-error-id …}` metadata. See [`reg-error-projector`](re-frame.ssr.md#reg-error-projector).
 
 ### HTTP → [re-frame.http.md](re-frame.http.md)
 

@@ -74,10 +74,10 @@
       (rf/dispatch-sync [:never/registered] {:frame f})
       (is (= [500 500 500]
              [(:status (:response (rf.ssr/flush-response-result! f)))
-              (:status (@documented-projector-fn {:operation :rf.error/no-such-handler
-                                                  :tags      {:kind :frame}}))
-              (:status (@documented-projector-fn {:operation :rf.error/no-such-handler
-                                                  :tags      {}}))])
+              (:status (rf.ssr/project-error f {:operation :rf.error/no-such-handler
+                                                :tags      {:kind :frame}}))
+              (:status (rf.ssr/project-error f {:operation :rf.error/no-such-handler
+                                                :tags      {}}))])
           "[unregistered event, :kind :frame, no :kind]"))))
 
 (deftest the-project-error-example-result-comment-matches-the-runtime
