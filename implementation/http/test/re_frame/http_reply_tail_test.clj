@@ -1,16 +1,9 @@
 (ns re-frame.http-reply-tail-test
-  "Two coupled reply-tail contracts on the JVM:
+  "A throw after a successful JVM request surfaces once as
+  `:rf.error/http-reply-tail-failed` and is never retried. Its trace and
+  always-on error records redact sensitive data and denylisted query values.
 
-  - the reply-target shape (vector or nil) and the exclusivity of `:reply-to`
-    with the `:on-success` / `:on-failure` sugar are refused at DISPATCH time,
-    before the request is issued;
-  - a throw in the reply tail after the transport succeeded is fenced: it
-    surfaces once as `:rf.error/http-reply-tail-failed`, is never retried as a
-    transport failure, and (on the JVM) never vanishes into the unobserved
-    `whenComplete` future. The CLJS retry-storm half is
-    `re-frame.http-reply-tail-cljs-test`.
-
-  A hit-counting loopback server makes a re-send observable."
+  The Fetch retry-storm counterpart is `re-frame.http-reply-tail-cljs-test`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
