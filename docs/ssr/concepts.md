@@ -632,7 +632,7 @@ A few things change between your REPL and a production server:
 | Option | Use it to |
 |---|---|
 | `:client-frame-id` | Stamp a stable frame id into the payload when server and client agree on one in advance ([hydrate, then verify](#the-client-side-hydrate-then-verify)). |
-| `:url-strategy` | Give the per-request frame the client's URL strategy, so `route-link` hrefs in the server markup match the hydrated client's. |
+| `:url-strategy` | Give the per-request frame the client's URL strategy, so `route-link` hrefs in the server markup match the hydrated client's. Under the Node renderer that frame does not render the body: pass the same strategy in the render module's `:frame-opts` ([Render on Node](#render-on-node)). |
 | `:ssr` | Set the per-request frame's `:ssr` config — the [error projector](#when-the-server-throws) and dev error detail. |
 | `:emit-hash?` | Turn off the `data-rf-render-hash` / `data-rf-head-hash` markers (default `true`). |
 | `:schema-digest` | Stamp the schema digest the client's [deploy-drift check](#deploy-drift-checks-come-along-for-free) compares. |
@@ -779,19 +779,27 @@ catches.
 
 #### 2. Write the render module
 
-Use two files. The **policy** — the entry id and the per-partition key lists —
-goes in its own `.cljc` namespace, because the render module is ClojureScript,
-the Ring host in step 3 is Clojure, and a `.cljc` namespace is the only file
-both compilers read:
+Use two files. What both halves must agree on — the entry id, the
+per-partition key lists and the app's frame config — goes in its own `.cljc`
+namespace, because the render module is ClojureScript, the Ring host in step 3
+is Clojure, and a `.cljc` namespace is the only file both compilers read:
 
 ```clojure
-(ns my-app.policy)
+(ns my-app.policy
+  (:require [re-frame.routing :as rf.routing]))
 
 (def root-entry "my-app/root")
 
 (def render-state-policy
   {:app-db     [:todos :session]
    :runtime-db [:rf.runtime/routing :rf.runtime/machines]})
+
+;; The config every frame of this app is made with, on either host.
+(def frame-config
+  {:initial-events [[:app/init]]
+   :url-strategy   (rf.routing/with-base-path
+                     rf.routing/history-url-strategy
+                     "/my-app")})
 ```
 
 Write those lists once. Two hand-kept copies drift, and the sidecar can refuse
@@ -832,7 +840,11 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
     (emit (server/render-body
             {:hiccup            [views/root-view]
              :render-state      partitions
-             :identifier-prefix views/identifier-prefix})))
+             :identifier-prefix views/identifier-prefix
+             ;; The host's frame config, so `route-link` hrefs carry the
+             ;; same base path. Its `:initial-events` do not run here: the
+             ;; JVM already drained them.
+             :frame-opts        policy/frame-config})))
   js/undefined)
 
 (def module
@@ -852,6 +864,11 @@ be read. And **`render` returns `js/undefined`, not `nil`**: `emit` is its only
 output, and the service refuses a module that returns a value. CLJS `nil`
 compiles to `null`, which counts as a value.
 
+**Only projected state crosses to Node.** The request carries the two
+render-state partitions and none of the JVM frame's config, so the render
+module makes its own frame from `:frame-opts`; without the shared
+`frame-config`, a `route-link` rendered on Node drops the host's base path.
+
 #### 3. Select the renderer
 
 Add one option; nothing else about the handler changes:
@@ -865,7 +882,8 @@ Add one option; nothing else about the handler changes:
 
 (def handler
   (ssr-ring/ssr-handler
-    {:initial-events [[:app/init]]
+    {:initial-events (:initial-events policy/frame-config)
+     :url-strategy   (:url-strategy policy/frame-config)
      ;; What the BROWSER may see — an `ssr-handler` opt.
      :payload        [:todos]
      ;; No :root-view — only the default JVM-local renderer reads one.
@@ -886,7 +904,8 @@ at the top level beside `:payload` looks like the live policy but is silently
 ignored, because `ssr-handler` has no such option, so the render projects under
 whatever the renderer was given. For the same reason, step 2's entry table and
 this step's `:render-state` read one shared Var rather than two literals that
-happen to agree today.
+happen to agree today, and so do step 2's `:frame-opts` and this step's
+`:url-strategy`.
 
 `:renderer` is validated at construction, so a misconfigured deployment fails
 at boot rather than at the first request. Omitting it keeps the JVM-local
