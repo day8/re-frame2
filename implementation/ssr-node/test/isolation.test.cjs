@@ -23,10 +23,8 @@ test('the snapshot the module is handed is FROZEN, and a write to it throws', as
 test('the caller’s own object is untouched by a render', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const state = { ':todos': '[1]' };
-    const before = JSON.stringify(state);
     await collect(service, req(state));
-    assert.strictEqual(JSON.stringify(state), before);
-    assert.strictEqual(Object.isFrozen(state), false, 'the SERVICE must not freeze the caller’s object');
+    assert.deepStrictEqual([state, Object.isFrozen(state)], [{ ':todos': '[1]' }, false]);
   });
 });
 
