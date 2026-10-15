@@ -5,7 +5,6 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
             [re-frame.ssr :as rf.ssr]
@@ -32,9 +31,10 @@
   (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _url] nil)))
 
 (defn- server-frame []
-  (rf.frame/make-anon-frame-record!
-    {:platform :server
-     :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}}))
+  (let [id (keyword "ssr" (str (gensym "request-")))]
+    (rf/make-frame {:id id :platform :server
+                    :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}})
+    id))
 
 (defn- status [frame-id] (:status (:response (rf.ssr/flush-response-result! frame-id))))
 
