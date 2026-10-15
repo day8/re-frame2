@@ -492,7 +492,7 @@ The exemption is principled: a Fragment has no DOM element to annotate, and a `[
 
 ### Form-2 handling
 
-When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape), the adapter wraps the returned fn so the inner-fn's hiccup output is annotated on the next call. Annotation lands on the eventual rendered DOM root, not on the outer fn (which is not a DOM element).
+When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape), that call was construction: the substrate keeps the returned inner fn and calls it on every render from then on. The adapter therefore hands the substrate a wrapper around the inner fn, and each call of the wrapper is one render of the view. It runs the same per-render scope a Form-1 render does, the render traces of [Spec 009](009-Instrumentation.md) included, and annotates the inner fn's hiccup output. Annotation lands on the eventual rendered DOM root, not on the outer fn (which is not a DOM element).
 
 ### Cross-host
 
@@ -534,7 +534,7 @@ The wrapper inspects the user render-fn's output and mutates the **first concret
 - `[:tag & children]` (no attrs map) — splice an attrs map in between head and children carrying both attributes.
 - `[fragment / interop-head / fn-component …]` — SKIP (see §Known limits of the tag and of DOM-containment inference below).
 - React-element output (UIx): `React.cloneElement` with `{"data-rf-view": <id>}` on the same call that adds `data-rf2-source-coord`.
-- Form-2: when the render-fn returns a fn, the wrapper recurses on the inner fn's output (same machinery as the source-coord walk).
+- Form-2: the inner fn's output is annotated on every render, by the same machinery as the source-coord walk ([§Form-2 handling](#form-2-handling)).
 
 ### CRITICAL constraint: mutate, do not wrap
 

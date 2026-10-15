@@ -38,16 +38,12 @@
           `:rf/id` for source-coord; the view itself is untagged and so
           invisible to view-id lookup — a documented limit in Spec 006
           §View tagging contract.
-        * Form-2: when the render-fn returns a fn (`(fn [args] body)`),
-          we recurse on the inner-fn's output the next time the wrapper
-          is called — Reagent invokes the inner fn during the SAME
-          render cycle, but the wrapper's annotation runs OUTSIDE
-          Reagent's per-render machinery. The simplest correct shape
-          is to wrap the returned fn so the inner output gets walked
-          too.
-        * Form-3: a `create-class` result also satisfies `fn?`, but it
-          must pass through unchanged so Reagent mounts the class rather
-          than repeatedly treating it as another Form-2 render fn.
+        * Form-2: the walk never sees a Form-2 inner fn. `re-frame.views`
+          recognises one as the construction call's result and hands the
+          substrate a render fn that runs the per-render scope, this walk
+          included, around every call of the inner fn.
+        * Form-3: a `create-class` result satisfies `fn?` too, and passes
+          through unchanged so Reagent mounts the class.
 
     - The wrapper MUST annotate the existing root element. It never
       introduces a synthetic `[:div]`, which would change layout and
@@ -74,7 +70,7 @@
 (def format-source-coord rf.adapter.context/format-source-coord)
 (def format-view-id       rf.adapter.context/format-view-id)
 
-(defn- reagent-class?
+(defn reagent-class?
   "Dependency-free structural predicate for a Reagent-family Form-3 class
   (a `create-class` result). Recognises BOTH supported Reagent
   implementations — stock Reagent AND reagent-slim — without importing
@@ -94,13 +90,14 @@
       this) and installs `prototype.render` + a `cljsReagentRender` fn, never
       `prototype.reagentRender`.
 
-  Matching both markers keeps this dev-only Hiccup walk neutral without a
-  second adapter hook. reagent-slim is a first-class supported adapter, so a
-  slim Form-3 class MUST be recognised here: otherwise it falls to the Form-2
-  `fn?` branch below, is returned as a wrapper, and is later invoked as an
-  ordinary function rather than mounted as a class — losing its React
-  lifecycle. (`re-frame.test-helpers`
-  carries its own slim-aware detection where the test surface needs one.)"
+  Matching both markers keeps core neutral without a second adapter hook.
+  `re-frame.views` asks it on every render to tell a Form-3 class from a
+  Form-2 inner fn. reagent-slim is a first-class supported adapter, so a
+  slim Form-3 class MUST be recognised here: otherwise it is taken for a
+  Form-2 inner fn, wrapped, and later invoked as an ordinary function rather
+  than mounted as a class — losing its React lifecycle.
+  (`re-frame.test-helpers` carries its own slim-aware detection where the
+  test surface needs one.)"
   [x]
   (and (fn? x)
        (or
@@ -137,20 +134,14 @@
   This fn annotates the existing root element; it never wraps the output
   with a synthetic element that would alter layout or selector semantics.
 
-  Form-2: when `out` is a plain fn, return a fn that recurses on the
-  inner output — Reagent's renderer will call our returned fn just like
-  the user's fn, and we get a chance to annotate the inner hiccup.
-
-  Form-3: a Reagent-family `create-class` value (stock Reagent or
-  reagent-slim) is callable too, but it is a component class rather than
-  a Form-2 render fn. Pass it through so the substrate can mount the
-  class; recursively wrapping it as Form-2 never reaches the class
-  renderer."
+  `out` is a render's output, never a Form-2 inner fn: `re-frame.views`
+  takes that for construction and walks the inner fn's output instead.
+  A Reagent-family `create-class` value (stock Reagent or reagent-slim)
+  is passed through so the substrate can mount the class."
   [id coord-attr out]
   (cond
     ;; create-class values satisfy fn?, but Reagent must see the class itself
-    ;; in order to install its lifecycle methods. This check therefore stays
-    ;; ahead of the plain Form-2 branch.
+    ;; in order to install its lifecycle methods.
     (reagent-class? out)
     (do
       ;; A Form-3 class is a component-returning root: it has no concrete DOM
@@ -159,12 +150,6 @@
       ;; one-shot warning for every non-DOM root.
       (rf.views.warn-once/warn-non-dom-root! id out)
       out)
-
-    ;; Form-2: render-fn returned a fn. Wrap so the inner fn's output
-    ;; is also annotated when Reagent calls through.
-    (fn? out)
-    (fn form-2-wrapper [& args]
-      (inject-source-coord-attr id coord-attr (apply out args)))
 
     ;; Hiccup vector with a DOM-tag keyword head. Annotate the root.
     (and (vector? out) (dom-tag? (first out)))
