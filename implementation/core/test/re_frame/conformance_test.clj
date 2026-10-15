@@ -16,7 +16,10 @@
   `^:requires-debug`: the runner reads trace emissions, routed effects and
   the SSR public error off the dev trace and epoch records off the
   trace-fed epoch ring, and none of them exists under
-  `-Dre-frame.debug=false`."
+  `-Dre-frame.debug=false`. The fixtures whose grading reads none of those
+  surfaces (`rf.conformance-runner/prod-posture-fixture?`) run a second time
+  in `run-conformance-corpus-prod-posture`, which is untagged, so the
+  production-gate lane grades them under the gate."
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -183,6 +186,14 @@
 
 (deftest ^:requires-debug run-conformance-corpus
   (rf.conformance-runner/run-corpus (all-fixtures) host "JVM"))
+
+;; The production-posture subset, in both lanes. Its floor sits four fixtures
+;; under the subset's size, so a fixture leaving the subset — by gaining a
+;; dev-only expectation — goes unnoticed only until a handful have.
+(deftest run-conformance-corpus-prod-posture
+  (rf.conformance-runner/run-corpus
+    (filter (comp rf.conformance-runner/prod-posture-fixture? second) (all-fixtures))
+    host "JVM production-posture" 115))
 
 ;; ---- runner self-tests: each proves a check bites rather than no-ops -------
 
