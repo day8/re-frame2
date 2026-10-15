@@ -1,7 +1,7 @@
 (ns re-frame.http-transport-security-test
   "Security-relevant JVM transport guards: invalid-header warnings,
   privacy composition, timeout defaults, redirect policy, failure
-  classification, and supersede suppression on the shared failure tail."
+  classification."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing]]
             [re-frame.http.handlers]
