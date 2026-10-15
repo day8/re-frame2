@@ -1,11 +1,5 @@
 (ns re-frame.routing-plan-test
-  "Pure tests for the navigation-planning seam `re-frame.routing.plan`: the
-  fragment-only classification and the frame stamp on the fail-closed
-  telemetry intents. The rest of the seam is pinned through the doors:
-  fragment normalisation, the `:rf.route/not-found` fallback shape and
-  `:reason` vocabulary, and the per-condition warnings in
-  `routing-plan-seam-test` and `routing-navigation-test`; the scroll plan in
-  `routing-scroll-test`."
+  "Fragment-only classification and frame attribution of fallback telemetry."
   (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.routing.plan :as rf.routing.plan]))
 
