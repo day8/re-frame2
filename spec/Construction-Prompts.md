@@ -999,22 +999,19 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **Client-side bootstrap:**
 
 ```clojure
-(defonce client-frame
-  (rf/make-frame {:id :app/main :initial-events [[:client/bootstrap]]}))
+(defonce app-root (reagent-adapter/client-root))       ;; re-frame.adapter.reagent
 
-(defn read-server-payload []
-  (-> (.getElementById js/document "__rf_payload")
-      .-textContent
-      cljs.reader/read-string))
-
-(defn boot! []
-  (let [payload (read-server-payload)]
-    (when payload
-      (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-    (rdc/render (.getElementById js/document "app")
-                [(rf/view :app/root)])))
-
-(boot!)
+(defn ^:export run []                                  ;; the client build's :init-fn
+  (rf/init! reagent-adapter/adapter)
+  (rf/make-frame {:id :app/main :platform :client})    ;; the client names its own frame; the payload names none
+  (let [payload (ssr/hydrate!                          ;; read __rf_payload, install it, verify the render hash
+                  {:frame :app/main :render-tree-fn (fn [] ((rf/view :app/root)))})]
+    (when-not payload                                  ;; nil: nobody server-rendered this page
+      (rf/dispatch-sync [:client/bootstrap] {:frame :app/main}))
+    (reagent-adapter/render! app-root
+      [rf/frame-provider {:frame :app/main} [(rf/view :app/root)]]
+      (js/document.getElementById "app")               ;; the shell's app element
+      {:hydrate? (some? payload)})))                   ;; adopt the server's DOM, or mount fresh
 ```
 
 **Pattern-level discipline (per [011](011-SSR.md)):**
@@ -1028,11 +1025,11 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **AI-first checklist:**
 
 - The server is `re-frame.ssr.ring/ssr-handler`, which creates and destroys one frame per request; no hand-rolled Ring handler.
-- All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
+- Setup events carry no `:platforms`, which gates effects and coeffects, not events; each effect or coeffect a setup event reaches includes `:server` in its `:platforms` or omits the key (runs everywhere).
 - The request is read through the `:rf.server/request` coeffect and never stored in app-db; a fact the app keeps, such as the session's user, rides an event's payload.
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
 - Hydration payload is built by `ssr-handler`: integer `:rf/version`, `:rf/app-db` holding only the `:payload` allowlist's keys, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from the resolving `:root-view`, and no `:rf/frame-id` unless `:client-frame-id` names a stable one.
-- Client `[:rf/hydrate ...]` event seeds before first render.
+- The client boots through `ssr/hydrate!`, which reads `__rf_payload`, installs it before the first render and verifies the render hash; the adapter's `render!` with `{:hydrate? true}` then adopts the server's DOM rather than replacing it.
 - First-client-render hash matches server hash (test in dev with mismatch detection on).
 - The shell writes the payload, escaped, into `<script id="__rf_payload">`; a custom `:html-shell` keeps that id and `default-html-shell`'s escaping.
 - All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
