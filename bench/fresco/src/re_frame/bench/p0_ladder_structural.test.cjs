@@ -1,15 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE P0 DRIVER'S PURE GATES, driven with contrived rows — the ladder's
-// structural witness and the allocation row's window, preflight, schedule and
-// provenance functions. `--only ladder` and the allocation row need a release
-// build and a headless Chromium and run in no gate, so an expectation only the
-// driver holds would sit stale; every function here is a pure function of the
-// collected row or of the configuration, so it is pinned on every check.
-//
-//     node src/re_frame/bench/p0_ladder_structural.test.cjs   (from bench/fresco/)
-//
-// Run by `npm run check` in bench/fresco/.
+// Exercise the driver gates, schedules and recorded measurement provenance without a browser.
 
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
