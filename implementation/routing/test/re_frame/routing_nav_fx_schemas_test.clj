@@ -1,44 +1,5 @@
 (ns re-frame.routing-nav-fx-schemas-test
-  "Runtime `:schema` on the four standard `:rf.nav/*` fx.
-
-  [Spec-Schemas §Standard fx args schemas] says the standard fx ship with
-  `:schema` set to the corresponding schema, and `re-frame.fx/handle-one-fx`
-  consults the `:schemas/validate-fx!` hook only when the registration meta
-  carries one (Spec 010 §Validation order step 5). Every check here reads
-  the `:schema` off the LIVE registration, so a registration that lost its
-  schema fails these tests rather than passing them.
-
-  Two layers:
-
-  1. ADJUDICATION — the registered schema, run through Malli, accepts what
-     the runtime emits and rejects malformed args. `:saved-pos` members are
-     `number?`: `window.scrollX/Y` are fractional at non-100% zoom and on
-     HiDPI displays.
-  2. BOUNDARY — the real `:schemas/validate-fx!` hook returns false for
-     malformed args and emits `:rf.error/schema-validation-failure :where
-     :fx-args` with `:recovery :skipped`.
-
-  The end-to-end skip lives in `routing_nav_fx_schemas_cljs_test.cljs`: all
-  four fx are `:platforms #{:client}`, so on the JVM `handle-one-fx` skips
-  them before the validation branch.
-
-  ## Posture split
-
-  Layer 1 is `m/validate` against the registered schema, pure Malli with
-  nothing gated, so it runs unguarded in `clojure -M:test` and in
-  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`).
-
-  Layer 2 is dev-only by design. `re-frame.schemas.validate/validate-fx!` is
-
-      (if rf.interop/debug-enabled? (run-validation …) true)
-
-  so under the gate the hot-path fx-args check accepts every input (Spec 010
-  §Production builds: production validation is the opt-in `:boundary? true`
-  flag, outside the gate). A hook call there would pass for the wrong
-  reason, so the hook reads sit inside `(when rf.interop/debug-enabled? …)`
-  arms marked `dev-instrumentation arm`, and beside them `schema-verdict`,
-  the registered schema's own verdict that the hook relays, carries the
-  posture-independent half."
+  "Registered navigation fx schemas accept planner outputs and reject malformed args. The validation hook checks only in debug."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.interop :as rf.interop]
