@@ -87,17 +87,14 @@
   sentinel. `one-form-guard-rejects-early-close-bracket` below pins both
   directions.
 
-  WHY IT THROWS rather than returning a load-error map. A `try`/`catch`
-  that turned any load failure into a `{:fixture/load-error ...}` map
-  would be silent: `conformance-runner/run-corpus` classifies that map as
-  `:skipped? true` while `machines-conformance-test` filters those
-  fixtures out altogether. A caught parse error would therefore be
-  exactly as silent as the defect it is meant to catch — the fixture
-  would stop passing falsely and start vanishing quietly instead. Corpus
-  malformation is a repository defect, not a per-fixture runtime
-  condition, so it fails the run. The `catch` in the body below is NOT
-  such a catch: it RE-THROWS, and exists only so a reader error arrives
-  naming the fixture it came out of.
+  WHY IT THROWS rather than returning a load-error map. A runner handed a
+  load-error map in place of a fixture can only skip it or drop it, so a
+  caught parse error would be exactly as silent as the defect it is meant
+  to catch — the fixture would stop passing falsely and start vanishing
+  quietly instead. Corpus malformation is a repository defect, not a
+  per-fixture runtime condition, so it fails the run. The `catch` in the
+  body below is NOT such a catch: it RE-THROWS, and exists only so a
+  reader error arrives naming the fixture it came out of.
 
   The corpus scanner (`scripts/check_conformance_fixture_edn.py`)
   is the complementary half: it sees fixtures whose capabilities are
@@ -123,14 +120,11 @@
             {:fixture/forms :more-than-one}))
     form))
 
-(defn- load-fixture [file]
-  ;; pure clojure.edn cannot read an auto-resolved `::name`, so rewrite only
-  ;; one that begins a token (the lookbehind spares a `::` inside a string
-  ;; such as the CEDN-1 token `"k::answer"`).
-  (let [raw   (slurp file)
-        fixed (string/replace raw #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
-                              ":rf.machine.timer/$1")]
-    (read-one-form fixed (.getName file))))
+(defn- load-fixture
+  "Read one fixture. The corpus is plain EDN, so an auto-resolved `::name`
+  fails here as not readable EDN, as the corpus scanner refuses it."
+  [file]
+  (read-one-form (slurp file) (.getName file)))
 
 (defn all-fixtures []
   (->> (file-seq fixtures-dir)

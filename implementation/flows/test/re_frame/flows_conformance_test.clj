@@ -89,11 +89,9 @@
     form))
 
 (defn- load-fixture
-  "Read one fixture, rewriting `::name` keywords as core's runner does, since
-  `clojure.edn` has no resolver for them."
+  "Read one plain-EDN fixture."
   [file]
-  (read-one-form (str/replace (slurp file) #"::([a-zA-Z][a-zA-Z0-9_-]*)" ":rf.machine.timer/$1")
-                 (.getName file)))
+  (read-one-form (slurp file) (.getName file)))
 
 (defn- all-flow-fixtures
   "`[[filename fixture] ...]` for every `flow-*.edn`, in name order."
@@ -190,47 +188,16 @@
         (rf/reg-flow flow-id flow-meta (rf.conformance/realise-flow-output-fn body))))))
 
 ;; ---- matchers -------------------------------------------------------------
-
-(defn- submap?
-  "True if every key of `expected` is in `actual` with a matching value,
-  recursing into nested maps."
-  [expected actual]
-  (if (and (map? expected) (map? actual))
-    (every? (fn [[k v]]
-              (let [a (get actual k)]
-                (if (and (map? v) (map? a)) (submap? v a) (= v a))))
-            expected)
-    (= expected actual)))
-
-(defn- trace-matches?
-  "Partial match: every key of `exp` is in `act`, one level of nested maps
-  matching key by key."
-  [exp act]
-  (every? (fn [[k v]]
-            (let [a (get act k)]
-              (if (and (map? v) (map? a))
-                (every? (fn [[kk vv]] (= vv (get a kk))) v)
-                (= v a))))
-          exp))
-
-(defn- check-trace-stream
-  "Failures of an order-preserving subset match: each expected trace must
-  appear in `actual` after the previous one matched. Extras are tolerated."
-  [actual expected]
-  (loop [actual actual expected expected failures []]
-    (if (empty? expected)
-      failures
-      (let [exp (first expected)
-            i   (some (fn [[i a]] (when (trace-matches? exp a) i)) (map-indexed vector actual))]
-        (if i
-          (recur (drop (inc i) actual) (rest expected) failures)
-          (recur actual (rest expected) (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
+;;
+;; Partial expectations go through the shared `rf.conformance/submap?` and
+;; `rf.conformance/check-trace-emissions`, so this runner matches exactly as
+;; the core corpus runner does.
 
 (defn- check-trace-absent
   "Failures of an absence match: no pattern in `forbidden` may match any
   trace in `actual`."
   [actual forbidden]
-  (vec (for [pat forbidden :when (some #(trace-matches? pat %) actual)]
+  (vec (for [pat forbidden :when (some #(rf.conformance/submap? pat %) actual)]
          (str "forbidden trace WAS seen: " (pr-str pat)))))
 
 (defn- recompute-counts
@@ -261,12 +228,12 @@
   ids, either of which would let an empty expectation match a polluted slot."
   [traces err-records]
   (let [no-failures (fn [_ failures] (empty? failures))]
-    {:final-app-db               [(fn [_] (rf/app-db-value :rf/default)) submap?]
+    {:final-app-db               [(fn [_] (rf/app-db-value :rf/default)) rf.conformance/submap?]
      :final-app-dbs              [#(into {} (for [[f _] %] [f (rf/app-db-value f)]))
-                                  (fn [e a] (every? (fn [[f db]] (submap? db (get a f))) e))]
+                                  (fn [e a] (every? (fn [[f db]] (rf.conformance/submap? db (get a f))) e))]
      :sub-values                 [#(into {} (for [[q _] %] [q (rf/subscribe-once q {:frame :rf/default})])) =]
-     :expect-trace-stream        [#(check-trace-stream (filterv (comp #{:flow} :op-type) @traces) %) no-failures]
-     :trace-emissions            [#(check-trace-stream @traces %) no-failures]
+     :expect-trace-stream        [#(rf.conformance/check-trace-emissions (filterv (comp #{:flow} :op-type) @traces) %) no-failures]
+     :trace-emissions            [#(rf.conformance/check-trace-emissions @traces %) no-failures]
      :trace-absent               [#(check-trace-absent @traces %) no-failures]
      :flow-recompute-counts      [(fn [_] (recompute-counts @traces)) =]
      :flow-graph-topology        [#(select-keys (flow-graph-deps) (keys %)) =]
@@ -279,7 +246,7 @@
                                               [id (set (keys (get (rf.flows/last-inputs-snapshot) id)))]))
                                   =]
      :registrar-flow-slots-after [(fn [_] (rf.registrar/ids :flow)) =]
-     :error-emit-records         [#(check-trace-stream @err-records %) no-failures]}))
+     :error-emit-records         [#(rf.conformance/check-trace-emissions @err-records %) no-failures]}))
 
 ;; ---- running a fixture ----------------------------------------------------
 
