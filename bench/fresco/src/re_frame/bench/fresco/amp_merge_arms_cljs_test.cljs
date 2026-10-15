@@ -1,22 +1,5 @@
 (ns re-frame.bench.fresco.amp-merge-arms-cljs-test
-  "THE ARRAY-MAP CLIFF, AND THE `:&` LADDER PAIRS THAT STAY OFF IT.
-
-  `cljs.core/PersistentArrayMap`'s threshold is eight entries: a ninth
-  promotes the map to a `PersistentHashMap`. `field-explicit` writes
-  `:class` unconditionally, so `amp_merge_clock_app`'s rungs (1) and (3)
-  carry a `:class nil` passenger and compare two map REPRESENTATIONS. Rungs
-  (1') and (3') split the author's share with pairs that stay on one side
-  of the cliff, and this file keeps them there: a rung whose arms drift
-  across it reads as a number rather than as a fault.
-
-  Every field helper is called here — the arms' own code. Call-site
-  literals sit inside bodies that read subscriptions, which `fresco`'s
-  `sub` refuses outside a render, so this file hands the SAME remainder map
-  to both arms of a pair. [[expanded-attr-keys]] is held by reading: it is
-  the frozen `:expanded` arm's own keys, and the arm that can move is
-  pinned against it. [[the-old-rungs-crossed-the-cliff]] asserts the defect
-  itself, so the equalities above it are not between two things that were
-  never in danger of differing."
+  "Keep paired attribute helpers on the same side of the array-map representation boundary."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.fresco.amp-merge-clock-app :as rf.bench.fresco.amp-merge-clock-app]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]))
