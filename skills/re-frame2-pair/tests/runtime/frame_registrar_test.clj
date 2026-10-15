@@ -14,10 +14,9 @@
       "frame-registrar-describe must pass a :frame-keyed query map"))
 
 (deftest orient-rebased-on-frame-registry-view
-  (let [orient (rt/defn-named 'orient)
-]
+  (let [orient (rt/defn-named 'orient)]
     (is (rt/calls? 'frame-registry-view orient)
-        "orient must base its :registry on the operating frame's generation")
+        "orient must base its :registry on the operating frame's registrations")
     (is (rt/calls? 'process-registry-view orient)
         "orient must keep the process-wide view as the fallback")))
 
