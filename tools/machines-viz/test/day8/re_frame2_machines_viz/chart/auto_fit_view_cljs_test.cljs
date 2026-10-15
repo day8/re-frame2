@@ -1,49 +1,7 @@
 (ns day8.re-frame2-machines-viz.chart.auto-fit-view-cljs-test
-  "Pins for the chart's auto-fit and measure-then-relayout lifecycle.
-
-  ## What this guards
-
-  xyflow's `<ReactFlow>` `:fitView true` fires exactly ONCE on initial
-  mount, BEFORE elkjs's async layout pass resolves. Every node renders
-  at the default `{x 0 y 0}`, so that one-shot fitView would fit to a
-  degenerate cluster near the origin, and when real positions arrive
-  the viewport would never re-fit — the operator would see a tiny /
-  off-screen chart and have to click the manual Fit button every time.
-
-  So `MachineChart`:
-
-    - captures the xyflow instance via `:onInit` and re-fits the viewport
-      once after each successful layout settle whose layout key differs
-      from the last key it fit, so a manual zoom/pan survives re-renders
-      that do not invalidate the layout;
-    - re-fits whenever the host's `:fit-signal` CHANGES — the chart-side
-      half of Xray's Machine-tab fit-on-entry;
-    - re-runs ELK once with xyflow's measured node boxes
-      (measure-then-relayout), and never loops.
-
-  ## How the production gates are driven
-
-  Every gate lives in a closure inside the Form-2 `MachineChart`, so this
-  suite drives the real component: `(chart/MachineChart props)` returns
-  the inner render fn, calling it with new props IS the host-driven
-  re-render sequence, and the ReactFlow `:onInit` / `:onNodesChange`
-  handlers are taken off the returned hiccup and called with a stand-in
-  instance. Building the hiccup is pure CLJS data, and every
-  framework-reaching call goes through a `set!`-able seam:
-
-    - `chart/compute-layout!` captures each pass's done-fn, so a test
-      settles passes itself, in the order its scenario needs;
-    - `chart/invoke-fit-view!` records every `.fitView` call;
-    - `chart/invoke-project-definition!` answers a fixed parse where a
-      scenario names one, and `projection/xyflow-graph` answers an empty
-      graph (projection is not under test here).
-
-  The stand-in instance answers `getNodes` / `getInternalNode` off an
-  atom, so the REAL `read-measured-dims` reads whatever boxes a scenario
-  has 'measured'. Node has no `requestAnimationFrame`, so `schedule-fit!`
-  calls `.fitView` synchronously there; the double-rAF test installs a
-  stepped frame queue to observe the deferral. The same idioms drive
-  `stale-settle-cljs-test` and `parse-cache-cljs-test`."
+  "Auto-fit after layout settle, fit-signal changes and measured relayout.
+  Drives the Form-2 component through captured callbacks, keeping the
+  viewport and measurement gates exercised without a DOM."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
