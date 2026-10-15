@@ -124,16 +124,21 @@
   (rf.live-frame/call-with-frame-resolution
     :probe/frame #(rf.routing.resolve/redact-declared-url url)))
 
+(defn- dispatch-tracing!
+  "Dispatch `event` into `:probe/frame`, returning every trace it emits."
+  [event]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::traces #(swap! traces conj %))
+    (try
+      (rf/dispatch-sync event {:frame :probe/frame})
+      (finally (rf/unregister-listener! :trace ::traces)))
+    @traces))
+
 (defn- navigate-tracing!
   "Dispatch `[:rf.route/handle-url-change url]` into `:probe/frame`, returning
   every trace it emits."
   [url]
-  (let [traces (atom [])]
-    (rf/register-listener! :trace ::traces #(swap! traces conj %))
-    (try
-      (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame :probe/frame})
-      (finally (rf/unregister-listener! :trace ::traces)))
-    @traces))
+  (dispatch-tracing! [:rf.route/handle-url-change url]))
 
 (deftest an-ambiguous-route-url-fails-closed-to-a-redacted-form
   ;; An ambiguous route has no one `:sensitive` declaration to project its URL
@@ -229,3 +234,38 @@
                    (keep #(when (= :rf.warning/no-not-found-route (:operation %))
                             (get-in % [:tags :url]))
                          traces)))))))))
+
+(defn- route-miss-urls
+  "Each route-miss operation in `traces`, paired with the URL it carries."
+  [traces]
+  (into #{}
+        (keep #(when (contains? route-miss-operations (:operation %))
+                 [(:operation %) (get-in % [:tags :url])]))
+        traces))
+
+(deftest the-programmatic-url-door-projects-an-ambiguous-route-url
+  ;; `[:rf.route/navigate {:url …}]` fails closed on an ambiguous route as the
+  ;; URL-driven door does, and reports the route-miss warnings for it (not the
+  ;; `:rf.error/no-such-handler` record, which is the URL-driven door's alone).
+  ;; Each warning carries the requested URL projected as that record is.
+  (with-recorded-errors
+    (fn [_seen]
+      (register-sensitive-routes-in! 'probe.routes-a)
+      (rf/make-frame {:id :probe/frame})
+      (register-sensitive-routes-in! 'probe.routes-b)
+      (testing "a declared path param of an ambiguous route"
+        (let [traces (dispatch-tracing!
+                       [:rf.route/navigate {:url (str "/reset/" path-secret "?plain=x")}])]
+          (is (= :rf.route/not-found (current-route-id :probe/frame))
+              "the navigation fails closed")
+          (when rf.interop/debug-enabled?
+            (is (= #{[:rf.warning/malformed-url "/reset/rf%2Fredacted?plain=rf/redacted"]
+                     [:rf.warning/no-not-found-route "/reset/rf%2Fredacted?plain=rf/redacted"]}
+                   (route-miss-urls traces))
+                "both route-miss warnings fire, each carrying the URL redacted"))))
+      (testing "control: a URL no route matches keeps its path"
+        (let [traces (dispatch-tracing!
+                       [:rf.route/navigate {:url "/elsewhere/kept-segment?plain=x"}])]
+          (when rf.interop/debug-enabled?
+            (is (= #{[:rf.warning/no-not-found-route "/elsewhere/kept-segment?plain=rf/redacted"]}
+                   (route-miss-urls traces)))))))))
