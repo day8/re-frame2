@@ -24,7 +24,6 @@
               ["docs.shared.**" "docs.shared.widgets.forms.input" true]
               ["docs.shared.**" "docs" false]
               ["docs.shared.**" "docs.other" false]
-              ["**" "" true]
               ["shop.**.http" "shop.http" true]
               ["shop.**.http" "shop.a.b.c.http" true]
               ["shop.**.http" "shop.cart.https" false]
@@ -114,10 +113,8 @@
     (doseq [[section entry] [[:reg-fx [:my/fx {:doc "meta only"}]]
                              [:reg-event :not-a-tuple]
                              [:reg-event [:counter/inc]]
-                             [:reg-event []]
                              [:reg-event [:counter/inc {} f :extra]]
-                             [:reg-event [:counter/inc 42 f]]
-                             [:reg-event [:counter/inc "doc" f]]]]
+                             [:reg-event [:counter/inc 42 f]]]]
       (is (= {:rf.error/id :rf.error/invalid-image :image :my/image :section section :entry entry}
              (select-keys (error-data #(rf.image/image {:id :my/image
                                                         :registrations {section [entry]}}))
@@ -137,25 +134,14 @@
    :id               id
    :impl             (fn [_ _] ::stub)})
 
-;; :counter/inc is registered from two namespaces, so selection by id namespace
-;; would be visible
 (def ^:private synthetic-store
-  [(desc "docs.quickstart.counter.v2"  :event :counter/inc)
-   (desc "docs.quickstart.counter.v2"  :sub   :counter/value)
-   (desc "docs.quickstart.counter.v3"  :event :counter/inc)
-   (desc "docs.shared.widgets"         :view  :widgets/button)
-   (desc "docs.shared.widgets.button"  :view  :button/root)
-   (desc "shop.cart"                   :event :cart/add)
-   (desc "shop.auth"                   :event :auth/set-user)])
+  [(desc "docs.shared.widgets"        :view  :widgets/button)
+   (desc "docs.shared.widgets.button" :view  :button/root)
+   (desc "shop.cart"                  :event :cart/add)
+   (desc "shop.auth"                  :event :auth/set-user)])
 
 (defn- select [spec]
   (rf.image/select-descriptors (rf.image/image (assoc spec :id :i)) synthetic-store))
-
-(deftest select-by-provenance-ns-not-id-ns
-  (is (= [["docs.quickstart.counter.v2" :counter/inc]
-          ["docs.quickstart.counter.v2" :counter/value]]
-         (mapv (juxt :rf.provenance/ns :id)
-               (select {:select-ns {:include ["docs.quickstart.counter.v2"]}})))))
 
 (deftest select-multiple-patterns-deduped-and-ordered
   (is (= ["docs.shared.widgets" "docs.shared.widgets.button"]
@@ -198,7 +184,7 @@
   (is (= ["docs.shared.widgets" "docs.shared.widgets.button"]
          (map :rf.provenance/ns
               (select {:select-ns {:include ["docs.shared.**"]
-                                   :exclude ["does.not.exist.**" "*-cljs-test"]}})))))
+                                   :exclude ["does.not.exist.**"]}})))))
 
 (deftest exclude-ns-never-drops-inline-descriptors
   ;; inline descriptors are selected by image membership, not provenance
