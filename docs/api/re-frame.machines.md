@@ -161,7 +161,6 @@ Development-only registration warnings do not prevent registration:
 
 | Warning | Meaning and remedy |
 |---|---|
-| `:rf.warning/machine-source-unstamped` | The definition has no captured source. Use `defmachine` or a literal `reg-machine` map for source navigation. |
 | `:rf.warning/machine-cofx-consume-undeclared` | A named callback reads a `:rf.cofx` key absent from its requirements. Declare the fact it needs. |
 | `:rf.warning/machine-cofx-ambient-durable` | A named action requests an ambient coeffect. Prefer a recorded fact for decisions or data that must replay; see [coeffect grades](../core/coeffects.md). |
 
@@ -175,7 +174,7 @@ Development-only registration warnings do not prevent registration:
   ```
 - **Description**: Defines `name` as a machine-spec value and captures its per-element source, so a later `reg-machine` of that value keeps it. Use it in place of `def` for a named spec. Called as `rf/defmachine`.
     - It walks the literal spec the same way `reg-machine` does and stores the source on the value. `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` and Xray's machine source view then work for the registered value as they do for an inline spec.
-    - With `(def m {…})` and `(reg-machine :id m)`, `reg-machine` sees only the symbol and captures nothing. In development the registration warns `:rf.warning/machine-source-unstamped`, once per machine id.
+    - With `(def m {…})` and `(reg-machine :id m)`, `reg-machine` sees only the symbol and captures nothing, so Xray click-to-source is unavailable for that machine.
     - Production builds remove the development-only `:source-*` slots.
 - **Example**:
   ```clojure
@@ -482,7 +481,6 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
   ```
 - **Description**: Registers a machine like `reg-machine`, as a plain function that captures no source. Use it when the spec is built at runtime: generated code, the REPL, test harnesses.
     - The 3-arity takes the same `opts` map as `reg-machine`, with the same `:schema` behaviour and the same errors.
-    - Because the spec carries no source, development builds warn `:rf.warning/machine-source-unstamped` once per machine id.
 - **Example**:
   ```clojure
   (rf.machines/reg-machine* :traffic-light
