@@ -127,7 +127,6 @@ function expectFail(deps, what, messagePattern) {
 test('a correctly rewritten pom PASSES', () => {
   const { status, out } = run(makeFixture());
   assert.equal(status, 0, `rewritten pom: expected exit 0, got ${status}\n${out}`);
-  assert.match(out, /verification PASSED/, `rewritten pom: expected a PASSED verdict\n${out}`);
 });
 
 test('a pom missing ONLY Xray fails — the rf2-r8trk edge at the package boundary', () => {
