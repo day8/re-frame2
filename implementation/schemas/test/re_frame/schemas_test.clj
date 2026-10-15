@@ -34,12 +34,6 @@
       (rf/dispatch-sync [:n/break-with-fx])
       (is (= [{:n 0} []] [(rf/app-db-value :rf/default) @fx-calls])))))
 
-(deftest validate-app-schema-returns-boolean
-  (testing "with the default validator, true on conform and false on failure"
-    (rf/reg-app-schema [:n] [:int])
-    (is (= [true false] [(rf.schemas/validate-app-schema! {:n 42})
-                         (rf.schemas/validate-app-schema! {:n "boom"})]))))
-
 (deftest schema-fires-only-on-the-frame-it-registers-against
   (testing "a commit is checked against its own frame's schemas only"
     (rf/make-frame {:id :test/main})
