@@ -1,13 +1,5 @@
 (ns re-frame.bench.fresco.front.census-article-editor-cljs-test
-  "THE `:&` MERGE, DEMONSTRATED ON A CENSUS-REAL SCREEN.
-
-  HD-023's stated risk is a taste ruling with no control arm left to
-  falsify it; this file is its mitigation. It does not assert that one
-  merge spelling is better: it ports the RealWorld article editor's four
-  controlled fields (`examples/real-apps/realworld_resources/article_editor.cljs`)
-  into one helper that carries the call site's remainder through `:&`, and
-  asserts both renderings build the same elements and dispatch the same
-  intents, so the side by side is about authoring and nothing else."
+  "Compare the editor attribute forms through the codec, including intent dispatch and owned literals."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
@@ -21,9 +13,7 @@
 (def ^:private errors
   {:title nil :description "can't be blank" :body nil :tagList nil})
 
-;; ---------------------------------------------------------------------------
 ;; BEFORE — the census's own shape, transliterated
-;; ---------------------------------------------------------------------------
 ;;
 ;; Intent vectors replace the four `#(dispatch …)` closures, because that
 ;; substitution is a separate question and not what this file is measuring. Everything
@@ -63,9 +53,7 @@
       :on-input [:editor/edit-field :tagList :re-frame.fresco/value]}]
     (when (:tagList errors) [:div.error-messages (:tagList errors)])]])
 
-;; ---------------------------------------------------------------------------
 ;; AFTER — one helper that owns the contract, `:&` carrying the remainder
-;; ---------------------------------------------------------------------------
 ;;
 ;; `field` owns exactly the things that must not vary: the controlled pair, the
 ;; busy rule, the blur intent and the error slot. Everything a call site still
@@ -96,9 +84,7 @@
            :type "text" :name "tags" :placeholder "Enter tags (comma-separated)"
            :data-testid "editor-tags"})])
 
-;; ---------------------------------------------------------------------------
 ;; Reading elements back
-;; ---------------------------------------------------------------------------
 
 (defn- children-of [e]
   (let [c (aget (.-props e) "children")]
@@ -131,9 +117,7 @@
   (rf.bench.fresco.front.intent/with-frame (fn [ev] (swap! dispatched conj ev))
                      (fn [] (rf.bench.fresco.front.codec/as-element hiccup))))
 
-;; ---------------------------------------------------------------------------
 ;; The port is the same screen
-;; ---------------------------------------------------------------------------
 
 (deftest the-two-renderings-produce-the-same-four-controlled-inputs
   ;; Every static attribute, including the class the tag shorthand composed
