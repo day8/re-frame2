@@ -59,15 +59,13 @@
 (deftest field-shape-non-flat-falls-to-edn-escape-hatch
   (testing "no declared schema → EDN escape hatch with an honest reason"
     (let [shape (rf.story.ui.schema-form/field-shape nil)]
-      (is (false? (:renderable? shape)))
-      (is (= :edn (:kind shape)))
+      (is (= [false :edn] ((juxt :renderable? :kind) shape)))
       (is (str/includes? (:reason shape) "no output schema"))))
   (testing "a map with a NESTED field is non-renderable (flat-shapes-first)"
     (let [shape (rf.story.ui.schema-form/field-shape [:map
                                  [:ok :boolean]
                                  [:nested [:map [:deep :string]]]])]
-      (is (false? (:renderable? shape)))
-      (is (= :edn (:kind shape)))
+      (is (= [false :edn] ((juxt :renderable? :kind) shape)))
       (is (str/includes? (:reason shape) ":nested"))))
   (testing "a collection schema is non-renderable"
     (is (false? (:renderable? (rf.story.ui.schema-form/field-shape [:vector :int])))))
