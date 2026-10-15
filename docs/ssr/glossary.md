@@ -158,8 +158,9 @@ See [Head metadata](head.md).
 The pure function that maps an internal trace to the client-safe `:rf/public-error`
 shape when a server render throws. The error page receives only the projected
 shape, so internal detail never reaches the response. The shape is closed: exactly
-`:status`, `:code`, `:message` and `:retryable?`. A projector that returns anything
-else is discarded in favour of the fixed generic 500.
+`:status`, `:code`, `:message` and `:retryable?`. A projector that returns `nil`
+leaves that error to the default projector; one that returns anything else is
+discarded in favour of the fixed generic 500.
 See [When the server throws](concepts.md#when-the-server-throws) and
 [`reg-error-projector`](../api/re-frame.ssr.md#reg-error-projector).
 

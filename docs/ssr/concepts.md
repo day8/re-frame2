@@ -415,7 +415,7 @@ A server-side exception must not reach the response as a stack trace, where craw
 
 The default projector maps an unroutable URL to `404 :not-found`; a client-supplied event payload that fails its schema, or a client-supplied coeffect rejected at dispatch (`:rf.error/cofx-value-invalid`), to `400 :bad-request`; and anything else to `500 :internal-error`. The `404` and `400` arms are narrower than their categories: `:rf.error/no-such-handler` is a `404` only when its `:kind` tag is `:route` (an unregistered *event* id is a server defect, so `500`), and a schema failure is a `400` only when its `:where` tag is `:event`. They fire on a release server as well as in dev; [What reaches the projector in a release build](#what-reaches-the-projector-in-a-release-build) has the one category that reaches it in dev alone.
 
-Register your own projector to add app conventions, such as mapping thrown auth failures to `401`/`403`. Handle your cases and pass everything else to `default-error-projector-fn`, so you keep its tag checks:
+Register your own projector to add app conventions, such as mapping thrown auth failures to `401`/`403`. Handle your cases and return `nil` for everything else: the runtime applies the default projector to that error, so you keep its tag checks:
 
 ```clojure
 (rf/reg-error-projector :myapp/public-error
@@ -425,10 +425,10 @@ Register your own projector to add app conventions, such as mapping thrown auth 
     (case (some-> trace-event :tags :exception ex-data :app/error)
       :unauthorised {:status 401 :code :unauthorised :message "Please sign in." :retryable? false}
       :forbidden    {:status 403 :code :forbidden    :message "Not allowed."    :retryable? false}
-      (ssr/default-error-projector-fn trace-event))))
+      nil)))
 ```
 
-A projector must return exactly those four keys, with `:status` in 400–599. If it throws, returns an out-of-range status or adds any other key (even its own `:details`), the runtime emits `:rf.error/sanitised-on-projection` and serves the generic `500`, so a projector bug can't leak anything.
+A projector must return exactly those four keys, with `:status` in 400–599, or `nil`. If it throws, returns an out-of-range status or adds any other key (even its own `:details`), the runtime emits `:rf.error/sanitised-on-projection` and serves the generic `500`, so a projector bug can't leak anything.
 
 - **The projector is named per frame**, with `:ssr {:public-error-id :myapp/public-error}` on the frame's metadata, so a server-rendering frame and a dev-tooling frame in one process can use different ones.
 - **A projected 4xx keeps your app; a projected 5xx gets the error page.** A 4xx (a routing miss, an auth `401`/`403`, a `400` your own handler produced) means the app is working: it renders your own not-found or bad-request UI and ships the payload, so the client hydrates into a working app. A 5xx means the app broke mid-drain and app-db is partial, so the framework discards the body and the payload and renders your `:error-view` (or the default template). An app-set `500` with no projected error stays on your own page.

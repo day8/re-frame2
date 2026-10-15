@@ -188,15 +188,15 @@ first request. Thrown framework errors carry their id in `ex-data`, so
 The error projector and the head function are pure functions.
 `rf/reg-error-projector` and `rf/reg-head` return the id they registered, not the
 function, so give the function a name and test that. A projector test passes a
-trace-event map and asserts the public shape; a head test passes `(db, route)` and
-asserts the head model (`:title`, the `og:` meta rows). Neither needs a frame:
+trace-event map and asserts the public shape, or `nil` for an error it leaves to
+the default projector; a head test passes `(db, route)` and asserts the head model
+(`:title`, the `og:` meta rows). Neither needs a frame:
 
 ```clojure
 (defn public-error [trace-event]
-  (if (and (= :rf.error/no-such-handler (:operation trace-event))
-           (= :route (get-in trace-event [:tags :kind])))
-    {:status 404 :code :not-found :message "We couldn't find that page." :retryable? false}
-    (ssr/default-error-projector-fn trace-event)))
+  (when (and (= :rf.error/no-such-handler (:operation trace-event))
+             (= :route (get-in trace-event [:tags :kind])))
+    {:status 404 :code :not-found :message "We couldn't find that page." :retryable? false}))
 
 (rf/reg-error-projector :app/public-error public-error)
 
@@ -204,9 +204,9 @@ asserts the head model (`:title`, the `og:` meta rows). Neither needs a frame:
   (is (= 404 (:status (public-error {:operation :rf.error/no-such-handler
                                      :op-type   :error
                                      :tags      {:kind :route}}))))
-  (is (= 500 (:status (public-error {:operation :rf.error/no-such-handler   ;; an unregistered event
-                                     :op-type   :error                     ;; is a server defect
-                                     :tags      {:kind :event}})))))
+  (is (nil? (public-error {:operation :rf.error/no-such-handler   ;; an unregistered event:
+                           :op-type   :error                     ;; the default projector
+                           :tags      {:kind :event}}))))        ;; answers it with a 500
 ```
 
 ## Platform gating needs no test of its own
