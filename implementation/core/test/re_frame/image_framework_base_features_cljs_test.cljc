@@ -37,12 +37,6 @@
   (rf.image/image {:id        :fwbase/app
                    :select-ns {:include ["re-frame.image-framework-base-features-cljs-test"]}}))
 
-(defn- err-id
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (:rf.error/id (ex-data e)))))
-
 (defn- shadows-of [gen k+id]
   (filterv #(= k+id (:registration %)) (:rf.gen/shadows gen)))
 
@@ -81,10 +75,10 @@
       (try
         ;; a handler with no requirement runs (the control), and the provided
         ;; :rf/time-ms coeffect satisfies the requirement
-        (is (= [nil nil true true]
-               [(err-id #(rf/dispatch-sync [:fwbase/plain] {:frame f}))
-                (err-id #(rf/dispatch-sync [:fwbase/stamp] {:frame f}))
-                (:plain (rf/app-db-value f))
+        (rf/dispatch-sync [:fwbase/plain] {:frame f})
+        (rf/dispatch-sync [:fwbase/stamp] {:frame f})
+        (is (= [true true]
+               [(:plain (rf/app-db-value f))
                 (number? (:stamped (rf/app-db-value f)))])
             label)
         (finally
@@ -138,11 +132,10 @@
                                                          :images [this-ns-image]}]]]
        (let [f (rf/make-frame opts)]
          (try
-           (is (= [nil :fwbase/home]
-                  [(err-id #(rf/dispatch-sync [:rf.route/navigate {:to :fwbase/home}]
-                                              {:frame f}))
-                   (get-in (:rf.db/runtime (rf/frame-state-value f))
-                           [:rf.runtime/routing :current :route-id])])
+           (rf/dispatch-sync [:rf.route/navigate {:to :fwbase/home}] {:frame f})
+           (is (= :fwbase/home
+                  (get-in (:rf.db/runtime (rf/frame-state-value f))
+                          [:rf.runtime/routing :current :route-id]))
                (str label ": the navigation committed"))
            (finally
              (rf/destroy-frame! f)))))))
