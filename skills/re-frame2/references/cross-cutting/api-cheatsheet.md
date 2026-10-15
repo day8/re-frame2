@@ -54,7 +54,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 
 ## Images and frames (EP-0023, `re-frame.core`)
 
-The public composition model is `image → frame → event stream`; there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map names exactly one source: `{:frame f :kind k}` reads a frame's resolved image generation; `{:source :store :kind k}` reads the process registration source. Both selectors together, or neither, is an error. Model, grammar detail, and the isolation story: [`../fundamentals/images.md`](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story).
+The public composition model is `image → frame → event stream`; there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map names exactly one source: `{:frame f :kind k}` reads a frame's own view (its resolved image generation, or the live store for a frame made without `:images`); `{:source :store :kind k}` reads the process registration source. Both selectors together, or neither, is an error. Model, grammar detail, and the isolation story: [`../fundamentals/images.md`](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story).
 
 | Surface | Shape |
 |---|---|

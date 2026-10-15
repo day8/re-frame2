@@ -1115,7 +1115,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  }
 ```
 
-> **The envelope carries the frame stamp under `:frame` — there is no second routing coordinate.** The frame id is the whole address ([§Frame addressing](#frames-reference-realms)); `:rf.frame/id` is the event-context spelling of the same stamp. There is no `:rf.realm/id` realm stamp and no multi-realm substrate ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)): event / subscription / fx / cofx handlers all resolve through the frame's resolved image generation, assembled from the one process-global source store, and the frame supplies that generation and its state. The frame stamp rides on the envelope **beside** the shipped causal-token carriers (EP-0010 replay records, EP-0011 reply maps, EP-0016 continuation payloads), and the frame is **carried** — an explicit `:frame` dispatch opt, the carried frame value, or inherited by a child dispatch — never inferred from ambient process state (the EP-0002 carried invariant; there is no `with-realm`).
+> **The envelope carries the frame stamp under `:frame` — there is no second routing coordinate.** The frame id is the whole address ([§Frame addressing](#frames-reference-realms)); `:rf.frame/id` is the event-context spelling of the same stamp. There is no `:rf.realm/id` realm stamp and no multi-realm substrate ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)): event / subscription / fx / cofx handlers all resolve through the frame's own view of the one process-global source store — its resolved image generation, or the store live for a frame made without `:images` — and the frame supplies that view and its state. The frame stamp rides on the envelope **beside** the shipped causal-token carriers (EP-0010 replay records, EP-0011 reply maps, EP-0016 continuation payloads), and the frame is **carried** — an explicit `:frame` dispatch opt, the carried frame value, or inherited by a child dispatch — never inferred from ambient process state (the EP-0002 carried invariant; there is no `with-realm`).
 
 The envelope is just a map. Any field can be set by:
 
@@ -2577,7 +2577,7 @@ The effective interceptor chain for one dispatch is assembled in this order:
 4. framework dispatch-time interceptors owned by their specs
 ```
 
-Groups 1 and 2 are **authored references** and resolve through the same frame generation that resolved the event handler (per [§Frame addressing](#frames-reference-realms) — resolution is frame-derived, through the frame's resolved image generation). There is no registrar-patching API.
+Groups 1 and 2 are **authored references** and resolve through the same frame view that resolved the event handler (per [§Frame addressing](#frames-reference-realms) — resolution is frame-derived, through the frame's own view of the registrations). There is no registrar-patching API.
 
 The runtime applies the merged override map (frame `:interceptor-overrides` < dispatch-opts `:interceptor-overrides`) to the authored refs before any of them resolves: a replacement ref takes the matching ref's place, and a `nil` replacement removes it. The surviving refs then resolve through the same registrar, once. A ref an override removes or replaces is never resolved, so its factory never runs.
 
