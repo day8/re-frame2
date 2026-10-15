@@ -11,7 +11,9 @@
 
   Per-namespace `Testing <ns>` banners are suppressed on the success
   path; per-`deftest` `Testing <var>` banners are silent in both
-  reporters by default.
+  reporters by default. `RF2_VERBOSE_TESTS=1`, the repo-wide opt-in to
+  green-path detail, prints each namespace's banner once as it begins,
+  so a green run names every namespace it ran.
 
   This namespace governs only reporter output. The runtime entry points
   (`re-frame.test-quiet.runner` on the JVM and
@@ -135,6 +137,15 @@
     (println "Testing" (name namespace-symbol))
     (mark-namespace-banner-printed! namespace-symbol)))
 
+(defn- verbose-tests?
+  "Whether this run opted into green-path detail with `RF2_VERBOSE_TESTS=1`,
+  the switch the browser and gate harnesses read too. Read per event, and
+  only where a process environment exists: a browser runtime has none."
+  []
+  #?(:clj  (= "1" (System/getenv "RF2_VERBOSE_TESTS"))
+     :cljs (and (exists? js/process)
+                (= "1" (unchecked-get js/process.env "RF2_VERBOSE_TESTS")))))
+
 ;; ----------------------------------------------------------------------
 ;; JVM overrides — clojure.test/report dispatches on (:type m).
 
@@ -190,8 +201,13 @@
        ;; event, so a nested run-tests can't clobber it; we push this ns
        ;; onto the open-ns stack (for nesting-depth tracking + the
        ;; test-ns-hook no-var banner fallback) and clear the printed-banner
-       ;; set on an outermost entry.
-       (open-test-namespace! (report-event-namespace report-event)))
+       ;; set on an outermost entry. Under `RF2_VERBOSE_TESTS=1` the banner
+       ;; prints now instead, and a later failure finds it already printed.
+       (let [namespace-symbol (report-event-namespace report-event)]
+         (open-test-namespace! namespace-symbol)
+         (when (verbose-tests?)
+           (clojure.test/with-test-out
+             (print-namespace-banner! namespace-symbol)))))
 
      (defmethod clojure.test/report :end-test-ns [_report-event]
        (close-test-namespace!))
@@ -271,8 +287,13 @@
        ;; first failure/error (banner ns normally derived from the failing
        ;; var, not this event).  Push this ns onto the open-ns stack (for
        ;; nesting-depth tracking + the no-current-var banner fallback) and
-       ;; clear the printed-banner set on an outermost entry.
-       (open-test-namespace! (report-event-namespace report-event)))
+       ;; clear the printed-banner set on an outermost entry. Under
+       ;; `RF2_VERBOSE_TESTS=1` the banner prints now instead, and a later
+       ;; failure finds it already printed.
+       (let [namespace-symbol (report-event-namespace report-event)]
+         (open-test-namespace! namespace-symbol)
+         (when (verbose-tests?)
+           (print-namespace-banner! namespace-symbol))))
 
      (defmethod cljs.test/report [:cljs.test/default :end-test-ns] [_report-event]
        (close-test-namespace!))
