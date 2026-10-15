@@ -1,27 +1,5 @@
 (ns re-frame.cross-spec-dom-cljs-test
-  "Cross-Spec interaction edge cases, one section per documented case in
-  spec/Cross-Spec-Interactions.md. A case whose path never touches the
-  adapter (#1, #4, #7, #12-#16, #19, #20) is pinned by its
-  `re-frame.adapter.react-shared-suite` `assert-xspec-*` row, which the UIx
-  entry runs on :node-test, and its section here is a pointer.
-
-  Each deftest's docstring carries the section anchor from the doc.
-
-  Browser runner: Interactions whose contracts
-  require a real React render run live on the :browser-test target.
-  The `-dom-cljs-test$`
-  suffix opts this file into the `:browser-test` build; the
-  same ns is also loaded by `:node-test` (its regex `cljs-test$` matches
-  both `-cljs-test` and `-dom-cljs-test`). Browser-only branches gate on
-  `(browser?)` and exit early under :node-test.
-
-  Coverage: every remaining interaction pins its cross-spec contract
-  live — including #8 (frame-destroy-during-render) and #10 (plain-fn
-  warning under non-default frame). #9 is a pointer to
-  re-frame.runtime-cljs-test, which exercises its deeper machinery on
-  this adapter.
-
-  ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
+  "Cross-spec runtime and real-DOM contracts; synthetic payload writes do not prove boot ordering or hydration."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -29,17 +7,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; Routing ships in day8/re-frame2-routing.
-            ;; Required here so its load-time hook + reg-sub
-            ;; registrations fire before the tests below run.
             [re-frame.routing]
-            ;; The `:browser-test` build selects only
-            ;; `-dom-cljs-test$`, so the implementation/test corpus does
-            ;; not fan `re-frame.machines` / `re-frame.flows` /
-            ;; `re-frame.epoch` in via sibling test files. Require them
-            ;; explicitly here so the load-time hook publications
-            ;; (`reg-machine`, `reg-flow`, …) install before the cross-spec
-            ;; tests below reach into the late-bind table at call time.
             [re-frame.machines]
             [re-frame.flows]
             [re-frame.epoch]
@@ -50,62 +18,17 @@
             [re-frame.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
-;; True only on the :browser-test runner. The :node-test target loads
-;; the same ns but has no DOM, so any test that mounts through React
-;; gates on this predicate and returns early under :node-test (where it
-;; would crash on `js/document`). The cross-spec tests that REQUIRE a
-;; real React render are live assertions on the browser runner only.
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
-
-;; ---- per-test mount-point helper (browser-only) ---------------------------
-;;
-;; Each browser-only test that needs to mount creates a fresh detached
-;; <div> rather than sharing a global root. Detached nodes still pass
-;; React's "must be in a Document" check (the elements ARE owned by the
-;; ambient `js/document`) but don't mutate the test page's visible DOM.
-;; This keeps tests independent — no race over a shared mount slot — and
-;; matches the per-test cleanup the `make-reset-runtime-fixture` already gives
-;; us at the runtime layer.
 
 (defn- make-mount-node! []
   (when (browser?)
     (.createElement js/document "div")))
 
-;; Snapshot/restore the registrar around each test. We do NOT
-;; call (registrar/clear-all!): CLJS has no runtime (require :reload), so
-;; wiping the registrar would permanently lose routing's framework events
-;; (:rf.route/handle-url-change, :rf.route/navigate, :rf.nav/scroll fx, …) and
-;; machines.cljc's :rf/machine sub, which were registered at ns-load time.
-;; Snapshot/restore preserves those while rolling back the test's own
-;; registrations on the way out.
-;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each`
-;; fixtures to be maps once the ns contains ANY `async` test (a fn-form
-;; fixture's teardown runs before the async body's `done` fires). The four
-;; registered-view DOM tests below await their deferred `:rf.view/unmounted`
-;; teardown across macrotask windows, so they are `async`.
-;; `:ambient-frame` is left at its `:rf/default` default — the non-DOM
-;; interaction tests rely on the ambient scope, and the render tests clear it
-;; locally with `(binding [frame/*current-frame* nil] …)` where tier-2 is under
-;; test.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter :async? true}))
-
-;; ---- deferred-teardown await ----------------------------------
-;;
-;; The same settle idiom as
-;; frame_provider_context_dom_cljs_test. On the Reagent family the
-;; `:rf.view/unmounted` teardown marker rides the per-component render-reaction
-;; DISPOSAL, which React/Reagent defer to a macrotask PAST the synchronous
-;; unmount commit (passive-effect cleanups are async even under `flushSync`). A
-;; registered-view root that `(rdc/unmount root)`s in a bare `finally` would
-;; therefore let its teardown marker fire AFTER the test body returns, leaking
-;; into the process-global trace listener the one `:browser-test` page shares
-;; across every `-dom-cljs-test` namespace. Each registered-view root below
-;; awaits its OWN teardown so no marker outlives it — a local settle idiom,
-;; NOT a new runtime and NOT a shared framework.
 
 (defn- settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
@@ -130,19 +53,6 @@
   (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
   (settle-macrotasks 3))
 
-;; ---------------------------------------------------------------------------
-;; Interaction 1 — Frame disposal with active machine instances
-;; spec/Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-frame-destroy-with-active-machines`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 2 — Sub-cache hit inside a machine microstep
-;; spec/Cross-Spec-Interactions.md#2-sub-cache-hit-inside-a-machine-microstep
-;; ---------------------------------------------------------------------------
-
 (deftest machine-microstep-subscribe
   "#2 Sub-cache hit inside a machine microstep —
    an EXTERNAL subscribe-once queried AFTER the machine event settles sees the
@@ -151,10 +61,6 @@
    :guard/:action/:entry/:exit MUST NOT call subscribe-once (a mid-action
    ambient read is unrecorded and breaks 005's token-grain replay contract, per
    005 §Causal host facts); external observers see one macrostep per event."
-  ;; A machine whose triggering :seed action advances :data, then an :always
-  ;; microstep advances it AGAIN in the SAME macrostep. An external sub of the
-  ;; machine snapshot, read after the dispatch settles, must see ONLY the final
-  ;; committed :step — never the intermediate :seeded value.
   (let [machine
         {:initial :idle
          :data    {:step :start}
@@ -162,94 +68,21 @@
          :actions {:seed   (fn [{:keys [data]}] {:data (assoc data :step :seeded)})
                    :settle (fn [{:keys [data]}] {:data (assoc data :step :settled)})}
          :states  {:idle   {:on {:go {:target :acting :action :seed}}}
-                   ;; :acting's :always (guarded by :seeded?, made true by the
-                   ;; :seed action) settles onto :done via :settle — a
-                   ;; multi-microstep cascade within ONE macrostep.
                    :acting {:always {:guard :seeded? :action :settle :target :done}}
                    :done   {}}}]
     (rf/reg-machine :auth/check machine)
     (rf/dispatch-sync [:auth/check [:go]])
-    ;; post-drain external read of the machine's externally-observable snapshot.
     (let [snap (rf/subscribe-once [:rf/machine :auth/check])]
       (is (= [:done :settled] [(:state snap) (:step (:data snap))])
           "the machine settled on the post-cascade state, and the external sub
            sees ONLY the committed post-cascade :data — never the intermediate
            :seeded microstep value"))))
 
-;; ---------------------------------------------------------------------------
-;; Interaction 3 — Machine spawn at boot before substrate adapter ready
-;; spec/Cross-Spec-Interactions.md#3-machine-spawn-at-boot-before-substrate-adapter-ready
-;; ---------------------------------------------------------------------------
-
-(deftest boot-order-adapter-ready
-  "#3 Machine spawn at boot before substrate adapter ready —
-   :initial-events runs synchronously after the adapter is installed."
-  ;; In :node-test the adapter is installed by reset-runtime before any
-  ;; make-frame call, so :initial-events always runs against a ready adapter.
-  ;; This test pins that property: a frame's :initial-events setup event
-  ;; reaches a live sub-cache and the spawned machine's snapshot lands in app-db.
-  ;; EP-0001: machine snapshots are durable runtime-db state.
-  (rf/reg-event :init-shape
-    (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed
-                                                                            :data  {}}}}}}))
-  ;; EP-0002: the reset-runtime fixture establishes an ambient
-  ;; `*current-frame*` :rf/default scope. `make-frame`'s `:initial-events`
-  ;; dispatch branches on `*current-frame*` (in-flight-cascade heuristic)
-  ;; between a synchronous top-level drain and an async child-frame
-  ;; queue. This test models a TOP-LEVEL boot — clear the ambient scope so the
-  ;; `:initial-events` cascade drains synchronously and its seed is observable.
-  (binding [rf.frame/*current-frame* nil]
-    (rf/make-frame {:id :booted :initial-events [[:init-shape]]}))
-  (let [rt (:rf.db/runtime (rf/frame-state-value :booted))]
-    (is (= :armed (get-in rt [:rf.runtime/machines :snapshots :flow/boot :state]))
-        ":initial-events completed against an installed adapter — runtime-db carries the seed")))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 4 — Machines under SSR (allowed-subset)
-;; spec/Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-machines-under-ssr`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 5 — Hydration with machine snapshots
-;; spec/Cross-Spec-Interactions.md#5-hydration-with-machine-snapshots
-;; ---------------------------------------------------------------------------
-
-(deftest ssr-hydrate-with-machines
-  "#5 Hydration with machine snapshots —
-   EP-0001: machine snapshots live in the runtime-db partition at
-   [:rf.runtime/machines :snapshots <id>], so hydration installs them via a
-   coherent runtime-db write (the payload carries an app-db slice + a
-   runtime-db slice) — they survive the standard hydration with the rest of
-   the frame-state, no separate machine channel."
-  (rf/reg-event :hydrate-payload
-    (fn [_ [_ {:keys [app-db runtime-db]}]]
-      {:db app-db :rf.db/runtime runtime-db}))
-  (let [server-app-db {:user/id 7}
-        server-rt      {:rf.runtime/machines {:snapshots {:auth/session {:state :authenticated
-                                                                         :data  {:token "abc"}}}}}]
-    (rf/dispatch-sync [:hydrate-payload {:app-db server-app-db :runtime-db server-rt}])
-    (let [client-rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
-      (is (= {:state :authenticated :token "abc"}
-             (let [snap (get-in client-rt [:rf.runtime/machines :snapshots :auth/session])]
-               {:state (:state snap) :token (get-in snap [:data :token])}))
-          "machine state and :data survive hydration in the runtime-db partition"))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 6 — Routing in SSR
-;; spec/Cross-Spec-Interactions.md#6-routing-in-ssr
-;; ---------------------------------------------------------------------------
-
 (deftest routing-in-ssr-nav-fx-skipped-on-server
   "#6 Routing in SSR —
    :rf.nav/push-url and :rf.nav/replace-url are no-ops on :server; the
    route slice itself is just app-db so it hydrates trivially."
   (rf/make-frame {:id :req :platform :server})
-  ;; Re-register the framework nav fx (reset-runtime cleared the
-  ;; registrar) so this test exercises the same platform-gating shape
-  ;; the production fx use.
   (rf.fx/reg-fx :rf.nav/push-url
     {:platforms #{:client}}
     (fn [_ _] :should-not-run-on-server))
@@ -262,19 +95,6 @@
                     (= :rf.nav/push-url (get-in % [:tags :rf.fx/id])))
               @traces)
         ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server")))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 7 — Route-not-found under SSR
-;; spec/Cross-Spec-Interactions.md#7-route-not-found-under-ssr
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-route-not-found-ssr`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 8 — Frame disposal during render
-;; spec/Cross-Spec-Interactions.md#8-frame-disposal-during-render
-;; ---------------------------------------------------------------------------
 
 (deftest frame-destroy-during-render
   "#8 Frame disposal during render —
@@ -294,27 +114,11 @@
           render-error (atom nil)
           target-frame :tenant-render
           mount-node   (make-mount-node!)
-          ;; Plain Reagent component (Form-1). It derefs the frame
-          ;; container so it rebinds Reagent's reactive watcher to the
-          ;; frame's app-db; if the frame is alive at render time the
-          ;; deref returns the current value, if the frame has just been
-          ;; destroyed the frame-container is still referenceable (its
-          ;; rAtom outlives the registry entry). The component itself
-          ;; calls destroy-frame! during its FIRST render — that's the
-          ;; "mid-render destroy" the spec describes — so the second
-          ;; render (if any) and the surrounding test code observe the
-          ;; commit-then-dispose ordering.
           render-fn    (fn []
                          (let [n (swap! render-count inc)
                                container (rf.frame/app-db-container target-frame)
                                db (when container @container)]
                            (when (= 1 n)
-                             ;; Mid-render destroy. Per Spec 002 §Destroy
-                             ;; this synchronously disposes the frame —
-                             ;; the React commit cycle that's currently
-                             ;; running cannot be interrupted, so this
-                             ;; returns and the render completes against
-                             ;; the snapshot the render fn read above.
                              (rf/destroy-frame! target-frame))
                            [:div.x {:data-render-count n
                                     :data-db          (pr-str db)}
@@ -323,41 +127,14 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
       (with-trace-recorder! [traces]
-        ;; Mount under frame-provider so the subtree is scoped to
-        ;; the ALREADY-CREATED target-frame in the React-context tier
-        ;; (the frame is constructed above via make-frame + dispatch-sync
-        ;; seed; this is a SCOPE, not an owned create — EP-0024). Even
-        ;; though the render fn reads via frame/app-db-container directly,
-        ;; the scope-provider mount path is the documented user-facing
-        ;; shape (per Spec 002 §`frame-provider` — the SCOPE-only
-        ;; component) and exercises the
-        ;; same substrate code-path the spec describes.
         (let [root (rdc/create-root mount-node)]
-          ;; Reagent 2's render is flushSync — by the time `rdc/render`
-          ;; returns, the first render pass has committed. The
-          ;; render-fn's destroy-frame! call therefore ran inside the
-          ;; commit cycle.
           (try
-            ;; Hiccup head is the frame-provider fn; Reagent
-            ;; treats `[fn-head args & children]` as an inline
-            ;; component invocation.
-            ;;
-            ;; React 18's root.render() is asynchronous by
-            ;; default — wrapping in flushSync forces the
-            ;; commit cycle to complete before the call
-            ;; returns. This is what lets the test observe the
-            ;; mid-render destroy synchronously, the same
-            ;; ordering the spec describes (Spec 002 §Destroy:
-            ;; render commits, then disposal runs).
             (react-dom/flushSync
               (fn []
                 (rdc/render root [rf/frame-provider
                                   {:frame target-frame}
                                   [render-fn]])))
             (catch :default e
-              ;; If destroy-during-render bubbled an exception
-              ;; the render itself would throw — record it for
-              ;; the assertion below.
               (reset! render-error (ex-message e))))
           (try
             (is (= [nil true true nil]
@@ -369,35 +146,13 @@
                 (str "the render ran without throwing mid-destroy, :rf.frame/destroyed fired "
                      "(destroy-frame! ran the disposal pipeline), and the frame is gone from "
                      "the registry; render error: " (pr-str @render-error)))
-            ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
-            ;; Spec 002 §Destroy). The trace channel is the public surface.
-            ;; A nested recorder isolates the post-destroy emit from the
-            ;; outer recorder's accumulated render+destroy events.
             (with-trace-recorder! [post-traces]
               (rf/dispatch-sync [:seed] {:frame target-frame})
               (is (some #(= :rf.error/frame-destroyed (:operation %))
                         @post-traces)
                   "subsequent dispatch against the destroyed frame emits :rf.error/frame-destroyed"))
             (finally
-              ;; Clean up the React root so its internal effects don't
-              ;; leak across tests. The mount node is detached and will be
-              ;; GC'd with this scope.
               (try (rdc/unmount root) (catch :default _ nil)))))))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 9 — Reactive substrate without React-context
-;; spec/Cross-Spec-Interactions.md#9-reactive-substrate-without-react-context
-;; ---------------------------------------------------------------------------
-;;
-;; With no context concept the dynamic var is the only scope tier, and there is
-;; no :rf/default floor. On this adapter that is
-;; `re-frame.runtime-cljs-test` / `with-frame-binds-current-frame`, which binds,
-;; nests and unwinds the scope on the same fixture.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 10 — Plain Reagent fn under a non-default frame
-;; spec/Cross-Spec-Interactions.md#10-plain-reagent-fn-under-a-non-default-frame
-;; ---------------------------------------------------------------------------
 
 (deftest plain-fn-under-non-default-frame
   "#10 Plain Reagent fn under a frame-provider —
@@ -434,10 +189,6 @@
       (rf/dispatch-sync [:seed-plain-fn] {:frame target-frame})
       (rf/reg-sub :plain-fn-test/n (fn [db _] (:n db)))
       (let [render-error (atom nil)
-            ;; A plain Reagent fn — NOT registered via reg-view, so it
-            ;; carries no `:contextType` wiring and cannot read the
-            ;; surrounding Provider's frame. Its subscribe raises
-            ;; :rf.error/no-frame-context (no :rf/default floor).
             plain-fn     (fn plain-fn-impl []
                            (try
                              @(rf/subscribe [:plain-fn-test/n])
@@ -446,14 +197,6 @@
             mount-node   (make-mount-node!)
             root         (rdc/create-root mount-node)]
         (try
-          ;; EP-0002: clear the fixture's ambient `*current-frame*`
-          ;; :rf/default scope around the synchronous `flushSync` render. The
-          ;; render runs inside the test body's dynamic extent, so the ambient
-          ;; scope would otherwise satisfy the plain fn's `subscribe` at tier 1
-          ;; (resolving :rf/default) and the no-frame-context contract under
-          ;; test would never fire. With the scope cleared the plain fn (no
-          ;; :contextType) cannot read context and resolves nil → the loud
-          ;; :rf.error/no-frame-context this test pins.
           (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
@@ -465,44 +208,6 @@
               "a plain fn's subscribe (no :contextType) raised :rf.error/no-frame-context rather than falling through to :rf/default")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 10 (continued) — the plain-fn no-frame boundary
-;;
-;; A plain (non-`reg-view`) Reagent component under a `frame-provider`
-;; cannot read the provider (no `:contextType`). This block pins the
-;; boundary in a REAL React fixture: the two TEMPTING
-;; repairs that are explicitly REJECTED, and the shapes that actually work.
-;;
-;; Rejected repair A — wrap the RETURNED subtree in lexical `with-frame`.
-;;   `with-frame` binds `*current-frame*` only for the synchronous eval of
-;;   its body. That body merely BUILDS the child Hiccup; React invokes the
-;;   child component LATER, after the binding has unwound. A plain child
-;;   carries no `:contextType`, so it reads neither the dynamic var (gone)
-;;   nor the provider → `:rf.error/no-frame-context`.
-;;
-;; Rejected repair B — call no-arg `(rf/capture-frame)` inside the plain fn.
-;;   The no-arg HOLD captures the AMBIENT scope at creation time. Under a
-;;   provider the plain fn cannot read (no `:contextType`) and with no live
-;;   dynamic binding there is no ambient scope to capture →
-;;   `:rf.error/no-frame-context` at the capture call.
-;;
-;; The distinction that matters: repair B's
-;; failure is the PROVIDER-ONLY / absent-dynamic-scope case, NOT a general
-;; law that unregistered fns cannot use lexical scope. The positive control
-;; `plain-fn-inner-with-frame-around-ambient-op-succeeds` runs the SAME
-;; no-arg `(rf/capture-frame)` inside a live `with-frame` the plain fn
-;; itself enters around the synchronous op — it succeeds because the binding
-;; is still live. Contrast with repair A (with-frame around RETURNED Hiccup),
-;; which fails because the binding unwinds before React invokes the child.
-;;
-;; What works from an unregistered component — EXPLICIT authority:
-;;   the 1-arity `(rf/capture-frame frame-id)` bundle, an explicit
-;;   `{:frame …}` opt, or a frame api threaded from a registered ancestor
-;;   (`plain-fn-explicit-target-succeeds`). `reg-view` (which wires
-;;   `:contextType`) reading the provider frame is pinned by
-;;   `subscribe-routes-via-react-context-under-non-default-frame` below.
-;; ---------------------------------------------------------------------------
 
 (deftest plain-fn-with-frame-around-returned-subtree-still-raises
   "Rejected repair A — an unregistered plain fn wraps the RETURNED child
@@ -520,16 +225,11 @@
       (rf/dispatch-sync [:seed-wf-return] {:frame target-frame})
       (rf/reg-sub :wf-return/n (fn [db _] (:n db)))
       (let [child-error (atom nil)
-            ;; A plain child — NOT reg-view'd — invoked by React AFTER the
-            ;; wrapper's `with-frame` body has returned.
             inner-child (fn inner-child-impl []
                           (try
                             @(rf/subscribe [:wf-return/n])
                             (catch :default e (reset! child-error e)))
                           [:div.inner "child"])
-            ;; The tempting (rejected) repair: wrap the RETURNED subtree in
-            ;; with-frame. The binding is live only while this body builds
-            ;; the vector — it unwinds before React renders `inner-child`.
             outer-wrap  (fn outer-wrap-impl []
                           (rf/with-frame target-frame
                             [inner-child]))
@@ -567,8 +267,6 @@
       (let [capture-error (atom nil)
             plain-fn (fn plain-noarg-impl []
                        (try
-                         ;; no-arg capture — NOT (capture-frame frame-id).
-                         ;; Fails at the capture call: no ambient scope.
                          (rf/capture-frame)
                          (catch :default e (reset! capture-error e)))
                        [:div "noarg"])
@@ -608,9 +306,6 @@
             capture-error  (atom nil)
             plain-fn (fn plain-inner-wf-impl []
                        (try
-                         ;; The SAME no-arg capture as repair B, but the
-                         ;; plain fn wraps its own SYNCHRONOUS op in a live
-                         ;; with-frame — the binding has NOT unwound.
                          (rf/with-frame target-frame
                            (let [handle (rf/capture-frame)]
                              (reset! captured-frame (:frame handle))
@@ -657,23 +352,17 @@
             captured-value (atom nil)
             opt-value      (atom nil)
             render-error   (atom nil)
-            ;; Deliberately UNREGISTERED plain fn — no reg-view, no
-            ;; :contextType. It reaches the target frame ONLY through the
-            ;; explicit authority it is handed.
             plain-fn (fn plain-explicit-impl []
                        (try
                          (let [handle (rf/capture-frame target-frame)]
                            (reset! captured-frame (:frame handle))
                            (reset! captured-value @((:subscribe handle) [:explicit/n])))
-                         ;; explicit {:frame …} opt straight on subscribe.
                          (reset! opt-value @(rf/subscribe [:explicit/n] {:frame target-frame}))
                          (catch :default e (reset! render-error e)))
                        [:div "explicit"])
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          ;; Ambient scope cleared: the ONLY thing that can route these
-          ;; reads is the explicit authority — not any leaked default.
           (binding [rf.frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
@@ -687,28 +376,6 @@
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
-;; ---------------------------------------------------------------------------
-;; Subscribe + dispatch consult the React-context tier
-;;
-;; Per Spec 002 §Reading the frame from React context the resolution
-;; chain at a CLJS subscribe / dispatch call site is:
-;;   1. *current-frame* dynamic var
-;;   2. closest enclosing frame-provider via React context
-;;   3. nil — no scope (EP-0002: there is no `:rf/default` floor)
-;;
-;; `re-frame.subs/subscribe` and the dispatch envelope's `:frame` default
-;; route through the `:adapter/current-frame` late-bind hook (registered by
-;; the Reagent / UIx adapter at ns-load time) rather than calling
-;; `re-frame.frame/current-frame` directly, which does not consult the
-;; React-context tier. The hook
-;; consults `_currentValue` on the shared React context object,
-;; tolerating Reagent's prop-stringified-keyword shape.
-;;
-;; This test pins the live behaviour: under a non-default
-;; frame-provider, a reg-view'd subscribe must resolve to the
-;; provider's frame, not :rf/default.
-;; ---------------------------------------------------------------------------
-
 (deftest subscribe-routes-via-react-context-under-non-default-frame
   "subscribe consults the React-context tier so a reg-view
    inside a non-default `frame-provider` reads the provider's frame
@@ -717,16 +384,12 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
       (let [target-frame :tenant-rf2-d4sf]
-        ;; Two distinct frames whose app-dbs hold different values so the
-        ;; subscribed reaction tells us unambiguously which one served it.
         (rf/make-frame {:id target-frame :doc "non-default frame — :v 42"})
         (rf/reg-event :seed-target (fn [{:keys [db]} _] {:db {:v 42}}))
         (rf/reg-event :seed-default (fn [{:keys [db]} _] {:db {:v 7}}))
         (rf/dispatch-sync [:seed-target]  {:frame target-frame})
         (rf/dispatch-sync [:seed-default] {:frame :rf/default})
         (rf/reg-sub :rf2-d4sf/v (fn [db _] (:v db)))
-        ;; The view captures the resolved frame and the subscribed value
-        ;; into shared atoms so the test can read them after the render.
         (let [resolved-frame (atom nil)
               resolved-value (atom nil)]
           (rf/reg-view* :rf.cross-spec-d4sf/probe
@@ -753,15 +416,6 @@
                            (= :rf.cross-spec-d4sf/probe (-> ev :tags :rf.view/id)))
                   (swap! unmounts conj ev))))
             (try
-              ;; EP-0002: the reset-runtime fixture binds an ambient
-              ;; `*current-frame*` :rf/default scope around the test body. The
-              ;; React render below runs SYNCHRONOUSLY inside `flushSync` — i.e.
-              ;; still inside that dynamic extent — so the reg-view's
-              ;; `current-frame-id` / `subscribe` would resolve the ambient
-              ;; :rf/default (tier 1) and never reach the React-context tier
-              ;; (tier 2) under test. Clear the ambient scope around the render so
-              ;; the provider's frame is actually resolved via React context —
-              ;; the contract this test pins.
               (binding [rf.frame/*current-frame* nil]
                 (react-dom/flushSync
                   (fn []
@@ -832,23 +486,9 @@
    context object; that read MUST tolerate the stringified shape so a
    UIx subtree embedded under a Reagent `[:> ...]` provider
    sees the right frame."
-  ;; Direct test of the lookup: we can't easily simulate the React-render
-  ;; pump without a real Provider, but we can pin the shape-coercion
-  ;; contract by stamping `_currentValue` directly. React maintains
-  ;; this field as part of its public-stable createContext API surface;
-  ;; the field is the same path the read-side relies on.
-  ;; EP-0002: the reset-runtime fixture establishes an ambient
-  ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
-  ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
-  ;; React-context tier is the SECOND tier of `function-component-current-frame`
-  ;; — only consulted when no dynamic scope is bound. Clear the ambient scope
-  ;; so the `_currentValue` read (the contract under test) is actually
-  ;; exercised; otherwise the dynamic-var tier shadows it and every read
-  ;; resolves to :rf/default before the context is inspected.
   (binding [rf.frame/*current-frame* nil]
   (let [original (.-_currentValue ^js rf.adapter.context/frame-context)]
     (try
-      ;; String shape — what Reagent's prop-conversion produces.
       (set! (.-_currentValue ^js rf.adapter.context/frame-context) "tenant-prop-converted")
       (is (= :tenant-prop-converted (rf.adapter.context/function-component-current-frame))
           "stringified keyword is round-tripped back to a keyword")
@@ -868,8 +508,6 @@
         (rf/reg-event :rf2-d4sf/record-here (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
         (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
                       (fn dispatcher-probe-impl []
-                        ;; Dispatch with no :frame opt — must route to the
-                        ;; surrounding provider's frame, not :rf/default.
                         (rf/dispatch-sync [:rf2-d4sf/record-here])
                         [:div "probe"]))
         (let [unmounts   (atom [])
@@ -891,10 +529,6 @@
                          (= :rf.cross-spec-d4sf/dispatcher-probe (-> ev :tags :rf.view/id)))
                 (swap! unmounts conj ev))))
           (try
-            ;; EP-0002: clear the fixture's ambient `*current-frame*`
-            ;; :rf/default scope around the synchronous render so the dispatch's
-            ;; `:frame` default resolves via the React-context tier (the provider's
-            ;; frame), not the ambient :rf/default that tier 1 would otherwise win.
             (binding [rf.frame/*current-frame* nil]
               (react-dom/flushSync
                 (fn []
@@ -907,11 +541,6 @@
             (catch :default e
               (is false (str "dispatch-default-frame-routes-via-react-context threw: " (pr-str e)))
               (finish))))))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 11 — Machine action throws
-;; spec/Cross-Spec-Interactions.md#11-machine-action-throws
-;; ---------------------------------------------------------------------------
 
 (deftest machine-action-throws
   "#11 Machine action throws —
@@ -930,67 +559,16 @@
     (rf/reg-machine :test/m machine)
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:test/m [:bang]])
-      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
-                         @traces)]
-        (is (= [true true true]
-               [(boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))
-                (boolean (some #(= :boom (get-in % [:tags :action-id])) errs))
-                (boolean (some #(= "kaboom" (get-in % [:tags :exception-message])) errs))])
-            (str "an action throw surfaces as :rf.error/machine-action-exception naming the "
-                 "live actor (:actor-id), the action, and the original exception message; got "
-                 (pr-str (map :tags errs)))))
-      (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
-          "the generic :rf.error/handler-exception does NOT also fire — the machine layer catches the action throw and emits the machine-scoped category")
-      (is (= :before (:val (rf/app-db-value :rf/default)))
-          "a non-machine app-db slice is not touched when the cascade halts")
-      (let [snap (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m])]
-        (is (or (nil? snap) (= :idle (:state snap)))
-            "the machine snapshot was not committed at :angry — pre-action :idle is preserved")))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 12 — Effect handler throws inside a machine action's :fx
-;; spec/Cross-Spec-Interactions.md#12-effect-handler-throws-inside-a-machine-actions-fx
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-machine-fx-handler-throws`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 13 — Hot-reload of a machine action while instance is running
-;; spec/Cross-Spec-Interactions.md#13-hot-reload-of-a-machine-action-while-instance-is-running
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-hot-reload-machine-action`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 14 — Re-entrant dispatch from inside a render
-;; spec/Cross-Spec-Interactions.md#14-re-entrant-dispatch-from-inside-a-render
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-dispatch-sync-from-handler-raises`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 15 — Re-spawning a machine instance via Tool-Pair
-;; spec/Cross-Spec-Interactions.md#15-re-spawning-a-machine-instance-via-tool-pair
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-time-travel-revert`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 16 — Error projection on the server
-;; spec/Cross-Spec-Interactions.md#16-error-projection-on-the-server
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-server-error-projection`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 17 — Machine error inside SSR
-;; spec/Cross-Spec-Interactions.md#17-machine-error-inside-ssr
-;; ---------------------------------------------------------------------------
+      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %)) @traces)
+            snap (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                         [:rf.runtime/machines :snapshots :test/m])]
+        (is (= [[true true true] false :before true]
+               [[(boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))
+                 (boolean (some #(= :boom (get-in % [:tags :action-id])) errs))
+                 (boolean (some #(= "kaboom" (get-in % [:tags :exception-message])) errs))]
+                (boolean (some #(= :rf.error/handler-exception (:operation %)) @traces))
+                (:val (rf/app-db-value :rf/default))
+                (or (nil? snap) (= :idle (:state snap)))]))))))
 
 (deftest ssr-machine-error
   "#17 Machine error inside SSR —
@@ -1009,24 +587,14 @@
     (rf/reg-machine :test/m machine)
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:test/m [:bang]] {:frame :req})
-      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
-                         @traces)]
-        (is (= [true true]
-               [(boolean (some #(= :req (get-in % [:tags :frame])) errs))
-                (boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))])
-            (str "a machine action throw surfaces as :rf.error/machine-action-exception on a "
-                 ":platform :server frame, recording the request frame's id and the live actor; got "
-                 (pr-str (map :tags errs)))))
-      (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
-          "the generic :rf.error/handler-exception does NOT also fire on a :platform :server frame")
-      (let [snap (get-in (:rf.db/runtime (rf/frame-state-value :req)) [:rf.runtime/machines :snapshots :test/m])]
-        (is (or (nil? snap) (= :idle (:state snap)))
-            "no committed machine snapshot at :angry — the cascade halted")))))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 18 — Re-registering a sub mid-cascade
-;; spec/Cross-Spec-Interactions.md#18-re-registering-a-sub-mid-cascade
-;; ---------------------------------------------------------------------------
+      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %)) @traces)
+            snap (get-in (:rf.db/runtime (rf/frame-state-value :req))
+                         [:rf.runtime/machines :snapshots :test/m])]
+        (is (= [[true true] false true]
+               [[(boolean (some #(= :req (get-in % [:tags :frame])) errs))
+                 (boolean (some #(= :test/m (get-in % [:tags :actor-id])) errs))]
+                (boolean (some #(= :rf.error/handler-exception (:operation %)) @traces))
+                (or (nil? snap) (= :idle (:state snap)))]))))))
 
 (deftest hot-reload-sub-mid-cascade
   "#18 Re-registering a sub mid-cascade —
@@ -1039,25 +607,7 @@
   (is (= 7 (rf/subscribe-once [:answer]))
       "the v1 sub computes from app-db")
   (let [pin (rf/subscribe [:answer])]
-    ;; Re-register: replacement-hook fires, cache slot is disposed, the
-    ;; next subscribe builds against the new body.
     (rf/reg-sub :answer (fn [db _] (* 100 (:n db))))
     (is (= 700 (rf/subscribe-once [:answer]))
         "after re-registration the new sub body is in effect")
     (rf/unsubscribe pin)))
-
-;; ---------------------------------------------------------------------------
-;; Interaction 19 — Story decorators that override fx
-;; spec/Cross-Spec-Interactions.md#19-story-decorators-that-override-fx
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-portable-story-fx-override`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
-
-;; ---------------------------------------------------------------------------
-;; Interaction 20 — Adapter swap mid-process is forbidden
-;; spec/Cross-Spec-Interactions.md#20-adapter-swap-mid-process-is-forbidden
-;; ---------------------------------------------------------------------------
-
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-adapter-already-installed`,
-;; which the UIx entry runs on :node-test; the path never touches the adapter.
