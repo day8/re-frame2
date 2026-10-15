@@ -1,35 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.machine-inspector-e2e-cljs-test
-  "Multi-frame e2e coverage for the Machine Inspector panel
-  (spec/017 — Machines row).
-
-  The Machine Inspector panel reads three cross-cutting sources:
-
-    1. `:rf.xray/registered-machines` — the set of machine ids the
-       host has registered via `rf/reg-machine`.
-    2. `:rf.xray/machine-snapshots` — the current snapshots for
-       every machine, keyed by `:machine-id`.
-    3. `:rf.xray/machine-transitions-for-focused-event` — the
-       focused-event lens: the per-machine-transition records the
-       chart-render path projects out of the FOCUSED epoch's
-       `:trace-events` window.
-
-  Bug classes this catches:
-
-  - A `:rf.machine/transition` emit that drops the `:frame` tag:
-    Xray's epoch-capture filter then rejects the event and the
-    Machine Inspector panel stays empty even after a real machine
-    transition fires.
-
-  - A chart-render path (`:rf.xray/machine-transitions-for-focused-event`)
-    that reads empty for real host-app machines. A test that injects
-    synthetic `:trace-events` via the `:rf.xray/set-epoch-history-for-test`
-    seam cannot lock the FULL real pipeline (a real `reg-machine`
-    transition flowing through real epoch capture into the lens). The
-    two `machine-inspector-focused-event-lens-*` tests below drive a
-    REAL `[:deep/main [:work/go]]` transition through the real
-    trace-bus + epoch-capture pipeline (NO injection seam) and assert
-    the focused-event lens populates with the real transition record —
-    the exact contract the chart-render path depends on."
+  "Host machine snapshots and focused transitions reach Xray subscriptions."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -49,17 +19,11 @@
               ":deep/main missing from :rf.xray/registered-machines"))))))
 
 (deftest xray-machine-snapshots-include-host-machine-post-bootstrap
-  (testing ":rf.xray/machine-snapshots carries :deep/main after bootstrap"
-    (e2e/with-host-and-xray-frames
-      {:install-host deep-machine/install-and-init!}
-      (fn []
-        (let [snapshots (e2e/sub-xray [:rf.xray/machine-snapshots])]
-          (is (map? snapshots)
-              ":rf.xray/machine-snapshots is not a map")
-          (is (contains? snapshots :deep/main)
-              ":deep/main not in machine-snapshots post-bootstrap")
-          (is (= :idle (get-in snapshots [:deep/main :state]))
-              ":deep/main's initial state should be :idle after bootstrap"))))))
+  (e2e/with-host-and-xray-frames
+    {:install-host deep-machine/install-and-init!}
+    (fn []
+      (is (= :idle (get-in (e2e/sub-xray [:rf.xray/machine-snapshots])
+                          [:deep/main :state]))))))
 
 (deftest xray-machine-inspector-data-resolves-shape
   (testing ":rf.xray/machine-inspector-data composite resolves"
@@ -82,59 +46,24 @@
 ;; while every injected test passed.
 
 (deftest machine-inspector-focused-event-lens-populates-for-real-transition
-  (testing "a REAL `[:deep/main [:work/go]]` transition flows
-            through the real trace-bus + epoch-capture pipeline and surfaces
-            in `:rf.xray/machine-transitions-for-focused-event` (NO injection
-            seam). This is the chart-render path's load-bearing contract —
-            empty here means the Machine Inspector chart is blank in prod."
-    (e2e/with-host-and-xray-frames
-      {:install-host deep-machine/install-and-init!}
-      (fn []
-        ;; Real host dispatch: drives :deep/main idle -> active. `dispatch-host`
-        ;; settles the cascade, then syncs the framework's epoch ring (with
-        ;; the captured `:rf.machine/transition` trace event) into Xray's
-        ;; `:epoch-history` slot exactly as the production epoch-collector does.
-        (e2e/dispatch-host [:deep/main [:work/go]])
-        (let [records (e2e/sub-xray
-                        [:rf.xray/machine-transitions-for-focused-event])]
-          (is (vector? records)
-              "lens returns a vector")
-          (is (= 1 (count records))
-              "exactly one machine transition fired in the focused cascade
-               window — proves the transition trace was captured into the
-               focused epoch's :trace-events (the :frame-tag gate)")
-          (let [rec (first records)]
-            (is (= :deep/main (:machine-id rec))
-                "the focused-event record names the real host machine")
-            (is (= :idle (:from-state rec))
-                "from-state is the pre-transition leaf")
-            (is (= :active (:to-state rec))
-                "to-state is the post-transition leaf — the real engine ran")
-            (is (= [:work/go] (:event rec))
-                "the record carries the real driving event vector")))))))
+  (e2e/with-host-and-xray-frames
+    {:install-host deep-machine/install-and-init!}
+    (fn []
+      (e2e/dispatch-host [:deep/main [:work/go]])
+      (is (= [{:machine-id :deep/main :from-state :idle
+               :to-state :active :event [:work/go]}]
+             (mapv #(select-keys % [:machine-id :from-state :to-state :event])
+                   (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event])))))))
 
 (deftest machine-inspector-focused-event-lens-tracks-second-real-transition
-  (testing "a second real transition (`:work/reset`) re-fires the
-            lens with the NEW cascade's transition record; proves the lens
-            tracks the live focus across real cascades, not a one-shot
-            capture artefact"
-    (e2e/with-host-and-xray-frames
-      {:install-host deep-machine/install-and-init!}
-      (fn []
-        (e2e/dispatch-host [:deep/main [:work/go]])
-        (let [first-records (e2e/sub-xray
-                              [:rf.xray/machine-transitions-for-focused-event])]
-          (is (= :active (:to-state (first first-records)))
-              "first cascade: idle -> active"))
-        ;; Second real transition: active -> idle on :work/reset.
-        (e2e/dispatch-host [:deep/main [:work/reset]])
-        (let [second-records (e2e/sub-xray
-                              [:rf.xray/machine-transitions-for-focused-event])]
-          (is (= 1 (count second-records))
-              "the second cascade's focused-event window has its own one
-               transition record")
-          (is (= :active (:from-state (first second-records)))
-              "second cascade from-state: active")
-          (is (= :idle (:to-state (first second-records)))
-              "second cascade to-state: idle — focus flipped to the new
-               real cascade and the lens re-fired with its transition"))))))
+  (e2e/with-host-and-xray-frames
+    {:install-host deep-machine/install-and-init!}
+    (fn []
+      (e2e/dispatch-host [:deep/main [:work/go]])
+      (is (= :active (:to-state
+                      (first (e2e/sub-xray
+                               [:rf.xray/machine-transitions-for-focused-event])))))
+      (e2e/dispatch-host [:deep/main [:work/reset]])
+      (is (= [{:from-state :active :to-state :idle}]
+             (mapv #(select-keys % [:from-state :to-state])
+                   (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event])))))))
