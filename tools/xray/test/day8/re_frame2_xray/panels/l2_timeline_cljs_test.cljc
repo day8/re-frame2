@@ -11,25 +11,13 @@
   "An event-bundle record whose `:dispatched` trace carries `source` under
   `:tags` (the shape `re-frame.trace.projection/group-by-event` buckets)."
   [source]
-  {:dispatch-id 42
-   :event       [:cart/add-item {:id 99}]
-   :dispatched  {:operation :rf.event/dispatched
-                 :op-type   :rf.event
-                 :tags      {:source                source
-                             :rf.trace/dispatch-id  42}}
-   :other       []
-   :errors      []})
+  {:dispatched {:tags {:source source}}})
 
 (defn- cascade-with-duration
   "An event-bundle whose `:handler` run-end trace carries the producer's
   `:rf.event/elapsed-ms`."
   [duration-ms]
-  {:dispatch-id 7
-   :event       [:poll/tick]
-   :handler     {:operation :rf.event/run-end
-                 :op-type   :rf.event
-                 :tags      {:rf.event/elapsed-ms  duration-ms
-                             :rf.trace/dispatch-id 7}}})
+  {:handler {:tags {:rf.event/elapsed-ms duration-ms}}})
 
 (defn- ev
   "A synthetic trace event with the given operation."
