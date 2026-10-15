@@ -114,7 +114,7 @@
 ;; (memo-hit AND recompute), so a view that re-renders structurally and
 ;; re-derefs unchanged subs still surfaces its full read-set.
 ;;
-;; Bound per render by `build-frame-aware-view` to a fresh volatile set;
+;; Bound per render by `render-in-scope` to a fresh volatile set;
 ;; nil outside a render (a handler that subscribes, an SSR walk) so the
 ;; sink-push is a no-op there. The binding site rides
 ;; `rf.interop/debug-enabled?` and the consumer push is gated at the
@@ -123,8 +123,8 @@
 
 (def ^:dynamic *view-deref-sink*
   "Per-render volatile holding the set of subscription query-vectors the
-  in-flight view render has deref'd so far. Bound by the
-  `build-frame-aware-view` wrapper for the duration of each render under
+  in-flight view render has deref'd so far. Bound by
+  `render-in-scope` for the duration of each render under
   `rf.interop/debug-enabled?`; nil otherwise."
   nil)
 
@@ -544,20 +544,154 @@
     (.-afn ^cljs.core/MetaFn f)
     f))
 
-(defn- build-frame-aware-view
-  "Build the per-render wrapped fn that ties view registration into
-  Reagent: each render binds `*render-key*`, `*handler-scope*` and the
-  per-render deref sink (`*view-deref-sink*`), emits the
-  `:view/render` trace, brackets the user render-fn in performance
-  marks, emits the `:rf.view/rendered` trace (carrying the mount flag +
-  the view's deref'd subs), arms the `:rf.view/unmounted`
-  teardown hook, and (when serving the Reagent inline path) annotates
-  the rendered hiccup root with the source-coord attribute.
+(declare form-2-render-fn)
 
-  Emit ordering: `:view/render` fires BEFORE the user
-  render-fn (the render-start marker);
-  `:rf.view/rendered` fires AFTER so the per-render deref sink is fully
-  populated and the trace can carry the view's own `:deref-subs`.
+(defn- form-2-inner-fn?
+  "True when a render returned a Form-2 inner render fn: callable, and not
+  a Reagent-family `create-class` result, which is callable too but is a
+  component class the substrate mounts."
+  [out]
+  (and (fn? out)
+       (not (rf.views.source-coord-annotation/reagent-class? out))))
+
+(defn- render-in-scope
+  "Run one render of the registered view `view` — `(apply render args)` —
+  inside the per-render scope: bind `*render-key*`, `*handler-scope*` and
+  the per-render deref sink (`*view-deref-sink*`), arm the
+  `:rf.view/unmounted` teardown hook, emit the `:view/render` trace,
+  bracket the render in performance marks, emit the `:rf.view/rendered`
+  trace (carrying the mount flag + the view's deref'd subs) and, when
+  serving the Reagent inline path, annotate the rendered hiccup root with
+  the source-coord attribute. `view` carries what registration fixed:
+  `:id`, `:view-scope`, `:coord-attr` and `:wrap-applied?`.
+
+  Emit ordering: `:view/render` fires BEFORE the render (the render-start
+  marker); `:rf.view/rendered` fires AFTER so the per-render deref sink is
+  fully populated and the trace can carry the view's own `:deref-subs`.
+
+  A render that returns a Form-2 inner fn was CONSTRUCTION, not a render:
+  it emits no `:rf.view/rendered` and returns `form-2-render-fn` around the
+  inner fn. Reagent and reagent-slim cache what it returns and call it
+  directly on every later render, so the inner fn's renders run this same
+  scope. Construction is only recognisable once the render has returned,
+  after the start marker and the mount flag were taken, so the
+  construction call opens the mount render and the inner fn's first call,
+  which the substrate makes in the same render, completes it: `opened`
+  hands it `{:render-key :mount?}` and that call emits no second start
+  marker. `opened` is nil for every other render."
+  [{:keys [id view-scope coord-attr wrap-applied?] :as view} render args opened]
+  (let [render-key (or (:render-key opened)
+                       [id (rf.views.provider/reagent-component-token)])
+        ;; Fresh per-render deref sink (dev-only). The
+        ;; volatile is bound below so `re-frame.subs/subscribe`'s
+        ;; gated `record-view-deref!` call unions each deref'd
+        ;; query-v into it; read back AFTER the render to stamp
+        ;; `:deref-subs` onto `:rf.view/rendered`.
+        sink       (when rf.interop/debug-enabled? (volatile! []))]
+    (binding [*render-key*      render-key
+              *view-deref-sink* sink]
+      (rf.trace/with-handler-scope view-scope
+        ;; Resolve the frame once per render — threaded into the
+        ;; unmount hook + both render emits.
+        (let [frame-id (when rf.interop/debug-enabled? (rf.views.provider/current-frame))]
+          ;; Arm the unmount hook + compute the mount flag
+          ;; BEFORE the render so `first-render?!` reflects whether
+          ;; this is the instance's first render (the seen-set is
+          ;; updated here, not in the post-render emit).
+          (when rf.interop/debug-enabled?
+            (maybe-arm-unmount! id render-key frame-id))
+          (let [mount? (if opened
+                         (:mount? opened)
+                         (when rf.interop/debug-enabled? (first-render?! render-key)))
+                ;; Wall-clock the user render-fn (dev-only)
+                ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
+                ;; per-view render timing Xray's Views panel shows. The
+                ;; read rides `rf.interop/debug-enabled?` so production
+                ;; DCEs it alongside the rest of the emit; nil in prod.
+                t0     (when rf.interop/debug-enabled? (rf.interop/now-ms))]
+            (when-not opened
+              (emit-view-render-trace! render-key frame-id))
+            ;; Per Spec 009 §Performance instrumentation:
+            ;; every render of a registered view brackets the user
+            ;; render-fn in performance marks so prod builds with the
+            ;; perf flag enabled produce a `rf:render:<view-id>`
+            ;; measure entry. Default-off; under :advanced +
+            ;; `re-frame.performance/enabled?=false` the bracket DCEs
+            ;; and the form collapses to the bare `(apply render
+            ;; args)` call.
+            ;;
+            ;; `apply` HERE IS LOAD-BEARING — do not rewrite it as a
+            ;; direct call, and do not reach for `(.apply render
+            ;; nil …)`. The DIRECT Form-3 shape that
+            ;; `re-frame.core/reg-view*` advertises — a `create-class`
+            ;; result handed straight in, with no outer callable —
+            ;; arrives here AS `render` (`unwrapped-fn` passes a
+            ;; class through untouched), because a class is `fn?`
+            ;; and nothing upstream discriminates the registered
+            ;; INPUT. It mounts correctly regardless, and only
+            ;; because of how `cljs.core/apply` binds `this`:
+            ;; a Reagent-family constructor carries no
+            ;; `cljs$lang$applyTo`, so `apply` bottoms out in
+            ;; `(.apply f f …)` — `this` is the CONSTRUCTOR OBJECT.
+            ;; Both supported constructors are `(React.Component.call
+            ;; this props …) … this`, so calling one as a plain
+            ;; function stamps a few fields onto the class object and
+            ;; RETURNS THE CLASS. `out` is therefore a `reagent-class?`
+            ;; value, which `form-2-inner-fn?` and the annotation walk
+            ;; below both pass through untouched and the substrate's own
+            ;; render-result branch then mounts as `[klass & args]`
+            ;; (stock Reagent: `reagent.impl.component/wrap-render`;
+            ;; reagent-slim: `reagent2.impl.component/form-2-inner-fn` →
+            ;; `class-mounting-render-fn`). Bind `this` to anything
+            ;; else and the constructor either throws or mutates the
+            ;; global object and returns it, and the shape breaks on
+            ;; every substrate at once. The output-side discrimination
+            ;; is thus SUFFICIENT rather than "too late"; no input-side
+            ;; special case is wanted here.
+            (let [out (rf.performance/mark-and-measure :render id
+                        (apply render args))]
+              (if (form-2-inner-fn? out)
+                (form-2-render-fn view out {:render-key render-key :mount? mount?})
+                (let [elapsed-ms (when rf.interop/debug-enabled?
+                                   (- (rf.interop/now-ms) t0))]
+                  ;; Emit AFTER the render so the deref sink is
+                  ;; populated; carry the mount flag + the view's read-set,
+                  ;; the render's `:elapsed-ms`, and the view's positional
+                  ;; render args/props — substrate-agnostic capture (this scope
+                  ;; wraps the OUTERMOST fn every adapter composes, so `args`
+                  ;; are the same values reaching the user render-fn on
+                  ;; Reagent / UIx alike). Gated on
+                  ;; `rf.interop/debug-enabled?` so production passes nil and
+                  ;; DCEs the capture with the rest of the emit; the marks
+                  ;; chokepoint elides the slot before delivery.
+                  (emit-view-rendered-trace! id render-key frame-id mount?
+                                             (when sink @sink) elapsed-ms
+                                             (when rf.interop/debug-enabled? args))
+                  (if (and rf.interop/debug-enabled? (not wrap-applied?))
+                    (rf.views.source-coord-annotation/inject-source-coord-attr id coord-attr
+                                                                               out)
+                    out))))))))))
+
+(defn- form-2-render-fn
+  "The render fn handed to the substrate in place of a Form-2 view's inner
+  fn `inner`. Each call is one render of the view, run through
+  `render-in-scope`, so the inner fn's renders carry the same evidence a
+  Form-1 render does; the first call completes the render `opened` began.
+
+  A plain variadic JS function, for the reason `build-frame-aware-view`
+  gives: stock Reagent passes argv through `.apply` with any number of
+  arguments."
+  [view inner opened]
+  (let [inner   (unwrapped-fn inner)
+        pending (volatile! opened)]
+    (fn form-2-render [& args]
+      (let [opened @pending]
+        (vreset! pending nil)
+        (render-in-scope view inner args opened)))))
+
+(defn- build-frame-aware-view
+  "Build the wrapped fn that ties view registration into Reagent: each
+  call is one render of view `id`, run through `render-in-scope`.
 
   The returned fn carries `{:contextType frame-context}` meta so
   Reagent's create-class / fn-to-class machinery hooks it up to the
@@ -574,98 +708,16 @@
   would fail before it rendered. A JS function's own `.apply` takes any
   count. `render-fn` is called through `unwrapped-fn` for the same reason."
   [id render-fn view-scope coord-attr wrap-applied?]
-  (let [render    (unwrapped-fn render-fn)
+  (let [view      {:id            id
+                   :view-scope    view-scope
+                   :coord-attr    coord-attr
+                   :wrap-applied? wrap-applied?}
+        render    (unwrapped-fn render-fn)
         head-meta {:contextType frame-context}
         wrapped
         (specify!
           (fn frame-aware-view [& args]
-            (let [tok        (rf.views.provider/reagent-component-token)
-                  render-key [id tok]
-                  ;; Fresh per-render deref sink (dev-only). The
-                  ;; volatile is bound below so `re-frame.subs/subscribe`'s
-                  ;; gated `record-view-deref!` call unions each deref'd
-                  ;; query-v into it; read back AFTER the render to stamp
-                  ;; `:deref-subs` onto `:rf.view/rendered`.
-                  sink       (when rf.interop/debug-enabled? (volatile! []))]
-              (binding [*render-key*     render-key
-                        *view-deref-sink* sink]
-                (rf.trace/with-handler-scope view-scope
-                  ;; Resolve the frame once per render — threaded into the
-                  ;; unmount hook + both render emits.
-                  (let [frame-id (when rf.interop/debug-enabled? (rf.views.provider/current-frame))]
-                    ;; Arm the unmount hook + compute the mount flag
-                    ;; BEFORE the render so `first-render?!` reflects whether
-                    ;; this is the instance's first render (the seen-set is
-                    ;; updated here, not in the post-render emit).
-                    (when rf.interop/debug-enabled?
-                      (maybe-arm-unmount! id render-key frame-id))
-                    (let [mount? (when rf.interop/debug-enabled? (first-render?! render-key))
-                          ;; Wall-clock the user render-fn (dev-only)
-                          ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
-                          ;; per-view render timing Xray's Views panel shows. The
-                          ;; read rides `rf.interop/debug-enabled?` so production
-                          ;; DCEs it alongside the rest of the emit; nil in prod.
-                          t0     (when rf.interop/debug-enabled? (rf.interop/now-ms))]
-                      (emit-view-render-trace! render-key frame-id)
-                      ;; Per Spec 009 §Performance instrumentation:
-                      ;; every render of a registered view brackets the user
-                      ;; render-fn in performance marks so prod builds with the
-                      ;; perf flag enabled produce a `rf:render:<view-id>`
-                      ;; measure entry. Default-off; under :advanced +
-                      ;; `re-frame.performance/enabled?=false` the bracket DCEs
-                      ;; and the form collapses to the bare `(apply render
-                      ;; args)` call.
-                      ;;
-                      ;; `apply` HERE IS LOAD-BEARING — do not rewrite it as a
-                      ;; direct call, and do not reach for `(.apply render
-                      ;; nil …)`. The DIRECT Form-3 shape that
-                      ;; `re-frame.core/reg-view*` advertises — a `create-class`
-                      ;; result handed straight in, with no outer callable —
-                      ;; arrives here AS `render` (`unwrapped-fn` passes a
-                      ;; class through untouched), because a class is `fn?`
-                      ;; and nothing upstream discriminates the registered
-                      ;; INPUT. It mounts correctly regardless, and only
-                      ;; because of how `cljs.core/apply` binds `this`:
-                      ;; a Reagent-family constructor carries no
-                      ;; `cljs$lang$applyTo`, so `apply` bottoms out in
-                      ;; `(.apply f f …)` — `this` is the CONSTRUCTOR OBJECT.
-                      ;; Both supported constructors are `(React.Component.call
-                      ;; this props …) … this`, so calling one as a plain
-                      ;; function stamps a few fields onto the class object and
-                      ;; RETURNS THE CLASS. `out` is therefore a `reagent-class?`
-                      ;; value, which the annotation walk below passes through
-                      ;; untouched and the substrate's own render-result branch
-                      ;; then mounts as `[klass & args]` (stock Reagent:
-                      ;; `reagent.impl.component/wrap-render`; reagent-slim:
-                      ;; `reagent2.impl.component/form-2-inner-fn` →
-                      ;; `class-mounting-render-fn`). Bind `this` to anything
-                      ;; else and the constructor either throws or mutates the
-                      ;; global object and returns it, and the shape breaks on
-                      ;; every substrate at once. The output-side discrimination
-                      ;; in `views/source-coord-annotation` is thus SUFFICIENT
-                      ;; rather than "too late"; no input-side special case is
-                      ;; wanted here.
-                      (let [out        (rf.performance/mark-and-measure :render id
-                                         (apply render args))
-                            elapsed-ms (when rf.interop/debug-enabled?
-                                         (- (rf.interop/now-ms) t0))]
-                        ;; Emit AFTER the render so the deref sink is
-                        ;; populated; carry the mount flag + the view's read-set,
-                        ;; the render's `:elapsed-ms`, and the view's positional
-                        ;; render args/props — substrate-agnostic capture (this wrapper
-                        ;; is the OUTERMOST fn every adapter composes, so `args`
-                        ;; are the same values reaching the user render-fn on
-                        ;; Reagent / UIx alike). Gated on
-                        ;; `rf.interop/debug-enabled?` so production passes nil and
-                        ;; DCEs the capture with the rest of the emit; the marks
-                        ;; chokepoint elides the slot before delivery.
-                        (emit-view-rendered-trace! id render-key frame-id mount?
-                                                   (when sink @sink) elapsed-ms
-                                                   (when rf.interop/debug-enabled? args))
-                        (if (and rf.interop/debug-enabled? (not wrap-applied?))
-                          (rf.views.source-coord-annotation/inject-source-coord-attr id coord-attr
-                                                                 out)
-                          out))))))))
+            (render-in-scope view render args nil))
           IMeta
           (-meta [_] head-meta))]
     ;; Stamp the React `displayName` to the
