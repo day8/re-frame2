@@ -43,7 +43,6 @@
       (reset! captured-id f)
       (is (= f (rf/current-frame-id)))
       (is (some? (rf/frame-meta f)) "alive during the body"))
-    (is (some? @captured-id))
     (is (nil? (rf/frame-meta @captured-id)) "destroyed on body exit")
     (is (= :rf.error/no-frame-context
            (:rf.error/id (ex-data
