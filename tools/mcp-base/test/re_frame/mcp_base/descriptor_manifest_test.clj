@@ -43,6 +43,7 @@
                             :required ["missing"]}}
         data (try
                (rf.mcp-base.descriptor-manifest/descriptor->row bad)
+               nil
                (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (= {:tool "broken" :missing ["missing"] :input-keys ["known"]}
            (select-keys data [:tool :missing :input-keys])))))
