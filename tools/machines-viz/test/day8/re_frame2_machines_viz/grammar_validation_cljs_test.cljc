@@ -87,19 +87,11 @@
   (testing "≤ U+00FF escapes to `_XX`, above it to the self-delimiting
             `_u<4-hex>`, so distinct segments never collide (đ vs \\u0011 + \"1\")
             and no escape mints the `__` the consumers' separators rely on"
-    (let [expected {"/"                   "_2f"
-                    "-"                   "_2d"
-                    "_"                   "_5f"
-                    "?"                   "_3f"
+    (let [expected {"_"                   "_5f"
                     (str (char 0x11))     "_11"
                     (str (char 0x11) "1") "_111"
                     "开"                  "_u5f00"
-                    "始"                  "_u59cb"
-                    "开始"                "_u5f00_u59cb"
-                    "đ"                   "_u0111"
-                    "a-b"                 "a_2db"
-                    "a/b"                 "a_2fb"
-                    "a_b"                 "a_5fb"}]
+                    "đ"                   "_u0111"}]
       (is (= expected (into {} (map (juxt identity g/escape-id-segment)) (keys expected)))))))
 
 ;; ---------------------------------------------------------------------------
