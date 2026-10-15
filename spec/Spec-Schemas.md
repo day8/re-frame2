@@ -3172,11 +3172,14 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
   ;; The resource cache runtime-db child. :entries is the durable cache;
   ;; :tag-index / :owner-index are reverse indexes recomputable-from-:entries
   ;; (rebuilt on restore / hydration, never trusted from the snapshot — so
-  ;; they need not ride the wire). All allocated lazily.
+  ;; they need not ride the wire). :last-gc-window is the frame's GC window
+  ;; counter, client-only and not recomputable, per
+  ;; [016 §Cache home and write authority]. All allocated lazily.
   [:map
-   [:entries     {:optional true} [:map-of ScopedResourceKey ResourceEntry]]
-   [:tag-index   {:optional true} [:map-of :any [:set ScopedResourceKey]]]
-   [:owner-index {:optional true} [:map-of :any [:set ScopedResourceKey]]]])
+   [:entries        {:optional true} [:map-of ScopedResourceKey ResourceEntry]]
+   [:tag-index      {:optional true} [:map-of :any [:set ScopedResourceKey]]]
+   [:owner-index    {:optional true} [:map-of :any [:set ScopedResourceKey]]]
+   [:last-gc-window {:optional true} :int]])
 
 (def WorkLedger
   ;; The frame work-ledger runtime-db child — serializable work records keyed

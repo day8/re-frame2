@@ -444,15 +444,18 @@ Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db p
 {:rf.db/app     <user-app-db>
  :rf.db/runtime
  {:rf.runtime/resources
-  {:entries     {<scoped-resource-key> <entry>}
-   :tag-index   {<tag> #{<scoped-resource-key> …}}
-   :owner-index {<owner> #{<scoped-resource-key> …}}}
+  {:entries        {<scoped-resource-key> <entry>}
+   :tag-index      {<tag> #{<scoped-resource-key> …}}
+   :owner-index    {<owner> #{<scoped-resource-key> …}}
+   :last-gc-window <int>}
 
   :rf.runtime/work-ledger
   {<work-id> <work-record>}}}
 ```
 
 Inside a full frame-state projection the resource path is `[:rf.db/runtime :rf.runtime/resources]`; inside runtime-db itself, framework code reads and writes `[:rf.runtime/resources]`. Both `:rf.runtime/resources` and `:rf.runtime/work-ledger` are reserved runtime-db keys (see [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)), allocated lazily and per-frame isolated.
+
+`:last-gc-window` is the frame's GC window counter: the id of the last GC window the frame opened. Every GC window an entry opens takes its id from this counter and stamps it on the entry, so window ids are unique across entry lifetimes and a GC check queued by a removed entry is always older than any window a replacement at the same key opens ([§Stale and GC scheduling](#stale-and-gc-scheduling)). It is client-only — a server frame opens no GC window, so it never gets the slot — and it never rides the SSR wire, which carries only `:entries`. It rides epoch snapshots like the rest of runtime-db, so replay reproduces it. Unlike the two indexes, it cannot be recomputed from `:entries`.
 
 ### Write authority
 
@@ -473,7 +476,7 @@ This section is the **canonical home for the resource-trio grading rows** — `:
 
 | Clause | Grade |
 |---|---|
-| **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
+| **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` / `:last-gc-window` ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
 | **2 Write authority** | ✅ Event-handler path — every resource `reg-event` stamps `:rf/framework-authority? true`; the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [§Write authority](#write-authority). |
 | **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf/resource`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`) plus tool reads (the `:rf/resource` registration projection, `resource-state`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
 | **4 Projection / elision** | ✅ Allowlist-shaped — only the durable resource projection rides the `:rf/hydration-payload` `:rf/runtime-db` slice via the explicit projection hook ([§SSR and hydration](#ssr-and-hydration)); `:tag-index` / `:owner-index` are recomputable-from-`:entries` and need not ride the wire. Params, scopes, and data carry `:sensitive?` / `:large?` classification owned by the resource definition and projected through the merged frame-owned `rf/project-egress` over the shared `re-frame.elision/elide-wire-value` walker ([EP-0015 §6](../docs/EP/EP-0015-frame-owned-egress-policy.md), [015-Data-Classification §Resource and mutation durable classification](015-Data-Classification.md#resource-and-mutation-durable-classification)); Xray sees redacted summaries, not raw values. |
