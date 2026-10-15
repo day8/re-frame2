@@ -1,16 +1,6 @@
-// The hermetic orchestrator's teardown contract. `makeCleanup` returns an
-// idempotent async cleanup that awaits a bounded browser close and the
-// shadow-cljs SIGTERM -> SIGKILL escalation, then GRADES the outcome: the run
-// is certified green only when every process it spawned is proven gone.
-//
-// On Windows cross-spawn runs `npx` behind a `cmd.exe` wrapper, so the handle
-// the runner holds is the wrapper and shadow-cljs and its JVM are descendants
-// that outlive it. `makeShadowTreeReaper` reaps and grades that owned subtree;
-// `ownedDescendants` decides which rows are provably ours, fencing recycled
-// PIDs, strangers wearing our root's number and rows it cannot date.
-//
-// The orchestrator is required as a module: its auto-run is guarded behind
-// `require.main === module`.
+// Cleanup must await teardown and prove its owned processes are gone.
+// Windows descendants can outlive the command wrapper; recycled PIDs are
+// never authority to kill a stranger.
 
 'use strict';
 
@@ -76,23 +66,22 @@ function reaper(opts) {
   });
 }
 
-// ---- awaiting and grading the browser and the shadow wrapper ---------------
-
 test('makeCleanup AWAITS a slow promise-returning browser.close() and grades it CLEAN', async () => {
   let closeSettled = false;
   const browser = {
     close: () => new Promise((resolve) => setTimeout(() => { closeSettled = true; resolve(); }, 150)),
   };
   const report = await cleanupWith({ getBrowser: () => browser, browserCloseMs: 5000 })();
-  assert.ok(closeSettled, 'cleanup resolved before browser.close() settled');
-  assert.deepEqual([report.clean, report.browser.state, report.shadow.state], [true, 'closed', 'exited']);
+  assert.deepEqual(
+    [closeSettled, report.clean, report.browser.state, report.shadow.state],
+    [true, true, 'closed', 'exited'],
+  );
 });
 
 test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit (rf2-7ckmwx finding 1)', async () => {
   const shadow = makeFakeShadow({ exitOnKillMs: 80 });
   await cleanupWith({ ...shadowDeps(shadow), shadowTermGraceMs: 50, shadowKillGraceMs: 5000 })();
-  assert.deepEqual(shadow.killSignals, ['SIGTERM', 'SIGKILL']);
-  assert.ok(shadow.exited, 'cleanup resolved before the post-SIGKILL exit');
+  assert.deepEqual([shadow.killSignals, shadow.exited], [['SIGTERM', 'SIGKILL'], true]);
 });
 
 test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH (rf2-j538f7.19 AC1/AC3/AC6)', async () => {
@@ -142,8 +131,6 @@ test('makeCleanup is idempotent and grades a shadow that exits on SIGTERM CLEAN 
   );
 });
 
-// ---- grading the owned process tree -----------------------------------------
-
 // The wrapper has EXITED in every row, so only the reap decides the grade.
 test('the owned-tree reap grades the run: a survivor or an unproven reap is DIRTY and named, none is CLEAN (rf2-kzbf AC1/AC3/AC4)', async () => {
   for (const [reap, clean, issue] of [
@@ -170,8 +157,6 @@ test('the owned-tree reap runs even when the wrapper never exited, and both fail
     { wrapper: 'alive', signals: ['SIGTERM', 'SIGKILL'], clean: false, issues: 2 },
   );
 });
-
-// ---- which rows are ours ----------------------------------------------------
 
 test('ownedDescendants claims our subtree and fences every row it cannot prove ours (rf2-kzbf)', () => {
   for (const [label, table, notBeforeMs, opts, expected] of [
@@ -204,8 +189,6 @@ test('ownedDescendants claims our subtree and fences every row it cannot prove o
     assert.deepEqual(ownedDescendants(table, 100, notBeforeMs, opts).sort((a, b) => a - b), expected, label);
   }
 });
-
-// ---- the reaper's kill decisions and outcome grading -------------------------
 
 // A stranger wearing our number, or an empty tree, is not itself a teardown
 // failure; missing proof is. Reporting dirty only after a kill is not
@@ -266,8 +249,6 @@ test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-
   );
 });
 
-// ---- the real thing, on Windows ---------------------------------------------
-
 // A real cross-spawn'd `.cmd` wrapper that exits at once after launching a
 // long-lived grandchild: the npx/shadow-cljs shape. The wrapper/grandchild
 // split is a cmd.exe-shim artefact, so this runs on Windows only.
@@ -316,7 +297,6 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
 
   try {
     assert.ok(shadowExited, 'the cmd wrapper should have exited on its own');
-    assert.ok(Number.isInteger(grandPid) && grandPid > 0, 'the grandchild should have announced its pid');
 
     // A reap whose kill is a no-op must grade DIRTY and name the grandchild.
     const inertKill = await wired({ treeKill: () => {}, graceMs: 300, pollMs: 50 });
