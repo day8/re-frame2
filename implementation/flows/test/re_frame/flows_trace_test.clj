@@ -1,15 +1,5 @@
 (ns re-frame.flows-trace-test
-  "JVM coverage for Spec 009 §Flow trace events / Spec 013 §Flow tracing: the
-  `:rf.flow/*` payloads, first-time-only registration evidence,
-  the error-emit routing of flow failures, dirty-check rollback on a flow
-  throw, and payload elision and privacy.
-
-  The conformance fixtures pin the rest as data, driven by
-  `re-frame.flows-conformance-test`: `flow-lifecycle-emits-traces.edn` the
-  lifecycle order, and `flow-eval-exception.edn` the throw's atomic abort, the
-  skipped `:fx` and the absent `:rf.event/db-changed`. The `:rf.flow/cleared`
-  payload is pinned on both hosts by
-  `re-frame.flows-replace-clear-trace-incarnation-cljs-test`."
+  "Flow trace payloads, always-on errors, rollback and privacy."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -107,9 +97,7 @@
 ;; ---- error routing -------------------------------------------------------
 
 (deftest flow-eval-exception-routes-through-error-emit-substrate
-  ;; A flow failure reaches corpus-wide error listeners on the always-on
-  ;; substrate, which survives CLJS production elision, and the rethrown
-  ;; ex-info carries the canonical thrown-error shape.
+  ;; Error listeners receive the always-on record and the canonical thrown data.
   (let [seen     (atom [])
         expected {:error :rf.error/flow-eval-exception :event [:init] :event-id :init
                   :frame :rf/default :where :flow-eval :flow-id :boom :phase :derive}]
@@ -118,11 +106,9 @@
     (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]}
       (fn [_] (throw (ex-info "flow boom" {:why :test}))))
     (rf/dispatch-sync [:init])
-    (let [[r & more] @seen
-          thrown     (:exception r)
-          data       (ex-data thrown)]
-      (is (nil? more) "one record for one throw")
-      (is (= expected (select-keys r (keys expected))))
+    (let [r    (first @seen)
+          data (ex-data (:exception r))]
+      (is (= [expected] (mapv #(select-keys % (keys expected)) @seen)))
       (is (= (into #{:exception :time :elapsed-ms :source-coord} (keys expected))
              (set (keys r))))
       ;; `run-flows-on-db` is not on the `rf/` facade, so `:where` names its
