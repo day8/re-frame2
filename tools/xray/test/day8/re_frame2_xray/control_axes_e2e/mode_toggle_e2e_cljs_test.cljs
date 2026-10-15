@@ -1,20 +1,5 @@
 (ns day8.re-frame2-xray.control-axes-e2e.mode-toggle-e2e-cljs-test
-  "Multi-frame e2e coverage for the Mode toggle control axis.
-
-  Xray exposes two modes per `tools/xray/spec/007-UX-IA.md` §Static
-  mode: Dynamic (event-coupled spine) and Static (registry browse).
-  The mode lives at `:rf.xray/mode` (default `:dynamic`); the
-  Cmd-Shift-M chord dispatches `:rf.xray/toggle-mode` which flips
-  it.
-
-  At the e2e level we assert:
-
-    1. Default mode is `:dynamic` after Xray install.
-    2. `:rf.xray/toggle-mode` dispatched into `:rf/xray` flips it
-       to `:static`.
-    3. A second toggle flips back to `:dynamic`.
-    4. The mode survives a host dispatch (it is Xray-frame state,
-       not host-frame state; the wrong-frame-routing class)."
+  "Mode changes stay in Xray across host dispatches."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -30,14 +15,6 @@
     (fn []
       (is (= :dynamic (e2e/sub-xray [:rf.xray/mode]))
           "default :rf.xray/mode is not :dynamic"))))
-
-(deftest xray-toggle-mode-flips-dynamic-to-static
-  (e2e/with-host-and-xray-frames
-    {:install-host counter/install-and-init!}
-    (fn []
-      (e2e/dispatch-xray [:rf.xray/toggle-mode])
-      (is (= :static (e2e/sub-xray [:rf.xray/mode]))
-          ":rf.xray/toggle-mode did not flip mode to :static"))))
 
 (deftest xray-toggle-mode-round-trip
   (e2e/with-host-and-xray-frames
