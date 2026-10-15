@@ -1,19 +1,5 @@
 (ns re-frame.bench.fresco.read-profile-slots-cljs-test
-  "PHASE B'S NULLS SIT AT THREE DIFFERENT SLOTS, AND THE SLOTS ARE THE POINT.
-
-  `rounds-async!` visits arms in `slot-order`'s reflecting rotation,
-  indexed by the sample, so every arm occupies a fixed multiset of sweep
-  positions. `read_profile_app` carries three nulls of identical work, and
-  the only thing distinguishing them is a vector index:
-
-  - `c-null-twin` on `c-local`'s footprint exactly, so any position-driven
-    cost cancels term by term;
-  - `c-null-curve` on `c-local`'s mean position but a different footprint,
-    so a linear drift cancels and a curved one does not;
-  - `c-null` on the published window's slot, displaced in both.
-
-  A null at the wrong slot still runs and reports a number that answers a
-  different question, and nothing else in the tree would notice."
+  "Published arms retain their slots while three nulls occupy the distinct footprints the comparison requires."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.read-profile-app :as rf.bench.fresco.read-profile-app]))
 
