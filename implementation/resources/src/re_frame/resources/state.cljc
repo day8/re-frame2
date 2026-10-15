@@ -1775,7 +1775,7 @@
   a GENERATOR-BACKED recordable allocation (EP-0017 §5). It declares no
   `:schema`, so resources run without the schemas artefact; the
   `{:generation N :counter N}` shape is checked always-on by
-  `check-generation-allocation!`."
+  `allocated-generation` where the generation folds into resource state."
   {:recordable? true
    :doc "The recordable generation allocation for the active frame's resource
 /mutation work: `{:generation N :counter N}`, minted at processing-start from
@@ -1816,29 +1816,26 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
   [v]
   (and (map? v) (int? (:generation v)) (int? (:counter v))))
 
-(defn check-generation-allocation!
-  "Throw `:rf.error/cofx-value-invalid` unless the
-  `:rf.resource/generation-allocation` that `coeffects` carries is
-  `{:generation int :counter int}`. The cofx machinery delivers a supplied
-  or replayed allocation as recorded, so every handler that declares it
-  calls this on entry: a nil generation would otherwise become the entry's
-  join key and the work-id's generation, and silently no-op the high-water
-  bump. A plain predicate rather than a cofx `:schema`, so the check runs
-  in every build with or without the schemas artefact. A coeffects map
-  without the allocation, as when a handler is called directly, is not
-  graded, exactly as no delivery-time check reaches it. Returns nil."
-  [coeffects]
-  (when (contains? coeffects :rf.resource/generation-allocation)
-    (let [allocation (:rf.resource/generation-allocation coeffects)]
-      (when-not (generation-allocation? allocation)
-        (rf.error/throw-error!
-          :rf.error/cofx-value-invalid 'rf/reg-cofx
-          (str "Recordable coeffect `:rf.resource/generation-allocation` must be "
-               "`{:generation int :counter int}`. A malformed supplied or replayed "
-               "allocation is refused before it folds into resource state.")
-          {:extra {:rf.cofx/id :rf.resource/generation-allocation
-                   :value      allocation}}))))
-  nil)
+(defn allocated-generation
+  "The `:generation` of a `:rf.resource/generation-allocation` value, after
+  an always-on check that it is `{:generation int :counter int}`; throws
+  `:rf.error/cofx-value-invalid` otherwise. The cofx machinery delivers a
+  supplied or replayed allocation as recorded, so every handler reads the
+  generation through this where it folds into resource state: a nil
+  generation would otherwise become the entry's join key and the work-id's
+  generation, and silently no-op the high-water bump. A plain predicate
+  rather than a cofx `:schema`, so the check runs in every build with or
+  without the schemas artefact."
+  [allocation]
+  (when-not (generation-allocation? allocation)
+    (rf.error/throw-error!
+      :rf.error/cofx-value-invalid 'rf/reg-cofx
+      (str "Recordable coeffect `:rf.resource/generation-allocation` must be "
+           "`{:generation int :counter int}`. A malformed supplied or replayed "
+           "allocation is refused before it folds into resource state.")
+      {:extra {:rf.cofx/id :rf.resource/generation-allocation
+               :value      allocation}}))
+  (:generation allocation))
 
 (def commit-generation-meta
   "Metadata for the `:rf.resource/commit-generation` fx registration. The
