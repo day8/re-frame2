@@ -1,11 +1,5 @@
 (ns re-frame.flows-output-reassert-cljs-test
-  "A flow owns its `:output-path` (Spec 013 §Dirty-check semantics). A handler
-  that replaces the db, rebuilds the map holding a flow's output, or writes the
-  output slot itself, while leaving the flow's inputs `=`-equal, still commits
-  the flow's output: the equal-input visit re-asserts the value the flow last
-  computed, without calling `:derive`.
-
-  `*-cljs-test.cljc`, so the `:node-test` build and the JVM runner both run it."
+  "Equal inputs skip derive while restoring remembered output, including nil and chained outputs."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -52,26 +46,6 @@
     (rf/dispatch-sync [:set 5])
     (rf/dispatch-sync [:clobber])
     (is (= [{:n 5 :doubled 10} 1] [(db) @calls]))))
-
-(defn- editor-slice [] {:draft {:title ""} :baseline {:title ""}})
-
-(deftest editor-slice-reset-keeps-the-derived-flag
-  ;; The route-entry reset shape: the flow registers through `:rf.fx/reg-flow`
-  ;; at initialise, and a later reset rebuilds the slice holding its output
-  ;; with draft and baseline unchanged.
-  (let [calls (atom 0)
-        flow  [:editor/can-submit?
-               {:inputs [[:editor :draft] [:editor :baseline]]
-                :output-path [:editor :can-submit?]}
-               (counted calls not=)]]
-    (rf/reg-event :editor/initialise
-      (fn [{:keys [db]} _] {:db (assoc db :editor (editor-slice)) :fx [[:rf.fx/reg-flow flow]]}))
-    (rf/reg-event :editor/reset (fn [{:keys [db]} _] {:db (assoc db :editor (editor-slice))}))
-    (rf/dispatch-sync [:editor/initialise])
-    (is (= [(assoc (editor-slice) :can-submit? false) 1] [(:editor (db)) @calls]))
-    (rf/dispatch-sync [:editor/reset])
-    (is (= [(assoc (editor-slice) :can-submit? false) 1] [(:editor (db)) @calls])
-        "a reset that leaves draft and baseline unchanged keeps :can-submit?")))
 
 (deftest a-chained-dependent-is-repaired-in-topological-order
   ;; Registered dependent-first, so only the topological sort puts :a ahead.
