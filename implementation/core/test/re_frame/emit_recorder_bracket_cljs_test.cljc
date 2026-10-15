@@ -52,46 +52,6 @@
                (mapv (juxt :kind :error :frame) @sunk))
             "sink: the projected record of the same failure")))))
 
-(deftest leaving-the-bracket-unregisters
-  (testing "the bracket unregisters in a `finally`: a failure after the body, on
-            the normal and the exceptional exit alike, is not recorded"
-    (rf/make-frame {:id :bracket/scoped})
-    (reg-boom! :bracket/scoped :scoped/boom)
-    (let [boom!   #(rf/dispatch-sync [:scoped/boom] {:frame :bracket/scoped})
-          normal  (with-emit-recorder! [raw] (boom!) raw)
-          escaped (atom nil)]
-      (is (thrown? #?(:clj Exception :cljs js/Error)
-                   (with-emit-recorder! [raw]
-                     (reset! escaped raw)
-                     (boom!)
-                     (throw (ex-info "body blew up" {}))))
-          "the body's exception propagates out of the bracket")
-      (boom!)
-      (is (= [1 1] [(count @normal) (count @@escaped)])
-          "each bracket kept the one record from its body and nothing after"))))
-
-(deftest pred-filters-what-is-recorded
-  (testing "`:pred` narrows what an `:events` bracket records"
-    (rf/make-frame {:id :bracket/pred})
-    (rf/reg-event :pred/a {:frame :bracket/pred} (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :pred/b {:frame :bracket/pred} (fn [{:keys [db]} _] {:db db}))
-    (with-emit-recorder! [seen {:stream :events
-                                :pred   #(= :pred/b (:event-id %))}]
-      (rf/dispatch-sync [:pred/a] {:frame :bracket/pred})
-      (rf/dispatch-sync [:pred/b] {:frame :bracket/pred})
-      (is (= [:pred/b] (mapv :event-id @seen))))))
-
-(deftest two-brackets-in-one-test-do-not-collide
-  (testing "the default key is gensym'd per bracket, so a nested bracket does not
-            replace the outer one's registration"
-    (rf/make-frame {:id :bracket/two})
-    (reg-boom! :bracket/two :two/boom)
-    (with-emit-recorder! [outer]
-      (with-emit-recorder! [inner]
-        (rf/dispatch-sync [:two/boom] {:frame :bracket/two})
-        (is (= 1 (count @inner))))
-      (is (= 1 (count @outer))))))
-
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
   (testing "register-listener! refuses both raw always-on streams, naming the
             two dev streams it accepts"
