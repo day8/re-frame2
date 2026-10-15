@@ -1,71 +1,5 @@
 (ns re-frame.bench.fresco.arm1.boundary-crossing-cljs-test
-  "A READ DEFERRED ACROSS A BOUNDARY CROSSING.
-
-  `runtime-cljs-test`'s
-  `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
-  covers three escapes — an author-held `delay`, a stashed lazy seq,
-  and a stored handler called later — and all three share one
-  property: the deferred read runs when **no** body is running, so
-  `read-key!` finds no frame and says so. This file is about the fourth,
-  which has the opposite property and is therefore silent.
-
-  ## The hazard these rows are about
-
-  `read-key!`'s guard asks *is any body running*, not *is THIS body
-  running*, because `rstate` is one module-level object. A read deferred
-  past its author's body and forced inside a **different** boundary's
-  render therefore would not throw: it would land on that boundary's
-  scratch, and the boundary that produced it would hold no edge for it.
-
-  The carrier is the boundary hand-off. `convert-prop-value` sends any
-  collection at a NATIVE prop position through `clj->js`, so the eager
-  codec really does force everything it walks there — but
-  `boundary-element` hands `body-props` across as a raw ClojureScript
-  map, and the shell reads it back as one. No conversion, and so —
-  without the walk below — no realisation:
-
-      (defview child  [{:keys [rows]}] [:ul (for [r rows] [:li (str r)])])
-      (defview parent [_] [child {:rows (for [id (sub [:visible-ids])]
-                                          (:title (sub [:todo id])))}])
-
-  `(sub [:visible-ids])` is the `for`'s binding expression and runs
-  eagerly; every `(sub [:todo id])` runs when the CHILD walks the seq.
-
-  **And it would not merely put the edge on the wrong boundary.** A
-  `LazySeq` caches what it realised, so the wrong reader would re-render
-  exactly once: on that re-render its body walks an already-realised
-  seq, `sub` is never called, its read set collapses to the empty set,
-  React re-subscribes and the row edges are dropped. The right reader
-  never re-renders, so the seq is never rebuilt. One correction, then a
-  value that is **correct on screen, frozen thereafter, attributable to
-  nothing** — the class the judgement page calls the worst failure this
-  surface can have.
-
-  ## What closes it
-
-  `rf.bench.fresco.front.codec/realize-deep`, called once on `body-props` in
-  `boundary-element`. It forces every lazy sequence reachable from the
-  props map — including the `:children` vector, whose one-level flatten
-  leaves a nested seq unrealised — and returns the map itself, by
-  identity, because realising a `LazySeq` caches into the seq and copies
-  nothing. The read is then forced by the same pass that turns hiccup
-  into elements, inside the window of the body that WROTE it, which is
-  the property the eager codec is supposed to have.
-
-  It is emphatically not per-boundary render identity: nothing here can
-  tell one render attempt from another, `rstate` is one object, and the
-  shell holds two hooks and no per-instance state.
-
-  ## What these rows are
-
-  The seam driven by hand, as in `staged-read-tear-cljs-test`:
-  `render-body` is the render, and the props map the codec built for the
-  crossing is read straight off the React element. Where the commit then
-  puts the edges is `cell_table_laws_cljs_test`'s ground — a write
-  notifies exactly the readers of the keys it moved, so the parent,
-  which holds every row edge, re-runs and rebuilds the seq.
-  `boundary-crossing-dom-cljs-test` proves the DOM moves, in real
-  Chromium, on a later write."
+  "Realize lazy data in the supplying render while preserving identities and opaque values."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -87,9 +21,7 @@
 
 (defn- key-of [query] [frame-id query])
 
-;; ---------------------------------------------------------------------------
 ;; The two bodies, and the head that makes the crossing a real one
-;; ---------------------------------------------------------------------------
 ;;
 ;; The bodies are kept as plain fns and the boundary head is minted from
 ;; the child's, so this suite can run both halves of the crossing without
@@ -138,9 +70,7 @@
     [frame-id [:dogfood/todo 1]]
     [frame-id [:dogfood/todo 2]]})
 
-;; ---------------------------------------------------------------------------
 ;; 1 — the crossing attributes the read to the boundary that WROTE it
-;; ---------------------------------------------------------------------------
 
 (deftest a-lazy-seq-handed-across-a-boundary-is-the-parents-read
   (seeded!)
@@ -188,9 +118,7 @@
            child is a seq — the ABI's splice is one level; the seq arrives
            realised"))))
 
-;; ---------------------------------------------------------------------------
 ;; 2 — the walk itself: what it forces, and what it must not disturb
-;; ---------------------------------------------------------------------------
 
 (deftest realize-deep-returns-its-argument-by-identity
   (testing "realising a `LazySeq` caches into the seq, so the walk rebuilds
