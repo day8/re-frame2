@@ -216,19 +216,22 @@
                                      (mapcat (fn [^js entry]
                                                (seq (.-set entry))))
                                      entries))
-                      ;; Did the fold merge entries that read DIFFERENT
-                      ;; cells, or only different ORDERS of the same ones?
+                      ;; The number React compares for this row: each folded
+                      ;; entry's own `getSnapshot`, stated only when every
+                      ;; entry reads ONE raw set and returns ONE number.
                       ;; Carried as METADATA rather than as a field: it is
                       ;; the explanation's business and not the
                       ;; mounted roster's, and this row IS the envelope's
                       ;; `:boundaries` element, so a field here would widen
                       ;; a published schema to say something no consumer of
                       ;; that read asked for.
-                      one-raw-readset?
-                      (= 1 (count (into #{}
-                                        (map (fn [^js entry] (set (seq (.-set entry)))))
-                                        entries)))]
-                  ^{::one-raw-readset? one-raw-readset?}
+                      snapshot
+                      (let [raw-sets  (into #{} (map (fn [^js entry] (.-set entry))) entries)
+                            snapshots (into #{} (map (fn [^js entry] ((.-snapshot entry)))) entries)]
+                        (if (and (= 1 (count raw-sets)) (= 1 (count snapshots)))
+                          (first snapshots)
+                          rf.fresco.evidence/unknown))]
+                  ^{::snapshot snapshot}
                   {:boundary    {:parent nil :key projected-boundary-key}
                    :views       (view-rows (into #{} (mapcat rf.fresco.impl.collector/entry-views) entries))
                    :instances   (reduce + 0 (map (fn [^js entry]
@@ -325,8 +328,10 @@
   reverse edge, maintained by the same commit and cleanup that acquire
   and release the reference. `:readers` carry the same keys
   `read-mounted-boundaries` states, so the two rosters join. A key
-  nothing holds has no cell and is absent — it is not a subscription with
-  zero readers, it is one this runtime is not holding."
+  nothing holds is absent — it has no cell, or its cell lost its last
+  reader and waits out the reaper's grace macrotask — so `:fan-out` is
+  never 0: an unheld key is not a subscription with zero readers, it is
+  one no boundary is holding."
   []
   (when rf.interop/debug-enabled?
     (let [views-by-read-set-map (views-by-read-set)]
@@ -335,8 +340,10 @@
                          ;; by a field on the row: the sub-key carries the raw
                          ;; query vector, and a sort key that rode on the row
                          ;; would be a second egress path for its arguments.
-                         {:edges (mapv (fn [[sub-key cell]]
-                                        (edge-row views-by-read-set-map sub-key cell))
+                         {:edges (into []
+                                       (keep (fn [[sub-key ^js cell]]
+                                               (when (pos? (alength (.-readers cell)))
+                                                 (edge-row views-by-read-set-map sub-key cell))))
                                        (ordered key @rf.fresco.impl.collector/!cells))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -483,19 +490,23 @@
   Proven: every commit re-stamps a moved cell's epoch above its previous
   stamp, floored at the frame's commit basis, so `:latest-reads` — the
   reads at the boundary's own maximum epoch — are the ones whose values
-  moved most recently, and `:snapshot` is the sum React itself compares.
+  moved most recently, and `:snapshot` is the number React itself
+  compares: the folded entries' own `getSnapshot`, which sums the epochs
+  along an entry's ordered read SEQUENCE, so a query read twice counts
+  twice. The row's `:reads` list each cell once and are not that sum.
 
-  **`:snapshot` is `evidence/unknown` where the privacy fold merged
-  DISTINCT raw read sets**. `make-snapshot` sums ONE entry's
-  keys; this row can hold several, because an egress policy that elides a
-  query whole projects `[:row \"secret-a\"]` and `[:row \"secret-b\"]` onto
-  one identity. Summing across that group produces a number no boundary
-  ever compares — `(+ eA eB)` where React held `eA` at one and `eB` at
-  the other — and reporting it as *the* snapshot is a fabricated answer
-  given to someone debugging. The fold itself is correct; what is
-  declined is the claim about it. A group of two READ ORDERS of one raw
-  set is not this case: every entry in it holds the same cells, so the
-  sum is that boundary's real snapshot and is reported exactly.
+  **`:snapshot` is `evidence/unknown` where the folded entries do not
+  share one raw read set and one number.** The row can hold several
+  entries, because an egress policy that elides a query whole projects
+  `[:row \"secret-a\"]` and `[:row \"secret-b\"]` onto one identity, and
+  because entries differing only in read order or repetition share one
+  edge set. Two READ ORDERS of one raw set return one number, and it is
+  reported. A body reading a query once and another reading it twice
+  share a raw set but return `e` and `2e`; DISTINCT raw sets read
+  different cells, whose sums can agree only by a coincidence of stamps
+  that the next commit undoes. Stating either as the number the row
+  compares would be a fabricated answer given to someone debugging. The
+  fold itself is correct; what is declined is the claim about it.
 
   Leads: the commit seam records no cascade id, so no retained run can be
   JOINED to this boundary's re-run; `:candidates` are the runs that
@@ -530,9 +541,7 @@
      :instances    (:instances boundary-row)
      :window       {:frames (vec (sort-by pr-str frame-ids))
                     :retained-runs retained-runs}
-     :snapshot     (if (and (seq epochs) (::one-raw-readset? (meta boundary-row) true))
-                     (reduce + epochs)
-                     rf.fresco.evidence/unknown)
+     :snapshot     (::snapshot (meta boundary-row) rf.fresco.evidence/unknown)
      :peak-epoch   (or peak-epoch rf.fresco.evidence/unknown)
      ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
      ;; are one sub-id and two different reads, and a Why view that

@@ -313,11 +313,13 @@ fields on the row and separate lines on the screen.
 - **Proven.** A cell's `epoch` is re-stamped by every commit that moved its
   value, so `:latest-reads` — the boundary's reads at its highest epoch — are
   the ones that moved most recently. `:snapshot` is the exact number React
-  compares in `checkIfSnapshotChanged` — EXCEPT where an egress policy elided
-  a query whole and folded two boundaries reading DIFFERENT cells onto one
-  identity, which is reported as `:unknown` rather than as a sum no boundary
-  ever compared (rf2-h9lt); a fold of two READ ORDERS of the same cells keeps
-  its exact number. Each entry names the READ
+  compares in `checkIfSnapshotChanged` — the entry's `getSnapshot`, in which a
+  query read twice counts twice — EXCEPT where the row folds boundaries that
+  do not share one read set and one number: an egress policy that elided a
+  query whole and folded two boundaries reading DIFFERENT cells onto one
+  identity, or a body reading a query once beside one reading it twice. Those
+  report `:unknown` rather than a number no boundary compares; a fold of two
+  READ ORDERS of the same reads keeps its exact number. Each entry names the READ
   (`{:sub-id :query :frame-id}`, the query projected), not a bare sub-id:
   `[:row 1]` and `[:row 2]` are one registration and two different reads, and
   a Why view that answered ":row moved" to a developer looking at eight rows

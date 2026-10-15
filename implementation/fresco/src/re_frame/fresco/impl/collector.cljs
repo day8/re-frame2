@@ -789,9 +789,10 @@
           entry))))
 
 (defn- make-snapshot
-  "React's `getSnapshot`: the sum of the set's epochs, where a key no
-  cell holds yet contributes its frame's live `commit-basis` instead of
-  nothing. Monotone, so `Object.is` on it is a correct change test;
+  "React's `getSnapshot`: the sum of the epochs along the entry's read
+  SEQUENCE (`.-keys`, in read order, so a key read twice counts twice),
+  where a key no cell holds yet contributes its frame's live
+  `commit-basis` instead of nothing. Monotone, so `Object.is` on it is a correct change test;
   cached on the entry. The staged term is what reaches the render→commit
   gap: `basis@render` while the boundary renders, `basis@commit` once
   the commit has created the cell, and React's post-subscribe re-read
