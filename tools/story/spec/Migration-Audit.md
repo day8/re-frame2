@@ -104,7 +104,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 | 5 | `expectTimingBucket(buckets, 'fx')` ≥ 1 | A | `fx-walk-emits-rf-fx-measure-when-perf-enabled`. |
 | 6 | `expectTimingBucket(buckets, 'render')` ≥ 1 | A | Naming convention covered by `performance-cljs-test/build-name-shape`; no test asserts per-call `:render` emission. The view-render call site itself is structurally identical to the other three — no Reagent-render integration is added in the nightly suite (driving Reagent in node would require react-dom server, which is browser-render-orthogonal). The bundle-presence assertion in `scripts/check-perf-bundle.cjs` retains the prod-build sentinel check. |
 
-**Migrated subtotal: 6 of 6 = 100%. Residual: 0. SPEC.CJS DELETED.** The integration assertion (one dispatch populates all three headless buckets in a single drain) lives in `single-dispatch-populates-all-three-headless-buckets`.
+**Migrated subtotal: 6 of 6 = 100%. Residual: 0. SPEC.CJS DELETED.** No test asserts that one dispatch populates all three headless buckets in a single drain: the per-bucket tests in rows 3–5 imply it.
 
 ### `testbeds/deep_machine/spec.cjs` (Spec 005 machine transition cascade)
 | # | Assertion | Class | Rationale + target |
