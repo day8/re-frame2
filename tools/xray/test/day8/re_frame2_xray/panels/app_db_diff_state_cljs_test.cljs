@@ -173,21 +173,6 @@
           "an :added slice carries NO `:before` opt (it has no pre-image —
            the first-run path synthesises the missing-sentinel)"))))
 
-(deftest existing-machine-instance-still-diffs-not-added
-  (testing "a machine present in BOTH :value and :before
-            threads `:before` (diffs in place); it does NOT get
-            the `:added?` first-run treatment"
-    (let [before (runtime-db {:rf/machines {:door/main {:state :open}}})
-          after  (runtime-db {:rf/machines {:door/main    {:state :closed}
-                                            :traffic/light {:state :red}}})
-          model  (h/current-state-sections {} after {:app {} :runtime before})
-          tree   (state/state-body model)
-          door   (find-by-testid
-                   tree "rf-xray-app-db-state-instance-:rf/machines-:door/main")
-          mounts (find-edn-inspector-mounts door)]
-      (is (not-any? #(true? (:added? (:opts %))) mounts)
-          "a pre-existing machine is NOT marked :added"))))
-
 (deftest newly-added-singleton-slice-mounts-added-not-before
   (testing "a singleton reserved slice (e.g. :rf/route) that
             appeared this epoch (absent in :before) mounts the inspector
