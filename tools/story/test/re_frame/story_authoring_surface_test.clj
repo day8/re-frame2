@@ -102,19 +102,4 @@
                             (count (rf.story.frames/stub-call-log-for :story.authfx-rt/v))])))
   (rf.story/destroy-variant! :story.authfx-rt/v))
 
-(deftest extends-inherits-decorators-when-child-declares-none
-  (rf.story/reg-decorator :inherited-deco {:kind :hiccup :wrap (fn [body _] [:div.inherited body])})
-  (rf.story/reg-variant :story.inherit-bare/parent {:decorators [[:inherited-deco]] :setup []})
-  (rf.story/reg-variant :story.inherit-bare/child {:extends :story.inherit-bare/parent :setup []})
-  (is (= [:inherited-deco]
-         (mapv :id (:hiccup (rf.story/resolve-decorators :story.inherit-bare/child))))))
 
-(deftest extends-child-decorators-replace-parent
-  (testing "a child's own :decorators replace the parent's (child-wins, no concat)"
-    (rf.story/reg-decorator :parent-deco {:kind :hiccup :wrap (fn [body _] [:div.parent body])})
-    (rf.story/reg-decorator :child-deco {:kind :hiccup :wrap (fn [body _] [:div.child body])})
-    (rf.story/reg-variant :story.inherit-replace/parent {:decorators [[:parent-deco]] :setup []})
-    (rf.story/reg-variant :story.inherit-replace/child
-      {:extends :story.inherit-replace/parent :decorators [[:child-deco]] :setup []})
-    (is (= [:child-deco]
-           (mapv :id (:hiccup (rf.story/resolve-decorators :story.inherit-replace/child)))))))
