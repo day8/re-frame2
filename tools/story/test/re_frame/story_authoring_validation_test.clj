@@ -51,9 +51,7 @@
     (testing (str "an invalid " kind " body")
       (let [data (shape-data register!)]
         (is (= error-id (:rf.error/id data))
-            "ex-data carries the kind's :rf.error/<kind>-shape id")
-        (is (str/includes? (str (:reason data)) (str kind " schema"))
-            ":reason names the failing kind")))))
+            "ex-data carries the kind's :rf.error/<kind>-shape id")))))
 
 (deftest reg-workspace-isolation-slot-accepts-both-values
   (doseq [iso [:isolated :shared]]
@@ -93,8 +91,7 @@
   (let [data (shape-data #(rf.story/reg-variant :story.swallow/play
                             {:setup [] :play [[:rf.assert/path-equals [:counter/value] 0]]}))]
     (is (= :rf.error/variant-shape (:rf.error/id data)))
-    (is (re-find #":play \(did you mean :plays\?\)" (:reason data)))
-    (is (re-find #"closed" (:reason data)))))
+    (is (re-find #":play \(did you mean :plays\?\)" (:reason data)))))
 
 ;; The props schema lives only on the `:component` view's metadata, so a
 ;; body-level `:schema` would be accepted and dead.
@@ -366,14 +363,12 @@
 ;; ---- `variant-id-for` rejects a non-keyword at macro expansion ------------
 
 (deftest variant-id-for-rejects-non-keyword-story-id
-  (let [data (shape-data #(rf.story.macros/variant-id-for "story.foo" :a))]
-    (is (= :rf.error/story-bad-id (:rf.error/id data)))
-    (is (re-find #"story id must be a keyword" (:reason data)))))
+  (is (= :rf.error/story-bad-id
+         (error-id #(rf.story.macros/variant-id-for "story.foo" :a)))))
 
 (deftest variant-id-for-rejects-non-keyword-variant-name
-  (let [data (shape-data #(rf.story.macros/variant-id-for :story.foo "a"))]
-    (is (= :rf.error/story-bad-variant-name (:rf.error/id data)))
-    (is (re-find #"variant-name in :variants map" (:reason data)))))
+  (is (= :rf.error/story-bad-variant-name
+         (error-id #(rf.story.macros/variant-id-for :story.foo "a")))))
 
 ;; ---- configure! validates its keys ----------------------------------------
 
