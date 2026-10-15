@@ -1,10 +1,5 @@
 (ns re-frame.test-quiet-stderr-ring-concurrency-test
-  "Regression for the JVM runner's stderr ring. `-main` funnels `*err*` (a
-  PrintWriter) and raw `System.err` (a UTF-8 PrintStream over an OutputStream
-  bridge) into one StringBuilder through wrappers holding DISTINCT locks;
-  without the ring's own monitor a concurrent append and front-trim tear it
-  (`ArrayIndexOutOfBoundsException`), reddening a passing test. The race
-  needs the bridge's chunked writes: two PrintWriters do not trip it."
+  "Both stderr wrappers must share a lock across append and front-trim."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.test-quiet.runner]))
 
