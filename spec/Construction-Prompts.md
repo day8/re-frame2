@@ -1025,7 +1025,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **AI-first checklist:**
 
 - The server is `re-frame.ssr.ring/ssr-handler`, which creates and destroys one frame per request; no hand-rolled Ring handler.
-- Setup events carry no `:platforms`, which gates effects and coeffects, not events; each effect or coeffect a setup event reaches includes `:server` in its `:platforms` or omits the key (runs everywhere).
+- `:platforms` gates effects and coeffects, not events: a setup event stays server-only by being dispatched only from `:initial-events`, and each effect or coeffect it reaches includes `:server` in its `:platforms` or omits the key (runs everywhere).
 - The request is read through the `:rf.server/request` coeffect and never stored in app-db; a fact the app keeps, such as the session's user, rides an event's payload.
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
 - Hydration payload is built by `ssr-handler`: integer `:rf/version`, `:rf/app-db` holding only the `:payload` allowlist's keys, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from the resolving `:root-view`, and no `:rf/frame-id` unless `:client-frame-id` names a stable one.
