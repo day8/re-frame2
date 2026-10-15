@@ -125,13 +125,15 @@
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           (rf.resources.state/entry-path k)))
 
+(defn- ensure-event [owner]
+  [:rf.resource/ensure
+   (cond-> {:resource :gcq/article :scope :rf.scope/global
+            :params {:slug "intro"}}
+     owner (assoc :owner owner))])
+
 (defn- ensure!
   ([] (ensure! nil))
-  ([owner]
-   (rf/dispatch-sync [:rf.resource/ensure
-                      (cond-> {:resource :gcq/article :scope :rf.scope/global
-                               :params {:slug "intro"}}
-                        owner (assoc :owner owner))])))
+  ([owner] (rf/dispatch-sync (ensure-event owner))))
 
 (defn- refetch! []
   (rf/dispatch-sync [:rf.resource/refetch
@@ -192,6 +194,28 @@
   (advance-to! gc-ms)
   (is (= [:rf.resource/release-owner :rf.resource.internal/gc-fired] @fifo)
       "the settle window's check is queued behind the final release")
+  (drain!)
+  (is (some? (entry)) "the older check does not collect the released entry")
+  (run-to! (+ gc-ms gc-ms -1))
+  (is (some? (entry)) "kept for the whole window the release armed")
+  (run-to! (+ gc-ms gc-ms))
+  (is (nil? (entry)) "collected by that window's check"))
+
+(deftest a-check-queued-behind-an-owners-ensure-and-release-waits-for-its-window
+  ;; the ownerless settle at t=0 arms GC for t=1000
+  (reg-article!)
+  (ensure!)
+  (succeed!)
+  (drain!)
+  (reset! fifo [])
+  (advance-to! 900)
+  (queue! (ensure-event [:app :gcq 3]))
+  (queue! [:rf.resource/release-owner {:owner [:app :gcq 3]}])
+  ;; the settle's timer fires before the ensure and the release are delivered
+  (advance-to! gc-ms)
+  (is (= [:rf.resource/ensure :rf.resource/release-owner :rf.resource.internal/gc-fired]
+         @fifo)
+      "the settle window's check is queued behind the owner's ensure and release")
   (drain!)
   (is (some? (entry)) "the older check does not collect the released entry")
   (run-to! (+ gc-ms gc-ms -1))
