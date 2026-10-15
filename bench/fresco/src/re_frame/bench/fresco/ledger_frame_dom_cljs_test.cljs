@@ -550,46 +550,22 @@
         "each reading is the distance to the NEXT frame")))
 
 (deftest the-window-check-is-a-two-valued-question-asked-in-both-directions
-  (testing "[[rf.bench.fresco.ledger-frame-clock-app/verify]] asks whether the
-           window did what the ARM predicted. Both directions bank into one
-           tally: a floor run whose window advanced is exactly as damning as
-           a scroll run whose window did not."
-    (doseq [[advance? seen verified?] [[true  [100 104 108] true]
-                                       [false [100 100 100] true]
-                                       [false [100 104 108] false]]]
-      (is (= verified? (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :arm advance? seen)))
-          (pr-str advance? seen)))
-    (is (= {:verified?   false
-            :arm         :scroll
-            :expected    :advance
-            :observed    :no-advance
-            :first-row   100
-            :last-row    100
-            :rows-gained 0
-            :unobserved  0}
-           (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 100]))
-        "a scrolling arm whose window stood still is REFUSED, and the refusal
-         names both sides rather than only failing"))
-  (testing "a frame whose window could not be read refuses the run, and the
-           count is carried so an operator is sent to the spacer rather than
-           to the gesture"
-    (is (= {:verified? false :unobserved 1}
-           (select-keys (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 nil 108])
-                        [:verified? :unobserved])))))
+  (is (= [true true false]
+         (mapv (fn [[advance? seen]]
+                 (:verified? (rf.bench.fresco.ledger-frame-clock-app/verify :arm advance? seen)))
+               [[true [100 104 108]] [false [100 100 100]] [false [100 104 108]]])))
+  (is (= {:verified? false :arm :scroll :expected :advance :observed :no-advance
+          :first-row 100 :last-row 100 :rows-gained 0 :unobserved 0}
+         (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 100])))
+  (is (= {:verified? false :unobserved 1}
+         (select-keys (rf.bench.fresco.ledger-frame-clock-app/verify :scroll true [100 nil 108])
+                      [:verified? :unobserved]))))
 
 (deftest the-descriptive-counts-say-how-far-and-how-often
-  (testing "`:advance` is published over every visit and adjudicates
-           nothing. `rows-gained` is how far the window travelled;
-           `frames-changed` is how many of the run's transitions carried a
-           new window, which is a finding about the SUBJECT — a run that
-           advanced on a quarter of its frames advanced for real and was
-           dropping frames."
-    (is (false? (rf.bench.fresco.ledger-frame-clock-app/advanced? [108 100])) "backwards is not an advance")
-    (is (= [8 nil] (map rf.bench.fresco.ledger-frame-clock-app/rows-gained [[100 104 108] [nil 108]]))
-        "how far, and nil rather than a fabricated zero")
-    (is (= [2 0] (map rf.bench.fresco.ledger-frame-clock-app/frames-changed [[1 1 2 2 3] [1 1 1]]))
-        "two of the four transitions carried a new window; a run the vendor
-         never updated changed on none of them")))
+  (is (= [false [8 nil] [2 0]]
+         [(rf.bench.fresco.ledger-frame-clock-app/advanced? [108 100])
+          (mapv rf.bench.fresco.ledger-frame-clock-app/rows-gained [[100 104 108] [nil 108]])
+          (mapv rf.bench.fresco.ledger-frame-clock-app/frames-changed [[1 1 2 2 3] [1 1 1]])])))
 
 ;; ---------------------------------------------------------------------------
 ;; The control's rule, pinned on synthetic readings
@@ -627,15 +603,10 @@
           (pr-str predicted per-round)))))
 
 (deftest the-floor-is-reported-against-the-boxs-own-frame-grid-as-context
-  (testing "`:versus-floor` says how many of this box's frames the
-           injection spans, which a reader needs to know whether the floor
-           could have been cleared without it. NOTHING is adjudicated
-           against it — `:ok?` reads the same with it absent."
-    (is (= 3.0 (:versus-floor (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] 16.6667)))
-        "fifty milliseconds is three frames at 60 Hz")
-    (is (= (:ok? (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] 16.6667))
-           (:ok? (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] nil)))
-        "the verdict does not move with the context")))
+  (let [with-grid (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] 16.6667)
+        without-grid (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 50.0 [51.0] nil)]
+    (is (= [3.0 true]
+           [(:versus-floor with-grid) (= (:ok? with-grid) (:ok? without-grid))]))))
 
 (deftest the-adjudicated-figure-is-a-round-minimum-and-not-a-median
   (testing "[[rf.bench.fresco.ledger-frame-clock-app/control-per-round]] takes
