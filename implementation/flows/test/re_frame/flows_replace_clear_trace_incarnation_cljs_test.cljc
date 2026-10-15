@@ -1,15 +1,5 @@
 (ns re-frame.flows-replace-clear-trace-incarnation-cljs-test
-  "Exact-incarnation fence for the replacement and clear lifecycle traces
-  through the trace-emit callback pipeline, and the per-frame decision behind
-  replacement evidence, on both hosts.
-
-  A direct `reg-flow` replacement emits `:rf.registry/handler-replaced`, and
-  `clear-flow` emits `:rf.flow/cleared` from inside its serialized section,
-  each under a continuation predicate bound to A's pinned incarnation: a
-  listener that destroys A and publishes a same-id B mid-fan-out stands, and
-  every later listener is suppressed. A declares no output marks, so the
-  listener fan-out is the only callback seam. Listeners fan out in insertion
-  order, so the destroyer is registered first."
+  "Replacement and clear traces stop at owner loss and remain independent per frame."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
@@ -52,9 +42,8 @@
     (reg! id :a identity)
     (let [[hits observed] (fence-witness! id :rf.registry/handler-replaced)]
       (try
-        (is (= :a (reg! id :a (fn [n] n))))
-        (is (= 1 @hits) "the already-entered delivery stands")
-        (is (= [] @observed) "no later listener receives A's stale replacement")
+        (is (= [:a 1 []] [(reg! id :a (fn [n] n)) @hits @observed])
+            "only the entered delivery stands after owner loss")
         ;; The fence does not poison the successor's own replacement.
         (reg! id :b identity)
         (reg! id :b (fn [n] n))
@@ -68,9 +57,8 @@
     (reg! id :a identity)
     (let [[hits observed] (fence-witness! id :rf.flow/cleared)]
       (try
-        (is (= :a (rf/clear :flow :a {:frame id})))
-        (is (= 1 @hits) "the already-entered delivery stands")
-        (is (= [] @observed) "no later listener receives A's stale clear")
+        (is (= [:a 1 []] [(rf/clear :flow :a {:frame id}) @hits @observed])
+            "only the entered delivery stands after owner loss")
         ;; The fence does not poison the successor, whose own clear carries
         ;; its own payload.
         (reg! id :b identity)
