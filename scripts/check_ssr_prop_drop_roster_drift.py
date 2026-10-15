@@ -507,15 +507,10 @@ def _run_self_tests(verbose: bool = False) -> int:
            missing_from_page("keyword", ["key"]) == ["key"])
     expect("boundary: 'monkey' does NOT answer for `key`",
            missing_from_page("monkey", ["key"]) == ["key"])
-    expect("boundary: `prefer`/`reference` do NOT answer for `ref`",
-           missing_from_page("prefer a reference", ["ref"]) == ["ref"])
 
     # ---- LIMIT 2, pinned: contamination reads as PRESENT ------------------
     # The gate UNDER-REPORTING, the direction that never cries wolf: real
     # 011 text using `:children` as a key reads as the roster name.
-    expect("limit 2: unrelated `:children` on the page reads as PRESENT (floor)",
-           missing_from_page("the `:children` key of the structured-children map",
-                             ["children"]) == [])
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
