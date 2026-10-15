@@ -1,15 +1,5 @@
 (ns re-frame.adapter.uix-effect-frame-deps-dom-cljs-test
-  "An imperative `use-effect` listener follows the frame its component is
-  rendered under across a PROVIDER SWAP. The README's outer/inner recipe
-  dispatches from the listener through `use-frame`'s ops, which are a NEW map
-  once the provider retargets; a deps vector naming only the domain prop
-  leaves the listener installed under A, and the next event lands in the
-  frame the UI has left — an isolation break that raises nothing. The test
-  swaps the provider on ONE mounted instance (a remount would re-run the
-  effect and pass regardless), so the element is asserted `identical?`
-  across the swap. Cutting the recipe's deps to `[tile-id]` fails it.
-  `dispatch-sync` stands in for the README's `dispatch` so app-db can be read
-  straight after the event; the deps obligation is the same."
+  "An imperative listener follows a provider swap without remounting its component."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -22,15 +12,12 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.uix/adapter}))
 
-;; ---- lane gate -------------------------------------------------------------
-
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
 (defn- with-browser-act
-  "Skip under `:node-test` (no DOM) and when `act()` is unreachable;
-  otherwise opt the runner into React's act environment and call `(f act-fn)`."
+  "Run with React act in a browser."
   [f]
   (if-not (browser?)
     (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
@@ -39,25 +26,18 @@
           (f act-fn))
       (is true "act() not reachable from this runner; skipping"))))
 
-;; ---- the two frames and the one event --------------------------------------
-
 (def ^:private frame-a :rf.uix-effect-frame-deps/frame-a)
 (def ^:private frame-b :rf.uix-effect-frame-deps/frame-b)
 
 (defn- hits
-  "Every tile-id the named frame has been told finished, in order."
+  "Recorded tile completions for the frame."
   [frame-kw]
   (:hits (rf/app-db-value frame-kw)))
-
-;; ---- probes ----------------------------------------------------------------
-;;
-;; `effect-log` records the effect's setup/cleanup calls so the balance
-;; assertion reads what React actually did rather than inferring it.
 
 (def ^:private effect-log (atom []))
 
 (defui tile-inner
-  "The README's canonical imperative-lifecycle recipe, compiled."
+  "The documented imperative-listener recipe."
   [{:keys [tile-id]}]
   (let [ref                     (uix/use-ref)
         {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
@@ -73,14 +53,8 @@
       [tile-id dispatch-sync])
     ($ :div {:ref ref :class "tile"})))
 
-;; ---- the shared drive ------------------------------------------------------
-
 (defn- run-provider-swap!
-  "Mount `component` (one instance, prop `{:tile-id 7}`) under a provider
-  targeting `frame-a`, fire the event, retarget the SAME tree at `frame-b`,
-  fire it again. Returns the observations; asserts the in-place update itself,
-  because every later conclusion depends on it. The fixture's ambient
-  `:rf/default` is cleared so it cannot stand in for the provider."
+  "Fire before and after a provider swap on the same mounted instance."
   [act-fn component]
   (reset! effect-log [])
   (rf/reg-event ::finished
@@ -101,13 +75,9 @@
      (try
        (render! frame-a)
        (let [el-under-a (element)]
-         ;; Control: without it a listener that never attached would pass
-         ;; the isolation assertions vacuously.
          (fire! el-under-a)
          (let [after-mount {:log @effect-log :a (hits frame-a) :b (hits frame-b)}]
 
-           ;; THE SWAP. Same component type, same position, same key, same
-           ;; domain prop — only the provider's target changes.
            (render! frame-b)
            (let [el-under-b (element)]
              (is (identical? el-under-a el-under-b)
@@ -121,8 +91,6 @@
               :b           (hits frame-b)})))
        (finally
          (try (.unmount root) (catch :default _ nil)))))))
-
-;; ---- the pin ---------------------------------------------------------------
 
 (deftest imperative-effect-follows-the-frame-across-a-provider-swap
   (testing "naming `dispatch` in the deps vector re-installs the listener on
