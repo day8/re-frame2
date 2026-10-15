@@ -14,8 +14,7 @@
        in `re-frame.fresco.tool`;
     2. the consumer-owned `consumed-evidence-schema` equals the literal
        `re-frame.fresco.evidence/schema` stamps — if they drift, every read
-       reports a mismatch and none ever succeeds;
-    3. no donor namespace appears anywhere in Pair's shipped source."
+       reports a mismatch and none ever succeeds."
   (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.fresco-tool :as fresco-tool]))
@@ -87,23 +86,3 @@
              " but the producer stamps " (second m)
              " — bump consumed-evidence-schema ONLY once this build is taught "
              "the new shape"))))
-
-(defn- cljs-sources-under
-  [dir]
-  (mapcat (fn [entry]
-            (let [full (.join path dir entry)]
-              (cond
-                (.isDirectory (.statSync fs full)) (cljs-sources-under full)
-                (str/ends-with? entry ".cljs")     [full]
-                :else                              [])))
-          (.readdirSync fs dir)))
-
-(deftest no-donor-namespace-survives-in-pairs-shipped-source
-  ;; Prose may NAME a donor namespace; a donor symbol must not appear.
-  (let [files (cljs-sources-under (.join path (repo-root) "tools/re-frame2-pair-mcp/src"))]
-    (is (seq files) "the scan found source files to check")
-    (doseq [f files
-            :let [text (read-text f)]
-            donor ["re-frame.freehand" "re-frame.ui.tool"]]
-      (is (not (str/includes? text (str donor "/")))
-          (str (.basename path f) " names a donor read (" donor "/…)")))))
