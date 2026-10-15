@@ -1,34 +1,5 @@
 (ns re-frame.bench.fresco.ssr.hframe-ssr-cljs-test
-  "`h/frame` ON THE SERVER (the design's W8 and W11).
-
-  The body runs on Node through the same shell path, so `h/frame` answers
-  the request's own per-request gensym and per-request isolation holds by
-  construction. Two things follow, and the second is the interesting one.
-
-  **W8 — the id is process-local identity, and must never reach markup.**
-  Two same-process renders take two different gensyms, so a body that
-  RENDERS the value makes the document nondeterministic. That is an
-  authorable hazard rather than a framework one, and it is already
-  instrumented: `rf.bench.fresco.ssr.entry/render-twice`'s byte comparison is the standing
-  determinism check. Both halves are asserted here — a body that reads
-  the id and keeps it out of markup renders byte-identical documents, and
-  a body that deliberately prints it does not. The second row is what
-  stops the first from being a green gate over a check that could not
-  fail.
-
-  **W11 — the ambient carry answers the same frame as `h/frame`.** The
-  raw React-context read the adapters publish is client-renderer-only,
-  so a row contrasting `h/frame` against the ambient chain throwing
-  *server-side for a renderer-specific reason* would assert the wrong
-  fact for the wrong reason. The core answers `(rf/capture-frame)` with
-  the extent's declared frame, and
-  `rf.bench.fresco.front.intent/with-frame` declares it over every render
-  extent, client or server — so on the server the ambient carry answers
-  the request's own frame, and `h/frame` answers the same one in the same
-  body.
-
-  Runtime: Node, where `react-dom/server` resolves — the same home as
-  `ssr/entry_cljs_test`; `npm run check` in bench/fresco/ compiles it."
+  "Request identity stays out of deterministic markup and ambient carries resolve the request frame."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
