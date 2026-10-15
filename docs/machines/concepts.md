@@ -343,7 +343,7 @@ shows how to test an accepted submit and a guard-blocked one.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
+| Xray click-to-source is missing for a machine | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
 | Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
 | Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
 | Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
@@ -368,8 +368,8 @@ Two registration shapes:
 | Inline `reg-machine` with a **literal** map | Small local machines |
 
 Avoid `(def m {…})` then `(reg-machine :id m)`. The macro never sees the
-literal, so source stamps are empty and dev warns
-`:rf.warning/machine-source-unstamped`.
+literal, so source stamps are empty and Xray click-to-source is unavailable
+for that machine.
 
 In every frame that has an `:id`, a hot reload keeps the live snapshot and
 applies the new table from the next event; a frame made without an `:id` keeps

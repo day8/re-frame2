@@ -88,7 +88,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 XState commonly separates machine shape from a `setup()` registry. re-frame2
 keeps the table, guards, and actions in one map. Prefer `defmachine` (or an
 inline `reg-machine` literal). A plain `(def m {…})` then `reg-machine` leaves
-source stamps empty (`:rf.warning/machine-source-unstamped`).
+source stamps empty, so Xray loses click-to-source for that machine.
 
 ```clojure
 (rf/defmachine login-flow
