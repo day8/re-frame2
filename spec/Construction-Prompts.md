@@ -968,36 +968,13 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **Server-side template:**
 
 ```clojure
-(defn handle-request [request]
-  (let [frame-id (gensym :ssr-frame)]
-    (rf/with-new-frame [f (rf/make-frame
-                       {:id     frame-id
-                        :images [app-image]})]
-      ;; The body runs with the current frame bound to f. The constructor takes :images;
-      ;; run the per-request setup via a dispatch (or declaratively via :initial-events).
-      (rf/dispatch-sync [:rf/server-init request] {:frame f})
-      (let [final-db (rf/app-db-value f)
-            hiccup   ((rf/view :app/root))                ;; the registered root view
-            html     (ssr/render-to-string hiccup {:frame f})
-            payload  (payload-policy/build-payload        ;; re-frame.ssr.payload-policy; stamps the integer :rf/version
-                       nil                                ;; omits :rf/frame-id; never stamp the per-request id
-                       final-db                           ;; all of app-db (011: prefer an allowlist)
-                       (ssr/render-tree-hash hiccup)      ;; :rf/render-hash, which the client recomputes
-                       {:runtime-db (payload-policy/project-runtime-db   ;; the route and machine snapshots
-                                      (:rf.db/runtime (rf/frame-state-value frame-id))
-                                      frame-id)})]
-        {:status 200
-         :headers {"Content-Type" "text/html"}
-         :body (page-template html (pr-str payload))}))))
+(rf/init! ssr/adapter)                                ;; once, at boot: the server-side render adapter
 
-(defn page-template [body-html serialised-payload]
-  (str "<!DOCTYPE html>"
-       "<html><head>...</head>"
-       "<body>"
-       "<div id='app'>" body-html "</div>"
-       "<script id='__rf_payload'>" serialised-payload "</script>"
-       "<script src='/main.js'></script>"
-       "</body></html>"))
+(def handler                                          ;; a Ring handler: one frame per request, then torn down
+  (ssr-ring/ssr-handler                               ;; re-frame.ssr.ring
+    {:initial-events [[:rf/server-init]]              ;; the per-request setup, drained before the render
+     :root-view      (fn [] ((rf/view :app/root)))    ;; the resolving form, so :rf/render-hash ships
+     :payload        [:auth/user]}))                  ;; allowlist: the only app-db keys the browser sees
 ```
 
 **Server-side `:rf/server-init` handler:**
@@ -1006,18 +983,18 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 ;; Server-only because only the server dispatches it (from `:initial-events`);
 ;; `:platforms` gates effects and coeffects, not events.
 (rf/reg-event :rf/server-init
-  {:doc "Server-side per-request init. Runs setup events from the request context."}
-  (fn handler-rf-server-init [{:keys [db]} [_ request]]
-    (let [{:keys [uri query-string]} request
+  {:doc              "Server-side per-request init. Runs setup events from the request context."
+   :rf.cofx/requires [:rf.server/request]}                         ;; the Ring request, read here and never stored
+  (fn handler-rf-server-init [{:keys [rf.server/request]} _]
+    (let [{:keys [uri query-string session]} request
           url (cond-> uri query-string (str "?" query-string))]   ;; Ring keeps the query out of :uri
-      {:db (assoc db :session (:session request))
-       :fx [[:dispatch [:rf.route/handle-url-change url]]         ;; framework-owned route, read via :rf/route
-            [:http {:method :get :url "/api/auth/me" :on-success [:auth/me-loaded]}]
-            ;; ... feature-specific data fetches
+      {:fx [[:dispatch [:auth/load-session (:user session)]]      ;; a projection rides the event; the session stays out of app-db
+            [:dispatch [:rf.route/handle-url-change url]]         ;; framework-owned route, read via :rf/route
+            ;; ... feature setup; data the first render needs is a blocking route resource
             ]})))
 ```
 
-The drain settles before `with-new-frame` returns; the final state is captured.
+`ssr-handler` renders once the drain settles and the route's blocking resources load, writes the payload into the page escaped, and destroys the frame on every exit path.
 
 **Client-side bootstrap:**
 
@@ -1050,13 +1027,14 @@ The drain settles before `with-new-frame` returns; the final state is captured.
 
 **AI-first checklist:**
 
-- Per-request frame is created and destroyed within `with-new-frame`.
+- The server is `re-frame.ssr.ring/ssr-handler`, which creates and destroys one frame per request; no hand-rolled Ring handler.
 - All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
+- The request is read through the `:rf.server/request` coeffect and never stored in app-db; a fact the app keeps, such as the session's user, rides an event's payload.
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
-- Hydration payload is built by `build-payload`: integer `:rf/version`, `:rf/app-db`, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from `render-tree-hash`, and no per-request `:rf/frame-id`.
+- Hydration payload is built by `ssr-handler`: integer `:rf/version`, `:rf/app-db` holding only the `:payload` allowlist's keys, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from the resolving `:root-view`, and no `:rf/frame-id` unless `:client-frame-id` names a stable one.
 - Client `[:rf/hydrate ...]` event seeds before first render.
 - First-client-render hash matches server hash (test in dev with mismatch detection on).
-- Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
+- The shell writes the payload, escaped, into `<script id="__rf_payload">`; a custom `:html-shell` keeps that id and `default-html-shell`'s escaping.
 - All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 
 ### CP-10. Scaffold a story (story / variant / workspace)
