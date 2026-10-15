@@ -1,16 +1,5 @@
 (ns re-frame.bench.fresco.lane-control-strict-cljs-test
-  "THE LANE'S TWO CONTROL RULES MUST STAY TWO.
-
-  `rf.bench.fresco.lane/control-verdict` adjudicates a positive control on
-  OVERLAP — right for legs on Chrome's 100 µs clamp, where a low round is
-  the quantum. `control-verdict-strict` requires EVERY ROUND inside the
-  band — right for batched windows clear of the quantum, which is what
-  `amp_merge_clock_app` and `direct_return_clock_app` run. The design
-  rests on [[one-dataset-two-rules-opposite-verdicts]]: a pass that routed
-  those instruments to the overlap rule goes red there.
-
-  Companion to `walk_profile_control_cljs_test`, which pins the same
-  every-round discipline for the walk profile's own control."
+  "Strict controls require every round inside the band and distinguish missing predictions from failed ones."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
