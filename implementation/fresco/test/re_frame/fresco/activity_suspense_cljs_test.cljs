@@ -1,90 +1,5 @@
 (ns re-frame.fresco.activity-suspense-cljs-test
-  "ACTIVITY HIDE/REVEAL, AT THE SEAM.
-
-  > - hide releases committed subscription ownership without destroying
-  >   re-frame state;
-  > - hidden work does not publish speculative read sets;
-  > - reveal reacquires the current read set and corrects before visible
-  >   paint;
-  > - conditional reads changed while hidden do not resurrect stale
-  >   membership;
-  > - intents retained before hide obey the documented callback/frame-
-  >   incarnation rule;
-  > - Xray distinguishes hidden-retained, visible-connected, and
-  >   unmounted rather than collapsing them.
-  >
-  > — `docs/design/fresco/product/lanes/react-compatibility-notes.md`,
-  >   *Activity lifecycle witness*
-
-  This is the **node half**, and it exists because of where the gates
-  are. React 19.2's `<Activity>` needs a real concurrent root, so the
-  matrix driven by React itself lives in
-  [[re-frame.fresco.activity-suspense-dom-cljs-test]] and runs on the
-  browser lane — which is not in the fast-PR spine. This file is
-  therefore the only thing standing over the hide/reveal kernel on an
-  ordinary PR, so it takes the properties that can be stated exactly
-  without a DOM and states them where they will actually be run.
-
-  ## What an Activity hide IS, at this seam
-
-  React's contract for a hidden `<Activity>` is that it *cleans up
-  effects and active subscriptions* while retaining the subtree's UI
-  state, and *recreates* them on reveal.
-  `useSyncExternalStore`'s subscription is one of those effects, so a
-  hide runs the cleanup
-  [[re-frame.fresco.impl.collector/commit-boundary!]] hands back and a
-  reveal calls that entry's `subscribe` again. Both are exposed
-  deliberately, and `commit-boundary!`'s own docstring is the warrant: it
-  hands a caller *the same `subscribe` closure `useSyncExternalStore`
-  would call* and *the same cleanup React would hold*.
-
-  So the transitions below are not a simulation of the Activity
-  lifecycle. They are the lifecycle's two calls, made in the order React
-  makes them, with the ownership tables read between each one — which is
-  how a witness says **which** key is owned by **which** registration
-  rather than inferring it from a page.
-
-  Driving the seam is emphatically not how a witness says React hides
-  anything. That claim is the DOM file's, and this file does not make it.
-
-  ## Nor is a Suspense fallback this seam
-
-  Activity and Suspense are easy to pair because the two look like one
-  Offscreen mechanism — the primary tree hidden with `display: none`, its
-  host nodes retained. React 19.2 does not treat them alike: hiding for a
-  **fallback** leaves the primary tree's PASSIVE effects mounted, so the
-  `useSyncExternalStore` subscription survives the suspension and the
-  retry's registration is `identical?` to the pre-suspension one. The
-  browser lane pins that, in
-  [[re-frame.fresco.activity-suspense-dom-cljs-test/a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership]].
-
-  So **no row in this file speaks for Suspense**. Section 6 drives the
-  detach/reacquire seam four times, and naming that a suspend/retry
-  witness would be false evidence against the DOM measurement rather than
-  merely loose wording: a reader taking such a name at face value would
-  believe a retained subscription was released and rebuilt four times
-  over. The algebra is not the part at risk; the mechanism a name claims
-  it for is.
-
-  ## The observable is IDENTITY, never a count
-
-  Every ownership assertion here names the surviving registration by
-  `identical?`, not by `count`. A runtime that **leaks the predecessor
-  and fails to acquire for the successor** still counts one. The two
-  failures are opposite and the count is blind to both, so the count is
-  asserted beside the identity and never instead of it.
-
-  Nothing here asserts on rendered markup, for the reason
-  `reincarnation_routing_cljs_test` states in full: this arm's read path
-  is address-directed, so a boundary re-rendered after a botched reveal
-  paints the correct value out of the wrong ownership. A value-level
-  assertion is green in both directions.
-
-  ## No clock
-
-  Where a property is only true after the reapers run, the settle is
-  [[re-frame.fresco.test.runtime/quiesced!]] — the runtime's own
-  horizon — and never a `setTimeout` of this file's choosing."
+  "Committed read sets disconnect while hidden and reacquire on reveal."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -470,7 +385,6 @@
 
       (testing "and the CURRENT read set is owned, by the reveal's own
                 registration, on both of its keys"
-
         (is (not (identical? pre-hide reveal-reg)))
         (is (true? (identical? reveal-reg (sole-reader [:acs/which])))
             "one registration per boundary, holding both its keys — not two
@@ -652,7 +566,6 @@
       (testing "VISIBLE-CONNECTED — the registration is in its keys' reader
                 lists, its forward edge answers its read set, and the
                 entry it was minted from is CLAIMED"
-
         (is (= #{(sub-key [:acs/a])} (rf.fresco.test.runtime/boundary-reads connected)))
         (is (= 1 (entry-refs entry))))
 
