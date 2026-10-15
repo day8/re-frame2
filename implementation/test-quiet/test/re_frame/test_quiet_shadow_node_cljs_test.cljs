@@ -143,25 +143,21 @@
 (defn- spawn-runner
   "Re-spawn the built runner with `runner-args` and optional `:env` entries
   merged over the parent env; return `{:status :stdout :stderr :error}`.
+  The child env drops `RF2_VERBOSE_TESTS`, so an outer verbose run cannot add
+  per-namespace banners to the output the rows pin.
   `:error` carries a spawn failure (ENOENT, ETIMEDOUT, ENOBUFS)."
   ([runner-args] (spawn-runner runner-args {}))
   ([runner-args {:keys [env]}]
-   (let [child-environment (when env
-                             (let [merged-environment
-                                   (js/Object.assign #js {} js/process.env)]
-                               (doseq [[environment-name environment-value] env]
-                                 (aset merged-environment
-                                       (name environment-name)
-                                       environment-value))
-                               merged-environment))
+   (let [child-environment (doto (js/Object.assign #js {} js/process.env)
+                             (js-delete "RF2_VERBOSE_TESTS")
+                             (js/Object.assign (clj->js env)))
          spawn-result (.spawnSync node-child-process
                                   (aget js/process.argv 0) ; the node binary
                                   (apply array (aget js/process.argv 1) runner-args)
-                                  (cond-> #js {:encoding  "utf8"
-                                               :timeout   spawn-timeout-ms
-                                               :maxBuffer spawn-max-buffer-bytes}
-                                    child-environment
-                                    (doto (aset "env" child-environment))))]
+                                  #js {:encoding  "utf8"
+                                       :timeout   spawn-timeout-ms
+                                       :maxBuffer spawn-max-buffer-bytes
+                                       :env       child-environment})]
      {:status (.-status spawn-result)
       :stdout (or (.-stdout spawn-result) "")
       :stderr (or (.-stderr spawn-result) "")
