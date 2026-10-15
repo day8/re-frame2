@@ -155,14 +155,16 @@ Handlers read the request through a declared [coeffect](../core/glossary.md#coef
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
-    {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
+    (let [{:keys [uri query-string]} request]     ;; Ring keeps the query out of :uri
+      {:fx [[:dispatch [:rf.route/handle-url-change
+                        (cond-> uri query-string (str "?" query-string))]]]})))
 ```
 
-Declare `:rf.cofx/requires [:rf.server/request]` and the request map arrives under `:rf.server/request`: `:uri`, `:request-method`, `:headers`, and `:query-params`, `:form-params`, `:session` and `:cookies` as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) code the client uses. The page's data then comes from the route, as [blocking resources](#data-the-first-render-needs).
+Declare `:rf.cofx/requires [:rf.server/request]` and the request map arrives under `:rf.server/request`: `:uri`, `:query-string`, `:request-method`, `:headers`, and `:query-params`, `:form-params`, `:session` and `:cookies` as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL, query included, to the same [routing](../routing/concepts.md) code the client uses. The page's data then comes from the route, as [blocking resources](#data-the-first-render-needs).
 
 `:rf/server-init` is a name the framework reserves and you supply the body for. It does not license registering your own events under the `:rf/*` root.
 
-Use the request for decisions. When a request-derived fact must live in app-db, put it on an event's payload instead of copying it from the request. The handler above does that: the URI it reads lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The shortcut to avoid is `(assoc db :session-user (-> request :session :user))`, for the reason below.
+Use the request for decisions. When a request-derived fact must live in app-db, put it on an event's payload instead of copying it from the request. The handler above does that: the URL it builds lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The shortcut to avoid is `(assoc db :session-user (-> request :session :user))`, for the reason below.
 
 ??? note "Why a durable write must be recorded, and how to fix it"
 
@@ -474,8 +476,9 @@ The form action needs `wrap-params` in front of the handler and a `:match?` that
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
-    (let [{:keys [uri request-method form-params]} request]
-      {:fx (cond-> [[:dispatch [:rf.route/handle-url-change uri]]]
+    (let [{:keys [uri query-string request-method form-params]} request
+          url (cond-> uri query-string (str "?" query-string))]   ;; Ring keeps the query out of :uri
+      {:fx (cond-> [[:dispatch [:rf.route/handle-url-change url]]]
              ;; wrap-params keys form fields by string
              (= :post request-method)
              (conj [:dispatch [:comment/submit (get form-params "body")]]))})))
@@ -540,7 +543,9 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
-    {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
+    (let [{:keys [uri query-string]} request]     ;; Ring keeps the query out of :uri
+      {:fx [[:dispatch [:rf.route/handle-url-change
+                        (cond-> uri query-string (str "?" query-string))]]]})))
 
 (rf/reg-event :app/client-bootstrap                  ;; a page nobody server-rendered
   (fn [_ [_ path]]

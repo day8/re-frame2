@@ -12,7 +12,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 
 1. **The HTML form** renders `method="POST" action="/<route>"` + a hidden CSRF token. The standard Pattern-Forms slice (server-rendered from `app-db`) drives field values.
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame. What it binds is what the wire carried: HTML form encoding has no types and no keywords, so the parsed body is **strings keyed by strings**, and neither the host nor the framework is obliged to fix that.
-3. **`:rf/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET it resolves the request URL (`[:rf.route/handle-url-change uri]`), and the matched route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
+3. **`:rf/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET it resolves the request URL with its query (`[:rf.route/handle-url-change url]`; Ring carries the query in `:query-string`, apart from `:uri`), and the matched route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
 4. **The domain handler validates** `form-params` **in its own body** — not via `:schema`, which is a dev tripwire and elides from the production build. On failure → write the submitted fields back into the form slice's `:draft` and structured errors into its `:errors`, emit `[:rf.server/set-status 400]`, let the drain settle, re-render the page populated and with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
@@ -104,10 +104,12 @@ The browser callbacks use `#?(:cljs ... :clj nil)` in a `.cljc` view, leaving th
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
-    (let [{:keys [request-method form-params uri]} request]
+    (let [{:keys [request-method form-params uri query-string]} request]
       (case request-method
-        ;; GET: route the URL; the route's blocking `:resources` are the render barrier.
-        :get  {:fx [[:dispatch [:rf.route/handle-url-change uri]]]}
+        ;; GET: route the URL, query included (Ring keeps it out of :uri); the
+        ;; route's blocking `:resources` are the render barrier.
+        :get  {:fx [[:dispatch [:rf.route/handle-url-change
+                                (cond-> uri query-string (str "?" query-string))]]]}
         :post (let [route (match-route uri)                 ;; app-supplied route matcher
                     {:keys [event schema]} (route->action route)]
                 {:fx [[:dispatch [event (decode-form-params schema form-params)]]]})))))

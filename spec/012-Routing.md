@@ -1856,7 +1856,7 @@ Cross-cutting guards are interceptors, not a special routing mechanism. They are
 The server-side flow:
 
 1. HTTP request arrives.
-2. `make-frame` per request. `:initial-events` fire `[:rf/server-init request]`, which dispatches `[:rf.route/handle-url-change (:uri request)]`.
+2. `make-frame` per request. `:initial-events` fire `[:rf/server-init request]`, which dispatches `[:rf.route/handle-url-change url]` with the request target, its path plus any query (for Ring, `:uri`, then `?` and `:query-string` when present).
 3. Route slice is set from the URL; the same handler runs on server and client. Path params, query params, and `:query-defaults` are populated.
 4. The matched route's `:on-match` events dispatch through the request-local frame — the same **fire-and-forget** vector that runs client-side, so synchronous event effects stay symmetric. They are **not** awaited: the server does not claim to wait for an arbitrary asynchronous tail started by `:on-match` (EP-0037 §`:on-match` is activation work).
 5. The **only** route-owned server wait is a **blocking `:resources`** requirement. The server builds the route's resource plan, ensures it, and waits only for the blocking first loads of the current plan / nav-token; route readiness is the resource projection ([§Route readiness is a resource projection](#route-readiness-is-a-resource-projection)) — a render that must reflect required page data waits on those resources, not on `:on-match`. Work that must settle before server render is therefore a blocking route resource, not an `:on-match` event.

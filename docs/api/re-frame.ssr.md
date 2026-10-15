@@ -468,7 +468,9 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
   (rf/reg-event :rf/server-init
     {:rf.cofx/requires [:rf.server/request]}
     (fn [{:rf.server/keys [request]} _]
-      {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
+      (let [{:keys [uri query-string]} request]   ;; Ring keeps the query out of :uri
+        {:fx [[:dispatch [:rf.route/handle-url-change
+                          (cond-> uri query-string (str "?" query-string))]]]})))
   ```
 
 ## Keyword surfaces
