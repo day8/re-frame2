@@ -30,7 +30,7 @@
   |---|---|
   | [[an-override-is-ambiguous-without-images-and-mounts-under-ordered-images]] | a mount without `:images` finds the id ambiguous (the control) and the ordered composition mounts, with the later image's implementation live |
   | [[two-owned-mounts-each-resolve-their-own-winner]] | two mounts, two orders, two winners, and two clean teardowns |
-  | [[initial-events-and-the-clock-are-unchanged-beside-images]] | seed steps still run in order before the render, and a timer a seed step arms is still the mount's virtual clock's |
+  | [[initial-events-and-the-clock-are-unchanged-beside-images]] | seed steps still run in order before the render, and a timer a seed step arms is still on the page-wide virtual clock |
   | [[core-refuses-a-composition-it-cannot-build]] | a collision WITHIN one selected image, and an empty `:images`, are refused with core's own ids, and leave nothing behind |
   | [[hydrate-adopts-under-ordered-images]] | the same composition through the adoption door |
   | [[shadow-builds-both-mounts-from-one-composition]] | both sides of a shadow run resolve the same winner |
@@ -79,8 +79,8 @@
 (rf/reg-event ::arm-timer (fn [_ [_ ms v]] {:fx [[::timer {:ms ms :v v}]]}))
 
 ;; A plain platform timer, armed from inside a handler. Under `{:clock true}`
-;; `js/setTimeout` is the mount's virtual clock, so whether this timer fires on
-;; `advance-clock!` is the reading of whose clock it was armed on.
+;; `js/setTimeout` is the page-wide virtual clock, so whether this timer fires
+;; on `advance-clock!` reads which clock it was armed on.
 (rf/reg-fx ::timer
            (fn [{:keys [frame]} {:keys [ms v]}]
              (js/setTimeout #(swap! !timers conj [frame v]) ms)))
@@ -280,7 +280,7 @@
           (testing "the seed steps ran in order and drained before the first
                     render — the page shows both, in that order"
             (is (= "one,two" (text-at m ".log"))))
-          (testing "the timer a seed step armed is on the mount's virtual clock:
+          (testing "the timer a seed step armed is on the page-wide virtual clock:
                     nothing fires one millisecond short, and it fires on the
                     deadline"
             (rf.fresco.test.mounted/advance-clock! m 299)

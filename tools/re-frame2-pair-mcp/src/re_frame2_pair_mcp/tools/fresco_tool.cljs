@@ -337,7 +337,8 @@
 
   Two halves, never blended. PROVEN: `:latest-reads` names the boundary's reads
   standing at its own maximum `:peak-epoch`, read off the cells' own stamps, and
-  `:snapshot` is the exact sum React compares. LEADS: Fresco's commit seam
+  `:snapshot` reports the number React compares, or `:unknown` when the folded
+  entries disagree or carry distinct raw read sets. LEADS: Fresco's commit seam
   records no cascade id, so no run can be joined to a re-run — the row's own
   `:loss` says so — and `:candidates` are the retained runs that recomputed a
   subscription this boundary reads, offered as leads. The two loss reasons are
