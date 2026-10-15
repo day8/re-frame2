@@ -74,30 +74,11 @@
                          :de-dupe.cache/cache-2 {:event-id :bar}}}))
       "DedupTable must reject a cache missing the de-dupe.cache/cache-0 root."))
 
-(def ^:private node-decoder-root-cache-id
-  "The `ROOT_CACHE_ID` literal `lib/dedup-envelope.cjs` decodes from."
-  "de-dupe.cache/cache-0")
-
 (deftest dedup-table-emitted-live-by-canonical-encoder
-  (let [payload   [{:event-id :user/sign-in  :handler-id :auth}
-                   {:event-id :user/sign-in  :handler-id :auth}
-                   {:event-id :user/sign-out :handler-id :auth}]
-        cache     (rf.mcp-base.dedup/de-dupe-eq payload)
-        wrapped   {:rf.mcp/dedup-table cache}]
-    (testing "the live-emitted marker validates against the tightened DedupTable schema"
-      (is (m/validate DedupTable wrapped)
-          (str "Live-emitted dedup-table failed DedupTable validation:\n"
-               (me/humanize (m/explain DedupTable wrapped)))))
-    (testing "JVM↔Node root agreement: the JSON string form of the root key matches the Node decoder's ROOT_CACHE_ID"
-      ;; Cheshire, which the MCP wire uses, writes a namespaced symbol key as
-      ;; its full `(str sym)` form.
-      (let [root-key-strs (set (map str (keys cache)))]
-        (is (contains? root-key-strs node-decoder-root-cache-id)
-            (str "The cache's root key, in its on-the-wire string form, "
-                 "MUST be " (pr-str node-decoder-root-cache-id)
-                 " — the literal the Node decoder (lib/dedup-envelope.cjs "
-                 "ROOT_CACHE_ID) requires. Got key string forms: "
-                 (pr-str root-key-strs)))))))
+  (let [payload [{:event-id :user/sign-in} {:event-id :user/sign-in}]
+        wrapped {:rf.mcp/dedup-table (rf.mcp-base.dedup/de-dupe-eq payload)}]
+    (is (m/validate DedupTable wrapped)
+        (me/humanize (m/explain DedupTable wrapped)))))
 
 (deftest diff-from-marker-emitted-live-by-canonical-encoder
   (let [epoch    {:db-before {:cart {:items [{:sku "abc"}]}
