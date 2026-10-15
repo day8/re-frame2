@@ -31,36 +31,32 @@
   (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
 
 (deftest throwing-on-destroy-fans-out-on-always-on-axis
-  (testing "a throwing :on-destroy yields exactly one dedicated record, and
-            teardown still completes"
-    (let [seen (recording-listener!)]
-      (rf/reg-event :ondestroy/blow-up
-                    (fn [_ _] (throw (ex-info "intentional :on-destroy throw" {}))))
-      (rf/make-frame {:id :ondestroy/worker :on-destroy [:ondestroy/blow-up]})
-      (rf/destroy-frame! :ondestroy/worker)
-      (is (nil? (rf.frame/frame :ondestroy/worker)))
-      (let [reports (on-destroy-records seen)]
-        (is (= [{:frame :ondestroy/worker :event [:ondestroy/blow-up] :event-id :ondestroy/blow-up}]
-               (map #(select-keys % [:frame :event :event-id]) reports)))
-        (is (some? (:exception (first reports))))))))
+  (let [seen (recording-listener!)]
+    (rf/reg-event :ondestroy/blow-up
+      (fn [_ _] (throw (ex-info "intentional :on-destroy throw" {}))))
+    (rf/make-frame {:id :ondestroy/worker :on-destroy [:ondestroy/blow-up]})
+    (rf/destroy-frame! :ondestroy/worker)
+    (let [reports (on-destroy-records seen)]
+      (is (= [nil [{:frame :ondestroy/worker :event [:ondestroy/blow-up]
+                    :event-id :ondestroy/blow-up}] true]
+             [(rf.frame/frame :ondestroy/worker)
+              (map #(select-keys % [:frame :event :event-id]) reports)
+              (some? (:exception (first reports)))])))))
 
 (deftest teardown-cascade-infra-fault-fans-out-on-always-on-axis
-  (testing "a fault in the teardown dispatch infrastructure itself, which
-            produces no router handler-exception, still fans the dedicated
-            record out, and teardown completes"
-    (let [seen     (recording-listener!)
-          original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
-      (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
-      (rf.late-bind/set-fn! :router/run-frame-destroy-event!
-                            (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
-      (try
-        (rf/destroy-frame! :ondestroy/infra-fault)
-        (finally
-          (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
-      (let [reports (on-destroy-records seen)]
-        (is (= [:ondestroy/infra-fault] (map :frame reports)))
-        (is (some? (:exception (first reports)))))
-      (is (nil? (rf.frame/frame :ondestroy/infra-fault))))))
+  (let [seen (recording-listener!)
+        original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
+    (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
+    (rf.late-bind/set-fn! :router/run-frame-destroy-event!
+      (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
+    (try
+      (rf/destroy-frame! :ondestroy/infra-fault)
+      (finally
+        (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
+    (let [reports (on-destroy-records seen)]
+      (is (= [[:ondestroy/infra-fault] true nil]
+             [(map :frame reports) (some? (:exception (first reports)))
+              (rf.frame/frame :ondestroy/infra-fault)])))))
 
 (deftest nested-destroy-does-not-clobber-outer-on-destroy-capture
   (testing "an outer :on-destroy that destroys another frame before throwing
