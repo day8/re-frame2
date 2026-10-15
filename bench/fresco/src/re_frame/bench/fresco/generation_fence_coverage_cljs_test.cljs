@@ -1,25 +1,5 @@
 (ns re-frame.bench.fresco.generation-fence-coverage-cljs-test
-  "WHAT THE COMMIT BASIS SEES ON THE REGISTRY AXIS.
-
-      commit-basis(frame) = flush generation + frame-commit-epoch(frame)
-                          + registry-epoch
-
-  A `:sub` re-registration is neither a value change on an acquired
-  reaction (so the flush generation sits still) nor a frame-state install
-  (so `frame-commit-epoch` sits still). The third term moves — and reaches
-  only a STAGED key, because `getSnapshot` reads the basis live for a key
-  no cell holds and a cell's frozen stamp for a held one. A registry term
-  in every key's live contribution would re-render every mounted boundary
-  on every `reg-sub`, to read back through a cell the re-registration had
-  just made deaf; the held-cell half is closed by
-  `arm1.runtime/invalidate-cell!` instead (`arm1/disposed-cell-cljs-test`,
-  `arm1/first-registration-cljs-test`). The version axis lives in
-  `arm1/staged_read_tear_cljs_test`.
-
-  Two of the row's claims are that a number does NOT move, so it first
-  shows a real frame-state install moving both instruments on the same
-  frame, boundary and read set. The host is the React spine's adapter: on
-  an unwatchable host the control half would be as still as the axis."
+  "Registry changes move the staged snapshot basis while held cells keep their frozen stamp."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
