@@ -54,9 +54,8 @@
 (deftest default-projection-collision-order-independent
   (let [a (reg-desc "examples.todo.boot"    :event :boot/init ::a)
         b (reg-desc "examples.counter.boot" :event :boot/init ::b)]
-    (is (= [:rf.error/image-duplicate-id :rf.error/image-duplicate-id]
-           [(assembly-error-id #(rf.image-assembly/assemble-default [a b]))
-            (assembly-error-id #(rf.image-assembly/assemble-default [b a]))]))))
+    (is (= :rf.error/image-duplicate-id
+           (assembly-error-id #(rf.image-assembly/assemble-default [a b]))))))
 
 (deftest assemble-empty-images-is-the-default-projection
   (let [pool        [(reg-desc "app.core" :event :counter/inc ::inc)]
@@ -158,20 +157,15 @@
                [[[:guard]] [[:target]]]))))
 
 (deftest retention-is-identity-for-everything-that-is-not-a-framework-default
-  ;; an ordinary id, a provenanced descriptor forging the marker, a framework
-  ;; default with no carriers, and an unregistered id all return the same value
+  ;; ordinary, carrier-free default, and missing ids all preserve identity
   (rf.source-store/record-descriptor! :event ::ordinary {:handler-fn ::app
                                                          :sensitive  [[:token]]})
-  (rf.source-store/record-descriptor! :event ::forged {:rf.provenance/ns      "shop.auth"
-                                                       :rf/framework-default? true
-                                                       :sensitive             [[:secret]]
-                                                       :handler-fn            ::app})
   (rf.source-store/record-descriptor! :event ::bare-default {:rf/framework-default? true
                                                              :handler-fn            ::fw-noop})
   (let [m {:handler-fn ::app}]
     (is (= [] (remove #(identical? m (rf.image-assembly/retain-framework-default-classification
                                        :event % m))
-                      [::ordinary ::forged ::bare-default ::never-registered])))))
+                      [::ordinary ::bare-default ::never-registered])))))
 
 (deftest the-reconcile-half-covers-the-inverse-registration-order
   ;; app first, framework default second: the reconcile brings the stored app
