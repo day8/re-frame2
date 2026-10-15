@@ -7,7 +7,7 @@
 
   ## Frame-targeting — the EP-0023 forward direction
 
-  A frame's inspectable registration set is its RESOLVED IMAGE GENERATION: the
+  A frame's inspectable registration set is what THAT FRAME resolves: the
   same `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
   different images each resolve their OWN descriptor). Both tools therefore
   accept an OPTIONAL `:frame` arg — a frame id (keyword) addressing the
@@ -16,7 +16,10 @@
   (`frame-registrar-describe` / `frame-registrar-list`), which consume the
   PUBLIC facade reads `(rf/handler-meta {:frame f :kind k :id id})` /
   `(rf/registrations {:frame f :kind k})` and resolve the
-  `(kind, id)` set through that frame's OWN sealed image generation —
+  `(kind, id)` set through that frame's OWN view — its sealed image
+  generation, or, for a frame made without `:images`, the registration store
+  resolved live, where an id more than one namespace registers is left out of
+  the list and fails handler-meta with `:rf.error/ambiguous-registration` —
   surfacing the resolved descriptor's `:rf.provenance/ns` + inline/image +
   `:standard` facts (plus a normalized `:rf.image/coordinate` rollup naming
   WHICH source won) the process-global reads can't. `list-subscriptions` is the
@@ -237,8 +240,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Frame targeting — the EP-0023 forward direction.
 ;;
-;; The OPTIONAL `:frame` arg addresses the OPERATING frame's resolved image
-;; generation. ABSENT ⇒ nil ⇒ the byte-identical default-registrar path.
+;; The OPTIONAL `:frame` arg addresses what a frame resolves (its image
+;; generation, or the live store for a frame made without `:images`). ABSENT ⇒ nil ⇒ the byte-identical default-registrar path.
 ;; PRESENT ⇒ the frame-id keyword threaded into the per-frame runtime fns. A
 ;; blank/missing value parses to nil (absence = default path — `:frame` is
 ;; optional); a non-blank value coerces via the colon-tolerant
@@ -272,7 +275,7 @@
 
   EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-describe`, which resolves the
-  `(kind, id)` through the frame's OWN sealed image generation (the PUBLIC
+  `(kind, id)` through the frame's OWN view (the PUBLIC
   `(rf/handler-meta {:frame f …})` read) and surfaces the resolved
   descriptor's `:rf.provenance/ns` + inline/image + `:standard` facts plus
   the `:rf.image/coordinate` rollup. Same `:not-registered` / `handler-fn`
@@ -434,7 +437,7 @@
 
   EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-list`, which enumerates only the
-  ids the frame's OWN image generation carries for the kind (the PUBLIC
+  ids the frame resolves for the kind (the PUBLIC
   `(rf/registrations {:frame f :kind k})` read, keys). `:machine` is rejected before
   reaching here when a frame is supplied (machines are not in the resolver)."
   [frame kind]
