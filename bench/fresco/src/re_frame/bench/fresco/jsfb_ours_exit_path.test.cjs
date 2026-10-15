@@ -1,34 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE JSFB PRODUCER'S EXIT PATH — five refusals, each reachable without a
-// browser. The same shape `clock_exit_path.test.cjs` pins for the clock
-// driver and `jsfb_compare_exit_path.test.cjs` for the comparator.
-//
-//     node src/re_frame/bench/fresco/jsfb_ours_exit_path.test.cjs   (from bench/fresco/)
-//
-// WHAT THIS PINS. `jsfb_ours_run.cjs` decides an exit code that is quoted
-// as a quality gate, over five independent gates:
-//
-//   * DOM PARITY — two arms that build different DOM are not one experiment;
-//   * THE POSITIVE CONTROL — `create10k` against `run1k`, adjudicated against a
-//     band registered in the source before the run;
-//   * UNVERIFIED WRITES — a sample whose page did not read back;
-//   * THE PAGE-ERROR FUNNEL — per-arm handlers gathered into one array;
-//   * THE RECORDING SITE — a published duration that is not strictly positive
-//     is not a measurement.
-//
-// WHY IT IS PINNED HERE RATHER THAN END TO END. The evidence the driver decides
-// over is produced by a headless run of a 636 KB `:advanced` bundle across
-// three arms and six rounds, which no unit test can take. So each gate is a
-// pure function over its own evidence, and this file drives them directly.
-// The two things a pure call cannot observe — that `main` carries `verdict`'s
-// code, and that the recording site counts rather than drops — are read off the
-// source, because they are what keep the gate able to fail.
-//
-// EVERY FIXTURE IS BUILT IN THIS FILE. Nothing here reads a committed dataset:
-// the runs this driver produces live outside the repository by design.
-//
-// Run by `npm run check` in bench/fresco/.
+// Pure gates and source wiring keep the browser driver able to refuse a run.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
