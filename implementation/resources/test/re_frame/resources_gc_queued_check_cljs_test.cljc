@@ -1,13 +1,14 @@
 (ns re-frame.resources-gc-queued-check-cljs-test
   "A fired GC timer's re-check travels the router queue, so an event queued
   before the timer fired is handled before the check. When that event arms a
-  newer GC window — the entry's final owner release, or the settle of a
-  refetch that was in flight — the older check that lands after it must not
-  collect the entry: it stays cached for that whole window and is collected by
-  the window's own check (Spec 016 §The scoped-cache owner lifecycle, §Stale
-  and GC scheduling). That holds whether the released owner attached through
-  an `ensure` or through `adopt-owner`, which arms no window of its own. An
-  entry no owner ever held is still collected `:gc-after-ms` after its settle.
+  newer GC window — the entry's final owner release, the settle of a refetch
+  that was in flight, or a mutation's populate — the older check that lands
+  after it must not collect the entry: it stays cached for that whole window
+  and is collected by the window's own check (Spec 016 §The scoped-cache owner
+  lifecycle, §Stale and GC scheduling). That holds whether the released owner
+  attached through an `ensure` or through `adopt-owner`, which arms no window
+  of its own. An entry no owner ever held is still collected `:gc-after-ms`
+  after its settle.
 
   The host clock is virtual and delivery is queued: each due timer runs its
   real thunk, which dispatches through the real router, and the router's drain
@@ -47,6 +48,10 @@
   "The ids of the events queued on the router, in queue order."
   (atom []))
 
+(def ^:private last-request
+  "The args of the last `:rf.http/managed` request — its reply addressing."
+  (atom nil))
+
 (defn- init! []
   (rf/make-frame {:id :rf/default :platform :client
                   :doc "GC queued re-check frame."})
@@ -54,7 +59,8 @@
   (reset! pending {})
   (reset! ticks [])
   (reset! fifo [])
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (reset! last-request nil)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-request args) nil))
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _work-id] nil)))
 
 (defn- queued-delivery [f]
@@ -242,6 +248,36 @@
   (is (some? (entry)) "the older check does not collect the re-settled entry")
   (run-to! (+ gc-ms gc-ms -1))
   (is (some? (entry)) "kept for the whole window the refetch's settle armed")
+  (run-to! (+ gc-ms gc-ms))
+  (is (nil? (entry)) "collected by that window's check"))
+
+(deftest a-check-queued-behind-a-mutation-populate-waits-for-its-window
+  ;; the ownerless settle at t=0 arms GC for t=1000
+  (reg-article!)
+  (rf/reg-mutation :gcq/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates     (fn [{:keys [slug]} result]
+                                     {{:resource :gcq/article :scope :rf.scope/global
+                                       :params {:slug slug}}
+                                      result})}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :put :url (str "/api/articles/" slug)}}))
+  (ensure!)
+  (succeed!)
+  (drain!)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :gcq/save :params {:slug "intro"}}])
+  (reset! fifo [])
+  (advance-to! 900)
+  (queue! (conj (:on-success @last-request) {:status :ok :value {:title "Saved"}}))
+  ;; the first settle's timer fires before the mutation's reply is delivered
+  (advance-to! gc-ms)
+  (is (= [:rf.mutation.internal/succeeded :rf.resource.internal/gc-fired] @fifo)
+      "the first settle's check is queued behind the mutation's populate")
+  (drain!)
+  (is (some? (entry)) "the older check does not collect the populated entry")
+  (is (= {:title "Saved"} (:data (entry))) "the entry carries the populated value")
+  (run-to! (+ gc-ms gc-ms -1))
+  (is (some? (entry)) "kept for the whole window the populate armed")
   (run-to! (+ gc-ms gc-ms))
   (is (nil? (entry)) "collected by that window's check"))
 

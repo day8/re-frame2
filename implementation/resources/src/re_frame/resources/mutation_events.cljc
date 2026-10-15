@@ -108,6 +108,20 @@
     (when (or stale-delay-ms gc-delay-ms)
       {:stale-delay-ms stale-delay-ms :gc-delay-ms gc-delay-ms})))
 
+(defn- open-gc-windows
+  "`runtime-db` with a new GC window opened on each entry whose GC timer a
+  settle arms from `timer-policies` (`{scoped-key timer-delays}`), exactly as
+  the read path opens one (`rf.resources.events/open-gc-window`), so a GC
+  check from an older window that is queued behind the settle never collects
+  the entry the settle just wrote. A key whose entry is gone opens none."
+  [runtime-db frame-id timer-policies]
+  (reduce (fn [db [scoped-key {:keys [gc-delay-ms]}]]
+            (cond-> db
+              (get-in db (rf.resources.state/entry-path scoped-key))
+              (rf.resources.events/open-gc-window frame-id scoped-key gc-delay-ms)))
+          runtime-db
+          timer-policies))
+
 ;; ---- instance-id minting --------------------------------------------------
 
 (defn- mint-instance-id
@@ -2101,14 +2115,16 @@
                               :completed {:settled-at clock-ms})
                             (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                     old-entries
-                                    (mapv rf.resources.state/key-id authoritative-keys)))
+                                    (mapv rf.resources.state/key-id authoritative-keys))
+                            (open-gc-windows frame-id timer-policies))
             ;; arm the advisory stale / GC timers (host-side side table) for
             ;; every patched / populated key carrying a policy — one
             ;; `:rf.resource/schedule-timers` fx per key, mirroring the
             ;; resource read path's emission (cancel-then-arm; SSR-gated by
             ;; the carried `:server?` flag; the re-check handlers re-derive
             ;; freshness / GC-eligibility from the durable facts, so a
-            ;; never-fired server timer is harmless). Without this, a
+            ;; never-fired server timer is harmless), each GC timer in the
+            ;; window `open-gc-windows` opened above. Without this, a
             ;; populated ownerless entry would carry a durable :stale-at /
             ;; :gc-after-ms policy but NO armed reaper. Per Spec 016 §Stale
             ;; and GC scheduling.
