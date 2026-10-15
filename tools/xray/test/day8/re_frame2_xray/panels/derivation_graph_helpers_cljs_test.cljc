@@ -30,52 +30,20 @@
 ;; + the refined `:refinement` (colour axis) the siblings emit.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private sub-node
-  {:id :cart/total :kind :derivation :rf/family :subs
-   :inputs [[:sub [:cart/items]]] :output [:fact :cart/total]
-   :storage :ephemeral :evaluation :on-demand :lifecycle :subscription-cache-entry})
-
-(def ^:private flow-node
-  {:id :cart/materialized-total :kind :derivation :rf/family :flows
-   :inputs [[:db [:cart :items]]] :output [:db [:cart :total]]
-   :storage :app-db :evaluation :after-event :lifecycle :frame})
-
-(def ^:private resource-node
-  {:id :article/by-slug :kind :process :refinement :resource-process :rf/family :resources
-   :inputs :parametric :output [:runtime [:rf.runtime/resources :entries]]
-   :storage :runtime-db :authority {:kind :remote :system :server}
-   :evaluation #{:on-route :on-reply} :lifecycle :scoped-resource-key})
-
-(def ^:private route-node
-  {:id :rf/route :kind :process :refinement :route-fact :rf/family :routes
-   :output [:runtime [:rf.runtime/routing :current]]
-   :storage :runtime-db :evaluation :on-route :lifecycle :frame})
-
-(def ^:private machine-node
-  {:id :upload/main :kind :process :refinement :machine-process :rf/family :machines
-   :output [:runtime [:rf.runtime/machines :snapshots :upload/main]]
-   :storage :runtime-db :evaluation #{:on-transition} :lifecycle :machine-instance})
-
-(def ^:private selector-node
-  {:id :upload/progress :kind :derivation :refinement :machine-selector :rf/family :subs
-   :inputs [[:machine :upload/main [:data :progress]]] :output [:fact :upload/progress]
-   :storage :ephemeral :evaluation :on-demand :lifecycle :subscription-cache-entry})
+(def ^:private sub-node {:kind :derivation :rf/family :subs})
+(def ^:private resource-node {:kind :process :rf/family :resources})
 
 (def ^:private fixture-graph
   {:mode :static
-   :nodes {[:sub :cart/total]               sub-node
-           [:flow :cart/materialized-total] flow-node
-           [:resource :article/by-slug]     resource-node
-           [:rf/route :route/article]       route-node
-           [:machine :upload/main]          machine-node
-           [:sub :upload/progress]          selector-node}
+   :nodes {[:sub :cart/total] sub-node
+           [:flow :cart/materialized-total] {:kind :derivation :rf/family :flows}
+           [:resource :article/by-slug] resource-node
+           [:rf/route :route/article] {:kind :process :rf/family :routes}
+           [:machine :upload/main] {:kind :process :rf/family :machines}
+           [:sub :upload/progress] sub-node}
    :edges [{:from [:sub :cart/items] :to [:sub :cart/total] :role :input}
            {:from [:rf/route :route/article] :to [:resource :article/by-slug] :role :param}
            {:from [:machine :upload/main] :to [:sub :upload/progress] :role :selector}]})
-
-;; ---------------------------------------------------------------------------
-;; 1. superkind classification — the CONTRACT axis (classify by :kind alone).
-;; ---------------------------------------------------------------------------
 
 (deftest superkind-classifies-by-kind-alone
   (testing "a node reduces to one of the two closed superkinds via :kind,
@@ -234,10 +202,9 @@
               :storage :ephemeral :evaluation :on-demand
               :value {:slug "welcome"}}
         summarized (h/summarize-node node)]
-    (is (= :map (get-in summarized [:summaries :value :type]))
-        "the value-bearing :value field gains an on-box summary")
-    (is (= node (dissoc summarized :summaries))
-        "structure rides through verbatim")))
+    (is (= [:map node]
+           [(get-in summarized [:summaries :value :type])
+            (dissoc summarized :summaries)]))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. graph-summary.
