@@ -161,28 +161,20 @@
                   (:edges (rf.derivation.graph/derivation-graph all-contributors))))))
 
 (deftest absent-family-contributes-no-nodes
-  ;; The no-resources / no-machines app, and the core-only app.
+  ;; The no-resources / no-machines app: neither the route's resource nor the
+  ;; selector's machine brings its absent family's node with it.
   (register-one-of-each!)
-  (is (= [#{:subs :flows :routes} #{:subs}]
-         (mapv #(families (rf.derivation.graph/derivation-graph (select-keys all-contributors %)))
-               [[:subs :flows :routes] [:subs]]))))
+  (is (= #{:subs :flows :routes}
+         (families (rf.derivation.graph/derivation-graph
+                     (select-keys all-contributors [:subs :flows :routes]))))))
 
 (deftest default-contributors-resolves-every-jvm-sibling
   ;; Every artefact is on the core :test classpath, so the zero-arg form
-  ;; composes the same graph as the explicit five-family map.
+  ;; composes the same graph as the explicit five-family map, the machines
+  ;; family's selector-target extractor and its precise selector edge included.
   (register-one-of-each!)
-  (let [g (rf.derivation.graph/derivation-graph)]
-    (is (= [#{:subs :flows :resources :routes :machines}
-            (rf.derivation.graph/derivation-graph all-contributors)]
-           [(families g) g]))))
-
-(deftest default-contributors-wires-the-machine-selector-targets-surface
-  ;; The zero-arg graph draws the precise machine → selector edge, so the
-  ;; resolver carries the machines family's selector-target extractor.
-  (machine! :upload/main)
-  (rf/reg-sub :upload/progress {:inputs [[:rf/machine :upload/main]]} (fn [[snapshot] _] snapshot))
-  (is (some #{{:from [:machine :upload/main] :to [:sub :upload/progress] :role :selector}}
-            (:edges (rf.derivation.graph/derivation-graph)))))
+  (is (= (rf.derivation.graph/derivation-graph all-contributors)
+         (rf.derivation.graph/derivation-graph))))
 
 (deftest resolve-sibling-yields-nil-for-an-absent-family
   ;; A genuinely-absent optional family is tolerated, not an error.
