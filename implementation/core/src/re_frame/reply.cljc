@@ -35,10 +35,11 @@
   resources (`day8/re-frame2-resources`), machines, routing, and future
   surfaces; pushing it to core lets every feature artefact `:require` it
   without inverting the dependency direction (Spec 006 §Adapter shipping
-  convention). It carries no Malli dependency: schema validation routes
-  through `re-frame.spec`'s best-effort `(resolve 'malli.core/validate)`
-  seam, which no-ops when the schemas artefact is absent (same posture as
-  `re-frame.epoch` / `re-frame.http.managed`)."
+  convention). It carries no Malli dependency because it needs none:
+  `validate-reply` checks the reply-map contract with plain predicates.
+  Schema validation lives elsewhere: core reaches the schemas artefact's
+  registered validator through the `:schemas/*` late-bind hooks, and a
+  managed-HTTP schema `:decode` resolves Malli in `re-frame.http.decode`."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.privacy :as rf.privacy]
