@@ -1,9 +1,8 @@
 (ns re-frame.warn-once-clear-governance-test
   "The source half of the warn-once-clear governance gate. Only
   `re-frame.late-bind` may `chain-fn!` the `:adapter/clear-warn-once-caches!`
-  key directly; every contributor enrols through `register-warn-once-clear-fn!`
-  (or the `install-clear-warn-once-step!` seam), so chaining and registry
-  enrolment are atomic. A raw `chain-fn!` would chain a cache without recording
+  key directly; every contributor enrols through `register-warn-once-clear-fn!`,
+  so chaining and registry enrolment are atomic. A raw `chain-fn!` would chain a cache without recording
   it, out of sight of `re-frame.warn-once-clear-governance-cljs-test`, which
   proves at runtime that the chain wipes every ENROLLED cache."
   (:require [clojure.java.io :as io]

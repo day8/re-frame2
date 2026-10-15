@@ -1,8 +1,8 @@
 (ns re-frame.warn-once-clear-governance-cljs-test
-  "Every adapter/views warn-once `defonce` cache must be wiped by the chained
-  `:adapter/clear-warn-once-caches!` hook that `make-reset-runtime-fixture`
-  fires, or a sibling test's first-encounter warning swallows a later
-  same-key one. Caches enrol through
+  "Every adapter/views `defonce` cache a test can observe must be wiped by the
+  chained `:adapter/clear-warn-once-caches!` hook that
+  `make-reset-runtime-fixture` fires, or a sibling test's state leaks into a
+  later same-key reading. Caches enrol through
   `re-frame.late-bind/register-warn-once-clear-fn!`, which both chains the
   clear-fn and records the cache in `warn-once-clear-registry`. This checks
   that the named caches are enrolled and that one firing of the chain wipes
@@ -12,16 +12,11 @@
   (:require [cljs.test :refer-macros [deftest is]]
             [clojure.set :as set]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Each populates the registry at ns-load.
-            [re-frame.views]
-            [re-frame.views.warn-once]
-            [re-frame.adapter.uix]
-            [re-frame.adapter.reagent-slim]))
+            ;; Populates the registry at ns-load.
+            [re-frame.views]))
 
 (def ^:private expected-labels
-  #{:views/warned-non-dom-roots
-    :views/seen-render-keys
-    :adapter/warned-non-dom-roots})        ;; the React-hook spine's per-adapter cache
+  #{:views/seen-render-keys})
 
 (deftest registry-enrols-every-named-cache-of-the-class
   (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))]

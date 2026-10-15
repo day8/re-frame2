@@ -33,8 +33,7 @@
 (def ^:private spine-adapter
   (rf.substrate.spine/make-react-adapter
     (rf.substrate.spine/make-react-spine
-      {:substrate-name        "gncxk-flush-path"
-       :gensym-prefix-sub     "gncxk-sub-"
+      {:gensym-prefix-sub     "gncxk-sub-"
        :gensym-prefix-derived "gncxk-derived-"
        :gensym-prefix-use-sub "gncxk-use-sub-"
        :use-memo              (fn [t _] (t))

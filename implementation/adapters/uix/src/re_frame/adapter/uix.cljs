@@ -47,8 +47,7 @@
 
 (def ^:private spine-fns
   (rf.substrate.spine/make-react-spine
-    {:substrate-name        "UIx"
-     :gensym-prefix-sub     "rf-uix-sub-"
+    {:gensym-prefix-sub     "rf-uix-sub-"
      :gensym-prefix-derived "rf-uix-derived-"
      :gensym-prefix-use-sub "rf-uix-use-sub-"
      :use-memo              uix-hooks/use-memo

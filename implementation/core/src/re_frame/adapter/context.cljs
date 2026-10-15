@@ -149,26 +149,6 @@
   [[re-frame.source-coords/format-view-id]]."
   rf.source-coords/format-view-id)
 
-(defn non-dom-root-warning
-  "Build the one-shot `console.warn` text for a reg-view'd component whose
-  root element is a non-DOM root (a fn/class component or a React Fragment)
-  — the source-coord walk skips the annotation and pair tools fall back to
-  the registry's `:rf/id` (documented exemption per Spec 006 §Source-coord
-  annotation). `type-tag` is the offending root's head/type for the
-  diagnostic. `substrate-name` is an optional string identifying the host
-  substrate (\"UIx\", …); it is omitted from the message when
-  nil — the Reagent hiccup-walk path passes nil (no substrate qualifier),
-  the React-element spine path passes its substrate name. Shared by
-  `re-frame.views.warn-once` and `re-frame.substrate.spine` so the message
-  text does not drift; each side keeps its OWN warn-once cache."
-  [id type-tag substrate-name]
-  (str "[re-frame] reg-view " id " — root element is "
-       (pr-str type-tag)
-       (when substrate-name (str " (" substrate-name ")"))
-       "; data-rf2-source-coord skipped "
-       "(Spec 006 §Source-coord annotation: pair tools fall back to "
-       ":rf/id for non-DOM roots)."))
-
 ;; ---- coercion helper for React-context reads ------------------------------
 ;;
 ;; Defensive cover for raw-hiccup Provider mounts. The canonical user-

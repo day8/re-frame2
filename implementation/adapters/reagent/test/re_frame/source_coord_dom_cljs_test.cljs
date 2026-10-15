@@ -8,10 +8,12 @@
   `re-frame.view-id-attr-cljs-test`; production elision is the elision-probe
   build's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views]))
+            [re-frame.views]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -56,7 +58,7 @@
       (is (= "stamped:by-user" (:data-rf2-source-coord (second out)))
           "user-supplied attribute survives the wrapper's merge"))))
 
-;; ---- React Fragment / non-DOM root: skip + warn ---------------------------
+;; ---- React Fragment / non-DOM root: skip ----------------------------------
 
 (deftest fragment-root-is-exempt
   (testing "a render-fn that returns a React Fragment :<> at the root is
@@ -110,3 +112,38 @@
       (is (and (string? attr)
                (re-find #"^re-frame\.source-coord-dom-cljs-test:auto-id-view:\d+:\d+$" attr))
           (str "auto-derived id drives <ns>:<sym>; got " (pr-str attr))))))
+
+;; ---- interop heads: passed through untouched ------------------------------
+
+(deftest interop-head-roots-pass-through-the-walk
+  (testing "`:r>`, `:f>` and `:>` carry the component at position 1, the slot
+            a DOM root's attrs map is spliced into, so they come back
+            untouched"
+    (let [comp-fn (fn [] [:div])]
+      (doseq [out [[:f> comp-fn "arg"]
+                   [:r> comp-fn #js {} [:child]]
+                   [:> comp-fn {:a 1}]]]
+        (is (identical? out (rf.views.source-coord-annotation/inject-source-coord-attr
+                              :rf.test/view "rf.test:view:1:1" out))
+            (str (first out) " root comes back untouched, component still at position 1"))))
+    (testing "control: a DOM-tag root IS annotated by the same call"
+      (is (= [:div {:data-rf2-source-coord "rf.test:view:1:1"
+                    :data-rf-view          ":rf.test/view"} "hi"]
+             (rf.views.source-coord-annotation/inject-source-coord-attr
+               :rf.test/view "rf.test:view:1:1" [:div "hi"]))))))
+
+;; ---- Form-3 class root: identity preserved --------------------------------
+
+(deftest form-3-class-root-is-not-misclassified-as-form-2
+  (testing "A create-class value is callable but is a component class, not a
+            Form-2 render fn. The registered view must hand back the exact
+            class on every render so Reagent can install its lifecycle."
+    (let [view-id ::form-3-class-root
+          klass   (r/create-class
+                    {:display-name "rf2-form-3-source-coord-probe"
+                     :reagent-render (fn [] [:div "form-3"])})]
+      (rf/reg-view* view-id (fn [] klass))
+      (let [render  (rf/view view-id)
+            outputs (repeatedly 3 render)]
+        (is (every? #(identical? klass %) outputs)
+            "the view returns the exact create-class constructor every time — no Form-2 wrapper")))))

@@ -4,7 +4,7 @@
   lack a native reactive-atom primitive (UIx), and `make-ratom-spine` for
   the ratom family (Reagent, reagent-slim), which injects its own
   reactive-atom ops. An adapter supplies only its hook fns or ratom ops
-  and substrate-name strings rather than a copy of this body.
+  and gensym-prefix strings rather than a copy of this body.
 
   Scope. This ns provides:
 
@@ -18,10 +18,8 @@
     * React root renderer (createRoot + render, hydrateRoot for
       hydrate).
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
-    * The chained source-coord wrapper (`format-source-coord`,
-      `dom-element?`, `inject-source-coord-attr`, `warn-non-dom-root!`,
-      `clear-warned-non-dom-roots!`, `wrap-view`) parameterised on the
-      substrate-name string for the warning text.
+    * The source-coord wrapper (`format-source-coord`, `dom-element?`,
+      `inject-source-coord-attr`, `wrap-view`).
     * `flush-views!` resolving `act` from the React namespace (React 19
       is the adapter floor).
     * A factory `make-react-spine` that produces the per-substrate
@@ -1834,9 +1832,9 @@
   React-hook spine, the injected `unmount-root` for the ratom family); it
   is the ONLY substrate-varying step in this subset, so parameterising it
   lets both spines reuse the identical drain loop. The React-hook spine
-  layers its extra teardown (warn-cache + after-render driver-root +
-  set-tick slot) AFTER calling this; the ratom family's dispose IS exactly
-  this subset (no warn-cache, no driver-root).
+  layers its extra teardown (after-render driver-root + set-tick slot)
+  AFTER calling this; the ratom family's dispose IS exactly this subset
+  (no driver-root).
 
   Rethrow. Returns nil on a clean drain; on failure the FIRST captured
   cleanup failure is rethrown — unchanged, and only once every Reaction and
@@ -1859,8 +1857,8 @@
   nothing on top of this subset — the ratom family — so it owns the
   accumulator and rethrows the primary itself. The FIVE-arg form takes the
   CALLER's accumulator, records into it and returns nil WITHOUT rethrowing,
-  so a spine that layers further teardown (the React-hook spine's warn-cache,
-  singleton driver root and set-tick slot) runs that layer inside ONE teardown
+  so a spine that layers further teardown (the React-hook spine's singleton
+  driver root and set-tick slot) runs that layer inside ONE teardown
   transaction and rethrows once, at the end.
 
   Why threading the accumulator rather than nesting two. Two accumulators do
@@ -1897,8 +1895,7 @@
        tracked React root, satisfying MUST (2): release host-specific
        resources.
     3. Clears the spine's per-adapter caches — `active-roots-cell`,
-       `warn-cache`, `emitter-cell` — satisfying MUST (3): discard
-       internal caches.
+       `emitter-cell` — satisfying MUST (3): discard internal caches.
 
   MUST (4) (subsequent calls return `:rf.error/adapter-disposed`) is
   enforced one level up by `rf.substrate.adapter/dispose-adapter!` via
@@ -1917,12 +1914,12 @@
   against the new adapter rather than bumping a stale setter. That unmount
   is a teardown STEP under the same accumulator as the shared drain, not a
   swallowed side-errand — see the primacy note in the body."
-  [{:keys [active-roots-cell warn-cache emitter-cell
+  [{:keys [active-roots-cell emitter-cell
            after-render-driver-root-cell after-render-set-tick-ref]}]
   (fn dispose-adapter! []
     ;; The substrate-common subset (sub-cache walk + active-roots
     ;; drain-with-capture + emitter clear) is the shared core; the React-hook
-    ;; spine layers warn-cache + driver-root + set-tick teardown on top.
+    ;; spine layers driver-root + set-tick teardown on top.
     ;;
     ;; ONE teardown transaction spans both layers. The accumulator
     ;; is owned HERE and handed to the shared core's five-arg arity, which
@@ -1961,7 +1958,6 @@
                                           active-roots-cell emitter-cell
                                           failures)
         (finally
-          (when warn-cache (reset! warn-cache #{}))
           (when after-render-driver-root-cell
             (when-let [root @after-render-driver-root-cell]
               (try (.unmount root)
@@ -2184,36 +2180,6 @@
 (def format-source-coord rf.adapter.context/format-source-coord)
 (def format-view-id       rf.adapter.context/format-view-id)
 
-(defn make-warn-once-cache
-  "Return an `(atom #{})` for tracking per-id warn-once emission. Each
-  adapter owns its own cache so multiple adapters can coexist in test
-  bundles without clobbering each other's warn-once state."
-  []
-  (atom #{}))
-
-(defn make-clear-warned-fn
-  "Return a thunk that resets `cache-atom` to `#{}` and returns nil.
-  Tests use this between cases (via `make-reset-runtime-fixture` and the
-  chained `:adapter/clear-warn-once-caches!` hook) so a sibling test's
-  first-encounter warning cannot silently swallow a later test's same-
-  id warning."
-  [cache-atom]
-  (fn clear-warned-non-dom-roots! []
-    (reset! cache-atom #{})
-    nil))
-
-(defn make-warn-non-dom-root-fn
-  "Return a warn-once fn for use inside `inject-source-coord-attr`.
-  Parameterised on the substrate-name string so the warning text
-  attributes the host substrate. `cache-atom` is the per-adapter
-  warn-once set."
-  [cache-atom substrate-name]
-  (fn warn-non-dom-root! [id type-tag]
-    (when-not (contains? @cache-atom id)
-      (swap! cache-atom conj id)
-      (.warn js/console
-        (rf.adapter.context/non-dom-root-warning id type-tag substrate-name)))))
-
 (defn- dom-element?
   "True if the React element's `type` is a string (a DOM tag like
   \"div\"). Function/class components and Fragments have non-string
@@ -2228,8 +2194,8 @@
   cloneElement call that adds `data-rf2-source-coord` (Spec 006
   §Source-coord annotation) and `data-rf-view` (Spec 006
   §View tagging contract). Non-element outputs (nil,
-  fragment, function-component head) emit a one-shot warning per id
-  and pass through unchanged — pair tools fall back to `:rf/id` for
+  fragment, function-component head) pass through unchanged, silently —
+  pair tools fall back to `:rf/id` for
   source-coord, and the view is untagged and so invisible to view-id
   lookup, a documented limit in Spec 006 §View tagging contract.
 
@@ -2246,9 +2212,8 @@
   from `React.createElement`'s third arg, not from element props, so
   the gesture would not work — and the props would leak to the DOM as
   attributes, triggering React's \"unrecognised prop\" warnings."
-  [warn-fn id coord-attr view-attr out]
-  (cond
-    (dom-element? out)
+  [coord-attr view-attr out]
+  (if (dom-element? out)
     (let [props             (.-props out)
           existing-coord    (when props (aget props "data-rf2-source-coord"))
           existing-view     (when props (aget props "data-rf-view"))
@@ -2260,12 +2225,7 @@
       (if (and existing-coord existing-view)
         out
         (React/cloneElement out patch)))
-
-    :else
-    (do
-      (when (some? out)
-        (warn-fn id (some-> out .-type)))
-      out)))
+    out))
 
 ;; ---- view-unmount parity --------------------------------------------------
 ;;
@@ -2467,8 +2427,7 @@
               (.concat #js [annotated nil] children)))))
 
 (defn make-wrap-view
-  "Return a `wrap-view` fn parameterised on the substrate's per-adapter
-  `warn-fn` (typically built via `make-warn-non-dom-root-fn`). The
+  "Return a `wrap-view` fn. The
   returned fn has the standard 3-arg shape `(id metadata user-fn) ->
   wrapped-user-fn` and produces a render fn that injects
   both `data-rf2-source-coord` (Spec 006 §Source-coord annotation) and
@@ -2489,7 +2448,7 @@
   execution to a real React render — the same safety the after-render
   sentinel relies on. Appending preserves the root's `type` / `key` /
   props, so the source-coord + view-id annotation contract holds."
-  [warn-fn]
+  []
   (let [unmount-sentinel (make-unmount-sentinel)]
     (fn wrap-view [id metadata user-fn]
       (if rf.interop/debug-enabled?
@@ -2506,8 +2465,7 @@
                            ;; but its hooks only run if React actually renders it.
                            (let [frame-id  (rf.adapter.context/function-component-current-frame)
                                  out       (apply user-fn args)
-                                 annotated (inject-source-coord-attr warn-fn id coord-attr
-                                                                     view-attr out)]
+                                 annotated (inject-source-coord-attr coord-attr view-attr out)]
                              (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
           wrapped)
         user-fn))))
@@ -2601,33 +2559,6 @@
       (when rf.interop/debug-enabled?
         (set! (.-displayName ^js shell) (rf.performance/entry-id id)))
       shell)))
-
-(defn install-clear-warn-once-step!
-  "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
-  late-bind hook. The hook is chained — each adapter and re-frame.views
-  contribute a clear-step; `make-reset-runtime-fixture` invokes the top of
-  the chain and every contributor's reset runs.
-
-  Delegates to the canonical governance chokepoint
-  `rf.late-bind/register-warn-once-clear-fn!` so the cache is
-  BOTH chained AND enrolled in the warn-once-clear governance registry the
-  governance assertion checks. Callers don't need to know the chain key.
-
-  Two arities:
-    [clear-fn]            — enrol with a default label and no arm/armed?
-                            probes (the empirical arm/fire assertion skips
-                            it; the source-enumeration assertion still
-                            covers it).
-    [clear-fn governance] — pass `{:label :arm :armed?}` so the empirical
-                            governance assertion can arm the cache, fire
-                            the chain, and prove the cache was wiped. The
-                            React-hook spine threads its `warn-cache` atom
-                            in via this arity."
-  ([clear-fn]
-   (install-clear-warn-once-step! clear-fn {:label :adapter/warned-non-dom-roots}))
-  ([clear-fn governance]
-   (rf.late-bind/register-warn-once-clear-fn!
-     (assoc governance :clear-fn clear-fn))))
 
 ;; ---- subscription hook ----------------------------------------------------
 ;;
@@ -2948,8 +2879,6 @@
   "Build the per-substrate hook-shaped surfaces given the substrate's
   config:
 
-      :substrate-name  — string used in warn-non-dom-root text (\"UIx\",
-                         …)
       :gensym-prefix-sub
       :gensym-prefix-derived
       :gensym-prefix-use-sub
@@ -2979,8 +2908,7 @@
        :flush-views!               …
        :flush-render!              …
        :wrap-view                  …
-       :componentize-view          …
-       :clear-warned-non-dom-roots! …}
+       :componentize-view          …}
 
   Note: the spine does not produce `:frame-provider` or
   `:register-context-provider`. The user-facing frame-provider is a
@@ -2991,17 +2919,13 @@
   `:register-context-provider` substrate slot. The shared substrate-
   agnostic core is `build-frame-provider-element`, which the native
   component shell calls with clean props."
-  [{:keys [substrate-name
-           gensym-prefix-sub
+  [{:keys [gensym-prefix-sub
            gensym-prefix-derived
            gensym-prefix-use-sub
            use-memo
            use-callback
            use-context]}]
-  (let [warn-cache         (make-warn-once-cache)
-        clear-warned       (make-clear-warned-fn warn-cache)
-        warn-fn            (make-warn-non-dom-root-fn warn-cache substrate-name)
-        emitter-cell       (make-hiccup-emitter-cell)
+  (let [emitter-cell       (make-hiccup-emitter-cell)
         active-roots-cell  (make-active-roots-cell)
         ;; After-render queue + sentinel component + the
         ;; routed-hook impl. The adapter publishes the hook by passing
@@ -3050,7 +2974,7 @@
                              (if (and (pos? n) (= "-" (subs s (dec n))))
                                (subs s 0 (dec n))
                                s))
-        wrap-view-fn       (make-wrap-view warn-fn)
+        wrap-view-fn       (make-wrap-view)
         ;; The substrate-agnostic half of the registered-view
         ;; component head. The adapter marks the shell this returns with its
         ;; own substrate's component marker before publishing it.
@@ -3065,7 +2989,6 @@
         (make-client-root-fns mount-client-root!)
         dispose-fn         (make-dispose-adapter!
                              {:active-roots-cell active-roots-cell
-                              :warn-cache        warn-cache
                               :emitter-cell      emitter-cell
                               ;; Release the singleton
                               ;; after-render driver root + clear its
@@ -3770,8 +3693,7 @@
                 :event-id (first query-v)})
              query-v)))]
     ;; The return map exposes ONLY the surfaces the adapter
-    ;; assembler consumes. `:warn-cache` is read by `make-react-adapter`
-    ;; (the governance arm/armed? probes). The `:emitter-cell` /
+    ;; assembler consumes. The `:emitter-cell` /
     ;; `:active-roots-cell` cells stay INTERNAL to this closure — they are
     ;; wired into the spine fns (`render`, `set-hiccup-emitter!`,
     ;; `dispose-fn`) here and read by NO assembler or production call site,
@@ -3779,8 +3701,7 @@
     ;; dispose unit tests build their own cells via the `make-*-cell`
     ;; factories and feed `make-dispose-adapter!` directly, so the narrow
     ;; map costs no test.
-    {:warn-cache                  warn-cache
-     :make-state-container        make-state-container
+    {:make-state-container        make-state-container
      :read-container              read-container
      :replace-container!          replace-cont!
      :subscribe-container         subscribe-cont
@@ -3822,7 +3743,6 @@
      ;; shell as its own substrate's component type and passes the marking
      ;; wrapper to make-react-adapter as `:componentize-view`.
      :componentize-view           componentize-fn
-     :clear-warned-non-dom-roots! clear-warned
      ;; :adapter/after-render impl. Each adapter publishes
      ;; this via rf.substrate.adapter/route-hook!.
      :after-render-hook           after-render-hook}))
@@ -3913,7 +3833,7 @@
 
   Builds the substrate adapter map, routes the React-hook
   late-bind hooks against it (`rf.substrate.adapter/route-hook!`), and wires
-  the two chained installs (warn-once clear + SSR hiccup-emitter). The
+  the chained SSR hiccup-emitter install. The
   `:register-context-provider` substrate slot returns the native
   `frame-provider` component (the frame-keyword arg is ignored — the
   keyword lives in the Provider's `:value` at render time, not in a
@@ -3971,18 +3891,6 @@
         componentize-view))
     (rf.substrate.adapter/route-hook! adapter :adapter/after-render
       (:after-render-hook spine-fns))
-    ;; Chained warn-once clear: chained (NOT routed by installed-
-    ;; adapter identity) — every loaded adapter's per-process defonce must
-    ;; clear between tests because a bundle can mount different adapters
-    ;; across tests. It goes through the governance chokepoint
-    ;; with arm/armed? probes over the spine's `warn-cache` atom so the
-    ;; warn-once-clear governance assertion proves the chain wipes it.
-    (let [warn-cache (:warn-cache spine-fns)]
-      (install-clear-warn-once-step!
-        (:clear-warned-non-dom-roots! spine-fns)
-        {:label  :adapter/warned-non-dom-roots
-         :arm    (fn [] (swap! warn-cache conj ::governance-sentinel))
-         :armed? (fn [] (contains? @warn-cache ::governance-sentinel))}))
     ;; Chained SSR emitter install: `re-frame.ssr.emit` invokes
     ;; `:reagent/set-hiccup-emitter!` at ns-load; every loaded React-shaped
     ;; adapter contributes its own install step so a single
@@ -4235,7 +4143,7 @@
         ;; The ratom dispose IS exactly the shared core
         ;; (`dispose-active-roots-and-caches!`) — sub-cache walk + active-roots
         ;; drain-with-capture + emitter clear — with `unmount-root` as the
-        ;; unmount-op. No warn-cache / driver-root teardown (those are
+        ;; unmount-op. No driver-root teardown (that is
         ;; React-hook-only), so unlike `make-dispose-adapter!` it layers
         ;; nothing on top — and therefore nothing this spine has to keep
         ;; reachable past the shared drain's rethrow: the shared
@@ -4323,9 +4231,7 @@
 ;; cells; the `:active-roots-cell` / `:emitter-cell` cells stay INTERNAL to
 ;; this closure (wired into `render`, `dispose-adapter!`,
 ;; `set-hiccup-emitter!`) and are read by NO assembler or production call
-;; site, so exposing them would be dead contract surface. (The ratom family has no
-;; `:warn-cache` — its source-coord walk lives in `re-frame.views`, not the
-;; spine — so unlike `make-react-spine` it exposes no internal cell at all.)
+;; site, so exposing them would be dead contract surface.
 
 ;; ---- ratom-family adapter assembly (Reagent + reagent-slim) ---------------
 ;;

@@ -130,10 +130,7 @@
               (rest out))))
 
     ;; Non-DOM root — fragment, callable/view-ref head, lazy-seq, scalar,
-    ;; nil. Skip. (The client emits a one-shot dev console.warn here for
-    ;; the pair-tool fallback; the JVM has no equivalent surface and the
-    ;; net DOM effect — no annotation — is identical, so it degrades
-    ;; silently.)
+    ;; nil. Skip, silently, as the client walk does.
     :else out))
 
 (defn wrap-handler-fn

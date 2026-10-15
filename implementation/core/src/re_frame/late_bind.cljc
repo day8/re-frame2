@@ -202,12 +202,11 @@
 
 ;; ---- warn-once clear-fn governance registry ------------------------------
 ;;
-;; Every process-wide `defonce` warn-once cache in the adapter / views
-;; family (`warned-non-dom-roots`, the `seen-render-keys` set, and the
-;; React-hook spine's per-adapter source-coord cache) must be wiped by the
-;; standard `make-reset-runtime-fixture` between tests — otherwise a sibling
-;; test's first-encounter warning silently swallows a later test's same-key
-;; warning. The mechanism is the chained `:adapter/clear-warn-once-caches!`
+;; Every process-wide `defonce` cache in the adapter / views family that a
+;; test can observe (the `seen-render-keys` set behind `:mount?`) must be
+;; wiped by the standard `make-reset-runtime-fixture` between tests —
+;; otherwise a sibling test's state leaks into a later test's same-key
+;; reading. The mechanism is the chained `:adapter/clear-warn-once-caches!`
 ;; late-bind hook the fixture fires.
 ;;
 ;; This defect class is fragile to wire by hand: chaining the clear-fn is a
@@ -255,10 +254,7 @@
 
   Effects: chains `:clear-fn` into `:adapter/clear-warn-once-caches!`
   (so `make-reset-runtime-fixture` wipes it) and appends the entry to
-  `warn-once-clear-registry`. Returns nil.
-
-  `re-frame.substrate.spine/install-clear-warn-once-step!` delegates here
-  with default arm/armed? probes for the adapters' source-coord caches."
+  `warn-once-clear-registry`. Returns nil."
   [{:keys [label clear-fn arm armed?] :as entry}]
   (chain-fn! :adapter/clear-warn-once-caches! clear-fn)
   (swap! warn-once-clear-registry conj

@@ -1404,8 +1404,7 @@
     (vreset! pre-published (some? (rf.late-bind/get-fn :adapter/current-frame)))
     (rf/init! (rf.substrate.spine/make-react-adapter
                 (rf.substrate.spine/make-react-spine
-                  {:substrate-name        "read-attribution-cljs"
-                   :gensym-prefix-sub     "ra-sub-"
+                  {:gensym-prefix-sub     "ra-sub-"
                    :gensym-prefix-derived "ra-derived-"
                    :gensym-prefix-use-sub "ra-use-sub-"
                    :use-memo              (fn [t _] (t))

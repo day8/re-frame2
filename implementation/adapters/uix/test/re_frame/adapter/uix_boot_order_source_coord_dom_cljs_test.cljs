@@ -4,8 +4,8 @@
   `rf/init!`). `:adapter/wrap-view` is routed, so a top-level `reg-view*`
   gets nil and stores an unwrapped composition; the head `(rf/view id)` hands
   back after init re-derives against the installed adapter. Rendered from the
-  stored composition, the root would carry neither annotation and the inline
-  walk would warn about a plain `span`. `reg-time-composition-*` shows both
+  stored composition, the root would carry neither annotation.
+  `reg-time-composition-*` shows both
   answers off the one registration (the stored slot is left alone, since
   rewriting it would publish a phantom handler-replaced); `boot-order-*`
   reads the annotations off the committed DOM node. Only the DOM row needs a
@@ -89,34 +89,13 @@
   [^js element attr]
   (some-> element .-props (aget attr)))
 
-(defn- capture-console-diagnostics
-  "Record `console.warn` / `console.error` text across `thunk`; restores both
-  on the way out. The non-DOM-root diagnostic goes to `console.warn`, and it
-  is the fourth casualty of the missing wrap — a warning that is not merely
-  absent-when-wanted but PRESENT-and-wrong."
-  [thunk]
-  (let [messages       (atom [])
-        original-warn  (.-warn js/console)
-        original-error (.-error js/console)]
-    (try
-      (set! (.-warn js/console)  (fn [& args] (swap! messages conj (apply str args))))
-      (set! (.-error js/console) (fn [& args] (swap! messages conj (apply str args))))
-      (thunk)
-      @messages
-      (finally
-        (set! (.-warn js/console)  original-warn)
-        (set! (.-error js/console) original-error)))))
-
-(def ^:private non-dom-root-re #"data-rf2-source-coord skipped")
-
 (defn- seed-frame! []
   (rf/make-frame {:id probe-frame :doc "boot-order source-coord probe"})
   nil)
 
 (defn- mount-and-read
   "Mount `head` through `$` under the normal `frame-provider` boundary, and
-  hand back the committed root node's two annotation attributes plus anything
-  the console said while it rendered.
+  hand back the committed root node's two annotation attributes.
 
   `head` is passed STRAIGHT to `$` as a component type — nothing here invokes
   it, so what the assertions describe is a real React mount and a real DOM
@@ -125,17 +104,14 @@
   (let [mount-node (.createElement js/document "div")
         react-root (react-dom-client/createRoot mount-node)]
     (binding [rf.frame/*current-frame* nil]
-      (let [diagnostics (capture-console-diagnostics
-                          (fn []
-                            (act-fn
-                              (fn []
-                                (.render react-root
-                                  ($ rf.adapter.uix/frame-provider {:frame probe-frame}
-                                     ($ head)))))))
-            view-root   (.querySelector mount-node "[data-testid='probe']")]
+      (act-fn
+        (fn []
+          (.render react-root
+            ($ rf.adapter.uix/frame-provider {:frame probe-frame}
+               ($ head)))))
+      (let [view-root (.querySelector mount-node "[data-testid='probe']")]
         (try
-          {:diagnostics       diagnostics
-           :view-root-present? (some? view-root)
+          {:view-root-present? (some? view-root)
            :source-coordinate (some-> view-root (.getAttribute "data-rf2-source-coord"))
            :view-id-attribute (some-> view-root (.getAttribute "data-rf-view"))}
           (finally
@@ -144,17 +120,16 @@
 (defn- assert-annotated
   "The shared assertion block for a mounted root; `label` names the row."
   [label view-id facts]
-  (let [{:keys [diagnostics view-root-present? source-coordinate
+  (let [{:keys [view-root-present? source-coordinate
                 view-id-attribute]} facts]
-    (is (= {:root? true :coord-is-the-views? true :view-attr (str view-id) :non-dom-warnings []}
+    (is (= {:root? true :coord-is-the-views? true :view-attr (str view-id)}
            {:root?               view-root-present?
             :coord-is-the-views? (and (string? source-coordinate)
                                       (str/starts-with? source-coordinate
                                                         (str (namespace view-id) ":" (name view-id))))
-            :view-attr           view-id-attribute
-            :non-dom-warnings    (filterv #(and (string? %) (re-find non-dom-root-re %)) diagnostics)})
+            :view-attr           view-id-attribute})
         (str label ": the committed root carries the view's own <ns>:<sym> coordinate and"
-             " printed id, with no non-DOM-root warning; coord " (pr-str source-coordinate)))))
+             " printed id; coord " (pr-str source-coordinate)))))
 
 ;; ---- the ABSENT half, on the registration itself ---------------------------
 

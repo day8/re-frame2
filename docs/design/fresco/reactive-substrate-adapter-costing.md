@@ -122,9 +122,8 @@ push-based, already in core, and already the thing the UIx adapter uses.
 
 ### What a substrate actually supplies
 
-**Read at source** — `spine/make-react-spine` takes exactly seven inputs:
+**Read at source** — `spine/make-react-spine` takes exactly six inputs:
 
-- `:substrate-name` — a string, used only in warning text
 - `:gensym-prefix-sub`, `:gensym-prefix-derived`, `:gensym-prefix-use-sub`
 - `:use-memo`, `:use-callback`, `:use-context` — three hook functions
 
@@ -191,7 +190,7 @@ docstring states the contract:
 
 That entry file reduces to an adapter `:require`, a fixture, a `cfg` map and one
 macro call, from which roughly fifty `deftest` forwarders are generated —
-dispose contracts, source-coord stamping, warn-once behaviour, the
+dispose contracts, source-coord stamping, the
 write-after-destroy guard, `make-derived-value` per-arity and watch-baseline,
 the late-bind hook publication set, and the public-surface guard.
 

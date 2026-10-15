@@ -3094,8 +3094,8 @@
   The five children are stacked flex items of `shell-view`'s flex
   column (L1 ribbon · events ribbon · L2 list · L3 tab bar · L4 detail
   panel). A bare React Fragment root would skip the source-coord DOM
-  annotation (Spec 006 §Documented exemption: non-DOM roots) and emit
-  a one-shot warning. A wrapper `<div>` with `display: contents`
+  annotation (Spec 006 §Documented exemption: non-DOM roots). A
+  wrapper `<div>` with `display: contents`
   participates in the DOM tree (so `data-rf2-source-coord` has a home
   and click-to-source works) while being neutralised for layout — the
   children render as if they were direct flex items of the
@@ -3133,8 +3133,8 @@
 
   Returning the inner component head directly (`[dynamic-chrome]` /
   `[static-shell/surface]`) would skip the source-coord DOM
-  annotation (Spec 006 §Documented exemption: component head) and
-  emit a one-shot warning. A `display: contents` wrapper lets
+  annotation (Spec 006 §Documented exemption: component head). A
+  `display: contents` wrapper lets
   `data-rf2-source-coord` land on a real DOM node while keeping the
   inner surface as the effective layout child of `shell-view`'s flex
   column.

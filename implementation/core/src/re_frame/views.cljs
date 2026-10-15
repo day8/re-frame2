@@ -18,7 +18,7 @@
   to obtain the wrapped fn and use `[(rf/view :id) args]` as the
   hiccup head.
 
-  Orchestration entry point that re-exports three internally-cohesive
+  Orchestration entry point that re-exports two internally-cohesive
   sub-namespaces:
 
     - `re-frame.views.provider`                — frame-provider + frame-root
@@ -28,10 +28,6 @@
                                                  machinery
     - `re-frame.views.source-coord-annotation` — Spec 006 source-coord
                                                  DOM annotation walk
-    - `re-frame.views.warn-once`               — per-process warn-once
-                                                 caches (non-DOM root,
-                                                 plain-fn-under-non-
-                                                 default-frame)
 
   The publicly-referenced surface is re-exported via plain `def` aliases
   below so call sites — `re-frame.core/reg-view*`, the test files, the
@@ -57,8 +53,7 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace :as rf.trace :include-macros true]
             [re-frame.views.provider :as rf.views.provider]
-            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
-            [re-frame.views.warn-once :as rf.views.warn-once]))
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
 
 ;; ---- *render-key* --------------------------------------------------------
 ;;
@@ -168,8 +163,8 @@
   a sibling test's `:mount?` flag does not leak across cases (the
   per-process set would otherwise report a re-used render-key as a
   rerender in the next test). Wired into the chained
-  `:adapter/clear-warn-once-caches!` late-bind hook so a
-  single fixture reset clears it alongside the warn-once caches."
+  `:adapter/clear-warn-once-caches!` late-bind hook so the
+  standard fixture reset clears it."
   []
   (reset! seen-render-keys #{})
   nil)
@@ -187,8 +182,6 @@
 (def mint-instance-token! rf.views.provider/mint-instance-token!)
 
 (def format-source-coord rf.views.source-coord-annotation/format-source-coord)
-
-(def clear-warned-non-dom-roots! rf.views.warn-once/clear-warned-non-dom-roots!)
 
 ;; The React-context object is consumed by `build-frame-aware-view` below
 ;; (the `:contextType` static-field). Aliased privately here — no external
@@ -779,11 +772,9 @@
 ;;   * wrap — with no substrate wrap, `build-frame-aware-view` falls through
 ;;     to the inline hiccup walk, and that walk classes a React element as a
 ;;     non-DOM root. So `data-rf2-source-coord` and `data-rf-view` would go
-;;     unstamped, the React-hook unmount sentinel would never be appended, and
-;;     the walk would emit a one-shot "root element is …" warning that is
-;;     simply untrue. Dev-only in every direction — the whole surface
-;;     rides `rf.interop/debug-enabled?` and elides in production — but wrong, and
-;;     the false warning points the reader at their own view.
+;;     unstamped and the React-hook unmount sentinel would never be appended.
+;;     Dev-only in every direction — the whole surface rides
+;;     `rf.interop/debug-enabled?` and elides in production — but wrong.
 ;;
 ;; So the head is not a property of the registration. It is a property of
 ;; (registration × installed substrate), and `compose-view` derives the WHOLE
@@ -1014,8 +1005,8 @@
 ;; would otherwise see the second case's first render reported as a
 ;; rerender. Enrol `clear-seen-render-keys!` into the
 ;; `:adapter/clear-warn-once-caches!` reset hook so the
-;; standard runtime-reset fixture wipes it alongside the warn-once
-;; caches — call sites need no fixture wiring of their own. Routed through
+;; standard runtime-reset fixture wipes it — call sites need no fixture
+;; wiring of their own. Routed through
 ;; the canonical governance chokepoint `register-warn-once-clear-fn!`
 ;; so this cache is enrolled in the warn-once-clear registry
 ;; the governance assertion checks.

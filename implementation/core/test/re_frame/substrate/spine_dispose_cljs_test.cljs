@@ -31,7 +31,6 @@
 
 (defn- cells [driver-root]
   {:active-roots-cell             (rf.substrate.spine/make-active-roots-cell)
-   :warn-cache                    (rf.substrate.spine/make-warn-once-cache)
    :emitter-cell                  (rf.substrate.spine/make-hiccup-emitter-cell)
    :after-render-driver-root-cell (atom driver-root)
    :after-render-set-tick-ref     (atom :stale-setter)})
@@ -45,12 +44,12 @@
 
 (defn- cleared
   "What a finished teardown leaves in each cell."
-  [{:keys [active-roots-cell warn-cache emitter-cell after-render-driver-root-cell
+  [{:keys [active-roots-cell emitter-cell after-render-driver-root-cell
            after-render-set-tick-ref]}]
-  [@active-roots-cell @warn-cache @emitter-cell @after-render-driver-root-cell
+  [@active-roots-cell @emitter-cell @after-render-driver-root-cell
    @after-render-set-tick-ref])
 
-(def ^:private all-cleared [#{} #{} nil nil nil])
+(def ^:private all-cleared [#{} nil nil nil])
 
 ;; The walk disposes through the `:adapter/dispose!` hook, so seed it with the
 ;; protocol fn and restore the globals afterwards.
@@ -78,7 +77,6 @@
     ;; wherever the bad one falls.
     (swap! (:active-roots-cell c) conj (:root good-1) #js {:unmount #(throw sentinel)}
            (:root good-2))
-    (reset! (:warn-cache c) #{:some-stale-warn-key})
     (let [thrown (dispose-thrown c)]
       (is (= [true 1 1 1 {} all-cleared]
              [(identical? sentinel thrown) @(:unmount-count good-1) @(:unmount-count good-2)
@@ -91,7 +89,6 @@
         c        (cells #js {:unmount #(throw sentinel)})
         healthy  (fake-root)]
     (swap! (:active-roots-cell c) conj (:root healthy))
-    (reset! (:warn-cache c) #{:some-stale-warn-key})
     (reset! (:emitter-cell c) (fn fake-emit [_ _] "<html/>"))
     (let [thrown (dispose-thrown c)]
       (is (= [true 1 all-cleared]

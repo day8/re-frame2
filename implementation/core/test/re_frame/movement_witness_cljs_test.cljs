@@ -14,8 +14,7 @@
 (def ^:private adapter
   (rf.substrate.spine/make-react-adapter
     (rf.substrate.spine/make-react-spine
-      {:substrate-name        "movement-witness"
-       :gensym-prefix-sub     "mw-sub-"
+      {:gensym-prefix-sub     "mw-sub-"
        :gensym-prefix-derived "mw-derived-"
        :gensym-prefix-use-sub "mw-use-sub-"
        :use-memo              (fn [t _] (t))
