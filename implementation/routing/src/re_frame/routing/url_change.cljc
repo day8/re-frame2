@@ -48,12 +48,16 @@
 
   EP-0015: `:rf.error/no-such-handler` is a
   production-survivable / off-box-observable category EP-0015 requires to
-  FAIL CLOSED. A route-miss URL has no matched route → no schema to
-  consult, and is the class most likely to carry secret carriers
-  (`?token=…`, `#access_token=…`). `rf.privacy.url/redact-url-tag` scrubs the
-  query / fragment carrier VALUES (keeping the structured path + `:reason`)
-  HERE, before the tags reach either axis — so the redaction covers the
-  always-on production record exactly as it covers the dev trace."
+  FAIL CLOSED, and a route-miss URL is the class most likely to carry secret
+  carriers (`?token=…`, `#access_token=…`, a declared path segment). The URL
+  is projected HERE, before the tags reach either axis, so the redaction
+  covers the always-on production record exactly as it covers the dev trace.
+  `rf.routing.resolve/redact-declared-url` first replaces what the
+  `:sensitive` declaration of the route it resolves to names — for an
+  ambiguous route, which has no one declaration, every segment its
+  registrations capture — and `rf.privacy.url/redact-url-tag` then scrubs
+  every query / fragment carrier VALUE, keeping the rest of the path and the
+  `:reason`."
   [{:keys [url frame throw-reason malformed?]}]
   (-> (cond-> {:url      url
                :kind     :route
@@ -61,6 +65,7 @@
         frame        (assoc :frame frame)
         throw-reason (assoc :reason throw-reason)
         malformed?   (assoc :reason :malformed-url))
+      (update :url rf.routing.resolve/redact-declared-url)
       (rf.privacy.url/redact-url-tag :url)))
 
 (defn- emit-route-miss-error!
@@ -84,7 +89,7 @@
   already redacted (see [[route-miss-tags]]): the record carries the
   category, `:kind :route`, `:frame`, `:time`, `:recovery` and the
   structured `:reason` / redacted `:url` — never a raw query / fragment
-  carrier value and never an app-db slice. The SSR
+  carrier value or declared path segment, and never an app-db slice. The SSR
   `error-emit-projection-listener` lifts every non-`:error` slot onto
   `:tags` generically, so `[:tags :kind]` reaches the projector's `404`
   gate identically on both axes.
@@ -404,7 +409,10 @@
                     {:throw-reason  throw-reason
                      :malformed?    malformed?
                      :no-not-found? (and fallback? (nil? route-meta))
-                     :url           url
+                     ;; The miss record's URL, already projected by the
+                     ;; route's declaration: every warning here describes
+                     ;; that same miss, and none fires without it.
+                     :url           (:url miss-tags)
                      :frame         frame})
             fallback?
             (conj [:emit-error :rf.error/no-such-handler miss-tags])))
