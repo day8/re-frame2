@@ -21,9 +21,7 @@ test('a pool of N under 2N concurrent requests never overlaps within an isolate'
     const results = await Promise.all(
       Array.from({ length: 6 }, () => collect(service, req({ state: { ':todos': '[]', ':delay': '25' } }))),
     );
-    for (const r of results) {
-      assert.strictEqual(observed(r).overlapMax, 1, `an isolate ran ${observed(r).overlapMax} renders at once`);
-    }
+    assert.deepStrictEqual(results.map((r) => observed(r).overlapMax), Array(6).fill(1));
     const threads = new Set(results.map((r) => observed(r).threadId));
     assert.strictEqual(threads.size, 3, 'all three isolates should have been used');
   });
