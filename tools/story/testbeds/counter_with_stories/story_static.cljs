@@ -7,7 +7,7 @@
   - `core.cljs` (build `:examples/counter-with-stories`) — the
     development-flavoured hash-routed SPA. `#/` renders the live counter;
     `#/stories` mounts the Story shell. This is what `shadow-cljs watch`
-    serves and what the Playwright spec drives.
+    serves and what the Story browser gates drive.
 
   - `story-static.cljs` (this ns; build `:story-static/counter-with-
     stories`) — the **static-export entry point**. Mounts the Story
