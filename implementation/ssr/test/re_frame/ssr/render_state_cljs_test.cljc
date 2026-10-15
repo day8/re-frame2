@@ -293,8 +293,7 @@
              ((juxt :rf.error/id :opt) (policy-error opts)))
           (pr-str opts))))
   (testing "malformed allowlists → the family's malformed id, naming :render-state"
-    (doseq [[bad entries] [[{:app-db []} []]
-                           [{:app-db ["todos"]} ["todos"]]
+    (doseq [[bad entries] [[{:app-db ["todos"]} ["todos"]]
                            [{:app-db #{:a}} []]
                            [{:app-db [:a] :extra [:b]} []]
                            [{:runtime-db [:rf.runtime/elision]} []]]]

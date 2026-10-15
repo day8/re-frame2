@@ -234,13 +234,13 @@ The server renders the whole page in one response; it does not stream regions. T
 
 `:payload` decides what is sent to the client, and it **fails closed**. The vector is an allowlist of top-level app-db keys; every other key stays on the server, including keys you add later. Add a `:secrets/api-token` to app-db next year and forget the allowlist, and the token still stays on the server. A denylist would do the opposite and leak each new server-only key.
 
-Leave `:payload` out and the handler throws `:rf.error/ssr-missing-payload-policy` when it is constructed, before any request is served. To ship the whole app-db, say so with the keyword `:rf.ssr.payload/whole-app-db`.
+Leave `:payload` out and the handler throws `:rf.error/ssr-missing-payload-policy` when it is constructed, before any request is served. To ship nothing, say so with an empty allowlist, `:payload []`: the payload's `:rf/app-db` is then `{}` however much state the server holds. To ship the whole app-db, say so with the keyword `:rf.ssr.payload/whole-app-db`.
 
 ??? note "The three boot-time payload errors"
 
-    The allowlist accepts any sequential of keywords. A literal vector is the usual form, but a computed `(filterv …)` or `(keep …)` works too. Three construction-time errors tell three mistakes apart:
+    The allowlist accepts any sequential of keywords. A literal vector is the usual form, but a computed `(filterv …)` or `(keep …)` works too, and one that computes to `[]` ships nothing. Three construction-time errors tell three mistakes apart:
 
-    - an **empty** allowlist (`[]`) is treated as a missing policy (`:rf.error/ssr-missing-payload-policy`), because shipping zero keys is almost certainly a slip;
+    - a **missing** policy — no `:payload`, or `nil` — throws `:rf.error/ssr-missing-payload-policy`;
     - an **unknown** policy keyword throws `:rf.error/ssr-unknown-payload-policy`;
     - a **string instead of a keyword** — `["public/articles"]` for `[:public/articles]` — throws `:rf.error/ssr-malformed-payload-allowlist`, with the offending entries under `:bad-entries`.
 
@@ -611,7 +611,7 @@ A few things change between your REPL and a production server:
 | Symptom | Cause | Fix |
 |---|---|---|
 | First `rf/reg-head` / `rf/reg-error-projector` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
-| `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` (also empty `[]`) | Set a `:payload` allowlist, or `:rf.ssr.payload/whole-app-db` |
+| `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` | Set a `:payload` allowlist (`[]` ships nothing), or `:rf.ssr.payload/whole-app-db` |
 | Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; a sequential, not a set |
 | Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back, or a map or set whose numbers it reads as one (`1` beside `1.0`) | Send ids as strings, money as integer cents, give colliding numbers one type, or drop the key from `:payload` |
 | Server HTML is missing data fetched at boot | Only blocking route resources are waited for | Declare the read as a route resource with `:blocking? true` |
