@@ -1,12 +1,5 @@
 (ns re-frame.routing-scroll-test
-  "Scroll-restoration tests for re-frame.routing: the `:rf.nav/scroll` fx the
-  navigation doors emit, scroll-strategy precedence, the restore lookup's
-  canonical keying, and the per-frame host-side position cache (LRU cap,
-  isolation, release on frame destroy).
-
-  All of it is production-real and carries no posture guard, so it runs in
-  the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane)."
+  "Scroll strategy precedence, canonical restore keys and bounded per-frame caches."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
