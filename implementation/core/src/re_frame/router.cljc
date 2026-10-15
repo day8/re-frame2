@@ -4592,37 +4592,12 @@
                                     capture-op))))))))
      nil)))
 
-(defn dispatch-sync!
-  "Bypass the queue scheduler and process this single event end-to-end
-  immediately, then normally drain synchronously-enqueued events to fixed
-  point. A depth halt or exact-incarnation destroy claim terminates that
-  ordinary drain without inserting a render. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
-  callers (test setup, REPL). A call into a frame that is mid-drain (from
-  inside one of its handlers) is rejected: the event does not run, and
-  development builds emit :rf.error/dispatch-sync-in-handler — handler
-  bodies should use dispatch (the queued form) instead.
-
-  Implementation: the seed event is pushed at the HEAD of the internal
-  lane and then the drain loop runs, so the seed runs first and its whole
-  family — everything it dispatches, which joins the internal lane — settles
-  before any external input already queued. Because the scheduled? flag is
-  set to true before draining, any dispatch! calls inside the seed handler's
-  :fx vector enqueue without scheduling an async drain — the sync drain
-  picks them up. The seed is its family's root and counts toward its
-  `:drain-depth` budget, exactly like an external event.
-
-  When the same-frame reentry check passes but ANOTHER
-  frame is currently mid-drain, the runtime emits
-  `:rf.warning/cross-frame-dispatch-sync-during-drain` and continues
-  with the dispatch. The cross-frame cascade interleaves (target frame
-  drains to settled before the caller's drain resumes); per Spec 002
-  §Rules rule 1 this is intentional (frames are independent state
-  machines) but rarely the caller's intent, so the warning surfaces the
-  pattern for observability tools without refusing the call.
-
-  Runtime-callable fn form for `dispatch-sync` (the macro
-  form stamps an `:rf.trace/call-site` onto `opts` at compile time)."
-  ([event] (dispatch-sync! event {}))
+(defn ^:no-doc dispatch-sync-with-id!
+  "`dispatch-sync!`, returning the `:dispatch-id` of the dispatch the router
+  ran: nil when it refused the dispatch (a destroyed or superseded target, a
+  same-frame reentry), and always nil in production, which mints no id.
+  Internal. Tool-Pair replay names its own epoch record by this id;
+  `dispatch-sync!` discards it, so the public return value stays nil."
   ([event opts]
    (let [owner-token    (rf.frame/current-event-owner-token)
          owner-frame-id (rf.frame/current-event-owner-frame-id)
@@ -4710,7 +4685,8 @@
        ;; now fully unclaimed (realm-exact `[:event id]`); nil for an ordinary
        ;; address-directed dispatch-sync (realm-ambiguous fallback).
        (rf.trace/with-call-site call-site
-         (emit-frame-destroyed! (first event) event (:frame envelope) capture-op))
+         (emit-frame-destroyed! (first event) event (:frame envelope) capture-op)
+         nil)
 
        ;; A captured op pinned to incarnation A resolved a same-id
        ;; successor B here — A destroyed + B installed between `capture-frame`'s
@@ -4727,7 +4703,8 @@
        (and (some? expected-incarnation)
             (not (identical? expected-incarnation target-token)))
        (rf.trace/with-call-site call-site
-         (emit-frame-destroyed! (first event) event (:frame envelope) capture-op))
+         (emit-frame-destroyed! (first event) event (:frame envelope) capture-op)
+         nil)
 
        nested-sync?
        ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
@@ -4743,7 +4720,8 @@
                             {:frame      (:frame envelope)
                              :rf.event/v event
                              :reason     "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
-                             :recovery   :no-recovery}))
+                             :recovery   :no-recovery})
+         nil)
 
        :else
        (let [router (:router frame-record)]
@@ -4819,9 +4797,43 @@
                              (:frame envelope) target-token)))
              (rf.trace/with-call-site call-site
                (emit-frame-destroyed! (first event) event (:frame envelope)
-                                      capture-op))))))
-      nil)))
-    nil)))
+                                      capture-op)))
+           (when drained? (:dispatch-id envelope)))))))))))
+
+(defn dispatch-sync!
+  "Bypass the queue scheduler and process this single event end-to-end
+  immediately, then normally drain synchronously-enqueued events to fixed
+  point. A depth halt or exact-incarnation destroy claim terminates that
+  ordinary drain without inserting a render. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
+  callers (test setup, REPL). A call into a frame that is mid-drain (from
+  inside one of its handlers) is rejected: the event does not run, and
+  development builds emit :rf.error/dispatch-sync-in-handler — handler
+  bodies should use dispatch (the queued form) instead.
+
+  Implementation: the seed event is pushed at the HEAD of the internal
+  lane and then the drain loop runs, so the seed runs first and its whole
+  family — everything it dispatches, which joins the internal lane — settles
+  before any external input already queued. Because the scheduled? flag is
+  set to true before draining, any dispatch! calls inside the seed handler's
+  :fx vector enqueue without scheduling an async drain — the sync drain
+  picks them up. The seed is its family's root and counts toward its
+  `:drain-depth` budget, exactly like an external event.
+
+  When the same-frame reentry check passes but ANOTHER
+  frame is currently mid-drain, the runtime emits
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` and continues
+  with the dispatch. The cross-frame cascade interleaves (target frame
+  drains to settled before the caller's drain resumes); per Spec 002
+  §Rules rule 1 this is intentional (frames are independent state
+  machines) but rarely the caller's intent, so the warning surfaces the
+  pattern for observability tools without refusing the call.
+
+  Runtime-callable fn form for `dispatch-sync` (the macro
+  form stamps an `:rf.trace/call-site` onto `opts` at compile time)."
+  ([event] (dispatch-sync! event {}))
+  ([event opts]
+   (dispatch-sync-with-id! event opts)
+   nil))
 
 (defn- run-frame-destroy-event!
   "Run one claimed incarnation's `:on-destroy` event and its synchronous

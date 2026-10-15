@@ -734,30 +734,20 @@
      :epoch-id <the replayed event's own new epoch, nil if it committed none
                 or the ring could not retain it>}
 
-  `:epoch-id` names the epoch the REPLAYED EVENT committed and no other. The
-  identity is taken from the DISPATCH — a one-shot observation armed on the
-  frame across the dispatch, which learns this dispatch's own id from the
-  epoch-capture stage and is then filled by the commit funnel from the record
-  carrying that id — and then checked against the ring, so an epoch the ring
-  did not keep reports the documented nil.
+  `:epoch-id` names the epoch the REPLAYED EVENT committed and no other: the
+  retained record carrying the `:dispatch-id` the router minted for this
+  dispatch. With no such record retained — evicted, or never committed — it
+  is the documented nil.
 
-  Reading the ring alone cannot answer this. Replay runs against
-  CURRENT state and code (Tool-Pair §Replay), so it may legitimately enqueue
-  work the recorded run did not; a queued child settles AFTER its parent, and
-  at a depth the cascade overruns the child evicts the parent's record. The
-  oldest surviving record of the dispatch is then the CHILD, and returning it
-  would attach the child's operation, state and effects to the parent this
-  response names under `:event-id` — wrong causal evidence handed to a tool
-  that trusts the chain.
-
-  Nor can COMMIT ORDER answer it. The router emits
-  `:rf.event/dispatched` before it starts this dispatch's drain, and a public
-  trace listener may `dispatch-sync` from there; that nested cascade commits
-  INSIDE this window and before the replayed event has run, so the first
-  commit is the callback's and not ours. The armed observation therefore
-  refuses every id but this dispatch's — see the commit-observation section in
-  `re-frame.epoch.state` for why the capture stage's ordering makes that id
-  unambiguous.
+  Position in the ring cannot answer this; only the dispatch's identity can.
+  Replay runs against CURRENT state and code (Tool-Pair §Replay), so it may
+  enqueue work the recorded run did not, and a queued child settles AFTER its
+  parent: at a depth the cascade overruns, the child evicts the parent's
+  record. A trace listener may `dispatch-sync` from the router's
+  `:rf.event/dispatched`, committing before the replayed event has run, and
+  another thread's dispatch may commit on either side of it. Each of those
+  records carries its own dispatch's id, so none of them is reported under
+  the `:event-id` this response names.
 
   A declared recordable fact ABSENT from the recorded token throws the
   canonical `:rf.error/missing-required-cofx` out of the dispatch exactly as
@@ -765,36 +755,29 @@
 
   The dispatch is fenced to `incarnation-token`, the incarnation the lookup
   resolved: if that frame was destroyed, or replaced by a same-id successor,
-  before the dispatch, the router processes nothing. That refusal commits no
-  epoch and leaves the token dead, and is reported as the same
+  before the dispatch, the router processes nothing and hands back no
+  dispatch-id. That refusal commits no epoch and leaves the token dead, and
+  is reported as the same
   `{:ok? false :reason :rf.error/no-such-handler :kind :frame}` envelope a
   frame missing at lookup gets."
   [frame-id incarnation-token record opts]
-  (let [observation  (rf.epoch.state/arm-commit-observation! frame-id)
-        own-epoch-id (volatile! nil)]
-    ;; The take runs in a `finally` so the strict `:rf.error/missing-required-cofx`
-    ;; still propagates unchanged while the armed slot is always disarmed.
-    (try
-      (rf.router/dispatch-sync! (:trigger-event record)
-                                (replay-dispatch-opts frame-id incarnation-token record opts))
-      (finally
-        (vreset! own-epoch-id
-                 (rf.epoch.state/take-observed-commit! frame-id observation))))
-    (let [epoch-id  @own-epoch-id
-          retained? (some? (find-epoch-in (rf.epoch.state/history-for frame-id)
-                                          epoch-id))]
-      (if (and (nil? epoch-id)
-               (not (rf.frame/frame-incarnation-live? frame-id incarnation-token)))
-        {:ok?      false
-         :reason   :rf.error/no-such-handler
-         :frame    frame-id
-         :epoch-id (:epoch-id record)
-         :kind     :frame}
-        {:ok?             true
-         :frame           frame-id
-         :source-epoch-id (:epoch-id record)
-         :event-id        (:event-id record)
-         :epoch-id        (when retained? epoch-id)}))))
+  (let [dispatch-id (rf.router/dispatch-sync-with-id!
+                      (:trigger-event record)
+                      (replay-dispatch-opts frame-id incarnation-token record opts))]
+    (if (and (nil? dispatch-id)
+             (not (rf.frame/frame-incarnation-live? frame-id incarnation-token)))
+      {:ok?      false
+       :reason   :rf.error/no-such-handler
+       :frame    frame-id
+       :epoch-id (:epoch-id record)
+       :kind     :frame}
+      {:ok?             true
+       :frame           frame-id
+       :source-epoch-id (:epoch-id record)
+       :event-id        (:event-id record)
+       :epoch-id        (when dispatch-id
+                          (some #(when (= dispatch-id (:dispatch-id %)) (:epoch-id %))
+                                (rf.epoch.state/history-for frame-id)))})))
 
 ;; ---- write-boundary liveness guard ----------------------------------------
 ;;
