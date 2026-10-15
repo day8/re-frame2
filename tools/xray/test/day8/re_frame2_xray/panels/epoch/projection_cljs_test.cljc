@@ -128,9 +128,8 @@
                                      {:rf/time-ms        1781078400123
                                       :counter/delta     {:roll 4}
                                       :rf.route/location {:path "/todos"}})])]
-      (is (= 1781078400123 (:time-ms r)))
-      (is (= [[:counter/delta "map"] [:rf.route/location "map"]]
-             (mapv (juxt :key (comp :type :value)) (:inputs r)))))))
+      (is (= [1781078400123 [[:counter/delta "map"] [:rf.route/location "map"]]]
+             [(:time-ms r) (mapv (juxt :key (comp :type :value)) (:inputs r))])))))
 
 (deftest recordable-cofx-row-filters-to-declared-recordables-test
   (testing "with a DECLARED recordable set only the handler's declared leaves
@@ -141,8 +140,8 @@
                                                      :counter/delta {:roll 4}
                                                      :app/extra     {:leak "me"}})]
               #{:counter/delta})]
-      (is (= 1781078400123 (:time-ms r)))
-      (is (= [:counter/delta] (mapv :key (:inputs r)))))))
+      (is (= [1781078400123 [:counter/delta]]
+             [(:time-ms r) (mapv :key (:inputs r))])))))
 
 (deftest project-threads-declared-recordables-resolver-test
   (let [rec     (record [(dispatched-with-cofx [:counter/inc] {:rf/time-ms    1781078400123
@@ -171,8 +170,8 @@
                                 [(dispatched-with-cofx [:prefs/load]
                                                        {:rf/time-ms  1781078400123
                                                         :prefs/theme :rf/redacted})])))]
-      (is (true? (:redacted? (:value row))))
-      (is (= "[redacted]" (:preview (:value row)))))))
+      (is (= [true "[redacted]"]
+             ((juxt :redacted? :preview) (:value row)))))))
 
 (deftest recordable-cofx-row-absent-when-no-map-test
   (testing "silent by default: no :rf.cofx tag, or an empty map, → no row"
@@ -305,8 +304,8 @@
                                       {:state [:running] :data {}} [:hvac/power-cycle] 2)
                (db-changed-ev [[[:hvac/controller] {} {} :modified]])]
               :hvac/power-cycle)]
-      (is (= :reg-machine (:flavour r)))
-      (is (= [:transition] (mapv :kind (-> r :machine :cascade)))))))
+      (is (= [:reg-machine [:transition]]
+             [(:flavour r) (mapv :kind (-> r :machine :cascade))])))))
 
 ;; ---- machine cascade (time-ordered) -----------------------------------
 
@@ -452,9 +451,9 @@
     (let [rows (proj/machine-cascade-rows
                  [(machine-guard-ev :may-close? :fail)
                   (machine-unhandled-no-op-ev :door/main [:door/close] :open)])]
-      (is (= [:guard :no-op] (mapv :kind rows)))
-      (is (= [":may-close?" "fail"]
-             ((juxt fmt/cascade-row-label fmt/cascade-outcome-label) (first rows)))))))
+      (is (= [[:guard :no-op] [":may-close?" "fail"]]
+             [(mapv :kind rows)
+              ((juxt fmt/cascade-row-label fmt/cascade-outcome-label) (first rows))])))))
 
 ;; ---- the machine's [START] badge -----------------------------------------
 
@@ -771,10 +770,8 @@
                (fx-handled-ev :metrics {} 0.2)
                (ev :warning :rf.fx/skipped-on-platform {:rf.fx/id :clipboard})
                (ev :error :rf.error/fx-handler-exception {:rf.fx/id :bad-fx})])]
-      (is (= [[:http/post :ok] [:metrics :overridden] [:clipboard :skipped] [:bad-fx :error]]
-             (mapv (juxt :fx-id :status) (:rows s)))
-          "the override row is provenance, never a row of its own")
-      (is (= 1 (:threw s))))))
+      (is (= [[[:http/post :ok] [:metrics :overridden] [:clipboard :skipped] [:bad-fx :error]] 1]
+             [(mapv (juxt :fx-id :status) (:rows s)) (:threw s)])))))
 
 ;; ---- `↺` overridden, off override PROVENANCE only ------------------------
 ;;
@@ -1011,9 +1008,8 @@
             a tail count for the header verb"
     (let [s (proj/views-step [(view-render-ev :app/Counter [])
                               (view-unmounted-ev :app/SidebarItem [:SidebarItem 0] :rf/default)])]
-      (is (= [[:rendered :app/Counter] [:unmounted :app/SidebarItem]]
-             (mapv (juxt :status :view-id) (:rows s))))
-      (is (= 1 (:unmounted-count s)))))
+      (is (= [[[:rendered :app/Counter] [:unmounted :app/SidebarItem]] 1]
+             [(mapv (juxt :status :view-id) (:rows s)) (:unmounted-count s)]))))
   (testing "an unmount-only cascade still renders the step"
     (is (= {:step :views :badge :VIEWS :unmounted-count 1
             :rows [{:view-id :app/Tooltip :instance [:Tooltip 0] :frame :rf/default
@@ -1691,24 +1687,10 @@
 
 ;; -- HALTED-DEPTH record ---------------------------------------------------
 
-(defn- halted-depth-record
-  "A `:halted-depth` record in the shape the producer commits, read off a
-  real `dispatch-sync` runaway (`:drain-depth 5`): the record's `:outcome`,
-  the flat `:halt-reason` descriptor, the halting event pinned as
-  `:event-id` / `:trigger-event`, equal db snapshots, and a trace carrying
-  ONLY the halting event's `:rf.event/dispatched` marker — it never ran."
-  []
-  {:epoch-id      6
-   :outcome       :halted-depth
-   :halt-reason   {:operation     :rf.error/drain-depth-exceeded
-                   :depth         5
-                   :queue-size    1
-                   :last-event-id :user/loop}
-   :event-id      :user/loop
-   :trigger-event [:user/loop]
-   :db-before     {:n 5}
-   :db-after      {:n 5}
-   :trace-events  [(dispatched-ev [:user/loop] :ui nil)]})
+(defn- halted-depth-record []
+  {:outcome :halted-depth
+   :halt-reason {:operation :rf.error/drain-depth-exceeded :depth 5 :queue-size 1}
+   :trace-events [(dispatched-ev [:user/loop] :ui nil)]})
 
 (deftest halted-depth-record-projects-the-halt-test
   (testing "a drain-depth halt reads as refused: one card on DISPATCH, worded
