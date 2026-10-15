@@ -1,48 +1,5 @@
 (ns re-frame.bench.fresco.arm1.render-measure-emit-nightly-test
-  "SPEC 009's `:render` BUCKET — THE ON HALF.
-
-  The measures actually landing. Every claim below is about entries a
-  `PerformanceObserver` would have received and a
-  `getEntriesByType('measure')` reader can filter by the `rf:render:`
-  prefix, produced by rendering real `defview` boundaries through React.
-
-  ## Run gate — a build with both perf flags on
-
-  The brackets are a COMPILE-TIME decision, so the only honest way to
-  assert emission is a build with
-  `:closure-defines {re-frame.performance/enabled? true
-                     re-frame.performance/retain-entries? true}` — the
-  vehicle core's `re-frame.performance-emit-nightly-test` rides, whose
-  `:node-test-perf-nightly` build selects `\"-emit-nightly-test$\"`.
-  That build's classpath does not reach the bench tree, so this ns runs
-  in the bench lane's own `:fresco-bench-test-perf` build, which carries
-  those `:closure-defines` (`npm test`, and nightly in the
-  `fresco-bench-compile` job).
-
-  `retain-entries? true` is what makes a synchronous read possible at
-  all: the bracket clears each measure by name right after emit
-  (Spec 009 §Observer-first contract), so with retention off a
-  `getEntriesByType` snapshot finds an empty buffer — which is the
-  clear-after-emit working, and is asserted in `re-frame.performance-cljs-test`.
-
-  ## THIS FILE FAILS RATHER THAN SKIPS IN A FLAG-OFF BUILD
-
-  No row is wrapped in `(when rf.performance/enabled? …)`, so a runner
-  without the goog-defines reads an empty measure stream and every row
-  goes red.
-
-  ## Why `renderToString`
-
-  React's server renderer invokes the component fn exactly as the DOM
-  renderer does, so the bracket — which sits ON that fn — is exercised
-  identically, with no browser in the runner. The one thing it cannot
-  witness is a `React.memo` bail-out (a server render has no previous
-  render to compare against); the property that MATTERS there is
-  \"a boundary React did not invoke produces no measure\", and
-  [[each-rendered-boundary-emits-one-prefixed-render-measure]] states
-  it at the level a headless runner can: the stream names the heads
-  that rendered and no other, so a minted head no tree contains is
-  never mentioned."
+  "Flag-on renders emit one correctly named measure per body, including failures and frame-prop views."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -69,9 +26,7 @@
      :ambient-frame nil
      :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
-;; ---------------------------------------------------------------------------
 ;; The page
-;; ---------------------------------------------------------------------------
 
 (defview title-row
   [_]
@@ -101,9 +56,7 @@
   [_]
   [:div.page [throwing-row {}]])
 
-;; ---------------------------------------------------------------------------
 ;; Helpers
-;; ---------------------------------------------------------------------------
 
 (def ^:private render-prefix "rf:render:")
 
@@ -150,9 +103,7 @@
 (def ^:private note-name
   "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/note-row")
 
-;; ---------------------------------------------------------------------------
 ;; 1 — one measure per boundary render, named by the head
-;; ---------------------------------------------------------------------------
 
 (deftest each-rendered-boundary-emits-one-prefixed-render-measure
   (testing "The acceptance clause: a page of N distinct `defview`
@@ -170,7 +121,14 @@
               (frequencies (map #(subs % (count render-prefix)) names))])
           "the page really rendered, three boundary bodies ran, and there is
            exactly one entry per rendered head — no double-emit — each named
-           by its displayName"))))
+           by its displayName")
+      (dotimes [_ 2] (server-html [measured-page {}]))
+      (is (= [9 {page-name 3 title-name 3 note-name 3}]
+           [(rf.bench.fresco.arm1.runtime/body-runs)
+            (frequencies (map #(subs % (count render-prefix)) (render-measure-names)))])
+        "one measure per body run, three per head — the fence never
+         retried, so the two counters are the same number arrived at two
+         ways"))))
 
 (deftest the-measure-carries-a-duration-and-allocates-no-marks
   (testing "The entry shape Spec 009 documents: a `measure` with a
@@ -184,30 +142,10 @@
           "the page's entry carries a duration, not a sentinel, and the
            :render bracket allocates no rf: marks"))))
 
-;; ---------------------------------------------------------------------------
-;; 2 — it is PER RENDER, not per mint
-;; ---------------------------------------------------------------------------
 
-(deftest a-second-render-pass-emits-a-second-measure-per-head
-  (testing "A `:render` entry is a render, so the count moves with render
-            passes and not with how many heads were minted. Three passes
-            over three heads is nine entries — and the body-run counter,
-            which is bumped somewhere else entirely, agrees."
-    (fresh!)
-    (clear-measures!)
-    (rf.bench.fresco.arm1.runtime/reset-body-runs!)
-    (dotimes [_ 3]
-      (server-html [measured-page {}]))
-    (is (= [9 {page-name 3 title-name 3 note-name 3}]
-           [(rf.bench.fresco.arm1.runtime/body-runs)
-            (frequencies (map #(subs % (count render-prefix)) (render-measure-names)))])
-        "one measure per body run, three per head — the fence never
-         retried, so the two counters are the same number arrived at two
-         ways")))
 
-;; ---------------------------------------------------------------------------
+
 ;; 3 — the unhappy path still reports
-;; ---------------------------------------------------------------------------
 
 (deftest a-throwing-body-still-emits-its-measure
   (testing "Spec 009's try/finally clause: observability does not go
@@ -229,9 +167,7 @@
             "the exception propagated, the throwing boundary's measure was
              emitted from the finally, and so was its parent's")))))
 
-;; ---------------------------------------------------------------------------
 ;; 4 — the frame-prop twin is wired too
-;; ---------------------------------------------------------------------------
 
 (deftest the-frame-prop-boundary-reports-on-the-same-channel
   (testing "`mint-frame-prop-view!` is the arm's second view-substrate
