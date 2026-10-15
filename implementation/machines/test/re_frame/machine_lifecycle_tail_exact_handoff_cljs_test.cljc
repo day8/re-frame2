@@ -1,7 +1,7 @@
 (ns re-frame.machine-lifecycle-tail-exact-handoff-cljs-test
   "Each lifecycle tail rechecks frame ownership after every callback-bearing
   stage, so a callback that destroys frame A and publishes a same-id B mid-tail
-  leaves B's registrar, spawn-order and subscription state untouched. Each
+  leaves B's registrar and subscription state untouched. Each
   fixture seeds B's state and drives the loss on the callback's own stack."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -36,17 +36,18 @@
              :done    {:final? true}}})
 
 (defn- seed-actor!
-  "Seed a live spawned actor `actor-id` (snapshot + spawn-order entry) into
-  `frame-id`, registering its TYPE so the spec resolves off the snapshot."
+  "Seed a live spawned actor `actor-id` (snapshot + durable spawn-order entry)
+  into `frame-id`, registering its TYPE so the spec resolves off the snapshot."
   [frame-id actor-id on-exit]
   (rf/reg-machine actor-type (actor-spec on-exit))
   (rf.frame/swap-runtime-db!
     frame-id
-    (fn [rt] (assoc-in rt (snapshot-path actor-id)
-                       {:state           :running
-                        :data            {:rf/self-id actor-id}
-                        :rf/machine-type actor-type})))
-  (rf.machines.spawn-order/record! frame-id actor-id))
+    (fn [rt] (-> rt
+                 (assoc-in (snapshot-path actor-id)
+                           {:state           :running
+                            :data            {:rf/self-id actor-id}
+                            :rf/machine-type actor-type})
+                 (rf.machines.spawn-order/record-in-runtime-db actor-id)))))
 
 (defn- destroy-and-republish!
   "Destroy frame A and publish a same-id B, once."
@@ -80,17 +81,19 @@
         (rf.trace.tooling/unregister-listener! ::released-handoff)
         (rf.registrar/unregister! :event actor-id)))))
 
-(deftest spawn-classification-lowering-loss-fences-spawn-order-record
+(deftest spawn-classification-lowering-loss-fences-start-dispatch
   ;; A loss during `lower-at-spawn!`: the spawn rechecks ownership after it, so
-  ;; the bare-id spawn-order record never lands A's ghost child in B's order.
+  ;; A's ghost child never sends its `:start` bootstrap dispatch into B.
   (rf/reg-machine actor-type (actor-spec nil))
   (let [frame-a        :rf2-rbxdxa/spawn-class-frame
         fired?         (atom false)
+        dispatches     (atom [])
         orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (rf/make-frame {:id frame-a})
     (try
-      ;; An inert bootstrap dispatch, so no async drain races the assertion.
-      (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
+      ;; Capture (never route) the bootstrap dispatch, so no async drain races
+      ;; the assertion.
+      (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
       ;; Multi-arity like the real fn: CLJS compiles the 4-arity call to a direct
       ;; `arity$4` invoke, which only a multi-arity fn exposes.
       (with-redefs [rf.machines.classification/lower-at-spawn!
@@ -103,7 +106,8 @@
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                                            {:machine-id actor-type
                                                             :start      [:go]})))))
-      (is (empty? (rf.machines.spawn-order/frame-order frame-a)))
+      (is (= [true []] [@fired? @dispatches])
+          "the loss happened, and no :start dispatch followed it")
       (finally
         (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))
 
@@ -116,9 +120,9 @@
 
 (defn- finishing-snapshot [] {:state :done :data {:result 42}})
 
-(deftest finalize-classification-drop-loss-fences-spawn-order-forget
-  ;; A loss during `drop-at-destroy!` that re-seeds B's spawn-order: ownership
-  ;; is rechecked after the drop, so A's forget spares B and finalize is inert.
+(deftest finalize-classification-drop-loss-returns-inert
+  ;; A loss during `drop-at-destroy!`: ownership is rechecked after the drop,
+  ;; so finalize publishes neither A's teardown runtime-db nor its fx.
   (let [frame-a    :rf2-rbxdxa/finalize-class-frame
         machine-id :rf2-rbxdxa/finalize-class-machine
         fired?     (atom false)]
@@ -127,24 +131,22 @@
     (rf.frame/swap-runtime-db!
       frame-a
       (fn [rt] (assoc-in rt (snapshot-path machine-id) (finishing-snapshot))))
-    (rf.machines.spawn-order/record! frame-a machine-id)
-    (let [ret (with-redefs
+    (let [rt-a (rf.machines.test-support/runtime-db frame-a)
+          ret  (with-redefs
                 [rf.machines.classification/drop-at-destroy!
                  (fn ([_frame _mid _machine] nil)
                      ([_frame _mid _machine _token]
-                      (when (destroy-and-republish! fired? frame-a)
-                        (rf.machines.spawn-order/record! frame-a machine-id))
+                      (destroy-and-republish! fired? frame-a)
                       nil))]
                 (let [token-a (rf.frame/frame-incarnation-token frame-a)]
                   (rf.frame/call-with-event-owner-token frame-a token-a
                     (fn []
                       (rf.machines.lifecycle-fx.finalize/finalize-machine
                         (finishing-machine frame-a)
-                        machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
+                        machine-id frame-a rt-a
                         (finishing-snapshot) [:some-completing-event] [])))))]
-      (is (= [machine-id] (vec (rf.machines.spawn-order/frame-order frame-a)))
-          "B's spawn-order entry survives")
-      (is (= [] (:fx ret)) "no A-derived fx are published onto B"))))
+      (is (= [true {:rf.db/runtime rt-a :fx []}] [@fired? ret])
+          "the loss happened, and finalize returned the inert outcome"))))
 
 (deftest destroy-single-actor-reports-abort-on-owner-loss
   ;; The actor's `:exit` loses the owner, so the teardown aborts and the

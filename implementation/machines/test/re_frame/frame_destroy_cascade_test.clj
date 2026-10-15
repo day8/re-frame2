@@ -7,7 +7,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -44,10 +43,10 @@
                                                                                (spawn-fx :spo/child)]})}
                                             :drop-first {:action (fn [_] {:fx [[:rf.machine/destroy :spo/child#1]]})}}}}})
   (rf/dispatch-sync [:spo/parent [:spawn-it]])
-  (let [after-spawn (rf.machines.spawn-order/frame-order :rf/default)]
+  (let [after-spawn (durable-spawn-order :rf/default)]
     (rf/dispatch-sync [:spo/parent [:drop-first]])
     (is (= [[:spo/child#1 :spo/child#2] [:spo/child#2]]
-           [after-spawn (rf.machines.spawn-order/frame-order :rf/default)]))))
+           [after-spawn (durable-spawn-order :rf/default)]))))
 
 (deftest frame-destroy-traces-and-aborts-every-active-actor
   (rf/make-frame {:id :lt/auth})
@@ -118,8 +117,6 @@
                                              [:rf.machine/destroy :probe/b#1]]))
     (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probere/auth})
     (let [captured (rf/frame-state-value :probere/auth)]
-      ;; The destroys also empty the transient spawn-order cache, so after the
-      ;; reinstall only the durable vector can order the walk.
       (rf/dispatch-sync [:probere/boot [:drop-all]] {:frame :probere/auth})
       (is (nil? (durable-spawn-order :probere/auth)) "the durable slot is pruned once it empties")
       (reset! exit-log [])
@@ -128,9 +125,8 @@
       (is (= [:probe/b#1 :probe/a#2 :probe/a#1] @exit-log)))))
 
 ;; An in-process install (`replace-frame-state!`, the fn `restore-epoch!`
-;; calls) that rewinds past a spawn leaves the discarded actor in the
-;; transient spawn-order cache; both of the cache's readers must defer to
-;; durable state.
+;; calls) that rewinds past a spawn discards the actor from durable state, so
+;; neither an explicit destroy nor frame destroy may treat it as live.
 (deftest restore-past-a-spawn-does-not-reap-the-discarded-actor
   (rf/make-frame {:id :stage/auth})
   (rf/reg-machine :stage/a plain-child)

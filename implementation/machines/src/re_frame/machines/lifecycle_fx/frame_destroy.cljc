@@ -39,17 +39,8 @@
   IS the reverse-creation walk, and because it rides the durable
   runtime-db value it survives every supported round trip —
   `replace-frame-state!`, `restore-epoch!`, SSR hydration — with no restore
-  callback.
-
-  The process-side `re-frame.machines.spawn-order` atom is a transient
-  cache (Spec 002 §Durable vs transient) and this walk does not consult it
-  at all — neither for ORDER nor for MEMBERSHIP. No runtime-state install
-  clears it, so after a restore that rewinds PAST a spawn it names an actor
-  the installed durable value discarded; unioning it into the membership
-  would reap that dead actor and — the durable segment walking first — place
-  it AFTER the older actor durable state kept, inverting the reverse-creation
-  order this walk exists to honour. What the frame holds
-  is what its runtime-db says it holds.
+  callback. Membership comes from the same runtime-db value: what the
+  frame holds is what its runtime-db says it holds.
 
   The order is recorded, never parsed from actor-ids. The `#<n>` suffix of
   an actor-id is allocated by a
@@ -106,8 +97,8 @@
   (`actor-liveness-cljs-test/singletons-still-register-and-dispatch-unchanged`).
   The discriminator survives
   restore/hydration/`replace-runtime-db!` because it rides the durable
-  snapshot value, so a restored spawned actor absent from the transient
-  spawn-order atom is still recognised as spawned."
+  snapshot value, so a restored spawned actor is still recognised as
+  spawned."
   [snapshot]
   (some? (:rf/machine-type snapshot)))
 
@@ -210,7 +201,7 @@
       b. Spawned actors (durably sequenced OR unsequenced): run the full
          single-actor destroy — exit-cascade → http-abort →
          timer cancel → unified teardown projection →
-         registrar cleanup → spawn-order forget.
+         registrar cleanup.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
          DO NOT unregister the handler — a `reg-machine` registration is a
@@ -218,8 +209,7 @@
          never any one actor's or frame's (Spec 005 §Liveness is derived
          from runtime-db). The SPAWNED branch (b) preserves
          definitions too, so no destroy path deletes one; this branch is
-         about the `:exit` / abort work a straggler still owes.
-   4. Clear the frame's spawn-order slot."
+         about the `:exit` / abort work a straggler still owes."
   [frame-id]
   (when frame-id
     (let [runtime-db   (frame-runtime-db frame-id)
@@ -238,17 +228,6 @@
           ;; Spawned actors the durable order does not name. A spawn always
           ;; records itself, so this is the directly-assoc'd fixture /
           ;; hand-built payload case only.
-          ;;
-          ;; Membership comes from the DURABLE snapshots alone, never the
-          ;; transient `spawn-order` cache: no runtime-state install clears
-          ;; that cache, so after a `restore-epoch!` / `replace-frame-state!`
-          ;; that rewinds PAST a spawn it still names the discarded actor —
-          ;; and because the durable segment walks first, unioning it in
-          ;; would tear the discarded NEWER actor down AFTER the older one
-          ;; durable state kept, inverting the very reverse-creation order
-          ;; this walk exists to honour. A cache-only id has no snapshot, no
-          ;; durable order entry and no state to tear down; it is not a live
-          ;; actor of this frame.
           unsequenced  (->> (keys snapshots)
                             (remove durable-set)
                             distinct
@@ -285,9 +264,5 @@
         (let [snapshot (get snapshots actor-id)]
           (emit-lifecycle-destroyed! frame-id actor-id snapshot))
         (try (run-singleton-exit-cascade! frame-id actor-id)
-             (catch #?(:clj Throwable :cljs :default) _ nil)))
-      ;; Drop the frame's spawn-order slot — every recorded actor is
-      ;; gone, and a fresh construction under the same id starts with a
-      ;; clean order channel.
-      (rf.machines.spawn-order/clear-frame! frame-id))
+             (catch #?(:clj Throwable :cljs :default) _ nil))))
     nil))

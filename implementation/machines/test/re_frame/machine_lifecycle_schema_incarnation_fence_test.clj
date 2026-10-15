@@ -13,7 +13,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -37,7 +36,6 @@
   direct call bypasses the fx-walk's outer owner fence, so the assertions pin
   the MACHINE-layer fence itself."
   [frame-a on-validate]
-  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine :rf2-vxgfnd153/child
     {:initial :running
      :data    {:seed :a}
@@ -85,7 +83,6 @@
         (catch Throwable _ (reset! threw? true)))
       {:b-birth      @b-birth
        :b-after      (rf.machines.test-support/runtime-db frame-a)
-       :spawn-order  (rf.machines.spawn-order/frame-order frame-a)
        :spawn-traces @spawn-traces
        :fail-traces  @fail-traces
        :dispatches   @dispatches
@@ -106,7 +103,7 @@
       (let [{:keys [b-birth] :as r} (run-destroyer-spawn frame-a on-validate)]
         ;; b-birth stays ::unset unless the validator ran, so this equality
         ;; also proves the fence was exercised.
-        (is (= {:b-after b-birth :threw? false :spawn-order []
+        (is (= {:b-after b-birth :threw? false
                 :spawn-traces [] :fail-traces [] :dispatches []}
                (dissoc r :b-birth))
             (str frame-a))))))

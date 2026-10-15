@@ -3,11 +3,11 @@
   after every LATER callback boundary, not only before install / teardown:
 
     - Spawn: `:rf.machine.lifecycle/spawned` fires AFTER install /
-      classification / spawn-order; a listener that destroys A and publishes
+      classification; a listener that destroys A and publishes
       same-id B must not receive the `:start` bootstrap dispatch.
     - Finalization: the teardown tail's `:rf.machine/destroyed` trace and the
       late-bound HTTP abort hook can each publish same-id B; nothing after
-      them (cancellation, classification / spawn-order drop, registrar
+      them (cancellation, classification drop, registrar
       unregister, `:on-error`, runtime-db / fx publication) may act on B.
 
   Already-entered callbacks may unwind, but loss of ownership is terminal for
@@ -21,7 +21,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -37,10 +36,8 @@
 
 (deftest lifecycle-spawned-loss-fences-start
   (testing "a :rf.machine.lifecycle/spawned listener that destroys A and
-            publishes same-id B fires after install / spawn-order (against
-            live A), so only the :start dispatch is left to fence — B
-            receives none"
-    (rf.machines.spawn-order/reset-all!)
+            publishes same-id B fires after install (against live A), so
+            only the :start dispatch is left to fence — B receives none"
     (rf/reg-machine :rf2-hloj0g/spawn-child
       {:initial :running
        :states  {:running {:on {:go :done}}
@@ -66,11 +63,9 @@
         (rf.frame/call-with-event-owner-token frame-a (rf.frame/frame-incarnation-token frame-a)
           (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                  {:machine-id :rf2-hloj0g/spawn-child :start [:go]})))
-        ;; The trace count proves the install ran and the loss happened;
-        ;; A's spawn-order entry died with A.
-        (is (= {:lifecycle-traces 1 :spawn-order [] :dispatches []}
+        ;; The trace count proves the install ran and the loss happened.
+        (is (= {:lifecycle-traces 1 :dispatches []}
                {:lifecycle-traces @lifecycle-traces
-                :spawn-order      (rf.machines.spawn-order/frame-order frame-a)
                 :dispatches       @dispatches}))
         (finally
           (rf.trace.tooling/unregister-listener! ::spawn-tail-fence)
@@ -103,7 +98,6 @@
   `:http-abort`) that destroys A and re-seeds a same-id B identically, then call
   `finalize-machine` DIRECTLY under A's bound event owner."
   [frame-a machine-id trigger]
-  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine machine-id (finishing-machine frame-a))
   (rf/make-frame {:id frame-a})
   (seed-finishing! frame-a machine-id)

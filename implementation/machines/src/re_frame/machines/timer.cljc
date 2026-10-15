@@ -1201,8 +1201,8 @@
   CANCELLATION's own stack, re-arming a reused key under a fresh token. The loop
   SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its snapshotted
   attempt token (`cancel-snapshotted-entry!`), so a re-read can never claim B's
-  fresh-token entry; the destroy tail that follows this call (classification /
-  spawn-order forget) resolves bare rf.frame/actor ids to the CURRENT
+  fresh-token entry; the destroy tail that follows this call (the
+  classification drop) resolves bare rf.frame/actor ids to the CURRENT
   incarnation B. The optional `owner-gone?` predicate (the finalize cascade's
   exact-incarnation gate) is rechecked BEFORE each cancellation, so once the first
   cancellation loses A the loop short-circuits and never touches B's timer; each

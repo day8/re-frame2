@@ -381,10 +381,6 @@
                                        touch (mirrors `:machines/reset-
                                        timers!`); always bound (re-frame.fx
                                        ships in core).
-    :machines/reset-spawn-order!     — drop the per-frame spawn-order
-                                       channel so a stale
-                                       entry from a sibling test can't
-                                       contaminate a frame-destroy walk.
     :routing/reset-counters!         — reset the route-registration counter
                                        so reg-index is deterministic across
                                        fixture runs.
@@ -471,7 +467,6 @@
    {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
    {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}
-   {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}
    {:hook :routing/reset-url-claims!       :phase :post-dispose}

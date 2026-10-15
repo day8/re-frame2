@@ -43,9 +43,7 @@
   in-flight HTTP, or emit traces. Those are caller side effects whose
   ordering relative to db mutation is contract (Spec 005 §Cancellation
   cascade D6-D8). The `spawn-order` fns it reaches for step 1b are
-  likewise pure runtime-db → runtime-db; the transient atom that ns also
-  owns is untouched here (its `forget!` stays a caller side effect,
-  because it must run even when no runtime-db swap lands)."
+  likewise pure runtime-db → runtime-db."
   (:require [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]))
 
