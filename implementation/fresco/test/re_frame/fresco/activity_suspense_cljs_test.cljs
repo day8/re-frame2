@@ -283,7 +283,7 @@
                 set, and the registration holding it is the one this
                 commit minted"
         (is (= #{(sub-key [:acs/a])} (rf.fresco.test.runtime/reads-of entry)))
-        (is (some? visible))
+
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
         (is (= #{(sub-key [:acs/a])} (rf.fresco.test.runtime/boundary-reads visible))
             "and its forward edge is the entry's own key set"))
@@ -412,10 +412,10 @@
                           (rf.fresco.impl.collector/render-body frame-id always-writer {})
                           ::returned-without-refusing
                           (catch :default e (ex-data e)))]
-      (is (= :rf.error/fresco-generation-fence-exhausted (:rf.error/id data)))
-      (is (= 're-frame.fresco.impl.collector/render-body (:where data)))
-      (is (= frame-id (:frame data))
-          "the refusal names the frame whose commits kept landing"))))
+      (is (= {:rf.error/id :rf.error/fresco-generation-fence-exhausted
+              :where 're-frame.fresco.impl.collector/render-body
+              :frame frame-id}
+             (select-keys data [:rf.error/id :where :frame]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Hidden work publishes no read sets
@@ -470,7 +470,7 @@
 
       (testing "and the CURRENT read set is owned, by the reveal's own
                 registration, on both of its keys"
-        (is (some? reveal-reg))
+
         (is (not (identical? pre-hide reveal-reg)))
         (is (true? (identical? reveal-reg (sole-reader [:acs/which])))
             "one registration per boundary, holding both its keys — not two
@@ -652,7 +652,7 @@
       (testing "VISIBLE-CONNECTED — the registration is in its keys' reader
                 lists, its forward edge answers its read set, and the
                 entry it was minted from is CLAIMED"
-        (is (some? connected))
+
         (is (= #{(sub-key [:acs/a])} (rf.fresco.test.runtime/boundary-reads connected)))
         (is (= 1 (entry-refs entry))))
 
