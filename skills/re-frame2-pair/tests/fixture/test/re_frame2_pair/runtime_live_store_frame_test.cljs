@@ -7,7 +7,8 @@
   answers for it and every id it refuses as ambiguous, named with the
   namespaces that register it. `orient` bases its registry on the same query,
   so it counts what such a frame runs rather than falling back to the process
-  store.
+  store. `validate-registered` reports an id the frame refuses as ambiguous as
+  ambiguous, naming those namespaces, rather than as an unknown id.
 
   Every frame here is made through the public `rf/make-frame`, and each rival
   registration names its namespace through `:ns` metadata, which is the
@@ -57,6 +58,21 @@
         "and is not listed as a registration the frame runs")
     (is (contains? (:registrations res) [:event :pair-live/load])
         "while every other id still is")))
+
+(deftest validate-registered-reports-an-ambiguous-id-as-ambiguous
+  (rf/reg-event :pair-live/save {:ns 'app.a} (fn [db _] db))
+  (rf/reg-event :pair-live/save {:ns 'app.b} (fn [db _] db))
+  (rf/reg-event :pair-live/load {:ns 'app.a} (fn [db _] db))
+  (rf/make-frame {:id :pair-live/main})
+  (let [res (rt/validate-registered :event :pair-live/save :pair-live/main)]
+    (is (false? (:ok? res)) "the frame cannot run the id")
+    (is (= :ambiguous-id (:reason res)) "and says it is ambiguous, not unknown")
+    (is (= #{"app.a" "app.b"} (set (:namespaces res))) "naming both namespaces")
+    (is (not (contains? res :nearest)) "with no did-you-mean for an id that exists"))
+  (is (true? (:ok? (rt/validate-registered :event :pair-live/load :pair-live/main)))
+      "control: an id one namespace registers validates")
+  (is (= :unknown-id (:reason (rt/validate-registered :event :pair-live/sav :pair-live/main)))
+      "and a mistyped id is still unknown"))
 
 (deftest a-frame-made-with-images-still-reads-its-generation
   (rf/reg-event :pair-live/inc {:ns 'app.counter} (fn [db _] db))

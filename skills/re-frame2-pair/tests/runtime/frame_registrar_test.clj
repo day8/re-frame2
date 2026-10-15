@@ -52,5 +52,12 @@
     (is (rt/calls? 'process-registry-view orient)
         "orient must keep the process-wide view as the fallback")))
 
+(deftest validate-registered-names-an-ambiguous-id
+  (let [f (rt/defn-named 'validate-registered)]
+    (is (rt/calls? 'ambiguous-namespaces f)
+        "an id the frame does not list is checked for ambiguity through rf/handler-meta {:frame …}")
+    (is (rt/mentions? :ambiguous-id f)
+        "and an ambiguous one is reported as :ambiguous-id, not :unknown-id")))
+
 (let [{:keys [fail error]} (run-tests 'frame-registrar-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
