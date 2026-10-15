@@ -1,65 +1,17 @@
 (ns re-frame.todomvc-example-cljs-test
-  "Integration test: drives the TodoMVC example (examples/core/todomvc/)
-   through its cold-boot + add trajectory and guards the sorted-map id
-   invariant.
-
-   The fixture lives HERE (the adapter test tree), not under
-   examples/core/todomvc/ — the example source stays test-free per the
-   locked test-free-examples policy. The ns requires the
-   example's production source (`todomvc.core`, which chains in
-   `todomvc.db` / `todomvc.events` / `todomvc.subs` / `todomvc.views`) so
-   the events, cofx, fx and subs register at ns-load, then exercises them
-   directly.
-
-   COLD-BOOT ID ALLOCATION
-   ------------------------------------------------
-   `:todo/initialise` declares the `:todo.storage/todos` cofx (EP-0017
-   `:rf.cofx/requires`), a RECORDABLE coeffect whose registered supplier
-   (`db/read-todos-from-storage`) reads `js/globalThis.localStorage` via
-   `some->`. Node has no localStorage, so the supplier exercises the
-   EMPTY-localStorage / first-run path: `some->` short-circuits to nil and the
-   supplier coerces it to an empty `(sorted-map)`. Without that coercion, a
-   nil would clobber default-db's `(sorted-map)`, leaving `:todos` nil. The
-   first `:todo/add` would then build a PLAIN PersistentArrayMap (not a
-   sorted-map); once it promoted to an unordered PersistentHashMap (>8
-   entries), `allocate-next-id`'s `(last (keys todos))` would stop returning
-   the max id, so a new add could reuse an existing id and `assoc-in` would
-   silently OVERWRITE a todo.
-
-   The supplier coerces to `(sorted-map)` when localStorage is empty, so
-   `:todos` is ALWAYS a sorted-map and the id-allocation invariant holds.
-   This test cold-boots with no localStorage and adds well past the
-   8-entry ArrayMap→HashMap promotion threshold, asserting: every add
-   lands a fresh id, no todo is lost, and `:todos` stays a sorted-map.
-
-   Registrar-baseline note: TodoMVC's events register at THIS ns's load
-   time. cljs.test runs every test ns in a single shared bundle, and some
-   sibling test ns's `:each` fixture restores the registrar to a snapshot
-   that predates this ns's load — which would strand the TodoMVC
-   registrations by the time this deftest runs. The shared
-   `make-reset-runtime-fixture` pins a stable ns-load baseline at
-   fixture-build time and reinstates it before each test's snapshot, so
-   this ns needs no bespoke outer fixture — run-order independence is the
-   fixture's contract."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+  "Cold boot preserves the sorted TodoMVC map and every title/id beyond unordered-map promotion."
+  (:require [cljs.test :refer-macros [deftest use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
-            ;; todomvc.events requires re-frame.routing at load time
-            ;; (reg-route). Required transitively via todomvc.core, but
-            ;; named here too so this ns is self-sufficient.
             [re-frame.routing]
             [todomvc.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002: the test spins its OWN top-level frame via
-    ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
-    ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
-    ;; being treated as a mid-cascade child-frame creation.
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
@@ -67,37 +19,14 @@
   (get (rf/app-db-value frame) :todos))
 
 (deftest todomvc-cold-boot-id-allocation
-  (testing "cold boot with empty localStorage keeps :todos a sorted-map so
-            allocate-next-id never collides past the ArrayMap→HashMap
-            promotion threshold"
-    ;; Cold boot exactly as todomvc.core/boot! does it: the frame seeds itself
-    ;; via `:initial-events [[:todo/initialise]]`, which folds in the saved todos
-    ;; supplied by the registered `:todo.storage/todos` recordable coeffect
-    ;; (db.cljs). The supplier reads `js/globalThis.localStorage`; node has none,
-    ;; so it exercises the empty / first-run path and coerces nil to an empty
-    ;; `(sorted-map)`. No manual `:rf.cofx` supply — the registered generator
-    ;; provides the fact, which is the whole point of the EP-0017 generator shape.
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:fx-overrides   {:todo.storage/save :rf/no-op}
-                          :initial-events [[:todo/initialise]]})]
-      ;; The invariant the whole hazard hinges on: :todos must be a
-      ;; sorted-map immediately after boot, NOT nil.
-      (is (= [true 0] [(sorted? (todos f)) (count (todos f))])
-          ":todos must be an empty sorted-map after cold-boot init, not nil")
-
-      ;; Add well past the 8-entry PersistentArrayMap→PersistentHashMap
-      ;; promotion threshold. After each add assert the map stays sorted
-      ;; and the count strictly increases (i.e. nothing was overwritten).
-      (let [n 15]
-        (dotimes [i n]
-          (rf/dispatch-sync [:todo/add (str "todo-" i)] {:frame f})
-          (is (= [true (inc i)] [(sorted? (todos f)) (count (todos f))])
-              (str ":todos must remain a sorted-map, grown by add #" (inc i)
-                   " (no id collision / overwrite)")))
-
-        ;; Final invariants: every title preserved, and the keys are the
-        ;; contiguous 1..n that allocate-next-id should yield off a sorted-map.
-        (let [m (todos f)]
-          (is (= [(set (map #(str "todo-" %) (range n))) (range 1 (inc n))]
-                 [(set (map :title (vals m))) (sort (keys m))])
-              "every added todo survives under the contiguous ids 1..n a sorted-map allocator yields"))))))
+  (with-new-frame [f (rf.frame/make-anon-frame-record!
+                       {:fx-overrides {:todo.storage/save :rf/no-op}
+                        :initial-events [[:todo/initialise]]})]
+    (is (= [true 0] [(sorted? (todos f)) (count (todos f))]))
+    ;; Cross the unordered-map promotion threshold that caused id reuse.
+    (let [n 15]
+      (dotimes [i n]
+        (rf/dispatch-sync [:todo/add (str "todo-" i)] {:frame f}))
+      (let [m (todos f)]
+        (is (= [true (set (map #(str "todo-" %) (range n))) (range 1 (inc n))]
+               [(sorted? m) (set (map :title (vals m))) (sort (keys m))]))))))
