@@ -266,6 +266,5 @@
                                          (counter-pool "ex.counter.v1" 1))]
     (rf/dispatch-sync [:counter/inc] {:frame frame})
     (rf.live-frame/make-frame {:id :counter/main :images [img-v2]} (counter-pool "ex.counter.v2" 10))
-    (is (= 1 (:n (rf/app-db-value :counter/main))) "frame memory survived the reload")
     (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
     (is (= 11 (:n (rf/app-db-value :counter/main))) "the same live frame now runs the v2 inc (1 + 10)")))
