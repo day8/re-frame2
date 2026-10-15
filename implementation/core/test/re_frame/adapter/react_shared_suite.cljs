@@ -2353,72 +2353,10 @@
                   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
                   (try (.unmount root) (catch :default _ nil)))))))))))
 
-(defn assert-use-sub-frame-provider-resolution
-  "`use-sub` 1-arg form resolves through the surrounding
-  frame-provider.
-
-  The adapter's `frame-provider` is a
-  NATIVE substrate component (`defui`), NOT a plain CLJS fn, so
-  it is mounted via the substrate's OWN `$` (the documented call shape)
-  rather than invoked directly. The entry file supplies a
-  `:frame-provider-mount-element` thunk `(fn [frame-kw child-el] ...)`
-  that builds `($ frame-provider {:frame frame-kw} child-el)` in the
-  substrate's idiom — the idiomatic TRAILING-CHILDREN shape,
-  no `:children` prop-map key — exercising the native shell through `$`,
-  the surface where per-substrate prop mangling would hide. This makes the
-  1-arg-resolution contract a full end-to-end check of the native provider.
-
-  cfg keys:
-    :frame-provider-mount-element   thunk (fn [frame-kw child-el]) →
-                                    the substrate `($ frame-provider {…}
-                                    child-el)` element with `child-el` as
-                                    its only trailing child
-    :probe-frame-provider-element   thunk → the 1-arg-form
-                                    ProbeFrameProvider element
-    :probe-frame-provider-observed  atom the ProbeFrameProvider pushes
-                                    observed values into
-    :frame-provider-frame           frame-id keyword for the wrapped frame
-    :frame-provider-query           query-v keyword ProbeFrameProvider
-                                    subscribes to"
-  [{:keys [name frame-provider-mount-element probe-frame-provider-element
-           probe-frame-provider-observed frame-provider-frame frame-provider-query]}]
-  (testing (str name " — use-sub 1-arg resolves via frame-provider")
-    (with-browser-act
-     (fn [act-fn]
-      ;; CLEAR the fixture's ambient `:rf/default` dynamic scope. A hook
-      ;; reads React context ONLY, so the ambient binding cannot mask the
-      ;; provider and this clearing is belt-and-braces — but it costs
-      ;; nothing, and a row that leaves a second frame in scope cannot say
-      ;; afterwards WHICH tier answered.
-      (binding [rf.frame/*current-frame* nil]
-        (reset! probe-frame-provider-observed [])
-        (rf/make-frame {:id frame-provider-frame :doc "use-sub frame-provider probe frame"})
-        (rf/reg-event ::frame-provider-seed (fn [_ _] {:db {:k :wrapped}}))
-        (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
-        (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
-        (let [mount-node (make-mount-node!)
-              root       (react-dom-client/createRoot mount-node)]
-          (try
-            (act-fn
-              (fn []
-                ;; The NATIVE frame-provider component mounted via the
-                ;; substrate's documented `$` shape.
-                (.render root
-                  (frame-provider-mount-element
-                    frame-provider-frame (probe-frame-provider-element)))))
-            (is (some #{:wrapped} @probe-frame-provider-observed)
-                "use-sub 1-arg form read from the wrapped frame, not :rf/default")
-            (finally
-              (try (.unmount root) (catch :default _ nil))))))))))
-
 ;; ---- the ambient hook under react-dom/server -------------------------------
 ;;
-;; WHY THIS ROW EXISTS. The other `use-sub` witnesses that exercise the
-;; AMBIENT (1-arg) form run on the BROWSER lane — `assert-use-sub-
-;; frame-provider-resolution` above is wrapped in `with-browser-act`, and the
-;; other node-lane SSR row (`assert-use-sub-ssr-render-without-commit-
-;; nets-zero-at-the-horizon`) drives the EXPLICIT 2-arg probe. This row
-;; executes the ambient form's server behaviour.
+;; Browser mounts do not exercise Fizz's context slot; this row checks
+;; ambient use-sub under react-dom/server.
 ;;
 ;; WHAT IT PINS. `function-component-current-frame` falls back to
 ;; `_currentValue2` when `_currentValue` is exactly the no-provider sentinel,
@@ -2499,11 +2437,7 @@
            probe-element refcount-target us-query substrate-kw
            ssr-dynamic-frame probe-ssr-slots-element ssr-slot-observed]}]
   (testing (str name " — ambient use-sub under react-dom/server")
-    ;; Clear the fixture's ambient `:rf/default` dynamic scope: the 1-arg form
-    ;; resolves tier 1 (dynamic var) FIRST, so a bound `*current-frame*` would
-    ;; answer before the React-context tier and mask the very resolution this
-    ;; row measures — the same masking note `assert-use-sub-frame-
-    ;; provider-resolution` carries.
+    ;; Keep ambient scope absent while checking server-context resolution.
     (binding [rf.frame/*current-frame* nil]
       (reset! probe-frame-provider-observed [])
       (reset! ssr-slot-observed nil)
@@ -2972,10 +2906,6 @@
   the React-context tier is genuinely the decider, so this proves the
   spine consults it (and is not, e.g., resolving everything to the dynamic
   var or to the no-provider sentinel).
-
-  Reuses the 1-arg ProbeFrameProvider (`:frame-provider-query`)
-  observation surface; isolates onto its own frame id so it can't collide
-  with `assert-use-sub-frame-provider-resolution`.
 
   cfg keys:
     :frame-provider-mount-element   thunk (fn [frame-kw child-el])
