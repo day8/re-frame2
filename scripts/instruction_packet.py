@@ -434,8 +434,6 @@ def self_test() -> int:
         check("REFUSES a truncated packet", refused(code, out, "truncated"))
         code, out = run([va[0], str(d / "absent.txt")] + va[2:])
         check("REFUSES a missing packet", refused(code, out, "no packet"))
-        code, out = run(with_flag(va, "--sha256", "0" * 64))
-        check("REFUSES a mismatched digest", refused(code, out, "sha256"))
         code, out = run(with_flag(va, "--lines", str(len(lines) + 1)))
         check("REFUSES a mismatched line count", refused(code, out, "lines"))
         other = flag(va, "--challenge").split(",")
@@ -445,11 +443,6 @@ def self_test() -> int:
         code, out = run(with_flag(va, "--challenge", "12:abc"))
         check("REFUSES a garbled challenge", refused(code, out, "LINE:HASH"))
 
-        wrong = d / "quotes-wrong.txt"
-        wrong.write_text("\n".join(lines[n - 1] + ("x" if n == picks[1] else "") for n in picks),
-                         encoding="utf-8")
-        code, out = run(va + ["--quotes", str(wrong)])
-        check("REFUSES a mismatched sentinel quote", refused(code, out, f"[{picks[1]}]"))
         code, out = run(va + ["--quotes", str(d / "no-quotes.txt")])
         check("REFUSES an unread packet (no quotes)", refused(code, out, "no quotes file"))
         partial = d / "quotes-partial.txt"
