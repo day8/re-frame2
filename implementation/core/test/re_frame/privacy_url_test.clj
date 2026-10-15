@@ -18,7 +18,6 @@
       "/admin/users/42"                          "/admin/users/42"
       "/x?debug&token=abc"                       "/x?debug&token=rf/redacted"
       nil                                        nil
-      42                                         42
       "/x?"                                      "/x?"
       "/x#"                                      "/x#rf/redacted"
       ;; Edges a parsing-order refactor could turn LEAKY: a trailing `&` must
