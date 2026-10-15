@@ -8,7 +8,11 @@
   `:rf.event/frame-state-changed` names the touched partitions. An app-db
   schema rejection discards the whole candidate, both partitions, before
   install, while out-of-band classification writes made during the rejected
-  event stand."
+  event stand.
+
+  The deftests about schema rejection, `replace-frame-state!` and the change
+  traces carry `^:requires-debug`: app-schema validation, `replace-frame-state!`
+  and the trace stream are all dev-only."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -134,7 +138,7 @@
     (is (identical? rt-before (:rf.db/runtime (rf/frame-state-value :pc/inval-rt)))
         "runtime-db is reference-identical across an app-only commit — no spurious runtime change")))
 
-(deftest change-traces-name-the-touched-partitions
+(deftest ^:requires-debug change-traces-name-the-touched-partitions
   ;; [db-changed count, the :rf.event/partitions of each frame-state-changed]
   (doseq [[id framework? handler expected]
           [[:pc/tr-app  false (fn [{:keys [db]} _] {:db (assoc db :k 1)})
@@ -159,7 +163,7 @@
                     (events-of recorded :rf.event/frame-state-changed))])
           (str id)))))
 
-(deftest replace-frame-state-replaces-the-whole-frame-state
+(deftest ^:requires-debug replace-frame-state-replaces-the-whole-frame-state
   ;; A full map replaces BOTH partitions wholesale: no key of the old
   ;; runtime-db survives.
   (rf/make-frame {:id :pc/m-full})
@@ -170,7 +174,7 @@
   (is (= {:rf.db/app {:a :new} :rf.db/runtime {:rf.runtime/routing {:r :new}}}
          (rf/frame-state-value :pc/m-full))))
 
-(deftest schema-rejection-discards-both-partitions
+(deftest ^:requires-debug schema-rejection-discards-both-partitions
   (rf/make-frame {:id :pc/rb})
   (rf/replace-frame-state! :pc/rb {:rf.db/app     {:n 0}
                                    :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
@@ -185,7 +189,7 @@
          (rf/frame-state-value :pc/rb))
       "both partitions keep their pre-handler values"))
 
-(deftest schema-rejection-never-installs-in-band-effect-keeps-flow-mark
+(deftest ^:requires-debug schema-rejection-never-installs-in-band-effect-keeps-flow-mark
   ;; The in-band `:sensitive` effect rides the rejected candidate, so it never
   ;; installs; the `:source :flow` mark predates the event and stands.
   (rf/make-frame {:id :pc/rb-srcaware})
@@ -204,7 +208,7 @@
   (is (= {[:derived :creds :secret] #{{:source :flow :flow-id :creds}}}
          (rf.elision/sensitive-declarations :pc/rb-srcaware))))
 
-(deftest schema-rejection-keeps-subsystem-mark-lowered-during-event
+(deftest ^:requires-debug schema-rejection-keeps-subsystem-mark-lowered-during-event
   ;; A subsystem lowering a declaration during the event writes the LIVE
   ;; registry, not the discarded candidate, so the mark stands.
   (rf/make-frame {:id :pc/rb-subsys})
@@ -227,7 +231,7 @@
   (is (= {[:actor :token] #{{:source :machine :machine-id :door}}}
          (rf.elision/sensitive-declarations :pc/rb-subsys))))
 
-(deftest schema-rejection-keeps-flow-move-reconcile
+(deftest ^:requires-debug schema-rejection-keeps-flow-move-reconcile
   ;; A reentrant `reg-flow` output-path move inside a rejected event is a
   ;; durable re-registration: the old-path claim stays dropped and the
   ;; new-path claim stands.
@@ -259,7 +263,7 @@
   (is (= {[:new :creds :secret] #{{:source :flow :flow-id :mover}}}
          (rf.elision/sensitive-declarations :pc/rb-move))))
 
-(deftest schema-rejection-preserves-full-app-db-under-path-interceptor
+(deftest ^:requires-debug schema-rejection-preserves-full-app-db-under-path-interceptor
   ;; A path interceptor focuses `[:coeffects :db]` on its slice, so a
   ;; rejection that restored from there would write the slice as the whole
   ;; app-db. `:keep` is the canary outside the path.

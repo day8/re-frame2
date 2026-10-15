@@ -7,7 +7,11 @@
 
   This suite pins the effect path, the pure multi-owner operations and the
   rejected-candidate case; the cross-family proofs (route / flow / machine /
-  resource on one path) live in each family's own suite."
+  resource on one path) live in each family's own suite.
+
+  The rejected-candidate case carries `^:requires-debug`: app-schema
+  validation runs only in a debug build, so under `-Dre-frame.debug=false`
+  nothing rejects the candidate and its classification installs."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
@@ -58,7 +62,7 @@
   (is (= "Bearer secret" (get-in (wire) [:user :token]))
       "clearing the last owner un-classifies the path"))
 
-(deftest rejected-candidate-classification-never-installs
+(deftest ^:requires-debug rejected-candidate-classification-never-installs
   ;; Validate-before-install discards a schema-rejected candidate whole, so a
   ;; classification riding it never reaches the registry.
   (rf/reg-app-schema [:n] [:int])

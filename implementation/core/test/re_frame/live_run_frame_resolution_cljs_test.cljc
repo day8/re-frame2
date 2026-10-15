@@ -8,7 +8,10 @@
 
   `make-frame` returns one runnable image-loaded frame VALUE; its generation
   lives on the frame's record in the one `rf.frame/frames` registry (EP-0024),
-  so a frame value and its id resolve the same generation."
+  so a frame value and its id resolve the same generation.
+
+  The sub-return schema case carries `^:requires-debug`: sub-return
+  validation runs only in a debug build."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core           :as rf]
@@ -203,7 +206,7 @@
   (is (= [2 nil] [@(rf/subscribe [:counter/value] {:frame :inline/main}) rf.registrar/*generation*])
       "the inline event and sub bodies ran over the frame's own app-db"))
 
-(deftest inline-sub-schema-is-authoritative-for-ordinary-subscribe
+(deftest ^:requires-debug inline-sub-schema-is-authoritative-for-ordinary-subscribe
   ;; conflicting global schemas would produce the opposite outcome if
   ;; resolution or metadata lowering were wrong
   (let [invalid-q :inline.schema/invalid

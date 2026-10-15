@@ -1,7 +1,12 @@
 (ns re-frame.core-api-additions-test
   "JVM tests for `rf/with-frame` / `rf/with-new-frame`, the `(rf/frame-ids
   ns-prefix)` filter, the frame-state read/write surface, `(rf/clear :route id)`
-  and the `rf/image` facade macro's doc gate."
+  and the `rf/image` facade macro's doc gate.
+
+  `replace-frame-state!` is dev-only (gated on `interop/debug-enabled?`), so
+  its deftests carry `^:requires-debug`: under `-Dre-frame.debug=false` it
+  refuses every write, which would pass the rejection cases for the wrong
+  reason."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -101,7 +106,7 @@
     (doseq [id destroyed] (rf/destroy-frame! id))
     (is (= expected (rf/frame-ids prefix)) case-label)))
 
-(deftest replace-frame-state-app-reset-preserves-runtime-via-core-facade
+(deftest ^:requires-debug replace-frame-state-app-reset-preserves-runtime-via-core-facade
   (rf/make-frame {:id :pp/reset-app :doc "reset-app"})
   (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
   (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/reset-app})
@@ -117,13 +122,13 @@
 (deftest frame-state-value-unknown-frame-is-nil
   (is (nil? (rf/frame-state-value :pp/no-such-frame))))
 
-(deftest replace-frame-state-writes-both-partitions
+(deftest ^:requires-debug replace-frame-state-writes-both-partitions
   (rf/make-frame {:id :pp/fsm :doc "frame-state-mutate"})
   (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
   (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
          (rf/frame-state-value :pp/fsm))))
 
-(deftest replace-frame-state-rejects-no-recognized-keys
+(deftest ^:requires-debug replace-frame-state-rejects-no-recognized-keys
   (rf/make-frame {:id :pp/bad-keys-empty :doc "bad-keys-empty"})
   (let [errors (atom [])]
     (rf/register-listener! :trace ::bad-keys
@@ -138,7 +143,7 @@
             [:rf.error/replace-frame-state-bad-keys :unknown-keys]]
            (mapv (juxt :operation (comp :reason :tags)) @errors)))))
 
-(deftest replace-frame-state-rejects-unknown-keys
+(deftest ^:requires-debug replace-frame-state-rejects-unknown-keys
   (rf/make-frame {:id :pp/bad-keys-typo :doc "bad-keys-typo"})
   (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
       "an unrecognized key beside a recognized one rejects the whole write")

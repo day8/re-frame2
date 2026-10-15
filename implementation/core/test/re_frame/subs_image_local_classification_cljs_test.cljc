@@ -15,7 +15,10 @@
   directly with a handed carrier. The `image-local` deftests close the gap
   that leaves: they assemble a real inline `:reg-sub` through `rf.image/image`
   and `rf.live-frame/make-frame`, install it on a live frame's resolved
-  generation, and read the Xray-facing `:trace` listener stream.
+  generation, and read the Xray-facing `:trace` listener stream, so they carry
+  `^:requires-debug`: that stream does not exist under
+  `-Dre-frame.debug=false`. The chokepoint fixtures are pure and run in both
+  postures.
 
   `.cljc` — runs under both `clojure -M:test` (JVM) and `npm run test:cljs`."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -123,7 +126,7 @@
                 :tags)])
       (finally (rf/unregister-listener! :trace ::image-local)))))
 
-(deftest second-frame-same-id-resolves-its-own-image-local-classification
+(deftest ^:requires-debug second-frame-same-id-resolves-its-own-image-local-classification
   ;; Two frames install the SAME inline id over a conflicting global with
   ;; DIFFERENT declarations. The subscriber derefs the raw value; each frame's
   ;; evidence redacts per its OWN declaration, with no bleed.
@@ -137,7 +140,7 @@
          (mapv #(let [[v tags] (traced-read %)] [v (:rf.sub/value tags)])
                [:img/frame-a :img/frame-b]))))
 
-(deftest replacing-frame-a-generation-updates-evidence-without-old-or-global-leak
+(deftest ^:requires-debug replacing-frame-a-generation-updates-evidence-without-old-or-global-leak
   ;; The new generation's declaration replaces the old one's rather than
   ;; adding to it, and the conflicting global supplies none.
   (register-conflicting-global!)

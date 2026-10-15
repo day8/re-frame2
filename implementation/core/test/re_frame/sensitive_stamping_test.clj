@@ -2,7 +2,12 @@
   "Trace-surface `:sensitive?` stamping and classification auto-redaction.
   Both are driven by the classified `:sensitive` app-db path overlapping a
   path-scoped handler's slice (the per-frame elision registry, EP-0025), not
-  by schema slot props or a frame annotation."
+  by schema slot props or a frame annotation.
+
+  Every deftest that reads the `:trace` stream or the trace buffer carries
+  `^:requires-debug`: neither exists under `-Dre-frame.debug=false`. The
+  production-surviving redaction, on the always-on error record, is
+  `privacy-production-egress-test`'s subject."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -41,7 +46,7 @@
 (defn- first-of [evs op]
   (first (filter #(= op (:operation %)) evs)))
 
-(deftest frame-class-auto-redaction-for-path-scoped-handler
+(deftest ^:requires-debug frame-class-auto-redaction-for-path-scoped-handler
   (testing "a frame-sensitive app-db path installs redaction and the stamp
             without a user interceptor; the handler still sees the raw payload"
     (install-sensitive! :rf/default [[:auth :password]])
@@ -60,7 +65,7 @@
         (is (= redacted (get-in run-start [:tags :rf.event/v])))
         (is (= redacted (get-in (first-of evs :rf.event/db-changed) [:tags :rf.event/v])))))))
 
-(deftest frame-class-auto-redaction-stamps-handler-exception
+(deftest ^:requires-debug frame-class-auto-redaction-stamps-handler-exception
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event :auth/throws
     {:interceptors [[:rf.interceptor/path [:auth]]]}
@@ -70,7 +75,7 @@
     (is (true? (:sensitive? err)))
     (is (= [:auth/throws {:password :rf/redacted}] (get-in err [:tags :event])))))
 
-(deftest frame-class-auto-redaction-does-not-affect-unrelated-paths
+(deftest ^:requires-debug frame-class-auto-redaction-does-not-affect-unrelated-paths
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event :profile/save
     {:interceptors [[:rf.interceptor/path [:profile]]]}
@@ -80,7 +85,7 @@
     (is (not (true? (:sensitive? db-changed))))
     (is (= [:profile/save {:password "not-auth"}] (get-in db-changed [:tags :rf.event/v])))))
 
-(deftest trace-buffer-sensitive-filter
+(deftest ^:requires-debug trace-buffer-sensitive-filter
   (testing "the trace buffer's `:sensitive?` filter partitions on the
             classification-derived top-level stamp"
     (rf/clear-trace-buffer! :rf/default)

@@ -83,8 +83,10 @@
 # default and has to be excluded deliberately, exactly as a new FILE does.
 #
 # WHAT REMAINS EXCLUDED, and why it is not more of the same work: the subset
-# artefact `features-cljs-test`, and namespaces that fail on assertions about
-# STATE, RESOLUTION or LIFECYCLE rather than instrumentation (see the roster).
+# artefact `features-cljs-test` (see the roster).  A namespace that fails here
+# on an assertion about STATE, RESOLUTION or LIFECYCLE rather than
+# instrumentation is a production-defect candidate: it joins the roster only
+# beside a comment naming the bug bead that tracks the defect.
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
@@ -126,25 +128,6 @@ known_red=(
   #    red only because this lane runs a slice.  It comes back on its own when
   #    the roster below empties.
   re-frame.features-cljs-test
-
-  # ── NOT obviously instrumentation. Each of these fails on an
-  #    assertion about STATE, RESOLUTION or LIFECYCLE rather than about a
-  #    trace or a sink — the shape a zero-dispatch production defect has.
-  #    They need a human
-  #    verdict — dev-posture test, or genuine production defect — before
-  #    anyone writes them off. The redaction/sensitivity pair is first in
-  #    the queue: if either protection is applied anywhere other than a
-  #    trace payload, a production build is shipping unredacted data.
-  re-frame.conformance-test
-  re-frame.core-api-additions-test
-  re-frame.elision-multi-owner-cljs-test
-  re-frame.examples-test
-  re-frame.frame-upsert-linearization-jvm-test
-  re-frame.live-run-frame-resolution-cljs-test
-  re-frame.machine-handler-meta-test
-  re-frame.partitioned-commit-test
-  re-frame.sensitive-stamping-test
-  re-frame.subs-image-local-classification-cljs-test
 
   # ── HOW A DEV-INSTRUMENTATION NAMESPACE STAYS OFF THIS ROSTER. A test
   #    that asserts dev instrumentation inline with the semantics it sits

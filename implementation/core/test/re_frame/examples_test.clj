@@ -7,7 +7,11 @@
   ../examples/capabilities/{ssr/ssr,ssr/resources_ssr,machines/state_machine_walkthrough}/
   and stay test-free: their tests live here, and each test re-`require`s only
   the production example source, so its ns-load registrations fire against the
-  reset registrar."
+  reset registrar.
+
+  Two deftests carry `^:requires-debug`: one asserts app-schema validation,
+  which runs only in a debug build, and one reads `:rf.ssr/hydration-mismatch`
+  off the dev trace."
   (:require [clojure.set]
             [clojure.string]
             [clojure.edn :as edn]
@@ -209,7 +213,7 @@
 ;; would validate against nothing. Requiring `re-frame.schemas` wires the
 ;; default Malli validator, so validation is live here.
 
-(deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
+(deftest ^:requires-debug ssr-example-per-request-frame-carries-and-validates-articles-schema
   (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
             :articles schema and validation runs on that frame, not :rf/default"
     (require 'ssr.core :reload)
@@ -262,7 +266,7 @@
               (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                       [:rf.runtime/ssr :hydration :server-hash])])))))
 
-(deftest ssr-example-client-hydration-verifies-the-render-hash
+(deftest ^:requires-debug ssr-example-client-hydration-verifies-the-render-hash
   (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES
             the payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch,
             and a DIVERGENT one emits it (the verify step the example's `run`

@@ -10,7 +10,13 @@
   guard keeps a CLJS mirror too, because the FixtureFile schema in
   spec/Spec-Schemas.md names both as its durable negative, and so does the
   top-level-key guard, because the conformance README binds every host's
-  harness to fail naming a key it does not implement."
+  harness to fail naming a key it does not implement.
+
+  The corpus run and the self-tests that grade a fixture end to end carry
+  `^:requires-debug`: the runner reads trace emissions, routed effects and
+  the SSR public error off the dev trace and epoch records off the
+  trace-fed epoch ring, and none of them exists under
+  `-Dre-frame.debug=false`."
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -181,7 +187,7 @@
 
 ;; ---- the test entrypoint --------------------------------------------------
 
-(deftest run-conformance-corpus
+(deftest ^:requires-debug run-conformance-corpus
   (rf.conformance-runner/run-corpus (all-fixtures) host "JVM"))
 
 ;; ---- runner self-tests: each proves a check bites rather than no-ops -------
@@ -199,7 +205,7 @@
                         "commented.edn"))
       "comments and surrounding whitespace are not trailing forms"))
 
-(deftest epoch-records-checked-on-jvm
+(deftest ^:requires-debug epoch-records-checked-on-jvm
   ;; The real drain records `:outcome :ok`, so this expectation must fail the
   ;; fixture, attributed to the epoch matcher.
   (let [result (rf.conformance-runner/run-fixture
@@ -264,7 +270,7 @@
   (update fixture :fixture/dispatches
           #(vec (keep-indexed (fn [i d] (when-not (= idx i) d)) %))))
 
-(deftest door-parity-fixture-bites
+(deftest ^:requires-debug door-parity-fixture-bites
   (let [fixture (door-parity-fixture)
         passes? (fn [f] (:passed? (rf.conformance-runner/run-fixture f host)))]
     (is (passes? fixture) "the door-parity fixture must pass as shipped")
@@ -286,7 +292,7 @@
 ;; `:sub-values`, so the corpus alone cannot tell whether the runner invokes
 ;; the queries.
 
-(deftest compute-subs-invokes-each-query
+(deftest ^:requires-debug compute-subs-invokes-each-query
   (let [fixture (corpus-fixture "error-sub-exception.edn")
         passes? (fn [f] (:passed? (rf.conformance-runner/run-fixture f host)))
         unknown (rf.conformance-runner/run-fixture
