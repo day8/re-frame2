@@ -148,7 +148,7 @@
           fid-b (mint-kw substrate-kw "best-effort-b")]
       (rf/make-frame {:id fid-a})
       (rf/make-frame {:id fid-b})
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid-a})
       (rf/dispatch-sync [:seed] {:frame fid-b})
@@ -263,23 +263,16 @@
             "user-supplied data-rf-view survives the wrap-view pass")))))
 
 (defn assert-wrap-view-injects-explicit-coords
-  "wrap-view called directly with explicit {:line :column} metadata
-  returns a fn whose output carries data-rf-view alongside
-  data-rf2-source-coord built from the supplied coords. Pins the direct
-  wrap-view seam (the macro-captured-coords path) independently of the
-  programmatic reg-view* path above."
+  "Direct wrapping carries explicit coordinates and the view id."
   [{:keys [wrap-view substrate-kw name]}]
   (testing (str name " — view-id: wrap-view injects explicit line/col coords")
-    (let [id          (mint-kw substrate-kw "view-explicit-coords")
-          wrapped     (wrap-view id {:line 42 :column 7}
-                                 (fn []
-                                   (React/createElement "div" #js {} "x")))]
-      (let [out (wrapped)]
-        (is (= (str id) (view-attr out))
-            "wrap-view's cloneElement injected data-rf-view = (str id)")
-        (let [coord (source-coord out)]
-          (is (str/ends-with? coord ":42:7")
-              "the explicit {:line 42 :column 7} coords land in the attribute"))))))
+    (let [id      (mint-kw substrate-kw "view-explicit-coords")
+          wrapped (wrap-view id {:line 42 :column 7}
+                             #(React/createElement "div" #js {} "x"))
+          out     (wrapped)
+          coord   (source-coord out)]
+      (is (= (str id) (view-attr out)))
+      (is (str/ends-with? coord ":42:7")))))
 
 ;; ===========================================================================
 ;; React DevTools display-name (Spec 006 §React DevTools support item 1) —
@@ -872,7 +865,7 @@
           app-runs  (atom 0)
           rt-runs   (atom 0)]
       (rf/make-frame {:id fid})
-      (rf/reg-event seed-app (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event seed-app (fn [_ _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-app] {:frame fid})
       (reg-fw-runtime-handler! seed-rt
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
@@ -1105,7 +1098,7 @@
   005's replay contract (Cross-Spec-Interactions §2)."
   [{:keys [name]}]
   (testing (str name " — #2 sub-cache hit inside a machine microstep")
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
+    (rf/reg-event :seed (fn [_ _] {:db {:user/role :admin}}))
     (rf/reg-sub :user-role (fn [db _] (:user/role db)))
     (rf/dispatch-sync [:seed])
     (let [observed-by-action (atom nil)
@@ -1407,7 +1400,7 @@
     (rf.frame/ensure-default-frame!)
     (rf/make-frame {:id tenant-a :doc "tenant-a frame"})
     (rf/make-frame {:id tenant-b :doc "tenant-b frame"})
-    (rf/reg-event seed (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
+    (rf/reg-event seed (fn [_ [_ marker]] {:db {:marker marker :received []}}))
     (rf/dispatch-sync [seed :rf/default] {:frame :rf/default})
     (rf/dispatch-sync [seed :tenant-a]  {:frame tenant-a})
     (rf/dispatch-sync [seed :tenant-b]  {:frame tenant-b})
@@ -2271,7 +2264,7 @@
       (reset! probe-observed [])
       (reset! refcount-target us-frame)
       (rf/make-frame {:id us-frame :doc "use-sub probe frame"})
-      (rf/reg-event ::us-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::us-seed (fn [_ _] {:db {:n 1}}))
       (rf/reg-event ::us-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::us-seed] {:frame us-frame})
       (rf/reg-sub us-query (fn [db _] (:n db)))
@@ -2331,7 +2324,7 @@
             (enable-react-act-env!)
             (reset! refcount-target fr-frame)
             (rf/make-frame {:id fr-frame :doc "flush-render! synchronous-commit probe frame"})
-            (rf/reg-event ::fr-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+            (rf/reg-event ::fr-seed (fn [_ _] {:db {:n 1}}))
             (rf/reg-event ::fr-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
             (rf/reg-sub fr-query (fn [db _] (:n db)))
@@ -2400,7 +2393,7 @@
       (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/make-frame {:id frame-provider-frame :doc "use-sub frame-provider probe frame"})
-        (rf/reg-event ::frame-provider-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
+        (rf/reg-event ::frame-provider-seed (fn [_ _] {:db {:k :wrapped}}))
         (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
         (let [mount-node (make-mount-node!)
@@ -2734,7 +2727,7 @@
       (binding [rf.frame/*current-frame* nil]
         (reset! use-frame-observed [])
         (rf/make-frame {:id uf-frame :doc "use-frame probe frame"})
-        (rf/reg-event ::uf-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+        (rf/reg-event ::uf-seed (fn [_ _] {:db {:n 1}}))
         (rf/reg-event ::uf-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [::uf-seed] {:frame uf-frame})
         (let [mount-node (make-mount-node!)
@@ -2892,7 +2885,7 @@
       (reset! probe-2arg-b-observed [])
       (rf/make-frame {:id tenant-a-frame :doc "tenant-a"})
       (rf/make-frame {:id tenant-b-frame :doc "tenant-b"})
-      (rf/reg-event ::explicit-pin-seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      (rf/reg-event ::explicit-pin-seed (fn [_ [_ n]] {:db {:n n}}))
       (rf/dispatch-sync [::explicit-pin-seed 10]  {:frame tenant-a-frame})
       (rf/dispatch-sync [::explicit-pin-seed 100] {:frame tenant-b-frame})
       (rf/reg-sub explicit-pin-query (fn [db _] (:n db)))
@@ -3001,7 +2994,7 @@
       (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/make-frame {:id provider-tier-frame :doc "provider-tier (ambient cleared) frame"})
-        (rf/reg-event ::provider-tier-seed (fn [{:keys [db]} _] {:db {:k :from-provider}}))
+        (rf/reg-event ::provider-tier-seed (fn [_ _] {:db {:k :from-provider}}))
         (rf/dispatch-sync [::provider-tier-seed] {:frame provider-tier-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
         (let [mount-node (make-mount-node!)
@@ -3068,7 +3061,7 @@
       (reset! probe-frame-provider-observed [])
       (rf/make-frame {:id dynamic-precedence-provider-frame :doc "provider (the winner)"})
       (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "dynamic-var (the loser)"})
-      (rf/reg-event ::precedence-seed (fn [{:keys [db]} [_ v]] {:db {:k v}}))
+      (rf/reg-event ::precedence-seed (fn [_ [_ v]] {:db {:k v}}))
       (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
       (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
       (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -3559,7 +3552,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/make-frame {:id rc-frame :doc "refcount probe frame"})
-      (rf/reg-event ::rc-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+      (rf/reg-event ::rc-seed (fn [_ _] {:db {:m 0}}))
       (rf/dispatch-sync [::rc-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
@@ -3626,7 +3619,7 @@
       (reset! siblings-observed-b [])
       (reset! refcount-target sib-frame)
       (rf/make-frame {:id sib-frame :doc "sibling-collision probe frame"})
-      (rf/reg-event ::sib-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::sib-seed (fn [_ _] {:db {:n 1}}))
       (rf/reg-event ::sib-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
       (rf/reg-sub sib-query (fn [db _] (:n db)))
@@ -3695,7 +3688,7 @@
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
       (rf/make-frame {:id stable-deps-frame :doc "stable-deps probe frame"})
-      (rf/reg-event ::stable-deps-seed (fn [{:keys [db]} _] {:db {:p 0}}))
+      (rf/reg-event ::stable-deps-seed (fn [_ _] {:db {:p 0}}))
       (rf/dispatch-sync [::stable-deps-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [subscribe-calls   (atom 0)
@@ -3825,7 +3818,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/make-frame {:id rc-frame :doc "StrictMode refcount probe frame"})
-      (rf/reg-event ::sm-seed (fn [{:keys [db]} _] {:db {:m 7}}))
+      (rf/reg-event ::sm-seed (fn [_ _] {:db {:m 7}}))
       (rf/dispatch-sync [::sm-seed] {:frame rc-frame})
       ;; The sub body counts its own CONSTRUCTIONS. Nothing
       ;; moves app-db during the mount, so a body run is a build.
@@ -3996,7 +3989,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/make-frame {:id rc-frame :doc "memo-recompute refcount probe frame"})
-      (rf/reg-event ::mr-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+      (rf/reg-event ::mr-seed (fn [_ _] {:db {:m 0}}))
       (rf/dispatch-sync [::mr-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
@@ -4060,7 +4053,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/make-frame {:id rc-frame :doc "abandoned-render refcount probe frame"})
-      (rf/reg-event ::ar-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+      (rf/reg-event ::ar-seed (fn [_ _] {:db {:m 0}}))
       (rf/dispatch-sync [::ar-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v   [rc-query]
@@ -4160,7 +4153,7 @@
        (fn [act-fn]
         (reset! refcount-target rc-frame)
         (rf/make-frame {:id rc-frame :doc "suspense-abort refcount probe frame"})
-        (rf/reg-event ::sa-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+        (rf/reg-event ::sa-seed (fn [_ _] {:db {:m 0}}))
         (rf/dispatch-sync [::sa-seed] {:frame rc-frame})
         (rf/reg-sub rc-query (fn [db _] (:m db)))
         (let [cache-key-v [rc-query]
@@ -4271,7 +4264,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/make-frame {:id rc-frame :doc "getSnapshot-tracks-committed probe frame"})
-      (rf/reg-event ::gs-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+      (rf/reg-event ::gs-seed (fn [_ _] {:db {:m 0}}))
       (rf/dispatch-sync [::gs-seed] {:frame rc-frame})
       (rf/reg-event ::gs-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
       (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -5919,7 +5912,7 @@
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
       (rf/make-frame {:id stable-deps-frame :doc "arity probe frame"})
-      (rf/reg-event ::gizlj-seed (fn [{:keys [db]} _] {:db {:p 0}}))
+      (rf/reg-event ::gizlj-seed (fn [_ _] {:db {:p 0}}))
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [public-unsubscribes    (atom 0)
@@ -6202,9 +6195,9 @@
       (reset! evict-target ev-frame)
       (reset! probe-evict-observed [])
       (rf/make-frame {:id ev-frame :doc "eviction/reacquisition probe frame"})
-      (rf/reg-event ::ev-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::ev-seed (fn [_ _] {:db {:n 1}}))
       (rf/dispatch-sync [::ev-seed] {:frame ev-frame})
-      (rf/reg-event ::ev-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      (rf/reg-event ::ev-set  (fn [_ [_ n]] {:db {:n n}}))
       ;; v1 body.
       (rf/reg-sub ev-query (fn [db _] (:n db)))
       (let [k          [ev-query]
@@ -6283,9 +6276,9 @@
       (reset! probe-evict-observed [])
       (reset! probe-evict-successor-observed [])
       (rf/make-frame {:id ev-frame :doc "successor-ownership probe frame"})
-      (rf/reg-event ::so-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::so-seed (fn [_ _] {:db {:n 1}}))
       (rf/dispatch-sync [::so-seed] {:frame ev-frame})
-      (rf/reg-event ::so-set  (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      (rf/reg-event ::so-set  (fn [_ [_ n]] {:db {:n n}}))
       (rf/reg-sub ev-query (fn [db _] (:n db)))
       (let [k              [ev-query]
             cache          (:sub-cache (rf.frame/frame ev-frame))
@@ -6362,7 +6355,7 @@
     (with-browser-act
      (fn [act-fn]
       (rf/make-frame {:id nf-frame :doc "nil-explicit-frame probe frame"})
-      (rf/reg-event ::nf-seed (fn [{:keys [db]} _] {:db {:v 7}}))
+      (rf/reg-event ::nf-seed (fn [_ _] {:db {:v 7}}))
       (rf/dispatch-sync [::nf-seed] {:frame nf-frame})
       (rf/reg-sub nf-query (fn [db _] (:v db)))
       (let [k     [nf-query]
@@ -6435,7 +6428,7 @@
                 "CONTROL — the legal explicit keyword target reads its frame's value")
             (is (= 1 (or (get-in @cache [k :ref-count]) 0))
                 "CONTROL — and holds exactly one durable reference")
-            (rf/reg-event ::nf-set (fn [{:keys [db]} [_ v]] {:db {:v v}}))
+            (rf/reg-event ::nf-set (fn [_ [_ v]] {:db {:v v}}))
             (act-fn (fn [] (rf/dispatch-sync [::nf-set 9] {:frame nf-frame})))
             (is (= 9 (last @nil-frame-observed))
                 "CONTROL — a legal explicit target still updates on an app-db write")
@@ -6463,7 +6456,7 @@
      (fn [act-fn]
       (let [frame-value (rf/make-frame {:id nf-frame
                                         :doc "frame-value target probe frame"})]
-        (rf/reg-event ::fv-seed (fn [{:keys [db]} _] {:db {:v 3}}))
+        (rf/reg-event ::fv-seed (fn [_ _] {:db {:v 3}}))
         (rf/dispatch-sync [::fv-seed] {:frame nf-frame})
         (rf/reg-sub nf-query (fn [db _] (:v db)))
         (reset! nil-frame-opts {:frame frame-value})
