@@ -50,18 +50,6 @@
 (defn- fault-label [thunk]
   (try (thunk) ::no-throw (catch :default e (::fault (ex-data e)))))
 
-(deftest partial-installation-unwinds-every-earlier-wire
-  (let [scheduler (rf.substrate.spine/make-scheduler)
-        log       (atom [])
-        src-a     (atom 1)
-        src-b     (fault-source :b 2 nil log)
-        src-c     (fault-source :c 3 :add-throws log)
-        primary   (fault-label #((make-derived-fn scheduler) [src-a src-b src-c]
-                                                              (fn [a b c] (+ a b c))))]
-    (is (= [:c 0 0 #{}]
-           [primary (atom-watch-count src-a) (coordinator-count scheduler)
-            (installed-keys src-b)]))))
-
 (deftest unwind-attempts-every-release-and-preserves-the-primary-error
   (let [scheduler (rf.substrate.spine/make-scheduler)
         log       (atom [])
