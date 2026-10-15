@@ -1,11 +1,5 @@
 (ns re-frame.bench.fresco.lane-resolution-cljs-test
-  "[[re-frame.bench.fresco.lane/resolution]] answers what size of difference
-  in the arms' OWN work a run could have seen, which `:straddles-1?` cannot:
-  a paint-bounded pair can clear the floor every round, read `1.00x`, and
-  still be blind to a `1.5x` difference, because the frame grid sits in
-  both arms. The fixture is the `:locale` pair's first evidence run. Every
-  answer is a figure and never a verdict — `budgets.md` §7 forbids a lane
-  threshold — so the key set is pinned and carries no boolean."
+  "Report resolvable own-work differences without turning the descriptive figure into a gate."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
