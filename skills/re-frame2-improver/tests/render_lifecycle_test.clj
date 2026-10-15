@@ -80,6 +80,7 @@
                              {:items/loading? loading? :items/error error :items data})]]]
     (let [preds (predicates id)
           outcomes (map #(active preds %) states)]
+      (is (= 4 (count preds)))
       (is (every? #(<= (count %) 1) outcomes) (str "eval " id " must not demand a false positive"))
       (is (= (set (keys preds)) (apply set/union outcomes)) "every branch is reachable")))
   (is (empty? (active (predicates 18) {:article {:status :idle :data nil}}))
