@@ -39,8 +39,9 @@
   ## The coordinate table is STATIC DATA — never a live require
 
   `feature-registry` is a plain data table mapping each feature keyword
-  to its Maven coordinate, its app-boot require namespace, and a single
-  representative late-bind `:probe-key` the impl publishes at ns-load.
+  to its Maven coordinate, its app-boot require namespace, its
+  artefact-missing error id, and a single representative late-bind
+  `:probe-key` the impl publishes at ns-load.
   It is HARD-CONSTRAINED to be static data living entirely in this
   always-loaded facade ns: it MUST NOT `:require` any optional impl
   namespace. A live require would create a hard facade→optionals edge
@@ -53,7 +54,7 @@
   into the optional namespace; just an atom read.
 
   The coordinate strings here are the single source of truth for core:
-  the per-feature `re-frame.core-<feature>` wrappers build their
+  the per-feature `re-frame.core-<feature>` wrappers read their
   artefact-info from this table (`re-frame.core-artefact/artefact-info`,
   thrown through `rf.late-bind/require-fn!`), and every other
   artefact-missing message in core reads its coordinate and require from
@@ -72,13 +73,11 @@
 
     {:maven     Maven coordinate to add to deps    (string)
      :require   namespace to require at app boot    (string)
+     :error-id  artefact-missing error id           (keyword)
      :spec      owning spec topic                   (string, doc-only)
      :probe-key a late-bind hook key the impl publishes at ns-load,
                 read to detect the artefact's presence without a
                 static require (keyword)}
-
-  The feature key also names the artefact-missing error id,
-  `:rf.error/<feature>-artefact-missing`.
 
   The `:probe-key` for each feature is a stable, always-published hook —
   the artefact registers it unconditionally from its ns-load `set-fn!` /
@@ -90,34 +89,42 @@
   precisely because those never go away."
   {:schemas  {:maven     "day8/re-frame2-schemas"
               :require   "re-frame.schemas"
+              :error-id  :rf.error/schemas-artefact-missing
               :spec      "Spec 010 (Schemas)"
               :probe-key :schemas/validate-app-schema!}
    :machines {:maven     "day8/re-frame2-machines"
               :require   "re-frame.machines"
+              :error-id  :rf.error/machines-artefact-missing
               :spec      "Spec 005 (State machines)"
               :probe-key :machines/reg-machine}
    :routing  {:maven     "day8/re-frame2-routing"
               :require   "re-frame.routing"
+              :error-id  :rf.error/routing-artefact-missing
               :spec      "Spec 012 (Routing)"
               :probe-key :routing/reg-route}
    :flows    {:maven     "day8/re-frame2-flows"
               :require   "re-frame.flows"
+              :error-id  :rf.error/flows-artefact-missing
               :spec      "Spec 013 (Flows)"
               :probe-key :flows/reg-flow}
    :http     {:maven     "day8/re-frame2-http"
               :require   "re-frame.http.managed"
+              :error-id  :rf.error/http-artefact-missing
               :spec      "Spec 014 (Managed HTTP)"
               :probe-key :http/abort-on-actor-destroy}
    :ssr      {:maven     "day8/re-frame2-ssr"
               :require   "re-frame.ssr"
+              :error-id  :rf.error/ssr-artefact-missing
               :spec      "Spec 011 (SSR & hydration)"
               :probe-key :ssr/reg-error-projector}
    :epoch    {:maven     "day8/re-frame2-epoch"
               :require   "re-frame.epoch"
+              :error-id  :rf.error/epoch-artefact-missing
               :spec      "Tool-Pair (Time-travel / epoch)"
               :probe-key :epoch/settle!}
    :resources {:maven     "day8/re-frame2-resources"
                :require   "re-frame.resources"
+               :error-id  :rf.error/resources-artefact-missing
                :spec      "Spec 016 (Resources)"
                :probe-key :resources/reg-resource}})
 
@@ -146,8 +153,8 @@
       ;    :routing {... :loaded? false}
       ;    ...}
 
-  The `:probe-key` is internal plumbing and is dropped from the public
-  shape.
+  The `:probe-key` and `:error-id` are internal plumbing and are dropped
+  from the public shape.
 
   This is the ONE feature-inspection door. The boolean is a lookup —
   `(get-in (features) [:epoch :loaded?])` — and an unknown feature

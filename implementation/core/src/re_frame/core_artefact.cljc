@@ -96,15 +96,15 @@
 
   ```
   (def ^:private flows-artefact (artefact-info :flows))
-  ;; => {:error-keyword :rf.error/flows-artefact-missing
-  ;;     :maven         (:maven   (:flows feature-registry))
-  ;;     :require-ns    (:require (:flows feature-registry))}
+  ;; => {:error-keyword (:error-id (:flows feature-registry))
+  ;;     :maven         (:maven    (:flows feature-registry))
+  ;;     :require-ns    (:require  (:flows feature-registry))}
   ```
 
-  `artefact-info` builds the map from `re-frame.features/feature-registry`,
-  so each coordinate is written once, in the table `rf/features` prints,
-  and the error id is derived from the feature key. The three slots feed
-  the reason-string template used by `late-bind/require-fn!`:
+  `artefact-info` reads the map from `re-frame.features/feature-registry`,
+  so each coordinate and error id is written once, in the table behind
+  `rf/features`. The three slots feed the reason-string template used by
+  `late-bind/require-fn!`:
 
       \"<where-sym> requires <maven> on the classpath; add it to deps and
        require <require-ns> at app boot.\"
@@ -120,12 +120,11 @@
 
 (defn ^:no-doc artefact-info
   "The `artefact-info` map `late-bind/require-fn!` consumes for the optional
-  `feature`, a `re-frame.features/feature-registry` key: the registry's
-  `:maven` and `:require`, plus the `:rf.error/<feature>-artefact-missing`
-  id derived from the key."
+  `feature`, read from its `re-frame.features/feature-registry` row: the
+  row's `:error-id`, `:maven` and `:require`."
   [feature]
-  (let [{maven :maven require-ns :require} (get rf.features/feature-registry feature)]
-    {:error-keyword (keyword "rf.error" (str (name feature) "-artefact-missing"))
+  (let [{:keys [error-id maven] require-ns :require} (get rf.features/feature-registry feature)]
+    {:error-keyword error-id
      :maven         maven
      :require-ns    require-ns}))
 
