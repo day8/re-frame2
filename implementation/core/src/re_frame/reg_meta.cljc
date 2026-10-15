@@ -119,53 +119,61 @@
 
   A non-map `metadata` is a no-op here: each registrar polices its own middle-slot
   SHAPE separately (e.g. `:rf.error/reg-event-bad-middle-slot`). Returns
-  `metadata` unchanged so it composes in a threading position."
-  [kind where-sym id metadata]
-  (when (map? metadata)
-    (let [known   (get known-bare-keys kind base-bare-keys)
-          ks      (keys metadata)
-          retired (into [] (filter #(contains? retired-bare-keys %)) ks)]
-      ;; Retired keys first — the hard error takes precedence over the warning.
-      (when (seq retired)
-        (let [k           (first retired)
-              replacement (get retired-bare-keys k)]
-          (rf.error/throw-error!
-            :rf.error/retired-registration-key
-            where-sym
-            (str (kind-display-name where-sym) " for `" id "` declares the RETIRED "
-                 "registration-metadata key `" k "` — use `" replacement "` instead "
-                 "(the v1 name was renamed; MIGRATION §M-54). A retired bare key is "
-                 "rejected rather than silently swallowed (swallowing `:spec` would "
-                 "disable this registration's payload validation — a soft-pass hiding "
-                 "bugs), per Conventions §No silent swallow.")
-            {:recovery :fix-registration
-             :extra    {:kind        kind
-                        :id          id
-                        :retired-key k
-                        :replacement replacement}})))
-      ;; Unknown bare keys — a dev-gated warning (the cascade continues safely).
-      ;; `remove qualified-keyword?` keeps the open namespaced-extension carve-out.
-      (when rf.interop/debug-enabled?
-        (let [unknown (into []
-                            (comp (remove qualified-keyword?)
-                                  (remove known)
-                                  (remove #(contains? retired-bare-keys %)))
-                            ks)]
-          (when (seq unknown)
-            (rf.trace/emit! :warning :rf.warning/unknown-registration-key
-                         {:kind         kind
-                          :id           id
-                          :unknown-keys unknown
-                          :known        (vec (sort known))
-                          :recovery     :warned
-                          :reason
-                          (str (kind-display-name where-sym) " for `" id "` declares "
-                               "unknown metadata "
-                               (if (= 1 (count unknown)) "key " "keys ")
-                               (pr-str unknown)
-                               " — bare keys outside the recognised set are likely "
-                               "typos and are ignored (never read). Host/app extension "
-                               "keys must be NAMESPACED (e.g. `:myapp/analytics-id`). "
-                               "Recognised bare keys for this kind: "
-                               (pr-str (vec (sort known))) ".")}))))))
-  metadata)
+  `metadata` unchanged so it composes in a threading position.
+
+  The 5-arity is for a registrar outside core (`reg-resource`,
+  `reg-mutation`): `kind-keys` is the set of bare keys that kind reads, which
+  its owning artefact declares, so core never learns another artefact's
+  vocabulary. The shared base keys (`:doc`, `:schema`, the source coords,
+  `:tags`, `:platforms`) are accepted on every kind either way."
+  ([kind where-sym id metadata]
+   (validate-registration-metadata! kind where-sym id metadata (get known-bare-keys kind)))
+  ([kind where-sym id metadata kind-keys]
+   (when (map? metadata)
+     (let [known   (into base-bare-keys kind-keys)
+           ks      (keys metadata)
+           retired (into [] (filter #(contains? retired-bare-keys %)) ks)]
+       ;; Retired keys first — the hard error takes precedence over the warning.
+       (when (seq retired)
+         (let [k           (first retired)
+               replacement (get retired-bare-keys k)]
+           (rf.error/throw-error!
+             :rf.error/retired-registration-key
+             where-sym
+             (str (kind-display-name where-sym) " for `" id "` declares the RETIRED "
+                  "registration-metadata key `" k "` — use `" replacement "` instead "
+                  "(the v1 name was renamed; MIGRATION §M-54). A retired bare key is "
+                  "rejected rather than silently swallowed (swallowing `:spec` would "
+                  "disable this registration's payload validation — a soft-pass hiding "
+                  "bugs), per Conventions §No silent swallow.")
+             {:recovery :fix-registration
+              :extra    {:kind        kind
+                         :id          id
+                         :retired-key k
+                         :replacement replacement}})))
+       ;; Unknown bare keys — a dev-gated warning (the cascade continues safely).
+       ;; `remove qualified-keyword?` keeps the open namespaced-extension carve-out.
+       (when rf.interop/debug-enabled?
+         (let [unknown (into []
+                             (comp (remove qualified-keyword?)
+                                   (remove known)
+                                   (remove #(contains? retired-bare-keys %)))
+                             ks)]
+           (when (seq unknown)
+             (rf.trace/emit! :warning :rf.warning/unknown-registration-key
+                          {:kind         kind
+                           :id           id
+                           :unknown-keys unknown
+                           :known        (vec (sort known))
+                           :recovery     :warned
+                           :reason
+                           (str (kind-display-name where-sym) " for `" id "` declares "
+                                "unknown metadata "
+                                (if (= 1 (count unknown)) "key " "keys ")
+                                (pr-str unknown)
+                                " — bare keys outside the recognised set are likely "
+                                "typos and are ignored (never read). Host/app extension "
+                                "keys must be NAMESPACED (e.g. `:myapp/analytics-id`). "
+                                "Recognised bare keys for this kind: "
+                                (pr-str (vec (sort known))) ".")}))))))
+   metadata))

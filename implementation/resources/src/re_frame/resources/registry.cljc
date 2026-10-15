@@ -26,6 +26,7 @@
   disposal surfaces."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
+            [re-frame.reg-meta :as rf.reg-meta]
             [re-frame.registrar :as rf.registrar]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.params :as rf.resources.params]
@@ -45,6 +46,21 @@
   §Registration. A member of the core registrar's closed kind set;
   resources register their spec under this kind."
   :resource)
+
+(def resource-metadata-keys
+  "The bare keys a `reg-resource` metadata map may carry: every key the
+  resources runtime reads off a resource spec, `:timeout-ms` (the ledger
+  deadline stamp) and the `:infinite` slice included. Any other bare key
+  warns `:rf.warning/unknown-registration-key` through the shared classifier
+  (Conventions §No silent swallow); namespaced keys and the shared
+  registration-metadata keys always pass. `:request` is absent because it is
+  the third slot: inside the metadata map it is a loud
+  `:rf.error/resource-bad-spec`. Per Spec 016 §Resource registration spec."
+  #{:doc :scope :params-schema :data-schema :transport :tags
+    :stale-after-ms :gc-after-ms :poll-interval-ms :timeout-ms
+    :sensitive :large :sensitive? :large?
+    :infinite :next-page-param :prev-page-param :initial-page-param
+    :page->items :refetch})
 
 ;; ---- scope-policy validation (fail-closed) -------------------------------
 
@@ -478,7 +494,9 @@
   first; then `:params-schema` and `:request`) and writes a `:resource`-kind
   registrar entry carrying the spec plus any captured source coords. A
   `:request` accidentally left INSIDE the metadata map is rejected loudly as a
-  mislocated key (the third slot is its one home).
+  mislocated key (the third slot is its one home). A bare key outside
+  `resource-metadata-keys` (a typo such as `:stale-after`) warns
+  `:rf.warning/unknown-registration-key` in dev; namespaced keys pass.
 
   An `:infinite true` resource additionally REQUIRES `:next-page-param` (and
   may declare `:prev-page-param` / `:page->items` / `:refetch` /
@@ -530,6 +548,9 @@
                           (assoc :gc-after-ms
                                  (normalize-gc-after-ms resource-id metadata)))]
   (validate-resource-spec! resource-id resource-spec)
+  ;; After the spec checks, so a key they refuse throws before anything warns.
+  (rf.reg-meta/validate-registration-metadata!
+    resource-kind 'rf/reg-resource resource-id metadata resource-metadata-keys)
   (let [previous (rf.registrar/lookup resource-kind resource-id)]
     (rf.registrar/register!
       resource-kind

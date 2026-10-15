@@ -123,7 +123,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 - `:sensitive?` / `:large?` — classify the whole entry. The SSR hydration payload withholds such an entry entirely, so neither its data nor its scope and params ride, and the client loads it again if its route still needs it. Off-box trace and epoch exports replace its scope and params with opaque tokens. The same properties on a schema affect only how validation failures are redacted.
 - `:sensitive` / `:large` — per-path classification: a vector of paths rooted at `:data`, `:params` or `:scope` (a bare path means `:data`), e.g. `{:sensitive [[:data :ssn]]}`. A malformed declaration raises `:rf.error/resource-bad-spec`.
 
-No other key changes how a resource loads or caches. [Coming from TanStack Query](../resources/coming-from-tanstack-query.md) maps TanStack options such as `select` and `placeholderData`. The mutation keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) belong on [`reg-mutation`](#reg-mutation).
+No other key changes how a resource loads or caches. Any other bare key, such as the typo `:stale-after`, still registers but emits `:rf.warning/unknown-registration-key` in development builds; namespaced keys (`:myapp/…`) are yours and pass silently. [Coming from TanStack Query](../resources/coming-from-tanstack-query.md) maps TanStack options such as `select` and `placeholderData`. The mutation keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) belong on [`reg-mutation`](#reg-mutation).
 
 ### Scope policy
 
@@ -233,6 +233,8 @@ When both optimistic forms select the same entry, the exact `:optimistic` target
 An `:optimistic` target is checked before the request is sent. One that is not a map, has a non-keyword `:resource`, names an unregistered resource or has params that are not portable EDN raises `:rf.error/mutation-invalid-target`, and the write is not sent. A malformed `:optimistic-tags` descriptor (not a map, `:tags` not a collection, or no `:patch` fn) is dropped with `:rf.warning/optimistic-tags-descriptor-skipped` in development builds; the other descriptors and the write go ahead.
 
 There is no `:rollback` key. The runtime snapshots each touched entry, with its `:revision`, into the `:rollback` slot of the instance row's `:patch-summary`, then commits, rolls back or reconciles when the write settles. Combining an optimistic plan with `:invalidate-timing :before-request` is rejected at registration with `:rf.error/mutation-optimistic-before-request`.
+
+Any bare key not listed here, `:retry` included, still registers but emits `:rf.warning/unknown-registration-key` in development builds; namespaced keys pass silently.
 
 `:retry` is not a `reg-mutation` key. Retries are opt-in: put `:retry {…}` in the [managed-HTTP args](re-frame.http.md) the request fn returns, which the runtime passes to the transport unchanged. Reads work the same way (see [Retry](../async/http.md#retry-transport-retry-as-data)). Retrying stays explicit per request because re-sending a non-idempotent write after a slow reply writes it twice.
 
@@ -737,6 +739,7 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/infinite-missing-next-page-param` — `:infinite true` without `:next-page-param`.
     - `:rf.error/mutation-bad-spec` — a malformed [`reg-mutation`](#the-mutation-spec) spec.
     - `:rf.error/mutation-optimistic-before-request` — an optimistic plan with `:invalidate-timing :before-request`.
+    - `:rf.error/retired-registration-key` — `:spec` in a `reg-resource` or `reg-mutation` metadata map; it is spelled `:schema`.
     - `:rf.error/invalid-resource-scope-spec` — a malformed [`reg-resource-scope`](#reg-resource-scope).
     - `:rf.error/resource-scope-source-reserved` — a `[:runtime …]` input on `reg-resource-scope`.
 - When a resource is ensured, read or subscribed:
@@ -766,6 +769,7 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/mutation-invalid-target` — a malformed `:optimistic` target, before the request is sent, or a success-arm target whose params are not portable EDN, when the write settles.
     - `:rf.error/mutation-invalid-invalidation` — `:invalidates` returned neither a tag set nor descriptors, when the write settles.
 - Warnings, in development builds:
+    - `:rf.warning/unknown-registration-key` — a `reg-resource` or `reg-mutation` metadata map carries a bare key the registrar does not read, such as a typo; the registration proceeds.
     - `:rf.warning/mutation-scope-mismatch` — the invalidated tags matched nothing in the resolved scope but match entries in another.
     - `:rf.warning/mutation-target-skipped` — a success-arm target that is not a map, has a non-keyword `:resource` or names an unregistered resource, skipped.
     - `:rf.warning/optimistic-tags-descriptor-skipped` — a malformed `:optimistic-tags` descriptor, dropped.
