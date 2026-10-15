@@ -61,7 +61,9 @@
               true
               :ignored
               true
-              true]
+              true
+              #{:error :frame :hook-failures :recovery :reason :time}
+              #{#{:hook :exception :where}}]
              [(count reports)
               (:frame r)
               (sort (map :hook (:hook-failures r)))
@@ -69,7 +71,9 @@
               (every? #(some? (:exception %)) (:hook-failures r))
               (:recovery r)
               (string? (:reason r))
-              (number? (:time r))])
+              (number? (:time r))
+              (set (keys r))
+              (set (map (comp set keys) (:hook-failures r)))])
           "one report for the destroy, with one entry per failed hook"))))
 
 (deftest clean-destroy-emits-no-report
@@ -119,22 +123,6 @@
                          @traces)))
           "one frame-attributed diagnostic row per failed hook"))))
 
-(deftest report-record-carries-no-raw-values
-  ;; the always-on axis is not privacy-gated, so the record carries no event
-  ;; vector, app-db slice or other raw payload
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! :test/recorder
-                                            (fn [record] (swap! seen conj record)))
-    (rf/make-frame {:id :teardown/no-raw :doc "two hooks throw"})
-    (with-hooks*
-      {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-       :schemas/on-frame-destroyed! (throwing-hook :schemas)}
-      (fn [] (rf/destroy-frame! :teardown/no-raw)))
-    (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
-      (is (= [#{:error :frame :hook-failures :recovery :reason :time}
-              #{#{:hook :exception :where}}]
-             [(set (keys r)) (set (map (comp set keys) (:hook-failures r)))])))))
-
 (deftest step2-teardown-throw-is-accumulated-frame-fully-torn-down
   ;; Unguarded, a throwing machine-teardown consumer would escape destroy-frame!
   ;; before :destroyed? flipped, leaving the frame live with :on-destroy already
@@ -151,10 +139,7 @@
                     :on-destroy [:teardown/count-on-destroy]})
     (with-hooks*
       {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
-      (fn []
-        (is (nil? (try (rf/destroy-frame! :teardown/step2) nil
-                       (catch #?(:clj Throwable :cljs :default) e e)))
-            "the throw did not escape destroy-frame!")))
+      (fn [] (rf/destroy-frame! :teardown/step2)))
     (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
       ;; fully torn down, :on-destroy ran once, and the failure is one entry of
       ;; the one report, recorded at the direct-step boundary
