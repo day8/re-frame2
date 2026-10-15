@@ -24,7 +24,7 @@
     re-attach);
   - **inactive GC re-checks owner sets + entry generation after wake** — a
     GC timer removes the entry ONLY if it is still owner-free and not in
-    flight, and was not armed while the entry was owned (the
+    flight, and armed in the entry's current GC window (the
     `gc-fired-handler` re-check);
   - **timers + host handles live in side tables, NOT in frame-state** — this
     module-level `timer-table` mirrors the work-ledger `handle-table`:
@@ -92,10 +92,11 @@
   for a full `:gc-after-ms` when the entry's last owner releases, so an
   owner-free entry stays warm that long after its final release; on fire it
   nudges a re-checking `:rf.resource.internal/gc-fired` event whose handler
-  removes the entry ONLY if it is still owner-free + not in flight. A timer
-  armed while the entry was owned stamps its re-check `:armed-while-owned?`,
-  and that re-check never collects: the release that left the entry owner-free
-  armed the window that does. Per Spec 016 §Stale and GC scheduling."
+  removes the entry ONLY if it is still owner-free + not in flight. Each
+  read-path event that arms a GC timer opens a new window on the entry
+  (`:gc-window`); the timer stamps its re-check with the window it armed in,
+  and a re-check from an older window never collects: the newer window's own
+  re-check decides. Per Spec 016 §Stale and GC scheduling."
   :gc)
 
 (def poll-kind
@@ -267,32 +268,32 @@
   `poll-fired-handler` makes its default-pause-when-hidden decision from its
   recordable event payload, never an ambient host read at the cascade site.
 
-  A `:gc`-kind fire whose timer armed while the entry was owned stamps
-  `:armed-while-owned? true` onto its payload (`schedule!` reads the owner set
-  as the timer arms), so `gc-fired-handler` tells an owned window's check from
-  the window the last owner's release arms by its payload alone."
-  [frame-id resource-key kind armed-while-owned?]
+  A `:gc`-kind fire stamps `:gc-window` onto its payload: the entry's GC
+  window as the timer armed (`schedule!` reads it), so `gc-fired-handler`
+  tells a superseded window's check from the current one by its payload
+  alone."
+  [frame-id resource-key kind gc-window]
   (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (let [event-id (condp = kind
                      stale-kind stale-fired-event
                      gc-kind    gc-fired-event
                      poll-kind  poll-fired-event)
           payload  (cond-> {:resource/key resource-key}
-                     armed-while-owned?
-                     (assoc :armed-while-owned? true)
+                     (= kind gc-kind)
+                     (assoc :gc-window gc-window)
                      (= kind poll-kind)
                      (assoc :hidden? #?(:cljs (document-hidden?) :clj false)))]
       (dispatch! [event-id payload]
                  {:frame frame-id :source :after-timer}))))
 
-(defn- entry-owned?
-  "True when `frame-id`'s live entry for `resource-key` has an active owner.
-  `schedule!` reads it when a GC timer arms, which runs after the arming
-  event's commit, so it sees exactly the entry that event wrote."
+(defn- entry-gc-window
+  "`frame-id`'s live entry's GC window for `resource-key`, 0 for an entry no
+  window has armed for. `schedule!` reads it when a GC timer arms, which runs
+  after the arming event's commit, so it sees the window that event opened."
   [frame-id resource-key]
-  (boolean (seq (:active-owners
-                  (get-in (rf.frame/frame-runtime-db-value frame-id)
-                          (rf.resources.state/entry-path resource-key))))))
+  (:gc-window (get-in (rf.frame/frame-runtime-db-value frame-id)
+                      (rf.resources.state/entry-path resource-key))
+              0))
 
 (def ^:private scheduled-trace-id
   "The per-kind `…-scheduled` trace op a fresh arm emits (gc-class — the Xray
@@ -328,11 +329,11 @@
   (when (rf.managed-timer/positive-delay? delay-ms)
     (let [k      (timer-key frame-id resource-key kind)
           token  (next-attempt-token)
-          ;; A GC timer records whether its entry was owned as it armed. Cancel-
-          ;; then-arm supersedes a timer only until it fires; its re-check then
-          ;; queues behind any event already queued, so a final owner release
-          ;; can arm a newer window before an owned window's check lands.
-          owned? (and (= kind gc-kind) (entry-owned? frame-id resource-key))]
+          ;; A GC timer records the window it armed in. Cancel-then-arm
+          ;; supersedes a timer only until it fires; its re-check then queues
+          ;; behind any event already queued, so a final owner release or a
+          ;; settle can open a newer window before the re-check lands.
+          window (when (= kind gc-kind) (entry-gc-window frame-id resource-key))]
       ;; PHASE 1 — reserve an arming sentinel (`:handle nil`) so a concurrent
       ;; cleanup can atomically claim this attempt.
       (swap! timer-table assoc k {:token token :handle nil})
@@ -354,7 +355,7 @@
                                                        (dissoc m k)
                                                        m)))]
                   (when (= token (:token (get old k)))
-                    (dispatch-recheck! frame-id resource-key kind owned?))))
+                    (dispatch-recheck! frame-id resource-key kind window))))
               delay-ms)
             ;; PHASE 2 — publish the handle IFF this attempt still owns the slot.
             ;; `swap-vals!` is a pure replace-if-token-present; the host cancel

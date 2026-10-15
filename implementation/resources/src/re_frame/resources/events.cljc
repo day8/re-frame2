@@ -313,6 +313,20 @@
                   :work/id work-id :status status
                   :targets (vec targets) :cache-hit? (boolean cache-hit?)})))
 
+(defn- open-gc-window
+  "`runtime-db` with `resource-key`'s entry moved to a new GC window when
+  `gc-delay-ms` arms a GC timer on `frame-id` — a positive delay on a client
+  frame, since a server frame arms none. Every read-path event that arms a GC
+  timer opens its window here, and the timer stamps its re-check with the
+  window it armed in (`re-frame.resources.timers/schedule!`), so
+  `gc-fired-handler` can tell a superseded window's check from the current
+  one."
+  [runtime-db frame-id resource-key gc-delay-ms]
+  (cond-> runtime-db
+    (and gc-delay-ms (not (rf.resources.state/server-frame? frame-id)))
+    (update-in (rf.resources.state/entry-path resource-key)
+               update :gc-window (fnil inc 0))))
+
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
 (defn- ensure-load
@@ -588,7 +602,7 @@
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
               fx        (cond-> (vec timers-fx)
                           hit-cont-fx (conj hit-cont-fx))]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id scoped-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
@@ -2054,18 +2068,14 @@
                         (when (and e (empty? (:active-owners e)))
                           e))))
               k-ids)
+        ;; `[scoped-key gc-delay]` per GC window this release opens; `:never`
+        ;; normalizes to no delay and opens none
         gc-rearms
         (into []
               (keep (fn [e]
                       (when-let [gc-delay (rf.resources.state/positive-or-nil
                                             (:gc-after-ms (rf.resources.registry/resource-meta (:resource/id e))))]
-                        [:rf.resource/schedule-timers
-                         {:frame-id     frame-id
-                          :resource/key (:resource/key e)
-                          ;; a PARTIAL re-arm naming ONLY `:gc`, as the GC skip
-                          ;; emits; `:never` normalizes to no delay and arms nothing
-                          :timers       {:gc gc-delay}
-                          :server?      (rf.resources.state/server-frame? frame-id)}])))
+                        [(:resource/key e) gc-delay])))
               now-owner-free)
         ;; The trace's `:released` names the released entries by
         ;; their SCOPED KEY, never by their `key-id`. A `key-id` is
@@ -2089,7 +2099,9 @@
     (rf.trace/emit! :rf.event :rf.resource/owner-released
                  {:rf.frame/id frame-id :owner owner :released released
                   :aborted (mapv first aborts)})
-    {:rf.db/runtime rdb2
+    {:rf.db/runtime (reduce (fn [db [rkey gc-delay]]
+                              (open-gc-window db frame-id rkey gc-delay))
+                            rdb2 gc-rearms)
      ;; Abort by the frame-QUALIFIED request-id (the registered
      ;; token); a bare work-id would miss the orphaned in-flight request.
      :fx (-> (into [] (keep (fn [[wid transport]]
@@ -2099,7 +2111,15 @@
                (seq now-owner-free)
                (conj [:rf.resource/cancel-poll-timers
                       {:frame-id frame-id :resource/keys (mapv :resource/key now-owner-free)}]))
-             (into gc-rearms))}))
+             (into (map (fn [[rkey gc-delay]]
+                          [:rf.resource/schedule-timers
+                           {:frame-id     frame-id
+                            :resource/key rkey
+                            ;; a PARTIAL re-arm naming ONLY `:gc`, as the GC
+                            ;; skip emits
+                            :timers       {:gc gc-delay}
+                            :server?      (rf.resources.state/server-frame? frame-id)}]))
+                   gc-rearms))}))
 
 (defn release-owner-handler
   "`:rf.resource/release-owner` — release a liveness owner (drop the owner
@@ -2715,7 +2735,7 @@
               fx        (cond-> (vec timers-fx)
                           follow-up-tags (conj (follow-up-refetch-fx resource-key follow-up-tags)))
               fx        (into fx cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
 
 (defn- entry-abort-settled
@@ -2904,7 +2924,7 @@
                                             :poll  nil}
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
 
       :else
@@ -2985,7 +3005,7 @@
                                             :poll  nil}
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
 
 ;; ---- infinite-feed page reply handlers (EP-0021 R1/R2) --------------------
@@ -3160,7 +3180,7 @@
                           follow-up-tags (conj (follow-up-refetch-fx resource-key follow-up-tags)))
               ;; append the accepted-reply `:reply-to` fan-out last
               fx        (into fx cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
 
 (defn page-failed-handler
@@ -3303,7 +3323,7 @@
                                             :poll  nil}
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
 
       ;; ABORT (non-first-load) — an intentional cancellation of a load-more,
@@ -3392,7 +3412,7 @@
                                             :poll  nil}
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
-          (cond-> {:rf.db/runtime rdb'}
+          (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
 
       ;; WHOLE-FEED REFRESH FAILURE — a page-0 fetch over a feed
@@ -3547,25 +3567,24 @@
   staleness — which carries a durable `:stale-at` deadline the
   `stale-fired-handler` re-derives against the causal `:rf/time-ms` — GC has
   NO durable time-based deadline to re-derive (this handler takes no
-  `:rf/time-ms`; the entry carries no `:gc-at`). GC-eligibility is purely
-  STRUCTURAL: owner-free + idle. The generation re-check is therefore
-  satisfied structurally by the cancel-then-arm timer discipline rather than
-  by an explicit `:loaded-at` comparison: every re-load advances the entry's
-  generation through a settle that re-arms (cancel-then-arm) the GC timer, so
-  a re-load since the timer armed CANCELS the timer that would otherwise be
-  firing here. Cancel-then-arm reaches a timer only until it fires, though:
-  its re-check is then an event in the router queue, behind anything queued
-  before it, so a final owner release queued ahead of it arms a newer window
-  before it lands. The timer's `:armed-while-owned?` stamp covers that: an
-  owned entry is collected only by the window its last owner's release arms,
-  so a check from a window armed while the entry was owned never collects.
+  `:rf/time-ms`; the entry carries no `:gc-at`). GC-eligibility is
+  STRUCTURAL — owner-free + idle — and only the check of the entry's CURRENT
+  GC window may act on it. Every read-path event that arms a GC timer (a
+  settle, a fresh-skip owner revival, the final owner release, the in-flight
+  skip below) opens a new window on the entry (`:gc-window`, via
+  `open-gc-window`), and the timer stamps its re-check with the window it
+  armed in. Cancel-then-arm replaces a timer that has not fired; one that has
+  fired is already a check in the router queue, behind anything queued before
+  it, so a newer window can open before it lands. Its stamp is then older
+  than the entry's window, and it never collects: the newer window's own
+  check decides. A check that names no window (a direct dispatch) is judged
+  as current.
 
   GC-eligibility re-check (against the LIVE durable facts):
     - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
     - the entry has an active owner — pinned alive, no GC (`:has-owner`);
-    - the timer armed while the entry was owned (`:armed-while-owned?`) and
-      the entry is now owner-free — its last owner's release armed the
-      window that collects it, so no GC (`:superseded`);
+    - the check's window is older than the entry's — a newer window opened
+      after its timer armed, so no GC (`:superseded`);
     - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
     - otherwise the entry is owner-free + idle — REMOVE it (recompute the
       reverse indexes) and cancel its advisory timers.
@@ -3579,17 +3598,17 @@
   that release re-arms a full window itself (`release-owner-from-identities`),
   so a check while the entry is held would only repeat this no-op. The owner
   test comes first, so an entry that is both owned and in flight waits for
-  that release too. A `:superseded` skip arms nothing for the same reason:
-  the release has already armed the current window, whose own re-check sees
-  any work still in flight. A `:no-entry` skip has nothing left to collect.
-  The re-arm is gated on a positive `:gc-after-ms`; `:never` armed no timer
-  to fire here."
+  that release too. A `:superseded` skip arms nothing: the window that
+  superseded it armed its own timer, whose re-check sees any work still in
+  flight. A `:no-entry` skip has nothing left to collect. The re-arm is gated
+  on a positive `:gc-after-ms`; `:never` armed no timer to fire here."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {resource-key :resource/key armed-while-owned? :armed-while-owned?}]]
-  (let [runtime-db (or rt {})
-        entry      (get-in runtime-db (rf.resources.state/entry-path resource-key))]
+   [_event-id {resource-key :resource/key gc-window :gc-window}]]
+  (let [runtime-db  (or rt {})
+        entry       (get-in runtime-db (rf.resources.state/entry-path resource-key))
+        superseded? (and gc-window (< gc-window (:gc-window entry 0)))]
     (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry))
-             (not armed-while-owned?))
+             (not superseded?))
       ;; `:entries` is keyed on the byte `key-id`; dissoc by it
       ;; (a dissoc by the scoped-key VECTOR would be a no-op and the GC removal
       ;; would silently leak the entry). GC removes ONE entry, so
@@ -3621,7 +3640,7 @@
                {:frame-id frame-id :resource/keys [resource-key]}]]})
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
-                           armed-while-owned?            :superseded
+                           superseded?                   :superseded
                            :else                         :in-flight)
             ;; Only an in-flight skip re-arms, at the resource's own
             ;; :gc-after-ms, so the settle is followed by another re-check.
@@ -3632,7 +3651,7 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :reason reason
                       :rescheduled? (some? gc-delay)})
-        (cond-> {:rf.db/runtime runtime-db}
+        (cond-> {:rf.db/runtime (open-gc-window runtime-db frame-id resource-key gc-delay)}
           gc-delay
           (assoc :fx [[:rf.resource/schedule-timers
                        {:frame-id     frame-id
