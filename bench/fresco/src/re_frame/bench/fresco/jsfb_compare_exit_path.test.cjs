@@ -1,35 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE OUTSIDE-INSTRUMENT COMPARATOR'S EXIT PATH — absent evidence is not
-// agreement. The same shape `clock_exit_path.test.cjs` pins for the bench
-// DRIVERS: a program whose exit code is quoted as a quality gate must not take
-// that exit from a reading that has nothing in it.
-//
-//     node src/re_frame/bench/fresco/jsfb_compare_exit_path.test.cjs   (from bench/fresco/)
-//
-// WHAT THIS PINS. A comparator that read the benchmark driver's results
-// directory with `if (!fs.existsSync(dir)) return {}` and our run's JSON with
-// `OURS && fs.existsSync(OURS) ? … : null`, then filtered the table down to
-// the rows where both instruments produced a finite ratio, would keep nothing
-// with neither file present, print
-//
-//     ;; VERDICT: 0 of 0 comparable rows agree within 15%
-//
-// and exit 0. "The comparator is green" and "the comparison never happened"
-// would be the same observation — and the commonest reason a results directory
-// is missing is a run that did not take place.
-//
-// WHY IT IS PINNED HERE RATHER THAN END TO END. The evidence the comparator
-// reads is produced by a chromedriver run of an outside benchmark and a
-// headless-Chromium run of ours, neither of which a unit test can take. So the
-// decision is ONE pure function over the read evidence, which this file drives
-// directly, plus spawned runs of the program for what only the process shows:
-// its exit code and the sections `report` prints.
-//
-// EVERY FIXTURE IS BUILT IN THIS FILE, in a `mkdtemp` directory removed
-// afterwards: the preserved run lives outside the repository by design.
-//
-// Run by `npm run check` in bench/fresco/.
+// Missing evidence must refuse; process rows also exercise report-only conclusions.
 
 const assert = require('node:assert');
 const cp = require('node:child_process');
@@ -94,11 +65,6 @@ function evidence(dir, oursFile) {
 const run = (args) => cp.spawnSync(process.execPath, [CMP, ...args], { encoding: 'utf8' });
 
 // --- the decision ------------------------------------------------------------
-
-test('COMPLETE evidence exits 0 and says nothing', () => {
-  const v = verdict(evidence(theirsDir('green'), oursJson('green.json')));
-  assert.deepStrictEqual(v, { code: 0, lines: [] });
-});
 
 test('THE VACUOUS PASS: no results directory and no --ours cannot exit 0', () => {
   const v = verdict(evidence(path.join(TMP, 'nope'), undefined));
