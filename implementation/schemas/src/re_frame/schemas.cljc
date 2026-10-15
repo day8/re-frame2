@@ -120,8 +120,7 @@
 ;; Public-API re-export hooks (consumed by re-frame.core-schemas).
 (rf.late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
 (rf.late-bind/set-fn! :schemas/reg-app-schemas       reg-app-schemas)
-(rf.late-bind/set-fn! :schemas/app-schema-meta       app-schema-meta)
-(rf.late-bind/set-fn! :schemas/app-schemas           app-schemas)
+;; Schema-set digest, read by epoch assembly, SSR hydration and Story identity.
 (rf.late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 
 ;; Pure-data per-slot extractors. These do not populate durable app-db

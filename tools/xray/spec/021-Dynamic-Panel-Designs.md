@@ -3449,7 +3449,7 @@ NOT the handler's, through the door that registration actually lives
 behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
 
 - `:app-db` → `(re-frame.schemas/app-schema-meta {:frame f :path registered-path})` (the
-  `:schemas/app-schema-meta` late-bind hook per rf2-mg6ya; the frame is
+  schemas artefact's public read, called directly; the frame is
   the violation row's own, never an ambient resolution — that would
   resolve Xray's own frame)
   reads the registration meta the schemas artefact stamped on

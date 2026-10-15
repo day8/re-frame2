@@ -15,45 +15,6 @@
 
 (def ^:private schemas-artefact (artefact-info :schemas))
 
-;; ONE FRAME SPELLING. The three side-table READS each take a
-;; single opts MAP with a REQUIRED `:frame` — no ambient default, no trailing
-;; frame-target sniffing, no bare-frame-id sugar. A frameless or non-map call
-;; raises the catalogued `:rf.error/no-frame-context`.
-
-(defwrapper app-schema-meta
-  "Return the full registration-metadata map for one path in a frame, or
-  nil — the meta stamped at `reg-app-schema`: `:path`, `:schema`,
-  `:frame`, and the source-coords `:ns` / `:line` / `:file`. The
-  registered schema itself is `(:schema …)`. The source-coord
-  introspection surface pair-tools and 10x read when they need the
-  registration anchor (e.g. click-back-to-code).
-
-  Shape: `(app-schema-meta {:frame f :path p})` — both keys required.
-  Per Spec 010 §Schemas as a tooling and agent surface. Returns nil when
-  the schemas artefact is not on the classpath."
-  {:hook :schemas/app-schema-meta :artefact schemas-artefact :on-absent :nil}
-  ([opts] :delegate))
-
-(defwrapper app-schemas
-  "Return a frame's whole `{path → registration-metadata}` map — the same
-  `{id → meta}` shape `rf/registrations` answers. Project `:schema` for
-  the schema values alone.
-
-  Shape: `(app-schemas {:frame f})` — `:frame` required. Per Spec 010
-  §Per-frame schemas. Returns `{}` when the schemas artefact is not on
-  the classpath."
-  {:hook :schemas/app-schemas :artefact schemas-artefact :on-absent :empty-map}
-  ([opts] :delegate))
-
-(defwrapper app-schemas-digest
-  "Return a stable digest of the registered schemas for a frame.
-
-  Shape: `(app-schemas-digest {:frame f})` — `:frame` required. Per Spec
-  010 §Digest algorithm. Returns `nil` when the schemas artefact is not
-  on the classpath."
-  {:hook :schemas/app-schemas-digest :artefact schemas-artefact :on-absent :nil}
-  ([opts] :delegate))
-
 ;; ---- validator install ---------------------------------------------------
 ;;
 ;; There is no core-side validator-install wrapper and no late-bind hook for
