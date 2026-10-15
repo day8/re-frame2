@@ -109,7 +109,6 @@ function compile(extraArgs) {
       env: { ...process.env, RF2_PROOF_STAND_IN: STAND_IN, RF2_PROOF_OUTPUT: BUNDLE },
     },
   );
-  assert.equal(result.error, undefined, `could not launch the wrapper: ${result.error}`);
   assert.equal(result.status, 0, `the compile exited ${result.status}; stderr:\n${result.stderr}`);
   return result;
 }
@@ -120,7 +119,7 @@ function runBundle() {
 
 const FOCUSED = ['--config-merge', '{:ns-regexp "proof-cljs-test$"}'];
 
-test('a --config-merge compile leaves a bundle that runs', () => {
+test('a --config-merge compile leaves a runnable bundle and clears its cache', () => {
   compile(FOCUSED);
   const ran = runBundle();
   assert.equal(
@@ -129,10 +128,6 @@ test('a --config-merge compile leaves a bundle that runs', () => {
     `the focused bundle exited ${ran.status}: its runtime was deleted with the ` +
       `cache entry it was written into. stderr:\n${ran.stderr}`,
   );
-});
-
-test('a --config-merge compile still clears the cache entry after compiling', () => {
-  compile(FOCUSED);
   assert.equal(
     fs.existsSync(CACHE_ENTRY),
     false,
