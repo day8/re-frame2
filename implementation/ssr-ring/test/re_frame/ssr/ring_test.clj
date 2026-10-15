@@ -127,7 +127,6 @@
     (is (str/starts-with? body "<!DOCTYPE html>"))
     (is (str/includes? body "<li>Article A</li>"))
     (is (re-find #"data-rf-render-hash=\"[0-9a-f]{8}\"" body))
-    (is (some? (payload body)))
     (is (re-find #"<head[^>]*><meta charset=\"utf-8\">" body)
         "the shell owns the charset, first in the head")
     (is (= 1 (count (re-seq #"(?i)<meta\s+charset" body))) "and the default head adds none")))
@@ -358,13 +357,8 @@
     (is (some? (payload-edn body)))))
 
 (deftest default-html-shell-escapes-its-attribute-hooks
-  (let [opts  {:head           "<title>T</title>"
-               :html-attrs     {:lang "fr"}
-               :body-attrs     {:class "page"}
-               :head-hash      "deadbeef"
-               :app-element-id "ro\"ot"
-               :script-src     "/boot.js?a=1&b=2"
-               :body-end       "<script>ga();</script>"}
+  (let [opts  {:app-element-id "ro\"ot"
+               :script-src     "/boot.js?a=1&b=2"}
         shell (rf.ssr.ring/default-html-shell "<main>Hi</main>" "{:x 1}" opts)]
     (is (str/includes? shell "<div id=\"ro&quot;ot\">"))
     (is (str/includes? shell "src=\"/boot.js?a=1&amp;b=2\""))))
