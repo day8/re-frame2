@@ -26,6 +26,9 @@
     - the corpus body (`run-corpus`) with three-way capability
       classification, TOP-LEVEL-KEY and EXPECTATION-KEY fail-loud,
       reporting, and the pass/floor/count `is` assertions
+    - the production-posture predicate (`prod-posture-fixture?`): the
+      fixtures whose grading reads no dev-only surface, which a host can
+      run under `-Dre-frame.debug=false`
 
   The JVM / CLJS LEAVES are limited to genuinely host-specific operations:
   fixture loading (JVM fs `slurp`/`file-seq`; CLJS compile-time inlining),
@@ -327,6 +330,33 @@
   [fixture]
   (let [v (:fixture/spec-version fixture)]
     (or (nil? v) (contains? claimed-spec-versions v))))
+
+;; ---- production-posture subset --------------------------------------------
+
+(def dev-posture-expect-keys
+  "The `:fixture/expect` keys whose matchers read a surface that exists only
+  in the debug build: trace emissions and the effects routed off them, the
+  SSR public error projected from the dev trace's last error event, and
+  epoch records from the trace-fed epoch ring. Under
+  `-Dre-frame.debug=false` none of them is emitted, so a fixture asserting
+  one fails there by design."
+  #{:trace-emissions :effects-routed :ssr/public-error :epoch-records})
+
+(def dev-posture-capabilities
+  "Capabilities whose fixtures read a dev-only surface through
+  `:fixture/calls` rather than through an expectation key.
+  `:derivation/algebra-graph` asserts the live derivation graph, whose
+  projections are gated on `interop/debug-enabled?`."
+  #{:derivation/algebra-graph})
+
+(defn prod-posture-fixture?
+  "True when grading the fixture reads no dev-only surface, so it grades the
+  same under `-Dre-frame.debug=false` as in the debug build. Capability tags
+  cannot answer this: every `:core/*` capability is required of every port,
+  so a fixture asserting trace emissions need not claim `:core/trace`."
+  [fixture]
+  (and (not-any? dev-posture-expect-keys (keys (:fixture/expect fixture)))
+       (not-any? dev-posture-capabilities (:fixture/capabilities fixture))))
 
 ;; ---- handler-body realisation ---------------------------------------------
 ;;
@@ -1950,29 +1980,32 @@
   "Run the whole conformance corpus. `fixtures` is a seq of `[filename
   fixture-map]` pairs (loaded host-specifically); `host` supplies the reset /
   trace-listener seams; `label` names the host in diagnostics (\"JVM\" /
-  \"CLJS\"). Grades each fixture through `run-corpus-fixture`, then emits
+  \"CLJS\"); `floor` is the fewest fixtures that must execute, 150 for the
+  whole corpus. Grades each fixture through `run-corpus-fixture`, then emits
   the pass / floor / count `is` assertions. Silent on green: the failure
   report only prints when there are failures."
-  [fixtures host label]
-  (let [all     (mapv (fn [[fname fixture]] (run-corpus-fixture fname fixture host))
-                      fixtures)
-        run     (filter (complement :skipped?) all)
-        passed  (filter :passed? run)
-        failed  (remove :passed? run)
-        skipped (filter :skipped? all)]
-    ;; Non-empty floor. The lone (zero? (count failed)) below
-    ;; passes GREEN over an empty / fully-skipped / orphaned corpus,
-    ;; verifying NOTHING. Assert fixtures actually executed.
-    (is (pos? (count run))
-        (str "at least one claim-applicable conformance fixture must have executed (" label ")"))
-    (is (>= (count run) 150)
-        (str label " conformance corpus runnable-fixture floor (>= 150): only "
-             (count run) " executed — a fixture-discovery fault or a "
-             "capability-vocab rename has orphaned the corpus."))
-    (when (seq failed)
-      (print-failures label all run passed failed skipped))
-    ;; The suite fails unless EVERY claimed-applicable fixture
-    ;; passes. Skipped fixtures neither claim conformance nor block it.
-    (is (zero? (count failed))
-        (str "All claimed-applicable " label " conformance fixtures must pass; "
-             (count failed) " failed."))))
+  ([fixtures host label]
+   (run-corpus fixtures host label 150))
+  ([fixtures host label floor]
+   (let [all     (mapv (fn [[fname fixture]] (run-corpus-fixture fname fixture host))
+                       fixtures)
+         run     (filter (complement :skipped?) all)
+         passed  (filter :passed? run)
+         failed  (remove :passed? run)
+         skipped (filter :skipped? all)]
+     ;; Non-empty floor. The lone (zero? (count failed)) below
+     ;; passes GREEN over an empty / fully-skipped / orphaned corpus,
+     ;; verifying NOTHING. Assert fixtures actually executed.
+     (is (pos? (count run))
+         (str "at least one claim-applicable conformance fixture must have executed (" label ")"))
+     (is (>= (count run) floor)
+         (str label " conformance corpus runnable-fixture floor (>= " floor "): only "
+              (count run) " executed — a fixture-discovery fault or a "
+              "capability-vocab rename has orphaned the corpus."))
+     (when (seq failed)
+       (print-failures label all run passed failed skipped))
+     ;; The suite fails unless EVERY claimed-applicable fixture
+     ;; passes. Skipped fixtures neither claim conformance nor block it.
+     (is (zero? (count failed))
+         (str "All claimed-applicable " label " conformance fixtures must pass; "
+              (count failed) " failed.")))))
