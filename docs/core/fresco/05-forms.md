@@ -163,9 +163,12 @@ value the field showed before the edit began:
              (update-in [:todos id :title-revision] (fnil inc 0)))}))
 ```
 
-On the next render the field shows the new value in place of the draft, and
-that draft's Enter and blur intents carry the old revision, so they commit
-nothing. A new value under an unchanged revision leaves the draft in place.
+On the next render the field shows the new value in place of the draft. Its
+Enter and blur callbacks then carry the new revision, which the old draft does
+not match, so they commit nothing. An intent captured before that render still
+carries the old revision and can commit the draft; see
+[Delayed protocol events](#delayed-protocol-events). A new value under an
+unchanged revision leaves the draft in place.
 
 A field whose drafts are never replaced from outside may use a constant
 revision such as `0`, whatever its commit handler accepts, rejects, or
