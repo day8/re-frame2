@@ -1,40 +1,10 @@
 (ns re-frame2-pair.runtime-frame-image-test
-  "Call-time validation resolves through the OPERATING FRAME's image, not
-  the process source store.
-
-  This exercises the SHIPPED preload (`re-frame2-pair.runtime`) against a
-  REAL frame carrying a REAL inline image, with real `rf/image` /
-  `rf/make-frame` / `rf/dispatch` / `rf/subscribe` underneath — not the
-  pure core, and not a structural assertion that a validator is called.
-  Neither of those can see this defect class: `validate-registered` can be
-  called, and delegate to the correct pure helper, while the SET it hands
-  that helper is wrong.
-
-  ## Why the frame's image
-
-  A frame runs its own sealed image generation, so an `:reg-sub` /
-  `:reg-event` defined INLINE IN AN IMAGE is registered for that frame
-  and absent from the process store. Validating against
-  `(rf/registrations {:source :store :kind k})` would return those ids as
-  `:reason :unknown-id :known-count 0` — the typed read and the default
-  dispatch would both refuse, telling the operator 'nothing is registered'
-  about an app whose frame subscribes and dispatches perfectly well, and
-  pushing them to raw `eval-cljs` for a gesture the typed tools support.
-  The skill teaches per-frame image operation explicitly, so this is an
-  ordinary supported shape rather than an exotic one.
-
-  Both directions are covered, because a set-membership lookup can fail
-  either way: an image-only id must be ACCEPTED, and a store-only id
-  excluded from the chosen frame must be REFUSED (it would otherwise
-  validate and then dispatch into a frame that cannot serve it)."
+  "Typed reads and dispatch validate against the selected frame, including image-only ids."
   (:require [cljs.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
-
-;; A STORE registration, deliberately excluded from the image below — the
-;; negative direction's subject.
 (rf/reg-sub :review/store-only-sub (fn [db _] (:store-only db)))
 (rf/reg-event :review/store-only-event (fn [{:keys [db]} _] {:db (assoc db :store-only true)}))
 
@@ -54,9 +24,8 @@
 (deftest image-only-sub-reads-through-the-typed-tool
   (ensure-frame!)
   (let [res (rt/read-sub! [:review/inline-sub] frame-id)]
-    (is (true? (:ok? res))
-        "an inline-image sub is a valid id for the frame that carries it")
-    (is (= [:review/inline-sub] (:query-v res)) "the query-v echoes back")))
+    (is (= {:ok? true :query-v [:review/inline-sub]}
+           (select-keys res [:ok? :query-v])))))
 
 (deftest image-only-event-dispatches-through-the-typed-tool
   (ensure-frame!)
@@ -67,23 +36,17 @@
         "the inline-image event was accepted and its handler ran — the frame's app-db advanced")))
 
 (deftest store-only-id-is-refused-against-a-frame-that-excludes-it
-  ;; The opposite mismatch of the same lookup. Validating against the
-  ;; store would ACCEPT these and then read/dispatch into a frame whose
-  ;; image has no such handler.
   (ensure-frame!)
   (testing "sub"
     (let [res (rt/read-sub! [:review/store-only-sub] frame-id)]
-      (is (false? (:ok? res)))
-      (is (= :unknown-id (:reason res)))
-      (is (false? (:subscribed? res)) "refused WITHOUT subscribing")))
+      (is (= {:ok? false :reason :unknown-id :subscribed? false}
+             (select-keys res [:ok? :reason :subscribed?])))))
   (testing "event"
     (let [res (rt/dispatch-consequence! [:review/store-only-event] {:frame frame-id})]
-      (is (= :unknown-id (:reason res)))
-      (is (false? (:dispatched? res)) "refused WITHOUT dispatching"))))
+      (is (= {:reason :unknown-id :dispatched? false}
+             (select-keys res [:reason :dispatched?]))))))
 
 (deftest suggestions-come-from-the-chosen-frame
-  ;; `:nearest` must be drawn from the frame's candidate set, so every
-  ;; suggestion is an id the caller can actually use here.
   (ensure-frame!)
   (let [res (rt/read-sub! [:review/inline-subb] frame-id)]
     (is (= :unknown-id (:reason res)))
@@ -94,17 +57,13 @@
         "a store id this frame does not carry is never suggested")))
 
 (deftest two-frames-do-not-bleed
-  ;; A second frame with a DIFFERENT selected set must not accept the
-  ;; first frame's image-only id.
   (ensure-frame!)
   (rf/make-frame
     {:id     :review/other
      :images [(rf/image
                 {:id :review/other-image
                  :registrations {:reg-sub [[:review/other-sub (fn [db _] (:other db))]]}})]})
-  (is (true? (:ok? (rt/read-sub! [:review/other-sub] :review/other)))
-      "the other frame's own id validates there")
-  (is (= :unknown-id (:reason (rt/read-sub! [:review/inline-sub] :review/other)))
-      "and the first frame's image-only id does not")
-  (is (true? (:ok? (rt/read-sub! [:review/inline-sub] frame-id)))
-      "while it still validates in the frame that carries it"))
+  (is (= [true :unknown-id true]
+         [(:ok? (rt/read-sub! [:review/other-sub] :review/other))
+          (:reason (rt/read-sub! [:review/inline-sub] :review/other))
+          (:ok? (rt/read-sub! [:review/inline-sub] frame-id))])))
