@@ -1,11 +1,5 @@
 (ns re-frame2-pair.runtime-restore-epoch-test
-  "The SHIPPED preload's `restore-epoch` against a REAL frame: with opts
-  `{:to :before}` it installs the named record's `:frame-state-before`.
-
-  Undoing a `replace-frame-state!` injection is the case that needs it. On
-  a fresh frame the injection's synthetic record is the only one retained,
-  so restoring it to its after-state reinstalls the injection; only its
-  before-state reaches the state the injection replaced."
+  "Restoring an injection to :before undoes it even when its synthetic epoch is the only retained record."
   (:require [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.epoch]
@@ -34,10 +28,8 @@
     (fn [before record]
       (let [result (rt/restore-epoch (:epoch-id record) frame-id {:to :before})]
         (is (true? (:restored? result)))
-        (is (= (:frame-state-before record) (rf/frame-state-value frame-id))
-            "the record's before-state is installed")
-        (is (= before (rf/frame-state-value frame-id))
-            "the injection is undone")
+        (is (= before (:frame-state-before record) (rf/frame-state-value frame-id))
+            "the injection is undone to its recorded before-state")
         (is (= [[:injected]] (get-in result [:cascade-summary :db-diff :removed-paths]))
             "the diff runs from the pre-restore db to the state installed")))))
 
