@@ -30,8 +30,9 @@
 (defn- stubbed-frame!
   "An anon frame whose per-frame `:fx-overrides` route `:rf.http/managed` to
   `stub-fx-id`: the children fire on later ticks, which a per-call override
-  does not reach. Create it after the stub fx and machines are registered,
-  because a frame seals its image generation at construction."
+  does not reach. The record carries no image generation and is not a
+  live-store frame, so its lookups take the plain registrar-atom path and see
+  the stub fx and machines whenever they register."
   [stub-fx-id]
   (rf.frame/make-anon-frame-record!
     {:doc          ":rf.http/managed wrapper children"

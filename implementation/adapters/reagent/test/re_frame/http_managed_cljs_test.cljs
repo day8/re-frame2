@@ -162,25 +162,24 @@
                  :rf.http/managed fx was NEVER invoked — the helper intercepted
                  (otherwise this would fire the real Fetch transport)")))))))
 
-;; ---- 5b. stubs work inside a PRE-CREATED SEALED frame ---------------------
+;; ---- 5b. stubs work inside a PRE-CREATED frame ----------------------------
 ;;
-;; CLJS counterpart of the JVM sealed-frame test. `rf/make-frame {}`
-;; resolves + SEALS an image generation at construction; a dispatch into that
-;; frame value resolves `(kind, id)` through the frame's OWN sealed generation,
-;; NOT the global registrar. So `with-request-stubs` registers ONE stable
-;; override target at ns-load (in the sealed generation of every frame created
-;; after the require) and carries the per-scope route map on the
-;; `*scope-stubs*` dynamic var: an fx-id minted and registered INSIDE the
-;; scope — AFTER the frame had sealed — would be one the sealed generation
-;; could not resolve, and the bare dispatch would reach the real Fetch
-;; transport. A
-;; sentinel shadows `:rf.http/managed` — reaching it proves the override was
-;; absent. The dispatch targets the frame VALUE explicitly (`{:frame f}`), so
-;; the sealed-generation resolution path is exercised.
+;; CLJS counterpart of the JVM pre-created-frame test. `rf/make-frame {}`
+;; makes a frame without `:images`, which seals no image generation: a
+;; dispatch into that frame value resolves `(kind, id)` through a live view of
+;; the registration store. `with-request-stubs` registers ONE stable override
+;; target at ns-load and carries the per-scope route map on the
+;; `*scope-stubs*` dynamic var, so a frame created BEFORE the scope was
+;; entered resolves the target, including one that sealed its image
+;; generation then: that generation could not resolve an fx-id minted and
+;; registered INSIDE the scope. A sentinel shadows `:rf.http/managed` —
+;; reaching it proves the override was absent. The dispatch targets the frame
+;; VALUE explicitly (`{:frame f}`), so the frame's own live-store resolution
+;; path is exercised.
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-cljs-rf2-bxc8kf
   (testing "inside with-request-stubs, a dispatch-sync into
-            a PRE-CREATED sealed make-frame {} frame routes through the stub and
+            a PRE-CREATED make-frame {} frame routes through the stub and
             NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
       (rf.fx/reg-fx :rf.http/managed
@@ -192,7 +191,7 @@
             {:fx [[:rf.http/managed
                    {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
                     :decode  :json}]]})))
-      ;; SEAL a generation at construction, THEN enter the stub scope.
+      ;; Create the frame first, THEN enter the stub scope.
       (let [f (rf/make-frame {})]
         (rf.http.test-support/with-request-stubs
           {[:get "/x"] {:reply {:ok {:stubbed true}}}}
@@ -203,10 +202,8 @@
                      [(get-in db [:result :status]) (get-in db [:result :value]) @real-fx-invoked?])
                   "the configured :ok value rode the synthesised reply of the
                    load-time-registered scope stub, and the real
-                   :rf.http/managed fx was NEVER invoked in the sealed
-                   frame (a per-scope stub minted inside the scope would be
-                   unresolvable in the sealed generation, and this would fire
-                   the real Fetch transport)"))))))))
+                   :rf.http/managed fx was NEVER invoked in the pre-created
+                   frame (otherwise this would fire the real Fetch transport)"))))))))
 
 ;; ---- 6. with-request-stubs — failure mapping -----------------------------
 
