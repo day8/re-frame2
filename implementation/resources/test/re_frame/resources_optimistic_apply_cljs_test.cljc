@@ -121,8 +121,7 @@
   (let [before-revision (:revision (entry article-key))]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete :params {:slug "w"} :instance :d1}])
     (let [e (entry article-key)]
-      (is (some? e) "the entry survives the optimistic remove")
-      (is (= [nil :idle nil nil nil nil]
+        (is (= [nil :idle nil nil nil nil]
              ((juxt :data :status :error :loaded-at :stale-at :invalidated-at) e))
           "an empty, non-stale, non-error tombstone")
       (is (= [#{[:v :d]} true (inc before-revision)]
