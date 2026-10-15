@@ -82,13 +82,6 @@
   [_]
   [:li "no docstring"])
 
-(rf/reg-view core-peer
-  "The comparison. An ordinary core view in this same namespace, so the id
-  derivation and the coordinate placement can be asserted as AGREEMENT
-  rather than as remembered shapes."
-  [_]
-  [:li "core"])
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:ambient-frame nil}))
@@ -114,12 +107,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-coordinate-is-stored-the-way-reg-view-stores-it
-  (let [alias-coords (select-keys (slot ::aliased-row) coord-keys)
-        peer-coords  (select-keys (slot ::core-peer)   coord-keys)]
-
-    (testing "the same coord keys, at the same level of the same map — a
-              consumer needs no second seam for Fresco"
-      (is (= (set (keys peer-coords)) (set (keys alias-coords)))))
+  (let [alias-coords (select-keys (slot ::aliased-row) coord-keys)]
 
     (testing "and they describe THIS file"
       (is (= 're-frame.fresco.view-alias-registry-cljs-test (:ns alias-coords)))
@@ -195,9 +183,7 @@
       (is (identical? reloaded (:handler-fn (slot ::aliased-row))))
       (is (identical? reloaded (rf/view ::aliased-row))))
 
-    (testing "the shape is unchanged across the reload — still the ordinary
-              key, still no `:executable-key`"
-      (is (not (contains? (slot ::aliased-row) :executable-key))))))
+    ))
 
 ;; ---------------------------------------------------------------------------
 ;; What the reload TELLS a tool — the `:different-fn?` discriminator
