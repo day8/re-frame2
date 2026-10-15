@@ -44,12 +44,12 @@
           switches (atom 0)]
       (install-window! window)
       (with-redefs [rf.testbed.story-host/mount-app! (fn [] (swap! switches inc))]
-        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
-      (is (= 1 @switches))
-      ;; Replace both the original handler and a reloaded handler.
-      (dotimes [_ 2]
-        (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] (swap! switches inc))]
-          (rf.testbed.story-host/mount-with-hash-routing! dummy-view)))
-      (reset! switches 0)
-      (.forEach registry (fn [listener] (listener)))
-      (is (= 1 @switches) "One hash change mounts exactly once."))))
+        (rf.testbed.story-host/mount-with-hash-routing! dummy-view)
+        (is (= 1 @switches))
+        ;; Replace both the original handler and a reloaded handler.
+        (dotimes [_ 2]
+          (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] (swap! switches inc))]
+            (rf.testbed.story-host/mount-with-hash-routing! dummy-view)))
+        (reset! switches 0)
+        (.forEach registry (fn [listener] (listener)))
+        (is (= 1 @switches) "One hash change mounts exactly once.")))))
