@@ -73,14 +73,16 @@
 
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
   ;; Exercise the schema seam without the schemas artefact.
-  (let [hook-id :schemas/validate-with-registered-fn
-        previous (rf.late-bind/get-fn hook-id)]
+  (let [hook-ids [:schemas/validate-with-registered-fn :schemas/explain-with-registered-fn]
+        previous (mapv rf.late-bind/get-fn hook-ids)]
     (try
-      (rf.late-bind/set-fn! hook-id
+      (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
         (fn [schema value]
           (and (vector? schema)
                (= :enum (first schema))
                (contains? (set (rest schema)) value))))
+      (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
+        (fn [schema value] {:schema schema :value value :failed true}))
       (let [delivered-fact (atom ::unset)]
         (rf/reg-cofx :evt-conf/graded-fact
           {:recordable? true :provided? true :schema [:enum :allowed-a]})
@@ -91,7 +93,8 @@
                                                          {:rf.cofx {:evt-conf/graded-fact :not-allowed}}))]
           (rf/dispatch-sync [:evt-conf/reads-graded-fact] {:rf.cofx {:evt-conf/graded-fact :allowed-a}})
           (is (= [:rf.error/cofx-value-invalid :allowed-a] [rejected @delivered-fact]))))
-      (finally (restore-hook! hook-id previous)))))
+      (finally
+        (run! (fn [[hook-id prior]] (restore-hook! hook-id prior)) (map vector hook-ids previous))))))
 
 ;; There is no db-return convenience: a bare app-db-shaped map is a foreign
 ;; top-level effect key, refused before anything commits.
