@@ -1,21 +1,5 @@
 (ns re-frame.routing-registry-test
-  "Registry / match / URL-construction tests for re-frame.routing: reg-route
-  validation, match-url, route-url, ranking, optional groups, splats and
-  query coercion.
-
-  ## Posture split
-
-  The registry is production-real, so this namespace runs in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane).
-
-  Four deftests also read the DEV TRACE: the `:rf.route/registered` and
-  `:rf.route/cleared` lifecycle ops and the
-  `:rf.warning/route-shadowed-by-equal-score` advisory. All three emit through
-  `trace/emit!`, gated on `rf.interop/debug-enabled?` and read once at load
-  time, so their trace assertions sit inside `(when rf.interop/debug-enabled? …)`
-  arms. The shadow advisory's claim is about which route wins at match time,
-  so that deftest also checks the winner through `match-url`, outside the arm."
+  "Route registration, matching, ranking and URL emission. Trace assertions require debug."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
