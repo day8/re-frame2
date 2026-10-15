@@ -288,7 +288,7 @@
             :a {:status :ok :value {:from :outer-a}}}
            (replies)))))
 
-(deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
+(deftest stubs-intercept-inside-pre-created-frame-rf2-bxc8kf
   (testing "in a frame created before with-request-stubs, a plain dispatch-sync
             routes through the stub and never reaches the real :rf.http/managed"
     (let [real-fx-invoked? (atom false)]
@@ -303,6 +303,24 @@
           #(rf/dispatch-sync [:bxc8kf/load]))
         (is (= [{:status :ok :value {:stubbed true}} false]
                [(:result (rf/app-db-value f)) @real-fx-invoked?]))))))
+
+(deftest stubs-intercept-inside-pre-created-image-frame-rf2-bxc8kf
+  (testing "in a frame made with :images before with-request-stubs, whose
+            generation was sealed before the scope began, a plain dispatch-sync
+            routes through the stub and never reaches the real :rf.http/managed"
+    (let [real-fx-invoked? (atom false)]
+      ;; The sentinel has no source namespace and an id under the reserved
+      ;; :rf root, so it rides the generation's framework base, as does the
+      ;; stub target registered when re-frame.http.test-support loads.
+      (rf.fx/reg-fx :rf.http/managed (fn [_ _] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event :bxc8kf/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :result reply)}))
+      (rf/reg-event :bxc8kf/load
+        (fn [_ _] {:fx [[:rf.http/managed {:reply-to [:bxc8kf/loaded] :request {:method :get :url "/x"}}]]}))
+      (rf/with-new-frame [f (rf/make-frame {:images [(rf/image {:select-ns {:include ["re-frame.http-managed-test"]}})]})]
+        (rf.http.test-support/with-request-stubs {[:get "/x"] {:reply {:ok {:stubbed true}}}}
+          #(rf/dispatch-sync [:bxc8kf/load]))
+        (is (= [{:status :ok :value {:stubbed true}} false true]
+               [(:result (rf/app-db-value f)) @real-fx-invoked? (some? (rf/frame-generation f))]))))))
 
 (deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
   (testing "a nested install/uninstall pair on the stable
