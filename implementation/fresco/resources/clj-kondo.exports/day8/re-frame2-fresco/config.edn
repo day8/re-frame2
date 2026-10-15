@@ -5,8 +5,10 @@
 ;;
 ;;   clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs
 ;;
-;; which copies this directory to `.clj-kondo/day8/re-frame2-fresco/` and
-;; adds it to the consumer's `:config-paths`. See README.md beside this file.
+;; run from a project root where a `.clj-kondo/` directory already exists
+;; (without one it copies nothing and still exits 0). It copies this export
+;; to `.clj-kondo/imports/day8/re-frame2-fresco/`, where clj-kondo loads it
+;; with no `:config-paths` entry. See README.md beside this file.
 ;;
 ;; The hooks give `defview`, `event` and `defhost` their `defn`, `fn` and
 ;; `def` shapes, so kondo's ordinary analysis applies: names resolve,

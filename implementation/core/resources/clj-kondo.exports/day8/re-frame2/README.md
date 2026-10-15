@@ -20,8 +20,9 @@ is needed. Re-run it when you upgrade.
   `subscribe` the macro injects bound as locals. The view's name resolves as a
   var and the body's `dispatch` / `subscribe` are not `Unresolved symbol`.
 - The registration macros (`reg-event-db`, `reg-sub`, `reg-fx` and the rest of
-  the `reg-*` family) lint as `do`, so every argument is analysed as an
-  ordinary expression; `defmachine` lints as `def`.
+  the `reg-*` family) lint as ordinary calls, so every argument is analysed
+  as an expression and a registration inside a fn body draws no
+  `redundant do`; `defmachine` lints as `def`.
 - `with-frame` lints as `do` and `with-new-frame` as `let`, so the frame
   symbol it binds is a lexical local. `re-frame.test-support/with-trace-recorder!`
   lints as `let` over its recorder symbol.

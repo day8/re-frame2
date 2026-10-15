@@ -10,8 +10,11 @@ own.
 clj-kondo --lint "$(clojure -Spath)" --dependencies --parallel --copy-configs
 ```
 
-That copies this directory to `.clj-kondo/day8/re-frame2-fresco/` and adds it
-to your `:config-paths`. Nothing else is needed. Re-run it when you upgrade.
+Run it from your project root once a `.clj-kondo/` directory exists there
+(create an empty one if not: without it clj-kondo copies nothing and still
+exits 0). It copies this export to `.clj-kondo/imports/day8/re-frame2-fresco/`,
+where clj-kondo loads it with no `:config-paths` entry. Nothing else is
+needed. Re-run it when you upgrade.
 
 ## What it does
 

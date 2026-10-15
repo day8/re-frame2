@@ -5,8 +5,9 @@
   macros, so the hooks rewrite them into those forms and let kondo's own
   analysis do the work — arglists, arity, lexical bindings, unused bindings.
   Without this a view's name and every destructured prop read as
-  `Unresolved symbol`. This is the same shape as the repo-root
-  `hooks.re-frame.core` hook for `reg-view`, and is deliberately no cleverer.
+  `Unresolved symbol`. This is the same shape as the `hooks.re-frame.core`
+  hook for `reg-view` that core's `day8/re-frame2` export ships, and is
+  deliberately no cleverer.
 
   No behavioral findings are registered here: behavior is the runtime's law,
   refused loudly at its execution boundary, and a lint layer that re-derives
