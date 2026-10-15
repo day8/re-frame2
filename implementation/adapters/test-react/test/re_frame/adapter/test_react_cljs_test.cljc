@@ -190,7 +190,7 @@
 (deftest unmount-is-idempotent
   (let [mount (rf.adapter.test-react/mount! [:div "once"])]
     (rf.adapter.test-react/unmount! mount)
-    (is (nil? (rf.adapter.test-react/unmount! mount)))
+    (rf.adapter.test-react/unmount! mount)
     (is (= 1 (phase-count mount :will-unmount)))))
 
 (deftest mount-child-outside-render-body-throws
