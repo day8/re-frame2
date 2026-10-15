@@ -148,7 +148,7 @@
         (testing label
           (is (refused {:rf.error/id :rf.error/http-no-reply-target} #(invoke request)))
           (doseq [k [:reply-to :on-success :on-failure]]
-            (is (refused {:rf.error/id :rf.error/http-bad-reply-target}
+            (is (refused {:rf.error/id :rf.error/http-bad-reply-target :key k}
                          #(invoke (assoc request k :items/loaded)))
                 (str "a bare-keyword " k)))
           (is (refused {:rf.error/id :rf.error/http-bad-reply-target
