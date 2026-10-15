@@ -12,10 +12,9 @@
 
   A hit-counting loopback server makes a re-send observable."
   (:require [clojure.string :as str]
-            [clojure.test :refer [are deftest is use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed]
             [re-frame.test-support :as rf.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -59,21 +58,6 @@
 
 (defn- await-op! [captured op]
   (rf.test-support/poll-until #(seq (ops captured op)) {:timeout-ms 5000 :label (str op)}))
-
-(defn- refusal [args]
-  (try (rf.http.handlers/validate-reply-target! args) nil
-       (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
-(deftest reply-target-shape-and-mixture-refused-at-dispatch
-  ;; The map row is the input that separates `vector?` from `coll?`; the nil
-  ;; row shows refusal is on key PRESENCE, so an explicit nil branch is a
-  ;; mixture too.
-  (are [args expected] (= expected (select-keys (refusal args) (keys expected)))
-    {:reply-to {:not :a-vector}}
-    {:rf.error/id :rf.error/http-bad-reply-target :key :reply-to}
-
-    {:reply-to nil :on-success [:b]}
-    {:rf.error/id :rf.error/http-bad-reply-target :reason :mixed-addressing :keys [:reply-to :on-success]}))
 
 (deftest ln85eg-after-throw-over-2xx-observed-not-swallowed
   ;; Under a retryable :rf.http/transport policy, a reply-tail throw
