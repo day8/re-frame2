@@ -171,17 +171,18 @@
         (testing "a declared path param"
           ;; The route-miss telemetry the same navigation emits projects its
           ;; URL by the carrier policy alone, which keeps the path, so this
-          ;; case reads the ambiguity's own record and trace.
+          ;; case reads the ambiguity record and the traces that carry the
+          ;; navigation's event vector.
           (reset! seen [])
           (let [traces               (navigate-tracing! path-url)
                 [record :as records] (ambiguities @seen)
-                ambiguity-traces     (filterv #(= :rf.error/ambiguous-registration (:operation %))
-                                              traces)]
+                event-vectors        (filterv #(= :rf.route/handle-url-change (first %))
+                                              (keep #(get-in % [:tags :rf.event/v]) traces))]
             (is (= :rf.route/not-found (current-route-id :probe/frame)))
             (is (= 1 (count records)))
             (is (= [:rf.route/handle-url-change "/reset/rf%2Fredacted?plain=rf/redacted"]
                    (:event record)))
             (is (not (str/includes? (pr-str record) path-secret)))
             (when rf.interop/debug-enabled?
-              (is (= 1 (count ambiguity-traces)))
-              (is (not (str/includes? (pr-str ambiguity-traces) path-secret))))))))))
+              (is (seq event-vectors) "control: the traces carry the event vector")
+              (is (not (str/includes? (pr-str event-vectors) path-secret))))))))))
