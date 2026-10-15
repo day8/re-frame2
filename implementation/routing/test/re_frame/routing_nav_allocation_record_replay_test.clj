@@ -1,21 +1,5 @@
 (ns re-frame.routing-nav-allocation-record-replay-test
-  "Nav-token / pending-nav-id as RECORDABLE allocation coeffects.
-
-  Routing mints `:nav-token` and the pending-nav `:id` and writes them DURABLY
-  to runtime-db. Minted from an unrecorded host-cache read, replay would
-  re-mint DIFFERENT ids: a recorded `[:rf.route/continue \"pn-1\"]` would no-op
-  against a re-minted \"pn-2\", and a continuation carrying \"nav-1\" would flip
-  between stale and current. So the ids ride two recordable, generator-backed
-  coeffects —
-    `:rf.route/nav-allocation         {:token \"nav-N\" :counter N}`
-    `:rf.route/pending-nav-allocation {:id    \"pn-N\"  :counter N}`
-  — which strict replay re-presents verbatim, whose `:counter` the commit fx
-  folds into the host high-water mark with `max`, and whose `:schema` refuses
-  a malformed recorded value before the handler writes it.
-
-  Every assertion reads runtime-db or a thrown error, so the namespace runs
-  unguarded in the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane)."
+  "Recorded routing allocations replay verbatim, advance live counters and reject malformed records."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
