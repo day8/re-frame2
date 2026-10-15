@@ -81,15 +81,20 @@
         (rf.trace.tooling/unregister-listener! ::released-handoff)
         (rf.registrar/unregister! :event actor-id)))))
 
-(deftest spawn-classification-lowering-loss-fences-start-dispatch
+(deftest spawn-classification-lowering-loss-fences-lifecycle-spawned
   ;; A loss during `lower-at-spawn!`: the spawn rechecks ownership after it, so
-  ;; A's ghost child never sends its `:start` bootstrap dispatch into B.
+  ;; A's ghost child announces no `:rf.machine.lifecycle/spawned` against B and
+  ;; sends no `:start` bootstrap dispatch into it.
   (rf/reg-machine actor-type (actor-spec nil))
   (let [frame-a        :rf2-rbxdxa/spawn-class-frame
         fired?         (atom false)
         dispatches     (atom [])
+        spawned        (atom 0)
         orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (rf/make-frame {:id frame-a})
+    (rf.trace.tooling/register-listener!
+      ::lifecycle-spawned
+      (fn [ev] (when (= :rf.machine.lifecycle/spawned (:operation ev)) (swap! spawned inc))))
     (try
       ;; Capture (never route) the bootstrap dispatch, so no async drain races
       ;; the assertion.
@@ -106,9 +111,10 @@
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                                            {:machine-id actor-type
                                                             :start      [:go]})))))
-      (is (= [true []] [@fired? @dispatches])
-          "the loss happened, and no :start dispatch followed it")
+      (is (= [true 0 []] [@fired? @spawned @dispatches])
+          "the loss happened, and neither the lifecycle trace nor :start followed it")
       (finally
+        (rf.trace.tooling/unregister-listener! ::lifecycle-spawned)
         (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))
 
 (defn- finishing-machine [frame-id]
