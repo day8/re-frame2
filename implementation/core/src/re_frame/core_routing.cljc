@@ -2,15 +2,13 @@
   "Public-API wrappers for the optional routing artefact (Spec 012).
   Implementation ships in `day8/re-frame2-routing` (`re-frame.routing`).
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private routing-artefact
-  {:error-keyword :rf.error/routing-artefact-missing
-   :maven         "day8/re-frame2-routing"
-   :require-ns    "re-frame.routing"})
+(def ^:private routing-artefact (artefact-info :routing))
 
 ;; `match-url` and `route-url` are NOT
 ;; facade exports. The tiering rule is reg-* macros

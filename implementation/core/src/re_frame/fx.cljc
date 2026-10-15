@@ -21,6 +21,7 @@
   artefact don't carry the trace strings or the handler for them."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -463,12 +464,13 @@
   arm, and the rest of the `:fx` walk continues."
   [hook-key fx-id flow-id]
   (or (rf.late-bind/get-fn hook-key)
-      (rf.error/throw-error!
-        :rf.error/flows-artefact-missing
-        're-frame.fx
-        (str "The `" fx-id "` effect requires day8/re-frame2-flows on the "
-             "classpath; add it to deps and require re-frame.flows at app boot.")
-        {:extra {:flow-id flow-id}})))
+      (let [{maven :maven require-ns :require} (:flows rf.features/feature-registry)]
+        (rf.error/throw-error!
+          :rf.error/flows-artefact-missing
+          're-frame.fx
+          (str "The `" fx-id "` effect requires " maven " on the classpath; "
+               "add it to deps and require " require-ns " at app boot.")
+          {:extra {:flow-id flow-id}}))))
 
 ;; ---- the reserved-fx source policy ----------------------------------------
 ;;

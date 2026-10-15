@@ -10,15 +10,13 @@
   already names the artefact namespace and reaches those reads at home.
 
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private ssr-artefact
-  {:error-keyword :rf.error/ssr-artefact-missing
-   :maven         "day8/re-frame2-ssr"
-   :require-ns    "re-frame.ssr"})
+(def ^:private ssr-artefact (artefact-info :ssr))
 
 ;; -reg-error-projector / -reg-head carry an explicit `:where` because the
 ;; wrapper-name leads with `-` (private-helper convention) but the user-

@@ -14,15 +14,13 @@
 
   Every wrapper that names a frame takes its id or the frame value
   `rf/make-frame` returns."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private epoch-artefact
-  {:error-keyword :rf.error/epoch-artefact-missing
-   :maven         "day8/re-frame2-epoch"
-   :require-ns    "re-frame.epoch"})
+(def ^:private epoch-artefact (artefact-info :epoch))
 
 (defwrapper epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-

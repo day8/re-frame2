@@ -8,15 +8,13 @@
   through the late-bind hook registry at call time; an app that omits the
   artefact sees a structured `:rf.error/resources-artefact-missing`
   ex-info naming the exact Maven coordinate + require form."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private resources-artefact
-  {:error-keyword :rf.error/resources-artefact-missing
-   :maven         "day8/re-frame2-resources"
-   :require-ns    "re-frame.resources"})
+(def ^:private resources-artefact (artefact-info :resources))
 
 (defwrapper reg-resource
   "Per Spec 016 §Public API §Registration. Register a resource — a named,

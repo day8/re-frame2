@@ -7,15 +7,13 @@
   classpath — apps that want to drop the ~24 KB gzipped Malli surface
   omit the artefact and either substitute another validator or skip
   schema validation entirely."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private schemas-artefact
-  {:error-keyword :rf.error/schemas-artefact-missing
-   :maven         "day8/re-frame2-schemas"
-   :require-ns    "re-frame.schemas"})
+(def ^:private schemas-artefact (artefact-info :schemas))
 
 ;; ONE FRAME SPELLING. The three side-table READS each take a
 ;; single opts MAP with a REQUIRED `:frame` — no ambient default, no trailing
