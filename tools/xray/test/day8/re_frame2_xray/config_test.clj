@@ -48,11 +48,9 @@
   (testing "configure! gates on key PRESENCE, so an explicit nil resets
             exactly like set-editor! nil does"
     (config/configure! {:rf.xray/editor :cursor})
-    (is (= :cursor (config/get-editor)))
-    (is (true? (config/editor-configured?)))
+    (is (= [:cursor true] [(config/get-editor) (config/editor-configured?)]))
     (config/configure! {:rf.xray/editor nil})
-    (is (= :vscode (config/get-editor)))
-    (is (false? (config/editor-configured?)))))
+    (is (= [:vscode false] [(config/get-editor) (config/editor-configured?)]))))
 
 (deftest configure-leaves-absent-keys-untouched
   (let [seed {:in [{:pattern :seeded}] :out []}]
@@ -113,19 +111,16 @@
   (config/configure!
     {:rf.xray/settings {:general {:text-size             20
                                   :event-list-col-widths {:source 100}}}})
-  (is (= 20 (config/get-setting :general :text-size)))
-  (is (= :right-rail (config/get-setting :general :panel-position))
-      "an untouched sibling in :general keeps the default")
-  (is (= :light (config/get-setting :theme nil))
-      "an untouched top-level section keeps the default")
-  (is (= {:source 100 :timestamp 76 :duration 60}
-         (config/get-setting :general :event-list-col-widths))
-      "the merge is DEEP"))
+  (is (= [20 :right-rail :light {:source 100 :timestamp 76 :duration 60}]
+         [(config/get-setting :general :text-size)
+          (config/get-setting :general :panel-position)
+          (config/get-setting :theme nil)
+          (config/get-setting :general :event-list-col-widths)])))
 
 (deftest configure-settings-recomputes-rather-than-accumulating
   (testing "a second configure! replaces the seed rather than layering on
             the first one's result"
     (config/configure! {:rf.xray/settings {:general {:text-size 20}}})
     (config/configure! {:rf.xray/settings {:theme :dark}})
-    (is (= :dark (config/get-setting :theme nil)))
-    (is (= 13 (config/get-setting :general :text-size)))))
+    (is (= [:dark 13] [(config/get-setting :theme nil)
+                       (config/get-setting :general :text-size)]))))
