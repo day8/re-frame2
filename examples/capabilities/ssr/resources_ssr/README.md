@@ -95,8 +95,10 @@ per-request, and the wire payload stays minimal.
   fail-closed policy (`apply-policy`) the real Ring host uses. It ships
   `{}` here — on this page the resource is the state and app-db carries
   nothing of its own — but fail-closed means even "send nothing" must be
-  said out loud, so the code opts in with `:rf.ssr.payload/whole-app-db`
-  rather than passing an empty allowlist (which would throw).
+  said out loud, so the code passes an empty allowlist, `:payload []`.
+  That beats opting in with `:rf.ssr.payload/whole-app-db`, which sends
+  `{}` only while app-db stays empty: once server code puts state there,
+  the opt-in ships all of it and `[]` still ships nothing.
 
 - No double-fetch on the client — the payoff. On the browser side the
   framework's `:rf/hydrate` installs the projection into the client

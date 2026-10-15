@@ -231,7 +231,7 @@ Its `opts`:
 | Key | Meaning |
 | --- | --- |
 | `:hiccup` | **required.** The root Hiccup form |
-| `:payload` | **required.** Which app-db state is sent to the client: a non-empty vector of top-level app-db keys, or `:rf.ssr.payload/whole-app-db`. Omitting it raises `:rf.error/ssr-missing-payload-policy` |
+| `:payload` | **required.** Which app-db state is sent to the client: a vector of top-level app-db keys (an empty `[]` sends nothing), or `:rf.ssr.payload/whole-app-db`. Omitting it raises `:rf.error/ssr-missing-payload-policy` |
 | `:snapshot` | a map seeded whole through `:rf/set-db` |
 | `:initial-events` | ordinary events, run after the snapshot |
 | `:client-frame-id` | the stable wire `:rf/frame-id`, or absent to omit the key |
