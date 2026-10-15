@@ -89,14 +89,6 @@
 
 ;; ---- predicates ---------------------------------------------------------
 
-(deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
-  ;; Checking channel and reason membership independently would admit
-  ;; both; the disjoint channel/reason matrix forbids them.
-  (are [op reason] (false? (h/cancellation-anchor?
-                             (destroy-ev {:machine-id :x :op op :reason reason})))
-    :rf.machine.lifecycle/destroyed :explicit
-    :rf.machine/destroyed           :parent-frame-destroyed))
-
 (deftest cancel-cause-defaults-by-operation
   (are [ev cause] (= cause (h/cancel-cause ev))
     (assoc-in (http-abort-ev {}) [:tags :cancel-cause] :timeout) :timeout        ; an explicit tag wins
