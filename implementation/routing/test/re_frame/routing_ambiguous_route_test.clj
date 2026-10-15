@@ -169,10 +169,9 @@
               (is (not (str/includes? (pr-str traces) query-secret))
                   "no trace the navigation emits carries the declared secret"))))
         (testing "a declared path param"
-          ;; The route-miss telemetry the same navigation emits projects its
-          ;; URL by the carrier policy alone, which keeps the path, so this
-          ;; case reads the ambiguity record and the traces that carry the
-          ;; navigation's event vector.
+          ;; This case reads the ambiguity record and the traces that carry
+          ;; the navigation's event vector; the route-miss telemetry of the
+          ;; same navigation is the next deftest's subject.
           (reset! seen [])
           (let [traces               (navigate-tracing! path-url)
                 [record :as records] (ambiguities @seen)
@@ -186,3 +185,47 @@
             (when rf.interop/debug-enabled?
               (is (seq event-vectors) "control: the traces carry the event vector")
               (is (not (str/includes? (pr-str event-vectors) path-secret))))))))))
+
+(def ^:private route-miss-operations
+  "What a navigation that fails closed to `:rf.route/not-found` with no such
+  route registered reports on the trace bus when `match-url` throws: the route
+  miss and both route-miss warnings."
+  #{:rf.error/no-such-handler :rf.warning/malformed-url :rf.warning/no-not-found-route})
+
+(defn- route-misses
+  "The always-on `:rf.error/no-such-handler` records in `records`."
+  [records]
+  (filterv #(= :rf.error/no-such-handler (:error %)) records))
+
+(deftest route-miss-telemetry-projects-an-ambiguous-route-url
+  ;; The navigation that fails closed on an ambiguous route also reports a
+  ;; route miss: the always-on `:rf.error/no-such-handler` record, and on the
+  ;; trace bus that error and the route-miss warnings. Each carries the
+  ;; requested URL, projected as the ambiguity record projects it.
+  (with-recorded-errors
+    (fn [seen]
+      (register-sensitive-routes-in! 'probe.routes-a)
+      (rf/make-frame {:id :probe/frame})
+      (register-sensitive-routes-in! 'probe.routes-b)
+      (testing "a declared path param of an ambiguous route"
+        (let [traces      (navigate-tracing! (str "/reset/" path-secret "?plain=x"))
+              miss-traces (filterv #(contains? route-miss-operations (:operation %)) traces)]
+          (is (= ["/reset/rf%2Fredacted?plain=rf/redacted"] (mapv :url (route-misses @seen)))
+              "the always-on route-miss record carries the URL redacted")
+          (is (not (str/includes? (pr-str @seen) path-secret))
+              "no always-on record carries the declared secret")
+          (when rf.interop/debug-enabled?
+            (is (= route-miss-operations (set (map :operation miss-traces)))
+                "control: the trace bus carries the route miss and both warnings")
+            (is (= #{"/reset/rf%2Fredacted?plain=rf/redacted"}
+                   (set (map #(get-in % [:tags :url]) miss-traces)))
+                "every route-miss trace carries the URL redacted"))))
+      (testing "control: a URL no route matches keeps its path"
+        (reset! seen [])
+        (let [traces (navigate-tracing! "/elsewhere/kept-segment?plain=x")]
+          (is (= ["/elsewhere/kept-segment?plain=rf/redacted"] (mapv :url (route-misses @seen))))
+          (when rf.interop/debug-enabled?
+            (is (= ["/elsewhere/kept-segment?plain=rf/redacted"]
+                   (keep #(when (= :rf.warning/no-not-found-route (:operation %))
+                            (get-in % [:tags :url]))
+                         traces)))))))))
