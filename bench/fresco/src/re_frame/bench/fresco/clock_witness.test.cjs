@@ -1,25 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE PER-KEYSTROKE WITNESS'S FIXTURES, IN A GATE.
-//
-//     node src/re_frame/bench/fresco/clock_witness.test.cjs   (from bench/fresco/)
-//
-// `clock_witness.cjs` decides whether the keystroke row's `n` means anything.
-// Grouping Event Timing entries by `${interactionId || 0}` inside an
-// already-known physical sample would make the zero-id `beforeinput`/`input`
-// entries a second pseudo-interaction and publish 60 keys as 109-115
-// "interactions". Nothing would go red. Nothing could — the only way to run
-// that arithmetic would be to open a browser and read a console line.
-//
-// So the adjudicator's own refusals run in the lane's `npm run check`, beside
-// `lane_build.test.cjs`, and this file is what makes a mutation to the
-// grouping go red in seconds rather than in a bench run nobody schedules.
-//
-// The self-test lives in the module rather than here, so `clock_run.cjs` runs
-// the same fixtures on every invocation before it launches Chromium. This file
-// is the GATE over them — their fixture count included, so a fixture cannot go
-// quietly — plus the censoring rate an arm publishes, which the fixtures do not
-// check.
+// Run the driver fixtures and check that missing entries publish their censoring rate.
 
 const assert = require('node:assert');
 
