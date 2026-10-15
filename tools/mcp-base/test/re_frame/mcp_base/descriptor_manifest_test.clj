@@ -1,15 +1,10 @@
 (ns re-frame.mcp-base.descriptor-manifest-test
-  "Tests for the shared tool-descriptor manifest serialiser and drift
-  check that both MCP servers' generators call. The algorithm is
-  platform-agnostic `.cljc`, pinned here on the JVM."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [re-frame.mcp-base.descriptor-manifest :as rf.mcp-base.descriptor-manifest]))
 
 (def ^:private sample-descriptors
-  "Two descriptors in the registry shape both servers emit, covering every
-  governed slot."
   [{:name        "beta"
     :description "Second tool."
     :inputSchema {:type "object"
@@ -26,13 +21,7 @@
     :annotations  {:destructiveHint true :openWorldHint true}
     :typicalTokens 300}])
 
-;; ---------------------------------------------------------------------------
-;; Row projection
-;; ---------------------------------------------------------------------------
-
 (deftest descriptor->row-projects-stable-shape
-  ;; Keys are stringified and sorted; absent optional slots render empty,
-  ;; false or nil so every row has the same shape.
   (are [descriptor row] (= row (rf.mcp-base.descriptor-manifest/descriptor->row descriptor))
     (first sample-descriptors)
     {:name "beta" :description "Second tool." :input-keys ["cursor" "limit"] :gated-input-keys []
@@ -48,22 +37,17 @@
      :required [] :output? false :annotations [] :typicalTokens nil}))
 
 (deftest descriptor->row-rejects-required-not-subset-of-input-keys
-  ;; :required and :input-keys come from independent descriptor slots, so a
-  ;; required key missing from :properties is rejected rather than emitted
-  ;; as a self-inconsistent row.
   (let [bad  {:name        "broken"
-              :description "Names a required arg it does not declare."
               :inputSchema {:type "object"
                             :properties {:known {:type "string"}}
                             :required ["missing"]}}
-        data (ex-data (is (thrown? clojure.lang.ExceptionInfo
-                                   (rf.mcp-base.descriptor-manifest/descriptor->row bad))))]
+        data (try
+               (rf.mcp-base.descriptor-manifest/descriptor->row bad)
+               (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (= {:tool "broken" :missing ["missing"] :input-keys ["known"]}
            (select-keys data [:tool :missing :input-keys])))))
 
 (def ^:private gated-descriptor
-  "story-mcp's shape: the raw descriptor carries `:include-sensitive`,
-  which the default `tools/list` profile strips behind an operator gate."
   {:name        "preview-variant"
    :description "Surfaces a live app-db slice."
    :inputSchema {:type "object"
@@ -76,9 +60,6 @@
    :typicalTokens 2000})
 
 (deftest gated-keys-marks-the-gated-subset
-  ;; :input-keys stays the full gate-open surface; :gated-input-keys is the
-  ;; part the default profile strips, the gated set intersected with the
-  ;; keys the tool really has. The manifest builder threads the set through.
   (is (= {:input-keys ["include-sensitive" "max-tokens" "variant-id"] :gated-input-keys ["include-sensitive"]}
          (select-keys (first (:tools (rf.mcp-base.descriptor-manifest/build-manifest
                                        :story-mcp [gated-descriptor] #{"include-sensitive"})))
@@ -89,13 +70,7 @@
     gated-descriptor            #{}                    []
     gated-descriptor            nil                    []))
 
-;; ---------------------------------------------------------------------------
-;; Deterministic emission
-;; ---------------------------------------------------------------------------
-
 (deftest render-edn-round-trips-as-data
-  ;; Every row slot, a nil :typicalTokens included, reads back as the value
-  ;; rendered, and the rows are sorted by name.
   (let [m      (rf.mcp-base.descriptor-manifest/build-manifest
                  :test (conj sample-descriptors {:name "gamma" :description "d" :inputSchema {:type "object"}}))
         parsed (edn/read-string (rf.mcp-base.descriptor-manifest/render-edn m))]
@@ -103,16 +78,10 @@
     (is (= m parsed))))
 
 (deftest render-edn-one-row-per-line
-  ;; One tool row per line keeps diffs surgical; LF endings keep the
-  ;; committed file byte-identical on every host.
   (let [text (rf.mcp-base.descriptor-manifest/render-edn
                (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors))]
     (is (not (str/includes? text "\r")))
     (is (= 2 (count (filter #(str/includes? % "{:name ") (str/split-lines text)))))))
-
-;; ---------------------------------------------------------------------------
-;; Drift-check
-;; ---------------------------------------------------------------------------
 
 (deftest check-tolerates-crlf-committed
   ;; A CRLF working-tree checkout must not read as drift.
@@ -120,11 +89,6 @@
         lf (rf.mcp-base.descriptor-manifest/render-edn m)]
     (is (= {:ok? true :added [] :removed [] :changed []}
            (rf.mcp-base.descriptor-manifest/check m lf (str/replace lf "\n" "\r\n"))))))
-
-;; ---------------------------------------------------------------------------
-;; Drift-report formatting — the shared, pure diagnostic body. The two
-;; server-specific strings are injected by each generator.
-;; ---------------------------------------------------------------------------
 
 (def ^:private wording
   {:regenerate-line   "Regenerate with: <server command>"
@@ -136,8 +100,6 @@
          (set rf.mcp-base.descriptor-manifest/governed-slots))))
 
 (deftest drift-report-lines-missing-file
-  ;; A missing committed file fails the check and reports every generated
-  ;; tool as added, under the consumer's missing-file header.
   (let [m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
         res (rf.mcp-base.descriptor-manifest/check m (rf.mcp-base.descriptor-manifest/render-edn m) nil)]
     (is (= {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true} res))
@@ -149,8 +111,6 @@
            (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)))))
 
 (deftest drift-report-lines-structurally-broken-committed
-  ;; An unparseable committed file has no readable rows, so every generated
-  ;; tool reports as added under the differs header, with nothing changed.
   (let [m     (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
         edn   (rf.mcp-base.descriptor-manifest/render-edn m)
         res   (rf.mcp-base.descriptor-manifest/check m edn "this is not { valid edn")
@@ -163,8 +123,6 @@
            lines))))
 
 (deftest drift-report-lines-malformed-fallback
-  ;; Same tool set but the byte comparison failed (banner / meta drift):
-  ;; the fallback hint fires instead of an empty body.
   (let [res   {:ok? false :added [] :removed [] :changed []}
         lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
     (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
@@ -173,9 +131,6 @@
            lines))))
 
 (deftest drift-report-lines-end-to-end-from-check
-  ;; The formatter consumes a real `check` result: alpha gains an input
-  ;; key and a new typicalTokens and beta is dropped, reported in canonical
-  ;; block order with one `<slot>: <old> -> <new>` line per drifting slot.
   (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
         committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
         alpha+        (-> (second sample-descriptors)
