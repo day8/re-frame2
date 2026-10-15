@@ -1,17 +1,11 @@
 (ns re-frame.ssr-error-two-frame-attribution-test
-  "Per-frame error attribution with TWO live server frames — the concurrent
-  SSR shape, where one request's error must stamp its own response and no
-  sibling's. An error routes by the frame its record names and never
-  guesses; with one frame live a guess would succeed, so these tests keep two.
-
-  The navigate-reject trigger is boundary validation, which is elided under
-  `-Dre-frame.debug=false` (Spec 010 §Production builds), so those two tests
-  sit in `debug-enabled?` arms. The throwing-handler test pins the same
-  contract on the always-on path in both postures."
+  "Errors stamp only their emitting server frame. Route-parameter validation
+  runs in dev; handler exceptions project in both postures."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
             [re-frame.ssr :as rf.ssr]
@@ -37,10 +31,10 @@
                 "/articles/:id")
   (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _url] nil)))
 
-(defn- server-frame [frame-id]
-  (rf/make-frame {:id frame-id :platform :server
-                  :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}})
-  frame-id)
+(defn- server-frame []
+  (rf.frame/make-anon-frame-record!
+    {:platform :server
+     :ssr {:public-error-id :rf.ssr/default-error-projector :dev-error-detail? false}}))
 
 (defn- status [frame-id] (:status (:response (rf.ssr/flush-response-result! frame-id))))
 
@@ -49,27 +43,17 @@
     (let [restore (with-stub-validator)]
       (try
         (register-routes-and-fx!)
-        (let [fa (server-frame :ssr/req-a)
-              fb (server-frame :ssr/req-b)]
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}] {:frame fa})
-          (is (= [400 200] [(status fa) (status fb)])))
-        (finally (restore))))))
-
-(deftest two-server-frames-navigate-reject-attributes-each-frame-independently
-  (when rf.interop/debug-enabled?
-    (let [restore (with-stub-validator)]
-      (try
-        (register-routes-and-fx!)
-        (let [fa (server-frame :ssr/req-a)
-              fb (server-frame :ssr/req-b)]
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}] {:frame fb})
-          (is (= [200 400] [(status fa) (status fb)])))
+        (doseq [[emitter expected] [[0 [400 200]] [1 [200 400]]]]
+          (let [frames [(server-frame) (server-frame)]]
+            (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
+                              {:frame (nth frames emitter)})
+            (is (= expected (mapv status frames)))))
         (finally (restore))))))
 
 (deftest always-on-handler-exception-attributes-each-frame-independently
   (rf/reg-event :boom/throw (fn [_ _] (throw (ex-info "handler boom" {}))))
-  (let [fa (server-frame :ssr/req-a)
-        fb (server-frame :ssr/req-b)]
+  (let [fa (server-frame)
+        fb (server-frame)]
     (rf/dispatch-sync [:boom/throw] {:frame fa})
     (is (= [500 200] [(status fa) (status fb)]))
     (rf/dispatch-sync [:boom/throw] {:frame fb})
