@@ -45,6 +45,7 @@
             [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
+            [re-frame.features :as rf.features]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -810,7 +811,8 @@
   [recognised?]
   (when-not recognised?
     (throw (ex-info
-             (str "day8/re-frame2-epoch requires a re-frame core whose "
+             (str (:maven (:epoch rf.features/feature-registry))
+                  " requires a re-frame core whose "
                   "rf/project-egress dispatches :kind :rf/epoch-record. This "
                   "core does not recognise that record kind, so it would read "
                   "every epoch record as a kindless VALUE and walk it from "
