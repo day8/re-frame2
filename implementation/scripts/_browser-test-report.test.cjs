@@ -49,25 +49,17 @@ test('ran-count parser exposes the executed-test count (rf2-qqzmf)', () => {
       'Ran 12 tests containing 34 assertions.',
       'Ran 0 tests containing 0 assertions.',
       'Ran 1 test containing 1 assertion.',
+      null, '0 failures, 0 errors.', 'Ran some tests',
     ].map(parseRanCounts),
-    [{ tests: 12, assertions: 34 }, { tests: 0, assertions: 0 }, { tests: 1, assertions: 1 }],
+    [{ tests: 12, assertions: 34 }, { tests: 0, assertions: 0 }, { tests: 1, assertions: 1 }, null, null, null],
   );
-});
-
-// null is not "zero tests": the runner treats an unparseable summary as its own failure.
-test('ran-count parser returns null for unparseable / null input (rf2-qqzmf)', () => {
-  assert.deepEqual([null, '0 failures, 0 errors.', 'Ran some tests'].map(parseRanCounts), [null, null, null]);
-});
-
-// A null here is run-browser-tests.cjs's "could not parse; failing the run" guard.
-test('failure count parser returns null for unparseable / null input', () => {
-  assert.deepEqual([null, 'Ran 3 tests containing 5 assertions.'].map(parseFailureCounts), [null, null]);
 });
 
 test('failure count parser reads failures and errors independently', () => {
   assert.deepEqual(
-    ['0 failures, 0 errors.', '1 failures, 0 errors.', '0 failures, 3 errors.'].map(parseFailureCounts),
-    [{ failures: 0, errors: 0 }, { failures: 1, errors: 0 }, { failures: 0, errors: 3 }],
+    ['0 failures, 0 errors.', '1 failures, 0 errors.', '0 failures, 3 errors.',
+      null, 'Ran 3 tests containing 5 assertions.'].map(parseFailureCounts),
+    [{ failures: 0, errors: 0 }, { failures: 1, errors: 0 }, { failures: 0, errors: 3 }, null, null],
   );
 });
 
