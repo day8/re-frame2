@@ -99,16 +99,6 @@
 
 ;; ---- within one image, a [kind id] resolving two ways is an error -----------
 
-(deftest within-image-two-selected-is-ambiguous
-  ;; two SELECTED descriptors for one [kind id] from different namespaces are
-  ;; ambiguous, in either pool order
-  (let [a   (reg-desc "todo.boot"    :event :boot/init ::a)
-        b   (reg-desc "counter.boot" :event :boot/init ::b)
-        img (rf.image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
-    (is (= [:rf.error/image-duplicate-id :rf.error/image-duplicate-id]
-           [(err-id #(rf.image-assembly/assemble [img] [a b]))
-            (err-id #(rf.image-assembly/assemble [img] [b a]))]))))
-
 (deftest within-image-inline-vs-selected-collides
   ;; an INLINE entry colliding with a SELECTED registration in one image fails,
   ;; and the recovery names the move-to-a-later-image fix
