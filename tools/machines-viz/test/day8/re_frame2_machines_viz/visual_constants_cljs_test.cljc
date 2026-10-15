@@ -17,9 +17,8 @@
       (is (every? number? (vals m))))))
 
 (deftest chart-typography-meets-chart-floor
-  (testing "the regular density sits at the published chart floor, state 13 / edge 11"
-    (is (= 13 (:state-title-px vc/chart)))
-    (is (= 11 (:edge-label-px vc/chart)))))
+  (is (= {:state-title-px 13 :edge-label-px 11}
+         (select-keys vc/chart [:state-title-px :edge-label-px]))))
 
 (deftest chart-arrowhead-quiet-smaller-than-primary
   (testing "the quiet `__in` head < the entry head < the primary `__out` head, so
