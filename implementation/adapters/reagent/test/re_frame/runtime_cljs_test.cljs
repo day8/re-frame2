@@ -1,31 +1,14 @@
 (ns re-frame.runtime-cljs-test
-  "CLJS-side smoke tests. Verifies the JVM-shared API (events, subs,
-  dispatch, registry) works under the Reagent reactive substrate AND
-  exercises the CLJS-only macros from re-frame.core."
+  "Reagent runtime contracts: scope, propagation, cache tooling, Context values and reactive epoch restore."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            ;; Sub-cache-snapshot lives in re-frame.subs.tooling.
             [re-frame.subs.tooling :as rf.subs.tooling]
-            ;; reg-runtime-sub (framework runtime-db sub) is an
-            ;; internal subs surface, not on the rf/ facade — required for
-            ;; the two-partition projection-equality invalidation pins below.
             [re-frame.subs :as rf.subs]
             [re-frame.machines]
-            ;; Loaded for its load-time hook and sub registrations.
             [re-frame.routing]
-            ;; Flows ships in day8/re-frame2-flows.
-            ;; Required here so its load-time hook registrations
-            ;; fire before this ns's reg-flow call.
             [re-frame.flows]
             [re-frame.ssr]
-            ;; Epoch ships in day8/re-frame2-epoch.
-            ;; Required here so its load-time hook publications
-            ;; (`:epoch/settle!`, `:epoch/capture-event`,
-            ;; `:epoch/epoch-history`, `:epoch/restore-epoch!`,
-            ;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`)
-            ;; fire before the restore-* tests
-            ;; below reach into the late-bind table at call time.
             [re-frame.epoch]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -33,17 +16,9 @@
   (:require-macros [re-frame.core :refer [with-frame with-new-frame
                                           reg-view]]))
 
-;; Snapshot/restore the registrar around each test. Wiping the
-;; registrar with clear-all! is hostile to CLJS test isolation: framework
-;; events / subs registered at ns-load (re-frame.routing, re-frame.machines)
-;; and example apps (nine-states.core) cannot be re-loaded under CLJS, so
-;; once cleared they're gone for the rest of the test run. Snapshot/restore
-;; preserves them while still rolling back per-test registrations.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
-
-;; ---- with-frame macro -------------------------------------------------------
 
 (deftest with-frame-binds-current-frame
   (testing "with-frame :foo binds *current-frame* in the body"
@@ -51,44 +26,19 @@
       (is (= :left (rf/current-frame-id))))
     (testing "with-new-frame [sym expr] binds the symbol AND the dynamic var"
       (with-new-frame [f :right]
-        (is (= :right f))
-        (is (= :right (rf/current-frame-id))))))
-  ;; NOT a resolver fallback. `current-frame-id` has no `:rf/default`
-  ;; floor — read with no scope in effect at all it RAISES
-  ;; `:rf.error/no-frame-context` (EP-0002). It reads `:rf/default` here
-  ;; because this ns's `make-reset-runtime-fixture` (above) installs an
-  ;; adapter and does NOT pass `:ambient-frame`, so the fixture binds its
-  ;; default ambient scope — `:rf/default` — around every test body. What
-  ;; this row pins is that the two `with-frame` scopes above UNWIND back
-  ;; to that ambient scope, not that absence resolves to anything.
+        (is (= [:right :right] [f (rf/current-frame-id)])))))
   (testing "after the with-frame scopes unwind, the dynamic var is back to
             the fixture's ambient scope (:rf/default)"
     (is (= :rf/default (rf/current-frame-id)))))
 
-
-;; ---- (rf/view id) — runtime-lookup handle ----------------------
-;; Per Spec 001 §(re-frame.core/view id): render trees use Vars; runtime
-;; lookups use ids. (rf/view id) is the
-;; id-keyed lookup handle that returns the registered render fn (whatever
-;; shape) or nil if not registered.
-
 (deftest view-returns-registered-fn
   (testing "(rf/view :id) returns the registered render fn after reg-view"
     (reg-view ^{:rf/id :my.ns/my-view} my-view [] [:p "body"])
-    ;; Per Spec 006 §Source-coord annotation, the wrapper
-    ;; splices :data-rf2-source-coord into the root attrs map under
-    ;; interop/debug-enabled?. The view's body content remains
-    ;; structurally the registered hiccup (root tag, children).
     (let [out ((rf/view :my.ns/my-view))]
       (is (= [:p ["body"]] [(first out) (drop 2 out)])
           "root tag and children preserved by the wrapper")))
   (testing "(rf/view :nope) is nil for an unregistered id (no error)"
     (is (nil? (rf/view :nope/not-registered)))))
-
-;; ---- frame isolation ------------------------------------------------------
-
-
-;; ---- flows ----------------------------------------------------------------
 
 (deftest flow-recomputes
   (testing "a flow recomputes when its inputs change"
@@ -100,18 +50,6 @@
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
     (is (= 12 (:area (rf/app-db-value :rf/default))))))
-
-
-;; ---- subscription topology: glitch-freedom -------------------------------
-;;
-;; A glitch is a transient inconsistent state visible to a downstream sub
-;; during propagation — e.g., a layer-2 sub reading two layer-1 inputs
-;; momentarily seeing "new A + old B" before the second input updates.
-;; Per Spec 006 §Recompute on container replacement: layer-1 settles
-;; before layer-2 fires; the cascade respects the static declared-input topology.
-;; In the CLJS reference this is delegated to Reagent's reaction queue,
-;; which schedules dependents in topological order. These tests pin
-;; that property empirically against the diamond and chain shapes.
 
 (deftest sub-topology-glitch-free-diamond
   (testing "diamond: app-db -> {a,b} -> c — c never sees a half-propagated state"
@@ -126,12 +64,9 @@
     (rf/dispatch-sync [:diamond/init])
     (let [c-reaction (rf/subscribe [:diamond/c])
           history    (atom [])]
-      ;; Install the watch BEFORE the first deref so Reagent installs the
-      ;; dep-tracking watches on :diamond/a and :diamond/b reactions.
       (add-watch c-reaction ::observer
                  (fn [_ _ _ new-v] (swap! history conj new-v)))
       (swap! history conj @c-reaction)              ;; capture initial
-      ;; Mutate both :x and :y in a single reset!.
       (rf/dispatch-sync [:diamond/swap])
       (r/flush)
       @c-reaction                                   ;; force lazy recompute
@@ -181,19 +116,15 @@
         @r
         (let [a-baseline       @a-runs
               squared-baseline @squared-runs]
-          ;; Each row reads [value layer-1-runs layer-2-runs].
-          ;; Value-equal app-db replacement: neither body should re-run.
           (rf/dispatch-sync [:stable/touch-unrelated])
           (r/flush)
           @r
           (is (= [25 a-baseline squared-baseline] [@r @a-runs @squared-runs])
               "a value-equal app-db replacement keeps the value and re-runs neither body")
-          ;; Real change: each body should run exactly once more.
           (rf/dispatch-sync [:stable/bump-n])
           (r/flush)
           (is (= [36 (inc a-baseline) (inc squared-baseline)] [@r @a-runs @squared-runs])
               "a real input change updates the value and runs each body exactly once")
-          ;; A second value-equal touch must again be a no-op.
           (rf/dispatch-sync [:stable/touch-unrelated])
           (r/flush)
           @r
@@ -201,26 +132,6 @@
               "a second value-equal replacement keeps the value and suppresses both bodies again"))
         (remove-watch r ::touch)
         (rf/unsubscribe r)))))
-
-;; ---- two-partition projection-equality invalidation (EP-0001 decision #7) -
-;;
-;; Spec 006 §Frame-state container and partition projections: app-db and
-;; runtime-db are PROJECTION REACTIONS over the ONE physical frame-state
-;; container. A runtime-only commit recomputes the app-db projection, finds
-;; it `=`, and MUST NOT propagate to app-db subs (and the converse for an
-;; app-only commit). The plain-atom (JVM) pin lives in
-;; `re-frame.partitioned-commit-test`; on plain-atom the short-circuit rides
-;; on the core sub-cache memoised body (make-derived-value recomputes on
-;; every deref). Under the Reagent reactive substrate the projections are
-;; REAL Reagent Reactions and the layer-1 sub body is a Reaction over the
-;; projection — the SAME contract, a DIFFERENT propagation path. These pin
-;; it under Reagent. UIx carry the parameterised twin in
-;; `re-frame.adapter.react-shared-suite`.
-;;
-;; A framework-authority handler (the `:rf/machine? true` marker the dev
-;; runtime-write diagnostic keys on) emits `:rf.db/runtime` without firing
-;; the diagnostic — mirrors `reg-fw-runtime-handler!` in the plain-atom
-;; suite.
 
 (defn- reg-fw-runtime-handler!
   [id f]
@@ -235,8 +146,6 @@
       (rf/dispatch-sync [:inval/seed-app])
       (rf/reg-sub :inval/app-sub (fn [db _] (swap! runs inc) (:n db)))
       (let [r (rf/subscribe [:inval/app-sub])]
-        ;; Pin the reaction live with a watch so its memoised value persists
-        ;; across the commit (matches sub-correctness-on-value-equal-input).
         (add-watch r ::touch (fn [_ _ _ _] nil))
         @r
         (let [after-prime @runs]
@@ -297,13 +206,11 @@
         @rr
         (let [app-baseline @app-runs
               rt-baseline  @rt-runs]
-          ;; Real app-db change.
           (rf/reg-event :inval/app-write2 (fn [{:keys [db]} _] {:db (update db :n inc)}))
           (rf/dispatch-sync [:inval/app-write2])
           (r/flush)
           (is (= [2 (inc app-baseline) rt-baseline] [@ra @app-runs @rt-runs])
               "a real app-db change re-derives the app sub, re-running its body exactly once and the runtime-db sub body not at all")
-          ;; Real runtime-db change.
           (reg-fw-runtime-handler! :inval/rt-write2
             (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 2}}}))
           (rf/dispatch-sync [:inval/rt-write2])
@@ -315,8 +222,6 @@
         (rf/unsubscribe ra)
         (rf/unsubscribe rr)))))
 
-;; ---- sub-cache -------------------------------------------------
-
 (deftest sub-cache-projects-tool-pair-shape
   (testing "(re-frame.subs.tooling/sub-cache-snapshot frame-id) returns
            {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
@@ -327,13 +232,11 @@
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed])
-    ;; Empty cache is the {} baseline.
     (is (= {} (rf.subs.tooling/sub-cache-snapshot :rf/default))
         "no subs materialised yet → empty map")
     (let [r1 (rf/subscribe [:n])
           r2 (rf/subscribe [:n])
           r3 (rf/subscribe [:name*])]
-      ;; Layer-1 readers carry :input-kind :db / no realized edges.
       (is (= {[:n]     {:value 7     :ref-count 2 :input-kind :db :realized-inputs []}
               [:name*] {:value "ada" :ref-count 1 :input-kind :db :realized-inputs []}}
              (rf.subs.tooling/sub-cache-snapshot :rf/default))
@@ -341,7 +244,6 @@
       (rf/unsubscribe r1)
       (rf/unsubscribe r2)
       (rf/unsubscribe r3))
-    ;; Missing frame yields nil rather than throwing.
     (is (nil? (rf.subs.tooling/sub-cache-snapshot :no-such-frame))
         "missing frame returns nil")))
 
@@ -357,21 +259,9 @@
     (let [r (rf/subscribe [:visible-items])
           snapshot (rf.subs.tooling/sub-cache-snapshot :rf/default)
           entry (get snapshot [:visible-items])]
-      (is (= :static (:input-kind entry))
-          "a declared-input sub is :input-kind :static")
-      (is (= [[:items] [:filter]] (:realized-inputs entry))
-          "static realized inputs are the literal `:inputs` query-vectors in order")
+      (is (= [:static [[:items] [:filter]]]
+             [(:input-kind entry) (:realized-inputs entry)]))
       (rf/unsubscribe r))))
-
-;; ---- live sub-cache algebra view (EP-0014 slice-2) -------------
-;;
-;; Per [spec/Derivations.md] §Static and live graphs + the
-;; `:rf/derivation-node` shape in [spec/Spec-Schemas.md]. The LIVE
-;; counterpart to `sub-algebra-view` (the static, JVM-runnable view): one
-;; algebra node per concrete cached entry, keyed by its query vector, with
-;; the REALIZED `[:sub query-vector]` input edges the static graph cannot
-;; enumerate. CLJS-only / dev-only (DCE'd in production), mirroring
-;; `sub-cache-snapshot`.
 
 (deftest sub-cache-algebra-view-exposes-the-live-node
   (testing "a live sub-cache entry exposes the full ephemeral / on-demand /
@@ -380,25 +270,20 @@
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed-av])
-    ;; Empty cache is the {} baseline.
     (is (= {} (rf.subs.tooling/sub-cache-algebra-view :rf/default))
         "no subs materialised yet → empty map")
     (let [r1   (rf/subscribe [:n])
           r2   (rf/subscribe [:n])
           r3   (rf/subscribe [:name*])
           view (rf.subs.tooling/sub-cache-algebra-view :rf/default)]
-      (is (= 2 (count view))
-          "one algebra node per materialised query-v")
-      ;; The id and the output fact are addressed by the concrete query
-      ;; vector, and ref-count is the lifecycle evidence the cache-entry
-      ;; owner is kept alive.
+
       (let [node-keys [:id :kind :storage :evaluation :lifecycle :materialized?
                        :output :source-form :inputs :input-kind :value :ref-count]]
-        (is (= {:id [:n] :kind :derivation :storage :ephemeral :evaluation :on-demand
-                :lifecycle :subscription-cache-entry :materialized? false
-                :output [:fact [:n]] :source-form {:kind :reg-sub :id :n}
-                :inputs [] :input-kind :db :value 7 :ref-count 2}
-               (select-keys (get view [:n]) node-keys))
+        (is (= [2 {:id [:n] :kind :derivation :storage :ephemeral :evaluation :on-demand
+                   :lifecycle :subscription-cache-entry :materialized? false
+                   :output [:fact [:n]] :source-form {:kind :reg-sub :id :n}
+                   :inputs [] :input-kind :db :value 7 :ref-count 2}]
+               [(count view) (select-keys (get view [:n]) node-keys)])
             "the live [:n] node is the full ephemeral / on-demand / cache-entry algebra node"))
       (rf/unsubscribe r1)
       (rf/unsubscribe r2)
@@ -418,16 +303,12 @@
     (let [r    (rf/subscribe [:visible-items])
           view (rf.subs.tooling/sub-cache-algebra-view :rf/default)
           node (get view [:visible-items])]
-      (is (= :static (:input-kind node)))
-      (is (= [[:sub [:items]] [:sub [:filter]]] (:inputs node))
-          "the static entry's realized edges are its literal `:inputs` query-vectors, lowered to [:sub q]")
+      (is (= [:static [[:sub [:items]] [:sub [:filter]]]]
+             [(:input-kind node) (:inputs node)]))
       (rf/unsubscribe r))))
 
 (deftest sub-cache-algebra-view-lowers-parametric-realized-edges
   (testing "a parametric entry lowers its REALIZED (input-fn query-v) result to [:sub q] edges"
-    ;; This is the load-bearing static/live distinction: the static
-    ;; `sub-algebra-view` reports the :parametric marker; the live view
-    ;; reports the concrete realized [:sub …] edges for THIS query vector.
     (rf/reg-event :seed-av3 (fn [{:keys [db]} _] {:db {:articles {:a1 {:title "T"}}
                                           :comments {:a1 [:c1]}}}))
     (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
@@ -442,102 +323,37 @@
     (let [r    (rf/subscribe [:article/page :a1])
           view (rf.subs.tooling/sub-cache-algebra-view :rf/default)
           node (get view [:article/page :a1])]
-      (is (= [:article/page :a1] (:id node))
-          "the live node id is the concrete parametric query vector")
-      (is (= :parametric (:input-kind node)))
-      (is (= [[:sub [:article/by-id :a1]]
-              [:sub [:comments/for-article :a1]]]
-             (:inputs node))
-          "the live view reports the REALIZED [:sub …] edges for :a1")
-      ;; The static view reports the marker, never these realized edges.
-      (is (= :parametric (:inputs (rf.subs.tooling/sub-algebra-view :article/page)))
-          "the static algebra view reports the :parametric marker, not the realized edges")
+      (is (= [[:article/page :a1] :parametric
+              [[:sub [:article/by-id :a1]] [:sub [:comments/for-article :a1]]]
+              :parametric]
+             [(:id node) (:input-kind node) (:inputs node)
+              (:inputs (rf.subs.tooling/sub-algebra-view :article/page))]))
       (rf/unsubscribe r))))
 
-;; ---- frame-provider -------------------------------------------
-;;
-;; rf/frame-provider is a Reagent component that scopes a frame keyword to
-;; its subtree via React context. Per Spec 002 §What `frame-provider` is.
-;;
-;; These tests verify the component-shape contract — the hiccup the wrapper
-;; emits and how it composes with build-frame-provider. The runtime
-;; React-context resolution path is exercised in the browser-test target
-;; (`re-frame.frame-provider-context-dom-cljs-test`), where a real DOM is
-;; available; node-test cannot
-;; mount a component, so these tests stop at the hiccup-emission level.
-
 (deftest frame-provider-emits-provider-hiccup
-  (testing "[rf/frame-provider {:frame :a} child] emits a Provider element with :a"
-    ;; The SCOPE-only `frame-provider {:frame …}` fails loud if the
-    ;; frame is absent, so register it live before scoping.
-    (rf/make-frame {:id :a})
-    (let [child       [:span "hi"]
-          tree        (rf/frame-provider {:frame :a} child)
-          [head value & rest] tree]
-      ;; The wrapper composes the Reagent component returned by
-      ;; build-frame-provider as the head, with the frame keyword threaded
-      ;; through as the first arg so the inner fn closes over it.
-      (is (fn? head)
-          "head is a fn (the Reagent component)")
-      (is (= :a value)
-          "the frame keyword is the first arg passed to the component")
-      (is (= [child] rest)
-          "children follow the frame keyword unchanged")
-      ;; Invoke the head with the value + child to verify it produces the
-      ;; React Provider element via `:r>`. The hiccup shape is
-      ;; `[:r> ProviderClass #js {:value :a} child]` — `:r>` bypasses
-      ;; Reagent's `convert-prop-value` so the keyword's namespace
-      ;; survives the React-context round trip.
-      (let [provider-tree (apply head value rest)
-            [marker provider-class js-props & inner] provider-tree]
-        (is (= :r> marker)
-            "Reagent's raw-React.createElement marker — bypasses convert-prop-value")
-        (is (some? provider-class)
-            "the React Context Provider class is in head position")
-        ;; The props are a raw JS object — read :value off it.
-        (is (= :a (aget js-props "value"))
-            "the Provider's :value carries the frame keyword unchanged")
-        (is (= [child] inner)
-            "children pass through unchanged")))))
+  (rf/make-frame {:id :a})
+  (let [child [:span "hi"]
+        [head value & children] (rf/frame-provider {:frame :a} child)
+        [marker provider js-props & inner] (apply head value children)]
+    (is (= [true :a [child] :r> true :a [child]]
+           [(fn? head) value children marker (some? provider)
+            (aget js-props "value") inner]))))
 
 (deftest frame-provider-missing-or-nil-frame-key-fails-loud
-  ;; EP-0002 (frame-boundary split). `frame-provider`
-  ;; is SCOPE-only: it requires a `:frame` target (a frame-id keyword or a
-  ;; live `make-frame` value — see frame-provider-frame-target-grammar below)
-  ;; and creates nothing. An
-  ;; EMPTY prop map (no `:frame`, no `:id`) is a SCOPE with a nil `:frame`;
-  ;; under the carried invariant there is no `(or (:frame props) :rf/default)`
-  ;; floor, so it raises `:rf.error/no-frame-context` (Spec 002 §Frame target
-  ;; resolution). An explicit `{:frame nil}` is the same. (An `:id` on a
-  ;; provider is the distinct did-you-mean `:rf.error/frame-provider-given-id`,
-  ;; covered in frame_root_lifecycle_cljs_test.)
-  (testing "frame-provider with no :frame key is a nil-scope → :rf.error/no-frame-context"
+  (doseq [props [{} {:frame nil}]]
     (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (rf/frame-provider {} [:span "x"]))
-        "an empty prop map is a SCOPE with no :frame — a nil-scope config error"))
-  (testing "frame-provider with explicit nil :frame raises :rf.error/no-frame-context"
-    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (rf/frame-provider {:frame nil} [:span "x"]))
-        "nil :frame is a config error — no :rf/default floor")))
+          (rf/frame-provider props [:span "x"])))))
 
 (deftest frame-provider-variadic-children
   (testing "frame-provider accepts zero, one, or many children"
-    ;; SCOPE-only `{:frame …}` fails loud if absent — register the frames.
     (rf/make-frame {:id :z})
     (rf/make-frame {:id :one})
     (rf/make-frame {:id :many})
-    ;; Zero children — the wrapper still renders the Provider element with
-    ;; no inner content. React-side that's a valid empty subtree.
     (let [tree (rf/frame-provider {:frame :z})]
-      (is (= :z (second tree))
-          "frame keyword threaded through with no children")
-      (is (= [] (drop 2 tree))
-          "no extra children when none were passed"))
-    ;; One child.
+      (is (= [:z []] [(second tree) (drop 2 tree)])))
     (let [tree (rf/frame-provider {:frame :one} [:p "alone"])]
       (is (= [[:p "alone"]] (drop 2 tree))
           "single child passes through"))
-    ;; Many children — the variadic & captures them all in declaration order.
     (let [tree (rf/frame-provider {:frame :many}
                                   [:header]
                                   [:main]
@@ -546,54 +362,23 @@
           "all children present in source order"))))
 
 (deftest frame-provider-frame-target-grammar
-  ;; `frame-provider`'s `:frame` teaches the SAME one frame-target
-  ;; grammar as `dispatch` / `subscribe` (Spec 002
-  ;; §`frame-provider`) — a frame-id KEYWORD or the live frame VALUE
-  ;; `make-frame` returns, the latter normalized ONE WAY to its id.
   (testing "a frame-id keyword threads through to the scope tier unchanged"
-    ;; SCOPE-only `{:frame …}` fails loud if absent — register the frame.
     (rf/make-frame {:id :rf.frame/anonymous-1})
     (let [tree (rf/frame-provider {:frame :rf.frame/anonymous-1} [:p])]
       (is (= :rf.frame/anonymous-1 (second tree))
           "namespaced gensym'd frame keyword threads through unchanged")))
   (testing "a make-frame return VALUE normalizes to the same context id as its keyword"
-    ;; One frame, both spellings: the provider must write the SAME frame id
-    ;; into React Context whether the caller passes the value it is holding or
-    ;; the id keyword. No value->id accessor exists (or is needed) at the call
-    ;; site — passing the value directly is the low-friction intended API.
     (let [frame-value  (rf/make-frame {:id :provider-target-by-value})
           value-tree   (rf/frame-provider {:frame frame-value} [:p])
           keyword-tree (rf/frame-provider {:frame :provider-target-by-value} [:p])]
-      (is (= :provider-target-by-value (second value-tree))
-          "the live frame value normalizes one way to its frame id")
-      (is (= (second keyword-tree) (second value-tree))
-          "value and keyword spellings scope the subtree to the same context id")
-      ;; The normalization must reach the React Context write itself, not just
-      ;; the wrapper's arg position — unwrap to the `:r>` Provider element.
       (let [[_marker _provider-class js-props] (apply (first value-tree) (rest value-tree))]
-        (is (= :provider-target-by-value (aget js-props "value"))
-            "the Provider's :value carries the normalized frame id, not the value"))))
+        (is (= [:provider-target-by-value :provider-target-by-value :provider-target-by-value]
+               [(second value-tree) (second keyword-tree) (aget js-props "value")])))))
   (testing "a target that is neither a keyword nor a frame value fails loud"
     (rf/make-frame {:id :provider-bad-arg-neighbour})
     (is (thrown-with-msg? :default #":rf.error/bad-frame-provider-arg"
           (rf/frame-provider {:frame "provider-bad-arg-neighbour"} [:p]))
         "a string target is rejected before React Context is written")))
-
-;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel) ---
-;;
-;; Per Tool-Pair §Time-travel + Spec 006 §Subscription cache:
-;; restore-epoch! goes through adapter/replace-container! — the same
-;; choke point used by the drain loop's :db commit. On the Reagent
-;; substrate, that means a reaction held across a restore observes
-;; the rewound value through Reagent's reactive graph, exactly as
-;; it does for a normal event commit.
-;;
-;; The JVM-side epoch_test.clj holds a sub across a restore under the
-;; plain-atom adapter, where every deref recomputes. This test pins the
-;; contract under the Reagent reactive substrate, where the reaction
-;; itself caches and only re-runs when its source changes by =: a
-;; reaction held across a restore of its frame sees the rewound value,
-;; and one held in another frame keeps its own.
 
 (deftest restore-reagent-frame-isolation
   (testing "restoring frame A does not cause frame B's reactions to
@@ -613,13 +398,11 @@
 
     (let [a-r       (rf/subscribe [:n] {:frame :restore/a})
           b-r       (rf/subscribe [:n] {:frame :restore/b})
-          _         (is (= 2   @a-r))
-          _         (is (= 101 @b-r))
+          _         (is (= [2 101] [@a-r @b-r]))
           a-history (rf/epoch-history :restore/a)
           a-target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
                           a-history)]
-      (is (true? (rf/restore-epoch! :restore/a (:epoch-id a-target))))
-      (is (= 1   @a-r) "frame A's reaction sees the rewound value")
-      (is (= 101 @b-r) "frame B's reaction is unaffected by the cross-frame restore")
+      (is (= [true 1 101]
+             [(true? (rf/restore-epoch! :restore/a (:epoch-id a-target))) @a-r @b-r]))
       (rf/unsubscribe a-r)
       (rf/unsubscribe b-r))))
