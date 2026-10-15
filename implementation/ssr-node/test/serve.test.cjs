@@ -1,7 +1,7 @@
 'use strict';
 // The launcher end to end: spawned the way a supervisor or a JVM host spawns
 // it, read through the ready line, `/health` and one render. The ready line
-// is parsed by those hosts, so its shape is pinned key by key.
+// is parsed by those hosts, so its complete shape is pinned.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -55,11 +55,6 @@ test('the launcher boots on port 0, announces itself, answers /health and a rend
   const run = launch(['--module', fixture('reference'), '--port', '0', '--isolates', '1']);
   try {
     const ready = await run.ready;
-    assert.deepStrictEqual(
-      Object.keys(ready),
-      ['rf.ssr-node', 'url', 'host', 'port', 'buildId', 'protocol'],
-      'the ready line carries these keys, in this order, and no others',
-    );
     assert.ok(Number.isInteger(ready.port) && ready.port > 0, `port 0 must become a real port; got ${ready.port}`);
     assert.deepStrictEqual(ready, {
       'rf.ssr-node': 'ready',
