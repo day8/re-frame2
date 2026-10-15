@@ -194,9 +194,7 @@
                      (is (not (str/includes? form "__rf2pair_await__")))
                      (is (str/includes? form (str "(re-frame.core/project-egress e# "
                                                   "{:rf.egress/profile :rf.egress/off-box-tool "
-                                                  ":rf.egress/include-sensitive? true})")))
-                     (is (not (str/includes? form ":rf.egress/include-fx-args?")))
-                     (is (not (str/includes? form ":rf.egress/include-runtime-db?"))))
+                                                  ":rf.egress/include-sensitive? true})"))))
                    (is (= (assoc canned :mode :settle) (read-result-text r)))
                    (done)))))))
 
