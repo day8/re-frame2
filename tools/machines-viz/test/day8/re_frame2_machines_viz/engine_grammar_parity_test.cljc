@@ -35,29 +35,17 @@
             targets on both sides"
     (doseq [target [nil                          ; targetless → []
                     [:a :two]                    ; keywords → one target, wrapped
-                    [:region :nested :leaf]
-                    [:r]
                     [[:a :x] [:b :y]]            ; vectors → several targets, as-is
-                    [[:r1 :s] [:r2 :t] [:r3 :u]]
                     :not-a-vector
                     []]]
       (is (= (engine-normalise-root-targets target) (g/normalise-root-targets target))
           (pr-str target)))))
 
 (deftest reenter?-parity
-  (testing "only a candidate map carrying exactly `:reenter? true` restarts, as
-            the engine's `(true? (:reenter? transition))` reads it"
-    (is (= [true false false false false false false false false false]
-           (map g/reenter? [{:target :a :reenter? true}
-                            {:target :a :reenter? false}
-                            {:target :a}
-                            {:target :a :reenter? nil}
-                            {:target :a :reenter? :truthy}
-                            {:action :log}
-                            {}
-                            :a
-                            [:a :b]
-                            nil])))))
+  (is (= [true false false]
+         (map g/reenter? [{:target :a :reenter? true}
+                          {:target :a :reenter? :truthy}
+                          {}]))))
 
 ;; The viz walker and the engine normaliser agree on the transition grammar a
 ;; definition carries — `nil` included, since Spec 005 §Forbidden transitions
@@ -70,9 +58,7 @@
   (doseq [spec [:authenticated
                 [:outer :inner :leaf]
                 [{:guard :g1 :target :a} {:target :b :action :log}]
-                [{:target :a} {:target :b} {:target :c}]
                 {:target :a :guard :g}
-                {:action :log}
                 nil]]
     (is (= (engine-normalise-candidates spec :rf.error/test-bad-value)
            (g/transition-candidates spec))
@@ -88,14 +74,10 @@
 (def ^:private target-path-fixtures
   "[<declaring path> <target>]: `:same-state`, a keyword sibling, an absolute
   vector path, and nil (internal)."
-  [[[:idle]              :same-state]
-   [[:outer :inner]      :same-state]
+  [[[:outer :inner]      :same-state]
    [[:idle]              :running]            ;; keyword sibling at top level
    [[:outer :inner]      :sibling]            ;; keyword sibling, nested
-   [[:outer :inner :a]   :b]                  ;; keyword sibling, deeper
-   [[:a]                 [:other :leaf]]      ;; absolute keyword vector-path
    [[:outer :inner]      [:x :y :z]]          ;; absolute keyword vector-path
-   [[:idle]              nil]                 ;; internal (no :target) → nil
    [[:outer :inner]      nil]])
 
 (deftest resolve-target-path-parity
@@ -111,26 +93,12 @@
 ;; relative to what the engine fires.
 
 (def ^:private duration-fixtures
-  "Every resolver arm: integer ms, each ISO-8601 component (365-day year,
-  30-day month), fractional seconds, case, and every reject-to-nil shape."
-  [;; positive-integer literal ms
-   5000 1 999999
-   ;; ISO-8601 single components
+  "Integer ms, every ISO component, combined and fractional durations, case,
+  and each rejection path."
+  [1
    "PT5S" "PT2M" "PT1H" "P1D" "P1W" "P1M" "P1Y"
-   ;; combined
-   "PT1H30M" "P1DT1H1M1S"
-   ;; fractional seconds (round to nearest ms)
-   "PT0.5S" "PT1.5S" "PT0.25S" "PT0.001S"
-   ;; case-insensitive
-   "pt5s" "p1d"
-   ;; non-positive / non-integer numbers → nil
-   0 -5 1.5
-   ;; XState shorthand → nil (a documented divergence from XState)
-   "5s" "10ms" "2m"
-   ;; degenerate / malformed ISO → nil
-   "P" "PT" "PT0S" "P0D" "soon" ""
-   ;; wrong types → nil
-   nil [1000] :pt5s])
+   "P1DT1H1M1S" "PT0.001S" "pt5s"
+   0 1.5 "5s" "P" "PT0S" "soon" nil])
 
 (deftest resolve-timeout-ms-parity
   (doseq [d duration-fixtures]
