@@ -82,25 +82,12 @@
 (deftest unknown-bare-key-warns-per-registrar
   (doseq [[kind id] kinds]
     (let [warns (with-captured-warnings
-                  #(register! kind id {:doc "ok" :bogus-key 1}))]
-      (is (some? (rf.registrar/lookup kind id))
-          (str kind ": a nudge, never a rejection"))
+                  #(register! kind id {:doc "ok" :schema [:map]
+                                      :myapp/extra-id 42 :bogus-key 1}))]
+      (is (= {:schema [:map] :myapp/extra-id 42}
+             (select-keys (rf.registrar/lookup kind id) [:schema :myapp/extra-id]))
+          (str kind ": accepted metadata survives registration"))
       (when rf.interop/debug-enabled?
         (is (= [{:kind kind :id id :unknown-keys [:bogus-key]}]
                (mapv #(select-keys (:tags %) [:kind :id :unknown-keys]) warns))
             (str kind ": exactly one warning naming the key"))))))
-
-(deftest namespaced-and-known-keys-pass-silently-per-registrar
-  ;; :schema is the v2 name the retired-:spec guard must never reject
-  (doseq [[kind id] kinds]
-    (let [ed    (atom :not-thrown)
-          warns (with-captured-warnings
-                  #(reset! ed (caught-ex-data
-                                (fn []
-                                  (register! kind id
-                                             {:doc            "a valid registration"
-                                              :schema         [:map]
-                                              :myapp/extra-id 42})))))]
-      (is (nil? @ed) (str kind))
-      (when rf.interop/debug-enabled?
-        (is (empty? warns) (str kind))))))
