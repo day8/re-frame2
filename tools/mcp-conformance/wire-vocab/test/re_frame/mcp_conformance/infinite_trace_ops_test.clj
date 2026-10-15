@@ -1,47 +1,8 @@
 (ns re-frame.mcp-conformance.infinite-trace-ops-test
-  "EP-0021 infinite-resources tooling conformance.
-
-  The four `:infinite`-feed `:rf.resource/*` trace operations and the
-  `:rf.error/infinite-missing-page-accessor` registration error are the
-  agent-facing vocabulary an MCP / Xray consumer pattern-matches on to
-  observe an infinite feed. A rename or pluralisation of any of them would
-  silently break every tool that filters the trace stream for a load-more
-  (`:rf.resource/load-more` / `…/page-appended` / `…/page-failed` /
-  `…/load-more-skipped`) or surfaces the loud merge error.
-
-  This gate is the cross-surface PIN that keeps the three homes of the
-  vocabulary in lockstep (the same posture the wire-marker / cursor-stale
-  gates apply to the `:rf.mcp/*` family):
-
-    1. the NORMATIVE catalogue — `spec/009-Instrumentation.md`
-       (§Where trace emission lives carries the four ops; §Error event
-       catalogue carries the error row);
-    2. the runtime EMIT source — the four ops are `trace/emit!`'d from
-       `implementation/resources/src/re_frame/resources/events.cljc`
-       and the error is `throw-error!`'d from
-       `…/resources/state.cljc`;
-    3. the Xray consumer surface — the `tools/xray` Resources panel spec
-       (`024-Resources-Panel.md`) + the closed `trace-ops` family enum
-       (`panels/resources_helpers.cljc`).
-
-  Pure-JVM: source-text grep against the repo files (via `fixtures`'
-  classpath-derived `repo-root` + the comment/string stripper), no server
-  boot and no resources-artefact classpath dependency. A literal pinned in
-  EMIT source is matched AFTER `strip-comments-and-strings` so a docstring
-  mention cannot satisfy the emit pin; a literal pinned in a doc/spec is a
-  looser raw-text match. Every match is keyword-boundary-aware, so
-  `:rf.resource/load-more` is not satisfied by
-  `:rf.resource/load-more-skipped` (one is a genuine keyword-token prefix
-  of the other)."
+  "Keep infinite-feed vocabulary aligned across Spec 009, runtime emitters
+  and Xray consumers. Emit pins inspect data; documentation pins inspect prose."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
-
-;; ---------------------------------------------------------------------------
-;; The closed EP-0021 infinite-feed trace vocabulary (the single source of
-;; truth for this gate). Each entry pins the literal against its NORMATIVE
-;; catalogue doc, its runtime EMIT source (where the literal MUST appear as
-;; DATA, not a docstring), and the Xray consumer surfaces.
-;; ---------------------------------------------------------------------------
 
 (def ^:private spec-009 "spec/009-Instrumentation.md")
 (def ^:private xray-024 "tools/xray/spec/024-Resources-Panel.md")
@@ -70,12 +31,6 @@
   event catalogue."
   {:op :rf.error/infinite-missing-page-accessor :emit resource-state})
 
-;; ---------------------------------------------------------------------------
-;; Source-text helpers (boundary-aware so a longer keyword that shares a
-;; prefix never satisfies a shorter literal's pin — `:rf.resource/load-more`
-;; vs `:rf.resource/load-more-skipped`).
-;; ---------------------------------------------------------------------------
-
 (defn- literal-as-token?
   "True iff `kw`'s `pr-str` literal appears in `text` as a COMPLETE keyword
   token (not as a prefix of a longer keyword). Uses the same
@@ -87,10 +42,6 @@
 
 (defn- emit-text [rel-path]
   (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel-path)))
-
-;; ---------------------------------------------------------------------------
-;; (1) the NORMATIVE catalogue carries every literal (Spec 009).
-;; ---------------------------------------------------------------------------
 
 (deftest spec-009-catalogues-the-infinite-vocabulary
   (let [doc (rf.mcp-conformance.fixtures/read-source spec-009)]
@@ -108,10 +59,6 @@
                    doc)
           "the error row MUST carry op-type :error + Channel diagnostic"))))
 
-;; ---------------------------------------------------------------------------
-;; (2) the runtime EMITS every literal as DATA (not just a docstring).
-;; ---------------------------------------------------------------------------
-
 (deftest runtime-emits-the-infinite-vocabulary
   (testing "each of the four ops is trace/emit!'d from the resources events source"
     (doseq [{:keys [op emit]} infinite-trace-ops]
@@ -123,11 +70,6 @@
     (is (literal-as-token? (:op infinite-error) (emit-text (:emit infinite-error)))
         (str (:op infinite-error) " MUST appear as DATA in " (:emit infinite-error)
              " (the throw-error! arg in merge-pages->items)."))))
-
-;; ---------------------------------------------------------------------------
-;; (3) the Xray consumer surface stays in lockstep (spec 024 + the closed
-;;     family enum).
-;; ---------------------------------------------------------------------------
 
 (deftest xray-surface-carries-the-infinite-ops
   (let [spec024 (rf.mcp-conformance.fixtures/read-source xray-024)
