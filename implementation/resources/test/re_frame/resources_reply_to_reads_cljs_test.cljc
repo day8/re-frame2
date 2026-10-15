@@ -72,9 +72,8 @@
   (is (= [] @replied) "nothing fires before the read settles")
   (reply-success! @last-managed-args {:title "Welcome"}
                   {:rf.cofx {:rf/time-ms 1781078400777}})
-  (is (= 1 (count @replied)))
-  (let [[ev-id reply] (first @replied)]
-    (is (= :test/read-replied ev-id))
+  (is (= [:test/read-replied] (mapv first @replied)))
+  (let [[_ reply] (first @replied)]
     (is (= {:status :ok :value {:title "Welcome"} :resource :rr/article :params {:slug "w"}
             :scope :rf.scope/global :resource/key rkey :cache-hit? false
             :rf.reply/work-kind :resource :rf.frame/id :rf/default :completed-at 1781078400777}
@@ -146,10 +145,9 @@
       (ensure-article! [:view :a] [:test/read-replied])
       (reply-success! @last-managed-args {:title "Welcome"})
       (finally (rf.trace.tooling/unregister-listener! ::replied)))
-    (is (= 1 (count @seen)))
-    (let [tags (:tags (first @seen))]
-      (is (= {:status :ok :cache-hit? false} (select-keys tags [:status :cache-hit?])))
-      (is (seq (:targets tags))))))
+    (is (= [{:status :ok :cache-hit? false}]
+           (mapv #(select-keys (:tags %) [:status :cache-hit?]) @seen)))
+    (is (seq (get-in (first @seen) [:tags :targets])))))
 
 ;; ---- infinite feed: the :value is the merged items list on every path -------
 
