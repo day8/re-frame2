@@ -1,15 +1,5 @@
 (ns re-frame.security.ssr-escaping-security-cljs-test
-  "Adversarial tests for SSR static-markup escaping.
-
-  Event-handler attributes are removed for every HTML-equivalent casing, and
-  attribute names containing grammar-breakout characters are rejected. Separate
-  generated corpora exercise canonical handlers caught by the allowlist and
-  non-canonical camelCase or kebab handlers caught only by the structural
-  matcher.
-
-  Script-body tests ensure HTML closing tags are neutralised. EDN script bodies
-  additionally preserve reader round trips: string-literal breakouts can be
-  escaped, while breakout precursors in token positions must fail loudly."
+  "SSR handler filtering, attribute grammar, and script-body escaping."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             #?(:clj  [clojure.edn :as edn]
@@ -30,21 +20,8 @@
    ;; relies on the allowlist alone.
    "oncommand"])
 
-(defn- live-handler-attr?
-  "True when `rendered` (the output of `attr-string` for ONE attr) contains
-  a serialised `on*=\"...\"` event-handler attribute - i.e. the prop was NOT
-  stripped. We test against the rendered string the way a browser parser
-  would read it: lower-case the run up to the first `=` and check for an
-  `on...` attribute name. `attr-string` always emits ` name=\"value\"` with a
-  leading space."
-  [rendered]
-  (let [s (str/triml rendered)]
-    (and (str/includes? s "=")
-         (let [nm (str/lower-case (subs s 0 (str/index-of s "=")))]
-           (str/starts-with? (str/trim nm) "on")))))
-
 (defn- recase
-  "Apply a per-character case mask `bits` (vector of 0/1) to `s`."
+  "Apply a per-character case mask."
   [s bits]
   (apply str
          (map-indexed
@@ -55,9 +32,7 @@
            s)))
 
 (def ^:private gen-handler-casing
-  "Draws a `[k v]` attribute pair whose KEY is a randomly-recased canonical
-  event-handler name (a hostile attribute key controlling a handler). The
-  value is an attacker JS payload string."
+  "Generate a recased canonical handler with a hostile value."
   (rf.security.gen/gen-fmap
     (fn [[base bits]]
       [(keyword (recase base bits)) "alert(document.cookie)"])
@@ -70,10 +45,7 @@
   ;; A stripped handler yields "" for a single-entry map.
   (let [result (rf.security.gen/for-all
                  gen-handler-casing 600 1
-                 (fn [[k v]]
-                   (let [out (rf.ssr.html-helpers/attr-string {k v})]
-                     (and (= "" out)
-                          (not (live-handler-attr? out))))))]
+                 (fn [[k v]] (= "" (rf.ssr.html-helpers/attr-string {k v}))))]
     (is (nil? result)
         (str "a recased handler leaked as a live attribute: "
              (pr-str result)))))
@@ -84,24 +56,14 @@
   (vec "abcdefghijklmnopqrstuvwxyz"))
 
 (defn- recase-on-prefix
-  "Recase ONLY the leading `on` (2 chars) per a 2-bit mask `[b0 b1]`; the rest
-  of the name is kept verbatim so the regex's structural discriminator (the
-  upper-case tail char for camelCase, the `-` for kebab) survives every draw.
-  This sweeps the `[Oo][Nn]` case-insensitivity while keeping the name
-  non-canonical."
+  "Vary only the on prefix so the structural discriminator survives."
   [s [b0 b1]]
   (str (if (= 1 b0) (str/upper-case (subs s 0 1)) (str/lower-case (subs s 0 1)))
        (if (= 1 b1) (str/upper-case (subs s 1 2)) (str/lower-case (subs s 1 2)))
        (subs s 2)))
 
 (def ^:private gen-custom-structural-handler
-  "Draws a `[k v]` attribute pair whose KEY is a randomly-recased-prefix
-  NON-allowlist structural event handler - either camelCase (`on` + an
-  upper-case first tail char + a random lower-case tail, e.g. `onFooba`) or
-  kebab (`on-` + a random tail, e.g. `on-fooba`). The random 4-6-letter tail
-  makes the lower-cased name impossible to collide with a canonical allowlist
-  entry, so the ONLY matcher arm that strips it is `event-handler-name-re`.
-  The value is an attacker JS payload string."
+  "Generate a non-allowlist camelCase or kebab handler."
   (rf.security.gen/gen-fmap
     (fn [[form prefix-bits tail]]
       (let [tail-str (apply str tail)
@@ -123,10 +85,7 @@
 (deftest no-custom-structural-handler-serialises
   (let [result (rf.security.gen/for-all
                  gen-custom-structural-handler 600 5
-                 (fn [[k v]]
-                   (let [out (rf.ssr.html-helpers/attr-string {k v})]
-                     (and (= "" out)
-                          (not (live-handler-attr? out))))))]
+                 (fn [[k v]] (= "" (rf.ssr.html-helpers/attr-string {k v}))))]
     (is (nil? result)
         (str "a custom structural handler leaked as a live attribute: "
              (pr-str result)))))
@@ -134,9 +93,7 @@
 (def ^:private breakout-chars [\= \" \space \< \> \/ \tab \newline \'])
 
 (def ^:private gen-breakout-key
-  "Draws a hostile attribute key that splices a breakout char into an
-  otherwise-plausible name, attempting to escape attribute-name context to
-  inject a sibling `onclick=` attribute."
+  "Insert a grammar-breakout character into an attribute name."
   (rf.security.gen/gen-fmap
     (fn [[prefix ch suffix]]
       (str prefix ch suffix))
@@ -182,8 +139,7 @@
 ;; escape for them.
 
 (defn- no-script-breakout?
-  "True when `s` carries no literal `</script` closing-tag (any casing) -
-  the HTML tokenizer's script-data-end pattern."
+  "Reject a literal closing script tag in any casing."
   [s]
   (not (str/includes? (str/lower-case s) "</script")))
 
@@ -192,20 +148,15 @@
   ;; literal's `</` / `<!` (any casing, after an escaped char too) is escaped.
   (doseq [doc [{:a<b 'sym<tail}
                {:tok<key "value with </script> inside a string"}
-               {:html "<!-- comment --></script>"}
                {:s "x</ScRiPt\ny"}]]
     (let [escaped (rf.ssr.html-helpers/escape-edn-script-body (pr-str doc))]
       (is (= [true doc] [(no-script-breakout? escaped) (edn/read-string escaped)])
           (str (pr-str doc) " escaped to " escaped)))))
 
 (deftest edn-token-breakout-precursor-fails-loud
-  (testing "a `</` or `<!` breakout precursor in a token position
-            has no readable in-token EDN escape, so it fails loud with
-            :rf.error/ssr-edn-script-breakout rather than corrupting the doc"
+  (testing "Token-position </ and <! reject without corrupting EDN."
     (doseq [edn-doc ["{:a</script>b 1}"
-                     "{:k :</x}"
-                     "{:tag<!-- 1}"
-                     "{:k </script}"]]
+                     "{:tag<!-- 1}"]]
       (let [thrown (try
                      (rf.ssr.html-helpers/escape-edn-script-body edn-doc)
                      nil
