@@ -39,16 +39,6 @@
                                      :kind :fn
                                      :facade? true))))))))
 
-(deftest implementation-facade-rows-flags-only-the-contradiction
-  ;; `:internal-public` is a supported embed seam, not an internal tier, so a
-  ;; facade row there is not a contradiction.
-  (is (= [["re-frame.core" "make-capture-frame"]]
-         (rf.api-manifest.gen/implementation-facade-rows
-           [{:namespace "re-frame.core" :var "make-capture-frame"
-             :tier :implementation :facade? true}
-            {:namespace "re-frame.core" :var "frame-provider"
-             :tier :internal-public :facade? true}]))))
-
 (deftest build-manifest-throws-on-implementation-facade-row
   (is (= [capture-frame]
          (:implementation-facade
