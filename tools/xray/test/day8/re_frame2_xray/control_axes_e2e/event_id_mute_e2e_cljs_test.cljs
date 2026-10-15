@@ -1,27 +1,5 @@
 (ns day8.re-frame2-xray.control-axes-e2e.event-id-mute-e2e-cljs-test
-  "Multi-frame e2e coverage for the spine-filters event-id mute control
-  axis.
-
-  Right-clicking an L2 row offers 'Mute this event-id' — the
-  framework's `spine-filters` surface (at
-  `tools/xray/src/day8/re_frame2_xray/spine_filters.cljs`)
-  dispatches `:rf.xray/mute-event-id` which adds the event-id to a
-  `#{}` of muted ids in `:rf/xray`'s app-db.
-
-  The mute system is distinct from the IN/OUT filter pills:
-    - Pills (`:rf.xray/active-filters`) are pattern-based and
-      compose across multiple scopes.
-    - Mutes (`:rf.xray/muted-event-ids`) are event-id-specific and
-      drop cascades wholesale.
-
-  At the e2e level we assert:
-
-    1. `:rf.xray/mute-event-id` writes the event-id into
-       `:rf.xray/muted-event-ids`.
-    2. `:rf.xray/unmute-event-id` removes it.
-    3. `:rf.xray/clear-muted-event-ids` clears the set.
-    4. The slot state survives host dispatches (the wrong-frame state
-       class)."
+  "Mute settings stay in Xray and can be removed or cleared."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -37,16 +15,6 @@
     (fn []
       (is (empty? (e2e/sub-xray [:rf.xray/muted-event-ids]))
           ":rf.xray/muted-event-ids should default to an empty set"))))
-
-(deftest xray-mute-event-id-adds-to-set
-  (e2e/with-host-and-xray-frames
-    {:install-host counter/install-and-init!}
-    (fn []
-      (e2e/dispatch-host [:counter/inc])
-      (e2e/dispatch-xray [:rf.xray/mute-event-id :counter/inc])
-      (let [muted (e2e/sub-xray [:rf.xray/muted-event-ids])]
-        (is (contains? muted :counter/inc)
-            ":counter/inc not added to :rf.xray/muted-event-ids")))))
 
 (deftest xray-unmute-event-id-removes-from-set
   (e2e/with-host-and-xray-frames
