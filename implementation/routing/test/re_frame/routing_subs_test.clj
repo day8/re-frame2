@@ -1,16 +1,5 @@
 (ns re-frame.routing-subs-test
-  "Framework subs for re-frame.routing (`:rf.route/fragment`, the
-  nested-layout `:rf.route/chain`, `:rf.route/id`) and the activated /
-  deactivated lifecycle trace.
-
-  ## Posture split
-
-  The subs are production-real and run in the ordinary `clojure -M:test` suite
-  AND in `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false`
-  lane). The lifecycle TRACE rides `trace/emit!`, gated on
-  `rf.interop/debug-enabled?`, so its assertion sits inside a
-  `(when rf.interop/debug-enabled? …)` arm beside the posture-independent read
-  of where the navigations landed."
+  "Route subscriptions and lifecycle notifications. Trace assertions require debug."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
