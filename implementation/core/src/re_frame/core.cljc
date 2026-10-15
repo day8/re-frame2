@@ -1811,45 +1811,68 @@
 ;; registry — the same path `frame-generation` uses) OR a direct live frame
 ;; OBJECT (`make-frame`'s return value).
 
+(defn- frame-target-ids
+  "The public ids of the frames a frame-targeted read resolves, for the
+  `:rf.error/frame-no-generation` diagnostic: every frame carrying a sealed
+  image generation and, when `reads-live-store?`, every frame made without
+  `:images`. No-id frames are left out, because a caller reaches one only
+  through its frame value."
+  [reads-live-store?]
+  (vec (sort (cond-> (rf.live-frame/live-frame-ids)
+               reads-live-store?
+               (into (remove #(= "rf.frame" (namespace %)))
+                     (rf.frame/live-store-frame-ids))))))
+
 (defn- resolve-live-frame-object
   "Resolve a `:frame` target to the LIVE frame OBJECT it names — verifying the
   object carries a sealed image generation — or FAIL LOUD
   (`:rf.error/frame-no-generation`). `frame-target` is a REGISTERED frame id
   (keyword, looked up in the process-local live-frame registry) OR a direct
   live frame OBJECT — the same target shapes `rf/frame-generation` accepts.
-  NO fallback to the default/realm registrar:
-  a frame-targeted read needs a live EP-0023 frame that carries a generation, so
-  an id that names no live frame, a non-frame value, or a frame object with no
-  `:rf.frame/generation` slot is an error naming the bad target. Returns the
-  frame OBJECT (the caller passes it to `re-frame.live-frame/call-with-frame-
-  resolution`, which binds its generation, or reads its generation directly) —
-  the façade re-surfaces that BEHAVIOUR through the public reads without
-  exporting the internal `re-frame.live-frame` names.
+  NO fallback to the default/realm registrar: an id that names no live frame,
+  a non-frame value, or a frame object with no `:rf.frame/generation` slot is
+  an error naming the bad target. Returns the frame OBJECT (the caller passes
+  it to `re-frame.live-frame/call-with-frame-resolution`, which binds its
+  generation, or reads its generation directly) — the façade re-surfaces that
+  BEHAVIOUR through the public reads without exporting the internal
+  `re-frame.live-frame` names.
 
   `where-sym` is the public fn the caller invoked, used in the diagnostic so the
   message names the user-facing surface (`rf/registrations` / `rf/handler-meta`
-  / `rf/frame-generation`)."
-  [frame-target where-sym]
+  / `rf/frame-generation`). `reads-live-store?` is true for the `{:frame f …}`
+  registrar query, which also reads a frame made without `:images` (its caller
+  returns such a frame before reaching here), so the diagnostic describes and
+  lists both kinds of frame; `rf/frame-generation` needs a generation, so its
+  diagnostic lists only the frames carrying one."
+  [frame-target where-sym reads-live-store?]
   (let [frame-object (if (rf.live-frame/frame-object? frame-target)
                        frame-target
                        (rf.live-frame/live-frame frame-target))]
     (if (some? (rf.live-frame/frame-resolution-generation frame-object))
       frame-object
-      (rf.error/throw-error!
-        :rf.error/frame-no-generation
-        where-sym
-        (str where-sym ": :frame target " (pr-str frame-target) " does not "
-             "resolve to a live frame carrying an image generation. A frame-"
-             "targeted registrar read resolves the (kind, id) set through the "
-             "target frame's OWN sealed image generation (EP-0023 §Frame-derived "
-             "live registration resolution); it needs a LIVE EP-0023 frame — a "
-             "frame id registered in the process-local live-frame registry, or a "
-             "direct frame object returned by rf/make-frame — and does NOT fall "
-             "back to the default/realm registrar. Live frame ids: "
-             (pr-str (vec (rf.live-frame/live-frame-ids))) ".")
-        {:recovery :target-a-live-frame-id-or-a-direct-frame-object
-         :extra    {:frame          frame-target
-                    :live-frame-ids (vec (rf.live-frame/live-frame-ids))}}))))
+      (let [ids (frame-target-ids reads-live-store?)]
+        (rf.error/throw-error!
+          :rf.error/frame-no-generation
+          where-sym
+          (str where-sym ": :frame target " (pr-str frame-target)
+               (if reads-live-store?
+                 (str " names no live frame. A frame-targeted registrar read "
+                      "resolves the (kind, id) set through the target frame's "
+                      "OWN view: the sealed image generation of a frame made "
+                      "with :images, or the registration store, resolved live, "
+                      "for a frame made without (EP-0023 §Frame-derived live "
+                      "registration resolution).")
+                 (str " does not resolve to a live frame carrying an image "
+                      "generation. Only a frame made with :images carries one; "
+                      "the {:frame f} form of rf/registrations and "
+                      "rf/handler-meta also reads a frame made without."))
+               " The target is a frame id registered in the process-local "
+               "live-frame registry, or a direct frame object returned by "
+               "rf/make-frame; there is NO fallback to the default/realm "
+               "registrar. Frames this read resolves: " (pr-str ids) ".")
+          {:recovery :target-a-live-frame-id-or-a-direct-frame-object
+           :extra    {:frame          frame-target
+                      :live-frame-ids ids}})))))
 
 (defn- resolve-frame-query-target
   "Resolve the target of a `{:frame f …}` registrar query: a frame made without
@@ -1859,7 +1882,7 @@
   [frame-target where-sym]
   (if (rf.live-frame/live-store-frame? frame-target)
     frame-target
-    (resolve-live-frame-object frame-target where-sym)))
+    (resolve-live-frame-object frame-target where-sym true)))
 
 (defn- assert-registrar-query-source!
   "Fail loud (`:rf.error/registrar-query-needs-source`) when a registrar query
@@ -2016,7 +2039,7 @@
   per-kind round-trips. Per Spec 002 §The public registrar query API; EP-0023
   §Public API / Use-Case 7."
   [frame-target]
-  (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
+  (-> (resolve-live-frame-object frame-target 'rf/frame-generation false)
       (rf.live-frame/frame-resolution-generation)))
 
 (def ^{:doc "Compute the DIFF between two sealed image generations as four
