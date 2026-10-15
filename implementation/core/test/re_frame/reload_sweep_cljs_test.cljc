@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
             [re-frame.image :as rf.image]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
@@ -144,6 +145,46 @@
           "the frame re-assembles from the swept store, so its image sees the move")
       (is (empty? (errors-of seen :rf.error/reprojection-failed))
           "no duplicate is left for the re-assembly to refuse"))))
+
+(defn- cached?
+  "Whether `frame`'s sub-cache holds a slot for `query-v`."
+  [frame query-v]
+  (contains? @(:sub-cache (rf.frame/frame frame)) query-v))
+
+(deftest ^:requires-debug a-deleted-sub-drops-its-cached-reaction
+  (with-recorded-errors
+    (fn [seen]
+      (rf/reg-event :test/seed (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+      (rf/reg-sub :x/value {:ns 'probe.a} (fn [db _] (:n db)))
+      (rf/reg-sub :x/keep {:ns 'probe.a} (fn [db _] (:n db)))
+      (rf/reg-sub :y/tagged {:ns 'probe.c :inputs [[:x/value]]} (fn [[v] _] [:tagged v]))
+      (rf/make-frame {:id :probe/live})
+      (rf/dispatch-sync [:test/seed 1] {:frame :probe/live})
+      (let [held   (rf/subscribe [:x/value] {:frame :probe/live})
+            tagged (rf/subscribe [:y/tagged] {:frame :probe/live})]
+        (is (= [1 [:tagged 1]] [@held @tagged]))
+        (rf.registrar/begin-reload-cycle!)
+        (rf/reg-sub :x/keep {:ns 'probe.a} (fn [db _] (:n db)))
+        (let [kept (rf/subscribe [:x/keep] {:frame :probe/live})]
+          (is (= 1 @kept))
+          (rf.registrar/sweep-reload-cycle!)
+          (is (identical? kept (rf/subscribe [:x/keep] {:frame :probe/live}))
+              "the sub probe.a registered again keeps its cached reaction through the sweep"))
+        (is (nil? (rf/handler-meta {:frame :probe/live :kind :sub :id :x/value}))
+            "the deleted sub's registration is gone")
+        (is (not (cached? :probe/live [:x/value]))
+            "so is its cached reaction")
+        (is (not (cached? :probe/live [:y/tagged]))
+            "and the cached sub that declares it as an input")
+        (let [fresh (rf/subscribe [:x/value] {:frame :probe/live})]
+          (rf/dispatch-sync [:test/seed 2] {:frame :probe/live})
+          (is (not (identical? held fresh)))
+          (is (nil? @fresh)
+              "subscribing the deleted id yields what an unregistered id yields, not the deleted computation")
+          (is (= [:tagged nil] @(rf/subscribe [:y/tagged] {:frame :probe/live}))
+              "the dependent rebuilds over the missing input")
+          (is (= #{[:x/value]} (set (map :event (errors-of seen :rf.error/no-such-sub))))
+              "and the missing sub is reported as no-such-sub"))))))
 
 (deftest the-sweep-runs-only-in-a-debug-build
   (reg-who! 'probe.a :x/gone :a)
