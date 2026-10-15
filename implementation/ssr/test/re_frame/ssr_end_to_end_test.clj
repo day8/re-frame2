@@ -208,12 +208,12 @@
               (pr-str (mapv :operation @mismatch-traces))))))))
 
 ;; ===========================================================================
-;; Last-write-wins slots, and the bookkeeping the public reads strip
+;; Last-write-wins slots
 ;; ===========================================================================
 
 (deftest ssr-set-status-precedence
-  (testing "two set-status fx: last write wins on both public reads, which
-            strip the internal status-writes bookkeeping; dev warns"
+  (testing "two set-status fx: last write wins on both public reads, and the
+            replaced write traces no warning"
     (let [traces (atom [])
           f      (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/reg-event :auth/forbid
@@ -222,20 +222,13 @@
       (rf/dispatch-sync [:auth/forbid] {:frame f})
       (rf/unregister-listener! :trace ::status)
       (doseq [resp [(rf.ssr/peek-response f) (rf.ssr/get-response f)]]
-        (is (= {:status 403}
-               (select-keys resp [:status rf.ssr.response/status-writes-key]))))
-      ;; DEV ARM — the warning is programmer advice; the policy is above.
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.warning/multiple-status-set (:operation ev))
-                         (= [401 403] (:writes (:tags ev)))
-                         (= 403 (:final-status (:tags ev)))
-                         (= :warned-and-replaced (:recovery ev))))
-                  @traces)
-            (pr-str (mapv :operation @traces)))))))
+        (is (= 403 (:status resp))))
+      (is (not-any? #(= :warning (:op-type %)) @traces)
+          (pr-str (mapv :operation @traces))))))
 
 (deftest ssr-multi-redirect
-  (testing "two redirect fx → last write wins + :rf.warning/multiple-redirects"
+  (testing "two redirect fx: last write wins, and the replaced write traces
+            no warning"
     (let [traces (atom [])
           f      (rf.frame/make-anon-frame-record! {:platform :server})]
       (rf/reg-event :auth/double-redirect
@@ -246,15 +239,8 @@
       (rf/dispatch-sync [:auth/double-redirect] {:frame f})
       (rf/unregister-listener! :trace ::redir)
       (is (= {:status 301 :location "/canonical"} (:redirect (settled-response f))))
-      ;; DEV ARM — programmer advice, as for multiple-status-set.
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.warning/multiple-redirects (:operation ev))
-                         (= 2 (count (:writes (:tags ev))))
-                         (= {:status 301 :location "/canonical"} (:final-redirect (:tags ev)))
-                         (= :warned-and-replaced (:recovery ev))))
-                  @traces)
-            (pr-str (mapv :operation @traces)))))))
+      (is (not-any? #(= :warning (:op-type %)) @traces)
+          (pr-str (mapv :operation @traces))))))
 
 ;; ===========================================================================
 ;; Cookies and headers land as structured data

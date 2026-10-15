@@ -224,8 +224,7 @@ the client's registered app-schema digest. A mismatch emits a structured
 ;; Per Spec 011 §HTTP response contract.
 
 (rf.fx/reg-fx :rf.server/set-status
-  {:doc       "Set the HTTP response status. Last-write-wins. A second
-write in the same drain emits :rf.warning/multiple-status-set per
+  {:doc       "Set the HTTP response status. Last-write-wins per
 [Spec 011 §Multiple-status policy]."
    :schema    rf.ssr.server-fx-schemas/set-status-args
    :platforms #{:server}}
@@ -265,8 +264,7 @@ on the wire. Per Spec 011 §Cookie shape."
 
 (rf.fx/reg-fx :rf.server/redirect
   {:doc       "Set :redirect on the response accumulator. Defaults
-:status to 302 if absent. Multiple writes emit
-:rf.warning/multiple-redirects (last-write-wins). Per Spec 011
+:status to 302 if absent. Last-write-wins. Per Spec 011
 §Redirect precedence.
 
 Caller-trusted :location — accepts arbitrary URL strings without

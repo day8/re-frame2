@@ -48,9 +48,8 @@ any other [effect map](../core/glossary.md#effect-map).
 All seven run on the server only. When the client dispatches the same event after
 hydration, it skips them, so one handler serves both sides.
 
-If two writes in one drain set the status, the last one wins and a
-`:rf.warning/multiple-status-set` trace fires. Redirects work the same way, with
-`:rf.warning/multiple-redirects`.
+If two writes in one drain set the status, the last one wins. Redirects work
+the same way.
 
 [re-frame.ssr](../api/re-frame.ssr.md) has the full argument schemas.
 
@@ -165,8 +164,8 @@ effects throw rather than strip the characters:
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
 | A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial status](#a-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or `:rf.server/set-status` from `:rf.route/entry-denied` |
-| Status set twice in one drain | Last write wins; `:rf.warning/multiple-status-set` | Write one status, or rely on the later write deliberately |
-| Multiple redirects | Last write wins; `:rf.warning/multiple-redirects` | Write one redirect |
+| Status set twice in one drain | Last write wins | Write one status, or rely on the later write deliberately |
+| Multiple redirects | Last write wins | Write one redirect |
 | `?next=` redirect is ignored and the page renders | `:rf.error/safe-redirect-invalid-url` / `-scheme-rejected` / `-host-disallowed` | The location failed validation; this is the guard working |
 | Wrongly typed fx argument (string status, `nil` header value, non-map args) | `:rf.error/server-fx-args-invalid`, naming the `:key`, in every build | Fix the args at the dispatch site |
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Remove them before `:set-header` / `:append-header` |
