@@ -125,9 +125,10 @@
                       wants the channel passes the resolving form — the only
                       one symmetric with the documented client
                       `:render-tree-fn #((rf/view :app/root))`.
-    :payload        — non-empty allowlist of top-level app-db keys, or the
-                      explicit `:rf.ssr.payload/whole-app-db` opt-in. Missing
-                      and unknown policies fail at handler construction.
+    :payload        — allowlist of top-level app-db keys (an empty `[]`
+                      ships nothing), or the explicit
+                      `:rf.ssr.payload/whole-app-db` opt-in. Missing and
+                      unknown policies fail at handler construction.
 
   Optional opts:
 

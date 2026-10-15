@@ -448,9 +448,8 @@
   (:status (rf/resource-state {:resource :articles/list :scope :rf.scope/global :params {} :frame frame})))
 
 (deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/capabilities/ssr/resources_ssr — under the valid
-            :rf.ssr.payload/whole-app-db policy (an empty [] policy throws
-            :rf.error/ssr-missing-payload-policy) the dynamic payload omits
+  (testing "examples/capabilities/ssr/resources_ssr — under its :payload []
+            policy (an empty allowlist ships app-db as {}) the dynamic payload omits
             :rf/frame-id and installs the SSR-preloaded entry into the client
             :rf.runtime/resources slice (Spec 016 §SSR client hydration)"
     (require 'resources-ssr.core :reload)

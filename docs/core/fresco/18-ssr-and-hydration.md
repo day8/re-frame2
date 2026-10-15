@@ -92,10 +92,12 @@ rather than shipping a wrong page with a 200.
 
 `:payload` is required, and must be either:
 
-- a non-empty vector of top-level app-db keys; or
+- a vector of top-level app-db keys; or
 - `:rf.ssr.payload/whole-app-db` as an explicit opt-in.
 
 Omitting it makes `server/render` raise `:rf.error/ssr-missing-payload-policy`.
+An empty vector, `[]`, is a policy that sends nothing: the payload's
+`:rf/app-db` is `{}`.
 Allowlist every top-level key the rendered page reads. If the server rendered
 a value the client did not receive, the first client render sees different
 state and hydration reports a mismatch.

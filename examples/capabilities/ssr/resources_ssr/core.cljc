@@ -424,16 +424,17 @@
                      ;; `:entries`, and nothing more).
                      ;;
                      ;; The page state is the resource — it rides `:rf/runtime-db` —
-                     ;; so app-db has nothing of its own to send. But the payload
-                     ;; policy is fail-closed by design, so "send nothing" still has
-                     ;; to be said out loud. The `:rf.ssr.payload/whole-app-db`
-                     ;; opt-in projects the empty app-db to `{}` cleanly. A bare `[]`
-                     ;; allowlist would *not* mean "ship nothing" — it reads as a
-                     ;; missing policy and throws
-                     ;; `:rf.error/ssr-missing-payload-policy`. Silence is the one
-                     ;; thing fail-closed won't let you get away with.
+                     ;; so app-db has nothing of its own to send. The payload policy
+                     ;; is fail-closed, so "send nothing" still has to be said out
+                     ;; loud: leave `:payload` out and it throws
+                     ;; `:rf.error/ssr-missing-payload-policy`. An empty allowlist,
+                     ;; `[]`, says it, and `:rf/app-db` arrives as `{}`. Prefer it to
+                     ;; the `:rf.ssr.payload/whole-app-db` opt-in, which happens to
+                     ;; send `{}` today only because app-db is empty: the day server
+                     ;; code puts something there, the opt-in ships all of it, while
+                     ;; `[]` goes on shipping nothing.
                      ;; See docs/ssr/concepts.md#payload--the-fail-closed-allowlist.
-                     policy-opts   {:payload :rf.ssr.payload/whole-app-db}
+                     policy-opts   {:payload []}
                      payload       (rf.ssr.payload-policy/build-payload
                                      f
                                      (rf.ssr.payload-policy/apply-policy final-db policy-opts)
