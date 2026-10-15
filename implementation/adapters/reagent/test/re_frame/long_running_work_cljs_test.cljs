@@ -1,29 +1,6 @@
 (ns re-frame.long-running-work-cljs-test
-  "Integration test: drives the long-running-work example
-   through the parent coordinator + child workers. Each helper spins a
-   fresh frame via `make-frame`, walks the :work/flow parent through a
-   flow (happy-path join, mid-flight cancel, reset round-trip), and
-   asserts the resulting
-   [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow] snapshot + the
-   runtime-owned [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]
-   join-state slot.
-
-   The fixture fns live HERE (the adapter test tree), not under
-   examples/patterns/long_running_work/ — the example source stays
-   test-free per the test-free-examples policy. The ns
-   requires the example's `long-running-work.worker` source directly (its
-   ns-load reg-machine calls install :work/flow + :work/processor + the
-   related subs), then exercises it. We don't need long-running-work.core
-   (the entry point) since the integration tests bypass mount and React
-   entirely; the views ns is exercised by the adapter browser smoke.
-
-   This ns uses snapshot/restore via re-frame.test-support
-   so the contract is uniform across CLJS fixtures — the snapshot
-   captures the example's ns-load registrations (the :work/flow
-   parent + :work/processor child machines and the views' framework
-   subs), and the restore on the way out leaves them intact for any
-   subsequent test ns."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+  "The shipped parent coordinator joins exact current children, cancels survivors and resets for another run."
+  (:require [cljs.test :refer-macros [deftest use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -34,56 +11,23 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; EP-0002: each test spins its OWN top-level frame via
-    ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
-    ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
-    ;; being treated as a mid-cascade child-frame creation.
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
-;; ============================================================================
-;; HELPERS
-;; ============================================================================
-
 (defn- parent-machine-snapshot
-  "Read the parent's machine snapshot from a frame's app-db."
   [frame]
   (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow]))
 
 (defn- join-state
-  "Read the runtime-owned join-state slot at
-   [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]. Returns nil after the
-   cascade has cleared it."
   [frame]
   (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]))
 
 (defn- new-frame
-  "Spin up a fresh test frame. We dispatch :work/flow [:reset] via
-   :initial-events rather than going through the :app/initialise fanout so the
-   test ns doesn't transitively depend on long-running-work.core (which
-   pulls in Reagent's DOM-only namespaces and a defonce root-creation).
-   Both reach the same end-state: parent machine at :idle with cleared
-   :data."
   []
   (rf.frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
+;; Sync dispatch does not fire child timers; carry the runtime's exact current attempt.
 (defn- dispatch-synthetic-child-completion!
-  "Synthesise the completion carrier the runtime mints when a child reaches its
-   `:final?` state — `[:work/flow [:rf.machine.spawn/done <invoke-id>
-   <completion>]]` — carrying the SAME exact-attempt coordinate the runtime
-   would have copied off the child's own `:rf/join-child` membership
-   record. The join fold checks every carrier's coordinate for
-   exact-current EQUALITY with the join attempt — parent/invoke identity,
-   logical child id, exact current actor id, exact per-attempt token — so a
-   bare hand-authored carrier is suppressed as :attempt-unverified.
-
-   The children complete by reaching `:final?` and dispatch nothing themselves
-   (completion IS finality), but they get there through `:after`-driven
-   progress loops, and `dispatch-sync` fires no `:after` timers. So a headless
-   test cannot drive them the ordinary way: it reads the runtime-owned join
-   state and presents the exact-current carrier those children's finality would
-   have minted. An exact-current coordinate is accepted regardless of source,
-   including this deliberate test authoring."
   [test-frame shard]
   (let [join-snapshot (join-state test-frame)]
     (rf/dispatch-sync
@@ -97,82 +41,40 @@
                     :attempt    (:rf/attempt join-snapshot)}]]
       {:frame test-frame})))
 
-;; ============================================================================
-;; (1) HAPPY-PATH JOIN COMPLETION — synthesised completion carriers
-;; ============================================================================
-
-(defn- test-happy-path-join []
+(deftest long-running-work-happy-path-join
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
-
-    ;; The child machines would normally drive themselves to their
-    ;; :final? :done state via :after-yield loops, at which point the
-    ;; runtime mints each one's completion carrier. dispatch-sync doesn't
-    ;; fire :after timers, so for the headless test we synthesise those
-    ;; carriers directly — carrying the exact-attempt coordinate the
-    ;; runtime would have copied off each child's membership record
-    ;; (see dispatch-synthetic-child-completion!). With the
-    ;; coordinate, the join folds them identically to live completions.
 
     (dispatch-synthetic-child-completion! f :s1)
     (dispatch-synthetic-child-completion! f :s2)
     (is (= [#{:s1 :s2} :working] [(:done (join-state f)) (:state (parent-machine-snapshot f))]))
 
-    ;; Third child done — :all resolves. The runtime sets :resolved?
-    ;; true, builds per-sibling cancel fx for survivors (none, since
-    ;; this was the last child), and dispatches [:work/flow
-    ;; [:work/all-done]]. The parent's :working :on table catches
-    ;; :work/all-done → :complete (with :stamp-outcome action).
     (dispatch-synthetic-child-completion! f :s3)
     (let [parent-snapshot (parent-machine-snapshot f)]
-      ;; The cascade tore down the invoke-all slot: after the exit
-      ;; from :working, the destroy fx clears [:rf.db/runtime :rf.runtime/machines :spawned
-      ;; :work/flow [:working]].
       (is (= [:complete :complete nil]
              [(:state parent-snapshot) (-> parent-snapshot :data :outcome) (join-state f)])))))
 
-;; ============================================================================
-;; (2) MID-FLIGHT CANCELLATION CASCADE — :cancel tears every child down
-;; ============================================================================
-
-(defn- test-cancel-cascade []
+(deftest long-running-work-cancel-cascade
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
 
-    ;; Simulate partial progress from each shard. The action's
-    ;; internal-self transition updates :data :progress without
-    ;; exit/entry.
     (rf/dispatch-sync [:work/flow [:progress :s1 30 100]] {:frame f})
     (rf/dispatch-sync [:work/flow [:progress :s2 50 100]] {:frame f})
     (rf/dispatch-sync [:work/flow [:progress :s3 10 100]] {:frame f})
 
     (let [parent-snapshot (parent-machine-snapshot f)]
-      ;; The aggregate-progress sub: (30+50+10)/(3*100) = 90/300.
       (is (= [:working {:s1 30 :s2 50 :s3 10} 90 300]
              [(:state parent-snapshot) (-> parent-snapshot :data :progress)
               (rf/compute-sub [:work/items-done] (rf/frame-state-value f))
               (rf/compute-sub [:work/total-items] (rf/frame-state-value f))])))
 
-    ;; User clicks Cancel. The parent transitions :working →
-    ;; :cancelled; the :spawn-all desugared :exit fires one
-    ;; :rf.machine/destroy fx with :rf/spawn-all true; the
-    ;; destroy fx handler iterates the join-state's :children map
-    ;; and tears each surviving child down, then clears the
-    ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] slot.
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
     (let [parent-snapshot (parent-machine-snapshot f)]
-      ;; The destroy cascade cleared the join-state slot. Partial :progress
-      ;; is preserved on the parent's :data (cancellation is cooperative;
-      ;; the parent decides what to do with the partial result).
       (is (= [:cancelled :cancelled nil {:s1 30 :s2 50 :s3 10}]
              [(:state parent-snapshot) (-> parent-snapshot :data :outcome)
               (join-state f) (-> parent-snapshot :data :progress)])))))
 
-;; ============================================================================
-;; (3) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
-;; ============================================================================
-
-(defn- test-reset-after-cancel []
+(deftest long-running-work-reset-round-trip
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]]               {:frame f})
     (rf/dispatch-sync [:work/flow [:progress :s1 42 100]] {:frame f})
@@ -183,15 +85,3 @@
       (is (= [:idle {:s1 0 :s2 0 :s3 0} nil]
              [(:state parent-snapshot) (-> parent-snapshot :data :progress)
               (-> parent-snapshot :data :outcome)])))))
-
-(deftest long-running-work-happy-path-join
-  (testing "synthesised completion carriers resolve the :all join and stamp :complete"
-    (test-happy-path-join)))
-
-(deftest long-running-work-cancel-cascade
-  (testing "mid-flight :cancel tears down every surviving child via the :spawn-all exit"
-    (test-cancel-cascade)))
-
-(deftest long-running-work-reset-round-trip
-  (testing ":cancelled → :reset returns the parent to :idle with cleared :progress"
-    (test-reset-after-cancel)))
