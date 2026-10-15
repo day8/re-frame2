@@ -1985,8 +1985,9 @@
   each named entry's in-flight work record, marking `:abort-requested` and
   collecting the abort fx for any record whose `:owners` are now EMPTY
   (Spec 016 §Race — a shared request is never cancelled just because ONE owner
-  went away); collect the now-owner-free entries' scoped keys for the
-  poll-only cancel fx (EP-0020 §Polling); and emit the ONE
+  went away); for each entry this release left owner-free, cancel its poll
+  (EP-0020 §Polling) and re-arm its GC timer for a full `:gc-after-ms`, so
+  the warm window is measured from the final release; and emit the ONE
   `:rf.resource/owner-released` trace, naming the released entries by their
   SCOPED KEY (never the reversible key-id). Returns the effects
   map `{:rf.db/runtime :fx}`.
@@ -2038,19 +2039,34 @@
                 acc)))
           {:rdb rdb1 :aborts []}
           k-ids)
-        ;; EP-0020 §Polling: any entry whose `:active-owners` went EMPTY by
-        ;; this release stops polling (a poll never pins an owner-free entry).
-        ;; Collect the now-owner-free entries' scoped keys for the poll-only
-        ;; cancel fx (the stale / GC timers stay armed — an owner-free entry
-        ;; still GCs). The poll-fired re-check is the belt-and-braces; this
-        ;; makes the stop deterministic + prompt.
+        ;; Any entry whose `:active-owners` went EMPTY by this release stops
+        ;; polling (EP-0020 §Polling: a poll never pins an owner-free entry;
+        ;; the poll-fired re-check is the belt-and-braces, this makes the stop
+        ;; deterministic + prompt) and re-arms its GC timer for a full
+        ;; `:gc-after-ms`. The settle-time timer may be nearly spent, and the
+        ;; warm window exists so a quick re-attach (a route bounce, a remount)
+        ;; reuses the cached data, so the window runs from the final release.
+        ;; The stale timer is untouched.
         now-owner-free
         (into []
               (keep (fn [k-id]
                       (let [e (get-in rdb2 (rf.resources.state/entry-path-by-id k-id))]
                         (when (and e (empty? (:active-owners e)))
-                          (:resource/key e)))))
+                          e))))
               k-ids)
+        gc-rearms
+        (into []
+              (keep (fn [e]
+                      (when-let [gc-delay (rf.resources.state/positive-or-nil
+                                            (:gc-after-ms (rf.resources.registry/resource-meta (:resource/id e))))]
+                        [:rf.resource/schedule-timers
+                         {:frame-id     frame-id
+                          :resource/key (:resource/key e)
+                          ;; a PARTIAL re-arm naming ONLY `:gc`, as the GC skip
+                          ;; emits; `:never` normalizes to no delay and arms nothing
+                          :timers       {:gc gc-delay}
+                          :server?      (rf.resources.state/server-frame? frame-id)}])))
+              now-owner-free)
         ;; The trace's `:released` names the released entries by
         ;; their SCOPED KEY, never by their `key-id`. A `key-id` is
         ;; `identity/canonical-bytes`, a REVERSIBLE PLAINTEXT CEDN-1 encoding
@@ -2076,12 +2092,14 @@
     {:rf.db/runtime rdb2
      ;; Abort by the frame-QUALIFIED request-id (the registered
      ;; token); a bare work-id would miss the orphaned in-flight request.
-     :fx (cond-> (into [] (keep (fn [[wid transport]]
-                                  (rf.resources.work-ledger/abort-fx transport frame-id wid)))
-                       aborts)
-           (seq now-owner-free)
-           (conj [:rf.resource/cancel-poll-timers
-                  {:frame-id frame-id :resource/keys now-owner-free}]))}))
+     :fx (-> (into [] (keep (fn [[wid transport]]
+                              (rf.resources.work-ledger/abort-fx transport frame-id wid)))
+                   aborts)
+             (cond->
+               (seq now-owner-free)
+               (conj [:rf.resource/cancel-poll-timers
+                      {:frame-id frame-id :resource/keys (mapv :resource/key now-owner-free)}]))
+             (into gc-rearms))}))
 
 (defn release-owner-handler
   "`:rf.resource/release-owner` — release a liveness owner (drop the owner
@@ -3549,9 +3567,12 @@
 
   RESCHEDULE-ON-SKIP: a GC timer that fires while the entry is
   still OWNED or IN-FLIGHT must NOT just skip and leave the entry uncollectable
-  — if the owner later releases or the work settles AFTER the original
-  `:gc-after-ms` deadline, nothing would re-fire and the now-inactive entry
-  would linger indefinitely. So a `:has-owner` / `:in-flight` skip RE-ARMS a
+  — work that settles AFTER the original `:gc-after-ms` deadline through a
+  settle that arms no GC timer (a failed or aborted refresh) would leave the
+  now-inactive entry lingering indefinitely. The release of the last owner
+  re-arms a full window itself (`release-owner-from-identities`); an owned
+  skip's re-arm keeps a GC check live while the entry is held. So a
+  `:has-owner` / `:in-flight` skip RE-ARMS a
   fresh GC timer (via `schedule-timers`, which cancel-then-arms — this also
   cleans up the FIRED one-shot handle still sitting in the side table). The
   re-armed timer fires another re-check after `:gc-after-ms`; once the entry is
