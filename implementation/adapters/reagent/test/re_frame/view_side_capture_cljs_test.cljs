@@ -1,31 +1,5 @@
 (ns re-frame.view-side-capture-cljs-test
-  "The three view-side captures on the view-render instrumentation, so
-  Xray's Views table can show, per view, its mount/rerender/unmount
-  ACTION and the per-view REASON it
-  rendered:
-
-    1. view→sub edges — `:rf.view/rendered` carries `:rf.view/deref-subs`, the
-       vector of subscription query-vectors THIS view deref'd during the
-       render (its own read-set), distinct from the cascade-wide
-       `:rf.view/cause-subs` (which over-reports).
-    2. mount-vs-rerender — `:rf.view/rendered` carries `:rf.view/mount?`, `true`
-       on a component instance's first render and `false` thereafter.
-    3. unmount — an `:rf.view/unmounted` op fires when a registered
-       view instance tears down, carrying `:rf.view/id` + `:frame` (+ the
-       `:rf.view/render-key` instance tuple).
-
-  Every capture gates behind `interop/debug-enabled?`; production absence
-  is pinned by the elision probe (`npm run test:elision`).
-
-  Exercises the Reagent adapter side. The emit sites are the
-  substrate-agnostic `views.cljs` frame-aware-view wrapper, so the shape
-  is uniform across adapters; the unmount mechanism (per-render-instance
-  reaction dispose) is tested here against the Reagent reaction primitive
-  available headlessly (no DOM) — the same path
-  `re-frame.substrate.spine-dispose-cljs-test` uses to exercise dispose
-  without JSDOM/Playwright.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "View traces report per-view reads, mount identity and disposal; Form-2 render evidence covers rerenders."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -39,14 +13,8 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ---- helpers ---------------------------------------------------------------
-
 (defn- in-op-set [op-set]
   (fn [ev] (contains? op-set (:operation ev))))
-
-;; ===========================================================================
-;; 1. view→sub edges — :rf.view/deref-subs
-;; ===========================================================================
 
 (deftest rf-view-rendered-carries-deref-subs-the-view-reads
   (testing ":rf.view/rendered carries :rf.view/deref-subs — the query-vectors THIS
@@ -76,7 +44,6 @@
       (rf/reg-view ^{:rf/id :rf2-9hoos/only-mine} only-mine-view []
         @(rf/subscribe [:rf2-9hoos/mine])
         [:span "x"])
-      ;; A different view reads the sibling sub.
       (rf/reg-view ^{:rf/id :rf2-9hoos/only-sibling} only-sibling-view []
         @(rf/subscribe [:rf2-9hoos/sibling])
         [:span "y"])
@@ -104,19 +71,6 @@
         (is (= [true false] [(some? ev) (contains? (:tags ev) :rf.view/deref-subs)])
             ":rf.view/rendered fired, and :rf.view/deref-subs is omitted when the view derefs no subs")))))
 
-;; ===========================================================================
-;; 2. mount-vs-rerender — :rf.view/mount?
-;; ===========================================================================
-
-(deftest first-render-of-an-instance-is-mount-rest-are-rerenders
-  (testing "first-render?! returns true the first time a render-key is
-   seen and false thereafter — the mount-vs-rerender discriminator that
-   backs :rf.view/mount? (a real Reagent instance reuses its render-key across
-   re-renders, so the same key recurs)"
-    (let [rk [:rf2-9hoos/instance 42]]
-      (is (= [true false] [(rf.views/first-render?! rk) (rf.views/first-render?! rk)])
-          "first sighting of the render-key → mount; second sighting (a re-render of the same instance) → rerender"))))
-
 (deftest distinct-instances-each-mount
   (testing "two distinct component instances (distinct instance-tokens)
    each report :rf.view/mount? true on their first render — headless direct
@@ -131,10 +85,6 @@
       (let [evs (:rf.view/rendered @observed)]
         (is (= [true true] (mapv #(get-in % [:tags :rf.view/mount?]) evs))
             "both fresh instances report :rf.view/mount? true")))))
-
-;; ===========================================================================
-;; 3. unmount — :rf.view/unmounted
-;; ===========================================================================
 
 (deftest install-unmount-hook-fires-emit-on-reaction-dispose
   (testing "install-unmount-hook! builds a lifecycle reaction whose
