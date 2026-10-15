@@ -1,68 +1,22 @@
 (ns re-frame.late-bind-hooks-cljs-test
-  "Pin the closed set of late-bind hooks the Reagent adapter publishes
-  at ns-load time.
-
-  Spec 006 §The reactive-substrate adapter contract treats the adapter
-  surface as closed-set; the late-bind hook table is the documented
-  side-channel through which `re-frame.interop` (and the views ns)
-  reach this adapter's substrate-specific impls. The repo-wide drift
-  test
-  `implementation/core/test/re_frame/late_bind_drift_test.clj` already
-  asserts the directory and the `set-fn!` call sites stay in sync, but
-  that walks every artefact's source files — it does NOT pin which keys
-  the Reagent adapter alone is responsible for. A future refactor that
-  silently drops a hook from this adapter (or adds one without
-  documenting it) goes unobserved by the directory drift test if the
-  hook is also published by a sibling adapter (every `:adapter/*` hook
-  on the directory is `:chained? true` and lists every adapter as a
-  producer).
-
-  This test plants the line in the sand at the runtime tier: after
-  loading `re-frame.adapter.reagent`, the in-process hook table MUST
-  contain bindings for every hook this adapter is documented to
-  publish. The set is locked here verbatim; adding or removing a hook
-  forces a deliberate update to this expected-set, which forces a
-  review of the directory entry and the contract Spec 006 documents.
-
-  Mechanism: read `@re-frame.late-bind/hooks` (the runtime atom holding
-  hook → fn entries) and check the expected key-set is a subset of the
-  installed keys. Subset rather than equality because other adapter
-  ns'es are loaded in the same test bundle (the late-bind set-fn!s for
-  uix / reagent-slim hooks also fire at ns-load time per the
-  drift-test rules), so the installed keys are a superset of any one
-  adapter's contribution.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "The documented Reagent hook set is installed and attributed to this adapter in the directory."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.reagent]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.late-bind.directory :as rf.late-bind.directory]))
 
-;; The closed set of hooks `re-frame.adapter.reagent` is documented (in
-;; the late-bind directory + the adapter ns) to publish at ns-load
-;; time. Locked verbatim; any change here MUST be paired with a
-;; deliberate directory + spec update.
 (def ^:private reagent-adapter-published-hooks
   #{:reagent/set-hiccup-emitter!
     :adapter/current-frame
     :adapter/current-component
-    ;; Stock Reagent's own hiccup → React element walk. Twin of
-    ;; `:adapter/current-component` above and published by the ratom family
-    ;; alone; see the reagent-slim pin for the mechanism it protects.
     :adapter/as-element
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
-    ;; The ratom family's push-path activation for a
-    ;; `make-derived-value` result. Published ONLY here and by
-    ;; reagent-slim; the React-hook spine's derived values are push-based
-    ;; from birth and publish nothing.
     :adapter/activate-derived-value!
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?
-    ;; The read that records no dependency on the reaction being computed,
-    ;; published by the ratom family alone: only their reads capture.
     :adapter/read-container-untracked
     :adapter/after-render
     :adapter/derived-container?})
@@ -90,9 +44,7 @@
       (let [entry      (rf.late-bind.directory/entry hook)
             producer   (:producer-ns entry)
             producers  (if (sequential? producer) (set producer) #{producer})]
-        (is (some? entry)
-            (str hook " has no entry in re-frame.late-bind.directory/hooks —"
-                 " every published key must be documented"))
+
         (is (contains? producers 're-frame.adapter.reagent)
             (str hook " is published by re-frame.adapter.reagent but the"
                  " directory entry's :producer-ns " (pr-str producer)
