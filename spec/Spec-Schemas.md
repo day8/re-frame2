@@ -587,7 +587,7 @@ The metadata map accepted by `reg-head` (per [011 §Mechanism — registered hea
 > **Owner:** [011-SSR §Server error projection](011-SSR.md#server-error-projection)
 > **Status:** v1 (optional capability)
 
-The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped. The projector named in a frame's `:ssr {:public-error-id ...}` metadata is that frame's active projector.
+The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped — and may return `nil` to defer to the default projector, which answers the same trace event with no record. Only a throw, a non-`nil` non-conforming return, or a configured `:public-error-id` naming no registered projector takes the locked generic-500 fallback and emits `:rf.error/sanitised-on-projection`. The projector named in a frame's `:ssr {:public-error-id ...}` metadata is that frame's active projector.
 
 ```clojure
 (def ErrorProjectorMeta
@@ -595,7 +595,8 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
    RegistrationMetadata
    [:map
     ;; No required per-kind extras beyond the base shape. The projector input conforms to
-    ;; :rf/trace-event (an :op-type :error refinement); the output conforms to :rf/public-error.
+    ;; :rf/trace-event (an :op-type :error refinement); the output conforms to :rf/public-error,
+    ;; or is nil to defer to the default projector.
     ]])
 ```
 
