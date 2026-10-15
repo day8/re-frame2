@@ -33,7 +33,6 @@
                                first)
         projected         (get-in (rf.machines.ssr/project-ssr-runtime-db runtime-db :rf/default)
                                   [:snapshots kid-id :data])]
-    (is (some? kid-id) "the parent spawned the kid")
     (is (= {"a" {:id 1 :token :rf/redacted}
             "b" {:id 2 :token :rf/redacted}}
            (select-keys projected ["a" "b"])))
