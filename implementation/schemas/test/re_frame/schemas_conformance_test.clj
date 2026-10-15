@@ -54,9 +54,9 @@
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
   expectation block closes early passes having verified less than it claims.
-  Throws rather than returning `:fixture/load-error`, which the
-  runner classifies as a SKIP — as silent as the defect. Full rationale on
-  `re-frame.conformance-fixtures/read-one-form`."
+  Throws rather than returning a load-error map, which a runner could only
+  skip — as silent as the defect. Full rationale on
+  `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))

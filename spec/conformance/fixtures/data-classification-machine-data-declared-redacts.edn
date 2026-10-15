@@ -82,12 +82,12 @@
  ;; The committed runtime-db snapshot carries the RAW token — redaction is a
  ;; trace-egress concern only.
  {:trace-emissions
-  ;; The matcher partial-matches each trace by its named keys and matches a
-  ;; map-valued :tags key one level deep, comparing each :tags entry by exact
-  ;; value. The :after snapshot is asserted as a full literal map (small +
-  ;; deterministic): the machine-declared :token slot redacts to :rf/redacted,
-  ;; the unmarked :retries sibling rides verbatim, and the reserved
-  ;; :rf/spawn-counter snapshot key is carried.
+  ;; The matcher compares each trace as a recursive submap: its named keys at
+  ;; every depth, extra actual keys ignored. So the :after snapshot is a
+  ;; submap assertion, and a submap is all this fixture needs: the
+  ;; machine-declared :token slot redacts to :rf/redacted, the unmarked
+  ;; :retries sibling rides verbatim, and the reserved :rf/spawn-counter
+  ;; snapshot key is carried.
   [{:operation :rf.machine/transition
     :tags      {:actor-id :dc/auth
                 :after      {:state :authed
