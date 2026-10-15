@@ -378,6 +378,7 @@
     time-ms :rf/time-ms, app-db :db}
    {:keys [resource owner cause keep-previous? reply-to] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
+        _          (rf.resources.state/check-generation-allocation! gen-allocation)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         ;; EP-0016 D1 — the OPTIONAL call-site
         ;; `:reply-to` read-completion continuation. It rides the durable work
@@ -950,6 +951,7 @@
     time-ms :rf/time-ms, app-db :db}
    {:keys [resource cause] supplied-owner :owner :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
+        _          (rf.resources.state/check-generation-allocation! gen-allocation)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
@@ -1194,6 +1196,7 @@
    {:keys [resource owner cause] page-param :rf.resource/page-param
     page-index :rf.resource/page-index :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
+        _          (rf.resources.state/check-generation-allocation! gen-allocation)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)

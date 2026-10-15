@@ -1359,6 +1359,7 @@
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
+        _          (rf.resources.state/check-generation-allocation! gen-allocation)
         spec       (rf.resources.mutation-registry/require-mutation-spec! mutation where)
         ;; Thread `:params` presence (absent vs explicit nil) to
         ;; the validation boundary: an absent slot defaults to `{}` there, an

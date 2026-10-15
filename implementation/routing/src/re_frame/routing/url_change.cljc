@@ -25,6 +25,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.decisions :as rf.routing.decisions]
             [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.scroll :as rf.routing.scroll]
@@ -552,6 +553,8 @@
         frame   (rf.frame/require-frame-stamp!
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})
+        _       (rf.routing.nav-counters/check-allocations!
+                  nav-allocation pending-nav-allocation)
         opts    (or opts {})
         rdb     (or rdb {})
         ;; EP-0037 R0: the URL-driven `:rf.route/handle-url-change` door stands
@@ -610,6 +613,8 @@
   (let [frame (rf.frame/require-frame-stamp!
                 frame :rf.route/url-requested
                 {:where 'rf.route/url-requested-handler})
+        _     (rf.routing.nav-counters/check-allocations!
+                nav-allocation pending-nav-allocation)
         rdb   (or rdb {})]
     (if (rf.routing.url/external-url? url)
       (do

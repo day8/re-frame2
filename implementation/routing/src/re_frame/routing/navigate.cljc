@@ -22,6 +22,7 @@
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.decisions :as rf.routing.decisions]
             [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
@@ -218,6 +219,8 @@
           frame (rf.frame/require-frame-stamp!
                   frame :rf.route/navigate
                   {:where 'rf.route/navigate-handler})
+          _    (rf.routing.nav-counters/check-allocations!
+                 nav-allocation pending-nav-allocation)
           rdb  (or rdb-raw {})
           ;; The current route slice (durable framework runtime-db fact). Read
           ;; once so the in-place patch and `:query-merge` both resolve
