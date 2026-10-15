@@ -349,8 +349,13 @@
 ;; `[:query]` one every param / every query value. Everything the route does not
 ;; declare — static segments, undeclared params, undeclared query keys and their
 ;; values — rides byte-for-byte, and a URL matching no route, or a non-string,
-;; rides back unchanged. It is an EGRESS projection: the URL a door commits, the
-;; event it dispatches and the slice it writes keep the raw value.
+;; rides back unchanged. A URL whose match THROWS — an ambiguous route among
+;; them — has no one declaration to project by, so it fails closed: every query
+;; value and the fragment are redacted, as the route-miss telemetry projects a
+;; URL, and for an ambiguous route so is every segment its registrations'
+;; patterns capture, as though each declared its whole projection (`[]`). It is
+;; an EGRESS projection: the URL a door commits, the event it dispatches and the
+;; slice it writes keep the raw value.
 ;;
 ;; Consulted by the `:rf.route/planned` trace (`plan-trace-tags` below) and,
 ;; through `project-nav-event-arg` and the late-bound
@@ -437,6 +442,32 @@
       q-idx    (str "?" (redact-query (subs no-frag (inc q-idx)) query?))
       hash-idx (str "#" (if fragment? redacted-value (subs url (inc hash-idx)))))))
 
+(def ^:private whole-projection
+  "What a `[]` declaration names in a URL: every param segment, every query
+  value and the fragment."
+  {:param? (constantly true) :query? (constantly true) :fragment? true})
+
+(defn- route-pattern
+  "The compiled path pattern of a route registration."
+  [route-meta]
+  (or (:rf.route/compiled route-meta)
+      (some-> (:path route-meta) rf.routing.match/parse-pattern)))
+
+(defn- fail-closed-url
+  "`url` projected when matching it threw `ex`, so there is no one declaration
+  to project it by: every query value and the fragment redacted, and, when
+  `ex` is an ambiguous route, every segment any of its registrations' patterns
+  captures."
+  [url ex]
+  (let [route-id (when (rf.registrar/ambiguous-registration? ex)
+                   (second (:registration (ex-data ex))))]
+    (reduce (fn [u route-meta]
+              (if-let [compiled (route-pattern route-meta)]
+                (redact-url-parts u compiled whole-projection)
+                u))
+            (rf.privacy.url/redact-url-carriers url)
+            (vals (get (rf.registrar/ambiguous-registrations :route) route-id)))))
+
 (defn redact-declared-url
   "Project `url` for egress by the `:sensitive` declaration of the route it
   resolves to. See the section comment above. Returns `url` itself — the same object —
@@ -444,20 +475,20 @@
   [url]
   (if-not (string? url)
     url
-    (let [;; Total, and quiet: a URL whose match throws has no declaration to
-          ;; project by, and the navigation that resolves it is what reports
-          ;; the throw — an ambiguous route among them — once.
-          route-id   (try (:route-id (rf.routing.registry/match-url url))
-                          (catch #?(:clj Throwable :cljs :default) _ nil))
+    (let [;; Total, and quiet: the navigation that resolves a URL whose match
+          ;; throws is what reports the throw — an ambiguous route among them —
+          ;; once.
+          match      (try (rf.routing.registry/match-url url)
+                          (catch #?(:clj Throwable :cljs :default) ex {::threw ex}))
+          route-id   (:route-id match)
           route-meta (when (some? route-id) (rf.registrar/lookup :route route-id))
           decls      (when (some? route-meta) (url-declarations route-id route-meta))
-          compiled   (when decls
-                       (or (:rf.route/compiled route-meta)
-                           (some-> (:path route-meta) rf.routing.match/parse-pattern)))]
-      (if (nil? compiled)
-        url
-        (let [url' (redact-url-parts url compiled decls)]
-          (if (= url url') url url'))))))
+          compiled   (when decls (route-pattern route-meta))
+          url'       (cond
+                       (contains? match ::threw) (fail-closed-url url (::threw match))
+                       (some? compiled)          (redact-url-parts url compiled decls)
+                       :else                     url)]
+      (if (= url url') url url'))))
 
 ;; ---- a navigation request, projected by its route's declaration -----------
 ;;
