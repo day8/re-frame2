@@ -92,4 +92,3 @@
             :id          :sub/malformed}
            (select-keys data [:rf.error/id :where :recovery :id])))
     (is (nil? (rf.registrar/lookup :sub :sub/malformed)))))
-
