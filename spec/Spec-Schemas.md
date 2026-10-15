@@ -2127,18 +2127,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
-(def MultipleStatusSetTags
-  [:map
-   [:writes       [:vector :any]]
-   [:final-status :any]
-   [:frame        {:optional true} :keyword]])
-
-(def MultipleRedirectsTags
-  [:map
-   [:writes         [:vector :any]]
-   [:final-redirect :any]
-   [:frame          {:optional true} :keyword]])
-
 ;; There is no head-mismatch `*Tags` schema and no `:rf.warning/head-mismatch`
 ;; category. A head mismatch rides `:rf.ssr/hydration-mismatch`, discriminated
 ;; by `:failing-id` `:rf.ssr/head-mismatch` — a VALUE on that row, not a
