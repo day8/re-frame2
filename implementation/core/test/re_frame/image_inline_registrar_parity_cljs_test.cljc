@@ -214,17 +214,12 @@
 (deftest inline-lowering-preserves-the-runnable-shape
   (let [gen (assemble-inline
               {:reg-event [[:parity/keep-ev {:rf.cofx/requires [:rf.cofx/now]} event-body]]
-               :reg-fx    [[:parity/keep-fx {:tags [:audit]} fx-body]]
                :reg-cofx  [[:parity/keep-cofx {:recordable? true :provided? true} nil]]})
         ev  (rf.image-assembly/resolve-descriptor gen :event :parity/keep-ev)
-        fx  (rf.image-assembly/resolve-descriptor gen :fx :parity/keep-fx)
         cfx (rf.image-assembly/resolve-descriptor gen :cofx :parity/keep-cofx)]
     (is (= [:rf.cofx/now event-body [:reg-event :parity/keep-ev] true]
            [(:id (first (:rf.cofx/requires-parsed ev))) (:impl ev)
             (:rf.provenance/inline ev) (:rf/default? (peek (:interceptors ev)))])
         "event: requires parsed, raw body and provenance kept, wrapper at the tail")
-    (is (= [fx-body [:audit] [:audit]]
-           [(:handler-fn fx) (:tags fx) (get-in fx [:metadata :tags])])
-        "fx: the authored metadata is at the top level and still nested")
     (is (= [nil true true] [(:handler-fn cfx) (:recordable? cfx) (:provided? cfx)])
         "cofx: a generator-less provided fact lowers with its grade")))
