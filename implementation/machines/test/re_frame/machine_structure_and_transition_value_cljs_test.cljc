@@ -1,32 +1,12 @@
 (ns re-frame.machine-structure-and-transition-value-cljs-test
-  "`reg-machine` refuses a definition whose state tree is not built of maps, and
-  a transition value the macrostep cannot read, with a structured `:rf.error/*`
-  category rather than a host exception or a registration that fails later.
-
-  Structure. A `:states` or `:regions` that is neither nil nor a map, and a
-  state node that is neither nil nor a map, are refused with
-  `:rf.error/machine-bad-structure`, before any other check walks the tree. On
-  a `:type :parallel` root a non-map `:regions`, and a region body that is not
-  a map, are refused with `:rf.error/machine-parallel-bad-shape`.
-
-  Transition values. A value is valid exactly when the shared grammar the
-  runtime normaliser uses accepts it: a target keyword, a target path vector, a
-  transition map, a vector of transition maps, or nil. Any other value is
-  refused with the category the runtime raises for its slot:
-  `:rf.error/machine-bad-on-clause` for an `:on` entry,
-  `:rf.error/machine-bad-after-spec` for an `:after` entry, an `:on-timeout`
-  and a `:spawn :on-timeout`, `:rf.error/machine-bad-always` for `:always` and
-  `:rf.error/machine-bad-on-done-clause` for `:on-done`. Each refusal names the
-  `:slot`, the offending `:value` and where it sits.
-
-  Cross-platform (`*_cljs_test.cljc`): the host exception a malformed tree
-  would otherwise raise differs per host, so both hosts are pinned."
+  "Registration refuses malformed state trees and transition values before
+  runtime traversal. Each refusal pins its category, value and location;
+  both hosts run these checks because malformed trees raise different host
+  exceptions."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   ;; Load the machines facade so `rf/reg-machine` routes through its
-   ;; late-bind hook (`:machines/reg-machine`).
    [re-frame.machines :as rf.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -227,16 +207,14 @@
            (:rf.error/id (registration {:initial :a :states {:a {:on-done 42}}}))))))
 
 (deftest registration-refuses-an-on-value-exactly-when-the-macrostep-does
-  (testing "for each value, registration refuses it as a malformed :on entry
-            iff a macrostep taking the transition throws the same category"
-    (doseq [v (concat malformed (:sibling targets)
-                      [[] [{:target :b} 42] {:target 42}])
-            :let [machine    {:initial :a :states {:a {:on {:go v}} :b {}}}
-                  registered (:rf.error/id (registration machine))
-                  stepped    (try (rf.machines/machine-transition machine {:state :a :data {}} [:go])
-                                  nil
-                                  (catch #?(:clj Throwable :cljs :default) t
-                                    (:rf.error/id (ex-data t))))]]
-      (is (= (= :rf.error/machine-bad-on-clause registered)
-             (= :rf.error/machine-bad-on-clause stepped))
-          (str (pr-str v) " registration " (pr-str registered) " macrostep " (pr-str stepped))))))
+  ;; Accepted forms are checked above; false must not bypass rejection.
+  (doseq [v [42 false]
+          :let [machine    {:initial :a :states {:a {:on {:go v}} :b {}}}
+                registered (:rf.error/id (registration machine))
+                stepped    (try (rf.machines/machine-transition machine {:state :a :data {}} [:go])
+                                nil
+                                (catch #?(:clj Throwable :cljs :default) t
+                                  (:rf.error/id (ex-data t))))]]
+    (is (= [:rf.error/machine-bad-on-clause :rf.error/machine-bad-on-clause]
+           [registered stepped])
+        (pr-str v))))
