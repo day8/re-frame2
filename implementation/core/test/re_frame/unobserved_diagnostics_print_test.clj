@@ -59,11 +59,9 @@
   [out needles]
   (if rf.interop/debug-enabled?
     (let [lines (printed-lines out)]
-      (is (= 1 (count lines))
-          (str "exactly one [re-frame2] line; got " (pr-str out)))
-      (doseq [needle needles]
-        (is (str/includes? (str (first lines)) needle)
-            (str "the line names " needle "; got " (pr-str (first lines))))))
+      (is (= [1 true]
+             [(count lines) (every? #(str/includes? (str (first lines)) %) needles)])
+          (str "one line containing " (pr-str needles) "; got " (pr-str out))))
     (is (= "" out) (str "the production gate prints nothing; got " (pr-str out)))))
 
 (defn- expect-silence [out why]
