@@ -3,7 +3,7 @@
 > **Type:** Reference
 > The unifying conceptual frame for every framework-owned **durable-state** surface in re-frame2 — the children of the runtime-db partition (machines, routing, elision, SSR, and EP-0003's shipped resources / work-ledger / mutations). Names the five clauses every conformant runtime subsystem inherits, so a new subsystem (a 3rd-party `:rf.runtime/<lib>` extension) can be evaluated against a single checklist instead of re-deriving the shape each time. This is the **durable-state analogue of [Managed-Effects.md](Managed-Effects.md)** — Managed-Effects names the eight-property shape every framework-owned *effect* surface satisfies; this doc names the five-clause shape every framework-owned *state* subtree satisfies.
 >
-> The same doc also owns the **operational environment** ([§The operational environment](#runtime-realms--the-container)) — the *non-durable* layer beside the durable subsystems: the process-global registrar, the installed adapter, the capability map, and the **host-transient** subsystem state. The durable subsystems live inside each frame; the operational environment surrounds them at the process and frame boundaries.
+> The same doc also owns the **operational environment** ([§The operational environment](#runtime-realms--the-container)) — the *non-durable* layer beside the durable subsystems: the process-global registrar, the installed adapter, the late-bind hook table, and the **host-transient** subsystem state. The durable subsystems live inside each frame; the operational environment surrounds them at the process and frame boundaries.
 
 ## Why this doc exists
 
@@ -213,11 +213,11 @@ A subtree that answers fewer than five is ad-hoc runtime state, not a runtime su
 <a id="runtime-realms--the-container"></a>
 ## The operational environment — process + frame ownership
 
-> **Public model: `image → frame → event stream` ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md), final; [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), final).** This section names the **non-durable operational layer** beside the durable subsystems — the registrar, the adapter, the capability map, and the host-transient side tables — and says who owns each. There is no runtime-realm container, no per-container registrar, and no realm/app/module constructor / install / query facade export; there is no `(realm, frame)` two-part address — a frame is addressed by its id alone (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
+> **Public model: `image → frame → event stream` ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md), final; [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), final).** This section names the **non-durable operational layer** beside the durable subsystems — the registrar, the adapter, the late-bind hook table, and the host-transient side tables — and says who owns each. There is no runtime-realm container, no per-container registrar, and no realm/app/module constructor / install / query facade export; there is no `(realm, frame)` two-part address — a frame is addressed by its id alone (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
 
-The five-clause contract above organises the **durable** runtime-db partition: the `:rf.runtime/*` children of `:rf.db/runtime`, which ride frame-state serialization, restore, and SSR hydration. But a running app also holds a second framework-owned layer that is **not** durable frame-state — the registrar it dispatches against, the reactive adapter it renders through, the capability map its features depend on, and the **host-transient** side tables (HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles). This section names where that layer lives.
+The five-clause contract above organises the **durable** runtime-db partition: the `:rf.runtime/*` children of `:rf.db/runtime`, which ride frame-state serialization, restore, and SSR hydration. But a running app also holds a second framework-owned layer that is **not** durable frame-state — the registrar it dispatches against, the reactive adapter it renders through, the late-bind hooks through which core reaches its optional artefacts, and the **host-transient** side tables (HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles). This section names where that layer lives.
 
-**The operational environment splits across two owners.** The **process** owns the singletons every frame shares — the registrar, the installed adapter selection, the capability map. Each **frame** owns its own non-durable lifecycle state — its host-transient side tables (mostly keyed per-frame) and its teardown bookkeeping — torn down on `destroy-frame!` (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), every per-frame fact hangs off the one frame value). The durable runtime-db subsystems live *inside* each frame; the operational environment surrounds them at these two boundaries.
+**The operational environment splits across two owners.** The **process** owns the singletons every frame shares — the registrar, the installed adapter selection, the late-bind hook table. Each **frame** owns its own non-durable lifecycle state — its host-transient side tables (mostly keyed per-frame) and its teardown bookkeeping — torn down on `destroy-frame!` (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), every per-frame fact hangs off the one frame value). The durable runtime-db subsystems live *inside* each frame; the operational environment surrounds them at these two boundaries.
 
 This completes the ownership picture for framework-owned state:
 
@@ -225,13 +225,13 @@ This completes the ownership picture for framework-owned state:
 |---|---|---|---|
 | **Durable frame-state** (`:rf.runtime/*` children) | the **frame** (per-frame, isolated) | rides restore / SSR / time-travel | the five-clause contract + grading table above |
 | **Host-transient subsystem state** (abort handles, timers, caches) | the **frame** (keyed per-frame, beside the frame value) | torn down on `destroy-frame!`; never serialized | §Host-transient subsystem state below |
-| **Operational environment** (registrar, adapter, capabilities) | the **process** | created at boot; lives for the process | §The operational environment (this section) |
+| **Operational environment** (registrar, adapter, late-bind hooks) | the **process** | created at boot; lives for the process | §The operational environment (this section) |
 
 ### The environment is process-global; resolution is frame-derived
 
-The registrar's source store, the installed adapter, and the capability map are **process-global singletons** — every `reg-*` writes to the one source store, and every frame in the process renders through the same adapter and reads the same capability map. Handler resolution is **frame-derived**: a frame resolves event / subscription / fx / cofx handlers through its own *resolved image generation*, which `make-frame` assembles from that source store, or, for a frame made without `:images`, through that store live, and supplies the *state* a resolved handler runs against (its app-db / runtime-db) (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
+The registrar's source store, the installed adapter, and the late-bind hook table are **process-global singletons** — every `reg-*` writes to the one source store, every frame in the process renders through the same adapter, and every late-bind lookup reads the same hook table. Handler resolution is **frame-derived**: a frame resolves event / subscription / fx / cofx handlers through its own *resolved image generation*, which `make-frame` assembles from that source store, or, for a frame made without `:images`, through that store live, and supplies the *state* a resolved handler runs against (its app-db / runtime-db) (per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
 
-This is **operational resolution, not a frame-target fallback.** "Which source store / adapter / capability map does this operation use?" is answered by the process singletons, and "which handler does this id resolve to?" by the targeted frame's own view of the registrations. "Which frame does this dispatch target?" is a **separate** question: `dispatch`, `subscribe`, and other frame-scoped operations still require an explicit frame, a carried frame, or an established frame scope, and still fail with `:rf.error/no-frame-context` per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) / [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) when no frame is known. The runtime never synthesises a frame from absence.
+This is **operational resolution, not a frame-target fallback.** "Which source store / adapter / late-bind hook does this operation use?" is answered by the process singletons, and "which handler does this id resolve to?" by the targeted frame's own view of the registrations. "Which frame does this dispatch target?" is a **separate** question: `dispatch`, `subscribe`, and other frame-scoped operations still require an explicit frame, a carried frame, or an established frame scope, and still fail with `:rf.error/no-frame-context` per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) / [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) when no frame is known. The runtime never synthesises a frame from absence.
 
 <a id="what-a-realm-owns"></a>
 ### What the process owns; what the frame owns
@@ -240,7 +240,7 @@ The **process** owns:
 
 - the **registrar** every frame dispatches/subscribes/resolves against (the `(kind, id) → registration descriptor` table — owned by [001-Registration](001-Registration.md); the surface existing specs call "global");
 - the installed **adapter selection** (§Adapter ownership);
-- the **capability map** (§Capability maps);
+- the **late-bind hook table** (§Late-bind hooks);
 - the **live frame registry** — one entry per frame id (frame ids are unique in the one process-local frame-id space, per [002 §Frame addressing](002-Frames.md#frames-reference-realms)).
 
 Each **frame** owns:
@@ -248,7 +248,7 @@ Each **frame** owns:
 - its **host-transient subsystem state** (§Host-transient subsystem state), keyed per-frame beside the frame value;
 - its **lifecycle / disposal** state — the teardown bookkeeping `destroy-frame!` walks (per [§One frame value owns every per-frame subsystem](#one-frame-value-owns-every-per-frame-subsystem--one-registry-one-teardown-path)).
 
-The registrar, adapter, and capability map are process singletons because every frame shares them — duplicating them per frame would multiply identical registrations across the common many-frames-one-app case, with no consumer use case. The host-transient side tables are per-frame because they hold a frame's in-flight handles and caches, which must be released exactly when that frame is destroyed.
+The registrar, adapter, and late-bind hook table are process singletons because every frame shares them — duplicating them per frame would multiply identical registrations across the common many-frames-one-app case, with no consumer use case. The host-transient side tables are per-frame because they hold a frame's in-flight handles and caches, which must be released exactly when that frame is destroyed.
 
 ### Adapter ownership
 
@@ -268,28 +268,25 @@ consistently, and are disposed when the subtree or frame is disposed.
 
 The framework does **not** make mixing two adapters inside one frame's reactive graph legal. The no-mixing-within-one-frame's-graph invariant is the conformance test. The adapter contract itself is owned by [006-ReactiveSubstrate §The adapter contract](006-ReactiveSubstrate.md); this doc names only adapter *ownership* — process (selection) + root (instances). (Running two adapters in one process via two realms is not part of the shipped model.)
 
-### Capability maps
+<a id="capability-maps"></a>
+### Service dependencies
 
-The **capability map** is the explicit dependency surface for runtime services — the conceptual owner of dependencies a feature needs. Capabilities are ordinary maps or records with documented functions and lifecycle: adapter functions, HTTP execution, schema validation, route integration, clocks (`:rf.capability/clock`), randomness (`:rf.capability/random`), SSR hooks, and test doubles.
+A frame reaches the runtime services it depends on — HTTP execution, schema validation, route integration, SSR hooks — through four channels:
 
-```clojure
-;; A hermetic test capability map — exactly the capabilities the app needs,
-;; with no process-global state to clear.
-{:adapter      :plain-atom
- :capabilities {:rf.capability/http   fake-http
-                :rf.capability/clock  fixed-clock
-                :rf.capability/random seeded-random}}
-```
+- **Registrations, selected by images.** An fx or cofx handler is the service, and an image that registers a different handler under the same id replaces it. A hermetic test composes a later overrides image whose `:registrations` stub exactly the effects and coeffects it controls — HTTP, a fixed clock, a seeded random source ([008 §Hermetic-frame testing](008-Testing.md#hermetic-frame-testing--a-fresh-frame-composed-from-images)).
+- **Frame config.** The record-config keys of `make-frame` — `:fx-overrides`, `:platform`, `:ssr` and `:interceptors` among them — configure one frame without touching the process ([002 §`:fx-overrides`](002-Frames.md#fx-overrides--replace-fx-handlers)).
+- **The adapter.** The installed reactive substrate supplies reactive values and rendering (§Adapter ownership).
+- **Late-bind hooks.** Core reaches an optional artefact's functions through the late-bind hook table (§Late-bind hooks).
 
-A feature declares the capabilities it requires; a required capability that is absent surfaces `:rf.error/missing-capability` (with `:capability` / `:recovery`). Capabilities make test doubles, SSR services, tenant-specific HTTP clients, schema validators, and routing hosts explicit and injectable, rather than process-global state discovered by namespace load order.
+A host fact that a durable decision depends on — the time, a random draw, a generated UUID — arrives as a recorded coeffect on the event's `:rf.cofx`, never as an ambient host read ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)).
 
-The `:rf.capability/*` capability-key namespace is reserved in the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table.
+There is no capability map. `make-frame` gives a `:capabilities` key no special meaning — it is ordinary record-config — and no runtime check reports a missing capability. A port MAY add a capability layer, an explicit map of runtime services handed to a frame, under the `:rf.capability/*` namespace; [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) reserves it for that purpose whether or not a port ships one.
 
-### Late-bind compatibility
+### Late-bind hooks
 
-The late-bind hook table (`late-bind/publish!` / `late-bind/lookup`) remains a necessary implementation tool for **optional artifacts and cyclic namespace pressure** — it is not removed. It serves as a **bridge into capabilities** rather than the conceptual dependency model: the capability map MAY be populated from late-bound hooks so existing artifact load order keeps working; new code SHOULD prefer explicit capabilities.
+The late-bind hook table (`re-frame.late-bind`) is the process-global registry through which a namespace calls a function it cannot `:require`: an optional artefact (schemas, flows, routing, machines, SSR, epoch, HTTP) that may be absent from the build, or a higher-level namespace that a leaf namespace would otherwise form a load cycle with. The producing namespace publishes at load time with `set-fn!` (one key) or `set-fns!` (a map of keys); the consumer resolves at call time with `get-fn`, or `get-fn-cached` on a hot path. A key whose artefact is absent resolves to nil, and the consumer no-ops or fails with `:rf.error/<artefact>-artefact-missing`. `re-frame.late-bind.directory` lists every published key, and a drift test holds the directory to the publication sites.
 
-The smell this addresses is not the existence of late-bind hooks. It is using a process-global hook table as a **service locator for app architecture** — a feature should be able to declare that it requires HTTP, routing, schemas, or a clock, and have that dependency be explicit and injectable. Late-bind stays for compatibility and optional loading; the semantic dependency surface moves to capabilities. The late-bind directory and its drift test are unchanged.
+The hook table is load-order plumbing, not a service locator for app architecture. An app that wants a dependency explicit and swappable — HTTP, routing, schemas, a clock — models it as a registration and swaps it by image composition or frame config (§Service dependencies).
 
 ### Host-transient subsystem state
 
