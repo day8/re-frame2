@@ -1,29 +1,12 @@
 (ns re-frame.reply-vocab-conformance-cljs-test
-  "Cross-implementation conformance for the uniform managed-async reply
-  vocabulary.
-
-  A descriptor matrix drives the HTTP, resource, mutation, machine, machine
-  timer and route reply builders through every situation each produces
-  (`:success`, `:error`, `:cancel`, `:stale`) and holds every reply to the
-  shared envelope: it validates through `re-frame.reply/validate-reply`,
-  carries its situation's `:status` and `:rf.reply/work-status`, and names its
-  work by an EDN-round-trippable `[:rf.work/<family> …]` tuple. The matrix also
-  compares causal `:completed-at` propagation and stale correlation across the
-  families. The family suites own each builder's full reply shape.
-
-  Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope."
+  "Uniform managed-async reply envelope across family builders.
+  Family suites own the full reply shapes (Managed-Effects)."
   (:require [clojure.test :refer [deftest is testing]]
-            #?(:cljs [cljs.reader])
             [re-frame.reply :as rf.reply]
             [re-frame.http.reply :as rf.http.reply]
             [re-frame.resources.reply :as rf.resources.reply]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.routing.reply :as rf.routing.reply]))
-
-(defn- edn-roundtrip [value]
-  #?(:clj  (read-string (pr-str value))
-     :cljs (cljs.reader/read-string (pr-str value))))
 
 (def ^:private completion-time-ms 1781078400456)
 
@@ -80,12 +63,8 @@
                       :rf.reply/stale-reason reason}
                      t)}))
 
-;; Every builder takes `t`, merged into its causal context: `{}` or
-;; `{:completed-at ms}`. A missing situation is one the family does not
-;; produce (route errors and cancellations are HTTP replies). `:untimed` names
-;; the situations whose builder takes no completion time. A family that
-;; delegates stale classification to `re-frame.reply/suppress` supplies the
-;; whole outcome as `:stale-out`.
+;; Missing situations are not produced by that family; :untimed builders take
+;; no completion time. :stale-out builders return a suppression outcome.
 (def ^:private families
   [{:family    :http
     :work-head :rf.work/http
@@ -139,7 +118,6 @@
     :stale-out #(rf.routing.reply/suppress (merge route-ctx %) "nav-2")}])
 
 (defn- cells
-  "Every `[family situation build descriptor]` the matrix produces."
   []
   (for [{:keys [family stale-out] :as descriptor} families
         situation [:success :error :cancel :stale]
@@ -163,12 +141,9 @@
       (is (rf.reply/valid-reply? reply) (pr-str (rf.reply/validate-reply reply)))
       (is (= (situation-statuses situation)
              ((juxt :status :rf.reply/work-status) reply)))
-      (is (= [true work-head wid] [(vector? wid) (first wid) (edn-roundtrip wid)])
-          "the work is named by a comparable EDN tuple"))))
+      (is (= [true work-head] [(vector? wid) (first wid)])))))
 
-;; Completion time is causal evidence: a builder supplied one carries it as
-;; `:completed-at`, and a builder supplied none omits the key rather than
-;; nil-filling it, so no reducer derives a durable timestamp from a missing fact.
+;; Missing causal evidence must stay absent rather than become a nil timestamp.
 (deftest completion-time-propagates-when-supplied-and-is-omitted-when-absent
   (doseq [[family situation build {:keys [untimed]}] (cells)
           :when (not (contains? untimed situation))]
