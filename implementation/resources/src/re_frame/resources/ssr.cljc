@@ -2454,9 +2454,10 @@
       has no owner whose release would re-arm a GC timer, so without this arm
       no GC re-check ever runs and it lives for the session. Arming is safe
       because `events/gc-fired-handler`
-      re-checks the LIVE durable facts on fire: a still owned or in-flight
-      entry is kept and its GC timer re-armed, and only an owner-free, idle
-      entry is removed.
+      re-checks the LIVE durable facts on fire: a still-owned entry is kept
+      until its last owner's release re-arms GC, an in-flight entry is kept
+      and its GC timer re-armed, and only an owner-free, idle entry is
+      removed.
     - Poll. Without this arm an owned entry of a polling resource
       never polls. It arms only for an entry still owned after the reconcile
       orphaned its SSR owners, because a poll never pins an owner-free entry;

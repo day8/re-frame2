@@ -2,7 +2,7 @@
   "The :stale, :gc and :poll timers share one host side table. The
   schedule-timers effect reconciles only the kinds its :timers map names (a
   positive delay arms, nil cancels) and preserves absent ones, so a poll tick
-  or a GC skip re-arms its own kind without cancelling the others (Spec 016
+  or an in-flight GC skip re-arms its own kind without cancelling the others (Spec 016
   §Stale and GC scheduling / §Polling)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -144,10 +144,11 @@
           "the GC handle is unchanged and poll re-armed"))))
 
 (deftest gc-skip-while-owned-preserves-the-poll-timer
-  ;; were the GC re-arm to cancel poll, an owned entry would silently stop refreshing
+  ;; were the GC skip to cancel poll, an owned entry would silently stop refreshing
   (let [k (loaded-polling! :tre/gp)]
     (is (= [true true] [(armed? k poll) (armed? k gc)]) "precondition: the settle armed poll and GC")
-    (let [poll-h (timer-handle k poll)]
+    (let [poll-h (timer-handle k poll)
+          gc-h   (timer-handle k gc)]
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (= [true poll-h true] [(some? (entry k)) (timer-handle k poll) (armed? k gc)])
-          "the owned entry is kept, the poll handle unchanged, GC re-armed"))))
+      (is (= [true poll-h gc-h] [(some? (entry k)) (timer-handle k poll) (timer-handle k gc)])
+          "the owned entry is kept and neither handle moved: an owned skip arms nothing"))))

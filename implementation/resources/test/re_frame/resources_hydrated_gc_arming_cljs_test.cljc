@@ -188,7 +188,7 @@
       (fire-armed-gc!)
       (assert-hydration-armed-and-collected! at-hydrate))))
 
-(deftest owned-fire-re-arms-release-re-arms-next-fire-collects
+(deftest owned-fire-arms-nothing-release-re-arms-next-fire-collects
   ;; the GC re-check is what makes arming at hydration safe
   (reg-article!)
   (let [route-owner [:route :route/article "nav-1"]]
@@ -196,15 +196,13 @@
     (let [armed (gc-slot)]
       (is (some? armed) (str "hydration armed the GC timer: " (pr-str (observed))))
       (fire-armed-gc!)
-      (let [re-armed (gc-slot)]
-        (is (= [#{route-owner} true [300000]]
-               [(:active-owners (entry)) (and (some? re-armed) (not= (:token armed) (:token re-armed)))
-                (mapv #(get-in % [:timers :gc]) (gc-arm-emissions))])
-            (str "an owned fire keeps the entry and re-arms a fresh timer at :gc-after-ms: "
-                 (pr-str (observed))))
-        (release! route-owner)
-        (is (= [true true [300000 300000]]
-               [(some? (gc-slot)) (not= (:token re-armed) (:token (gc-slot)))
+      (is (= [#{route-owner} (:token armed) []]
+             [(:active-owners (entry)) (:token (gc-slot))
+              (mapv #(get-in % [:timers :gc]) (gc-arm-emissions))])
+          (str "an owned fire keeps the entry and arms nothing: " (pr-str (observed))))
+      (let [release-armed (do (release! route-owner) (gc-slot))]
+        (is (= [true true [300000]]
+               [(some? release-armed) (not= (:token armed) (:token release-armed))
                 (mapv #(get-in % [:timers :gc]) (gc-arm-emissions))])
             (str "the last owner's release re-arms a fresh timer at :gc-after-ms: "
                  (pr-str (observed))))

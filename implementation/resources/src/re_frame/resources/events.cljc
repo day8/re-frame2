@@ -3565,22 +3565,18 @@
     - otherwise the entry is owner-free + idle — REMOVE it (recompute the
       reverse indexes) and cancel its advisory timers.
 
-  RESCHEDULE-ON-SKIP: a GC timer that fires while the entry is
-  still OWNED or IN-FLIGHT must NOT just skip and leave the entry uncollectable
-  — work that settles AFTER the original `:gc-after-ms` deadline through a
-  settle that arms no GC timer (a failed or aborted refresh) would leave the
-  now-inactive entry lingering indefinitely. The release of the last owner
-  re-arms a full window itself (`release-owner-from-identities`); an owned
-  skip's re-arm keeps a GC check live while the entry is held. So a
-  `:has-owner` / `:in-flight` skip RE-ARMS a
-  fresh GC timer (via `schedule-timers`, which cancel-then-arms — this also
-  cleans up the FIRED one-shot handle still sitting in the side table). The
-  re-armed timer fires another re-check after `:gc-after-ms`; once the entry is
-  owner-free + idle that re-check collects it deterministically. A `:no-entry`
-  skip does NOT reschedule (there is nothing left to collect; `cancel-timers`
-  on the removal path already released the handles). A resource declaring no
-  `:gc-after-ms` never armed a GC timer in the first place, so it never skips
-  here — but the reschedule fx is gated on a positive delay for safety."
+  Only an `:in-flight` skip RE-ARMS. An owner-free entry whose work is in
+  flight has no later event that is sure to arm GC — a failed or aborted
+  refresh settles without arming one — so the skip re-arms a fresh GC timer
+  (via `schedule-timers`, which cancel-then-arms) whose re-check, once the
+  work has settled, collects the entry. A `:has-owner` skip arms nothing: an
+  owned entry becomes collectable only when its last owner is released, and
+  that release re-arms a full window itself (`release-owner-from-identities`),
+  so a check while the entry is held would only repeat this no-op. The owner
+  test comes first, so an entry that is both owned and in flight waits for
+  that release too. A `:no-entry` skip has nothing left to collect. The
+  re-arm is gated on a positive `:gc-after-ms`; `:never` armed no timer to
+  fire here."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {resource-key :resource/key}]]
   (let [runtime-db (or rt {})
@@ -3618,13 +3614,10 @@
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
                            :else                         :in-flight)
-            ;; A still-owned / in-flight skip RE-ARMS the GC timer
-            ;; so a later release / work-settle is followed by another GC
-            ;; re-check (and the fired one-shot handle is replaced). A
-            ;; :no-entry skip has nothing to reschedule. The delay is the
-            ;; resource's own :gc-after-ms (positive-guarded — a resource with
-            ;; no GC policy never armed one, so it never reaches this branch).
-            gc-delay (when (not= :no-entry reason)
+            ;; Only an in-flight skip re-arms, at the resource's own
+            ;; :gc-after-ms, so the settle is followed by another re-check.
+            ;; An owned skip waits for the release, which re-arms GC itself.
+            gc-delay (when (= :in-flight reason)
                        (rf.resources.state/positive-or-nil (:gc-after-ms (rf.resources.registry/resource-meta (:resource/id entry)))))]
         (rf.trace/emit! :rf.event :rf.resource/gc-skipped
                      {:rf.frame/id frame-id :resource/key resource-key
