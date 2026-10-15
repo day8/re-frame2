@@ -47,14 +47,11 @@
   ;; signal/noise on `inline-def` is dominated by the rewrite; turning
   ;; the linter off avoids hand-decorating every test call site.
   :inline-def        {:level :off}
-  ;; Disabled — the reg-* registration macros are `:lint-as
-  ;; clojure.core/do` so calls inside `(defn install! ...)` don't trip
-  ;; `inline-def` (see the rationale on core's export `:lint-as` block).
-  ;; That choice yields `redundant do` false positives at every reg-*
-  ;; call site (a single-form `do`), so we silence it project-wide.
-  ;; There is no production-pattern in re-frame2 codebase where
-  ;; `redundant-do` is high signal — the warning's intended target is
-  ;; "(do (single-expr))" which is harmless either way.
+  ;; Disabled — repo policy. Core's export lints the reg-* registration
+  ;; macros as ordinary calls, so they draw no `redundant do`; what this
+  ;; silences is written `do`s, and there is no production pattern in
+  ;; re-frame2 where `redundant-do` is high signal — the warning's
+  ;; intended target is "(do (single-expr))", which is harmless either way.
   :redundant-do      {:level :off}
 
   ;; `:unresolved-var` exclusions for Story's registration macros, by
