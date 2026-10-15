@@ -494,10 +494,10 @@
      grammar);
   2. `:ssr` when the dispatching frame is a server frame — the SSR feed is
      dispatched by the application's own `:initial-events`
-     (`[:rf.route/handle-url-change (:uri request)]`, Spec 012 §Server-side
-     rendering integration step 2), so it carries no framework rider and is
-     recognised by the frame's `:platform :server`, the same one read that
-     gates the SSR 403 floor;
+     (`[:rf.route/handle-url-change url]`, `url` the request target with its
+     query, Spec 012 §Server-side rendering integration step 2), so it
+     carries no framework rider and is recognised by the frame's
+     `:platform :server`, the same one read that gates the SSR 403 floor;
   3. `:initial` otherwise — a URL-change dispatch with no framework rider on a
      client frame is an initial / direct-URL feed. `popstate` never reaches
      here without the rider: the frame lifecycle owns the listener that fires
