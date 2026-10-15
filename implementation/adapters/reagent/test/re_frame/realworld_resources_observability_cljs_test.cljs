@@ -1,43 +1,5 @@
 (ns re-frame.realworld-resources-observability-cljs-test
-  "Mirror test for the RealWorld-on-resources example's production
-   error-reporting wiring — the frame `:observability` sink.
-
-   WHY IT EXISTS. The frame `:observability` sink is the documented normal
-   production observation surface (spec/API.md, spec/009,
-   docs/core/observability.md and the report-errors-in-production how-to all
-   teach it first), so a reader who follows the guide needs an example to
-   copy from. This example carries the CONFIGURATION —
-   `realworld-resources.core/observability` (the
-   frame's policy) and `install-error-monitor!` (the gated sink registration) —
-   and this ns carries every assertion about it. That split is the standing
-   test-free-examples lock: no `*.spec.cjs` under `examples/`, so
-   the example is configuration and the framework test tree does the grading.
-
-   WHAT IS PINNED, and each row is a claim the guide makes that a reader would
-   be entitled to rely on:
-
-     1. THE POLICY ACTUALLY ROUTES. A handler exception in a frame configured
-        with the EXAMPLE'S OWN policy map delivers exactly one
-        `:rf.observe/error` record to a sink registered under the example's own
-        id — so the policy and the registration cannot drift — and that record
-        arrives ALREADY PROJECTED, with the JWT the app classifies sensitive
-        redacted. A sink that had to scrub for itself would make the whole
-        design pointless, so this is the load-bearing one.
-     2. ROUTING IS FAIL-CLOSED. The same registered sink and the same throwing
-        handler, in a frame that declares NO policy, route nothing. This is
-        what makes the example's unconditional declaration meaningful: it is
-        the declaration, not the registration, that opens the channel.
-     3. THE GATE IS ON THE REGISTRATION, NOT THE DECLARATION.
-        `install-error-monitor!` follows `rf.interop/debug-enabled?` — so a dev
-        build registers no sink and the framework's own console fallback takes
-        the record, which is the posture the how-to argues for at length.
-
-   The fixture clears the sink registry and the always-on error-listener
-   registry around each test, so a sink registered here cannot leak into a
-   sibling namespace sharing the consolidated node-test bundle.
-
-   ns ends in `-cljs-test` so shadow-cljs's `:node-test` build picks it up. No
-   DOM: the records are read off a capturing sink, not off a rendered page."
+  "The example policy routes one already-redacted error and remains closed without a policy."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -47,9 +9,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.observability :as rf.observability]
             [re-frame.test-support :as rf.test-support]
-            ;; The example's production source — the subject. Requiring it
-            ;; registers the whole app at ns-load; all this ns reads off it are
-            ;; the two error-reporting defs and the gated installer.
             [realworld-resources.core :as app]))
 
 (use-fixtures :each
@@ -59,10 +18,6 @@
                 (rf.error-emit/clear-error-listeners!)
                 (rf.observability/clear-observability-sinks!))}))
 
-;; ---------------------------------------------------------------------------
-;; Helpers
-;; ---------------------------------------------------------------------------
-
 (def ^:private sensitive-token
   "Stands in for the Conduit JWT. The example marks [:auth :token] sensitive at
    frame creation (`:auth/classify-token`), so this string must never reach a
@@ -70,9 +25,6 @@
   "CONDUIT-JWT-SENTINEL-4f21c9")
 
 (defn- classify-token-sensitive!
-  "Mirror of the example's `:auth/classify-token` initial event — the durable
-   app-db classification is a commit-plane effect (EP-0025), so declaring it
-   here is the same declaration the app makes at boot."
   [frame-id]
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects
@@ -85,10 +37,6 @@
 
 (defn- drive-failure! [frame-id]
   (rf/dispatch-sync [::boom {:auth {:token sensitive-token}}] {:frame frame-id}))
-
-;; ---------------------------------------------------------------------------
-;; 1. the policy routes, and the record arrives already projected
-;; ---------------------------------------------------------------------------
 
 (deftest example-policy-routes-one-projected-error-record
   (testing "a handler exception in a frame configured with the EXAMPLE'S OWN
@@ -104,19 +52,9 @@
       (drive-failure! ::routed)
 
       (let [r (first @seen)]
-        (is (= [1 :rf.observe/error ::routed :rf.error/handler-exception ::boom]
-               [(count @seen) (:kind r) (:frame r) (:error r) (:event-id r)])
-            "the declared sink fired exactly once with a canonical :rf.observe/error naming the frame it failed in, the :error discriminator a sink branches on, and the event in flight")
-        ;; The load-bearing assertion: the sink did no scrubbing, and the token
-        ;; is redacted anyway, because the runtime projected the record under
-        ;; the frame's classification before handing it over.
-        (is (= :rf/redacted (get-in (:event r) [1 :auth :token]))
-            "the sensitive JWT inside the error's :event is REDACTED — the sink
-             received an already-projected record and re-implements nothing")))))
-
-;; ---------------------------------------------------------------------------
-;; 2. fail-closed — the DECLARATION is what opens the channel
-;; ---------------------------------------------------------------------------
+        (is (= [[1 :rf.observe/error ::routed :rf.error/handler-exception ::boom] :rf/redacted]
+               [[(count @seen) (:kind r) (:frame r) (:error r) (:event-id r)]
+                (get-in (:event r) [1 :auth :token])]))))))
 
 (deftest a-frame-without-the-policy-routes-nothing
   (testing "the same registered sink and the same throwing handler route
@@ -129,13 +67,7 @@
       (classify-token-sensitive! ::unclassified)
       (reg-throwing-event! ::unclassified)
       (drive-failure! ::unclassified)
-      (is (empty? @seen)
-          "no record routed: there is no :rf/default sink synthesised on your
-           behalf, so you cannot leak from a frame you never classified"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. the gate is on the REGISTRATION
-;; ---------------------------------------------------------------------------
+      (is (empty? @seen)))))
 
 (deftest the-sink-registration-is-gated-on-build-posture
   (testing "install-error-monitor! follows debug-enabled? — a dev build
@@ -143,10 +75,5 @@
             record instead), while an optimised build registers the sink"
     (let [result (app/install-error-monitor!)]
       (if ^boolean rf.interop/debug-enabled?
-        (is (nil? result)
-            "dev build: the gate is closed, nothing registered — the policy is
-             still declared, so the record routes to no sink and the framework
-             prints it for you")
-        (is (= app/error-sink-id result)
-            "optimised build: the gate is open and the sink registers under the
-             id the frame policy names")))))
+        (is (nil? result))
+        (is (= app/error-sink-id result))))))
