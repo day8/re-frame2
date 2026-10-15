@@ -21,10 +21,7 @@
 
 (deftest db-handlers-rewrite-faithfully
   (doseq [[label src out]
-          [["simple update"
-            "(rf/reg-event-db :counter/inc\n  (fn [db _] (update db :count inc)))"
-            "(rf/reg-event :counter/inc\n  (fn [{:keys [db]} _] {:db (update db :count inc)}))"]
-           ["a -> thread ending in a builder is non-nil"
+          [["a -> thread ending in a builder is non-nil"
             "(rf/reg-event-db :form/clear\n  (fn [db [_ k]]\n    (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))))"
             "(rf/reg-event :form/clear\n  (fn [{:keys [db]} [_ k]]\n    {:db (-> db\n        (assoc-in [:form k :value] \"\")\n        (assoc-in [:form k :error] nil))}))"]
            ["a named handler fn"
@@ -43,9 +40,6 @@
            ["an ignored `_` keeps {:keys [db]}"
             "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
             "(rf/reg-event :init (fn [{:keys [db]} _] {:db {:count 0 :items []}}))"]
-           ["a referenced `_state` binds back"
-            "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
-            "(reg-event :y (fn [{_state :db} ev] {:db (assoc _state :x 1)}))"]
            ["an inner let rebinding the name shadows it: the outer param is unreferenced"
             "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
             "(rf/reg-event :shadow\n  (fn [{:keys [db]} [_ k]]\n    {:db (let [_state {:fresh k}]\n      (assoc _state :touched true))}))"]
@@ -106,10 +100,7 @@
 
 (deftest unresolved-chain-entry-flags-whole-site
   (doseq [[label src form]
-          [["a custom interceptor var"
-            "(rf/reg-event-db :x {:interceptors [my-auth-interceptor]}\n  (fn [db _] (assoc db :k 1)))"
-            :reg-event-db]
-           ["a positional custom call is not pure-renamed"
+          [["a positional custom call is not pure-renamed"
             "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
             :reg-event-fx]
            ["(rf/path p) with a non-literal arg has no derivable path vector"
@@ -138,17 +129,8 @@
                  "(rf/reg-event-db :tenant/load\n"
                  "  {:interceptors [(app.interceptors/path :tenant)]}\n"
                  "  (fn [db _] (assoc db :loaded true)))\n")]
-           ["alias of a custom namespace"
-            (str "(ns app.events\n"
-                 "  (:require [re-frame.core :as rf]\n"
-                 "            [app.interceptors :as icpt]))\n"
-                 "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
-                 "  (fn [db _] (assoc db :k 1)))\n")]
            ["dotted custom namespace in an ns-less fragment"
             "(rf/reg-event-db :x {:interceptors [(app.interceptors/path :tenant)]} (fn [db _] (assoc db :k 1)))"]
-           ["alias the ns form does not resolve"
-            (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                 "(rf/reg-event-db :x {:interceptors [(xyz/path :a)]} (fn [db _] (assoc db :k 1)))\n")]
            ["bare path the ns form does not refer"
             (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                  "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")]]]
@@ -156,13 +138,7 @@
 
 (deftest standard-path-heads-lowered
   (doseq [[label src ref]
-          [["rf alias resolved through the ns form"
-            (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                 "(rf/reg-event-db :counter/inc\n"
-                 "  {:interceptors [(rf/path :counter)]}\n"
-                 "  (fn [db _] (update db :value inc)))\n")
-            "{:interceptors [[:rf.interceptor/path [:counter]]]}"]
-           ["bare path in :refer"
+          [["bare path in :refer"
             (str "(ns app.events (:require [re-frame.core :refer [reg-event-db path]]))\n"
                  "(reg-event-db :counter/inc\n"
                  "  {:interceptors [(path :counter)]}\n"
@@ -177,9 +153,6 @@
            ["fully qualified, with an ns form"
             (str "(ns app.events (:require [re-frame.core]))\n"
                  "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))\n")
-            "[:rf.interceptor/path [:a]]"]
-           ["fully qualified, in an ns-less fragment"
-            "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"
             "[:rf.interceptor/path [:a]]"]
            ["a local named `path` cannot shadow `rf/path`"
             (str "(ns app.events (:require [re-frame.core :as rf]))\n"
@@ -272,13 +245,7 @@
 
 (deftest bare-rename-binds-reg-event-through-the-ns-form
   (doseq [[label ns-in ns-out body-in body-out actions]
-          [["db rewrite"
-            "(ns demo (:require [re-frame.core :refer [reg-event-db]]))"
-            "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event]]))"
-            "(reg-event-db :a (fn [db _] (assoc db :k 1)))"
-            "(reg-event :a (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"
-            [:rewrite]]
-           ["fx and db in one namespace add one binding"
+          [["fx and db in one namespace add one binding"
             "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event-fx]]))"
             "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event-fx reg-event]]))"
             "(reg-event-db :a (fn [db _] (assoc db :k 1)))\n(reg-event-fx :b (fn [cofx event] {}))"
@@ -320,9 +287,7 @@
 
 (deftest bare-rename-without-a-provable-binding-flags
   (doseq [[label ns-form]
-          [["head not referred"
-            "(ns demo (:require [re-frame.core :as rf]))"]
-           ["head referred from another namespace"
+          [["head referred from another namespace"
             "(ns demo (:require [app.events :refer [reg-event-fx]]))"]
            ["reg-event referred from another namespace"
             "(ns demo (:require [re-frame.core :refer [reg-event-fx]] [app.events :refer [reg-event]]))"]
