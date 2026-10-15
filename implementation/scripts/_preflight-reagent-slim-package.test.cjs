@@ -37,14 +37,7 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
-// ── The genuine pom ─────────────────────────────────────────────────────
-//
-// The verbatim output of the real packaging path in
-// implementation/adapters/reagent-slim (core `clein install`, the release
-// workflow's `:local/root` → `:mvn/version` rewrite, then `clein pom`). Its
-// dependency set is exactly the CLI's implicit org.clojure/clojure and the
-// day8/re-frame2 core coordinate. Versions float with the runner's Clojure CLI,
-// so the script asserts they are NON-EMPTY, never that they equal a literal.
+// The preflight reads the namespaced direct dependencies.
 const GENUINE_POM = `<project xmlns="http://maven.apache.org/POM/4.0.0">
   <dependencies>
     <dependency>
