@@ -18,6 +18,7 @@
   `re-frame.resources.params`; mutation scope normalization uses the shared
   concrete-scope boundary in `re-frame.resources.state`."
   (:require [re-frame.error :as rf.error]
+            [re-frame.reg-meta :as rf.reg-meta]
             [re-frame.registrar :as rf.registrar]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
@@ -34,6 +35,20 @@
   slices / EP-0003 §Mutations. A member of the core registrar's closed kind
   set; mutations register their spec under this kind."
   :mutation)
+
+(def mutation-metadata-keys
+  "The bare keys a `reg-mutation` metadata map may carry: every key the
+  mutation runtime reads off a mutation spec. Any other bare key warns
+  `:rf.warning/unknown-registration-key` through the shared classifier
+  (Conventions §No silent swallow); namespaced keys and the shared
+  registration-metadata keys always pass. Absent on purpose: `:request` (the
+  third slot, loud inside the metadata map), `:retry` (it rides the managed-HTTP
+  args the request fn returns) and the coarse `:sensitive?` / `:large?` claims,
+  which a mutation does not read. Per Spec 016 §Mutations."
+  #{:doc :params-schema :scope :transport
+    :invalidates :patches :populates :removes :invalidate-timing
+    :optimistic :optimistic-tags :on-conflict
+    :sensitive :large})
 
 ;; ---- spec validation (fail-closed at the authoring boundary) -------------
 
@@ -268,14 +283,19 @@
     payload, else `:rf.scope/global`);
   - **`:invalidate-timing`** — `:after-success` (default) | `:before-request`
     | `:after-failure` | `:after-settle`;
-  - **`:retry`** — write retries are OPT-IN (EP-0003 §Mutations) and ride
-    the Spec 014 managed-HTTP args' own `:retry`; nothing here forces them;
   - **`:transport`** — `:rf.http/managed` (the only built-in);
+  - **`:sensitive`** / **`:large`** — projection-relative classification of
+    the instance row (EP-0025);
   - **`:doc`**.
+
+  `:retry` is not a metadata key: write retries are OPT-IN (EP-0003
+  §Mutations) and ride the Spec 014 managed-HTTP args' own `:retry`.
 
   Validates the reconstructed spec (the REQUIRED `:request` + `:params-schema`)
   and writes a `:mutation`-kind registrar entry carrying the spec plus captured
-  source coords. Returns `mutation-id` per the `reg-*` return-value
+  source coords. A bare key outside `mutation-metadata-keys` (a typo, or
+  `:retry`) warns `:rf.warning/unknown-registration-key` in dev; namespaced
+  keys pass. Returns `mutation-id` per the `reg-*` return-value
   convention."
   [mutation-id metadata request-fn]
   ;; The metadata MIDDLE slot must be a map BEFORE any
@@ -309,6 +329,9 @@
              {:mutation-id mutation-id :value (:request metadata)})))
   (let [mutation-spec (assoc metadata :request request-fn)]
     (validate-mutation-spec! mutation-id mutation-spec)
+    ;; After the spec checks, so a key they refuse throws before anything warns.
+    (rf.reg-meta/validate-registration-metadata!
+      mutation-kind 'rf/reg-mutation mutation-id metadata mutation-metadata-keys)
     (rf.registrar/register!
       mutation-kind
       mutation-id
