@@ -19,6 +19,25 @@
 (defn- invalid-target? [thunk]
   (= :rf.reply/invalid-target (:rf.error/kind (thrown-ex-data thunk))))
 
+(defn- carries?
+  "True when the value `x` itself sits anywhere inside `data`."
+  [x data]
+  (boolean (some #(identical? x %) (tree-seq coll? seq data))))
+
+(defn- non-data-cases
+  "Values that are not plain EDN data although no listed host handle is at
+  their top: `[label handle value sub-path]`, where `handle` is the offending
+  value, `value` the structure carrying it and `sub-path` its path inside
+  `value`."
+  []
+  (let [f (fn [] 1)
+        a (atom 1)
+        o #?(:clj (Object.) :cljs (js-obj))]
+    [["a fn inside a list"      f (list f) [0]]
+     ["a fn used as a map key"  f {f :v}   [:rf.recordable/map-key]]
+     ["an atom"                 a a        []]
+     ["an unlisted host object" o o        []]]))
+
 ;; ---------------------------------------------------------------------------
 ;; The reply map.
 ;; ---------------------------------------------------------------------------
@@ -98,6 +117,21 @@
         (is (= path (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %))
                           (rf.reply/validate-reply reply))))))))
 
+(deftest data-only-invariant-is-an-allow-list
+  (testing "anything that is not plain EDN data is refused at its path, with a
+            type string rather than the value itself"
+    (doseq [[label handle value sub-path] (non-data-cases)]
+      (testing label
+        (let [problem (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) %)
+                            (rf.reply/validate-reply {:status :ok :value value}))]
+          (is (= (into [:value] sub-path) (:path problem)))
+          (is (string? (:detail problem)))
+          (is (not (carries? handle problem)))))))
+  (testing "plain EDN passes, lists and epoch-ms timestamps included"
+    (is (rf.reply/valid-reply? {:status       :ok
+                                :value        {:ids '(1 2) :tags #{:a} :id #uuid "00000000-0000-0000-0000-000000000000"}
+                                :completed-at 1781078400456}))))
+
 ;; ---------------------------------------------------------------------------
 ;; The reply target and completion.
 ;; ---------------------------------------------------------------------------
@@ -111,17 +145,42 @@
       (is (invalid-target? #(rf.reply/normalize-target target)) (pr-str target)))))
 
 (deftest durable-target-is-data-only
-  (testing "durable projection normalizes a data target, strips the ephemeral
-            mapping fn, and keeps nil as nil"
+  (testing "durable projection normalizes a data target, keeps an
+            identity-mapped target, and keeps nil as nil"
     (is (= {:event [:x] :delivery :append :suppress {:g 1}}
            (rf.reply/durable-target {:event [:x] :suppress {:g 1}})))
     (is (= {:event [:x 1] :delivery :append}
            (rf.reply/durable-target (rf.reply/map-completed-event identity [:x 1]))))
+    (is (= {:event [:x '(1 2) {:at 1781078400456}] :delivery :append}
+           (rf.reply/durable-target [:x '(1 2) {:at 1781078400456}]))
+        "lists and an epoch-ms long are plain data")
     (is (nil? (rf.reply/durable-target nil))))
   (testing "a host handle in a public field fails loud, naming its path"
     (is (= {:rf.error/kind :rf.reply/non-data-target :path [:suppress :cb]}
            (select-keys (thrown-ex-data #(rf.reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}}))
-                        [:rf.error/kind :path])))))
+                        [:rf.error/kind :path])))
+    (is (= [:event 1]
+           (:path (thrown-ex-data #(rf.reply/durable-target
+                                     [:x #?(:cljs (js/Date.) :clj (java.util.Date.))]))))
+        "a host Date: a durable timestamp is an epoch-ms long"))
+  (testing "anything that is not plain EDN data fails loud at its path, with a
+            type string rather than the value itself"
+    (doseq [[label handle value sub-path] (non-data-cases)]
+      (testing label
+        (let [data (thrown-ex-data #(rf.reply/durable-target [:x value]))]
+          (is (= :rf.error/reply-non-data-target (:rf.error/id data)))
+          (is (= (into [:event 1] sub-path) (:path data)))
+          (is (string? (:bad-type data)))
+          (is (not (carries? handle data))))))))
+
+(deftest durable-target-refuses-a-mapped-target
+  (testing "a mapped target fails loud rather than being stored without its
+            mapping, which would complete a different event"
+    (let [mapped (rf.reply/map-completed-event (fn [e] [:parent/relay e]) [:child/done])
+          data   (thrown-ex-data #(rf.reply/durable-target mapped))]
+      (is (= :rf.error/reply-non-data-target (:rf.error/id data)))
+      (is (string? (:bad-type data)))
+      (is (not (carries? (get mapped :re-frame.reply/post) data))))))
 
 (deftest completion-appends-reply
   (let [reply {:status :ok :value {:title "Welcome"}}]
@@ -152,6 +211,8 @@
         g      (fn [e] [:g e])]
     (testing "naturality: (complete (map-completed-event f t) r) == (f (complete t r))"
       (is (= (f (done target)) (done (rf.reply/map-completed-event f target)))))
+    (testing "identity: (map-completed-event identity t) == t, by value"
+      (is (= target (rf.reply/map-completed-event identity target))))
     (testing "composition: f and g do not commute, so a composition in the wrong
               order fails"
       (is (= (done (rf.reply/map-completed-event (comp f g) target))

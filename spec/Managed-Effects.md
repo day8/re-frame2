@@ -248,6 +248,8 @@ map-completed-event(comp(f, g), target)    == map-completed-event(f, map-complet
 
 Implementations need not store arbitrary functions in effect maps to satisfy this: a helper may rewrite source forms to named adapter events, or the law may be exercised in tests over the internal completion function. The required property is that reply-target wrappers compose predictably and create no hidden callback semantics.
 
+A target mapped through a function is **ephemeral**: the mapping exists only while the issuing family holds the target in memory, so a mapped target cannot be persisted. Making one durable (a ledger row, a stored continuation, a replay log) fails loud with `:rf.error/reply-non-data-target` rather than dropping the mapping, which would complete a different event. Mapping with `identity` leaves the target unchanged, so it stays durable; a continuation that must outlive its issuer names its relay event in the target vector.
+
 ### SSR, preload, hydration, and restore
 
 SSR and preload integrations observe **work-ledger rows and reply statuses**, not effect-family callback slots: the server enqueues blocking resource work; SSR waits for ledger rows on the current route/nav-token to become terminal; successful replies update entries with causal `:completed-at`; stale/superseded replies are suppressed by work id/generation/nav-token; hydration serializes the allowed projection and non-terminal work *summaries*, never host handles. Hydration and epoch restore MUST NOT revive host work — a pre-restore host completion that arrives later cannot mutate the restored frame because its work id/generation/token cannot match the post-restore live correlation. See [016 §SSR and hydration](016-Resources.md#ssr-and-hydration) for the projection.

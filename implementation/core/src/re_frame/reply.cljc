@@ -41,7 +41,8 @@
   `re-frame.epoch` / `re-frame.http.managed`)."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
-            [re-frame.privacy :as rf.privacy]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.recordable :as rf.recordable]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -96,20 +97,13 @@
 ;; (see `suppress`).
 ;;
 ;; EPHEMERAL vs DURABLE. `::post` is the one ephemeral, host-bearing slot a
-;; normalized target may carry while in-flight. A target that could become
-;; DURABLE (persisted to a ledger row, a stored continuation, a replay log)
-;; MUST be data-only: see `durable-target`, which strips ephemerals and
-;; asserts data-only.
+;; normalized target may carry while in-flight, so a MAPPED target is
+;; ephemeral. A target that could become DURABLE (persisted to a ledger row,
+;; a stored continuation, a replay log) MUST be data-only: see
+;; `durable-target`, which refuses a mapped target and asserts data-only.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private post-key ::post)
-
-(def ^:private ephemeral-target-keys
-  "The namespaced-private slot a normalized target may carry while in-flight
-  that MUST NOT survive into a durable target: the functor accumulator
-  (`::post`, a fn). `durable-target` strips it; its presence makes a target
-  non-data-only."
-  #{post-key})
 
 (defn descriptor?
   "True when `target` is the descriptor (map) form rather than the
@@ -323,25 +317,49 @@
   descriptor carrying only the private `::post` accumulator and no `:event`.
   This preserves the no-continuation semantics through a relocation: a family
   that maps a missing target gets nil back, and `complete` on it yields nil
-  (no delivery)."
+  (no delivery).
+
+  Mapping with `identity` returns the normalized target itself, so the
+  identity law holds by value and an identity-mapped target stays durable.
+  Any other mapping makes the target EPHEMERAL: its `::post` is a fn, which
+  `durable-target` refuses rather than drops."
   [f target]
   (when-let [d (normalize-target target)]
-    (let [existing (get d post-key)
-          composed (if existing (comp f existing) f)]
-      (assoc d post-key composed))))
+    (if (identical? f identity)
+      d
+      (let [existing (get d post-key)
+            composed (if existing (comp f existing) f)]
+        (assoc d post-key composed)))))
 
 ;; ---------------------------------------------------------------------------
-;; Host-handle detection — the shared data-only walker (Managed-Effects §The
-;; reply map / §The reply target: the data-only invariant). Used by BOTH the
-;; durable-target guard and `validate-reply` — a single definition of "what a
-;; host handle is" so the reply map and the reply target enforce the same
-;; data-only contract.
+;; The data-only invariant (Managed-Effects §The reply map / §The reply
+;; target). `validate-reply` and `durable-target` share ONE definition of
+;; "data", the allow-list walk in `non-data`, so the reply map and the reply
+;; target enforce the same contract. `host-handle?` and the budget-bounded
+;; walker serve the advisory event-payload lint, a separate SHOULD.
 ;; ---------------------------------------------------------------------------
+
+(defn- non-data
+  "The first value reachable from `v` that is not plain EDN data, as
+  `{:path <vec> :bad-type <string>}`, or nil when `v` is all data. The walk is
+  `re-frame.recordable/explain-non-recordable`'s ALLOW-list: it accepts EDN
+  leaves, walks map keys and values, sets and every sequential (lists and
+  seqs included), and refuses everything else — a fn wherever it sits, an
+  atom, a Promise, a host object nobody listed. It refuses instants too
+  (`:instants? false`): a durable reply timestamp is an epoch-millisecond long
+  under EP-0010, never a host `Date`. The result never carries the offending
+  value itself, so it is safe in ex-data and in a validation problem."
+  [v]
+  (some-> (rf.recordable/explain-non-recordable v {:instants? false})
+          (select-keys [:path :bad-type])))
 
 (defn host-handle?
-  "Detector for a host resource that MUST NOT appear in a data-only reply map
-  or a durable reply target (Managed-Effects §The reply map / §The reply
-  target: the data-only invariant). The CLOSED host-handle set is:
+  "Detector for the known host resources — a DENY-list, for the advisory
+  event-payload lint (`re-frame.router.diagnostics/find-non-serialisable-payload-path`
+  walks this set MINUS instants through `walk-find-host-handle-bounded`). The
+  reply map and a durable reply target are held to the stricter allow-list
+  in `non-data` instead, which refuses this whole set and every other non-EDN
+  value too. The set is:
 
     - a fn (a callback — every family error rides data, never a thunk);
     - on CLJS: a `Promise`, `AbortController`, `AbortSignal`, a DOM node
@@ -349,18 +367,12 @@
     - on the JVM: a `java.util.concurrent.Future`, a `java.lang.Thread`, a
       `java.util.Date`, a `java.util.regex.Pattern`.
 
-  A `RegExp` (and its JVM counterpart) belongs to the closed set because it
-  is a NON-EDN host object: it neither round-trips through the EDN reader nor
-  compares by value, so it cannot ride durable reply data (SSR / hydration /
-  epoch snapshots / replay) safely. A `Date` is EDN (`#inst`), and belongs to
-  the set for a different reason: durable reply data carries a timestamp as
-  an epoch-millisecond long under EP-0010, never a host `Date`. The
-  event-payload lint walks this set MINUS instants
-  (`re-frame.router.diagnostics/find-non-serialisable-payload-path`), because
-  an event payload has no such timestamp rule. Plain EDN data —
-  maps, vectors, sets, keywords, strings, numbers, booleans, nil, symbols,
-  instants represented as longs — passes. The predicate enforces exactly the
-  set named here, on both runtimes."
+  A `RegExp` (and its JVM counterpart) is a NON-EDN host object: it neither
+  round-trips through the EDN reader nor compares by value. A `Date` is EDN
+  (`#inst`), and belongs to the set because durable reply data carries a
+  timestamp as an epoch-millisecond long under EP-0010, never a host `Date`;
+  the payload lint drops it, because an event payload has no such timestamp
+  rule. The predicate enforces exactly the set named here, on both runtimes."
   [v]
   (or (fn? v)
       #?(:cljs (or (and (exists? js/Promise) (instance? js/Promise v))
@@ -375,23 +387,10 @@
                    (instance? java.util.Date v)
                    (instance? java.util.regex.Pattern v)))))
 
-(defn walk-find-host-handle
-  "Walk `v` (maps / vectors / sets) and return the path to the first host
-  handle found, or nil. Bounded by the reply-map shape (replies are small
-  data); guards against cyclic refs are unnecessary for EDN data."
-  ([v] (walk-find-host-handle v []))
-  ([v path]
-   (cond
-     (host-handle? v) path
-     (map? v)         (some (fn [[k vv]] (walk-find-host-handle vv (conj path k))) v)
-     (vector? v)      (first (keep-indexed (fn [i vv] (walk-find-host-handle vv (conj path i))) v))
-     (set? v)         (some #(walk-find-host-handle % (conj path '*)) v)
-     :else            nil)))
-
 (defn walk-find-host-handle-bounded
-  "Budget-bounded sibling of `walk-find-host-handle`: the same
-  map/vector/set walk, but stops after visiting `max-nodes` nodes and
-  returns nil (no handle reported) rather than continuing an unbounded
+  "Walk `v` (maps / vectors / sets) and return the path to the first host
+  handle found, or nil, stopping after visiting `max-nodes` nodes and
+  returning nil (no handle reported) rather than continuing an unbounded
   traversal. It detects with `host-handle?`, or with the `handle?`
   predicate the 3-arity takes.
 
@@ -403,10 +402,10 @@
   false NEGATIVE (give up, report clean) rather than a false positive — the
   correct fail-safe direction for an ADVISORY surface.
 
-  `durable-target` / `validate-reply` use the unbounded `walk-find-host-
-  handle`: their contract is a hard MUST (a durable reply target /
-  reply map must never smuggle a host handle past a budget cutoff), so they
-  do not use this bounded sibling."
+  `durable-target` / `validate-reply` do not use it: their contract is a hard
+  MUST (a durable reply target / reply map must never smuggle a host handle
+  past a budget cutoff or a gap in a deny-list), so they walk unbounded with
+  the allow-list in `non-data`."
   ([v max-nodes] (walk-find-host-handle-bounded v max-nodes host-handle?))
   ([v max-nodes handle?]
    (let [remaining (volatile! (long max-nodes))]
@@ -425,34 +424,48 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —
-;; the reply-target-as-data contract). A normalized target may carry the
-;; ephemeral, non-data slot `::post` (a fn) WHILE IN-FLIGHT, but a target that
-;; can become DURABLE (a stored continuation, a ledger row, a replay log) MUST
-;; be data-only. `durable-target` makes that boundary explicit and fails LOUD
-;; rather than letting a non-serializable function leak into durable reply data.
+;; the reply-target-as-data contract — and §Reply mapping and the functor
+;; law). A normalized target may carry the ephemeral, non-data slot `::post`
+;; (a fn) WHILE IN-FLIGHT, but a target that can become DURABLE (a stored
+;; continuation, a ledger row, a replay log) MUST be data-only.
+;; `durable-target` makes that boundary explicit and fails LOUD rather than
+;; letting a function leak into durable reply data or a mapping silently fall
+;; off it.
 ;; ---------------------------------------------------------------------------
 
 (defn durable-target
-  "Project `target` to a DURABLE, data-only normalized descriptor — stripping
-  the ephemeral non-data slot (`::post`) — and assert the result carries no
-  host handle anywhere. Use before a target could be persisted (a stored
-  continuation, a ledger row, a replay log).
+  "Project `target` to a DURABLE, data-only normalized descriptor, for a
+  target about to be persisted (a stored continuation, a ledger row, a replay
+  log). A nil target yields nil (no continuation to persist).
 
-  Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) if, after
-  stripping the framework-private slots, the descriptor STILL contains a host
-  handle (a fn, Promise, AbortController, …) in a public field — that would be
-  an app/family bug smuggling a non-serializable value through `:event` /
-  `:suppress`. A nil target yields nil (no continuation to persist)."
+  Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) when:
+
+    - the target is MAPPED (`map-completed-event` with any fn but
+      `identity`). The mapping is a fn, which a stored target cannot carry,
+      and dropping it would make the stored target complete to a different
+      event than the live one. A continuation that must outlive its issuer
+      names its relay event in the target vector instead.
+    - a public field (`:event` / `:suppress`) holds anything but plain EDN
+      data (`non-data`) — a fn anywhere (inside a list, as a map key), an
+      atom, a Promise, a `Date`, any host object. That is an app/family bug.
+
+  The ex-data names the offending slot by `:path` and its host type by
+  `:bad-type`, never the value itself."
   [target]
   (when-let [d (normalize-target target)]
-    (let [stripped (apply dissoc d ephemeral-target-keys)]
-      (when-let [handle-path (walk-find-host-handle stripped)]
-        (throw (reply-error
-                 :rf.reply/non-data-target
-                 "Durable reply target must be data-only — it carries a host handle (fn / Promise / AbortController / …) in a public field. See :path for the offending slot; replace the handle with its data projection."
-                 {:path   handle-path
-                  :target stripped})))
-      stripped)))
+    (when-let [post (get d post-key)]
+      (throw (reply-error
+               :rf.reply/non-data-target
+               "A mapped reply target cannot be made durable — its completion mapping (map-completed-event) is a fn, which a stored target cannot carry, and dropping it would complete a different event. Name the relay event in the target vector instead."
+               {:path     [post-key]
+                :bad-type (str (type post))})))
+    (when-let [{:keys [path bad-type]} (non-data d)]
+      (throw (reply-error
+               :rf.reply/non-data-target
+               "Durable reply target must be data-only — a public field carries a value that is not plain EDN data (fn / atom / Promise / Date / host object). See :path for the offending slot and :bad-type for its host type; replace it with its data projection."
+               {:path     path
+                :bad-type bad-type})))
+    d))
 
 ;; ---------------------------------------------------------------------------
 ;; Reply-map schema validation (Managed-Effects §The reply map / §Status
@@ -480,7 +493,10 @@
                        (the intentional-cancellation marker);
         `:stale`     — `:stale? true` AND `:rf.reply/stale-reason` present;
     - `:rf.reply/work-status` (when present) in the `work-statuses` set;
-    - the data-only invariant: no host handles anywhere in the map.
+    - the data-only invariant: nothing but plain EDN data anywhere in the
+      map, keys included (`non-data`), reported as `:rf.reply/host-handle`
+      at the offending slot's `:path` with its host type as the `:detail`
+      string, never the value itself.
 
   The `:error`/`:partial` error shape is TIGHT: the spec status taxonomy
   requires `:error` \"present with a family `:kind`\", so a loose scalar
@@ -563,11 +579,11 @@
              (and (contains? reply :rf.reply/work-status)
                   (not (contains? work-statuses (:rf.reply/work-status reply))))
              (conj (problem :rf.reply/invalid-work-status [:rf.reply/work-status] (:rf.reply/work-status reply))))
-        ;; Data-only invariant — no host handles anywhere.
-        handle-path (walk-find-host-handle reply)
+        ;; Data-only invariant — nothing but plain EDN data anywhere.
+        bad (non-data reply)
         ps (cond-> ps
-             (some? handle-path)
-             (conj (problem :rf.reply/host-handle handle-path :host-handle)))]
+             (some? bad)
+             (conj (problem :rf.reply/host-handle (:path bad) (:bad-type bad))))]
     (when (seq ps) (vec ps))))
 
 (defn valid-reply?

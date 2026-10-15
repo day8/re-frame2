@@ -39,6 +39,10 @@
   through to REJECT by construction. Adding a new host type can never
   accidentally pass; only an explicit new accept-branch widens the domain.
 
+  One leaf-policy option narrows it: `{:instants? false}` refuses `#inst`
+  too, for a surface whose durable timestamps are epoch-millisecond longs
+  (the reply envelope, `re-frame.reply`).
+
   Pure namespace — no runtime state, no trace, no host I/O. `.cljc` so the
   JVM test sweep exercises the walker cross-host."
   #?(:clj (:import [java.util UUID Date])))
@@ -72,12 +76,10 @@
   #?(:clj  (instance? Date x)
      :cljs (instance? js/Date x)))
 
-(defn- recordable-leaf?
-  "True iff `x` is a non-collection EDN leaf value that records and reads back
-  as ordinary data. The CLOSED accept-set: nil, boolean, number (ANY number —
-  integer / float / ratio / decimal; all are valid recorded data), string,
-  keyword, symbol, char, `#uuid`, `#inst`. Everything else (function, atom,
-  promise, DOM node, host object) is NOT a recordable leaf."
+(defn- edn-leaf?
+  "True iff `x` is a non-collection EDN leaf value other than an instant: nil,
+  boolean, number (ANY number — integer / float / ratio / decimal; all are
+  valid recorded data), string, keyword, symbol, char, `#uuid`."
   [x]
   (or (nil? x)
       (boolean? x)
@@ -86,10 +88,21 @@
       (keyword? x)
       (symbol? x)
       (char? x)
-      (uuid-leaf? x)
+      (uuid-leaf? x)))
+
+(defn- recordable-leaf?
+  "True iff `x` is a non-collection EDN leaf value that records and reads back
+  as ordinary data. The CLOSED accept-set: every `edn-leaf?` plus `#inst`.
+  Everything else (function, atom, promise, DOM node, host object) is NOT a
+  recordable leaf."
+  [x]
+  (or (edn-leaf? x)
       (inst-leaf? x)))
 
 ;; ---- recursive walk -------------------------------------------------------
+;;
+;; `leaf?` is the leaf policy: `recordable-leaf?` by default, `edn-leaf?` when
+;; instants are refused.
 
 (declare first-non-recordable)
 
@@ -103,19 +116,20 @@
 (defn- walk-elements
   "Walk indexed elements of a sequential collection, returning the first
   non-recordable descriptor (with the index prepended to its `:path`) or nil."
-  [path xs]
+  [leaf? path xs]
   (loop [i 0, xs (seq xs)]
     (when xs
-      (or (first-non-recordable (conj path i) (first xs))
+      (or (first-non-recordable leaf? (conj path i) (first xs))
           (recur (inc i) (next xs))))))
 
 (defn- walk-set
   "Walk set elements. A set element has no index; the path segment is the
   element's own (recordable) value when it is a leaf, else a marker."
-  [path s]
+  [leaf? path s]
   (some (fn [el]
           (first-non-recordable
-            (conj path (if (recordable-leaf? el) el :rf.recordable/set-element))
+            leaf?
+            (conj path (if (leaf? el) el :rf.recordable/set-element))
             el))
         s))
 
@@ -125,11 +139,12 @@
   collection, but a composite key is still walked); a non-recordable VALUE is
   reported under its key (the key itself when it is a recordable leaf, else
   the marker)."
-  [path m]
+  [leaf? path m]
   (some (fn [[k v]]
-          (or (first-non-recordable (conj path :rf.recordable/map-key) k)
+          (or (first-non-recordable leaf? (conj path :rf.recordable/map-key) k)
               (first-non-recordable
-                (conj path (if (recordable-leaf? k) k :rf.recordable/map-key))
+                leaf?
+                (conj path (if (leaf? k) k :rf.recordable/map-key))
                 v)))
         m))
 
@@ -141,16 +156,16 @@
 
   Records the bad value's PATH and host TYPE only — the caller decides whether
   a value-preview is safe to surface (never the raw host handle blindly)."
-  [path value]
+  [leaf? path value]
   (cond
-    (recordable-leaf? value) nil
+    (leaf? value)            nil
 
-    (map? value)             (walk-map path value)
-    (set? value)             (walk-set path value)
+    (map? value)             (walk-map leaf? path value)
+    (set? value)             (walk-set leaf? path value)
     ;; Vectors and any other sequential / seq collection (lists, lazy seqs).
     (or (vector? value)
         (sequential? value)
-        (seq? value))        (walk-elements path value)
+        (seq? value))        (walk-elements leaf? path value)
 
     ;; Anything else — function, atom / IDeref, Promise, DOM node, host /
     ;; JS / Java object — is not recordable data.
@@ -163,7 +178,12 @@
   first non-recordable value reachable from `value`, or nil when `value` is
   recordable EDN data. The `:bad-value` is the RAW value (a host handle when
   the failure is a host object) — callers MUST NOT put it into a trace or a
-  record."
-  [value]
-  (first-non-recordable [] value))
+  record.
+
+  `opts` takes the leaf policy: `{:instants? false}` refuses an `#inst` leaf
+  too (default true, accepting it)."
+  ([value]
+   (first-non-recordable recordable-leaf? [] value))
+  ([value {:keys [instants?] :or {instants? true}}]
+   (first-non-recordable (if instants? recordable-leaf? edn-leaf?) [] value)))
 
