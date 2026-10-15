@@ -498,9 +498,10 @@
 ;;                fn-value / keyword-redirect resolution.
 ;;
 ;;   HARD-REJECT (the source set below): the state-installing lifecycle fxs.
-;;                Their bodies install/clear durable runtime-db state (machine
-;;                snapshots, flow registry entries) or thread a correctness-
-;;                critical nav-token; an override that stubs them out would
+;;                Their bodies install/clear durable frame state (machine
+;;                snapshots in runtime-db, entries in the frame's flow
+;;                registry) or thread a correctness-critical nav-token;
+;;                an override that stubs them out would
 ;;                break framework behaviour FAR FROM the override site (a
 ;;                spawned actor's later dispatches become `:rf.error/no-such-
 ;;                handler`; a dropped nav-token silently defeats stale-result
@@ -518,8 +519,9 @@
 (def ^:private non-overridable-source-fx-ids
   "POLICY 1 — reserved fx-ids whose `:fx-overrides` are HARD-REJECTED when
   supplied AS THE OVERRIDDEN id. Overriding any of these
-  installs/clears durable frame runtime-db state (machines, flows) or drops a
-  correctness-critical nav-token. The override is ignored,
+  installs/clears durable frame state (machine snapshots in runtime-db, the
+  frame's flow registry) or drops a correctness-critical nav-token. The
+  override is ignored,
   `:rf.error/reserved-fx-override` is emitted, and the real reserved/registered
   body runs. In production the effective override map is stripped of these keys
   LOUDLY before `do-fx` (see `strip-rejected-overrides`).
@@ -1087,8 +1089,8 @@
   policy-level clause if a member is ever added without its own line."
   {:rf.machine/spawn   "installs the spawned actor's durable snapshot into frame runtime-db"
    :rf.machine/destroy "clears the actor's durable snapshot and event handler from frame runtime-db"
-   :rf.fx/reg-flow     "installs a durable flow-registry entry into frame runtime-db"
-   :rf.fx/clear-flow   "clears a durable flow-registry entry from frame runtime-db"
+   :rf.fx/reg-flow     "installs a durable entry into the frame's flow registry"
+   :rf.fx/clear-flow   "clears a durable entry from the frame's flow registry"
    :rf.route/with-nav-token
    (str "threads a correctness-critical nav-token (dropping it silently defeats "
         "stale-result suppression)")})
