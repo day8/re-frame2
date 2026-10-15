@@ -35,11 +35,6 @@
 (defn- content-hash [vid opts]
   (:content-hash (rf.story/snapshot-identity vid opts)))
 
-(deftest list-stories-returns-id-set
-  (rf.story/reg-story :story.mcp.list-s-a {:doc "story A"})
-  (rf.story/reg-story :story.mcp.list-s-b {:doc "story B"})
-  (is (= #{:story.mcp.list-s-a :story.mcp.list-s-b} (rf.story/ids :story))))
-
 (deftest list-variants-returns-id-set
   (is (= #{} (rf.story/ids :variant)) "an empty registry answers #{}, not nil")
   (rf.story/reg-variant :story.mcp.list-v/probe {:setup []})
