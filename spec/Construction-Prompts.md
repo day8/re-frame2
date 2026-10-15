@@ -1007,10 +1007,9 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
   (fn handler-rf-server-init [{:keys [db]} [_ request]]
     (let [{:keys [uri query-string]} request
           url (cond-> uri query-string (str "?" query-string))]   ;; Ring keeps the query out of :uri
-      {:db (assoc db
-                  :session (:session request)
-                  :route   (parse-url url routes))
-       :fx [[:http {:method :get :url "/api/auth/me" :on-success [:auth/me-loaded]}]
+      {:db (assoc db :session (:session request))
+       :fx [[:dispatch [:rf.route/handle-url-change url]]         ;; framework-owned route, read via :rf/route
+            [:http {:method :get :url "/api/auth/me" :on-success [:auth/me-loaded]}]
             ;; ... feature-specific data fetches
             ]})))
 ```
