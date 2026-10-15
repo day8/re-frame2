@@ -24,7 +24,7 @@
             [re-frame.resources]
             [re-frame.machines]
             [re-frame.ssr]
-            [re-frame.schemas.malli]))
+            [re-frame.schemas]))
 
 ;; something for this-ns-image to select: a zero-match :include fails loud
 (rf/reg-event :fwbase/ping (fn [{:keys [db]} _] {:db db}))
