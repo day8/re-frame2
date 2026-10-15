@@ -133,7 +133,7 @@ All commands run from `implementation/`.
 - **Unit tests** — `npm run test:cljs`. Its `node-test` build runs
   [`stories_cljs_test.cljs`](stories_cljs_test.cljs) and
   [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs). The
-  first runs the four canonical `:story.counter` variants, the three
+  first runs the four canonical `:story.counter` variants, three
   diagnostic fixtures and two matrix fixtures through the Story
   runtime and checks each result, and pins the matrix variant set;
   the second covers the elision demo above.
