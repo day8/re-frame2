@@ -70,7 +70,7 @@
  * displaces a sentinel, its own-bundle PRESENT check fails fast rather than
  * letting the cross-bundle ABSENT greps go silently vacuous — re-derive from a
  * sibling literal (Reagent: `Compiler.parse-tag` / `ReagentInput`; UIx: the
- * `-use-sub-` / `-derived-` prefixes, or the substrate-name warning text;
+ * `-use-sub-` / `-derived-` prefixes;
  * Fresco: for the codec tier, re-read check_production_erasure.cjs's own
  * positive controls, which is where those two came from; for the adapter tier,
  * re-read `re-frame.fresco.substrate`'s `make-react-spine` call — and keep

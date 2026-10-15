@@ -64,12 +64,6 @@
    {:test 'frame-provider-js-array-children-spread
     :fn   'assert-frame-provider-js-array-children-spread}
 
-   {:section "warn-once fires-once (Spec 006)"}
-   {:test 'warn-once-fires-once
-    :fn   'assert-warn-once-fires-once}
-   {:test 'warn-once-per-id-not-global
-    :fn   'assert-warn-once-per-id-not-global}
-
    {:section "render-time parity"}
    {:test 'parity-view-re-register-rerender
     :fn   'assert-view-re-register-causes-rerender}

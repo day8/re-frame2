@@ -1395,8 +1395,7 @@
         ns-per-frame [0 (js/Math.round (/ n 4)) (js/Math.round (/ n 2)) n]]
     (rf/init! (rf.substrate.spine/make-react-adapter
                 (rf.substrate.spine/make-react-spine
-                  {:substrate-name        "write-attribution"
-                   :gensym-prefix-sub     "wa-sub-"
+                  {:gensym-prefix-sub     "wa-sub-"
                    :gensym-prefix-derived "wa-derived-"
                    :gensym-prefix-use-sub "wa-use-sub-"
                    :use-memo              (fn [t _] (t))
@@ -1927,8 +1926,7 @@
         box-b   (if pc-off? 16 12)]
     (rf/init! (rf.substrate.spine/make-react-adapter
                 (rf.substrate.spine/make-react-spine
-                  {:substrate-name        "write-attribution"
-                   :gensym-prefix-sub     "wa-sub-"
+                  {:gensym-prefix-sub     "wa-sub-"
                    :gensym-prefix-derived "wa-derived-"
                    :gensym-prefix-use-sub "wa-use-sub-"
                    :use-memo              (fn [t _] (t))

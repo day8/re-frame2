@@ -33,8 +33,8 @@
           carrying both attributes.
         * `[fn-or-component-or-fragment …]` (head is a fn / class / an
           interop head `:>` / `:r>` / `:f>` / React-fragment marker) →
-          SKIP and emit a one-shot warning
-          per id. Pair-tool consumers fall back to the registry's
+          SKIP, silently: each is valid composition, and the only repair
+          would be a wrapper element. Pair-tool consumers fall back to the registry's
           `:rf/id` for source-coord; the view itself is untagged and so
           invisible to view-id lookup — a documented limit in Spec 006
           §View tagging contract.
@@ -57,8 +57,7 @@
       the production-bundle elision sentinel set (see
       `scripts/check-elision.cjs`)."
   (:require [goog.object :as gobj]
-            [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.views.warn-once :as rf.views.warn-once]))
+            [re-frame.adapter.context :as rf.adapter.context]))
 
 ;; `format-source-coord` / `format-view-id` are the pure string projections
 ;; of the annotation attribute VALUES. They live in the shared leaf
@@ -128,8 +127,8 @@
   (Spec 006 §View tagging contract) into the root element's
   attrs map. Called from inside the wrapper (gated on
   `interop/debug-enabled?`). Returns the (possibly rewritten) hiccup.
-  Non-DOM roots are returned unchanged after a one-shot warning per
-  Spec 006 §Source-coord annotation.
+  Non-DOM roots are returned unchanged (Spec 006 §Documented exemption:
+  non-DOM roots).
 
   This fn annotates the existing root element; it never wraps the output
   with a synthetic element that would alter layout or selector semantics.
@@ -142,14 +141,10 @@
   (cond
     ;; create-class values satisfy fn?, but Reagent must see the class itself
     ;; in order to install its lifecycle methods.
+    ;; A Form-3 class is a component-returning root: it has no concrete DOM
+    ;; node this outer registered view can annotate.
     (reagent-class? out)
-    (do
-      ;; A Form-3 class is a component-returning root: it has no concrete DOM
-      ;; node this outer registered view can annotate. Preserve the class
-      ;; identity so Reagent mounts it, while retaining Spec 006's standard
-      ;; one-shot warning for every non-DOM root.
-      (rf.views.warn-once/warn-non-dom-root! id out)
-      out)
+    out
 
     ;; Hiccup vector with a DOM-tag keyword head. Annotate the root.
     (and (vector? out) (dom-tag? (first out)))
@@ -171,16 +166,8 @@
           (into [head attrs] (rest out)))))
 
     ;; Non-DOM root (fn-component head, fragment, lazy-seq, string, number,
-    ;; nil). Skip with a one-shot warning. Pair tools fall back to :rf/id;
-    ;; the view is untagged and so invisible to view-id lookup — a
-    ;; documented limit in Spec 006 §View tagging contract.
-    ;;
-    ;; Warn for every non-nil unannotatable root, matching the React-hook
-    ;; adapters. nil is silent because a view may legitimately render nothing.
-    ;; The diagnostic carries the Hiccup head for vectors and the value itself
-    ;; for scalar output.
+    ;; nil). Skip. Pair tools fall back to :rf/id; the view is untagged and
+    ;; so invisible to view-id lookup — a documented limit in Spec 006
+    ;; §View tagging contract.
     :else
-    (do
-      (when (some? out)
-        (rf.views.warn-once/warn-non-dom-root! id (if (vector? out) (first out) out)))
-      out)))
+    out))

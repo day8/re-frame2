@@ -621,7 +621,7 @@
   React-element head is a function (not a DOM tag). A bare component
   head as the view root would skip the source-coord DOM
   annotation (Spec 006 §Source-coord annotation: pair tools fall back
-  to `:rf/id` for non-DOM roots) and emit a one-shot warning per id.
+  to `:rf/id` for non-DOM roots).
   A wrapper `<div>` with `display: contents` participates in the DOM
   tree (so `data-rf2-source-coord` + `data-rf-view` have a home and
   click-to-source works) while being neutralised for layout — the

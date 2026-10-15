@@ -321,10 +321,7 @@
   (rf.views/record-view-deref! [:probe/sub])
   (let [_m (rf.views/first-render?! [:probe/unmounted 1])]
     nil)
-  (rf.views/clear-seen-render-keys!)
-  ;; Touch the warn-once clear-fn so the warn-once ns body stays in the
-  ;; reachability graph for the elision check.
-  (rf.views/clear-warned-non-dom-roots!))
+  (rf.views/clear-seen-render-keys!))
 
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro ------------------
 

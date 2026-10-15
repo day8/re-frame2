@@ -473,8 +473,7 @@
 ;;
 ;; `:rf.warning/missing-doc` fires at most once per `(kind, id)` pair
 ;; within a runtime process. `:rf.warning/registration-collision` uses
-;; the same suppression discipline. Mirrors the warn-once cache pattern
-;; of re-frame.views.warn-once (`warned-non-dom-roots`).
+;; the same suppression discipline.
 ;;
 ;; Caches sit alongside the registry; production elision (Spec 009
 ;; §Production builds) elides the consult+emit branches, but the

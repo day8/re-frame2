@@ -93,8 +93,7 @@
   application API — Fresco publishes `adapter` and reads subscriptions
   through `h/sub`."
   (rf.substrate.spine/make-react-spine
-    {:substrate-name        "Fresco"
-     :gensym-prefix-sub     "rf-hic-sub-"
+    {:gensym-prefix-sub     "rf-hic-sub-"
      :gensym-prefix-derived "rf-hic-derived-"
      :gensym-prefix-use-sub "rf-hic-use-sub-"
      :use-memo              react/useMemo
@@ -152,7 +151,7 @@
 
   `spine/make-react-adapter` owns the shared React-hook routing and lifecycle
   wiring — the nine-key contract map, the five routed late-bind hooks, and the
-  two chained installs (the warn-once clear and the SSR hiccup emitter). The
+  chained SSR hiccup-emitter install. The
   frame-provider stays here because the spine carries no substrate's own
   element machinery.
 

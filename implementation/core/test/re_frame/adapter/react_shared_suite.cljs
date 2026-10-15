@@ -91,21 +91,6 @@
 (defn- source-coord [el] (react-element-attr el "data-rf2-source-coord"))
 (defn- view-attr     [el] (react-element-attr el "data-rf-view"))
 
-(defn- with-captured-console-warn
-  "Replace js/console.warn with a recording shim around `thunk`. Returns
-  the vector of joined-message strings observed. Restores the original on
-  the way out, even if thunk throws."
-  [thunk]
-  (let [calls    (atom [])
-        original (.-warn js/console)]
-    (try
-      (set! (.-warn js/console)
-            (fn [& args] (swap! calls conj (apply str args))))
-      (thunk)
-      @calls
-      (finally
-        (set! (.-warn js/console) original)))))
-
 (defn- with-captured-console-warn+error
   "Replace BOTH js/console.warn and js/console.error with recording shims
   around `thunk`. Returns the vector of joined-message strings observed on
@@ -128,7 +113,7 @@
 
 (defn- mint-kw
   "Mint a substrate-scoped keyword so two adapters' suites never
-  collide on a process-wide `defonce` (warn-once set, etc.)."
+  collide on a process-wide `defonce` keyed by view id."
   [substrate-kw nm]
   (keyword (str "rf.react-shared." (name substrate-kw)) nm))
 
@@ -151,20 +136,6 @@
                       (catch :default e e))]
       (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
           "the emitter slot was cleared by dispose-adapter!"))))
-
-(defn- clear-warn-once-caches!
-  "Fire the canonical chained `:adapter/clear-warn-once-caches!` hook and
-  return nil — the ONE published route to a loaded adapter's warn-once
-  cache, and the very hook `make-reset-runtime-fixture` fires between
-  tests. The suite reaches the seam exactly as the fixture does; no
-  adapter needs to re-export the raw spine thunk for tests to drive it.
-  Throws when no producer registered the key — that is a
-  spine-wiring failure the caller wants loud, not a silent no-op."
-  []
-  (if-let [hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
-    (hook)
-    (throw (ex-info "no :adapter/clear-warn-once-caches! producer is registered"
-                    {:hook-key :adapter/clear-warn-once-caches!}))))
 
 (defn assert-dispose-walk-best-effort
   "MUST (1) best-effort: a throwing per-entry dispose does NOT abort the
@@ -623,56 +594,6 @@
       (is (= :session (provider-element-frame-kw el)))
       (is (= [:child-a :child-b] (vec (provider-element-children el)))
           "the array spread into two positional children, in order"))))
-
-;; ===========================================================================
-;; warn-once fires-once (Spec 006 §Documented exemption)
-;; ===========================================================================
-
-(defn assert-warn-once-fires-once
-  "The per-id non-DOM-root warning fires EXACTLY once across renders,
-  is keyed per-id (not global), and re-arms after the clear hook.
-
-  The cache is spine-produced (`rf.substrate.spine/make-warn-once-cache`), so
-  the contract is substrate-identical and is pinned here on the React
-  adapters as well as on Reagent."
-  [{:keys [wrap-view substrate-kw name]}]
-  (testing (str name " — warn-once: fires exactly once per id across renders")
-    (let [id          (mint-kw substrate-kw "warn-once-multi")
-          non-dom     (fn [] (React/createElement React/Fragment #js {} "non-dom"))
-          wrapped     (wrap-view id {} non-dom)
-          phase-1     (with-captured-console-warn
-                        (fn [] (dotimes [_ 5] (wrapped))))]
-      (is (= 1 (count phase-1))
-          (str "expected EXACTLY ONE warning across 5 renders; got "
-               (count phase-1) ": " (pr-str phase-1)))
-      (is (str/includes? (first phase-1) (clojure.core/name id))
-          "the single warning names the offending view-id")
-      (is (str/includes? (first phase-1) "data-rf2-source-coord")
-          "the warning mentions the attribute that was skipped")
-      ;; After the clear hook the same id re-arms and re-warns.
-      (clear-warn-once-caches!)
-      (let [phase-2 (with-captured-console-warn (fn [] (wrapped)))]
-        (is (= 1 (count phase-2))
-            (str "after the chained warn-once clear the same id re-emits; got "
-                 (count phase-2) ": " (pr-str phase-2)))))))
-
-(defn assert-warn-once-per-id-not-global
-  "The warn-once contract is keyed per view-id: two distinct non-DOM
-  roots each emit their OWN one-shot warning (not a single global gate)."
-  [{:keys [wrap-view substrate-kw name]}]
-  (testing (str name " — warn-once: per-id, not a global gate")
-    (let [id-a    (mint-kw substrate-kw "warn-once-a")
-          id-b    (mint-kw substrate-kw "warn-once-b")
-          non-dom (fn [] (React/createElement React/Fragment #js {} "x"))
-          w-a     (wrap-view id-a {} non-dom)
-          w-b     (wrap-view id-b {} non-dom)
-          warns   (with-captured-console-warn
-                    (fn [] (w-a) (w-b) (w-a) (w-b)))]
-      (is (= 2 (count warns))
-          (str "expected EXACTLY TWO warnings (one per id) across 4 renders; got "
-               (count warns) ": " (pr-str warns)))
-      (is (some #(str/includes? % (clojure.core/name id-a)) warns) "id-a's warning fired")
-      (is (some #(str/includes? % (clojure.core/name id-b)) warns) "id-b's warning fired"))))
 
 ;; ===========================================================================
 ;; render-time parity contracts (Spec 001 §Hot-reload / Spec-Schemas
@@ -1538,10 +1459,7 @@
 ;; `re-frame.adapter.uix` (that file is the API contract; `adapter`, its
 ;; ninth row, is checked by the adapter-map assertion below). Fresco
 ;; re-exports NONE of them by design and reads the spine map instead, so
-;; its roster is the six spine surfaces it publishes. Neither roster
-;; carries the spine's internal warn-once clear thunk: that seam is
-;; reached through the chained `:adapter/clear-warn-once-caches!` hook,
-;; never a namespace export. The `:kind` discriminator is
+;; its roster is the six spine surfaces it publishes. The `:kind` discriminator is
 ;; read off the `:adapter` cfg key (the adapter map carries its
 ;; own :kind), so no extra cfg key is needed for the adapter-map shape
 ;; assertion.

@@ -771,12 +771,9 @@
 
    ;; ---- :adapter/* — chained / routed across every CLJS adapter -------------
    {:key         :adapter/clear-warn-once-caches!
-    :producer-ns '[re-frame.views.warn-once
-                   re-frame.views
-                   re-frame.adapter.uix
-                   re-frame.fresco.substrate]
+    :producer-ns 're-frame.views
     :chained?    true
-    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's seen-render-keys (:mount? discriminator), and the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by uix). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture."}
+    :description "Chained reset of EVERY adapter/views defonce cache the standard make-reset-runtime-fixture must wipe between tests. Every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Member: re-frame.views's seen-render-keys (:mount? discriminator). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture."}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
@@ -860,7 +857,7 @@
     :producer-ns '[re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :description "Substrate-side source-coord injection on rendered React elements: the wrap also stamps `data-rf-view` and appends the React-hook unmount sentinel, and the whole body rides `interop/debug-enabled?` so production elides it. Declining it is not neutral — `views/build-frame-aware-view` then falls through to the inline hiccup walk, which classes a React element as a non-DOM root, skips both attributes and warns. Consulted once per DERIVATION rather than once per registration: the hook is routed, so it declines while its adapter is not installed, and the canonical boot order registers views at ns-load BEFORE `rf/init!` — `views/compose-view` therefore re-runs the whole pipeline, this hook included, when `views/view-head` finds the memoized derivation was made against a different substrate."}
+    :description "Substrate-side source-coord injection on rendered React elements: the wrap also stamps `data-rf-view` and appends the React-hook unmount sentinel, and the whole body rides `interop/debug-enabled?` so production elides it. Declining it is not neutral — `views/build-frame-aware-view` then falls through to the inline hiccup walk, which classes a React element as a non-DOM root and skips both attributes. Consulted once per DERIVATION rather than once per registration: the hook is routed, so it declines while its adapter is not installed, and the canonical boot order registers views at ns-load BEFORE `rf/init!` — `views/compose-view` therefore re-runs the whole pipeline, this hook included, when `views/view-head` finds the memoized derivation was made against a different substrate."}
    {:key         :adapter/componentize-view
     :producer-ns '[re-frame.adapter.uix]
     :chained?    true

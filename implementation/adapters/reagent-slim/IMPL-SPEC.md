@@ -1136,15 +1136,14 @@ As shipped, these comments were **tightened** (not removed) to reflect the revis
 
 **Original plan** (abandoned): delete the `re-frame.views` source-coord walker (`inject-source-coord-attr`, the `dom-tag?` helper, `warn-non-dom-root!`, and the `warned-non-dom-roots` defonce) on the premise that source-coord stamping moves into the renderer (per the then-§5.4 + §9.4 design), so the walker becomes unreachable; `reg-view*` would hand the coord to the renderer instead of computing the coord-attr inline.
 
-**What actually shipped**: the premise was abandoned. Source-coord stamping for the **classic Reagent adapter** did **not** move into a renderer — the shared `re-frame.views` hiccup walk stayed load-bearing. None of the four symbols was deleted; the walker was **refactored/extracted**, not removed:
+**What actually shipped**: the premise was abandoned. Source-coord stamping for the **classic Reagent adapter** did **not** move into a renderer — the shared `re-frame.views` hiccup walk stayed load-bearing. The walker and `dom-tag?` were **refactored/extracted**, not removed; the warn-once pair is deleted:
 
-- **`inject-source-coord-attr` — RETAINED, extracted.** Split out of `re-frame.views` into the dedicated `re-frame.views.source-coord-annotation` ns (`source_coord_annotation.cljs:119`) per rf2-lh7p, so `views.cljs` stays focused on registration orchestration. It is live: `build-frame-aware-view` calls `source-coord/inject-source-coord-attr` at `views.cljs:572`. A cross-substrate variant was additionally lifted into `re-frame.substrate.spine` (`spine.cljs:1020`, called at `spine.cljs:1244`) for the React-hook adapters' shared spine.
+- **`inject-source-coord-attr` — RETAINED, extracted.** Split out of `re-frame.views` into the dedicated `re-frame.views.source-coord-annotation` ns (`source_coord_annotation.cljs:119`) per rf2-lh7p, so `views.cljs` stays focused on registration orchestration. It is live: `re-frame.views/render-in-scope` calls it on every render. A cross-substrate variant was additionally lifted into `re-frame.substrate.spine` (`spine.cljs:1020`, called at `spine.cljs:1244`) for the React-hook adapters' shared spine.
 - **`dom-tag?` — RETAINED, extracted.** Moved into `re-frame.views.source-coord-annotation` (`source_coord_annotation.cljs:102`) alongside the walker it serves.
-- **`warn-non-dom-root!` — RETAINED, extracted.** Moved into `re-frame.views.warn-once` (`warn_once.cljs:45`); the source-coord-annotation walk calls it at `source_coord_annotation.cljs:169`. A parameterised cross-substrate variant (`make-warn-non-dom-root-fn`) lives in `spine.cljs:995`.
-- **`warned-non-dom-roots` defonce — RETAINED.** Lives in `re-frame.views.warn-once` (`warn_once.cljs:31`), with `clear-warned-non-dom-roots!` (`warn_once.cljs:33`, re-exported as `re-frame.views/clear-warned-non-dom-roots!` at `views.cljs:186`). It is enrolled in the rf2-z79p8 warn-once-clear governance chain (`warn_once.cljs:244-257`) so the test-reset fixture wipes it — it was *not* removed, and the warning was kept (not dropped).
+- **`warn-non-dom-root!` and the `warned-non-dom-roots` defonce — DELETED**, with the spine's cross-substrate variant. The walk skips a non-DOM root silently: every such root is valid composition, and the only repair a warning could prompt is a wrapper element, which Spec 006's mutate-not-wrap rule forbids.
 - **The slim renderer stamps nothing.** The `re-frame.views` walk (via `apply-adapter-wrap-view`) stamps both ratom adapters' views, while UIx publishes a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
 
-**Net**: zero deletions; one ns-extraction (rf2-lh7p) of an otherwise-retained walker + warn-once pair. The original "walker becomes unreachable" claim and its §5.4/§9.4 premise describe an abandoned design.
+**Net**: one ns-extraction (rf2-lh7p) of the retained walker; the warn-once pair it carried is deleted. The original "walker becomes unreachable" claim and its §5.4/§9.4 premise describe an abandoned design.
 
 ### §11.4 The thin-bridge adapter — RETAINED, coexists (verified current, rf2-prkgge)
 
@@ -1345,11 +1344,11 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 ### §14.6 Source-coord stamping + `:>` interop
 
-§5.4's walk stamps `:data-rf2-source-coord` on the first DOM-tag root. When the user's reg-view returns `[:> SomeReactComponent ...]` as the root, the walk (`warn-non-dom-root!`) emits a one-shot warning per id and skips the stamping.
+§5.4's walk stamps `:data-rf2-source-coord` on the first DOM-tag root. When the user's reg-view returns `[:> SomeReactComponent ...]` as the root, the walk skips the stamping silently.
 
-**Status (as shipped)**: the keep-or-drop call was made **KEEP**. As recorded in §11.3, `warn-non-dom-root!` and the `warned-non-dom-roots` defonce were *not* deleted — they were retained (extracted into `re-frame.views.warn-once`, `warn_once.cljs:31`/`:45`) and the warning still fires one-shot per id when a non-DOM-tag root is encountered (`source_coord_annotation.cljs:169`). The warn-once cache is enrolled in the rf2-z79p8 governance clear-chain so the test fixture wipes it. The warning is useful for pair-tooling consumers, which is why it survived.
+**Status (as shipped)**: **DROP**. As recorded in §11.3, the warning and its warn-once cache are deleted: an interop root is valid composition, and the only repair a warning could prompt, a wrapper element, is forbidden by Spec 006's mutate-not-wrap rule. Pair tools fall back to `(rf/handler-meta {:source :store :kind :view :id id})` for the unannotated root.
 
-**Disposition**: no separate bead — folded into §11.3's retained disposition (rf2-prkgge). The keep decision is reflected directly in the shipped code; no follow-up tracking is needed.
+**Disposition**: no separate bead — folded into §11.3 (rf2-prkgge). The drop is reflected directly in the shipped code; no follow-up tracking is needed.
 
 ---
 

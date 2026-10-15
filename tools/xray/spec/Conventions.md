@@ -172,7 +172,7 @@ site. A non-DOM root is a documented exemption
 the annotation is skipped and pair tools fall back to
 `(rf/handler-meta {:source :store :kind :view :id id})`.
 
-What changed is the MECHANISM and one clause, both settled by
+What changed is the MECHANISM, settled by
 [Spec 006 §Cross-host](../../../spec/006-ReactiveSubstrate.md#cross-host)
 (rf2-c5w1) rather than here:
 
@@ -186,11 +186,9 @@ What changed is the MECHANISM and one clause, both settled by
 - The stamp lands on a `:tag` root and on nothing else — fragments,
   `[:> …]` crossings and boundary heads are all skipped — which is what
   keeps this section's rule load-bearing rather than cosmetic.
-- **Fresco emits no one-shot `console.warn` for a non-DOM root**, and
-  that is deliberate: under Fresco a boundary rooted on another
-  boundary is ordinary composition, so the warning would fire on
-  idiomatic code. Do not expect a console signal to catch a miss here;
-  the DOM attribute's absence is the only tell.
+
+A non-DOM root is skipped silently, so do not expect a console signal
+to catch a miss here; the DOM attribute's absence is the only tell.
 
 When the body **logically** delegates to a single inner component
 (e.g. an overlay imported from another artefact such as

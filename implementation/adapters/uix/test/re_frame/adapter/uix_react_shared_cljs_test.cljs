@@ -44,10 +44,7 @@
    ;; minus `adapter` — nine supported fns; `adapter` is checked by the
    ;; suite's adapter-map assertion off the `:adapter` key above. Keep the
    ;; two in step: a manifest row added here without a row there (or the
-   ;; reverse) is the drift this roster exists to catch. It deliberately
-   ;; does NOT name the spine's warn-once clear thunk — that is internal,
-   ;; carries no manifest row, and is reached through the chained
-   ;; `:adapter/clear-warn-once-caches!` hook.
+   ;; reverse) is the drift this roster exists to catch.
    ;;
    ;; There is no `use-current-frame` or `wrap-view` Var: those mechanisms
    ;; live inside the ambient `use-sub` body and behind the
