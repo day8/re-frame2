@@ -835,7 +835,7 @@ process-global.
 | `:rf.xray.static.schemas/query` | sub | Search text, or `nil`. |
 | `:rf.xray.static.schemas/tab-data` | sub | Composite over `registry` + `:rf.xray/observed-frame` + `query`. |
 | `:rf.xray.static.schemas/set-query` | event | `[_ q]` — `nil` or `""` clears. |
-| `:rf.xray.static.flows/registered-flows` | sub | `(re-frame.flows/flows-snapshot)` — the per-frame `{frame-id {flow-id flow-map}}` store, the SOLE store since framework rf2-en00bk. The registrar `:flow` slot is reserved-but-empty, so a `(rf/registrations {:source :store :kind :flow})` read throws `:rf.error/registrar-kind-not-queryable`; the flow registry is read through `re-frame.flows/flows`, `flow-meta` and `flows-snapshot`. **This is the live id**; `:rf.xray/registered-flows`, which this catalogue listed until 2026-09-18, is registered nowhere. |
+| `:rf.xray.static.flows/registered-flows` | sub | `(re-frame.flows/flows-snapshot)` — the per-frame `{frame-id {flow-id flow-map}}` store, the SOLE flow store. The registrar `:flow` slot is reserved-but-empty, so a `(rf/registrations {:source :store :kind :flow})` read throws `:rf.error/registrar-kind-not-queryable`; the flow registry is read through `re-frame.flows/flows`, `flow-meta` and `flows-snapshot`. **This is the live id**; `:rf.xray/registered-flows` is registered nowhere. |
 | `:rf.xray.static.flows/query` | sub | Search text, or `nil`. |
 | `:rf.xray.static.flows/tab-data` | sub | Composite over `registered-flows` + `:rf.xray/observed-frame` + `query`. |
 | `:rf.xray.static.flows/set-query` | event | `[_ q]` — `nil` or `""` clears. |

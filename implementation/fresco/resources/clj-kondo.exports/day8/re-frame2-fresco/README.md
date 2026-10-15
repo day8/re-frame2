@@ -27,11 +27,11 @@ prop reads as `Unresolved symbol`.
 
 ## What it deliberately does not do
 
-No custom `:re-frame.fresco/*` findings ship here. An earlier version
-carried six bespoke behavioral checks — a hand-maintained scope grammar and
-Hiccup walkers policing a narrow, non-authoritative slice — and they were
-retired (rf2-r3r00). What they policed has more authoritative owners, and
-not one owner. A bad head, a read outside render, a deferral crossing a
+No custom `:re-frame.fresco/*` findings ship here. A behavioral check in
+this export would be a hand-maintained scope grammar or a Hiccup walker
+policing a narrow, non-authoritative slice, while what it would police has
+more authoritative owners, and not one owner. A bad head, a read outside
+render, a deferral crossing a
 boundary — these the runtime refuses loudly at execution, with a named
 `:rf.error/fresco-*` id and a documented recovery route. An unkeyed mapped
 child is React's own missing-key warning. A nameless interactive element is
