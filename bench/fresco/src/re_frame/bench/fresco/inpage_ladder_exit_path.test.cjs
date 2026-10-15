@@ -1,34 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE IN-PAGE LADDER AGGREGATE'S EXIT PATH — a promised refusal must refuse.
-//
-//     node src/re_frame/bench/fresco/inpage_ladder_exit_path.test.cjs   (from bench/fresco/)
-//
-// WHAT THIS PINS. `inpage_ladder_aggregate.cjs`'s header promises that it
-// exits 1 on "a run that recorded a guard refusal or a failed control", so
-// the file must compute and read both. A refusal never computed at all is
-// worse than one computed and left unread: a gate that does not exist
-// cannot be seen to fail, so a sweep for printed-but-unread refusals walks
-// past it.
-//
-// A SECOND FAULT WOULD SIT IN FRONT OF THE FIRST. A `readMap` anchor spelled
-// LF-only matches nothing on the CRLF datasets a normal Windows checkout
-// materialises, so the whole file would die with `dataset has no :rounds`
-// before comparing a single figure.
-//
-// WHY IT IS PINNED HERE. The aggregate reads four stored datasets and takes
-// no measurement, so its decisions ARE testable directly — every refusal below
-// is a real dataset with one field mutated, and the mutations are the ones
-// the file promises to catch.
-//
-// THE CONTROL RULE IS OVERLAP, `lane/control-verdict`'s, not the stricter
-// every-round reading: a clock instrument, whose legs sit on Chrome's 100 µs
-// `performance.now()` clamp, is judged on overlap. Run D holds a round at
-// 1.2653, below its band floor, and passes, so "tightening" the rule turns
-// the clean-datasets test red — that overturns the lane's clock rule rather
-// than fixing a bug.
-//
-// Run by `npm run check` in bench/fresco/.
+// Adjudicate real stored runs and keep every refusal connected to the process exit.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
