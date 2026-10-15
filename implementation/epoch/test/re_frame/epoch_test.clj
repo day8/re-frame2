@@ -721,60 +721,51 @@
        (mapv (fn [ev] [(:op-type ev) (select-keys (:tags ev) [:kind :frame])]))))
 
 (deftest replace-frame-state-app-only-replaces-container
-  (testing "an app-db-only patch replaces the app-db and preserves the omitted
-            runtime-db partition"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed
-      (fn [{rt :rf.db/runtime} _]
-        {:db            {:n 0}
-         :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99 :injected? true}})))
-    (is (= {:n 99 :injected? true} (rf/app-db-value :test/main)))
-    (is (= {:current {:route-id :kept}}
-           (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing]))
-        "the omitted runtime-db partition is preserved")))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed
+    (fn [{rt :rf.db/runtime} _]
+      {:db            {:n 0}
+       :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99 :injected? true}})))
+  (is (= [{:n 99 :injected? true} {:current {:route-id :kept}}]
+         [(rf/app-db-value :test/main)
+          (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing])])))
 
 (deftest replace-frame-state-app-only-records-undo-epoch
-  (testing "an app-db-only patch appends one synthetic :rf.epoch/db-replaced
-            record that anchors last-settled, and restoring an earlier epoch
-            rewinds past the injection"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})
-    (let [history (rf/epoch-history :test/main)
-          fresh   (peek history)]
-      (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
-      (is (= [[:rf.epoch/db-replaced] {:n 7} {:n 999}]
-             ((juxt :trigger-event :db-before :db-after) fresh)))
-      (is (= (:epoch-id fresh) (rf.epoch.state/last-settled-epoch-id :test/main)))
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history)))))
-      (is (= {:n 7} (rf/app-db-value :test/main))))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})
+  (let [history (rf/epoch-history :test/main)
+        fresh   (peek history)]
+    (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
+    (is (= [[:rf.epoch/db-replaced] {:n 7} {:n 999}]
+           ((juxt :trigger-event :db-before :db-after) fresh)))
+    (is (= (:epoch-id fresh) (rf.epoch.state/last-settled-epoch-id :test/main)))
+    (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history)))))
+    (is (= {:n 7} (rf/app-db-value :test/main)))))
 
 (deftest replace-frame-state-app-only-emits-trace
-  (testing "a successful app-db-only patch emits one :rf.epoch/db-replaced
-            tagged with the frame and the synthetic record's :rf.epoch/id"
-    (rf/make-frame {:id :test/main})
-    (let [recorded (record-trace!)]
-      (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})
-      (is (= [{:op-type :rf.epoch
-               :tags    {:frame       :test/main
-                         :rf.epoch/id (:epoch-id (peek (rf/epoch-history :test/main)))}}]
-             (->> @recorded
-                  (filter #(= :rf.epoch/db-replaced (:operation %)))
-                  (mapv #(select-keys % [:op-type :tags]))))))))
+  (rf/make-frame {:id :test/main})
+  (let [recorded (record-trace!)]
+    (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})
+    (is (= [{:op-type :rf.epoch
+             :tags    {:frame       :test/main
+                       :rf.epoch/id (:epoch-id (peek (rf/epoch-history :test/main)))}}]
+           (->> @recorded
+                (filter #(= :rf.epoch/db-replaced (:operation %)))
+                (mapv #(select-keys % [:op-type :tags])))))))
 
 (deftest replace-frame-state-app-only-fires-listeners
-  (testing "an app-db-only patch fans the synthetic record out to epoch listeners"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [received (atom [])]
-      (rf/register-listener! :epoch ::reset-listener #(swap! received conj %))
-      (rf/replace-frame-state! :test/main {:rf.db/app {:n 42}})
-      (is (= [[:test/main :rf.epoch/db-replaced {:n 0} {:n 42}]]
-             (mapv (juxt :frame :event-id :db-before :db-after) @received))))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (let [received (atom [])]
+    (rf/register-listener! :epoch ::reset-listener #(swap! received conj %))
+    (rf/replace-frame-state! :test/main {:rf.db/app {:n 42}})
+    (is (= [[:test/main :rf.epoch/db-replaced {:n 0} {:n 42}]]
+           (mapv (juxt :frame :event-id :db-before :db-after) @received)))))
 
 (deftest replace-frame-state-app-only-failure-unknown-frame
   (testing "an app-db-only patch on an unknown frame returns false and emits
@@ -858,23 +849,20 @@
 ;; ---- replace-frame-state! (runtime-db and both partitions) ----------------
 
 (deftest replace-frame-state!-records-undo-epoch-and-restore-rewinds-past
-  (testing "a both-partition patch installs both partitions, records one
-            synthetic epoch whose :frame-state-after is the installed state,
-            and restoring an earlier epoch rewinds both partitions past it"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [injected {:rf.db/app     {:a :injected}
-                    :rf.db/runtime {:rf.runtime/routing {:r :injected}}}]
-      (is (true? (rf/replace-frame-state! :test/main injected)))
-      (is (= injected (rf/frame-state-value :test/main)))
-      (let [history (rf/epoch-history :test/main)]
-        (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
-        (is (= injected (:frame-state-after (peek history))))
-        (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history))))))
-      (is (= {:n 7} (rf/app-db-value :test/main)))
-      (is (nil? (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing]))
-          "the runtime-db partition rewound past the injection too"))))
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (let [injected {:rf.db/app     {:a :injected}
+                  :rf.db/runtime {:rf.runtime/routing {:r :injected}}}]
+    (is (true? (rf/replace-frame-state! :test/main injected)))
+    (is (= injected (rf/frame-state-value :test/main)))
+    (let [history (rf/epoch-history :test/main)]
+      (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
+      (is (= injected (:frame-state-after (peek history))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history))))))
+    (is (= [{:n 7} nil]
+           [(rf/app-db-value :test/main)
+            (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing])]))))
 
 ;; ---- restore {:to :before} ---------------------------------------------------
 ;;
@@ -909,7 +897,6 @@
       (is (true? (rf/restore-epoch! :test/shallow
                                     (:epoch-id (peek (rf/epoch-history :test/shallow)))
                                     {:to :before})))
-      (is (= {:n 1} (rf/app-db-value :test/shallow)))
       (is (= pre-injection (rf/frame-state-value :test/shallow))))))
 
 (deftest restore-to-before-reaches-past-an-evicted-predecessor
