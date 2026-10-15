@@ -83,7 +83,7 @@
                (contains? (set (rest schema)) value))))
       (let [delivered-fact (atom ::unset)]
         (rf/reg-cofx :evt-conf/graded-fact
-          {:recordable? true :provided? true :schema [:enum :allowed-a :allowed-b]})
+          {:recordable? true :provided? true :schema [:enum :allowed-a]})
         (rf/reg-event :evt-conf/reads-graded-fact
           {:rf.cofx/requires [:evt-conf/graded-fact]}
           (fn [{:keys [evt-conf/graded-fact]} _] (reset! delivered-fact graded-fact) {}))
@@ -135,7 +135,6 @@
       #(swap! seen-events conj %))
     (rf/make-frame {:id :evt-conf/events-main})
     (rf/reg-event :evt-conf/events-probe
-      {:frame :evt-conf/events-main}
       (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
     (rf/dispatch-sync [:evt-conf/events-probe] {:frame :evt-conf/events-main})
     (is (= [{:event-id :evt-conf/events-probe :frame :evt-conf/events-main :outcome :ok}]
