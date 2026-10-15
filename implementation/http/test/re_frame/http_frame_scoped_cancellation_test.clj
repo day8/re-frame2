@@ -13,6 +13,7 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
+            [re-frame.late-bind :as rf.late-bind]
             ;; The destroy-cascade cases drive the real machines teardown
             ;; (machines is a test-only dep of this artefact).
             [re-frame.machines]
@@ -164,6 +165,31 @@
       (rf/dispatch-sync [:worker/kill actor-address] {:frame :frame/a})
       (is (= [[:frame/a :actor-destroyed]] @seen))
       (is (actor-live? :frame/b)))))
+
+(deftest machines-absent-frame-destroy-fallback-is-frame-exact
+  (testing "core's `destroy-frame!` fallback, taken when the machines artefact
+            is absent, passes the destroyed frame to the hook"
+    (register-two-frame-actor-app!)
+    (let [seen (atom [])
+          orig (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+      (seed-actor-handle! seen :frame/a)
+      (seed-actor-handle! seen :frame/b)
+      (try
+        (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! nil)
+        (rf/destroy-frame! :frame/a)
+        (finally
+          (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! orig)))
+      (is (= #{:frame/a} (set (map first @seen))))
+      (is (actor-live? :frame/b)))))
+
+;; ---- the two-index publication window --------------------------------------
+;;
+;; `record-in-flight!` publishes an actor-owned, named handle to the request
+;; index and then the actor index, in two swaps. A cleanup or destroy landing
+;; between them must neither leave a ghost actor slot nor reach a sibling frame.
+;; An atom's watches run on the swapping thread before `swap!` returns, so a
+;; watch on the request index runs its callback strictly between the two
+;; publications — the interleaving is decided, not raced.
 
 (def ^:private publication-actor :worker/publication)
 
