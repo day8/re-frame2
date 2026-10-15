@@ -324,11 +324,12 @@
       :snapshot          a map seeded whole through `:rf/set-db`.
       :initial-events    ordinary events, run after the snapshot.
       :payload           REQUIRED: `re-frame.ssr.payload-policy`'s
-                         fail-closed contract verbatim — a non-empty
-                         allowlist of top-level app-db keys, or
-                         `:rf.ssr.payload/whole-app-db` as an explicit
-                         opt-in. Absent, the framework's own validator
-                         raises `:rf.error/ssr-missing-payload-policy`.
+                         fail-closed contract verbatim — an allowlist
+                         of top-level app-db keys (an empty `[]` ships
+                         nothing), or `:rf.ssr.payload/whole-app-db` as
+                         an explicit opt-in. Nil or absent, the
+                         framework's own validator raises
+                         `:rf.error/ssr-missing-payload-policy`.
       :client-frame-id   the STABLE wire `:rf/frame-id`, or absent to
                          omit the key (the anonymous-server-frame shape).
                          Never the per-request gensym, which would
