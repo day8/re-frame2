@@ -51,5 +51,5 @@
   (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 10 :fraction 0.5
                                 :testid  "rf-mv-chart-after-ring-idle"
                                 :tooltip "idle · 2500ms remaining"})]
-    (is (= "rf-mv-chart-after-ring-idle" (:data-testid (second g))))
-    (is (= [:title "idle · 2500ms remaining"] (find-tag g :title)))))
+    (is (= ["rf-mv-chart-after-ring-idle" [:title "idle · 2500ms remaining"]]
+           [(:data-testid (second g)) (find-tag g :title)]))))
