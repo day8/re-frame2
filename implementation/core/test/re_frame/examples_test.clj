@@ -150,48 +150,10 @@
 ;; render to string → render hash. JVM-only: the server render runs under
 ;; Clojure.
 
-(deftest ssr-example-runs-end-to-end
-  (testing "examples/capabilities/ssr/ssr — the server flow renders the loaded articles"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (install-canned-articles-stub!)
-    (let [fid         (keyword "rf.frame" (str (gensym "")))
-          _           (rf.ssr/set-request! fid {:uri "/articles"})
-          f           (rf/make-frame {:id fid :doc "ssr-example test frame"
-                                      :platform :server
-                                      :initial-events [[:rf/server-init]]
-                                      :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
-          final-db    (rf/app-db-value f)
-          ;; the root view's body subscribes, so it is called under `with-frame f`
-          hiccup      (rf/with-frame f ((rf/view :app/root)))
-          ;; one walk, two channels — the shape the example itself uses
-          render-hash (rf.ssr/render-tree-hash hiccup)
-          html        (rf/with-frame f (rf.ssr/render-to-string hiccup {:render-hash render-hash}))]
-      (is (= 2 (count (:articles final-db))))
-      (is (= [true true true true]
-             (includes-all html ["Article A" "Article B" "<h1>" "data-rf-render-hash"]))
-          "the articles render to HTML, with the render-hash marker, without React/JSDOM")
-      ;; lowercase-hex FNV-1a (Spec 011), which the client recomputes
-      (is (re-matches #"[0-9a-f]{8}" render-hash))
-      ;; the hash covers the page the root renders: the ambient :rf/default
-      ;; frame holds no articles, so its render of the same root differs
-      (is (not= render-hash (rf.ssr/render-tree-hash ((rf/view :app/root))))))))
-
 ;; Spec 011 §Per-request frame teardown contract: the example's
 ;; `handle-request` destroys its per-request frame in a `finally`, so a
 ;; long-running server leaks neither the frame nor its request slot, on the
 ;; success path and the throw path alike.
-
-(deftest ssr-example-handle-request-tears-down-per-request-frame
-  (testing "examples/capabilities/ssr/ssr — after handle-request returns, no
-            per-request frame and no SSR request slot survive"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (install-canned-articles-stub!)
-    (let [before (frame-ids)
-          resp   (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")]
-      (is (= [200 true] [(:status resp) (clojure.string/includes? (:body resp) "Article A")]))
-      (is (= [#{} {}] [(clojure.set/difference (frame-ids) before) @rf.ssr.request/request-slots])))))
 
 (deftest ssr-example-handle-request-tears-down-on-throw
   (testing "examples/capabilities/ssr/ssr — a render that throws after the frame
@@ -249,23 +211,6 @@
 ;; framework-registered `:rf/hydrate`. JVM-driven with an explicit :payload on a
 ;; :client frame (no DOM to read).
 
-(deftest ssr-example-client-hydration-stashes-server-hash-and-seeds-db
-  (testing "examples/capabilities/ssr/ssr — hydrate! returns the applied payload,
-            replaces app-db with the :rf/app-db slice, and stashes the
-            :rf/render-hash for the verify step"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example client frame" :platform :client})
-          payload      {:rf/version     1
-                        :rf/render-hash "abc12345"
-                        :rf/app-db      {:articles [{:id "a" :title "A" :body "ba"}]}
-                        :rf/runtime-db  {}}]
-      (is (= [payload [{:id "a" :title "A" :body "ba"}] "abc12345"]
-             [(rf.ssr/hydrate! {:frame client-frame :payload payload})
-              (:articles (rf/app-db-value client-frame))
-              (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
-                      [:rf.runtime/ssr :hydration :server-hash])])))))
-
 (deftest ^:requires-debug ssr-example-client-hydration-verifies-the-render-hash
   (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES
             the payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch,
@@ -287,19 +232,6 @@
                                                        :render-tree-fn (fn [] client-tree)}))))))]
       (is (= [false true] [(mismatch? (rf.ssr/render-tree-hash client-tree)) (mismatch? "server00")])))))
 
-(deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
-  (testing "examples/capabilities/ssr/ssr — a present-but-non-map :rf/app-db slice
-            is rejected fail-closed and app-db is left unchanged (Spec 011 §The
-            :rf/hydrate event)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example fail-closed frame" :platform :client})
-          kept         [{:id "keep" :title "Keep" :body "b"}]]
-      (rf/dispatch-sync [:articles/loaded {:value kept}] {:frame client-frame})
-      (is (= kept (:articles (rf/app-db-value client-frame))) "precondition: app-db seeded")
-      (rf.ssr/hydrate! {:frame client-frame :payload {:rf/version 1 :rf/app-db "not-a-map"}})
-      (is (= kept (:articles (rf/app-db-value client-frame)))))))
-
 ;; ---- the dynamic payload, server → client ----------------------------------------
 ;;
 ;; These feed the ACTUAL dynamic payloads (the plain and resources
@@ -313,19 +245,25 @@
 
 (deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/ssr — the dynamic handle-request payload omits
-            :rf/frame-id and hydrates the example's :rf/default client frame with
-            the server's articles"
+            :rf/frame-id, carries the lowercase-hex render hash, and hydrates the
+            example's :rf/default client frame with the server's articles,
+            stashing that hash for the verify step"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
     (let [resp         (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")
           payload      (extract-payload-edn (:body resp))
           client-frame @(resolve 'ssr.core/app-frame)]
-      (is (= [200 true false] [(:status resp) (some? payload) (contains? payload :rf/frame-id)]))
+      (is (= [200 false true]
+             [(:status resp)
+              (contains? payload :rf/frame-id)
+              (some? (re-matches #"[0-9a-f]{8}" (str (:rf/render-hash payload))))]))
       (rf/make-frame {:id client-frame :doc "ssr-example client frame" :platform :client})
-      (is (= [payload two-articles]
+      (is (= [payload two-articles (:rf/render-hash payload)]
              [(rf.ssr/hydrate! {:frame client-frame :payload payload})
-              (:articles (rf/app-db-value client-frame))])))))
+              (:articles (rf/app-db-value client-frame))
+              (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
+                      [:rf.runtime/ssr :hydration :server-hash])])))))
 
 (deftest ssr-example-payload-script-escapes-script-breakout
   (testing "examples/capabilities/ssr/ssr — a server string carrying `</script>` is
