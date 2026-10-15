@@ -12,7 +12,7 @@
 
 `:rf.http/managed` is the canonical HTTP fx for re-frame2 implementations that ship one. Take an args map, get a request issued; the fx handles transport, decoding, retry-with-backoff, and dispatching the reply back into the runtime. The recommended shape is **two explicit handlers** — `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` — one event each for the request, the success, and the failure. Each handler stays small and single-purpose, and the failure path is named rather than folded into a branch. When the request and reply genuinely belong together, the fx also supports a **unified one-handler** form: `:reply-to [:article/load]` addresses both replies to one event, which branches on the canonical envelope's `:status` to serve both the initial dispatch and the async result.
 
-The fx specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic six-step shape (register → return `:fx` → post work → reply → dispatch → commit) and pins the lifecycle slice from [Pattern-RemoteData](Pattern-RemoteData.md). Stale replies are suppressed through the in-flight registry — a same-`:request-id` supersede, an actor-destroy, an epoch-restore, or a frame-destroy (see [§Stale-suppression — the four triggers](#stale-suppression--the-four-triggers)) — **not** the carried-epoch compare of [Pattern-StaleDetection](Pattern-StaleDetection.md) that `:after` timers and route nav-tokens use. It complements but does not replace the lower-level `:http` fx — apps that need wire-level control (custom transport, raw bytes, idiosyncratic protocols) keep using `:http`; apps that want the common case ergonomic use `:rf.http/managed`.
+The fx specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic six-step shape (register → return `:fx` → post work → reply → dispatch → commit) and pins the lifecycle slice from [Pattern-RemoteData](Pattern-RemoteData.md). Stale replies are suppressed through the in-flight registry — a same-`:request-id` supersede, an actor-destroy, an epoch-restore, or a frame-destroy (see [§Stale-suppression — the four triggers](#stale-suppression--the-four-triggers)) — **not** the carried-epoch compare of [Pattern-StaleDetection](Pattern-StaleDetection.md) that `:after` timers and route nav-tokens use. The framework ships no lower-level HTTP fx beneath it: apps that need wire-level control (custom transport, raw bytes, idiosyncratic protocols) register their own fx in the [Pattern-AsyncEffect](Pattern-AsyncEffect.md#worked-example--http) shape, and apps that want the common case ergonomic use `:rf.http/managed`.
 
 Streaming and bidirectional communication are out of scope here — Spec 014 covers the single-request / single-reply shape. WebSocket / SSE / chunked-streaming are handled by sibling specs (Pattern-WebSocket; future `:rf.http/streaming`).
 
@@ -1015,22 +1015,21 @@ The auth flow has separate success/error handlers (often a state machine), so th
         :timeout-ms 60000}]]}
 ```
 
-### E — Aborting a stale search
+### E — Superseding a stale search
 
 ```clojure
 (rf/reg-event :search/query
   (fn [{:keys [db]} [_ {:keys [q] :as msg} reply]]
     (if reply
       ;; ...handle results...
-      {:fx [[:rf.http/managed-abort :search]                 ;; cancel previous
-            [:rf.http/managed
+      {:fx [[:rf.http/managed
              {:request    {:method :get :url "/search" :params {:q q}}
-              :request-id :search
+              :request-id :search          ;; the same id supersedes the in-flight search
               :decode     SearchResponse
               :reply-to   [:search/query msg]}]]})))
 ```
 
-The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, then a fresh request fires.
+Re-issuing under the same `:request-id` supersedes the in-flight search: the superseded search's reply is suppressed and never reaches the handler ([§`:request-id`](#request-id-internal)). `[:rf.http/managed-abort :search]` is for an outright user cancel — it delivers a `:status :cancelled` reply, so it does not belong before a re-issue.
 
 ## Testing
 
