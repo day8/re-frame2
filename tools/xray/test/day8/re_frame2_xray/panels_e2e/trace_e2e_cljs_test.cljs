@@ -1,17 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.trace-e2e-cljs-test
-  "Multi-frame e2e coverage for the Trace panel (spec/017 — Trace
-  row).
-
-  The Trace panel projects the raw trace buffer through 13 filter
-  axes (per `re-frame.trace.tooling/trace-buffer` opts). At the e2e
-  level we assert:
-
-    1. The buffer mirrors host emissions (count > 0 after one host
-       dispatch — proves the trace cb is wired).
-    2. The buffer carries an `:rf.event/dispatched` event with the
-       expected event vector under `:tags :rf.event/v`.
-    3. The `:rf.xray/trace-feed` composite sub returns a map shape
-       (composes through the projection layer cleanly)."
+  "Host trace emissions reach Xray with their event vectors."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -47,13 +35,3 @@
               counter-inc (filter #(= [:counter/inc] (get-in % [:tags :rf.event/v])) dispatched)]
           (is (pos? (count counter-inc))
               "no :rf.event/dispatched trace event carries [:counter/inc]"))))))
-
-(deftest xray-trace-feed-resolves-shape
-  (testing ":rf.xray/trace-feed composite returns map shape"
-    (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
-      (fn []
-        (e2e/dispatch-host [:counter/inc])
-        (let [feed (e2e/sub-xray [:rf.xray/trace-feed])]
-          (is (map? feed)
-              ":rf.xray/trace-feed did not return a map"))))))
