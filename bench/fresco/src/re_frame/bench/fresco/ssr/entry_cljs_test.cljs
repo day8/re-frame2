@@ -1,13 +1,5 @@
 (ns re-frame.bench.fresco.ssr.entry-cljs-test
-  "THE WITNESSES FOR THE SSR NODE RENDER ENTRY.
-
-  They run in Node, where `react-dom/server` resolves through the same
-  conditional export the bake driver gets and `renderToString` wants no
-  DOM — so the entry's correctness is held by assertions rather than by a
-  driver that can exit 0 while emitting warnings. One row per property of
-  the entry's contract, plus the two that would make it unsafe: a server
-  render leaves ZERO durable registration behind, and the per-request
-  gensym never reaches the wire."
+  "Server rendering preserves payload policy, cleanup, determinism, adoption and declared host behavior."
   (:require [cljs.reader :as reader]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -48,9 +40,7 @@
 
 (defn- has? [html & needles] (mapv #(str/includes? html %) needles))
 
-;; ---------------------------------------------------------------------------
 ;; The render entry
-;; ---------------------------------------------------------------------------
 
 (deftest the-existing-runtime-renders-under-renderToString
   ;; Seeded with four: the header count is a SUBSCRIPTION read, and the
@@ -71,9 +61,7 @@
   (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
          (select-keys (rf.bench.fresco.arm1.runtime/residue) [:cells :cell-refs :boundaries :edges]))))
 
-;; ---------------------------------------------------------------------------
 ;; The payload is the framework's, byte for byte
-;; ---------------------------------------------------------------------------
 
 (deftest the-payload-is-the-frameworks-own
   ;; Spec 011's two always-present keys (an adoption-tier root carries no
@@ -113,13 +101,19 @@
                                              (assoc dogfood-request :payload :rf.ssr.payload/whole-app-db))))))])))
 
 (deftest the-interpreted-root-ships-no-render-hash
-  ;; Spec 011 tiers hydration-mismatch detection by render-tree
-  ;; representation: a root that reaches React as an element verifies by
-  ;; React-native adoption and carries no hash. ABSENT, not nil — the schema
-  ;; slot is `{:optional true} :string` — and no root marker either.
-  (let [{:keys [payload document]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
-    (is (= [false false]
-           [(contains? payload :rf/render-hash) (str/includes? document "data-rf-render-hash")]))))
+  ;; Every row, not only the exclusion row's: an adoption-tier root carries
+  ;; no hash at either end. The app root carries the id the client mounts on.
+  (doseq [{:keys [id] :as row} rf.bench.fresco.ssr.fixtures/corpus]
+    (let [{:keys [html document payload]} (rf.bench.fresco.ssr.entry/render row)]
+      (is (= [true true true true true false false]
+             [(boolean (seq html))
+              (str/starts-with? document "<!DOCTYPE html>")
+              (str/includes? document "<div id=\"app\">")
+              (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\""))
+              (str/ends-with? document "</body></html>")
+              (str/includes? document "data-rf-render-hash")
+              (contains? payload :rf/render-hash)])
+          id))))
 
 (deftest the-hash-this-root-would-have-had-is-a-constant
   ;; Kept live so the removal above cannot decay into folklore: the
@@ -151,9 +145,7 @@
           (error-id #(rf.bench.fresco.ssr.entry/render (dissoc dogfood-request :payload)))
           (rf.bench.fresco.arm1.runtime/adopting?)])))
 
-;; ---------------------------------------------------------------------------
 ;; Determinism
-;; ---------------------------------------------------------------------------
 
 (deftest the-same-request-renders-byte-identical-documents
   (is (= {}
@@ -164,7 +156,6 @@
                rf.bench.fresco.ssr.fixtures/corpus))
       "row id -> first differing character, for every row that rendered two documents"))
 
-;; ---------------------------------------------------------------------------
 ;; defhost regions honour the :ssr policy server-side
 ;;
 ;; These rows read the SERVER HTML a real `(defhost … {:ssr …})` declaration
@@ -172,7 +163,6 @@
 ;; nested row uses the same declarations inside a `defview` body, a
 ;; position no pre-walk over the entry's input could reach: the policy is
 ;; the element's own type, answered by the gate `mint-host!` mints.
-;; ---------------------------------------------------------------------------
 
 (deftest a-host-with-no-declared-policy-renders-nothing
   (is (= [:client-only false false]
@@ -210,28 +200,10 @@
                  (conj (count (re-seq #"loading" html)))
                  (into (has? html "NESTED-RENDER-SUBTREE" "<em class=\"context-reader\">dark</em>"))))))))
 
-;; ---------------------------------------------------------------------------
-;; The corpus renders at all — the bake's own precondition
-;; ---------------------------------------------------------------------------
 
-(deftest every-corpus-row-renders
-  ;; Every row, not only the exclusion row's: an adoption-tier root carries
-  ;; no hash at either end. The app root carries the id the client mounts on.
-  (doseq [{:keys [id] :as row} rf.bench.fresco.ssr.fixtures/corpus]
-    (let [{:keys [html document payload]} (rf.bench.fresco.ssr.entry/render row)]
-      (is (= [true true true true true false false]
-             [(boolean (seq html))
-              (str/starts-with? document "<!DOCTYPE html>")
-              (str/includes? document "<div id=\"app\">")
-              (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\""))
-              (str/ends-with? document "</body></html>")
-              (str/includes? document "data-rf-render-hash")
-              (contains? payload :rf/render-hash)])
-          id))))
 
-;; ---------------------------------------------------------------------------
+
 ;; The host scope does not leak into a per-request body
-;; ---------------------------------------------------------------------------
 ;;
 ;; This file's fixture IS the hazard: `test-support`'s default root-binds
 ;; `*current-frame*` to `:rf/default`, so every render here happens inside a
