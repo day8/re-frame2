@@ -507,21 +507,6 @@
   [event-id handler]
   (rf/reg-event event-id {:rf.trace/no-emit? true} handler))
 
-(deftest quiet-replay-reports-nil-not-its-queued-childs-epoch
-  (testing "on one thread, the quiet replayed parent enqueues a traced child, the
-            child commits, and nil rides back rather than the child's record"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id evict-frame-id})
-    (register-parent-and-child!)
-    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
-    (let [source (last (rf/epoch-history evict-frame-id))
-          _      (reg-quiet! :review/parent parent-handler)
-          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))]
-      (is (= [:review/parent :review/child]
-             (mapv :event-id (rf/epoch-history evict-frame-id)))
-          "the replay ran: only its child committed")
-      (is (= [true nil] ((juxt :ok? :epoch-id) res))))))
-
 (defn- register-three-generations!
   "`:review/parent` enqueues `:review/child` from its SECOND run, and
   `:review/child` always enqueues `:review/grandchild`, so only a replay settles
@@ -554,5 +539,5 @@
               :review/child :review/grandchild]
              (mapv :event-id after))
           "both replays ran their two queued levels; the quiet parent added no record")
-      (is (= [(:epoch-id (nth after 1)) nil]
-             [(:epoch-id traced) (:epoch-id quiet)])))))
+      (is (= [(:epoch-id (nth after 1)) {:ok? true :epoch-id nil}]
+             [(:epoch-id traced) (select-keys quiet [:ok? :epoch-id])])))))
