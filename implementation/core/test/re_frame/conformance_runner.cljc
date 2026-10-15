@@ -300,12 +300,6 @@
 
 ;; ---- fixture classification -----------------------------------------------
 
-(defn runnable?
-  "True if the fixture's claimed capabilities are a subset of ours."
-  [fixture]
-  (let [caps (or (:fixture/capabilities fixture) #{})]
-    (every? claimed-capabilities caps)))
-
 (defn classify-capabilities
   "Partition a fixture's `:fixture/capabilities` into
   `{:claimed … :allowed … :unknown …}`. RUNNABLE iff `:unknown` and
