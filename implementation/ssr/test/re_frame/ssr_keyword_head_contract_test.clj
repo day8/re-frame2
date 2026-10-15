@@ -1,161 +1,53 @@
 (ns re-frame.ssr-keyword-head-contract-test
-  "The ONE render-tree head grammar, pinned on the JVM emitter.
-
-  A keyword head in a render tree is a DOM / custom element on EVERY
-  host. It is never a view reference. Views are referenced by callable
-  binding — the Var `rf/reg-view` defs for you, or the `(rf/view :id)`
-  runtime handle.
-
-  ## Why this test exists
-
-  A JVM emitter that probed `(registrar/lookup :view head)` on its
-  keyword branch would resolve `[:dashboard/card :revenue]` to the
-  registered view server-side. No client substrate does that (Conventions
-  §Render-tree shape vs runtime lookup; Cross-Spec-Interactions §237):
-  Reagent's `parse-tag` runs `(name tag)`, so the same head paints
-  `<card>revenue</card>` in a browser. One hiccup form, two meanings —
-  the server would render a real subtree while the client painted a
-  phantom, NEITHER side would say anything, and every server-side test
-  would stay green.
-
-  There is no registry probe. These tests are the corpus-wide statement
-  of the rule on the JVM emitter.
-
-  ## The child spelling
-
-  Aligning the HEAD alone would leave the two hosts emitting different
-  TEXT for the identical tree:
-
-      [:dashboard/card :revenue]  str-spelled -> <card>:revenue</card>
-                                      Reagent -> <card>revenue</card>
-
-  React hydration reconciles TEXT nodes as well as element structure, so
-  that difference is the same bug one layer down.
-
-  A keyword or symbol child is spelled by its `name` on every host:
-  no leading colon, and the NAMESPACE IS DROPPED (`:a/b` paints `b`).
-  That second half is the part a colon-stripping rule gets wrong; Reagent
-  routes a named child through `(name x)`, it does not trim the printed
-  form. Namespaced symbols follow the same arm.
-
-  The client half of the same contract is pinned substrate-side in
-  `implementation/adapters/reagent/test/re_frame/ssr_keyword_head_contract_cljs_test.cljs`,
-  which asserts the SAME head paints the SAME element AND the same bytes.
-  Together the two files are the cross-host proof.
-
-  ## Posture split
-
-  The head grammar itself is production-real and is asserted throughout
-  without a posture guard. The single exception is inside
-  `views-are-referenced-by-callable-head`, whose `(rf/view :id)` arm pins the
-  registration-boundary annotations byte for byte. Those attributes exist
-  only under `interop/debug-enabled?` (read once at namespace-load time), so
-  under `-Dre-frame.debug=false` the registered handle renders the same view
-  subtree without them. The annotated literal lives in a
-  `(when interop/debug-enabled? …)` arm, and a `when-not` arm pins the same
-  handle to the bare bytes the Var renders."
+  "Keyword heads name DOM elements; callable heads resolve views. Named children
+  render their unqualified name. Reserved rf heads fail closed."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; The view body, held as a plain fn so the SAME implementation backs all
-;; three spellings under test (keyword head, Var head, `(rf/view :id)`).
 (defn card-view [card-id]
   [:div.card [:h3 (str card-id)]])
 
-;; `tf/reset-runtime` runs `registrar/clear-all!` before EVERY test, so a
-;; top-level `reg-view` would be wiped by the time a test body runs — and
-;; every keyword-head assertion below would then pass vacuously, against
-;; an UNREGISTERED id, proving nothing about the head grammar.
-;; Re-register after the reset, inside the fixture chain, so
-;; `:dashboard/card` is genuinely live for each test.
+;; Register after reset so the keyword head names a live view.
+
 (defn- with-registered-card [test-fn]
   (rf/reg-view* :dashboard/card {} card-view)
   (test-fn))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime with-registered-card)
 
-;; ===========================================================================
-;; The standard emitter — `render-to-string`
-;; ===========================================================================
-
 (deftest keyword-head-is-an-element-not-a-view
-  (testing "a namespaced keyword head that NAMES a registered
-            view still emits a custom element. The keyword's `name` is the
-            tag (matching `parse-tag`'s `(name tag)` on every client
-            substrate); its namespace is dropped; the trailing argument is
-            a text child.
-
-            The text child is spelled by the keyword's `name`
-            too: no leading colon, namespace dropped. These are the exact
-            bytes Reagent + react-dom/server paints for the same tree
-            (pinned as a cross-host equality in the CLJS twin)."
+  (testing "A registered view id remains a DOM tag when used as a keyword."
     (is (= "<card>revenue</card>"
            (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil)))))
 
 (deftest scalar-children-are-spelled-by-name
-  (testing "a keyword or symbol CHILD is spelled by its `name`:
-            no leading colon, namespace dropped. Aligning the head meaning
-            alone would leave the same raw tree producing different TEXT on
-            the two hosts — and React hydration reconciles text nodes, not
-            just elements.
-
-            Every expectation here is the output of Reagent +
-            react-dom/server for the same tree; the CLJS twin asserts
-            the same strings from the other side."
+  (testing "Named children drop their namespace."
     (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
-      ;; The namespace is DROPPED, not rendered — the case a
-      ;; colon-stripping rule gets wrong.
       "<div>b</div>"       [:div :a/b]
       "<div>b</div>"       [:div 'a/b]))
 
-  (testing "escaping still applies to the NAME — spelling a child by
-            `name` must not become an escape bypass"
+  (testing "Named children still escape."
     (is (= "<div>x&lt;y</div>" (rf.ssr.emit/render-to-string [:div :x<y] nil)))))
 
 (deftest views-are-referenced-by-callable-head
-  (testing "the two supported spellings both RESOLVE the view
-            (the head-grammar point: a callable head is a view, a keyword
-            head is an element), so code moving off keyword refs
-            has somewhere to land. On top of that, the REGISTERED
-            handle `(rf/view :id)` carries the dev-mode registration-
-            boundary annotations, while a bare fn Var that never went
-            through registration does not — a distinction the raw
-            `card-view` fn (a test-only stand-in) makes visible."
-    (testing "a bare fn Var resolves the view — UNANNOTATED (it is the raw
-              render fn, not the registered handle)"
+  (testing "Callable heads resolve views; registered handles carry dev annotations."
+    (testing "A bare function stays unannotated."
       (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
              (rf.ssr.emit/render-to-string [card-view :revenue] nil))))
-
-    ;; Dev-instrumentation arm (see ns docstring). The registered
-    ;; handle carries the annotations only under `interop/debug-enabled?`.
     (when rf.interop/debug-enabled?
-      (testing "`(rf/view :id)` — the REGISTERED handle — resolves the view AND
-                carries both dev annotations. In idiomatic usage
-                the symbol `reg-view` defs IS `(rf/view id)`, so THIS is what a
-                real Var reference emits."
+      (testing "The registered handle carries both dev annotations."
         (is (= (str "<div class=\"card\""
                     " data-rf2-source-coord=\"dashboard:card:?:?\""
                     " data-rf-view=\":dashboard/card\">"
                     "<h3>:revenue</h3></div>")
                (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))
-
-    ;; The REAL-gate arm. With no annotation wrapper installed the
-    ;; two spellings are not merely "the same subtree modulo attributes", they
-    ;; are byte-identical — which is the head-grammar claim in its purest
-    ;; form, and is only observable in this posture.
     (when-not rf.interop/debug-enabled?
-      (testing "under -Dre-frame.debug=false the registered handle and the bare
-                Var render byte-identically — nothing but the debug-gated
-                attributes ever separated them"
+      (testing "Production emits the same bare view."
         (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
                (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
-
-;; ===========================================================================
-;; Unrecognised reserved `:rf/*` heads fail loud
-;; ===========================================================================
 
 (defn- head-error
   "Render `tree` and return the thrown ex-data, or nil if it did not throw."
@@ -164,11 +56,7 @@
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest unrecognised-reserved-rf-head-fails-loud
-  (testing "with every keyword head an element, an unrecognised reserved head
-            would otherwise paint a phantom element and say nothing:
-            `:rf/suspense-boundary` has a `name` that passes the DOM tag
-            grammar, and the server renders whole pages, so it has no
-            meaning here. The reserved scheme fails loud."
+  (testing "Unrecognised reserved heads fail closed."
     (let [data (head-error [:rf/suspense-boundary {:id :x} [:p "hi"]])]
       (is (= {:rf.error/id :rf.error/invalid-hiccup-head
               :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
@@ -178,14 +66,10 @@
           "the reserved-head arm reuses the malformed-head id and is told apart
            by its :recovery, as the Spec 009 row promises")))
 
-  (testing "the dotted `:rf.<area>/*` sub-namespaces are reserved too"
+  (testing "Dotted rf namespaces are reserved."
     (is (some? (head-error [:rf.ssr/nope]))))
 
-  (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
-            scoped to `:rf/*` and must not capture app namespaces, which
-            are exactly the heads that render as custom elements"
-    ;; `keyword-head-is-an-element-not-a-view` pins the app-namespaced
-    ;; `:dashboard/card` head; this pins the `rf`-prefixed near miss.
+  (testing "App namespaces remain valid DOM tags."
     (is (= "<widget></widget>"
            (rf.ssr.emit/render-to-string [:rfid/widget] nil))
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
