@@ -289,12 +289,11 @@
            (replies)))))
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
-  (testing "in a frame created before with-request-stubs (its image generation
-            already sealed), a plain dispatch-sync routes through the stub and
-            never reaches the real :rf.http/managed"
+  (testing "in a frame created before with-request-stubs, a plain dispatch-sync
+            routes through the stub and never reaches the real :rf.http/managed"
     (let [real-fx-invoked? (atom false)]
-      ;; Registered before make-frame, so the sealed generation sees the
-      ;; sentinel; reaching it means the override did not resolve.
+      ;; A sentinel in place of the real transport: reaching it means the
+      ;; override did not resolve.
       (rf.fx/reg-fx :rf.http/managed (fn [_ _] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :bxc8kf/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :result reply)}))
       (rf/reg-event :bxc8kf/load
