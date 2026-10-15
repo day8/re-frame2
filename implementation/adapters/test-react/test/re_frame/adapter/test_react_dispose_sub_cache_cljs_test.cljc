@@ -15,13 +15,10 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.test-react/adapter}))
 
 (deftest dispose-adapter-clears-sub-caches-across-multiple-frames
-  (rf/reg-event ::seed (fn [_ctx [_ v]] {:db {:n v}}))
   (rf/reg-sub ::n (fn [db _] (:n db)))
-  (let [other  (rf.frame/make-anon-frame-record! {:doc "second frame"})
+  (let [other  (rf.frame/make-anon-frame-record! {})
         frames [:rf/default other]
         slots  #(mapv (fn [f] (set (keys @(:sub-cache (rf.frame/frame f))))) frames)]
-    (rf/dispatch-sync [::seed 1] {:frame :rf/default})
-    (rf/dispatch-sync [::seed 2] {:frame other})
     (doseq [f frames] (rf.subs/subscribe [::n] {:frame f}))
     (is (= [#{[::n]} #{[::n]}] (slots)) "control: both frames carry a slot")
     (rf.substrate.adapter/dispose-adapter!)
