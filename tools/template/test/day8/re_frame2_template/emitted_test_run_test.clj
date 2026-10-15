@@ -1,84 +1,6 @@
 (ns day8.re-frame2-template.emitted-test-run-test
-  "Behavioural tier for the emitted scaffold.
-
-   The sibling files cover two cheap signals — `template_test.clj` (the
-   generated-tree shape) and `template_emission_test.clj` (a static parse
-   of the emitted `.cljs` against the framework surface). Neither compiles
-   or runs anything. This tier does: for each substrate it generates a tmp
-   app, swaps the `day8/re-frame2*` coords in the emitted `deps.edn` for
-   `:local/root` paths into the in-repo source tree, compiles the `:app`
-   and `:test` builds, runs `out/node-test.js`, loads the REAL emitted
-   `index.html` in Chromium and proves it paints the counter and moves it
-   0 → 1, then builds the `:advanced` release and loads the REAL emitted
-   page a SECOND time over that optimised bundle.
-
-   ## The three consumer-realism teeth
-
-   A compile-and-run tier that resolves everything from the monorepo, and
-   stops at the bundle the fast loop happens to build, is blind in three
-   specific ways, and a real defect can ship GREEN through each. All
-   three masks are closed here:
-
-     * NODE_MODULES JUNCTION. `link-node-modules!` junctions
-       `implementation/node_modules` into every emitted project, so the
-       emitted `package.json` is never consulted — a scaffold that fails
-       to declare a compile-required npm package still compiles. Closed by
-       `assert-emitted-package-json-complete!`, which reads the `:browser`
-       build's own `manifest.edn` and asserts every npm package the build
-       resolved is one `npm install` would have produced from the EMITTED
-       `package.json`.
-     * NO PAGE BOOT PROOF. Nothing else loads the emitted `index.html` in
-       a browser. Closed by `run-page-boot-proof!` + its
-       `test-support/page-boot-proof.cjs` driver, which serves the
-       emitted `resources/public`, loads the real page and proves it
-       mounts, increments, and raises zero uncaught pageerrors — and by
-       `run-broken-boot-witness!`, which breaks the page's mount node and
-       requires that same driver to go RED, so a green proof is never the
-       inert kind.
-     * NO OPTIMISED-BUNDLE PROOF. `npm run release` is one of the three
-       commands the emitted README documents, and the dev bundle proves
-       nothing about it: under `:advanced` Closure renames every
-       un-inferrable property access and eliminates code behind
-       `goog.DEBUG`, so an interop defect ships green from the dev
-       compile and appears only in the artefact the user deploys. Closed
-       by running the SAME driver a second time over the release build,
-       in `:release` mode — see `run-release-proof!`.
-
-   The first two must run BEFORE the `:advanced` release build, which
-   overwrites the dev bundle and its manifest.
-
-   ## Keeping the two boot verdicts apart
-
-   Both boot proofs load the same URL out of the same directory, so a
-   release build that silently failed to replace the dev bundle could be
-   certified by the verdict the DEV bundle earned. Two independent checks
-   forbid that: this file requires the release `js/main.js` to differ in
-   length from the dev one it recorded before the release ran, and the
-   driver requires the globals it observes in the page to be the ones
-   that mode's bundle has (`goog` / `cljs` are objects in the dev bundle
-   and renamed away under `:advanced`). Each reads the opposite way on
-   the other mode's artefact, so neither is vacuous.
-
-   ## Gating
-
-   Default off (opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`): a cold
-   shadow-cljs compile + an `:advanced` release + Chromium per substrate
-   is ~1–2 min, and the tier needs a populated
-   `implementation/node_modules` (`npm ci` there) plus a Playwright
-   Chromium. CI's `jvm-tools-template` job provides both. When the env
-   var is unset every deftest records a single documented skip assertion
-   and exits.
-
-   ## The setup skill's default scaffold
-
-   `skills/re-frame2-setup/references/first-counter.md` ships the thirteen
-   files the skill's default route writes, rendered from THIS template by
-   the skill's `tests/first_counter_derivation.clj`. Two tests at the
-   bottom consume that leaf as a consumer would: an ungated one asserts
-   the leaf equals a real deps-new emission byte for byte, and a gated
-   black-box one materialises the shipped files into a fresh project,
-   applies the documented pre-publish coordinate step, compiles, boots the
-   page in Chromium, clicks 0 -> 1, and proves the proof bites."
+  "Compile and boot emitted and setup-skill scaffolds, with failure witnesses.
+   Opt in with RF2_TEMPLATE_RUN_EMITTED_TESTS=1; CI provisions npm and Chromium."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -97,47 +19,18 @@
 ;; --- The scaffolded name ----------------------------------------------------
 
 (def ^:private emitted-project-name
-  "The `:name` every fixture in this tier scaffolds under — and, because the
-  emitted `views.cljs` paints it, the exact `<h1>` text each browser proof
-  pins via `RF2_TEMPLATE_EXPECT_H1`. That coupling is the point: a heading
-  match is positive evidence the browser rendered THIS emission's source and
-  not something left in the output directory. It is also the name the setup
-  skill's shipped leaf is derived for."
+  "The browser heading identifies this emission rather than a stale bundle."
   "acme/my-app")
 
 ;; --- deps.edn local-root rewrite ------------------------------------------
 
 (def ^:private substrate-local-roots
-  "Substrate → the in-repo directory that publishes its framework
-  coordinate, relative to the repo root.
-
-  An EXPLICIT map rather than a string convention, because the directory
-  is not derivable from the substrate name and a derivation that looks
-  plausible fails in the dangerous direction. Two of the
-  three substrates the template contemplates live under
-  `implementation/adapters/<name>`; `:fresco` does not — Fresco ships
-  its own view layer from `implementation/fresco`, so
-  `(str \"implementation/adapters/\" (name substrate))` would hand
-  `:local/root` a directory that does not exist, or — the worse mode —
-  point the smoke at a package that is not the one under test.
-
-  Keyed on the TEMPLATE's substrates, so it carries exactly the values
-  `hooks.clj`'s `substrate-registry` emits; a substrate added there adds
-  its row here. `rewrite-deps-for-local-run!` throws naming this map on a
-  key it does not hold, so the next substrate fails loud at the rewrite
-  instead of silently mis-resolving.
-
-  (The sibling namespace-family lookup in `template_emission_test.clj`
-  answers the same question for framework SOURCE roots, and is keyed on
-  the namespace rather than the substrate.)"
+  "Explicit package roots: substrate names do not determine package paths."
   {:reagent "implementation/adapters/reagent"
    :uix     "implementation/adapters/uix"})
 
 (defn- substrate-local-root
-  "The `substrate-local-roots` entry for `substrate`, verified to exist on
-  disk under `root`. Throws — rather than returning a path that will be
-  written into a `:local/root` — when the substrate has no row, or when
-  its row names a directory that has moved."
+  "Reject missing registrations and moved package directories before rewriting deps."
   [^java.io.File root substrate]
   (let [rel (or (get substrate-local-roots substrate)
                 (throw (ex-info (str "No local root registered for substrate "
@@ -153,17 +46,7 @@
     rel))
 
 (defn- rewrite-deps-for-local-run!
-  "Point a project's `day8/re-frame2*` coordinates at the in-repo source
-  tree, then write the deps.edn back. Core and the substrate adapter,
-  emitted as `:mvn/version`, become `:local/root` paths; so does Story's
-  `:dev` alias coordinate when the deps.edn carries one, because it is
-  emitted as a `:local/root` into a re-frame2 checkout BESIDE the project,
-  which a temp directory is not. That is the whole set: both
-  callers hand this a deps.edn carrying exactly those coordinates (the
-  emitted scaffold; the setup skill's derived leaf, which
-  `mount-skill-scaffold!` asserts against `reduced-day-one-coords` right
-  after this call), and `template_test.clj` forbids every other
-  `day8/re-frame2*` coordinate in an emitted project."
+  "Rewrite core, the adapter and dev Story to the in-repo source tree."
   [^java.io.File root ^java.io.File proj-dir substrate]
   (let [deps-file (io/file proj-dir "deps.edn")
         deps      (edn/read-string (slurp deps-file))
@@ -190,10 +73,7 @@
 ;; --- node_modules symlink --------------------------------------------------
 
 (defn- junction-node-modules!
-  "Windows fall-back when a symlink can't be created: a directory
-  *junction* (`mklink /J`) reparse-points `dst` → `src` and — unlike a
-  symbolic link — needs no `SeCreateSymbolicLinkPrivilege`. Returns true
-  on success; false off Windows, where the symlink path already succeeded."
+  "Windows fallback when symlink privileges are unavailable."
   [^java.io.File src ^java.io.File dst]
   (when (string/starts-with? (string/lower-case (System/getProperty "os.name")) "windows")
     (try
@@ -208,12 +88,7 @@
       (catch Throwable _ false))))
 
 (defn- link-node-modules!
-  "Make `<repo>/implementation/node_modules` available inside the emitted
-  project as `node_modules`, so React resolves. The shadow-cljs `:browser`
-  build searches ONLY the project-local `node_modules` at compile time (it
-  does not honour `NODE_PATH`), so this is mandatory, not belt-and-braces.
-  Symlink first; on Windows without Developer Mode fall back to a
-  junction. Returns true once `node_modules/react` resolves."
+  "The browser compiler requires project-local node_modules; NODE_PATH is insufficient."
   [^java.io.File root ^java.io.File proj-dir]
   (let [src         (io/file root "implementation/node_modules")
         dst         (io/file proj-dir "node_modules")
@@ -234,8 +109,7 @@
 ;; --- Process invocation ----------------------------------------------------
 
 (defn- run-process!
-  "Run a command in `dir` and return {:exit n :out s}. stderr is merged
-  into stdout. Inherits the parent's environment plus `env-overrides`."
+  "Run in dir with environment overrides and merged stderr; return {:exit :out}."
   ([cmd ^java.io.File dir] (run-process! cmd dir {}))
   ([cmd ^java.io.File dir env-overrides]
    (let [process-builder (ProcessBuilder. ^java.util.List cmd)]
@@ -265,27 +139,10 @@
         (zero? (.waitFor (.start process-builder))))
       (catch Throwable _ false))))
 
-;; --- emitted package.json completeness ------------------------------------
-;;
-;; MASK: this tier junctions `<repo>/implementation/node_modules` into every
-;; emitted project, so the emitted `package.json` is NEVER consulted: every
-;; npm package the compile graph reaches resolves out of the monorepo's tree
-;; regardless of what the scaffold declares. An emitted `package.json` that
-;; omits a compile-required package compiles GREEN here and fails on the
-;; FIRST `npx shadow-cljs watch app` a real consumer runs.
-;;
-;; THE TOOTH: after `shadow compile app`, shadow writes `manifest.edn` into
-;; the build's `:output-dir` listing every source in the build — including
-;; the `node_modules/<pkg>/…` files it resolved. Assert that every npm
-;; package in there is one `npm install` would actually have produced from
-;; the EMITTED `package.json`: declared directly, or pulled in transitively
-;; by something declared. Derived from the real compile graph, not a string
-;; pin.
+;; Shared node_modules can hide undeclared packages; grade the emitted npm install closure.
 
 (defn- json-string-map-keys
-  "The keys of the JSON object at top-level `field` in `json-text`, as a
-  set of strings; nil when absent. Only ever applied to npm dependency
-  maps, whose values are always strings, so a `[^}]*` body match is exact."
+  "Read keys from a dependency JSON object whose values are strings."
   [json-text field]
   (when-let [[_ body] (re-find (re-pattern (str "\"" field "\"\\s*:\\s*\\{([^}]*)\\}"))
                                json-text)]
@@ -308,10 +165,7 @@
        set))
 
 (defn- npm-install-closure
-  "Every package `npm install` would materialise from a top-level
-  dependency set, resolved against the monorepo's installed tree: the seeds
-  plus the transitive closure of each package's own `dependencies` +
-  `peerDependencies`."
+  "Declared packages plus their installed dependencies and peerDependencies."
   [^java.io.File node-modules seeds]
   (loop [seen #{} queue (vec seeds)]
     (if-let [pkg (first queue)]
@@ -376,8 +230,7 @@
 ;; reads as a pass would leave the proof unexecuted with nobody noticing.
 
 (def ^:private browser-proofs-required?
-  "`CI` is the de-facto standard flag; export `CI=1` to opt a local run
-  into the strict behaviour."
+  "A missing Chromium is a failure under CI, a reported skip locally."
   (delay (not (string/blank? (System/getenv "CI")))))
 
 (defn- announce-browser-skip!
@@ -394,9 +247,7 @@
   (println))
 
 (defn- check-browser-proof!
-  "Turn the driver's exit code into a verdict. 0 passes and echoes the
-  driver's own verdict line; 2 is a local skip or a CI failure; anything
-  else failed with `failure-msg`."
+  "Accept exit 0, treat exit 2 as a local skip or CI failure, and reject other exits."
   [what echo-tag exit driver-output failure-msg]
   (cond
     (and (= 2 exit) (not @browser-proofs-required?))
@@ -422,8 +273,7 @@
   "tools/template/test-support/page-boot-proof.cjs")
 
 (def ^:private bundle-mode-blurb
-  "How each mode's page reaches a user — quoted into the failure message so
-  the verdict names the command whose output just broke."
+  "Name the user command whose bundle failed."
   {:dev     "the page a newcomer opens after `npx shadow-cljs watch app`"
    :release (str "the page a newcomer DEPLOYS after `npm run release` — the "
                  ":advanced bundle, where Closure renames un-inferrable "
@@ -431,9 +281,7 @@
                  "defect invisible in dev surfaces only here")})
 
 (defn- run-boot-proof-driver!
-  "Serve the emitted `resources/public` and drive Chromium over the real
-  `index.html` + whichever bundle `mode` (`:dev` / `:release`) says is
-  currently built there. Returns the driver's {:exit :out}."
+  "Serve resources/public and check the actual page in the specified bundle mode."
   [^java.io.File root ^java.io.File proj label mode env-overrides]
   (let [driver    (.getCanonicalPath (io/file root boot-proof-driver-rel))
         pub-root  (.getCanonicalPath (io/file proj "resources/public"))
@@ -445,11 +293,7 @@
                               env-overrides))))
 
 (defn- run-page-boot-proof!
-  "The positive proof for one bundle: the emitted page mounts the counter,
-  moves it 0 → 1 on click, raises zero uncaught pageerrors, AND is running
-  the bundle `mode` names (the driver's third tooth). Assumes the matching
-  build has just been produced into `resources/public`. Returns the
-  driver's exit code, or nil when `node` is unavailable."
+  "Require the matching bundle to mount, increment and raise no pageerrors."
   [^java.io.File root ^java.io.File proj label mode env-overrides]
   (let [what (str (name mode) "-bundle boot proof -- " label)]
     (testing (str label " — Chromium " (name mode) "-bundle boot proof (emitted "
@@ -475,11 +319,7 @@
           exit)))))
 
 (defn- run-broken-boot-witness!
-  "The red witness for the boot proof: rename the page's mount node so
-  `core.cljs`'s `getElementById \"app\"` finds nothing, run the SAME
-  driver, and require it to fail (exit 1 — not 0, and not the
-  browser-missing 2). Then restore the page byte-for-byte. Only meaningful
-  after the positive proof actually ran (exit 0)."
+  "Remove the mount node, require driver exit 1, then restore the page byte-for-byte."
   [^java.io.File root ^java.io.File proj label]
   (testing (str label " — broken-boot witness (the boot proof goes RED on a page "
                 "whose mount node is missing)")
@@ -514,19 +354,7 @@
 ;; --- the :advanced release proof -------------------------------------------
 
 (defn- run-release-proof!
-  "`npm run release` is one of the three commands the emitted README
-  documents, and the scaffold tells every substrate's user the resulting
-  `resources/public` is deployable. Prove that: build the `:advanced`
-  release, then load the REAL emitted page over the optimised bundle with
-  the same Chromium driver the dev proof used.
-
-  `dev-bundle-length` is `js/main.js`'s length recorded BEFORE this ran.
-  The release overwrites that file in place, so requiring the length to
-  change is the cheap on-disk half of keeping the two boot verdicts apart;
-  the driver's `:release` mode is the runtime half. A compile that exits 0
-  is NOT the deliverable here, and neither is a non-empty
-  `resources/public/js/main.js`: a non-empty optimised bundle can still
-  throw at load or paint nothing."
+  "Build and boot the optimized bundle; require it to replace the recorded dev bundle."
   [^java.io.File root ^java.io.File proj label env dev-bundle-length]
   (let [bundle    (io/file proj "resources/public/js/main.js")
         released?
@@ -575,21 +403,7 @@
 ;; --- The orchestration -----------------------------------------------------
 
 (defn- compile-and-run-emitted-test!
-  "For one substrate: generate a tmp app, rewrite deps.edn → :local/root,
-  link node_modules, `clojure -M:shadow:dev compile app test`, prove the
-  emitted package.json is complete, boot the real page in Chromium (and,
-  when `boot-witness?`, prove that proof bites), run `node
-  out/node-test.js`, then build the `:advanced` release and boot the real
-  page over THAT.
-
-  Every substrate compiles BOTH the `:app` build — the only build that
-  pulls its `core.cljs` and views onto the compile classpath — and the
-  `:test` build that runs `events_test.cljs`, and every substrate runs the
-  release arm. The `:app` module + `^:export init` shape is
-  substrate-invariant, but `deps.edn`, `core.cljs` and `views.cljs` are
-  swapped per substrate and all three are source Closure compiles, so a
-  Reagent-only release arm would leave UIx's advertised `npm run release`
-  unexecuted by any gate."
+  "Per substrate: compile both builds, check npm closure, boot, run tests, then release and boot."
   [substrate {:keys [boot-witness?]}]
   (let [root  (repo-root)
         label (name substrate)
@@ -655,9 +469,7 @@
         (delete-recursively tmp)))))
 
 (defn- skip-if-disabled!
-  "When the gate is off, record a passing assertion that documents the
-  skip — so the green-run line count is stable across enabled/disabled
-  modes."
+  "Record an explicit skip assertion when the expensive tier is disabled."
   [label]
   (is true
       (str "RF2_TEMPLATE_RUN_EMITTED_TESTS unset — skipping behavioural "
@@ -665,40 +477,6 @@
            "(template_emission_test.clj).")))
 
 ;; --- Tests -----------------------------------------------------------------
-
-(deftest substrate-local-roots-test
-  (testing "`substrate-local-roots` answers a real directory per substrate and
-            fails LOUD on one it does not hold"
-    ;; Ungated on RF2_TEMPLATE_RUN_EMITTED_TESTS: this compiles nothing. It is
-    ;; the fast-tier proof that the `:local/root` rewrite cannot be
-    ;; handed a path derived from the substrate NAME — the mode that points
-    ;; at an absent directory, or, worse, at a package that is not the one
-    ;; under test.
-    (let [root (repo-root)]
-      (doseq [substrate (keys substrate-local-roots)]
-        (is (string? (substrate-local-root root substrate))
-            (str substrate " resolves to a directory that exists")))
-      ;; `:fresco` is the value a string convention gets wrong: it would
-      ;; produce `implementation/adapters/fresco`, which does not exist,
-      ;; while the package sits at `implementation/fresco`. It has no row
-      ;; (Fresco is reserved, not emitted), so the rewrite must refuse it by
-      ;; name rather than fabricate a path.
-      (is (not (.isDirectory (io/file root "implementation/adapters/fresco")))
-          "implementation/adapters/fresco does not exist — the string
-           convention's answer for :fresco is not a real directory")
-      (is (.isDirectory (io/file root "implementation/fresco"))
-          "implementation/fresco does — that is where the package lives")
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (substrate-local-root root :fresco))
-          "an unregistered substrate throws, naming the map to extend"))))
-
-;; One deftest per substrate the generator can emit. That set is DERIVED —
-;; `hooks.clj`'s `substrate-registry` is the single roster, `valid-substrates`
-;; is `(set (keys …))` of it, and `template-fn`'s `case` names each entry's
-;; `_<substrate>/` tree — so a third substrate lands here as a third deftest.
-;; `template_test.clj` holds the roster itself to the registry; these two are
-;; the behavioural arms of it. (Fresco and reagent-slim are reserved, not
-;; emitted — see spec/001-Substrate-Variants.md §Future substrates.)
 
 (deftest reagent-emitted-tests-run-test
   (testing "the emitted Reagent app compiles, its focused test runs green, the
@@ -726,37 +504,14 @@
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :uix {}))))))
 
-;; ---------------------------------------------------------------------------
-;; The driver's own timeout contract
-;; ---------------------------------------------------------------------------
-;;
-;; Every proof above hands the driver a deadline, and
-;; `run-broken-boot-witness!` hands it a deliberately SHORT one so its
-;; intentional failure is cheap. That only works if the driver honours it.
-;;
-;; Playwright's signature is `waitForFunction(pageFunction, arg, options)`, so
-;; a `{timeout}` object passed SECOND is serialised into the page as an
-;; argument the callback never reads, `options` stays empty, and the wait
-;; takes the library's 30-second default. Nothing errors and nothing is
-;; logged: a page that mounts or reacts late simply passes, and the witnesses
-;; above burn 30 s apiece where they asked for 8. `page.goto` takes its
-;; options correctly, which makes the variable look partly effective.
-;;
-;; The fixtures below are hand-written HTML rather than an emitted scaffold:
-;; what is under test is the DRIVER, so the page has to be able to fail on
-;; demand, which a healthy generated page cannot. Each defines the two globals
-;; the dev-mode bundle check reads (tooth 3) so the run reaches the wait under
-;; test rather than tripping over the shape check.
+;; Playwright takes wait options third; the wrong slot silently uses its 30-second default.
 
 (def ^:private timeout-fixture-budget-ms
-  "The configured budget the two failing fixtures are run under. Its exact
-  value is the ASSERTION — the driver's failure must name this number and not
-  Playwright's default — so it is deliberately nothing like 30000."
+  "The failure must name this budget rather than the library default of 30000."
   1000)
 
 (defn ^:private timeout-fixture-page
-  "A whole `index.html` for one fixture. `body` is the `#app` subtree and
-  `script` whatever behaviour the case needs beyond the bundle-shape globals."
+  "Fixture HTML with dev-bundle globals so the driver reaches its mount/click waits."
   [title body script]
   (str "<meta charset=\"utf-8\">\n"
        "<title>" title "</title>\n"
@@ -764,9 +519,7 @@
        "<script>window.goog = {}; window.cljs = {};\n" script "</script>\n"))
 
 (def ^:private timeout-fixtures
-  "One entry per wait the driver makes. `:expect-timeout?` false is the
-  control: the same short budget must still let a responsive page pass, or
-  `exit 1` would prove nothing but that 1000 ms is too little for anything."
+  "One failure per driver wait and a responsive control under the same deadline."
   [{:name            "never-mounts"
     :wait            "the MOUNT wait"
     :expect-timeout? true
@@ -790,9 +543,7 @@
                             "});\n"))}])
 
 (defn ^:private run-timeout-fixture!
-  "Materialise one fixture as a `resources/public/index.html` and run the real
-  driver over it under `timeout-fixture-budget-ms`. Returns the driver's
-  {:exit :out}."
+  "Run a fixture through the real driver under timeout-fixture-budget-ms."
   [^java.io.File root {:keys [name page]}]
   (let [tmp  (tmp-dir (str "rf2-template-proof-timeout-" name "-"))
         proj (.toFile tmp)]
@@ -852,39 +603,7 @@
                          "verdicts above prove only that " timeout-fixture-budget-ms
                          "ms is too little for any page. Output:\n" out))))))))))
 
-;; ===========================================================================
-;; The setup skill's default scaffold — derivation lock + black-box fixture
-;; ===========================================================================
-;;
-;; `skills/re-frame2-setup/references/first-counter.md` carries, between
-;; `<!-- BEGIN generated … -->` / `<!-- END generated -->` markers, the
-;; thirteen files the skill's default route writes — one `### `path`` heading
-;; and one fenced block per file — rendered from this template for its
-;; reference project `acme/my-app` by the skill's
-;; `tests/first_counter_derivation.clj`. `references/entry-namespace.md`
-;; carries the four files the `:uix` substrate swaps, the same way.
-;;
-;;   * `setup-skill-leaves-are-the-template-emission-test` (ungated, cheap):
-;;     runs the REAL deps-new pipeline for `acme/my-app` on both substrates
-;;     and asserts each leaf's generated blocks equal the emitted files byte
-;;     for byte, and that the UIx leaf carries exactly the files whose
-;;     content differs between the two emissions. The skill's own bb suite
-;;     compares the leaves against its renderer; this arm compares them
-;;     against the generator itself, so a divergence between the two
-;;     instruments cannot hide.
-;;
-;;   * `setup-skill-default-scaffold-mounts-test` (gated like the template
-;;     tiers): materialises the leaf's files into a fresh temp project — the
-;;     exact shipped source, not a re-derivation — applies the documented
-;;     pre-publish step (the two framework coords → `:local/root`, SKILL.md
-;;     step 2), links `node_modules`, compiles `app` + `test`, proves the
-;;     emitted `package.json` is complete, boots the real page in Chromium
-;;     (the heading `acme/my-app` painted, the counter reads 0, a click moves
-;;     it to 1, zero pageerrors), runs the starter test under Node, and
-;;     proves the proof bites twice — the broken-mount witness (build / init
-;;     wiring) and a broken-click witness (`views.cljs` dispatching an event
-;;     nobody registers, recompiled: the page paints, the click never moves
-;;     the counter).
+;; Compare shipped skill leaves to real emissions, then compile and boot the shipped files.
 
 (def ^:private skill-setup-refs
   "Absolute dir of the re-frame2-setup skill's reference leaves."
@@ -902,9 +621,7 @@
   (-> text (string/replace "\r\n" "\n") (string/replace "\r" "\n")))
 
 (defn- leaf-files
-  "path → body from a leaf's generated region: each `### `path`` heading
-   followed by a 3- or 4-backtick fenced block. The same shape the skill's
-   derivation script writes and its bb suite reads back."
+  "Extract path/body pairs from a leaf generated region, including fenced file bodies."
   [md-text]
   (let [text   (normalize-line-endings md-text)
         start  (string/index-of text generated-begin)
@@ -935,15 +652,8 @@
       (finally (delete-recursively tmp)))))
 
 (defn- assert-leaf-equals-emission! [leaf files expected]
-  (is (seq files) (str leaf " carries no generated region — the extractor found nothing."))
-  (is (= (set (keys expected)) (set (keys files)))
-      (str leaf ": file set differs from the template's emission. Missing "
-           (pr-str (sort (remove (set (keys files)) (keys expected))))
-           ", extra " (pr-str (sort (remove (set (keys expected)) (keys files))))
-           ". " regenerate-hint))
-  (doseq [[path body] expected :when (contains? files path)]
-    (is (= body (get files path))
-        (str leaf ": `" path "` differs from what deps-new emits. " regenerate-hint))))
+  (is (= expected files)
+      (str leaf ": generated files differ from the template emission. " regenerate-hint)))
 
 (deftest setup-skill-leaves-are-the-template-emission-test
   (testing "the setup skill's generated regions equal a real deps-new emission for acme/my-app, byte for byte"
@@ -959,8 +669,6 @@
                                      (= body (string/replace (get reagent path "") "Reagent" "UIx")))
                                    differs))
           swapped    (apply dissoc differs (keys label-only))]
-      (is (= 13 (count reagent))
-          (str "the template's Reagent emission is not thirteen files: " (pr-str (keys reagent))))
       (assert-leaf-equals-emission! "first-counter.md" (read-leaf-files "first-counter.md") reagent)
       (is (= #{"README.md" "package.json"} (set (keys label-only)))
           (str "the files that differ between substrates by the display label alone are "
