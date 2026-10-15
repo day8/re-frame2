@@ -162,9 +162,9 @@
   (testing "THE NAMED INVARIANT ROW (spec §5 d). A controlled field's DOM
            is re-asserted on EVERY commit, so an equal-value render over a
            drifted field repairs it — and does so without remounting, which
-           is what lets the reset keep the node, the focus and the
-           selection. If React ever stops doing this, this row goes red
-           rather than five rows going subtly wrong."
+           is what lets the reset keep the node and the focus. If React
+           ever stops doing this, this row goes red rather than five rows
+           going subtly wrong."
     (if-not (browser?)
       (skip! "the invariant is React's own, and needs React's own commit")
       (let [c    (container!)
@@ -179,8 +179,8 @@
             (is (= "committed" (.-value n))
                 "the commit re-asserted the model over the drift")
             (is (identical? n (node c))
-                "and kept the node — no remount, so no focus or selection
-                 was thrown away to do it"))
+                "and kept the node — no remount, so no focus was thrown
+                 away to do it"))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
 (deftest the-same-chain-holds-on-a-textarea
