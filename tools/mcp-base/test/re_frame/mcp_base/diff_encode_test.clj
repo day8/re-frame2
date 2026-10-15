@@ -1,6 +1,4 @@
 (ns re-frame.mcp-base.diff-encode-test
-  "Tests for the path-keyed structural diff both MCP servers apply to an
-  epoch's :db-after at the wire boundary."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is]]
             [malli.core :as m]
@@ -10,22 +8,14 @@
   (rf.mcp-base.diff-encode/collect-patches a b []))
 
 (defn- caught
-  "The ExceptionInfo `f` throws, or nil."
   [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
 
 (defn- secret-absent?
-  "True when `secret` appears nowhere in the thrown ExceptionInfo's message,
-  the pr-str of its ex-data, or the pr-str of any ex-data value."
   [^clojure.lang.ExceptionInfo e secret]
   (let [data (ex-data e)]
     (and (not (str/includes? (str (.getMessage e)) secret))
-         (not (str/includes? (pr-str data) secret))
-         (every? (fn [[_ v]] (not (str/includes? (pr-str v) secret))) data))))
-
-;; ---------------------------------------------------------------------------
-;; collect-patches
-;; ---------------------------------------------------------------------------
+         (not (str/includes? (pr-str data) secret)))))
 
 (deftest collect-patches-emits-minimal-path-patches
   (are [a b patches] (= patches (collect a b))
@@ -46,9 +36,7 @@
     {:xs [1 2 3]}                 {:xs [1 2 3 4]}               [[[:xs] :assoc [1 2 3 4]]]))
 
 (deftest collect-patches-detects-keys-by-presence-not-value
-  ;; Presence is read with `find`, never a sentinel lookup, so a value
-  ;; equal to the private sentinel keyword, or a stored nil, is still an
-  ;; ordinary value.
+  ;; Nil and a sentinel-shaped value still occupy their keys.
   (let [sentinel :re-frame.mcp-base.diff-encode/absent]
     (are [a b patches] (= patches (collect a b))
       {:k sentinel :sibling 1} {:k sentinel :sibling 2} [[[:sibling] :assoc 2]]
@@ -56,18 +44,12 @@
       {}                       {:k sentinel}            [[[:k] :assoc sentinel]]
       {:k 1}                   {:k sentinel}            [[[:k] :assoc sentinel]])))
 
-;; ---------------------------------------------------------------------------
-;; Collection KIND is a change. `(= [1 2] '(1 2))`, so a bare-`=` no-change
-;; test would ship no patch for a vector turned into a seq of the same
-;; items, and the decoder would rebuild the old kind. `=` erases kind in
-;; assertions too, so these compare printed forms or check the kind.
-;; ---------------------------------------------------------------------------
+;; Printed forms distinguish collection kinds that Clojure equality merges.
 
 (deftest collect-patches-lands-a-nested-kind-change-on-its-own-slot
   (let [patches (collect {:rows [{:tags [:a :b]} {:tags [:c]}] :n 1}
                          {:rows [{:tags (list :a :b)} {:tags [:c]}] :n 1})]
-    (is (= [[:rows 0 :tags]] (mapv first patches)) "not the whole of :rows")
-    (is (list? (nth (first patches) 2)))))
+    (is (= "[[[:rows 0 :tags] :assoc (:a :b)]]" (pr-str patches)))))
 
 (deftest diff-encode-reports-a-map-key-respelled-in-another-kind
   (let [before {:by-pair {[1 2] :x} :n 1}
@@ -75,10 +57,6 @@
         dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after
                             (rf.mcp-base.diff-encode/diff-encode-db-after {:db-before before :db-after after})))]
     (is (= (pr-str after) (pr-str dec)))))
-
-;; ---------------------------------------------------------------------------
-;; apply-patches
-;; ---------------------------------------------------------------------------
 
 (deftest apply-patches-reverses-collect-patches
   (are [a b] (= b (rf.mcp-base.diff-encode/apply-patches a (collect a b)))
@@ -104,10 +82,7 @@
     {:a {:b 1 :c 2}} [:a :b]          {:a {:c 2}}))
 
 (deftest apply-patches-nested-assoc-into-scalar-parent-is-structured-error
-  ;; An `:assoc` through a node that cannot hold the next segment is a
-  ;; base/patch mismatch, reported as :rf.error/bad-diff-replay rather than
-  ;; a raw host exception, a silent no-op or a clobber. A missing parent is
-  ;; created instead: a map for a key segment, a vector for index 0.
+  ;; Missing parents are created; incompatible parents produce a structured error.
   (let [d (ex-data (caught #(rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]])))]
     (is (= {:rf.error/id :rf.error/bad-diff-replay
             :where       'mcp-base/apply-patches
@@ -137,10 +112,6 @@
     (is (= {:rf.error/id :rf.error/bad-diff-replay :where 'mcp-base/decode-db-after}
            (select-keys (ex-data (caught #(rf.mcp-base.diff-encode/decode-db-after epoch)))
                         [:rf.error/id :where])))))
-
-;; ---------------------------------------------------------------------------
-;; diff-encode-db-after / decode-db-after / diff-encode-epochs
-;; ---------------------------------------------------------------------------
 
 (deftest diff-encode-db-after-emits-sections-shape
   (is (= {:db-before {:a 1 :b 2}
@@ -179,12 +150,6 @@
                  (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff))))
     (is (= epochs (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)))))
 
-;; ---------------------------------------------------------------------------
-;; The patch grammar and the decoder's validation gates. A patch value can
-;; be an app-db leaf the egress policy keeps projected, so every
-;; diagnostic is value-free.
-;; ---------------------------------------------------------------------------
-
 (deftest patch-schema-pins-the-tuple-grammar
   ;; `[path :assoc value]` or `[path :dissoc]`, the path a vector.
   (are [patch valid?] (= valid? (m/validate rf.mcp-base.diff-encode/patch-schema patch))
@@ -212,9 +177,7 @@
     (is (every? #(secret-absent? (rejection %) secret) leaky))))
 
 (deftest decode-db-after-rejects-malformed-sections
-  ;; Symmetric with the encoder: :sections is validated before replay. A
-  ;; present but nil slot throws rather than reading as an empty diff that
-  ;; would silently erase the epoch's change.
+  ;; Nil sections must not erase the epoch's change as an empty diff.
   (let [secret    "section-secret-XYZ-LEAK"
         leaky     [{:section-path :not-a-vector
                     :section-kind :modified
@@ -231,9 +194,6 @@
     (is (secret-absent? (rejection leaky) secret))))
 
 (deftest decode-db-after-rejects-malformed-marker-body
-  ;; The marker body is closed: exactly {:rf.mcp/diff-from :db-before
-  ;; :sections [...]}. An extra key, or a marker value other than
-  ;; :db-before, throws rather than passing through.
   (let [leaky     {:rf.mcp/diff-from :db-before :sections [] :secret "sensitive-payload"}
         rejection #(caught (fn [] (rf.mcp-base.diff-encode/decode-db-after {:db-before {:a 1} :db-after %})))]
     (are [db-after] (= {:rf.error/id :rf.error/bad-diff-marker :where 'mcp-base/decode-db-after}
