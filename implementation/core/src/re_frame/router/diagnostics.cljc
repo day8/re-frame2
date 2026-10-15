@@ -472,10 +472,10 @@
 
 (defn find-non-serialisable-payload-path
   "Dev-only. Walk `event` (the full dispatched event vector) for a host
-  handle — fn / Promise / AbortController / DOM node / RegExp: the set
-  `re-frame.reply/host-handle?` detects for the reply-map / reply-target
-  data-only invariant, minus instants (`payload-host-handle?`) — via the
-  budget-bounded walker `re-frame.reply/walk-find-host-handle-bounded`.
+  handle — fn / Promise / AbortController / DOM node / RegExp: the
+  `re-frame.reply/host-handle?` deny-list minus instants
+  (`payload-host-handle?`) — via the budget-bounded walker
+  `re-frame.reply/walk-find-host-handle-bounded`.
   Returns the path to the first offending value, or nil when the payload is
   clean (or the walk budget was exhausted first — a false negative, the safe
   direction for an advisory lint). The leading event-id keyword never
