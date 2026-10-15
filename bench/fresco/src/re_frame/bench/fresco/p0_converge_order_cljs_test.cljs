@@ -1,41 +1,10 @@
 (ns re-frame.bench.fresco.p0-converge-order-cljs-test
-  "THE SEGMENT-ORDER VERDICT, replayed against the numbers it was built to
-  judge, and the studio page's ensemble and re-take figures derived from
-  their observation tables.
-
-  `p0-converge-app/segment-order-verdict` partitions a cross-segment
-  figure by which segment ran FIRST in each round — the question
-  `lane/guard!` cannot ask, because the guard adjudicates arms INSIDE a
-  segment and the red-zone is a ratio ACROSS the seam. The published
-  per-round vectors from
-  `docs/design/fresco/studio/p0-converged-witness-set.md` are replayed
-  through it: the red-zone run, the four-row reproduction sweep, the
-  second author's reactive leg and the re-take's run 5. Every published
-  five-round run was Reagent-start, so rounds 0, 2, 4 are Reagent-first.
-
-  [[ensemble]] and [[retake]] are the observation tables behind the page's
-  summaries. Every figure the page publishes about them is derived here and
-  checked against the page's own numbers, transcribed into [[view-1]],
-  [[view-1-p]], [[view-2]], [[components]], [[published-threshold]],
-  [[retake-published]] and [[retake-corrected]]. The page's ensemble
-  intervals use t at EIGHT degrees of freedom where a mean of ten needs
-  NINE: [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
-  pins the diagnosis and
-  [[the-corrected-nine-degree-intervals-change-no-verdict]] the correction.
-
-  Last, the `FRESCO_RATOM=on` contract: the flag is page-global, the arm
-  is per row, and `row-record` publishes a reactive leg only where the arm
-  ran.
-
-  Pure arithmetic over recorded vectors: no DOM, no clock, no browser,
-  so this runs on every runtime."
+  "Re-derive published ensembles and check the live segment-order and ratom-leg rules."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.bench.fresco.p0-converge-app :as rf.bench.fresco.p0-converge-app]))
 
-;; ---------------------------------------------------------------------------
 ;; The published vectors
-;; ---------------------------------------------------------------------------
 
 (def ^:private published
   "Per-round `uix-subs ÷ reagent-subs`, both floor-normalised in the same
@@ -89,9 +58,7 @@
                     (close-to? x y (or tol (if (three-decimal k) 0.0006 0.0002))))))
            expected)))
 
-;; ---------------------------------------------------------------------------
 ;; The published five-round runs
-;; ---------------------------------------------------------------------------
 
 (deftest the-published-m1-partition-is-the-one-the-audit-reported
   ;; Disjoint strata, so the row may not publish 1.2301 as a threshold; the
@@ -154,9 +121,7 @@
                     (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 %))
                   [:reagent-subs :uix-subs]))))))
 
-;; ---------------------------------------------------------------------------
 ;; The reactive leg, replayed
-;; ---------------------------------------------------------------------------
 
 (def ^:private leg
   "The second author's published per-round `reagent-subs / reagent-ratom`
@@ -191,14 +156,12 @@
   (is (every? #(> % 1.30) (map :order-balanced-mean (legs :M1))))
   (is (every? #(> % 2.30) (map :order-balanced-mean (legs :broad)))))
 
-;; ---------------------------------------------------------------------------
 ;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE
 ;;
 ;; Ten independently launched six-round runs, the starting segment
 ;; counterbalanced five and five. The cells are the ten runs' own console
 ;; logs, recovered rather than re-measured; the studio page carries the
 ;; provenance.
-;; ---------------------------------------------------------------------------
 
 (def ^:private ensemble
   "THE 10x4 OBSERVATION TABLE. One entry per launched run, one vector per
@@ -404,9 +367,7 @@
 (defn- verdict-of [run row]
   (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run)))
 
-;; ---------------------------------------------------------------------------
 ;; Every published figure, re-derived from the forty cells
-;; ---------------------------------------------------------------------------
 
 (deftest the-red-zone-table-and-view-1-reproduce
   ;; The threshold is the mean of the ten run means and, because the
@@ -471,9 +432,7 @@
                                                    (> (:mean (:reagent-first v)) (:mean (:uix-first v))))
                                                  verdicts))}))))
 
-;; ---------------------------------------------------------------------------
 ;; THE ONE DISAGREEMENT, pinned rather than conformed away
-;; ---------------------------------------------------------------------------
 
 (deftest the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right
   (testing "an interval on the mean of TEN run means needs t at nine degrees
@@ -508,9 +467,7 @@
       (is (approx= {:lo lo :hi hi} {:lo (- (mean t) h) :hi (+ (mean t) h)})
           (name row)))))
 
-;; ---------------------------------------------------------------------------
 ;; THE RE-TAKE'S OBSERVATION TABLE, ON THE CONVERGED INSTRUMENT
-;; ---------------------------------------------------------------------------
 ;;
 ;; The unit that survives is the RUN MEAN: each row's `red-zone :mean` for
 ;; that run, transcribed from the producing transcript; nothing was
@@ -648,9 +605,7 @@
                       (:threshold (retake-ci retake :M1)))
                    0.0093 0.0002))))
 
-;; ---------------------------------------------------------------------------
 ;; The flag is global and the arm is not
-;; ---------------------------------------------------------------------------
 ;;
 ;; `FRESCO_RATOM=on` is a page-global request; arm presence is decided per
 ;; row. With no `FRESCO_ONLY` the driver selects all four rows, and `M2`
