@@ -1,30 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE LEVEL WITNESS'S FIXTURES AND ITS CORPUS CONTROL, IN A GATE.
-//
-//     node src/re_frame/bench/fresco/alloc_level_witness.test.cjs
-//
-// `alloc_level_witness.cjs` decides whether a floor run held ONE level across
-// its own transition. Two things are checked here and they answer different
-// questions.
-//
-// THE FIXTURES answer "does the rule do what its header says": they are
-// synthetic, they cross the bound in both directions, and they live in the
-// module so any caller runs them.
-//
-// THE CORPUS CONTROL answers the only question that licences ARMING the thing:
-// does this bound refuse EXACTLY the elevated runs and nothing else? That is
-// not a claim to be written in a record and left there — every dataset it
-// rests on is committed, so it is re-derived here on every run of this gate.
-// The counts below are therefore PINNED: a committed dataset that changes, a
-// bound that drifts, or an estimator that is quietly redefined all turn this
-// red rather than turning a published table wrong.
-//
-// WHY THE EXACT COUNTS AND NOT JUST "no false positives". A witness that
-// stopped scoring runs — an estimator typo that emptied every window, say —
-// would report zero false positives with perfect honesty. So the population
-// sizes are asserted beside the verdict, which is the same reason
-// `clock_witness.test.cjs` asserts its own fixture count has not shrunk.
+// Re-derive the calibrated corpus populations and refuse a missing segment.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
