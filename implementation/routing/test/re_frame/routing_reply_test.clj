@@ -1,8 +1,5 @@
 (ns re-frame.routing-reply-test
-  "The nil-carried-token edge of the route family's stale-suppression gate,
-  `re-frame.routing.reply/suppress?`. The stale and live verdicts, the
-  end-to-end suppression, the stale trace's reply-envelope facts and the live
-  reply are driven through the production fx by `re-frame.routing-nav-token-test`."
+  "A nil carried navigation token is stale under a live navigation."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.routing.reply :as rf.routing.reply]))
 
