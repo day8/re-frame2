@@ -1,30 +1,5 @@
 (ns re-frame.bench.fresco.arm1.cell-table-laws-cljs-test
-  "THE SIX INDEX LAWS, against the fused cell table.
-
-  architecture.md restates six laws the `spike-01` pure model proved, and
-  HD-017 makes them the index's unit tests. The index is the runtime's
-  fused cell table — the readers live on the cell and the forward edge on
-  the registration — so the laws are discharged against the runtime's own
-  doors: [[rf.bench.fresco.arm1.runtime/commit-boundary!]] (the seam React
-  occupies), [[rf.bench.fresco.arm1.runtime/dispatch!]] (which drives
-  `flush!`), [[rf.bench.fresco.arm1.runtime/stats]] and
-  [[rf.bench.fresco.arm1.runtime/cell-readers]].
-
-    1. after mount+read, a commit of that sub dirties that boundary only;
-    2. two boundaries sharing a sub both dirty;
-    3. unmount removes edges;
-    4. a re-run with fewer reads drops edges (conditional read);
-    5. the broad dirty set is the union of all readers of any dirty sub;
-    6. an unknown dirty sub yields the empty set — no phantom boundaries.
-
-  Laws 1 and 2 are discharged inside law 5: r2 is the non-reader law 1
-  excludes, and the header shares `remaining` with a row. Below the laws sit the obligations they would silently lose: a
-  StrictMode double subscribe, the registration sharing the entry's key
-  set, and the evidence seam.
-
-  The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
-  plain-atom has no reactivity layer, so a subscription under it never
-  notifies and every dirty-set assertion below would pass vacuously."
+  "The reactive cell table obeys reader, cleanup, notification and evidence laws."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -125,9 +100,7 @@
     (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/set-filter :active])
     (is (= [2 1 0] (hits header row-1 row-0)) "the broad write dirties every reader of the list")))
 
-;; ===========================================================================
 ;; Beyond the six — the obligations the laws would silently lose
-;; ===========================================================================
 
 (deftest a-double-subscribe-and-its-two-cleanups-leave-zero-residue
   (async done
@@ -164,9 +137,7 @@
       (is (identical? (rf.bench.fresco.arm1.runtime/reads-of (:entry b))
                       (rf.bench.fresco.arm1.runtime/boundary-reads (:reg b)))))))
 
-;; ---------------------------------------------------------------------------
 ;; HD-005 — the evidence seam is two lines, nil by default, and silent
-;; ---------------------------------------------------------------------------
 
 (deftest the-evidence-seam-is-detached-by-default-and-attachable-without-redesign
   (seeded!)
