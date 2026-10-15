@@ -1,58 +1,5 @@
 (ns re-frame.fresco.view-alias-registry-cljs-test
-  "THE AUTHORING-TIME ALIAS — what `h/defview` publishes to core's `:view`
-  registrar, and what it deliberately does not.
-
-  A Story variant names its subject with a KEYWORD and resolves it
-  through the framework registrar. Without the alias `h/defview` would
-  compute a name, compute a coordinate, hand both to
-  `impl.collector/mint-view!` and register nothing — so a Fresco boundary
-  would be the one view in the repository a keyword could not reach. It
-  publishes one entry, and the shape of that entry is the whole claim:
-
-  | slot | what it is |
-  |---|---|
-  | the id | `(keyword \"<ns>\" \"<sym>\")` — `reg-view`'s own derivation |
-  | `:ns` / `:file` / `:line` / `:column` | the coordinate, at the top level, where `reg-view` puts it |
-  | `:doc` | the author's docstring, when they wrote one |
-  | `:handler-fn` | the minted head, `identical?` to what the `def` binds |
-  | `:executable-key` | **absent** — `:handler-fn` is already where the registrar looks by default |
-
-  ## The head rides `:handler-fn`
-
-  A private slot, with `:executable-key` pointing the registrar at it and
-  `:handler-fn` absent, would make `(rf/view id)` answer nil for a Fresco
-  view, and every consumer would need a second descriptor shape.
-  `re-frame.views/view-head` returns a `:view` slot it did not itself
-  build EXACTLY AS STORED — no `compose-view`, no `:adapter/wrap-view`,
-  no componentise — so publishing the head under the ordinary key costs
-  the boundary nothing and buys one answer on every substrate. The rows below assert both halves: that `rf/view` answers
-  the head, and that it is the untouched `def` value.
-
-  ## The peer registration is the point of comparison, not decoration
-
-  `core-peer` below is an ordinary `rf/reg-view` in THIS namespace, and
-  every row that says *the same as `reg-view`* asserts against it rather
-  than against a remembered shape. The id derivation and the coordinate
-  placement are claims about agreement between two macros, and an
-  assertion that names only one of them cannot see the day they diverge.
-
-  ## Why no adapter is installed
-
-  This file's fixture installs none, deliberately, and that makes the whole
-  namespace the adapter-timing witness constraint 3 asks for. Core's view
-  registration consults the `:adapter/wrap-view` hook AT REGISTRATION TIME
-  (`re-frame.views/apply-adapter-wrap-view`), and a `defview` is declared at
-  namespace load — routinely before `rf/init!` has installed anything. The
-  declarations here are made at exactly that moment, with no adapter present,
-  and the rows below assert the entry is intact anyway. Nothing mounts, so
-  nothing needs one.
-
-  ## What this file does NOT assert
-
-  Production absence. `re-frame.fresco.error-source-coord-elision-prod-test`
-  owns that, because it is the one suite compiled under `:advanced` with
-  `goog.DEBUG=false`, and asserting absence in a dev build would assert
-  nothing at all."
+  "defview publishes adapter-neutral registry metadata and reports replacements."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -181,9 +128,7 @@
               resolving late picks up the reloaded view — through
               `rf/view` as well as through the slot"
       (is (identical? reloaded (:handler-fn (slot ::aliased-row))))
-      (is (identical? reloaded (rf/view ::aliased-row))))
-
-    ))
+      (is (identical? reloaded (rf/view ::aliased-row))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What the reload TELLS a tool — the `:different-fn?` discriminator
