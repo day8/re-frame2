@@ -1,17 +1,5 @@
 (ns re-frame.late-bind-missing-test
-  "The documented missing-artefact error contract for the routing
-  artefact's `re-frame.core` surfaces: `rf/reg-route` and `rf/route-link`
-  raise `:rf.error/routing-artefact-missing` when the routing artefact is
-  absent from the classpath.
-
-  The routing artefact IS on the classpath here, so each test flips the
-  surface's late-bind hook to nil for the duration of the call and restores
-  it in `finally`. The `defwrapper` machinery itself (message token,
-  `:where`, `:recovery`) is `re-frame.core-artefact-test`'s; these pin each
-  routing wrapper's declared hook, artefact and `:on-absent :throw` policy.
-
-  Per Spec 002 §The late-bind seam and Conventions §Optional-artefact
-  wrapper convention."
+  "Routing wrappers fail loudly when their optional artefact hook is absent (Spec 002)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
