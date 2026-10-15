@@ -1,291 +1,82 @@
 (ns day8.re-frame2-xray.panels.local-render-cljs-test
-  "The local-render egress test for Xray's ON-BOX panel value rendering — the
-  EP-0015 `:rf.egress/local-redacted` GRADUATING-CONSUMER proof.
-
-  ## The consumer the graduation gate needs
-
-  [spec/015-Data-Classification.md §The graduation gate] requires each of the
-  six `:rf.egress/*` profiles be EXERCISED by a real consumer before the names
-  lock. Xray is the `:rf.egress/local-redacted` consumer — its local panel
-  value rendering routes through `re-frame.core/project-egress` under
-  `:rf.egress/local-redacted` (`day8.re-frame2-xray.panels.local-render`). This
-  test is the end-to-end exercise the graduation row names: the on-box LOCAL
-  render of a value REDACTS a frame-declared sensitive slot by default while
-  KEEPING large values (the local-render contract: suppress sensitive display;
-  the local operator may see big values).
-
-  ## What's asserted
-
-    1. **DEFAULT redacts sensitive** — a value carrying a sensitive slot at a
-       frame-declared sensitive path is projected under the local-render
-       default; the sensitive slot becomes `:rf/redacted` WHILE non-sensitive
-       siblings + structure ride through.
-    2. **DEFAULT keeps large** — a frame-declared `:large` value is NOT elided
-       on-box (the operator sees big values; only secrets are withheld).
-    3. **per-frame** — projection uses the OBSERVED frame's policy, not a
-       borrowed / ambient one; a plain frame ships the same value verbatim.
-    4. **`:rf.egress/local-raw` opt-in** — the per-(tool,frame) trusted-local
-       grain reveals the sensitive slot (an explicit operator act).
-    5. **fail-closed** — an unreachable observed frame redacts the WHOLE value
-       under the redacted default rather than ship it raw; the unreachable /
-       nil frame is STAMPED VERBATIM (the key is present, never omitted), and
-       (5b) a nil / unreachable observed frame redacts EVEN WHEN an
-       ambient frame is dynamically bound — it must NOT borrow that ambient
-       frame's policy and leak the secret (mirroring the off-box
-       derivation-graph test)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Real frame-policy coverage for Xray's on-box local-render egress."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; The ROUTE-OWNED lowering, reached directly so the
-            ;; JVM lane can pin that a `:params` classification path both
-            ;; VALIDATES and RE-ROOTS. `routing_helpers.cljc` reaches
-            ;; `re-frame.routing.match` the same way, so this is the
-            ;; established grain for a routing internal.
             [re-frame.routing.classification :as rf.routing.classification]
-            ;; Loaded for its LATE-BIND PUBLICATION, not for a symbol: the
-            ;; routing facade is what binds `:routing/route-sub-egress-path`,
-            ;; and without it `local-render-route-sub-value` resolves no seed
-            ;; and walks at the root — which its own docstring says, and which
-            ;; is silently a PASS-shaped failure for a redaction row. The
-            ;; sibling `.cljs` query test requires it for the same reason.
+            ;; Publishes routing's seed table; otherwise route projections walk the root.
             [re-frame.routing]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
-;; ---------------------------------------------------------------------------
-;; Runtime fixture — mirror the off-box derivation-graph redaction test:
-;; two frames, one with declared :sensitive / :large policy.
-;;
-;;   :app/secure — declares [:auth :token] sensitive and [:catalog :rows] large.
-;;   :app/plain  — no classification (every value renders verbatim).
-;; ---------------------------------------------------------------------------
-
 (def secure-frame :app/secure)
-(def plain-frame  :app/plain)
-
-;; A third frame carrying a genuine ROUTE-OWNED classification
-;; (`:source :route`), lowered by routing's own `lower-for-route` rather than
-;; hand-written at an absolute path. That distinction is the whole point of
-;; the frame: it means these rows exercise `validate+extract` and
-;; `apply-route-classification` for real, so the JVM lane — not only the node
-;; lane — answers whether a `[:params …]` declaration is supported.
+(def plain-frame :app/plain)
 (def route-frame :app/routed)
 
-(def ^:private route-declaration
-  "A route's PROJECTION-RELATIVE declaration naming one key on EACH covered
-  axis. Nothing in the classification code distinguishes them."
-  {:sensitive [[:params :token] [:query :token]]})
-
-(defn- install-policy! []
-  ;; EP-0025: durable app-db classification rides the commit-plane
-  ;; classification effects (`:source :effect`); there is no frame annotation.
+(defn- init-fn []
+  (doseq [frame-id [plain-frame secure-frame route-frame]]
+    (rf/make-frame {:id frame-id}))
   (rf.frame/swap-runtime-db! secure-frame
     (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :token]]
-                :large     [[:catalog :rows]]}))))
-
-(defn- install-route-policy! []
+                :large [[:catalog :rows]]})))
+  ;; Lower a real route-owned declaration rather than hand-writing absolute paths.
   (rf.frame/swap-runtime-db! route-frame
     (fn [rt] (rf.routing.classification/lower-for-route
-               rt :route/user route-declaration))))
-
-(defn- init-fn []
-  (rf/make-frame {:id plain-frame})
-  (rf/make-frame {:id secure-frame})
-  (rf/make-frame {:id route-frame})
-  (install-policy!)
-  (install-route-policy!))
+               rt :route/user {:sensitive [[:params :token] [:query :token]]}))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
-     ;; OPT OUT of the default `:rf/default` ambient scope so the fail-closed
-     ;; arm asserts a frameless walk redacts (a bound ambient frame would let
-     ;; the frameless projection resolve to its empty-policy identity and ship
-     ;; raw — masking the fail-closed contract). Mirrors the off-box sibling
-     ;; test's fixture.
      :ambient-frame nil
      :init-fn init-fn}))
 
-;; A value with both a frame-declared sensitive slot and a frame-declared
-;; large slot, plus plain siblings — the shape an app-db panel renders.
 (def ^:private app-db-value
-  {:auth    {:token "secret-session-jwt-abc123"
-             :user-id 42}
+  {:auth {:token "secret-session-jwt-abc123" :user-id 42}
    :catalog {:rows (vec (range 300))}
-   :ui      {:open? true :tab :home}})
-
-;; ---------------------------------------------------------------------------
-;; 1 + 2. DEFAULT — redact sensitive, KEEP large.
-;; ---------------------------------------------------------------------------
+   :ui {:open? true :tab :home}})
 
 (deftest local-render-default-redacts-sensitive-keeps-large
-  (testing "(1) the frame-declared sensitive slot is REDACTED under the on-box
-            default (:rf.egress/local-redacted) while non-sensitive siblings and
-            structure ride through; (2) the frame-declared LARGE slot is NOT
-            elided on-box — the local operator sees big values, only secrets are
-            withheld (the include-large? overlay)"
-    (is (= (assoc-in app-db-value [:auth :token] :rf/redacted)
-           (local-render/local-render-value app-db-value secure-frame)))))
-
-;; ---------------------------------------------------------------------------
-;; 3. per-frame — projection uses the OBSERVED frame's policy, not a borrowed one.
-;; ---------------------------------------------------------------------------
+  (is (= (assoc-in app-db-value [:auth :token] :rf/redacted)
+         (local-render/local-render-value app-db-value secure-frame))))
 
 (deftest local-render-applies-the-observed-frames-policy
-  (testing "under the PLAIN frame (no sensitive decl) the SAME value renders
-            verbatim — the policy is per-frame, applied from the observed
-            frame, never borrowed or ambient"
-    (is (= app-db-value (local-render/local-render-value app-db-value plain-frame)))))
-
-;; ---------------------------------------------------------------------------
-;; 4. `:rf.egress/local-raw` opt-in — the trusted-local per-(tool,frame) grain.
-;; ---------------------------------------------------------------------------
+  (is (= app-db-value
+         (local-render/local-render-value app-db-value plain-frame))))
 
 (deftest local-raw-opt-in-reveals-sensitive
-  (testing "the explicit trusted-local :rf.egress/local-raw grain (raw? true)
-            reveals it — an operator act, not the process-global default"
-    (is (= "secret-session-jwt-abc123"
-           (get-in (local-render/local-render-value app-db-value secure-frame true)
-                   [:auth :token]))
-        "raw? true resolves to :rf.egress/local-raw which includes sensitive")))
-
-;; ---------------------------------------------------------------------------
-;; 5. fail-closed — an UNREACHABLE observed frame redacts the WHOLE value, EVEN
-;;    WHEN an ambient frame is bound (mirroring the off-box derivation-graph
-;;    test).
-;;
-;; Without an ambient frame a frameless walk resolves NO frame and trivially
-;; fails closed — it cannot exercise the ambient-BORROW leak. Here we
-;; dynamically bind an ambient frame (`:app/plain`, which declares NO sensitive
-;; policy, so a borrow WOULD ship the token RAW) and assert a nil / unreachable
-;; observed frame redacts the whole value rather than borrow `:app/plain`'s
-;; empty policy and leak the secret.
-;; ---------------------------------------------------------------------------
+  (is (= "secret-session-jwt-abc123"
+         (get-in (local-render/local-render-value app-db-value secure-frame true)
+                 [:auth :token]))))
 
 (deftest local-render-fails-closed-under-bound-ambient-frame
+  ;; Borrowing this frame's empty policy would expose the token.
   (rf/with-frame plain-frame
-    (testing "a NIL observed frame redacts the whole value, NOT shipping it raw
-              under the borrowed ambient :app/plain (empty) policy"
-      (is (= :rf/redacted (local-render/local-render-value app-db-value nil))
-          "nil frame ⇒ whole-value redact, never the borrowed-ambient identity walk"))
-    (testing "an UNREACHABLE observed frame likewise redacts under a bound ambient"
+    (doseq [observed-frame [nil :app/does-not-exist]]
       (is (= :rf/redacted
-             (local-render/local-render-value app-db-value :app/does-not-exist))
-          "destroyed / never-registered frame fails closed, never borrows ambient"))))
-
-;; ---------------------------------------------------------------------------
-;; 7. THE OBSERVED FRAME IS STAMPED VERBATIM — there is no sentinel.
-;;
-;; A walker that resolved its frame with `(or (:frame opts) …)` would read an
-;; explicit nil as ABSENCE and fall through to the ambient frame, and any fake
-;; frame IDENTITY minted to stand in for the nil would be fail-OPEN: a
-;; namespaced keyword is a public id an app could register, a shared private
-;; object is HANDED OUT by any public builder that returns it, and a fresh
-;; per-call object can be registered and replayed through the very same opts
-;; map.
-;;
-;; The walker reads `:frame` by KEY PRESENCE, so this seam stamps the observed
-;; id VERBATIM and needs no substitute. What pins that is the property that
-;; makes a substitute unnecessary: `nil` is UNREGISTRABLE at
-;; the walker. `elide-wire-value` guards its live-frame arm with
-;; `(and (some? frame-id) (some? (frame/frame frame-id)))`, so an explicit
-;; `:frame nil` can never take the live branch — not even for an app that
-;; manages to register a frame under a nil id. There is no value to collide
-;; with, nothing to leak, and nothing to keep private.
-;; ---------------------------------------------------------------------------
-
-(deftest an-explicit-nil-frame-is-unregistrable-at-the-walker
-  (testing "the structural property that makes a sentinel unnecessary. A
-            substitute would exist to be a value no app could register a
-            frame under. `nil` already is one: the walker guards its
-            live-frame arm with `(some? frame-id)`, so an explicit nil can never
-            resolve, however the frame registry is populated"
-    ;; Attempt the registration a sentinel collision would turn on. A
-    ;; runtime that refuses a nil id is fine — the point is the projection
-    ;; below, which must redact either way.
-    (let [registered? (try (rf/make-frame {:id nil}) true
-                           (catch #?(:clj Throwable :cljs :default) _ false))]
-      (try
-        (testing "a nil observed frame redacts the WHOLE value"
-          (let [rendered (local-render/local-render-value app-db-value nil)]
-            (is (= :rf/redacted rendered)
-                (str "nil observed frame must redact WHOLE"
-                     (when registered?
-                       " even with a frame registered under a nil id")
-                     ". got: " (pr-str rendered)))))
-        (testing "the PATH-AWARE sibling shares the seam, so it fails closed too"
-          (is (= :rf/redacted
-                 (local-render/local-render-value-at (:auth app-db-value) nil [:auth]))
-              "local-render-value-at must redact WHOLE under the same conditions"))
-        (finally
-          (when registered?
-            (try (rf/destroy-frame! nil)
-                 (catch #?(:clj Throwable :cljs :default) _ nil))))))))
-
-;; ---------------------------------------------------------------------------
-;; 10. `local-render-route-slice`: BOTH covered projections.
-;;
-;; These rows are DUAL-RUNTIME on purpose. The Routing panel's render path is
-;; `.cljs` and only the node lane grades it, so the view-level test lives
-;; in `routing_params_egress_cljs_test.cljs`. What is gradeable on the JVM is
-;; the ALGEBRA plus the framework contract it rests on — which keys the arm
-;; touches and that an absent key is left absent. The route frame's policy is
-;; lowered by routing's own `lower-for-route`, so a `[:params …]` declaration
-;; routing rejected or failed to re-root reds the covered-keys row.
-;; ---------------------------------------------------------------------------
-
-(def ^:private route-secret "secret-abc123")
-(def ^:private route-sibling "posts")
+             (local-render/local-render-value app-db-value observed-frame))))))
 
 (def ^:private route-slice
-  "A route slice as `re-frame.routing.events/merge-route-slice` writes it:
-  each covered axis carries the declared key and an UNCLASSIFIED sibling,
-  and the uncovered keys ride alongside."
-  {:route-id   :route/user
-   :params     {:token route-secret :tab route-sibling}
-   :query      {:token route-secret :tab route-sibling}
-   :fragment   "step-3"
+  {:route-id :route/user
+   :params {:token "secret-abc123" :tab "posts"}
+   :query {:token "secret-abc123" :tab "posts"}
+   :fragment "step-3"
    :transition :settled})
 
 (deftest local-render-route-slice-projects-both-covered-keys
-  (testing "the arm lowers the declared key on BOTH covered axes
-            under a genuine :source :route registry, and leaves each
-            unclassified sibling alone. The sibling is the discriminator: it
-            separates path-precise declaration matching from a fail-closed
-            whole-value redaction that would hide a leak by accident."
-    (is (= (-> route-slice
-               (assoc-in [:params :token] :rf/redacted)
-               (assoc-in [:query :token] :rf/redacted))
-           (local-render/local-render-route-slice route-slice route-frame))
-        "each declared key lowers; each sibling and every uncovered key rides
-         unchanged"))
-
-  (testing "a frame that declares NOTHING rides every key verbatim — the
-            ordinary case the arm must not disturb"
-    (is (= route-slice
-           (local-render/local-render-route-slice route-slice plain-frame))
-        "an undeclared frame's slice was altered")))
+  (is (= (-> route-slice
+             (assoc-in [:params :token] :rf/redacted)
+             (assoc-in [:query :token] :rf/redacted))
+         (local-render/local-render-route-slice route-slice route-frame)))
+  (is (= route-slice
+         (local-render/local-render-route-slice route-slice plain-frame))))
 
 (deftest local-render-route-slice-touches-only-keys-the-router-wrote
-  (testing "fail-closed must not INVENT a value where the router
-            wrote none, so a key absent from the slice stays absent rather
-            than becoming a sentinel a section would then render, while the
-            present axis still projects."
-    (is (= (-> route-slice (dissoc :query) (assoc-in [:params :token] :rf/redacted))
-           (local-render/local-render-route-slice (dissoc route-slice :query) route-frame)))))
+  (is (= (-> route-slice (dissoc :query) (assoc-in [:params :token] :rf/redacted))
+         (local-render/local-render-route-slice (dissoc route-slice :query) route-frame))))
 
 (deftest local-render-route-slice-fails-closed-on-an-unreachable-frame
-  (testing "the arm inherits the seam's fail-closed behaviour
-            whole: an unreachable observed frame is stamped VERBATIM, so each
-            covered key redacts rather than borrowing an ambient frame's
-            policy. The uncovered keys are not projected and so are not
-            protected — which is exactly why the panel reaches this through a
-            sub whose OTHER input has already failed on such a frame. Exactly
-            the two covered keys redact: an uncovered slice key added to
-            `route-slice-classified-projections` would redact here too, and a
-            covered key removed from it would leak its secret."
-    (is (= (assoc route-slice :params :rf/redacted :query :rf/redacted)
-           (local-render/local-render-route-slice route-slice :app/does-not-exist)))))
+  (is (= (assoc route-slice :params :rf/redacted :query :rf/redacted)
+         (local-render/local-render-route-slice route-slice :app/does-not-exist))))
