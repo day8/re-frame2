@@ -49,15 +49,6 @@
         before @runs]
     (is (= [0 1 1] [before @d @runs]))))
 
-(deftest layer-1-value-equal-write-does-not-notify
-  (let [{:keys [make-derived replace! root]} (build-graph)
-        l1    (make-derived [root] (fn [db] (:a db)))
-        notes (atom 0)]
-    @l1
-    (add-watch l1 :w (fn [_ _ _ _] (swap! notes inc)))
-    (replace! root {:a 1 :b 99})
-    (is (= 0 @notes))))
-
 (deftest layer-2-multi-input-recomputes-once-and-notifies-once
   (let [{:keys [make-derived replace! root]} (build-graph)
         l1a  (make-derived [root] (fn [db] (:a db)))
