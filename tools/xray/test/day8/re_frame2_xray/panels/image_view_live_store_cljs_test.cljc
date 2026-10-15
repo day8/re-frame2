@@ -38,7 +38,6 @@
   (rf/reg-fx :app/beep {:ns 'app.counter} (fn [_ _] nil))
   (rf/make-frame {:id :app/main})
   (let [row (frame-row :app/main)]
-    (is (some? row) "the frame is listed")
     (is (true? (:live-store? row)) "and marked as resolving the live store")
     (is (= {:kind :ns :ns "app.counter"} (:provenance (descriptor row :event :app/inc)))
         "its event is listed with the namespace that registers it")
