@@ -1,15 +1,12 @@
 (ns re-frame.test-quiet-discovery-integrity-test
-  "The rule `re-frame.test-quiet.runner/discovery-defects` states. The wiring
-  (`-main` refuses the run and names the file) is pinned across a process
-  boundary in `re-frame.test-quiet-runner-contract-test`."
+  "Discovery must name files that would not run as their declared namespace."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [re-frame.test-quiet.runner :as rf.test-quiet.runner]))
 
 (defn- with-tree
-  "Make a temp directory, write `files` (relative path -> source) into it,
-  hand it to `f`, then delete it."
+  "Run `f` with a temporary source tree."
   [files f]
   (let [dir (.toFile (java.nio.file.Files/createTempDirectory
                        "tq-discovery"
@@ -41,8 +38,7 @@
        "(deftest f (is (= 1 1)))\n"))
 
 (deftest a-clj-and-cljc-sibling-declaring-one-namespace-are-named
-  ;; Each spells its own path under its own extension, yet only the `.clj`
-  ;; ever loads, so both are named.
+  ;; Both spell their own path, yet only the .clj loads.
   (with-tree {"probe/duplicate_test.clj"  (str "(ns probe.duplicate-test\n" duplicate-body)
               "probe/duplicate_test.cljc" (str "(ns probe.duplicate-test\n" duplicate-body)}
     (fn [dir]
