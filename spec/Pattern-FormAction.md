@@ -216,7 +216,7 @@ exactly the knowledge this pattern spends its effort not needing.
     (let [{:keys [request-method uri query-string form-params]} request
           route (route/match uri)]                     ;; /cart/add → :route/cart-add
       (case request-method
-        ;; Ring keeps the query out of :uri, and the route reads both.
+        ;; Ring keeps the query out of :uri; the router needs both.
         :get  {:fx [[:dispatch [:rf.route/handle-url-change
                                 (cond-> uri query-string (str "?" query-string))]]]}
         :post (let [{:keys [event schema]} (route->action route)]
