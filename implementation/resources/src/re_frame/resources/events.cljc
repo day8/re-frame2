@@ -313,14 +313,15 @@
                   :work/id work-id :status status
                   :targets (vec targets) :cache-hit? (boolean cache-hit?)})))
 
-(defn- open-gc-window
+(defn open-gc-window
   "`runtime-db` with `resource-key`'s entry moved to a new GC window when
   `gc-delay-ms` arms a GC timer on `frame-id` — a positive delay on a client
-  frame, since a server frame arms none. Every read-path event that arms a GC
-  timer opens its window here, and the timer stamps its re-check with the
-  window it armed in (`re-frame.resources.timers/schedule!`), so
-  `gc-fired-handler` can tell a superseded window's check from the current
-  one."
+  frame, since a server frame arms none. Every event that arms a GC timer —
+  on the read path, and a mutation settle's populate or patch
+  (`re-frame.resources.mutation-events`) — opens its window here, and the
+  timer stamps its re-check with the window it armed in
+  (`re-frame.resources.timers/schedule!`), so `gc-fired-handler` can tell a
+  superseded window's check from the current one."
   [runtime-db frame-id resource-key gc-delay-ms]
   (cond-> runtime-db
     (and gc-delay-ms (not (rf.resources.state/server-frame? frame-id)))
@@ -3569,16 +3570,16 @@
   NO durable time-based deadline to re-derive (this handler takes no
   `:rf/time-ms`; the entry carries no `:gc-at`). GC-eligibility is
   STRUCTURAL — owner-free + idle — and only the check of the entry's CURRENT
-  GC window may act on it. Every read-path event that arms a GC timer (a
-  settle, a fresh-skip owner revival, the final owner release, the in-flight
-  skip below) opens a new window on the entry (`:gc-window`, via
-  `open-gc-window`), and the timer stamps its re-check with the window it
-  armed in. Cancel-then-arm replaces a timer that has not fired; one that has
-  fired is already a check in the router queue, behind anything queued before
-  it, so a newer window can open before it lands. Its stamp is then older
-  than the entry's window, and it never collects: the newer window's own
-  check decides. A check that names no window (a direct dispatch) is judged
-  as current.
+  GC window may act on it. Every event that arms a GC timer (a settle, a
+  fresh-skip owner revival, the final owner release, a mutation's populate or
+  patch, the in-flight skip below) opens a new window on the entry
+  (`:gc-window`, via `open-gc-window`), and the timer stamps its re-check
+  with the window it armed in. Cancel-then-arm replaces a timer that has not
+  fired; one that has fired is already a check in the router queue, behind
+  anything queued before it, so a newer window can open before it lands. Its
+  stamp is then older than the entry's window, and it never collects: the
+  newer window's own check decides. A check that names no window (a direct
+  dispatch) is judged as current.
 
   GC-eligibility re-check (against the LIVE durable facts):
     - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
