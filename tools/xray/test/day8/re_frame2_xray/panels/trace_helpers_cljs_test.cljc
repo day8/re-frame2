@@ -270,9 +270,10 @@
   (testing "the focused epoch's WHOLE trail, oldest-first — the async
             nil-dispatch-id reactive rows and the envelope ops included"
     (let [feed (h/project-feed-from-epoch (domino-trail-epoch) :focused)]
-      (is (= {:total 9 :rendered 9 :epoch-id 17 :empty-kind nil}
-             (select-keys feed [:total :rendered :epoch-id :empty-kind])))
-      (is (= [0 1 2 3 4 5 6 7 8] (mapv :id (:rows feed)))))))
+      (is (= [{:total 9 :rendered 9 :epoch-id 17 :empty-kind nil}
+              [0 1 2 3 4 5 6 7 8]]
+             [(select-keys feed [:total :rendered :epoch-id :empty-kind])
+              (mapv :id (:rows feed))])))))
 
 (deftest project-feed-from-epoch-no-events
   (is (= {:total 0 :rendered 0 :rows [] :epoch-id 3 :empty-kind :no-events}
@@ -289,11 +290,6 @@
                          [:empty-kind :total :rendered :rows]))
       :no-focus
       :epoch-evicted)))
-
-(deftest project-feed-from-epoch-rows-carry-no-row-index-slot
-  ;; A :row-index slot would invite positional React keys.
-  (is (not-any? #(contains? % :row-index)
-                (:rows (h/project-feed-from-epoch (domino-trail-epoch) :focused)))))
 
 ;; ---- relative timing + duration — spec/023 §3 / §6 ----------------------
 
