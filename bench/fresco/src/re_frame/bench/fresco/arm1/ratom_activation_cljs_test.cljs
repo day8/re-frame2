@@ -1,47 +1,5 @@
 (ns re-frame.bench.fresco.arm1.ratom-activation-cljs-test
-  "**ARM 1 UNDER THE STOCK REAGENT ADAPTER** — a committed cell is on the
-  substrate's push path, so a write after the mount is re-render work.
-
-  WHAT THIS PINS. `runtime/wire-cell!` is the whole of a cell's
-  attachment to the substrate, and it ACTIVATES the subscription before
-  it watches it. Subscribe, deref once for the baseline and `add-watch`,
-  with no activation, is a channel that cannot fire under the ratom
-  family. A subscription there IS a
-  bare `reagent.ratom/Reaction`, built deliberately without `:auto-run`,
-  and a Reaction learns its sources only through `deref-capture`: the
-  baseline deref is taken outside `*ratom-context*`, so it runs the body
-  raw and leaves `watching` nil. The reaction is then absent from
-  app-db's watcher set, the `add-watch` above never fires,
-  `runtime/mark-dirty!` never fires — that watch is its only caller —
-  `flush!` finds an empty dirty set, and React is handed nothing. **The
-  arm would paint once at mount and be deaf from that instant.**
-
-  **Even `reagent.core/flush` moves nothing** when the node never
-  captured, so a drain is no substitute for the activation.
-
-  WHY ONLY THIS SUITE CAN SEE IT. Every other suite in this arm
-  installs the **UIx** adapter, whose React-hook spine wires one watch
-  per source at construction and is push-based from birth — the activate
-  op is a routed no-op there and the channel works without it. The
-  Fresco clock bench likewise gives the candidate its own UIx segment
-  on purpose. Only a write driven at lad/fresco with the *Reagent*
-  adapter installed reaches this channel, and a deaf arm there reads
-  flat at the FLOOR's figure — an arm with no subscription at all reads
-  the same, because both re-render never.
-
-  WHAT EACH ARM IS FOR. The first is the smallest
-  reproduction, taken through the arm's real seam rather than by hand:
-  render a body, commit it at [[re-frame.bench.fresco.arm1.runtime/commit-boundary!]]
-  — the same `subscribe` closure `useSyncExternalStore` calls — write,
-  drain, and count the notifications React would have received. The rest
-  are the adversarial half, because \"make it notify\" has cheap wrong
-  answers a movement-only test rates green: a chatty channel that fires
-  on writes that moved nothing, and an attachment that works at birth
-  but not on the rebuild `invalidate-cell!` performs.
-
-  No DOM and no React: the claim is about the notification channel, and
-  the mounted counterpart where a real page repaints is
-  `re-frame.bench.fresco.arm1.ratom-activation-dom-cljs-test`."
+  "Reagent cells activate at acquisition and rebuild, notify on changes and stay silent otherwise."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
@@ -121,9 +79,7 @@
     (reset! !last-read n)
     [:span (str n)]))
 
-;; ===========================================================================
 ;; the reproduction: a committed cell is on the push path
-;; ===========================================================================
 
 (deftest a-committed-cell-notifies-its-boundary-under-the-reagent-adapter
   (testing "The exact reproduction. One boundary, one query, the
@@ -157,9 +113,7 @@
         (finally
           ((:release! b)))))))
 
-;; ===========================================================================
 ;; the adversarial half — activation must not make the channel chatty
-;; ===========================================================================
 
 (deftest a-write-that-moved-nothing-notifies-no-boundary
   (testing "the cheap wrong answer a movement-only test would rate green:
@@ -178,9 +132,7 @@
         (finally
           ((:release! b)))))))
 
-;; ===========================================================================
 ;; the rebuild path — one insertion has to cover both callers
-;; ===========================================================================
 
 (deftest a-rebuilt-cell-is-activated-too
   (testing "`wire-cell!` is called from `acquire-cell!` at birth and again
