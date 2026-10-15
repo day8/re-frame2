@@ -419,33 +419,47 @@
                       pair))))))
        (str/join "&")))
 
+(defn- captured-spans
+  "The `[start end]` span in the raw `path` of each capture of the `compiled`
+  pattern whose param `param?` names; empty when `path` does not match. The
+  path is normalised exactly as `match-url` normalises it, so the spans index
+  `path` itself."
+  [compiled path param?]
+  (keep (fn [[nm span]] (when (and span (param? (keyword nm))) span))
+        (map vector
+             (:names compiled)
+             (rf.routing.match/capture-spans
+               compiled (rf.routing.url/strip-trailing-slashes path)))))
+
+(defn- redact-spans
+  "`path` with each `[start end]` span of `spans` replaced by the redacted
+  segment. The spans may come in any order and may overlap, as several
+  patterns' captures of one path do; overlapping spans are redacted as one."
+  [path spans]
+  (->> (sort spans)
+       (reduce (fn [merged [start end]]
+                 (let [[pstart pend] (peek merged)]
+                   (if (and pend (< start pend))
+                     (conj (pop merged) [pstart (max pend end)])
+                     (conj merged [start end]))))
+               [])
+       ;; right to left, so each rewrite leaves the spans before it valid
+       rseq
+       (reduce (fn [p [start end]] (str (subs p 0 start) redacted-segment (subs p end)))
+               path)))
+
 (defn- redact-url-parts
   "Rewrite `url` against the matched route's `compiled` pattern and its
-  `declarations`. The path is split off and normalised exactly as `match-url`
-  splits it, so the capture spans index the raw URL."
+  `declarations`. The path is split off exactly as `match-url` splits it, so
+  the capture spans index the raw URL."
   [url compiled {:keys [param? query? fragment?]}]
   (let [hash-idx (str/index-of url "#")
         no-frag  (if hash-idx (subs url 0 hash-idx) url)
         q-idx    (str/index-of no-frag "?")
-        path     (if q-idx (subs no-frag 0 q-idx) no-frag)
-        spans    (rf.routing.match/capture-spans
-                   compiled (rf.routing.url/strip-trailing-slashes path))
-        path'    (reduce (fn [p [nm [start end]]]
-                           (if (and start (param? (keyword nm)))
-                             (str (subs p 0 start) redacted-segment (subs p end))
-                             p))
-                         path
-                         ;; right to left, so each rewrite leaves the spans
-                         ;; before it valid
-                         (reverse (map vector (:names compiled) spans)))]
-    (cond-> path'
+        path     (if q-idx (subs no-frag 0 q-idx) no-frag)]
+    (cond-> (redact-spans path (captured-spans compiled path param?))
       q-idx    (str "?" (redact-query (subs no-frag (inc q-idx)) query?))
       hash-idx (str "#" (if fragment? redacted-value (subs url (inc hash-idx)))))))
-
-(def ^:private whole-projection
-  "What a `[]` declaration names in a URL: every param segment, every query
-  value and the fragment."
-  {:param? (constantly true) :query? (constantly true) :fragment? true})
 
 (defn- route-pattern
   "The compiled path pattern of a route registration."
@@ -457,16 +471,18 @@
   "`url` projected when matching it threw `ex`, so there is no one declaration
   to project it by: every query value and the fragment redacted, and, when
   `ex` is an ambiguous route, every segment any of its registrations' patterns
-  captures."
+  captures. Every pattern is matched against the path as it arrived and the
+  union of their captures is redacted in one rewrite, because a segment one
+  pattern captures can be a static segment another needs in order to match."
   [url ex]
   (let [route-id (when (rf.registrar/ambiguous-registration? ex)
-                   (second (:registration (ex-data ex))))]
-    (reduce (fn [u route-meta]
-              (if-let [compiled (route-pattern route-meta)]
-                (redact-url-parts u compiled whole-projection)
-                u))
-            (rf.privacy.url/redact-url-carriers url)
-            (vals (get (rf.registrar/ambiguous-registrations :route) route-id)))))
+                   (second (:registration (ex-data ex))))
+        ;; the carrier scrub keeps the path byte-for-byte
+        url'     (rf.privacy.url/redact-url-carriers url)
+        path     (re-find #"[^?#]*" url')
+        spans    (mapcat #(some-> (route-pattern %) (captured-spans path (constantly true)))
+                         (vals (get (rf.registrar/ambiguous-registrations :route) route-id)))]
+    (str (redact-spans path spans) (subs url' (count path)))))
 
 (defn redact-declared-url
   "Project `url` for egress by the `:sensitive` declaration of the route it
