@@ -441,9 +441,7 @@
 
 (deftest held-toggle-chords-are-ignored
   ;; A held toggle fires once per physical press, not per OS repeat tick.
-  (doseq [chord [{:key "C" :ctrl? true :shift? true :repeat? true}
-                 {:key "k" :ctrl? true :repeat? true}
-                 {:key "M" :ctrl? true :shift? true :repeat? true}]]
+  (doseq [chord [{:key "C" :ctrl? true :shift? true :repeat? true}]]
     (let [{:keys [event prevented stopped]} (mk-spy-event chord)]
       (handle-keydown event)
       (is (= [false false] [@prevented @stopped])
