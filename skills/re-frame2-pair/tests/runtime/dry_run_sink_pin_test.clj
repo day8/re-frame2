@@ -5,9 +5,8 @@
             [runtime-support :as rt]))
 
 (deftest dispatch-dry-run-refuses-effect-overrides
-  (let [form (rt/defn-named 'dispatch-dry-run)]
-    (is (rt/mentions? :fx-overrides-unsupported form)
-        "dispatch-dry-run must refuse a caller :fx-overrides with :fx-overrides-unsupported")))
+  (is (rt/mentions? :fx-overrides-unsupported (rt/defn-named 'dispatch-dry-run))
+      "effect overrides must be refused instead of silently ignored"))
 
 (let [{:keys [fail error]} (run-tests 'dry-run-sink-pin-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
