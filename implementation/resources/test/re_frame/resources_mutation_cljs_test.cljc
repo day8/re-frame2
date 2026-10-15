@@ -7,7 +7,6 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
@@ -359,8 +358,7 @@
                 [:rf.runtime/resources :entries k-id :data :ssn])))
     (let [projected (rf.resources.classification/project-entry-data
                       (:data e) k-id :rf/default :rf.egress/ssr-hydration)]
-      (is (= {:ssn rf.privacy/redacted-sentinel :name "Alice"} projected))
-      (is (not (str/includes? (pr-str projected) "123-45-6789"))))))
+      (is (= {:ssn rf.privacy/redacted-sentinel :name "Alice"} projected)))))
 
 (deftest success-populate-arms-stale-and-gc-timers
   ;; An ownerless populated entry carries a GC policy, so it needs an armed reaper.
