@@ -1,52 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.reactive-data-e2e-cljs-test
-  "Real-substrate e2e coverage for the Views panel's reactive-data
-  projection (spec/021 §3).
-
-  ## Why a real cascade
-
-  A test of `reactive-panel-subs/project-record` that feeds HAND-BUILT
-  epoch records (`{:sub-runs [...] :renders [...]}`) — as
-  `panels/reactive-panel-subs-cljs-test` (pure projection) and
-  `panels-e2e/evicted-epoch-all-panels-cljs-test` (directly-seeded
-  `:epoch-history`) do — never drives a REAL cascade whose `:sub-runs`
-  rows are projected by the substrate's `capture.cljc/sub-run-row`. So a
-  key-rename in `sub-run-row` (e.g. `:sub-id` -> `:subid`, or dropping
-  `:recomputed?`) would redden none of them, while the panel showed
-  subs-ran pinned to zero.
-
-  ## What this test drives
-
-  The SAME real-pipeline harness the machine / trace e2e use
-  (`e2e/with-host-and-xray-frames` — NO `:rf.xray/set-epoch-history-for-test`
-  injection seam):
-
-    - install the canonical counter host (`:counter/value` sub +
-      `:counter/inc` event);
-    - dispatch the REAL `[:counter/inc]` host event;
-    - force `:counter/value` to recompute (plain-atom recomputes on every
-      deref) so the substrate emits a real `:rf.sub/run` that back-fills
-      into the just-settled `:counter/inc` epoch;
-    - mirror the framework epoch ring into Xray's `:epoch-history`;
-    - read `:rf.xray/reactive-data` and assert on CONTENT — the real sub
-      that ran (`:counter/value`), captured through `sub-run-row` into the
-      focused epoch's `:sub-runs` and projected to `:subs-ran`.
-
-  ## Mutation-proof
-
-  Renaming any `sub-run-row` output key in
-  `implementation/epoch/src/re_frame/epoch/capture.cljc` — e.g.
-  `:sub-id` -> `:subid`, or `:query-v` -> `:queryv` — reddens
-  `reactive-data-subs-ran-names-real-sub`: the projected `:subs-ran` row
-  then lacks that key, so the content match fails.
-
-  ## Scope note — view-rows / renders
-
-  The Node CLJS test process runs the plain-atom substrate, so views
-  cannot mount (no React) — there are no real `:rf.view/rendered` ops, so
-  `:view-rows` / `:views-rendered` (the `render-row` path) can't be
-  exercised headlessly here. Real-render coverage of the `render-row`
-  keys belongs to a mounted-adapter (browser) harness, outside this slim
-  node gate."
+  "Real recompute and memo-hit evidence uses the observed frame topology."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.image :as rf.image]
@@ -90,20 +43,12 @@
         (inc-and-recompute!)
         (let [d        (e2e/sub-xray [:rf.xray/reactive-data])
               subs-ran (:subs-ran d)]
-          (is (seq subs-ran)
-              (str ":subs-ran is EMPTY — no real :rf.sub/run captured into "
-                   "the focused epoch. reactive-data: "
-                   (pr-str (select-keys d [:subs-ran :counts :has-event-bundle?]))))
+
           (let [row (some #(when (= :counter/value (:sub-id %)) %) subs-ran)]
-            (is (some? row)
-                (str ":subs-ran does not name the real :counter/value sub — "
-                     "sub-run-row projection broke (key rename?). subs-ran: "
-                     (pr-str subs-ran)))
-            (is (true? (:recomputed? row))
-                "the real sub-run row carries :recomputed? true (sub-run-row)")
-            (is (= [:counter/value] (:query-v row))
-                (str "the row carries the real :query-v (a :query-v key "
-                     "rename in sub-run-row reddens here). row: " (pr-str row))))
+
+            (is (= [true [:counter/value]]
+                   ((juxt :recomputed? :query-v) row)))
+            )
           (is (pos? (-> d :counts :subs-ran))
               ":counts :subs-ran tallies the real run-set"))))))
 
@@ -118,12 +63,8 @@
       (fn []
         (inc-and-recompute!)
         (let [d (e2e/sub-xray [:rf.xray/reactive-data])]
-          (is (contains? d :subs-ran))
-          (is (contains? d :level-1-subs))
-          (is (contains? d :view-rows))
-          (is (contains? d :sub-readers))
-          (is (contains? d :subs-skipped)
-              "the :subs-skipped memo-hit slice is a real slot")
+          (is (every? #(contains? d %)
+                      [:subs-ran :level-1-subs :view-rows :sub-readers]))
           (is (= [] (:subs-skipped d))
               "no memo hit driven → empty (a run alone is not a skip)")
           ;; :counter/value reads app-db directly → a Level-1 sub.
@@ -180,16 +121,11 @@
               ran     (:subs-ran d)
               ran-ids (into #{} (map :sub-id) ran)
               skip-ids (into #{} (map :sub-id) skipped)]
-          (is (contains? skip-ids :ab/derived-a)
-              (str ":subs-skipped must name the real memo-hit sub "
-                   ":ab/derived-a — the :rf.sub/skip evidence the panel "
-                   "must show. reactive-data: "
-                   (pr-str (select-keys d [:subs-ran :subs-skipped :counts]))))
+
           (let [row (some #(when (= :ab/derived-a (:sub-id %)) %) skipped)]
-            (is (= :input-value-equal (:reason row))
-                "the skip row carries the canonical :input-value-equal reason")
-            (is (= [[:ab/read-a]] (:input-paths-unchanged row))
-                "the layer-2 skip names its upstream :ab/read-a query-vector"))
+            (is (= [:input-value-equal [[:ab/read-a]]]
+                   ((juxt :reason :input-paths-unchanged) row)))
+            )
           ;; distinctness: the memo-hit sub is NOT in the run-set, and the
           ;; recompute that produced the same value stays in the run-set.
           (is (not (contains? ran-ids :ab/derived-a))
