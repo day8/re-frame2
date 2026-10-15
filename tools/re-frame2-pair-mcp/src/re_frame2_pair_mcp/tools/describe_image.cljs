@@ -1,6 +1,7 @@
 (ns re-frame2-pair-mcp.tools.describe-image
-  "Tool: describe-image — describe the IMAGE GENERATION a frame is running
-  (EP-0023 Use-Case 7 + Ref-Plan item 17).
+  "Tool: describe-image — describe what a frame runs: the IMAGE GENERATION a
+  frame made with `:images` is running, or the registration store a frame made
+  without resolves live (EP-0023 Use-Case 7 + Ref-Plan item 17).
 
   ## What this answers
 
@@ -13,7 +14,9 @@
   not the realm-wide registrar union.
 
   Routes through the runtime preload's `describe-image`, which reads ONLY
-  the PUBLIC facade `rf/frame-generation` read.
+  PUBLIC facade reads: `rf/frame-generation`, and, for a frame made without
+  `:images` (which seals no generation), the frame-targeted
+  `rf/registrations` / `rf/handler-meta`.
   EP-0023 forbids tools from consuming `re-frame.live-frame` /
   `re-frame.image-assembly` internals directly; the facade re-surfaces the
   behaviour through the public read.
@@ -38,6 +41,11 @@
       :kinds    [<kind> …]            registrar kinds present (sorted)
       :counts   {<kind> N …}          selected-registration count per kind
       :registrations {[kind id] coordinate …}}   ; only with :include-ns true
+
+  A frame made without `:images` also carries `:live-store? true`, with
+  `:images []` and `:ambiguous [{:kind k :id id :namespaces [ns …]} …]`: each
+  id the frame refuses because more than one namespace registers it, left out
+  of `:counts`.
 
   (There are no image-declared host capabilities — no `:rf.gen/requires` —
   so the result carries no `:requires` capability set.)"
