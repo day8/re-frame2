@@ -40,7 +40,7 @@ Failures are classified into a closed, enumerable taxonomy under a single reserv
 
 | Surface | Failure namespace | Spec |
 |---|---|---|
-| HTTP requests | `:rf.http/*` (seven categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
+| HTTP requests | `:rf.http/*` (seven categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
 | State-machine actors | `:rf.machine/*` (`:rf.machine/invoke-failed`, `:rf.machine/snapshot-version-mismatch`, ...) | [005 §Error contract](005-StateMachines.md) |
 | SSR per-request | `:rf.ssr/*` (`:rf.ssr/hydration-mismatch`, `:rf.ssr/render-failed`, ...) | [011 §Error contract](011-SSR.md) |
 | Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:derive` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); run-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
