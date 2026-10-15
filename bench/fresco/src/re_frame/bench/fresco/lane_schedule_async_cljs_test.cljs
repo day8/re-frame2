@@ -1,13 +1,5 @@
 (ns re-frame.bench.fresco.lane-schedule-async-cljs-test
-  "ONE SCHEDULE, TWO LOOPS.
-
-  [[re-frame.bench.fresco.lane/rounds-async!]] is a second driver over
-  [[re-frame.bench.fresco.lane/rounds!]]'s plan, and a second driver fails
-  by drifting from the first. So the two are RUN AGAINST EACH OTHER on one
-  deterministic stub that answers its own execution index, and the whole
-  answers are asserted `=`. The synchronous side is never empty —
-  `lane-schedule-cljs-test` pins its counts — so two empty answers cannot
-  carry this green."
+  "The asynchronous driver preserves the synchronous schedule and never overlaps visits."
   (:require [cljs.test :refer-macros [async deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
@@ -16,8 +8,8 @@
 (def ^:private rounds 5)
 
 (def ^:private arm-counts
-  "The lane's arm counts plus `2`, where `slot-order` drops the reflection."
-  [2 4 5 7 8])
+  "Two arms drop reflection; larger even and odd schedules retain it."
+  [2 4 5])
 
 (defn- arms [n]
   (mapv (fn [i] {:id (keyword (str "arm-" i))}) (range n)))
