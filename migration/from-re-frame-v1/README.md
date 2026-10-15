@@ -2921,7 +2921,7 @@ If the source site has no metadata map, create one. If it already has metadata, 
 
 **What to look for.** Inspect every `reg-event-db` / `reg-event-fx` / `reg-event-ctx` registration. A hit is any of:
 
-- The form after the id is a bare interceptor value: a Var (`mw/x`), inline `(rf/->interceptor ...)`, `(rf/path ...)`, `(rf/unwrap-interceptor)`, `(rf/redact-interceptor ...)` and so on.
+- The form after the id is a bare interceptor value: a Var (`mw/x`), inline `(rf/->interceptor ...)`, `(rf/path ...)`, `rf/unwrap`, `(rf/redact-interceptor ...)` and so on.
 - The form after the id is a vector: `[i1 i2]`.
 - The call has both a metadata map and a following vector.
 
