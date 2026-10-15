@@ -30,6 +30,7 @@
   `:rf.http/decode-failure :schema-validation-failure? true`."
   (:require [clojure.string  :as str]
             [re-frame.error   :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.http.json :as rf.http.json]))
 
 (defn content-type-of
@@ -187,10 +188,11 @@
   (when (and (nil? @malli-decode-fn) (nil? @malli-validate-fn))
     (rf.error/throw-error!
       :rf.error/schemas-artefact-missing :rf.http/managed
-      (str "the request's `:decode` is a Malli schema, but malli.core is not "
-           "loaded, so the response body could not be validated; add "
-           "day8/re-frame2-schemas to deps and require re-frame.schemas at app "
-           "boot (on CLJS a namespace in the build must require Malli).")
+      (let [{maven :maven require-ns :require} (:schemas rf.features/feature-registry)]
+        (str "the request's `:decode` is a Malli schema, but malli.core is not "
+             "loaded, so the response body could not be validated; add "
+             maven " to deps and require " require-ns " at app boot (on CLJS a "
+             "namespace in the build must require Malli)."))
       {:extra {:schema schema}})))
 
 (defn- malli-decode

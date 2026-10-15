@@ -32,6 +32,7 @@
   the work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
   (:require [re-frame.error :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -173,8 +174,7 @@
   (when-not (rf.late-bind/get-fn :http/abort-on-actor-destroy)
     (rf.error/throw-error!
       :rf.error/http-artefact-missing 're-frame.resources.transport.http/lower
-      (str "an HTTP-backed resource read requires "
-           "day8/re-frame2-http on the classpath; "
-           "add it to deps and require "
-           "re-frame.http.managed at app boot.")))
+      (let [{maven :maven require-ns :require} (:http rf.features/feature-registry)]
+        (str "an HTTP-backed resource read requires " maven " on the classpath; "
+             "add it to deps and require " require-ns " at app boot."))))
   [managed-http-fx (build-managed-args ensure-ctx)])

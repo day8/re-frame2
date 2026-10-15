@@ -82,19 +82,20 @@
   One click, one semantic event — the navigation, or the app intent that
   cancelled it. See intent.cljs, `navigate-head` and `navigate-handler`,
   for the click-time half."
-  (:require [re-frame.fresco.impl.error :refer [fail!]]
+  (:require [re-frame.features :as rf.features]
+            [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.late-bind :as rf.late-bind]))
 
 (def ^:private routing-artefact
   "The optional-artefact identity the fail-loud missing-hook error
   reports, carried here so the diagnostic names the missing artefact AT
-  THE LINK SITE. Every link surface that consumes the seam keeps its own
-  private copy of this map, for the same reason — see HD-027's prior-art
-  ledger in docs/design/fresco/decisions.md for the roster."
-  {:error-keyword :rf.error/routing-artefact-missing
-   :maven         "day8/re-frame2-routing"
-   :require-ns    "re-frame.routing"})
+  THE LINK SITE. The coordinate and require namespace come from routing's
+  `re-frame.features/feature-registry` row, the one place each is written."
+  (let [{maven :maven require-ns :require} (:routing rf.features/feature-registry)]
+    {:error-keyword :rf.error/routing-artefact-missing
+     :maven         maven
+     :require-ns    require-ns}))
 
 ;; `fail!` is `re-frame.fresco.impl.error`'s — one constructor for the whole
 ;; package, and the ambient view and source coordinate come with it.

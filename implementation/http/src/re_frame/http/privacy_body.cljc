@@ -80,6 +80,7 @@
   production builds the trace surface elides entirely and no body walk runs."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.error :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.classification :as rf.classification]
             [re-frame.privacy :as rf.privacy]))
 
@@ -227,12 +228,14 @@
                       (rf.error/throw-error!
                         :rf.error/schemas-artefact-missing
                         'rf.http/classify-response-body
-                        (str "the request's `:decode` schema declares a `:sensitive?` / "
-                             "`:large?` per-slot mark, but the shared schema walker hook "
-                             hook " is unbound, so the response body cannot be classified "
-                             "and the marked slot would ride the trace unredacted; add "
-                             "day8/re-frame2-schemas to deps and require re-frame.schemas "
-                             "at app boot (a test namespace requires it directly).")
+                        (let [{maven :maven require-ns :require}
+                              (:schemas rf.features/feature-registry)]
+                          (str "the request's `:decode` schema declares a `:sensitive?` / "
+                               "`:large?` per-slot mark, but the shared schema walker hook "
+                               hook " is unbound, so the response body cannot be classified "
+                               "and the marked slot would ride the trace unredacted; add "
+                               maven " to deps and require " require-ns " at app boot (a "
+                               "test namespace requires it directly)."))
                         {:extra {:hook hook :schema schema}}))]
       (or (extract schema []) {}))
     {}))
