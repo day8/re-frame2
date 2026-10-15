@@ -98,7 +98,8 @@
   by a later event without violating token uniqueness.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.frame :as rf.frame]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]))
 
 ;; ---- host-side process-global transient cache -----------------------------
 
@@ -183,17 +184,11 @@
   "Metadata for the `:rf.route/nav-allocation` cofx registration: a
   RECORDABLE generator-backed allocation of a fresh nav-token.
 
-  Carries a `:schema` (EP-0017 §5): the generator produces
-  `{:token \"nav-N\" :counter N}` and the commit handler folds `:token`
-  into the durable route slice + rides `:counter` on the host high-water
-  bump fx, so a supplied/replayed value MUST be shape-validated. Without
-  the schema, `validate-recordable-value!` is a no-op and a malformed-but-
-  present replayed fact (e.g. `{:token nil :counter \"bad\"}`) is delivered
-  as trusted — a nil/wrong nav-token then corrupts stale-suppression and
-  the host counter bump silently no-ops. The schema makes such a fact fail
-  loudly with `:rf.error/cofx-value-invalid` BEFORE it reaches the handler."
+  It declares no `:schema`, so routing runs without the schemas artefact.
+  The `{:token \"nav-N\" :counter N}` shape is checked always-on by
+  `check-allocations!`, which every nav handler declaring this cofx calls
+  on entry."
   {:recordable? true
-   :schema [:map [:token :string] [:counter :int]]
    :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
 minted at processing-start from the host nav-token
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
@@ -223,17 +218,10 @@ Recorded so record+replay re-presents the same nav-token verbatim
   RECORDABLE generator-backed allocation of a fresh pending-nav id. A
   DISTINCT allocator from `:rf.route/nav-allocation`.
 
-  Carries a `:schema` (EP-0017 §5): the generator produces
-  `{:id \"pn-N\" :counter N}` and the can-leave block handler folds `:id`
-  into the durable pending-navigation slot + rides `:counter` on the host
-  high-water bump fx, so a supplied/replayed value MUST be shape-validated.
-  Without the schema, a malformed-but-present replayed fact (e.g.
-  `{:id nil :counter nil}`) is delivered as trusted — a nil pending-nav id
-  then makes a recorded `[:rf.route/continue \"pn-N\"]` no-op (the
-  navigation stays blocked forever). The schema makes such a fact fail
-  loudly with `:rf.error/cofx-value-invalid` BEFORE it reaches the handler."
+  Like `nav-allocation-cofx-meta` it declares no `:schema`; the
+  `{:id \"pn-N\" :counter N}` shape is checked always-on by
+  `check-allocations!`."
   {:recordable? true
-   :schema [:map [:id :string] [:counter :int]]
    :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
 minted at processing-start from the host pending-nav
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
@@ -254,6 +242,49 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
   []
   (let [[n id] (next-pending-nav-id (counter-snapshot))]
     {:id id :counter n}))
+
+;; ---- the always-on allocation shape check ---------------------------------
+;;
+;; The cofx machinery delivers a supplied or replayed allocation as recorded,
+;; checking only that it is EDN, so the nav handlers check both shapes
+;; themselves before anything folds. A malformed fact would otherwise be
+;; trusted: a nil nav-token in the route slice corrupts stale-suppression and
+;; silently no-ops the host counter bump, and a nil pending-nav id leaves a
+;; recorded `[:rf.route/continue "pn-N"]` matching nothing, so the navigation
+;; stays blocked forever. Plain predicates rather than a cofx `:schema`, so
+;; the check runs in every build with or without the schemas artefact.
+
+(defn- nav-allocation?
+  [v]
+  (and (map? v) (string? (:token v)) (int? (:counter v))))
+
+(defn- pending-nav-allocation?
+  [v]
+  (and (map? v) (string? (:id v)) (int? (:counter v))))
+
+(defn- refuse-allocation!
+  [cofx-id shape value]
+  (rf.error/throw-error!
+    :rf.error/cofx-value-invalid 'rf/reg-cofx
+    (str "Recordable coeffect `" cofx-id "` must be " shape ". A malformed "
+         "supplied or replayed allocation is refused before it folds into "
+         "the route state.")
+    {:extra {:rf.cofx/id cofx-id :value value}}))
+
+(defn check-allocations!
+  "Throw `:rf.error/cofx-value-invalid` unless `nav-allocation` is
+  `{:token string :counter int}` and `pending-nav-allocation` is
+  `{:id string :counter int}`. Every nav handler that declares the two
+  allocation cofx calls this on entry, so the handler never runs on a
+  malformed allocation, whether generated, supplied or replayed. Returns nil."
+  [nav-allocation pending-nav-allocation]
+  (when-not (nav-allocation? nav-allocation)
+    (refuse-allocation! :rf.route/nav-allocation
+                        "`{:token string :counter int}`" nav-allocation))
+  (when-not (pending-nav-allocation? pending-nav-allocation)
+    (refuse-allocation! :rf.route/pending-nav-allocation
+                        "`{:id string :counter int}`" pending-nav-allocation))
+  nil)
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
 

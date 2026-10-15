@@ -1772,9 +1772,11 @@
 
 (def generation-allocation-cofx-meta
   "Metadata for the `:rf.resource/generation-allocation` cofx registration —
-  a GENERATOR-BACKED recordable allocation (EP-0017 §5)."
+  a GENERATOR-BACKED recordable allocation (EP-0017 §5). It declares no
+  `:schema`, so resources run without the schemas artefact; the
+  `{:generation N :counter N}` shape is checked always-on by
+  `check-generation-allocation!`."
   {:recordable? true
-   :schema [:map [:generation :int] [:counter :int]]
    :doc "The recordable generation allocation for the active frame's resource
 /mutation work: `{:generation N :counter N}`, minted at processing-start from
 the host-side monotone high-water allocator (`generation-cache`) and recorded
@@ -1809,6 +1811,29 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
   []
   (let [n (next-generation (generation-snapshot))]
     {:generation n :counter n}))
+
+(defn- generation-allocation?
+  [v]
+  (and (map? v) (int? (:generation v)) (int? (:counter v))))
+
+(defn check-generation-allocation!
+  "Throw `:rf.error/cofx-value-invalid` unless `allocation` is
+  `{:generation int :counter int}`. The cofx machinery delivers a supplied
+  or replayed allocation as recorded, so every handler that declares it
+  calls this on entry: a nil generation would otherwise become the entry's
+  join key and the work-id's generation, and silently no-op the high-water
+  bump. A plain predicate rather than a cofx `:schema`, so the check runs
+  in every build with or without the schemas artefact. Returns nil."
+  [allocation]
+  (when-not (generation-allocation? allocation)
+    (rf.error/throw-error!
+      :rf.error/cofx-value-invalid 'rf/reg-cofx
+      (str "Recordable coeffect `:rf.resource/generation-allocation` must be "
+           "`{:generation int :counter int}`. A malformed supplied or replayed "
+           "allocation is refused before it folds into resource state.")
+      {:extra {:rf.cofx/id :rf.resource/generation-allocation
+               :value      allocation}}))
+  nil)
 
 (def commit-generation-meta
   "Metadata for the `:rf.resource/commit-generation` fx registration. The

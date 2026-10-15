@@ -94,15 +94,13 @@
   prior bundle.
 
   The stub is process-global, so while it is installed EVERY
-  schema-validating boundary uses it — including the routing recordable
-  allocation cofx, whose `:schema` is a real Malli VECTOR
-  (`[:map [:token :string] [:counter :int]]`). A Malli vector is not a
-  callable predicate (and although a vector IS `ifn?` — it implements IFn
-  for index lookup — calling it as `(schema value)` throws for a
+  schema-validating boundary uses it — including any real Malli VECTOR
+  schema another registration on the path declares. A Malli vector is not
+  a callable predicate (and although a vector IS `ifn?` — it implements
+  IFn for index lookup — calling it as `(schema value)` throws for a
   non-integer `value`), so a naive call would throw and the fail-closed
   `validate-with-registered-fn` would coerce that to a FALSE, spuriously
-  rejecting the well-formed generated nav-allocation during an unrelated
-  param-validation test. The stub therefore only adjudicates ACTUAL fn
+  rejecting a well-formed value during an unrelated param-validation test. The stub therefore only adjudicates ACTUAL fn
   schemas (`fn?` — the predicate schemas these tests install) and PASSES
   any other (Malli vector / map) schema. The explainer is symmetric."
   []
