@@ -248,13 +248,13 @@ A `:feature.resource/retry` event reads `:attempt` from the slice and decides wh
 
 Per [011-SSR.md](011-SSR.md):
 
-- The `:http` fx is `:platforms #{:server :client}` — fires identically on both. The server-side implementation reads via the JVM HTTP client; the client-side via `fetch`.
+- An app-registered HTTP fx, such as [Pattern-AsyncEffect](Pattern-AsyncEffect.md#worked-example--http)'s illustrative `:http`, is `:platforms #{:server :client}` — fires identically on both. The server-side implementation reads via the JVM HTTP client; the client-side via `fetch`.
 - Server-side: the frame's `:initial-events` dispatch `:articles/load` (or equivalent); the drain settles before render-to-string runs; the rendered HTML reflects the loaded data.
 - Client-side hydration: `:rf/hydrate` seeds the slice with `:status :loaded` and the server-loaded data. The client doesn't re-fetch on first render; subsequent navigations trigger fresh `:load` events as normal.
 
 ## What this pattern doesn't say
 
-- **Which HTTP library to use.** The framework's `:http` fx is whatever the host registers. CLJS reference might use `cljs-http` or `js/fetch`; Python a `requests` wrapper; TS native `fetch`.
+- **Which HTTP library to use.** An app-registered HTTP fx such as Pattern-AsyncEffect's illustrative `:http` wraps whatever library the host chooses. A CLJS app might use `cljs-http` or `js/fetch`; Python a `requests` wrapper; TS native `fetch`.
 - **Authentication header injection.** Application concern; typically a cofx that injects the current session token, plus an interceptor that adds the header to outgoing `:http` calls.
 - **Caching policy.** A feature decides how stale `:loaded-at` may be before re-fetching. The pattern provides the timestamp; the policy is application code.
 - **Pagination / infinite scroll.** A feature with paginated data uses multiple slices (one per page) or a single slice with a list-of-pages structure. Convention silent here — implementation choice.
@@ -276,6 +276,6 @@ A remote-data implementation conforms to this convention when:
 - Slice is `reg-app-schema`-bound (dynamic hosts) or typed (static hosts). The two are not equivalent guarantees: a static host's type checks at compile time and holds in every build, while `reg-app-schema` arms a development-time assertion that is elided from production ([010 §Production builds](010-Schemas.md#production-builds)). An invariant this slice must actually maintain in production belongs in the lifecycle handlers.
 - The three required lifecycle events (load / loaded / load-failed) are registered, each with `:doc`. The fourth, `reset`, is optional — register it where the feature needs to clear the slice.
 - At least three subs (`:status`, `:data`, `:loading?`) per resource.
-- The `:http` fx (or equivalent) has `:platforms` set so SSR works.
+- The app-registered HTTP fx (Pattern-AsyncEffect's illustrative `:http`, or equivalent) has `:platforms` set so SSR works.
 - Views render explicitly on `:loading?` / `:error` / loaded-data.
 - Optimistic-update events capture the prior value in the rollback dispatch.
