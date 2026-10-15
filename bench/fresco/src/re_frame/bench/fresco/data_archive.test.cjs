@@ -1,29 +1,5 @@
 'use strict';
-// THE ARCHIVE BOUNDARY, HELD TO ITS TWO PROMISES.
-//
-// Run it:
-//     node src/re_frame/bench/fresco/data_archive.test.cjs
-//
-// The corpus lives outside the working tree, at a commit older than the rename
-// that gave this tree its name, and BOTH things it fixes about itself — the
-// path it sits at, and the vocabulary its records are written in — are beyond
-// the reach of any commit on main. Renaming the pointer at both while the
-// target stays where it is ships two failures green:
-//
-//   1. The advertised restore command names a path that does not exist in the
-//      archived commit and exits 1. Nothing runs it, so nothing says so.
-//   2. Readers addressing the native arm by its current spelling match
-//      nothing in an archived record — not a crash, a smaller population and a
-//      different median.
-//
-// So there are two checks here and they are deliberately of different kinds.
-// The FIRST validates the COMMAND and must run even with the corpus absent,
-// because that is the state every clone is in — it is the check that catches
-// (1) in a lane with no CI. The SECOND validates the READ and is
-// corpus-backed, so it skips with the lane's one printed line when `data/` is
-// not there. Its expectations are the population the reader saw BEFORE the
-// rename, so a repair that quietly recalculates over half the cells fails here
-// rather than publishing a plausible number.
+// The archive path and vocabulary are immutable; restore and CLI readers must honor both.
 
 const assert = require('node:assert');
 const cp = require('node:child_process');
