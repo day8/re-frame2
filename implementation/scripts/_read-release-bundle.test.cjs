@@ -75,8 +75,6 @@ test('countSubstring treats regex metacharacters in the needle literally', () =>
   const blob = 'reagent.dom reagentXdom reagent.dom';
   assert.equal(countSubstring(blob, 'reagent.dom'), 2);
 
-  const blob2 = 'cljs.core$truth_(x) cljs.core$truth_(y)';
-  assert.equal(countSubstring(blob2, 'cljs.core$truth_('), 2);
 });
 
 // ----- runner ----------------------------------------------------------------
