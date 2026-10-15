@@ -17,8 +17,10 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.routing :as rf.routing]
+            [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
@@ -104,3 +106,65 @@
                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))
       (is (= :probe/page (:route-id (rf.routing/match-url "/page")))
           "outside a frame the registrar's latest registration still matches"))))
+
+(def ^:private query-secret "AUDIT_SECRET_7")
+(def ^:private path-secret "PATH_SECRET_9")
+
+(defn- register-sensitive-routes-in!
+  "Register, from the namespace `ns-sym`, `:probe/page` declaring its `ticket`
+  query value sensitive and `:probe/reset` declaring its `token` path param
+  sensitive."
+  [ns-sym]
+  (eval-in-ns ns-sym '(rf/reg-route :probe/page {:sensitive [[:query :ticket]]} "/page"))
+  (eval-in-ns ns-sym '(rf/reg-route :probe/reset {:sensitive [[:params :token]]} "/reset/:token")))
+
+(defn- project-in-frame
+  "`url` as `:probe/frame`'s egress projection sees it."
+  [url]
+  (rf.live-frame/call-with-frame-resolution
+    :probe/frame #(rf.routing.resolve/redact-declared-url url)))
+
+(defn- navigate-tracing!
+  "Dispatch `[:rf.route/handle-url-change url]` into `:probe/frame`, returning
+  every trace it emits."
+  [url]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::traces #(swap! traces conj %))
+    (try
+      (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame :probe/frame})
+      (finally (rf/unregister-listener! :trace ::traces)))
+    @traces))
+
+(deftest an-ambiguous-route-url-fails-closed-to-a-redacted-form
+  ;; An ambiguous route has no one `:sensitive` declaration to project its URL
+  ;; by, so the URL the error record and the traces carry is redacted as though
+  ;; the route declared its whole projection: every value its pattern captures,
+  ;; every query value and the fragment.
+  (with-recorded-errors
+    (fn [seen]
+      (let [query-url (str "/page?ticket=" query-secret "&plain=visible")
+            path-url  (str "/reset/" path-secret "?plain=visible")]
+        (register-sensitive-routes-in! 'probe.routes-a)
+        (rf/make-frame {:id :probe/frame})
+        (is (= ["/page?ticket=rf/redacted&plain=visible"
+                "/reset/rf%2Fredacted?plain=visible"]
+               (mapv project-in-frame [query-url path-url]))
+            "control: an unambiguous route redacts its declared value and keeps ordinary URL data")
+        (register-sensitive-routes-in! 'probe.routes-b)
+        (doseq [[url projected] [[query-url "/page?ticket=rf/redacted&plain=rf/redacted"]
+                                 [path-url  "/reset/rf%2Fredacted?plain=rf/redacted"]]]
+          (reset! seen [])
+          (let [traces               (navigate-tracing! url)
+                [record :as records] (ambiguities @seen)]
+            (is (= :rf.route/not-found (current-route-id :probe/frame))
+                "the navigation still fails closed")
+            (is (= 1 (count records)) "exactly one ambiguity report")
+            (is (= [:rf.route/handle-url-change projected] (:event record))
+                "the always-on record carries the URL redacted")
+            (is (not-any? #(str/includes? (pr-str @seen) %) [query-secret path-secret])
+                "no always-on record carries a declared secret")
+            (when rf.interop/debug-enabled?
+              (is (some #(= :rf.error/ambiguous-registration (:operation %)) traces)
+                  "control: the trace window carries the ambiguity")
+              (is (not-any? #(str/includes? (pr-str traces) %) [query-secret path-secret])
+                  "no trace the navigation emits carries a declared secret"))))))))
