@@ -1,19 +1,5 @@
 (ns re-frame.bench.fresco.walk-profile-control-cljs-test
-  "THE WALK PROFILE'S POSITIVE CONTROL MUST REFUSE.
-
-  `walk_profile_app`'s control sets `window.FRESCO_CONTROL_FAILED`, which
-  makes `run.cjs`'s control exit path live for this arm. A browser proof of
-  that costs an `:advanced` build and a Chromium run, so the RULE is pinned
-  here over synthetic readings.
-
-  [[strict-rule-beats-overlap]] carries the design: the control asks
-  whether EVERY ROUND clears the bar, where `lane/control-verdict` asks
-  whether the range OVERLAPS it (`lane_control_strict_cljs_test` states
-  which instruments take which rule). The other rows pin the mode no
-  mutation of the measured arm can reach: the bar is
-  `n-tags x (fresh - hit)` less slack, so converged or inverted primitives
-  put it at or below zero, where every reading clears it — and the tag
-  cache having stopped mattering is exactly the case the row exists for."
+  "Walk controls require every round to clear a stated prediction over the correct population."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.fresco.walk-profile-app :as rf.bench.fresco.walk-profile-app]))
