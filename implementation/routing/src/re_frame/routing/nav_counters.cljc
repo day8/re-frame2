@@ -272,18 +272,27 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
     {:extra {:rf.cofx/id cofx-id :value value}}))
 
 (defn check-allocations!
-  "Throw `:rf.error/cofx-value-invalid` unless `nav-allocation` is
-  `{:token string :counter int}` and `pending-nav-allocation` is
+  "Throw `:rf.error/cofx-value-invalid` unless each allocation `coeffects`
+  carries has its shape: `:rf.route/nav-allocation` is
+  `{:token string :counter int}` and `:rf.route/pending-nav-allocation` is
   `{:id string :counter int}`. Every nav handler that declares the two
-  allocation cofx calls this on entry, so the handler never runs on a
-  malformed allocation, whether generated, supplied or replayed. Returns nil."
-  [nav-allocation pending-nav-allocation]
-  (when-not (nav-allocation? nav-allocation)
+  allocation cofx calls this on entry. The router delivers every declared
+  fact, so a handler it runs carries both and never runs on a malformed one,
+  whether generated, supplied or replayed. A coeffects map without an
+  allocation, as when a handler is called directly, is not graded, exactly
+  as no delivery-time check reaches it. Returns nil."
+  [coeffects]
+  (when (and (contains? coeffects :rf.route/nav-allocation)
+             (not (nav-allocation? (:rf.route/nav-allocation coeffects))))
     (refuse-allocation! :rf.route/nav-allocation
-                        "`{:token string :counter int}`" nav-allocation))
-  (when-not (pending-nav-allocation? pending-nav-allocation)
+                        "`{:token string :counter int}`"
+                        (:rf.route/nav-allocation coeffects)))
+  (when (and (contains? coeffects :rf.route/pending-nav-allocation)
+             (not (pending-nav-allocation?
+                    (:rf.route/pending-nav-allocation coeffects))))
     (refuse-allocation! :rf.route/pending-nav-allocation
-                        "`{:id string :counter int}`" pending-nav-allocation))
+                        "`{:id string :counter int}`"
+                        (:rf.route/pending-nav-allocation coeffects)))
   nil)
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------

@@ -1355,11 +1355,11 @@
   Returns the effects map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db}
+    time-ms :rf/time-ms, app-db :db, :as coeffects}
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! gen-allocation)
+        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.mutation-registry/require-mutation-spec! mutation where)
         ;; Thread `:params` presence (absent vs explicit nil) to
         ;; the validation boundary: an absent slot defaults to `{}` there, an
