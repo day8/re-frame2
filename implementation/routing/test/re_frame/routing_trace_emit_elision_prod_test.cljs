@@ -28,7 +28,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.schemas :as rf.schemas]
             [re-frame.test-support :as rf.test-support]
             ;; Touch the routing namespace directly so its ns body
             ;; (including the gated `trace/emit!` call sites) is in
@@ -39,31 +38,9 @@
             ;; The listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; The routing entry point exercised below runs the RECORDABLE
-;; `:rf.route/nav-allocation` cofx generator, whose registration declares a
-;; real Malli `:schema` (`[:map [:token :string] [:counter :int]]`). That
-;; `:schema` check is ALWAYS-ON (it validates durable causal-token state in
-;; prod as well as dev — Spec 009 `:rf.error/cofx-value-invalid` row) and
-;; routes through the registered `set-schema-fns!` seam. Under the
-;; SHARED `:browser-test-prod-elision` bundle `re-frame.schemas` is loaded,
-;; installing the default Malli validator — but Malli's validation BODY is
-;; production-elided (Closure DCE under `goog.DEBUG=false`, Spec 010
-;; §Production builds: "the validator fn must be production-elidable"), so a
-;; well-formed `{:token "nav-1" :counter 1}` is spuriously REJECTED in the
-;; prod bundle. Disable the schema validator for this suite (a nil validator
-;; is a documented no-op for the recordable check) so the generator runs and
-;; the trace-elision contract under test is exercised cleanly. Snapshot +
-;; restore so the suite leaves no cross-test residue.
-(defn- disable-schema-validation-fixture [f]
-  (let [snapshot (rf.schemas/schema-fns)]
-    (rf.schemas/set-schema-fns! {:validate nil})
-    (try (f)
-         (finally (rf.schemas/set-schema-fns! snapshot)))))
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter})
-  disable-schema-validation-fixture)
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- listener-fixture
   "Install a recording trace listener, run `body-fn`, and return the
