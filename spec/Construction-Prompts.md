@@ -1005,12 +1005,14 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 (rf/reg-event :rf/server-init
   {:doc "Server-side per-request init. Runs setup events from the request context."}
   (fn handler-rf-server-init [{:keys [db]} [_ request]]
-    {:db (assoc db
-                :session (:session request)
-                :route   (parse-url (:uri request) routes))
-     :fx [[:http {:method :get :url "/api/auth/me" :on-success [:auth/me-loaded]}]
-          ;; ... feature-specific data fetches
-          ]}))
+    (let [{:keys [uri query-string]} request
+          url (cond-> uri query-string (str "?" query-string))]   ;; Ring keeps the query out of :uri
+      {:db (assoc db
+                  :session (:session request)
+                  :route   (parse-url url routes))
+       :fx [[:http {:method :get :url "/api/auth/me" :on-success [:auth/me-loaded]}]
+            ;; ... feature-specific data fetches
+            ]})))
 ```
 
 The drain settles before `with-new-frame` returns; the final state is captured.
