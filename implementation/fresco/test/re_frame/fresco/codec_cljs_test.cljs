@@ -1,12 +1,5 @@
 (ns re-frame.fresco.codec-cljs-test
-  "THE HICCUP CODEC, tested at the element.
-
-  Every assertion here reads a React element's `type`, `props` and `key`
-  rather than rendered DOM. That is the right altitude for a codec and it
-  is also the cheap one: the question this file answers is *what did the
-  codec build*, and a mounted tree would answer it through two more
-  layers that have their own opinions. What React then does with these
-  elements is the arms' browser witness set, not this file's."
+  "Hiccup lowering preserves React's prop contracts and refuses invalid heads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
@@ -491,7 +484,6 @@
             would simply be wrong."
     (let [crossed (host-prop :class ["a" nil :b] "className")
           native  (prop (rf.fresco.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")]
-
       (is (= "a b" crossed))
       (is (= native crossed)
           "and it is the SAME answer the native walk gives — the rule for
@@ -787,7 +779,6 @@
       (let [!seen (atom [])
             f     (rf.fresco.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
                                      (fn [] (raw-prop :on-pick [:row/pick 7] "onPick")))]
-
         (f #js {:target #js {}})
         (is (= [[:row/pick 7]] @!seen))))
     (testing "and so does an event-spelled key-map"
