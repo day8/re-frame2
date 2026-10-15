@@ -62,7 +62,11 @@ failure as setup. A rejection-interaction test puts them in its script:
                         [:login/submit {:email "ada@example.com"
                                         :password "wrong"}]]]
             [:assert [:rf.assert/state-is :login/flow :submitting]]
-            [:dispatch [:login/flow [:login/failure {:failure {:status 401}}]]]
+            [:dispatch [:login/flow [:login/failure
+                                     {:status :error
+                                      :error  {:kind    :rf.http/http-4xx
+                                               :status  401
+                                               :message "Invalid credentials."}}]]]
             [:assert [:rf.assert/state-is :login/flow :error]]]
    :tags #{:dev :test}})
 ```
