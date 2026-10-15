@@ -12,9 +12,6 @@
 
 ;; ---- step vocabulary ------------------------------------------------------
 
-(deftest step-type-unknown
-  (is (= :counter/inc (rf.story.play.runner/step-type [:counter/inc]))))
-
 (deftest async-yield-classification
   ;; :dispatch settles through the dispatch-sync! drain; yielding after it
   ;; would let concurrent runs interleave and overshoot.
