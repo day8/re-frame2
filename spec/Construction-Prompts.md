@@ -979,10 +979,13 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
       (let [final-db (rf/app-db-value f)
             hiccup   ((rf/view :app/root))                ;; the registered root view
             html     (ssr/render-to-string hiccup {:frame f})
-            payload  {:rf/version "1.0"
-                      :rf/frame-id frame-id
-                      :rf/app-db   final-db
-                      :rf/render-hash (hash hiccup)}]
+            payload  (payload-policy/build-payload        ;; re-frame.ssr.payload-policy; stamps the integer :rf/version
+                       nil                                ;; omits :rf/frame-id; never stamp the per-request id
+                       final-db                           ;; all of app-db (011: prefer an allowlist)
+                       (ssr/render-tree-hash hiccup)      ;; :rf/render-hash, which the client recomputes
+                       {:runtime-db (payload-policy/project-runtime-db   ;; the route and machine snapshots
+                                      (:rf.db/runtime (rf/frame-state-value frame-id))
+                                      frame-id)})]
         {:status 200
          :headers {"Content-Type" "text/html"}
          :body (page-template html (pr-str payload))}))))
@@ -1050,7 +1053,7 @@ The drain settles before `with-new-frame` returns; the final state is captured.
 - Per-request frame is created and destroyed within `with-new-frame`.
 - All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
-- Hydration payload includes `:rf/version`, `:rf/frame-id`, `:rf/app-db`, optional `:rf/render-hash`.
+- Hydration payload is built by `build-payload`: integer `:rf/version`, `:rf/app-db`, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from `render-tree-hash`, and no per-request `:rf/frame-id`.
 - Client `[:rf/hydrate ...]` event seeds before first render.
 - First-client-render hash matches server hash (test in dev with mismatch detection on).
 - Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
