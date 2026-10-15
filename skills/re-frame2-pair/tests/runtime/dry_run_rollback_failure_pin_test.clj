@@ -20,8 +20,7 @@
         (apply hash-map (drop 2 else))))))
 
 (deftest failed-rollback-reports-ok-false
-  (let [form (rt/defn-named 'dispatch-dry-run)
-        else (else-arm-of-if-rolled-back form)]
+  (let [else (else-arm-of-if-rolled-back (rt/defn-named 'dispatch-dry-run))]
     (is (= [false :rollback-failed] ((juxt :ok? :reason) else))
         "the not-rolled-back arm must return :ok? false :reason :rollback-failed")))
 
