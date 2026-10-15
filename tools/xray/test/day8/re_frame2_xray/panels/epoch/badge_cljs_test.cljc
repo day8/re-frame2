@@ -18,8 +18,7 @@
 
 (deftest numbered-cascade-geometry-test
   (testing "the geometry constants exposed for the view are the ones the spec commits to"
-    (is (= 13  badge/vertical-line-offset-px))
-    (is (= -34 badge/line-left-offset-px))))
+    (is (= [13 -34] [badge/vertical-line-offset-px badge/line-left-offset-px]))))
 
 ;; ---- machine-cascade row chrome ----------------------------------------
 
