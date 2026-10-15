@@ -1,11 +1,6 @@
 (ns re-frame.ssr-head-resolution-no-project-test
-  "`:rf.error/ssr-head-resolution-failed` is a recoverable degradation: a
-  throwing `:head` fn degrades to an empty `<head>` and the request still
-  answers 200 (Spec 011 §1070). Both buffering listeners skip the category,
-  so the 200 holds whenever the host settles the response. The dev-bus tests
-  sit in `debug-enabled?` arms because `trace/emit-error!` emits nothing
-  under `-Dre-frame.debug=false`; the always-on test runs in both postures."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  "Recoverable head failures leave the response status intact on both error buses."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
@@ -24,18 +19,13 @@
 
 (deftest dev-path-head-failure-trace-is-not-buffered-or-projected
   (when rf.interop/debug-enabled?
-    (let [f (server-frame)]
-      (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
-                            {:frame f :exception (ex-info "head boom" {}) :recovery :no-recovery})
-      (is (= 200 (:status (:response (rf.ssr/flush-response-result! f))))))))
-
-(deftest dev-path-control-non-head-error-still-projects
-  (testing "the skip is targeted, not a listener that drops everything"
-    (when rf.interop/debug-enabled?
+    (doseq [[category compare-status] [[:rf.error/ssr-head-resolution-failed =]
+                                       [:rf.error/schema-validation-failure not=]]]
       (let [f (server-frame)]
-        (rf.trace/emit-error! :rf.error/schema-validation-failure
-                              {:frame f :exception (ex-info "schema boom" {}) :recovery :no-recovery})
-        (is (not= 200 (:status (:response (rf.ssr/flush-response-result! f)))))))))
+        (rf.trace/emit-error! category {:frame f :exception (ex-info "synthetic" {})
+                                        :recovery :no-recovery})
+        (is (compare-status 200 (:status (:response (rf.ssr/flush-response-result! f))))
+            (str category))))))
 
 (deftest always-on-path-head-failure-record-is-not-buffered-or-projected
   (let [f (server-frame)]
