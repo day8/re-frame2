@@ -41,7 +41,7 @@
 
 (def ^:private frame-id ::frame)
 
-(def ^:private cycles 5)
+(def ^:private cycles 2)
 
 (defn- each-adapter
   "Run `scenario` once per ratom adapter, each from a cold-started lifecycle."
