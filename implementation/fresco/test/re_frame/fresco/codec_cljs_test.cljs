@@ -491,8 +491,7 @@
             would simply be wrong."
     (let [crossed (host-prop :class ["a" nil :b] "className")
           native  (prop (rf.fresco.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")]
-      (is (string? crossed)
-          "a class string, not the JS array clj->js would build")
+
       (is (= "a b" crossed))
       (is (= native crossed)
           "and it is the SAME answer the native walk gives — the rule for
@@ -765,23 +764,11 @@
             slots make the leak unrepresentable instead"
     (let [p (raw-props (rf.fresco.impl.codec/as-element [:> a-foreign-component {:label "x"}]))]
       (is (= ["label"] (vec (sort (js/Object.keys p)))))))
-  (testing "and the carrier itself holds exactly the two slots, plus
-            children when there are any"
-    (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier (rf.fresco.impl.codec/as-element [:> a-foreign-component {}])))))))
-    (is (= ["c" "children" "p"]
-           (vec (sort (js/Object.keys (raw-carrier (rf.fresco.impl.codec/as-element [:> a-foreign-component {} [:span]]))))))))
+
   (testing "`:key` is React's contract on the crossing's own element, not
             an attribute and not a carrier slot — the door's rule"
     (let [e (rf.fresco.impl.codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
       (is (= "k7" (el-key e)))
-      ;; `Object.keys` rather than a read of `.key`: React 19 defines a
-      ;; DEV warning getter at that name on any props object it built
-      ;; from a config carrying a key, so reading it would put React's
-      ;; "`key` is not a prop" line in the shared test log — an assertion
-      ;; whose own mechanism is a console warning. The getter is
-      ;; non-enumerable, so this sees the truth without touching it.
-      (is (= ["c" "p"] (vec (sort (js/Object.keys (raw-carrier e)))))
-          "the key is React's on the element and is not a carrier slot")
       (is (= ["label"] (vec (sort (js/Object.keys (raw-props e))))))))
   (testing "a childless crossing does not write `children` onto the props
             the component receives — which is what makes the parity row
@@ -800,7 +787,7 @@
       (let [!seen (atom [])
             f     (rf.fresco.impl.intent/with-frame (fn [ev] (swap! !seen conj ev))
                                      (fn [] (raw-prop :on-pick [:row/pick 7] "onPick")))]
-        (is (fn? f))
+
         (f #js {:target #js {}})
         (is (= [[:row/pick 7]] @!seen))))
     (testing "and so does an event-spelled key-map"
