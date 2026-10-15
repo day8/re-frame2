@@ -26,12 +26,13 @@
                              :messages    []}
                      :rf/spawn-counter {}}}}}}
           proj (engine/project {} after)]
-      (is (= :added (engine/op-at proj [:rf.db/runtime :rf.runtime/machines :snapshots
-                                        :ws/connection :data :messages])))
-      (is (= :added (engine/op-at proj [:rf.db/runtime :rf.runtime/machines :snapshots
-                                        :ws/connection :rf/spawn-counter])))
-      (is (= :added (engine/op-at proj [:rf.db/runtime]))
-          "the whole :rf.db/runtime subtree is wholly-:added"))))
+      (is (= [:added :added :added]
+             (mapv #(engine/op-at proj %)
+                   [[:rf.db/runtime :rf.runtime/machines :snapshots
+                     :ws/connection :data :messages]
+                    [:rf.db/runtime :rf.runtime/machines :snapshots
+                     :ws/connection :rf/spawn-counter]
+                    [:rf.db/runtime]]))))))
 
 (deftest empty-collection-leaf-same-container-does-not-inherit
   (testing "an UNCHANGED empty leaf stays `:same`, and its presence does not
