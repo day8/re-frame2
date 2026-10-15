@@ -1,51 +1,5 @@
 (ns re-frame.bench.fresco.arm1.render-measure-cljs-test
-  "SPEC 009's `:render` BUCKET — THE OFF HALF, AND THE ID RULE.
-
-  `defview` boundaries report through Spec 009's Performance
-  channel: [[re-frame.bench.fresco.arm1.runtime/mint-view!]] wraps the
-  component fn React calls in `(rf.performance/mark-and-measure :render
-  view-name …)`, so a build that flips
-  `re-frame.performance/enabled?` gets one `rf:render:<view-id>`
-  User-Timing measure per boundary render.
-
-  This file is the half that runs in an ORDINARY build, where the flag
-  is at its `goog-define` default of `false`. It asserts
-  two things a flag-off build is the only place to assert:
-
-  1. **The ordinary render path is the bare one.** A page of boundaries
-     renders, its markup is the ordinary markup, its bodies ran — and the
-     User-Timing stream is empty. That is the runtime expression of the
-     elision contract (the `:advanced` bundle grep is
-     `scripts/check-perf-bundle.cjs`'s job; a broken DCE would leave the
-     body live and THIS row is the runtime signal).
-  2. **The id rule**, which is a property of the mint and needs no flag:
-     the measure name is `rf:render:` + the head's `displayName`, and
-     `defview` makes that `\"<ns>/<sym>\"`. One identifier serves the
-     measure stream and React DevTools.
-
-  ## The row that stops row 1 being vacuous
-
-  \"No `rf:` measures landed\" is trivially true of a page that never
-  rendered, so every off-path assertion below is paired with a
-  [[re-frame.bench.fresco.arm1.runtime/body-runs]] delta and a markup
-  assertion. A regression that broke the render would otherwise read as
-  a pass.
-
-  ## Where the ON half lives
-
-  `re-frame.bench.fresco.arm1.render-measure-emit-nightly-test`, which
-  needs a build with both perf goog-defines flipped true — the naming
-  convention core's `re-frame.performance-emit-nightly-test` uses. The
-  emission is witnessed there and the ABSENCE is witnessed here.
-
-  ## Why `renderToString` and not a DOM
-
-  The claim is about the component fn React invokes, and React's server
-  renderer invokes it exactly as the DOM renderer does — the shell's
-  `useSyncExternalStore` answers from its server snapshot
-  ([[re-frame.bench.fresco.ssr.entry]]). That keeps the row headless
-  rather than behind a browser. That a server pass leaves no durable
-  registration is `ssr/entry-cljs-test`'s claim, in this same build."
+  "Render ids match display names; flag-off renders produce real output without measures."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -73,10 +27,8 @@
      :ambient-frame nil
      :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
-;; ---------------------------------------------------------------------------
 ;; The page — two boundaries, so "one measure per boundary" has something
 ;; to be one of
-;; ---------------------------------------------------------------------------
 
 (defview title-row
   "A boundary that reads, so its body is a real body and not a constant."
@@ -91,9 +43,7 @@
    [title-row {}]
    [:p.note "below"]])
 
-;; ---------------------------------------------------------------------------
 ;; Helpers
-;; ---------------------------------------------------------------------------
 
 (defn- rf-measure-names
   "Every retained User-Timing measure whose name starts with `rf:`."
@@ -120,9 +70,7 @@
   (react-dom-server/renderToString
     (rf.bench.fresco.arm1.mount/provider frame-id (rf.bench.fresco.front.codec/root-element frame-id hiccup))))
 
-;; ---------------------------------------------------------------------------
 ;; 1 — the id rule (no flag needed; it is a property of the mint)
-;; ---------------------------------------------------------------------------
 
 (deftest the-render-entry-id-is-the-heads-display-name
   (testing "`defview` stamps `\"<ns>/<sym>\"` as the head's displayName, and
@@ -138,9 +86,7 @@
                    [(.-displayName head) (rf.performance/build-name :render (.-displayName head))])
                  [title-row measured-page])))))
 
-;; ---------------------------------------------------------------------------
 ;; 2 — the off path: the render happens, and nothing is measured
-;; ---------------------------------------------------------------------------
 
 (deftest a-flag-off-build-renders-the-page-and-emits-no-render-measure
   (testing "With `re-frame.performance/enabled?` at its goog-define default
