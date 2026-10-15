@@ -185,30 +185,7 @@
      :unnamed-skips (- (get-in link2 [:skipped :count]) named-skips)}))
 
 (def ^:private operation-matrix
-  "Every `:op-type :rf.sub` operation Spec 009 routes through the
-  projection's `:subs` slot, WITH its `:rf.sub/id` and without it, and what
-  each one is.
-
-  The untagged half is the half a fold testing `(nil? sid)` BEFORE
-  `hh/sub-recompute?` would get wrong: identity loss would decide the
-  classification and every untagged event would become a run. The two
-  untagged non-work rows are therefore the rows this table exists for —
-  such a fold would read an untagged `:rf.sub/skip` as one unnamed run
-  against link 2's one memo hit, and an untagged `:rf.sub/dispose` as one
-  unnamed run against link 2's nothing at all.
-
-  The absolute expectation is written out per row rather than only
-  comparing the two views, because two views wrong the same way agree
-  perfectly. The untagged RUN row is the control that keeps the table from
-  being satisfied by *everything untagged is zero* — it MUST count an
-  unnamed run.
-
-  **The untagged CREATE row is not a second such control**:
-  `:rf.sub/create` is not in `hh/sub-recompute-operations`, so both create
-  rows read all zeros like the dispose rows. The untagged RUN row is
-  therefore the single untagged control, and it is load-bearing: deleting
-  it would make this whole table satisfiable by a fold that counted
-  nothing at all."
+  "Identity loss cannot turn lifecycle events or skips into recomputes."
   [[:rf.sub/run     true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
    [:rf.sub/run     false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
    ;; A REGISTRATION IS NOT A RUN. Spec 009 §199 / §241: emitted at
@@ -234,11 +211,8 @@
             {:keys [advice link2]} (both [[:app/main :a]] windows)
             adv     (advisor-counts (:timing advice))
             l2      (link2-counts link2)]
-        (is (= expected adv)
-            (str "the advisor's fold must classify the OPERATION first — "
-                 "an untagged event is still whatever operation it is"))
-        (is (= expected l2)
-            "and link 2's roster must read the same event the same way")))))
+        (is (= expected adv l2)
+            "both views classify the operation before identity loss")))))
 
 (deftest an-untagged-NON-WORK-event-is-uncorrelated-observation-never-work
   ;; The matrix above proves the counts agree; this proves the advisor
@@ -289,11 +263,9 @@
                                     [(untagged-ev :rf.sub/run)
                                      (sub-ev :a nil :rf.sub/skip)])]}
         {:keys [link2]} (both [[:app/main :a]] windows)]
-    (is (= {:holds :unknown :loss {:reason :uncorrelated :dropped 1}}
-           (select-keys link2 [:holds :loss]))
-        (str "work happened and joins to nothing — never `[]` — and the account "
-             "is one UNNAMED RUN, not the untagged-skip count added to it"))
-    (is (= 1 (get-in link2 [:skipped :count])))))
+    (is (= [{:holds :unknown :loss {:reason :uncorrelated :dropped 1}} 1]
+           [(select-keys link2 [:holds :loss])
+            (get-in link2 [:skipped :count])]))))
 
 (deftest a-window-with-both-runs-and-skips-classifies-on-the-runs
   ;; The memo-only arm fires only when there is no recompute at all: a
@@ -308,6 +280,5 @@
   ;; Oscillation is a fact about the entry cache and holds independently
   ;; of the clock, so it outranks the memo-only arm.
   (let [{:keys [row]} (both [[:app/main :a]] skip-only-window :read-orders 4)]
-    (is (= :read-topology (:owner (:class row))))
-    (is (= :memo-hits-only (:observed (:class row)))
-        "and it still records what the window actually held")))
+    (is (= [:read-topology :memo-hits-only]
+           ((juxt :owner :observed) (:class row))))))
