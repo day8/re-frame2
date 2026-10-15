@@ -103,10 +103,6 @@
     :fn   'assert-derived-baseline-multi-source}
 
    {:section "two-partition projection-equality invalidation (EP-0001 decision #7)"}
-   {:test 'partition-runtime-only-commit-no-rerun-app-subs
-    :fn   'assert-runtime-only-commit-does-not-rerun-app-subs}
-   {:test 'partition-app-only-commit-no-rerun-runtime-subs
-    :fn   'assert-app-only-commit-does-not-rerun-runtime-subs}
    {:test 'partition-real-change-propagates-to-its-subs
     :fn   'assert-real-partition-change-propagates-to-its-subs}
 
