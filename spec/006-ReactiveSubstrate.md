@@ -1712,7 +1712,8 @@ How it differs from the Reagent adapter:
 
 ```clojure
 (ns re-frame.substrate.plain-atom
-  (:require [re-frame.render.hiccup-to-html :as hiccup]))
+  (:require [re-frame.render.hiccup-to-html :as hiccup]
+            [re-frame.subs.cache :as rf.subs.cache]))
 
 (defn make-state-container [initial-value]
   (atom initial-value))                               ;; clojure.core/atom; reactivity via add-watch (see subscribe-container)
@@ -1746,8 +1747,9 @@ How it differs from the Reagent adapter:
   nil)                                                ;; optional fn, returning nil is the spec'd absence
 
 (defn dispose-adapter! []
-  ;; Watch handles are GC'd with their atoms; nothing else to clean up.
-  nil)
+  ;; Watch handles are GC'd with their atoms; every live frame's sub-cache
+  ;; is disposed and emptied (§Adapter disposal lifecycle, step 1).
+  (rf.subs.cache/clear-all-frame-sub-caches!))
 ```
 
 Three design decisions worth naming:
