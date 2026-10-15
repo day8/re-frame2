@@ -1,67 +1,4 @@
 (ns re-frame.fresco.shadow-dom-cljs-test
-  "SHADOW COMPARISON, AND THE PROOF THAT IT CAN REDDEN.
-
-  `hm/shadow!` mounts a reference implementation and a candidate against
-  isolated copies of one seeded frame, drives both with one script, and
-  compares canonical DOM and the intent stream at each checkpoint. This
-  namespace is that door's witness, and it is written the way the door
-  itself tells a consumer to write one: a proved-same pair, and then a
-  **sabotage twin** for every class of difference the comparator claims
-  to see.
-
-  ## The sabotage twins are the point, not the decoration
-
-  A comparator that has never been seen to fail is not evidence. It is
-  the same defect as a census that cannot fail, and controls exactly like
-  these are how such a census is caught. So every green row here has a
-  red row one line away from it:
-
-  | Row | Twin | What the red must NAME |
-  |---|---|---|
-  | the pair is green over three steps | — | `{:status :green :checkpoints 4}` |
-  | — | an intent that drifted | the checkpoint, the step, and both vectors |
-  | — | one attribute that drifted | the checkpoint and the exact node |
-  | — | a step that matched nothing | the selector, and RED rather than green |
-  | one mount driven, the other not | — | `:only-in-reference` |
-  | two selects on the same option | a select showing another option | `:property \"value\"`, at the select |
-  | — | a dirty `checked`, `value`, `indeterminate` | `:property`, at the exact input |
-  | — | a multiple select's other selection | `:property \"selected\"`, at the option |
-
-  The three drifted views differ from [[candidate-row]] by **one form
-  each**, so a red proves the comparator saw that form and not the shape
-  of the view around it.
-
-  ## The last three rows guard a false green
-
-  A reference select at `\"two\"` beside a candidate at `\"one\"`, with
-  identical option markup, is a pair a markup-only comparison calls
-  `{:status :green :checkpoints 1}`. A form control keeps two values and
-  only the DEFAULT is in the bytes — `value` is `defaultValue`, `checked`
-  is `defaultChecked`, an option's `selected` is `defaultSelected` —
-  while the live one is a property no serialiser can reach. So each of
-  those rows proves the SAME two things before it reads a verdict: that
-  the two live pages genuinely differ, and that `ht/canonical-dom` still
-  calls them byte-identical. Without the second half the row would not
-  be about the defect at all.
-
-  ## Two frames, and the one slot the comparison is blind at
-
-  Isolation is the harness's whole premise — subscriptions may not reach
-  across frames — and it is also what makes raw equality unfair at one
-  slot: an intent can carry the rendering frame's keyword as ordinary
-  data, and two isolated mounts have two different keywords.
-  `capsule-replay-verdict.md` states that result and names shadow
-  comparison while doing so. [[a-mounts-own-address-normalises]] drives
-  both directions of the remedy: a mount's OWN address normalises, and a
-  FOREIGN one still reddens.
-
-  ## Lane
-
-  Every row that mounts needs a real React DOM and runs under
-  `:browser-test`; in `:node-test` (which compiles this namespace too,
-  `cljs-test$` matching `-dom-cljs-test`) each degrades to a stated skip
-  rather than a false green. The refusal rows mount nothing — shadow!
-  validates its options before it allocates — so they run in both lanes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -70,20 +7,9 @@
             [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]
-            ;; The ONE second view library this namespace names, and only so
-            ;; that [[foreign-title-row]] is a genuinely foreign element type.
-            ;; `hm/shadow!` itself requires none — that is its design.
             [reagent.core :as r]))
 
-;; ---------------------------------------------------------------------------
-;; The application under comparison
-;; ---------------------------------------------------------------------------
-;;
-;; Registered ABOVE `use-fixtures`, deliberately: the reset fixture captures
-;; its source-store baseline when the `use-fixtures` form is EVALUATED and
-;; restores it before every row, so a registration written below it is erased
-;; before the first row runs.
-
+;; Register above the fixture, which snapshots the source store when defined.
 (rf/reg-sub :fresco.shadow/title (fn [db _] (:title db)))
 (rf/reg-sub :fresco.shadow/editing? (fn [db _] (:editing? db)))
 (rf/reg-sub :fresco.shadow/saved (fn [db _] (:saved db)))
@@ -96,44 +22,23 @@
 
 (rf/reg-event :fresco.shadow/set-title
               (fn [{:keys [db]} [_ v]] {:db (assoc db :title v)}))
-
-;; The extra argument the drifted twin sends is accepted and ignored, so the
-;; two implementations end in the SAME app-db and the same DOM. That is what
-;; makes the twin a test of the INTENT stream: nothing else about the page
-;; moves, and a comparator reading only the DOM would call the pair identical.
+;; The extra save argument moves only the intent stream, leaving DOM and app-db equal.
 (rf/reg-event :fresco.shadow/save
               (fn [{:keys [db]} _] {:db (assoc db :saved (:title db) :editing? false)}))
-
-;; Written by the address rows only, and read by no view — so the intent
-;; stream moves and the page does not.
 (rf/reg-event :fresco.shadow/noted
               (fn [{:keys [db]} [_ x]] {:db (update db :notes (fnil conj []) x)}))
-
-;; [[select-row]]'s handler. Nothing in this namespace fires it — the live
-;; rows below move a control's state directly, precisely so that the intent
-;; streams stay equal and a red can only be the DOM comparison's.
 (rf/reg-event :fresco.shadow/pick
               (fn [{:keys [db]} [_ v]] {:db (assoc db :picked v)}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
-     ;; No ambient dynamic-var frame stamp: the only thing that may name a
-     ;; frame here is the root each mount sits under, which is the isolation
-     ;; the whole door rests on.
      :ambient-frame nil
      :init-fn       (fn []
-                      ;; React's `act` queue is not the browser's scheduler,
-                      ;; and every reading here is taken outside it.
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       (rf.fresco.impl.collector/reset-runtime!))}))
 
-;; ---------------------------------------------------------------------------
-;; The reference, the candidate, and three twins one form apart
-;; ---------------------------------------------------------------------------
-
 (rf.fresco/defview reference-row
-  "The original: one body, everything read at the top."
   [_]
   (let [title    (rf.fresco/sub [:fresco.shadow/title])
         editing? (rf.fresco/sub [:fresco.shadow/editing?])
@@ -150,9 +55,6 @@
      [:p.saved (str "saved: " (or saved "—"))]]))
 
 (defn- editor-markup
-  "A plain helper called inside the body — a read inside one is a read
-  inside the body, which is half of what the pair proves: two views can
-  be organised differently and mean the same thing."
   [title]
   [:span.editor
    [:input.title {:value       title
@@ -161,8 +63,6 @@
    [:button.save {:on-click [:fresco.shadow/save]} "Save"]])
 
 (rf.fresco/defview candidate-row
-  "The port: the same screen, written differently — reads pushed down
-  into the branches that need them, and the editor lifted into a helper."
   [_]
   [:div.row
    [:h3.title (rf.fresco/sub [:fresco.shadow/title])]
@@ -172,9 +72,6 @@
    [:p.saved (str "saved: " (or (rf.fresco/sub [:fresco.shadow/saved]) "—"))]])
 
 (rf.fresco/defview drifted-intent-row
-  "[[candidate-row]] with ONE form changed: the save button's intent
-  carries an extra argument. The app-db lands in the same place and the
-  page is identical, so only the intent stream can see it."
   [_]
   [:div.row
    [:h3.title (rf.fresco/sub [:fresco.shadow/title])]
@@ -188,9 +85,6 @@
    [:p.saved (str "saved: " (or (rf.fresco/sub [:fresco.shadow/saved]) "—"))]])
 
 (rf.fresco/defview drifted-dom-row
-  "[[candidate-row]] with ONE attribute changed, and inside the branch
-  the first script step opens — so the difference cannot be seen at the
-  mount and the run must actually drive to reach it."
   [_]
   [:div.row
    [:h3.title (rf.fresco/sub [:fresco.shadow/title])]
@@ -203,14 +97,7 @@
      [:button.edit {:on-click [:fresco.shadow/edit]} "Edit"])
    [:p.saved (str "saved: " (or (rf.fresco/sub [:fresco.shadow/saved]) "—"))]])
 
-;; ---------------------------------------------------------------------------
-;; The live-control pair — one prop apart, and not one byte apart
-;; ---------------------------------------------------------------------------
-
 (rf.fresco/defview select-row
-  "A native `<select>` bound to a value. Two mounts of it differ by that
-  ONE prop and by nothing in the markup: React writes a selection by
-  moving `option.selected`, and no content attribute tracks it."
   [{:keys [value]}]
   [:div.pick
    [:select.pick {:value     value
@@ -220,11 +107,6 @@
     [:option {:value "three"} "Three"]]])
 
 (rf.fresco/defview uncontrolled-fields
-  "Three UNCONTROLLED controls — no bound value, no handler, nothing
-  read. Each can be made dirty by hand without dispatching an intent,
-  which is what makes a red here unambiguously the DOM comparison's:
-  bind them and the intent stream would redden first and prove nothing
-  about the page."
   [_]
   [:div.fields
    [:input.flag {:type "checkbox"}]
@@ -234,10 +116,6 @@
     [:option {:value "b"} "B"]
     [:option {:value "c"} "C"]]])
 
-;; ---------------------------------------------------------------------------
-;; The lane
-;; ---------------------------------------------------------------------------
-
 (defn- browser? [] (exists? js/document))
 
 (defn- skip! [why]
@@ -246,8 +124,6 @@
 (def ^:private seed [[:fresco.shadow/seed]])
 
 (def ^:private script
-  "The migration page's own worked script: open the editor, type a new
-  title, save. Three steps, so a green run takes four checkpoints."
   [{:click "button.edit"}
    {:type  ["input.title" "Better title"]}
    {:click "button.save"}])
@@ -259,21 +135,10 @@
                :initial-events seed
                :script         script}))
 
-;; ---------------------------------------------------------------------------
-;; The proved-same pair
-;; ---------------------------------------------------------------------------
-
 (deftest a-proved-same-pair-is-green
   (if-not (browser?)
     (skip! "the pair is two mounted implementations")
-    (is (= {:status :green :checkpoints 4} (run candidate-row))
-        (str "two implementations of one screen, driven by one script through "
-             "three steps, agreed on canonical DOM and on every intent at all "
-             "four checkpoints"))))
-
-;; ---------------------------------------------------------------------------
-;; The sabotage twins
-;; ---------------------------------------------------------------------------
+    (is (= {:status :green :checkpoints 4} (run candidate-row)))))
 
 (deftest a-drifted-intent-names-its-checkpoint-and-both-vectors
   (if-not (browser?)
@@ -287,25 +152,17 @@
                           :index     0
                           :reference [:fresco.shadow/save]
                           :candidate [:fresco.shadow/save :force]}}
-           (run drifted-intent-row))
-        "red at the checkpoint that caused it, naming the intent rather than the page it changed")))
+           (run drifted-intent-row)))))
 
 (deftest a-drifted-attribute-names-the-exact-node
   (if-not (browser?)
     (skip! "an attribute is read off a real element")
     (let [{:keys [difference] :as verdict} (run drifted-dom-row)]
-      (testing "the difference is inside the branch the first step opens"
-        (is (= {:status :red :checkpoint 1 :checkpoints 2 :step {:click "button.edit"}}
-               (dissoc verdict :difference))))
-      (testing "and the report names the node, the attribute and both values"
-        (is (= {:kind      :dom
-                :reason    :attribute
-                :attribute "placeholder"
-                :reference "Title"
-                :candidate "Article title"}
-               (dissoc difference :at :path)))
-        (is (re-find #"input" (:at difference))
-            (str "the path leads to the offending element: " (:at difference)))))))
+      (is (= {:status :red :checkpoint 1 :checkpoints 2 :step {:click "button.edit"}
+              :difference {:kind :dom :reason :attribute :attribute "placeholder"
+                           :reference "Title" :candidate "Article title"}}
+             (update verdict :difference dissoc :at :path)))
+      (is (re-find #"input" (:at difference))))))
 
 (deftest a-step-that-matches-nothing-is-red-and-not-green
   (if-not (browser?)
@@ -321,70 +178,33 @@
            (rf.fresco.test.mounted/shadow! {:reference      [reference-row {}]
                         :candidate      [candidate-row {}]
                         :initial-events seed
-                        :script         [{:click "button.no-such-control"}]}))
-        (str "a checkpoint reached by a step that did not happen has proved "
-             "nothing, and green here means proved"))))
-
-;; ---------------------------------------------------------------------------
-;; The live control state — the false green a markup-only comparison gives
-;; ---------------------------------------------------------------------------
+                        :script         [{:click "button.no-such-control"}]})))))
 
 (defn- markup-of [handle] (rf.fresco.test/canonical-dom (:container handle)))
 
 (deftest a-select-showing-a-different-option-is-not-a-green
   (if-not (browser?)
     (skip! "a selection lives in a real element's properties")
-    (let [s (rf.fresco.test.mounted/shadow! {:reference [select-row {:value "two"}]
-                         :candidate [select-row {:value "one"}]})]
+    (let [s (rf.fresco.test.mounted/shadow!
+              {:reference [select-row {:value "two"}]
+               :candidate [select-row {:value "two"}]})]
       (try
-        (testing "the two pages genuinely show a user different options"
-          (is (= ["two" "one"]
-                 [(.-value (.querySelector (:container (:reference s)) "select.pick"))
-                  (.-value (.querySelector (:container (:candidate s)) "select.pick"))])))
-        (testing "and their markup is byte-identical, which is why markup alone calls it green"
-          (is (= (markup-of (:reference s)) (markup-of (:candidate s)))
-              (str "a selection is written by moving option.selected and no "
-                   "attribute tracks it, so the serialiser sees one page twice")))
-        (testing "the comparator names the select, the slot and both values"
-          (let [{:keys [difference] :as verdict} ((:checkpoint! s))]
-            (is (= {:status :red :checkpoint 0 :checkpoints 1} (dissoc verdict :difference))
-                (str "a markup-only comparison answers {:status :green :checkpoints 1} "
-                     "here: a port could select the wrong "
-                     "option with every byte of markup and every intent agreeing"))
-            (is (= {:kind :dom :reason :property :property "value" :reference "two" :candidate "one"}
-                   (dissoc difference :at :path)))
-            (is (re-find #"select" (:at difference))
-                (str "named at the select rather than at whichever option "
-                     "changed underneath it: " (:at difference)))))
+        (is (= {:status :green :checkpoints 1} ((:checkpoint! s))))
+        (set! (.-value (.querySelector (:container (:candidate s)) "select.pick")) "one")
+        (is (= ["two" "one"]
+               [(.-value (.querySelector (:container (:reference s)) "select.pick"))
+                (.-value (.querySelector (:container (:candidate s)) "select.pick"))]))
+        ;; Equal markup makes this a property-only difference.
+        (is (= (markup-of (:reference s)) (markup-of (:candidate s))))
+        (let [{:keys [difference] :as verdict} ((:checkpoint! s))]
+          (is (= {:status :red :checkpoint 1 :checkpoints 2
+                  :difference {:kind :dom :reason :property :property "value"
+                               :reference "two" :candidate "one"}}
+                 (update verdict :difference dissoc :at :path)))
+          (is (re-find #"select" (:at difference))))
         (finally ((:stop! s)))))))
-
-(deftest two-selects-showing-the-same-option-stay-green
-  (if-not (browser?)
-    (skip! "a selection lives in a real element's properties")
-    (let [s (rf.fresco.test.mounted/shadow! {:reference [select-row {:value "two"}]
-                         :candidate [select-row {:value "two"}]})]
-      (try
-        (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
-            (str "the live-control comparison reports a difference the two "
-                 "pages have; an instrument that reddened a matched pair "
-                 "would be the opposite defect and just as useless"))
-        (finally ((:stop! s)))))))
-
-;; ---------------------------------------------------------------------------
-;; The adjacent slots — so the live comparison is not a `select` special case
-;; ---------------------------------------------------------------------------
-;;
-;; `value` and `checked` go DIRTY under a real user and the attribute stays at
-;; the default the element mounted with; `indeterminate` is never an attribute
-;; at all. Each of these drives the pair apart at exactly one such slot,
-;; touching no attribute and dispatching no intent, and each checks that the
-;; markup is STILL identical afterwards — without which the row would be
-;; asserting something the attribute comparison already catches.
 
 (defn- live-difference
-  "Mount an identical pair, prove the comparator starts green, move one
-  or both sides' live control state with `mutate!`, and answer the next
-  verdict — with `::started-green?` and `::same-markup?` beside it."
   [form mutate!]
   (let [s (rf.fresco.test.mounted/shadow! {:reference form :candidate form})]
     (try
@@ -396,14 +216,8 @@
                                    (markup-of (:candidate s)))))
       (finally ((:stop! s))))))
 
-(defn- is-live-only
-  "Every live-slot row's shared preamble: the pair began indistinguishable
-  and its markup never moved, so the verdict below is about the property
-  and about nothing else."
-  [v]
-  (is (true? (::started-green? v)) "the pair began indistinguishable")
-  (is (true? (::same-markup? v))
-      "and no byte of markup moved — the attributes cannot see this")
+(defn- is-live-only [v]
+  (is (= [true true] [(::started-green? v) (::same-markup? v)]))
   (:difference v))
 
 (defn- pick-options!
@@ -421,7 +235,7 @@
                                    (fn [r _] (.click (.querySelector r "input.flag")))))]
           (is (= {:kind :dom :reason :property :property "checked" :reference true :candidate false}
                  (dissoc d :at :path)))
-          (is (re-find #"input\[0\]" (:at d)) (:at d))))
+          (is (re-find #"input\[0\]" (:at d)))))
 
       (testing "a text field one side typed into"
         (let [d (is-live-only
@@ -431,7 +245,7 @@
                                            "typed"))))]
           (is (= {:kind :dom :reason :property :property "value" :reference "typed" :candidate ""}
                  (dissoc d :at :path)))
-          (is (re-find #"input\[1\]" (:at d)) (:at d))))
+          (is (re-find #"input\[1\]" (:at d)))))
 
       (testing "a checkbox one side left in the third state"
         (let [d (is-live-only
@@ -441,9 +255,7 @@
                                              (.querySelector r "input.flag"))
                                            true))))]
           (is (= {:kind :dom :reason :property :property "indeterminate" :reference true :candidate false}
-                 (dissoc d :at :path))
-              (str "never an attribute in any markup, and the third thing a "
-                   "checkbox can look like on screen"))))
+                 (dissoc d :at :path)))))
 
       (testing "a MULTIPLE select whose value alone cannot tell the two apart"
         (let [d (is-live-only
@@ -452,15 +264,8 @@
                                      (pick-options! r [0 2])
                                      (pick-options! c [0 1]))))]
           (is (= {:kind :dom :reason :property :property "selected" :reference false :candidate true}
-                 (dissoc d :at :path))
-              (str "a multiple select's `value` is only its FIRST selected "
-                   "option, so {a c} and {a b} share one — the option's own "
-                   "selectedness is what separates them"))
-          (is (re-find #"option\[1\]" (:at d)) (:at d)))))))
-
-;; ---------------------------------------------------------------------------
-;; Isolation, and the one slot the comparison is blind at
-;; ---------------------------------------------------------------------------
+                 (dissoc d :at :path)))
+          (is (re-find #"option\[1\]" (:at d))))))))
 
 (deftest each-mount-owns-its-own-frame
   (if-not (browser?)
@@ -469,12 +274,10 @@
                          :candidate      [candidate-row {}]
                          :initial-events seed})]
       (try
-        (is (= :live (:status s)) "no :script means both mounts stay live")
-        (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
-            "checkpoint 0 — the same seed produced the same page twice")
+        (is (= :live (:status s)))
+        (is (= {:status :green :checkpoints 1} ((:checkpoint! s))))
         (rf.fresco.test.mounted/dispatch-and-settle! (:reference s) [:fresco.shadow/edit])
-        (testing "a write on one side does not reach the other, and the
-                  comparator sees the divergence it caused"
+        (testing "dispatch stays within its own mount"
           (is (= {:kind :intent :reason :only-in-reference :index 0 :reference [:fresco.shadow/edit]}
                  (dissoc (:difference ((:checkpoint! s))) :candidate))))
         (finally ((:stop! s)))))))
@@ -492,10 +295,7 @@
                                    [:fresco.shadow/noted (:frame (:reference s))])
           (rf.fresco.test.mounted/dispatch-and-settle! (:candidate s)
                                    [:fresco.shadow/noted (:frame (:candidate s))])
-          (is (= :green (:status ((:checkpoint! s))))
-              (str "two isolated mounts have two frame keywords by construction; "
-                   "an intent carrying its own is an ADDRESS, and comparing it "
-                   "raw would redden every view holding an h/route-link")))
+          (is (= :green (:status ((:checkpoint! s))))))
         (testing "and a FOREIGN address still reddens — the rule is narrow"
           (rf.fresco.test.mounted/dispatch-and-settle! (:reference s) [:fresco.shadow/noted ::alien-a])
           (rf.fresco.test.mounted/dispatch-and-settle! (:candidate s) [:fresco.shadow/noted ::alien-b])
@@ -507,35 +307,15 @@
                  (:difference ((:checkpoint! s))))))
         (finally ((:stop! s)))))))
 
-;; ---------------------------------------------------------------------------
-;; The route the door is FOR: a foreign original as the reference
-;; ---------------------------------------------------------------------------
-;;
-;; Every row above is `h/defview` on BOTH sides, which is the one shape a
-;; migration never has. `hm/shadow!`'s documented route crosses the ORIGINAL in
-;; through the runtime's own `[:> C props]` door, and the row below is the one
-;; that executes that route; without it, a defect on the route — like the
-;; `:article-id` rename the door's own docstring warns about — could only be
-;; found by reading rather than by a red.
-;;
-;; One row, and no sabotage twin: the drift classes are already twinned above,
-;; and what is new here is the ROUTE, not a claim about the comparator.
-
 (defn- reagent-title-row
-  "A Reagent original — no Fresco, no `h/sub`, no knowledge of the frame.
-  It renders from the ONE prop it is crossed with, which is what the
-  original half of a just-ported screen actually looks like."
   [{:keys [title]}]
   [:div.row [:h3.title title]])
 
+;; Reactify once so the foreign element type stays stable.
 (def ^:private foreign-title-row
-  "Reactified ONCE at top level, exactly as the door's own example says to:
-  a component allocated per render is a new element type, and it would
-  remount the subtree under it on every pass."
   (r/reactify-component reagent-title-row))
 
 (rf.fresco/defview fresco-title-row
-  "The port of [[reagent-title-row]] — same markup, same single-word prop."
   [{:keys [title]}]
   [:div.row [:h3.title title]])
 
@@ -546,20 +326,7 @@
            (rf.fresco.test.mounted/shadow! {:reference      [:> foreign-title-row {:title "Original title"}]
                         :candidate      [fresco-title-row {:title "Original title"}]
                         :initial-events seed
-                        :script         []}))
-        (str "the reference is a REACTIFIED REAGENT component reached through "
-             "`[:> C props]` while the candidate is an `h/defview`, so a green "
-             "is the whole crossing working: the foreign element type mounted, "
-             "the single-word `:title` crossed unchanged (the rename the "
-             "docstring warns about only bites a hyphenated key), and "
-             "canonical DOM called the two sides identical. It cannot be "
-             "vacuous — the candidate always renders the title, so a reference "
-             "that rendered nothing would be `:only-in-candidate` and red"))))
-
-;; ---------------------------------------------------------------------------
-;; The closed rosters — refused before anything is mounted, so these rows
-;; run in the node lane too
-;; ---------------------------------------------------------------------------
+                        :script         []})))))
 
 (defn- refusal
   [f]
@@ -570,19 +337,14 @@
                                  :candidate [candidate-row {}]
                                  :seed      seed}))]
     (is (= {:rf.error/id :rf.error/fresco-test-bad-option :unknown [:seed]}
-           (select-keys d [:rf.error/id :unknown]))
-        (str "a stray `:seed`, a natural guess at "
-             ":initial-events, accepted in silence would compare two "
-             "UNSEEDED views and call them the same"))))
+           (select-keys d [:rf.error/id :unknown])))))
 
 (deftest the-script-verb-roster-is-closed
   (let [d (refusal #(rf.fresco.test.mounted/shadow! {:reference [reference-row {}]
                                  :candidate [candidate-row {}]
                                  :script    [{:clik "button.edit"}]}))]
     (is (= {:rf.error/id :rf.error/fresco-test-bad-option :step {:clik "button.edit"}}
-           (select-keys d [:rf.error/id :step]))
-        (str "a verb nothing recognises would drive neither side, and the "
-             "checkpoint after it would go green for a step that never ran")))
+           (select-keys d [:rf.error/id :step]))))
   (testing "and each verb's own argument shape"
     (is (= :rf.error/fresco-test-bad-option
            (:rf.error/id (refusal #(rf.fresco.test.mounted/shadow! {:reference [reference-row {}]
