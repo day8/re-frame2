@@ -224,9 +224,9 @@
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "GC reaped the owner-free entry"))))
 
-(deftest gc-skip-while-owned-reschedules-and-collects-after-release
-  ;; A skipped GC re-arms, so a release after the original deadline does not
-  ;; strand the entry.
+(deftest gc-skip-while-owned-arms-nothing-and-the-release-re-arms
+  ;; The release of the last owner arms the GC window, so a release after the
+  ;; original deadline does not strand the entry.
   (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gcr/article {:slug "w"})]
@@ -235,10 +235,11 @@
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
     (is (= :loaded (:status (entry k))) "the owned entry is kept")
-    (is (= [[k nil 1000]] (timer-delays)) "one GC reschedule at :gc-after-ms; stale not re-armed")
+    (is (= [] (timer-delays)) "the owned skip schedules nothing")
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcr 1]}])
+    (is (= [[k nil 1000]] (timer-delays)) "the release re-arms GC at :gc-after-ms; stale not re-armed")
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-    (is (nil? (entry k)) "the rescheduled check collects the now-inactive entry")))
+    (is (nil? (entry k)) "the re-armed check collects the now-inactive entry")))
 
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
   (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}) article-spec-request)

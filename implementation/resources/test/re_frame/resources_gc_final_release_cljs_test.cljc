@@ -2,9 +2,10 @@
   "An owner-free entry stays cached for a full `:gc-after-ms` after its last
   owner is released, however much of the settle's GC window had already run,
   so a quick re-attach inside that window reuses the cached data (Spec 016
-  §The scoped-cache owner lifecycle, §Stale and GC scheduling). An entry no
-  owner ever held is measured from its settle, and `:gc-after-ms :never` arms
-  nothing. The host clock is virtual: the real timer side table arms through a
+  §The scoped-cache owner lifecycle, §Stale and GC scheduling). A GC fire on
+  a still-owned entry arms nothing, because the release arms the window. An
+  entry no owner ever held is measured from its settle, and `:gc-after-ms
+  :never` arms nothing. The host clock is virtual: the real timer side table arms through a
   redefined `schedule-after!`, and advancing the clock runs each due timer's
   real thunk, whose re-check dispatch is delivered synchronously."
   (:require
@@ -115,6 +116,10 @@
 (defn- release! [owner]
   (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}]))
 
+(defn- gc-armed? []
+  (contains? @rf.resources.timers/timer-table
+             [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
+
 (deftest released-late-in-the-window-stays-a-full-gc-after-ms
   ;; the settle at t=0 armed GC for t=1000; the last owner leaves at t=900
   (reg-article!)
@@ -139,6 +144,22 @@
     (is (= [:loaded {:title "Intro"} nil #{[:app :gcf 2]} 1]
            [(:status e) (:data e) (:current-work e) (:active-owners e) @requests])
         "served from cache under the new owner, with no second request")))
+
+(deftest an-owned-fire-arms-nothing-and-the-release-arms-a-full-window
+  ;; the settle's GC timer fires at t=1000 while the entry is still owned
+  (reg-article!)
+  (ensure! [:app :gcf 1])
+  (succeed!)
+  (advance-to! gc-ms)
+  (is (= [#{[:app :gcf 1]} false] [(:active-owners (entry)) (gc-armed?)])
+      "the owned entry is kept and no GC timer is armed")
+  (advance-to! 5000)
+  (release! [:app :gcf 1])
+  (is (gc-armed?) "the final release arms one")
+  (advance-to! (+ 5000 gc-ms -1))
+  (is (some? (entry)) "kept for the whole window after the release")
+  (advance-to! (+ 5000 gc-ms))
+  (is (nil? (entry)) "collected :gc-after-ms after the release"))
 
 (deftest an-ownerless-prefetch-is-collected-gc-after-ms-after-its-settle
   (reg-article!)
