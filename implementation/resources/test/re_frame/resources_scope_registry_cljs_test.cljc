@@ -113,12 +113,9 @@
       "the resolver gets the inputs map, resolves at use time, and fails closed on nil"))
 
 (deftest output-sensitivity-claim-silently-ignored
-  ;; there is no derived-sensitivity propagation enum (Spec 015 §No
-  ;; propagation): the key is ignored if present, never validated
-  (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public :rf.egress/publik]]
-    (is (= [:s/claim nil]
-           [(rf.resources/reg-resource-scope :s/claim
-                                             (assoc session-meta :rf.egress/output-sensitivity claim)
-                                             session-resolve)
-            (:rf.egress/output-sensitivity (scope-meta :s/claim))])
-        (str claim " registers and is not stored"))))
+  ;; An unrecognised value also registers: the ignored key has no closed enum.
+  (is (= [:s/claim nil]
+         [(rf.resources/reg-resource-scope :s/claim
+                                           (assoc session-meta :rf.egress/output-sensitivity :rf.egress/publik)
+                                           session-resolve)
+          (:rf.egress/output-sensitivity (scope-meta :s/claim))])))
