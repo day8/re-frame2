@@ -2900,8 +2900,9 @@ Which of a boundary's reads moved most recently, and which retained runs
 
 **Two halves, never blended.** *Proven*: `:latest-reads` names the reads
 standing at the boundary's own `:peak-epoch`, read off the cells' epoch
-stamps, and `:snapshot` is the exact sum React compares — so *which of
-my reads moved* has an answer. *Leads*: the commit seam records no
+stamps — so *which of my reads moved* has an answer — and `:snapshot`
+reports the number React compares, or `:unknown` when the folded entries
+disagree or carry distinct raw read sets. *Leads*: the commit seam records no
 cascade id, so no retained run can be joined to a re-run —
 **structurally**, not occasionally, not when the ring is short, and not
 fixable with a bigger ring; the row's own `:loss` says so — and
