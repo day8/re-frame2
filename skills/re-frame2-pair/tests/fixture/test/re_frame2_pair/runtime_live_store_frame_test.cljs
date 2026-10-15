@@ -1,20 +1,5 @@
 (ns re-frame2-pair.runtime-live-store-frame-test
-  "`describe-image` describes a frame made without `:images` — the main frame
-  of most apps. Such a frame seals no image generation and resolves the
-  registration store live (Spec 002 §Image resolution and composition), so
-  `rf/frame-generation` refuses it; the read reports it as resolving the live
-  store instead, with the registrations the public `{:frame f}` registrar query
-  answers for it and every id it refuses as ambiguous, named with the
-  namespaces that register it. `orient` bases its registry on the same query,
-  so it counts what such a frame runs rather than falling back to the process
-  store. `validate-registered` reports an id the frame refuses as ambiguous as
-  ambiguous, naming those namespaces, rather than as an unknown id.
-
-  Every frame here is made through the public `rf/make-frame`, and each rival
-  registration names its namespace through `:ns` metadata, which is the
-  provenance a `reg-*` written in that namespace records. The reset fixture
-  restores the source store after each test, so the rival registrations never
-  reach another namespace in this build."
+  "Live-store frames report their runnable registrations and ambiguous ids without inventing a generation."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -65,10 +50,9 @@
   (rf/reg-event :pair-live/load {:ns 'app.a} (fn [db _] db))
   (rf/make-frame {:id :pair-live/main})
   (let [res (rt/validate-registered :event :pair-live/save :pair-live/main)]
-    (is (false? (:ok? res)) "the frame cannot run the id")
-    (is (= :ambiguous-id (:reason res)) "and says it is ambiguous, not unknown")
-    (is (= #{"app.a" "app.b"} (set (:namespaces res))) "naming both namespaces")
-    (is (not (contains? res :nearest)) "with no did-you-mean for an id that exists"))
+    (is (= {:ok? false :reason :ambiguous-id :kind :event :id :pair-live/save
+            :frame :pair-live/main :namespaces #{"app.a" "app.b"}}
+           (-> res (dissoc :hint) (update :namespaces set)))))
   (is (true? (:ok? (rt/validate-registered :event :pair-live/load :pair-live/main)))
       "control: an id one namespace registers validates")
   (is (= :unknown-id (:reason (rt/validate-registered :event :pair-live/sav :pair-live/main)))
@@ -92,7 +76,6 @@
     (let [e (try (rt/describe-image {:frame :pair-live/no-such-frame})
                  nil
                  (catch :default e e))]
-      (is (some? e) "an id naming no frame throws up the eval boundary")
       (is (= :rf.error/frame-no-generation (:rf.error/id (ex-data e)))))))
 
 (deftest orient-counts-what-a-live-store-frame-runs
