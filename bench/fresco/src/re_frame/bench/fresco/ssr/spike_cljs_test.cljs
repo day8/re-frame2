@@ -1,18 +1,5 @@
 (ns re-frame.bench.fresco.ssr.spike-cljs-test
-  "THE SSR SPIKE WITNESS — X1(a): DETERMINISM. Evidence, not a verdict.
-
-  A double server render of the seeded dogfood snapshot yields
-  BYTE-IDENTICAL HTML, and its SHA-256 is printed so the studio page
-  carries a number a later run can be compared to. It runs in Node, where
-  `react-dom/server` resolves through Node's own conditional export.
-
-  The digest is over the BYTES and not `:rf/render-hash`: Fresco's root
-  hiccup is a vector whose head is a function, `canonical-edn` renders every
-  function identically, and the dogfood screen and the Conduit feed page
-  hash alike — [[the-byte-digest-separates-the-two-pages-render-hash-cannot]]
-  shows it. A byte-identity row fails by VACUITY (two renders of nothing
-  agree), which that row's two pages, rendering two documents,
-  close."
+  "The spike records byte-identical renders and distinguishes page bytes that the interpreted-root hash cannot."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
