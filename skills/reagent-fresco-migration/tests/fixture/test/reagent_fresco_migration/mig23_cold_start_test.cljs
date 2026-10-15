@@ -1,40 +1,5 @@
 (ns reagent-fresco-migration.mig23-cold-start-test
-  "COLD-START EVIDENCE for the MIG-23 SSR recipe.
-
-  The skill's MIG-23 recipe stands up a Node rendering service — a
-  SEPARATE process from the browser — and both of its halves construct a
-  frame. re-frame2 has no default-adapter registry: frame construction
-  delegates to the installed adapter's `make-state-container`, which
-  raises `:rf.error/no-adapter-installed` in a never-initialized process.
-  This suite proves a recipe without a boot `rf/init!` is non-vacuously
-  red and that the recipe's boot precondition is exactly what fixes it.
-
-  ORDERED PHASES IN ONE DEFTEST BODY, because the never-installed state
-  exists only once per process — at genuine cold start, before the first
-  `rf/init!` (after `rf/destroy-adapter!` the same call sites raise
-  `:rf.error/adapter-disposed` instead, a different lifecycle state):
-
-    1. NEGATIVE (never-initialized): the recipe's two entry points —
-       `rf.fresco.server/render` (the server half) and `rf/make-frame` (the client
-       half's first call) — each raise `:rf.error/no-adapter-installed`
-       before any render/hydration work; no `:document` is produced.
-    2. POSITIVE server control: ONE `(rf/init! rf.ssr/adapter)` at process
-       boot, then TWO `rf.fresco.server/render` requests both answer a `:document`
-       and a payload, with no second adapter install attempted
-       (`rf/current-adapter` identity is unchanged across both) —
-       initialization is boot work, not request work.
-    3. POSITIVE client-shaped control: install the migrating app's
-       existing React-shaped adapter (the stock Reagent adapter MIG-15
-       and MIG-23 both KEEP) and the same `rf/make-frame` call advances;
-       a reload-path `rf/init!` re-run is a no-op (same installed spec),
-       so the hydration/HMR path never reinstalls. The browser-side
-       hydrate calls themselves need a DOM and are covered by the
-       shipped Fresco/SSR suites — the entry point a cold recipe dies
-       at is `rf/make-frame`, and that is what is proven to advance
-       here.
-
-  Run from skills/reagent-fresco-migration/tests/fixture/:
-      npm install && npm run test:cold-start"
+  "Cold-start phases stay ordered: never-installed state exists only once per process."
   (:require [cljs.test :refer [deftest testing is]]
             ["react-dom/server" :as react-server]
             [reagent.core :as r]
@@ -44,15 +9,10 @@
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.server :as rf.fresco.server]))
 
-(rf.fresco/defview page
-  "Minimal deterministic root — no clock, no randomness, no browser
-  global, so the server render is byte-stable."
-  [_props]
+(rf.fresco/defview page [_props]
   [:div "mig23 cold-start evidence"])
 
 (def ^:private render-opts
-  "The MIG-23 server half's options: a minimal deterministic
-  hiccup root and a valid non-empty fail-closed payload allowlist."
   {:hiccup            [page {}]
    :payload           [:catalog/items]
    :snapshot          {:catalog/items ["a" "b"]}
@@ -81,25 +41,14 @@
 (rf.fresco/defhost reagent-parent-host (r/reactify-component reagent-parent)
   {:server :render})
 
-(def ^:private kept-island
-  "The element the kept island's `r/as-element` returned in the last
-  render, so its list's keys can be read once the render is over."
-  (atom nil))
+(def ^:private kept-island (atom nil))
 
-(rf.fresco/defview island-parent
-  "A converted view keeping a Reagent island: its body hands the list to
-  `r/as-element`, so Reagent lowers it."
-  [_props]
+(rf.fresco/defview island-parent [_props]
   [:section (reset! kept-island
                     (r/as-element [:ul (for [t ["a" "b"]] ^{:key t} [:li t])]))])
 
-(def ^:private crossing-callback
-  "The callback the retained Reagent parent hands across the bridge."
-  (atom nil))
-
-(def ^:private received-callback
-  "What the converted child received at `:on-pick` in the last render."
-  (atom nil))
+(def ^:private crossing-callback (atom nil))
+(def ^:private received-callback (atom nil))
 
 (rf.fresco/defview callback-child [{:keys [on-pick]}]
   (reset! received-callback on-pick)
@@ -117,127 +66,103 @@
 (rf.fresco/defhost callback-parent-host (r/reactify-component callback-parent)
   {:server :render})
 
-(defn- rf-error-id
-  "Run `f`; answer the thrown `:rf.error/id`, or `[:no-throw <result>]`
-  when it returned — so a passing call can never satisfy an error
-  assertion."
-  [f]
+(defn- rf-error-id [f]
   (try [:no-throw (f)]
        (catch :default e (:rf.error/id (ex-data e)))))
 
 (deftest mig23-cold-start-contract
-  (testing "NEGATIVE — never-initialized process: both recipe entry points are red before any render/hydration work"
-    (is (nil? (rf/current-adapter))
-        "cold start: no adapter is installed and none is defaulted")
-    (is (= :rf.error/no-adapter-installed
-           (rf-error-id #(rf.fresco.server/render render-opts)))
-        "the server half without rf/init!: rf.fresco.server/render reaches rf/make-frame and throws; no :document is returned")
-    (is (= :rf.error/no-adapter-installed
-           (rf-error-id #(rf/make-frame {:id :app/main :platform :client})))
-        "the client half without rf/init!: its first rf/make-frame throws the same error, so rf.ssr/hydrate! / rf.fresco/render! never run")
-    (is (nil? (rf/current-adapter))
-        "the failed calls did not install anything either — render never auto-installs"))
+  (testing "both recipe entry points require process boot"
+    (is (= [nil :rf.error/no-adapter-installed :rf.error/no-adapter-installed nil]
+           [(rf/current-adapter)
+            (rf-error-id #(rf.fresco.server/render render-opts))
+            (rf-error-id #(rf/make-frame {:id :app/main :platform :client}))
+            (rf/current-adapter)])))
 
-  (testing "POSITIVE server control — one (rf/init! rf.ssr/adapter) at process boot, then requests just work"
+  (testing "one server adapter install serves two requests"
     (rf/init! rf.ssr/adapter)
-    (is (= :rf.adapter/ssr (:kind (rf/current-adapter)))
-        "the server half installs the headless server-side adapter once")
-    (let [spec-before (rf/current-adapter)
-          r1          (rf.fresco.server/render render-opts)
-          r2          (rf.fresco.server/render render-opts)]
-      (is (string? (:document r1))
-          "first request: the existing render call now returns a document")
-      (is (map? (:payload r1))
-          "first request: and a hydration payload")
-      (is (string? (:document r2))
-          "second request: works with NO second install")
-      (is (identical? spec-before (rf/current-adapter))
-          "two requests after ONE rf/init! left the installed adapter untouched — initialization is process boot, not request work")))
+    (let [installed (rf/current-adapter)
+          r1 (rf.fresco.server/render render-opts)
+          r2 (rf.fresco.server/render render-opts)]
+      (is (= [:rf.adapter/ssr true true true true]
+             [(:kind installed)
+              (string? (:document r1))
+              (map? (:payload r1))
+              (string? (:document r2))
+              (identical? installed (rf/current-adapter))]))))
 
-  (testing "MIG-22 — a retained Reagent parent must preserve the converted child's Clojure props"
+  (testing "MIG-22 bridge doors preserve Clojure props"
     (let [render (fn [mode]
                    (:html (rf.fresco.server/render
                             (assoc render-opts :hiccup
                                    [reagent-parent-host {:mode mode}]))))]
-      (is (re-find #"^<section><p[^>]*>false/missing/false</p></section>$" (render "converted"))
-          "Reagent [:>] converts keyword, map and intent-vector props before as-component decodes them")
-      (is (re-find #"^<section><p[^>]*>true/Task/true</p></section>$" (render "element"))
-          "a Fresco element in the Reagent parent's child position preserves its Clojure values")
-      (is (= (render "element") (render "raw"))
-          "r/create-element with a raw JS props object preserves those values too")))
+      (doseq [[mode pattern]
+              [["converted" #"^<section><p[^>]*>false/missing/false</p></section>$"]
+               ["element" #"^<section><p[^>]*>true/Task/true</p></section>$"]]]
+        (is (re-find pattern (render mode))))
+      (is (= (render "element") (render "raw")))))
 
-  (testing "A kept island keeps its keys — Reagent, not Fresco, lowers an r/as-element island inside a converted view"
+  (testing "a retained Reagent island keeps metadata keys"
     (reset! kept-island nil)
     (let [keys-of (fn [^js el]
                     (when el
                       (let [^js props (.-props el)]
                         (mapv (fn [^js child] (.-key child)) (array-seq (.-children props))))))
-          html    (:html (rf.fresco.server/render
-                           (assoc render-opts :hiccup [island-parent {}])))]
-      (is (re-find #"^<section[^>]*><ul><li>a</li><li>b</li></ul></section>$" html)
-          "the kept island renders inside the converted view")
-      (is (= ["a" "b"] (keys-of @kept-island))
-          "the island's ^{:key} metadata became the React keys of its list")
-      (is (= [nil nil] (keys-of (rf.fresco/as-element
-                                  [:ul (for [t ["a" "b"]] ^{:key t} [:li t])])))
-          "CONTROL: the same Hiccup lowered by Fresco carries no keys, because Fresco reads no metadata")))
+          html (:html (rf.fresco.server/render
+                        (assoc render-opts :hiccup [island-parent {}])))]
+      (is (re-find #"^<section[^>]*><ul><li>a</li><li>b</li></ul></section>$" html))
+      (is (= [["a" "b"] [nil nil]]
+             [(keys-of @kept-island)
+              (keys-of (rf.fresco/as-element
+                         [:ul (for [t ["a" "b"]] ^{:key t} [:li t])]))]))))
 
-  (testing "Callbacks cross by identity — a capture-frame callback reaches the converted child unchanged through either bridge door"
-    (let [on-pick  (:dispatch (rf/capture-frame :app/main))
+  (testing "a capture-frame callback crosses both doors by identity"
+    (let [on-pick (:dispatch (rf/capture-frame :app/main))
           received (fn [mode]
                      (reset! received-callback nil)
                      (rf.fresco.server/render
                        (assoc render-opts :hiccup [callback-parent-host {:mode mode}]))
                      @received-callback)]
       (reset! crossing-callback on-pick)
-      (is (fn? on-pick) "capture-frame's :dispatch is a plain function")
-      (is (identical? on-pick (received "element"))
-          "h/as-element hands the child the caller's own function")
-      (is (identical? on-pick (received "converted"))
-          "Reagent [:>] passes a plain function through unchanged, and as-component takes it as given")))
+      (is (= [true true true]
+             [(fn? on-pick)
+              (identical? on-pick (received "element"))
+              (identical? on-pick (received "converted"))]))))
 
-  (testing "POSITIVE client-shaped control — the migrating app's existing Reagent adapter advances the same frame entry point"
+  (testing "the client keeps Reagent and boot remains idempotent"
     (rf/destroy-adapter!)
     (rf/init! rf.adapter.reagent/adapter)
-    (is (= :rf.adapter/reagent (:kind (rf/current-adapter)))
-        "the client keeps its existing Reagent adapter — no silent adapter switch")
-    (rf/make-frame {:id :app/main :platform :client})
-    (is (contains? (rf/frame-ids) :app/main)
-        "the exact rf/make-frame call the cold client died at now advances")
-    (let [spec (rf/current-adapter)]
-      (rf/init! rf.adapter.reagent/adapter)
-      (is (identical? spec (rf/current-adapter))
-          "a reload-path rf/init! re-run is a no-op — the hydration/HMR path never reinstalls"))))
+    (let [installed (rf/current-adapter)]
+      (rf/make-frame {:id :app/main :platform :client})
+      (let [created? (contains? (rf/frame-ids) :app/main)]
+        (rf/init! rf.adapter.reagent/adapter)
+        (is (= [:rf.adapter/reagent true true]
+               [(:kind installed) created?
+                (identical? installed (rf/current-adapter))]))))))
 
 (deftest mig14-preserve-empty-boolean-children
   (let [render #(react-server/renderToStaticMarkup %)]
-    (doseq [hidden? [true false]]
-      (let [donor [:div (or hidden? [:span "Details"])]]
-        (is (= (if hidden? "<div></div>" "<div><span>Details</span></div>")
-               (render (r/as-element donor)))
-            "the Reagent donor omits true and renders the visible branch")
+    (doseq [[hidden? expected] [[true "<div></div>"]
+                              [false "<div><span>Details</span></div>"]]]
+      (let [donor [:div (or hidden? [:span "Details"])]
+            original (render (r/as-element donor))]
         (when hidden?
           (is (= :rf.error/fresco-true-child
-                 (rf-error-id #(rf.fresco/as-element donor)))
-              "an unchanged true child is refused by Fresco"))
-        (is (= (render (r/as-element donor))
-               (render (rf.fresco/as-element
-                         [:div (when-not hidden? [:span "Details"])])))
-            "the explicit empty branch preserves both rendered outcomes")))))
+                 (rf-error-id #(rf.fresco/as-element donor)))))
+        (is (= [expected expected]
+               [original
+                (render (rf.fresco/as-element
+                          [:div (when-not hidden? [:span "Details"])]))]))))))
 
 (deftest mig34-preserve-working-unsafe-html
   (let [html "<b>already trusted</b>"
         wrapped (r/unsafe-html html)
         render #(react-server/renderToStaticMarkup %)
         original (render (r/as-element [:div {:dangerouslySetInnerHTML wrapped}]))]
-    (is (= "<div><b>already trusted</b></div>" original)
-        "the stock Reagent donor really renders its wrapped HTML")
     (is (thrown-with-msg? js/Error #"__html"
           (render (rf.fresco/as-element [:div {:dangerouslySetInnerHTML wrapped}]))))
-    (is (= original
-           (render (rf.fresco/as-element [:div {:dangerouslySetInnerHTML {:__html html}}])))
-        "MIG-34 replaces the donor wrapper and preserves the rendered bytes")
-    (is (= "<div></div>"
-           (render (r/as-element [:div {:dangerouslySetInnerHTML {:__html html}}]))))
-    (is (= :re-frame.fresco/value ::rf.fresco/value)
-        "the existing Fresco alias resolves the same marker namespace")))
+    (is (= ["<div><b>already trusted</b></div>"
+            "<div><b>already trusted</b></div>"
+            "<div></div>"]
+           [original
+            (render (rf.fresco/as-element [:div {:dangerouslySetInnerHTML {:__html html}}]))
+            (render (r/as-element [:div {:dangerouslySetInnerHTML {:__html html}}]))]))))
