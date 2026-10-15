@@ -107,7 +107,7 @@
 
 (deftest ^:requires-debug replace-frame-state-app-reset-preserves-runtime-via-core-facade
   (rf/make-frame {:id :pp/reset-app :doc "reset-app"})
-  (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
+  (rf/reg-event :pp/seed (fn [_ [_ db]] {:db db}))
   (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/reset-app})
   (rf/replace-frame-state! :pp/reset-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
   (is (= {:rf.db/app {:k 1} :rf.db/runtime {:rf.runtime/machines {:m 1}}}
