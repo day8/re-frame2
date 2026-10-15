@@ -1,11 +1,5 @@
 (ns re-frame.bench.fresco.lane-bytes-cljs-test
-  "[[re-frame.bench.fresco.lane/utf8-bytes]] answers UTF-8 BYTES, not the
-  UTF-16 code units `count` answers — the two agree on ASCII, so every row
-  past the first is non-ASCII. The fixtures are `\\u` escapes so an editor
-  that normalised this file's encoding cannot ASCII-fy them into a green
-  gate measuring nothing. The wiring half — which instruments call it —
-  is `bench_bytes.test.cjs` (no byte label beside a bare `count`), because
-  a lane namespace may not require `fs`."
+  "UTF-8 counting covers ASCII, multibyte characters and a lone surrogate; the CJS gate checks callers."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
