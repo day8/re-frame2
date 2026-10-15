@@ -313,6 +313,10 @@
                   :work/id work-id :status status
                   :targets (vec targets) :cache-hit? (boolean cache-hit?)})))
 
+(def ^:private last-gc-window-path
+  "Runtime-db path to the id of the last GC window the frame opened."
+  [rf.resources.state/resources-key :last-gc-window])
+
 (defn open-gc-window
   "`runtime-db` with `resource-key`'s entry moved to a new GC window when
   `gc-delay-ms` arms a GC timer on `frame-id` — a positive delay on a client
@@ -321,12 +325,20 @@
   (`re-frame.resources.mutation-events`) — opens its window here, and the
   timer stamps its re-check with the window it armed in
   (`re-frame.resources.timers/schedule!`), so `gc-fired-handler` can tell a
-  superseded window's check from the current one."
+  superseded window's check from the current one.
+
+  Window ids come from one counter per frame, not one per entry, because an
+  entry's counter would leave with the entry: an entry removed and written
+  again at the same key would reopen the ids its predecessor's queued check
+  still carries. From the frame's counter, every window the replacement opens
+  is newer than that check."
   [runtime-db frame-id resource-key gc-delay-ms]
-  (cond-> runtime-db
-    (and gc-delay-ms (not (rf.resources.state/server-frame? frame-id)))
-    (update-in (rf.resources.state/entry-path resource-key)
-               update :gc-window (fnil inc 0))))
+  (if (and gc-delay-ms (not (rf.resources.state/server-frame? frame-id)))
+    (let [window (inc (get-in runtime-db last-gc-window-path 0))]
+      (-> runtime-db
+          (assoc-in last-gc-window-path window)
+          (assoc-in (conj (rf.resources.state/entry-path resource-key) :gc-window) window)))
+    runtime-db))
 
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
@@ -3576,16 +3588,19 @@
   (`:gc-window`, via `open-gc-window`), and the timer stamps its re-check
   with the window it armed in. Cancel-then-arm replaces a timer that has not
   fired; one that has fired is already a check in the router queue, behind
-  anything queued before it, so a newer window can open before it lands. Its
-  stamp is then older than the entry's window, and it never collects: the
-  newer window's own check decides. A check that names no window (a direct
-  dispatch) is judged as current.
+  anything queued before it, so a newer window can open before it lands —
+  on the same entry, or on one written at the same key after a removal,
+  since window ids are unique across the frame. Its stamp is then older than
+  the entry's window, and it never collects: the newer window's own check
+  decides. A check that names no window (a direct dispatch) is judged as
+  current.
 
   GC-eligibility re-check (against the LIVE durable facts):
     - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
     - the entry has an active owner — pinned alive, no GC (`:has-owner`);
     - the check's window is older than the entry's — a newer window opened
-      after its timer armed, so no GC (`:superseded`);
+      after its timer armed, on this entry or on a replacement written at
+      the same key, so no GC (`:superseded`);
     - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
     - otherwise the entry is owner-free + idle — REMOVE it (recompute the
       reverse indexes) and cancel its advisory timers.
