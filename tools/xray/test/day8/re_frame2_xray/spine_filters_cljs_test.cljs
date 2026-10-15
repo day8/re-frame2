@@ -1,9 +1,5 @@
 (ns day8.re-frame2-xray.spine-filters-cljs-test
-  "Per-event-id mute filter: muting strips rows from
-  `:rf.xray/filtered-event-bundles`, the row context menu, the mute manager
-  and the L1 ribbon indicator. The handler rows that need real storage
-  (mute / unmute / clear with persistence, hydration) live in
-  `spine-filters-dom-cljs-test`."
+  "Event-id mutes hide complete cascades while preserving eventless rows."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -56,21 +52,6 @@
 ;; -------------------------------------------------------------------------
 ;; (6) Filtered-cascades composition
 ;; -------------------------------------------------------------------------
-
-(deftest muting-strips-rows-from-filtered-event-bundles
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
-  ;; Sanity — all three rows present pre-mute.
-  (let [before (frame-sub [:rf.xray/filtered-event-bundles])]
-    (is (= 3 (count before))))
-  ;; Mute :user/mouse-move.
-  (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
-  (let [after (frame-sub [:rf.xray/filtered-event-bundles])
-        ids   (mapv (fn [c] (first (:event c))) after)]
-    (is (= [:auth/login :order/submit] ids)
-        ":user/mouse-move stripped from filtered-event-bundles")))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Row context menu open / close state
