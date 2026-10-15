@@ -2,15 +2,13 @@
   "Public-API wrappers for the optional flows artefact (Spec 013).
   Implementation ships in `day8/re-frame2-flows` (`re-frame.flows`).
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private flows-artefact
-  {:error-keyword :rf.error/flows-artefact-missing
-   :maven         "day8/re-frame2-flows"
-   :require-ns    "re-frame.flows"})
+(def ^:private flows-artefact (artefact-info :flows))
 
 (defwrapper clear-flow
   "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and

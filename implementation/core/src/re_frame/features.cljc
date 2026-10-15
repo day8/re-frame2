@@ -52,10 +52,12 @@
   — which the impl artefact populates from its own ns-load. No reach
   into the optional namespace; just an atom read.
 
-  The coordinate strings here are the single source of truth the per-
-  feature `re-frame.core-<feature>` wrappers' `:reason` throws mirror
-  (via `rf.late-bind/require-fn!`); every artefact-missing error in the
-  framework carries the same copy-pasteable require/coordinate this
+  The coordinate strings here are the single source of truth for core:
+  the per-feature `re-frame.core-<feature>` wrappers build their
+  artefact-info from this table (`re-frame.core-artefact/artefact-info`,
+  thrown through `rf.late-bind/require-fn!`), and every other
+  artefact-missing message in core reads its coordinate and require from
+  it, so each carries the same copy-pasteable require/coordinate this
   table holds."
   (:require [re-frame.late-bind :as rf.late-bind]))
 
@@ -74,6 +76,9 @@
      :probe-key a late-bind hook key the impl publishes at ns-load,
                 read to detect the artefact's presence without a
                 static require (keyword)}
+
+  The feature key also names the artefact-missing error id,
+  `:rf.error/<feature>-artefact-missing`.
 
   The `:probe-key` for each feature is a stable, always-published hook —
   the artefact registers it unconditionally from its ns-load `set-fn!` /

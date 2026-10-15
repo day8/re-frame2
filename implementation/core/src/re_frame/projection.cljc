@@ -72,7 +72,8 @@
   frame carried no matching classified `:sensitive` app-db declaration (the
   wrong owner). Sentinels the registration pass writes survive the
   subsequent frame-policy walk (a redacted leaf is inert)."
-  (:require [re-frame.elision :as rf.elision]
+  (:require [re-frame.core-artefact :as rf.core-artefact]
+            [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -548,16 +549,14 @@
 ;; ---- dispatch ------------------------------------------------------------
 
 (def ^:private epoch-artefact
-  "Artefact info for the optional `day8/re-frame2-epoch` artefact, in the
-  shape `re-frame.late-bind/require-fn!` consumes. Mirrors
-  `re-frame.core-epoch/epoch-artefact` — core cannot require the epoch
+  "Artefact info for the optional epoch artefact, in the shape
+  `re-frame.late-bind/require-fn!` consumes, built exactly as
+  `re-frame.core-epoch/epoch-artefact` is. Core cannot require the epoch
   namespace (bundle isolation), so the epoch arm of `project-egress`
   resolves its projector through late-bind and reports an absent artefact
   with the SAME canonical `:rf.error/epoch-artefact-missing` shape every
   other epoch surface reports (guard G1)."
-  {:error-keyword :rf.error/epoch-artefact-missing
-   :maven         "day8/re-frame2-epoch"
-   :require-ns    "re-frame.epoch"})
+  (rf.core-artefact/artefact-info :epoch))
 
 (def ^:private record-kinds
   "The closed `:kind` vocabulary `project-egress` RECOGNISES as a

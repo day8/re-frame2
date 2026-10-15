@@ -30,6 +30,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.error :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.cofx.value-check :as rf.cofx.value-check]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
@@ -707,11 +708,11 @@
           ;; deliberate opt-out.
           (rf.error/throw-error!
             :rf.error/schemas-artefact-missing 'rf/reg-cofx
-            (str "Recordable coeffect `" cofx-id "` declares a `:schema`, but "
-                 "the schemas artefact is not loaded, so its value cannot be "
-                 "checked before it folds into the causal record; add "
-                 "day8/re-frame2-schemas to deps and require re-frame.schemas at "
-                 "app boot.")
+            (let [{maven :maven require-ns :require} (:schemas rf.features/feature-registry)]
+              (str "Recordable coeffect `" cofx-id "` declares a `:schema`, but "
+                   "the schemas artefact is not loaded, so its value cannot be "
+                   "checked before it folds into the causal record; add "
+                   maven " to deps and require " require-ns " at app boot."))
             {:extra (cond-> {:rf.cofx/id cofx-id
                              :failing-id failing-id}
                       frame-id (assoc :frame frame-id))})

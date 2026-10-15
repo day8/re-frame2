@@ -27,6 +27,7 @@
     :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
   (:require [clojure.string]
             [re-frame.error :as rf.error]
+            [re-frame.features :as rf.features]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -3314,11 +3315,13 @@
                            (rf.error/throw-error!
                              :rf.error/routing-artefact-missing
                              'rf/make-frame
-                             (str "this frame config declares :url-strategy, which "
-                                  "requires day8/re-frame2-routing on the classpath; "
-                                  "add it to deps and require re-frame.routing at app "
-                                  "boot, BEFORE the frame is constructed, so the "
-                                  "strategy can be validated at registration time.")
+                             (let [{maven      :maven
+                                    require-ns :require} (:routing rf.features/feature-registry)]
+                               (str "this frame config declares :url-strategy, which "
+                                    "requires " maven " on the classpath; "
+                                    "add it to deps and require " require-ns " at app "
+                                    "boot, BEFORE the frame is constructed, so the "
+                                    "strategy can be validated at registration time."))
                              {:extra {:frame id}})))
         ;; The resources-owned `:revalidate-on` frame-config key
         ;; (the focus/reconnect host listeners the frame lifecycle installs) is
@@ -3335,12 +3338,14 @@
                          (rf.error/throw-error!
                            :rf.error/resources-artefact-missing
                            'rf/make-frame
-                           (str "this frame config declares :revalidate-on, which "
-                                "requires day8/re-frame2-resources on the classpath; "
-                                "add it to deps and require re-frame.resources at app "
-                                "boot, BEFORE the frame is constructed, so the frame "
-                                "lifecycle can install the host focus/reconnect "
-                                "listeners.")
+                           (let [{maven      :maven
+                                  require-ns :require} (:resources rf.features/feature-registry)]
+                             (str "this frame config declares :revalidate-on, which "
+                                  "requires " maven " on the classpath; "
+                                  "add it to deps and require " require-ns " at app "
+                                  "boot, BEFORE the frame is constructed, so the frame "
+                                  "lifecycle can install the host focus/reconnect "
+                                  "listeners."))
                            {:extra {:frame-id id}}))
         ;; One identity token per attempted config commit. Only a successful
         ;; create/re-register installs it. Auxiliary policy stores consult the

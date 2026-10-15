@@ -8,16 +8,14 @@
   plain-fn surface raise with their own faithful `:where` symbol). Machine
   reads use the `[:rf.machine/has-tag? …]` and `[:rf/machine …]`
   subscription vectors."
-  (:require [re-frame.interop :as rf.interop]
+  (:require [re-frame.core-artefact :refer [artefact-info]]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private machines-artefact
-  {:error-keyword :rf.error/machines-artefact-missing
-   :maven         "day8/re-frame2-machines"
-   :require-ns    "re-frame.machines"})
+(def ^:private machines-artefact (artefact-info :machines))
 
 ;; ---- machine guard/action handler-meta — DERIVED, not registered --------
 ;;

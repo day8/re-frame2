@@ -2,15 +2,13 @@
   "Public-API wrappers for the optional managed-HTTP artefact (Spec 014).
   Implementation ships in `day8/re-frame2-http` (`re-frame.http.managed`).
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
-  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
-                                        :cljs [:refer-macros [defwrapper]])]))
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [artefact-info defwrapper]]
+                                        :cljs [:refer        [artefact-info]
+                                               :refer-macros [defwrapper]])]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:private http-artefact
-  {:error-keyword :rf.error/http-artefact-missing
-   :maven         "day8/re-frame2-http"
-   :require-ns    "re-frame.http.managed"})
+(def ^:private http-artefact (artefact-info :http))
 
 ;; The whole stub family (`with-request-stubs` and the raw
 ;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair)

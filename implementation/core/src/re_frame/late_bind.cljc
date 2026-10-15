@@ -271,10 +271,9 @@
 
     Message:  the human `:reason` sentence + the trailing
               `[:rf.error/<artefact>-artefact-missing]` greppability
-              token (e.g. \"rf/reg-flow requires
-              com.day8.re-frame/re-frame2-flows on the classpath; add it
-              to deps and require re-frame.flows at app boot.
-              [:rf.error/flows-artefact-missing]\").
+              token (e.g. \"rf/reg-flow requires day8/re-frame2-flows
+              on the classpath; add it to deps and require re-frame.flows
+              at app boot. [:rf.error/flows-artefact-missing]\").
     ex-data:  {:rf.error/id <error-keyword>  ;; canonical discriminator
                :where       <where-sym>
                :recovery    :no-recovery
@@ -288,7 +287,9 @@
   so `.getMessage` reads as actionable prose while a log grep still
   pivots on the bracketed keyword. `where-sym` is the user-facing fn
   symbol stamped on the error. `artefact-info` carries
-  `{:error-keyword :maven :require-ns}`. `extra-data` is the per-call
+  `{:error-keyword :maven :require-ns}`, built from
+  `re-frame.features/feature-registry` by
+  `re-frame.core-artefact/artefact-info`. `extra-data` is the per-call
   ex-data merged in (e.g. `:flow-id`, `:route-id`).
 
   Pairs with `re-frame.core-artefact/defwrapper`."

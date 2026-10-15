@@ -59,6 +59,7 @@
   rather than run the handler on a payload nothing checked."
   (:require [re-frame.error :as rf.error]
             [re-frame.events :as rf.events]
+            [re-frame.features :as rf.features]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]))
@@ -177,10 +178,11 @@
         (nil? validate-fn)
         (rf.error/throw-error!
           :rf.error/schemas-artefact-missing 'rf/reg-event
-          (str "Event " event-id " declares `:boundary? true`, but the schemas "
-               "artefact is not loaded, so its `:schema` cannot be checked and "
-               "the handler does not run; add day8/re-frame2-schemas to deps and "
-               "require re-frame.schemas at app boot.")
+          (let [{maven :maven require-ns :require} (:schemas rf.features/feature-registry)]
+            (str "Event " event-id " declares `:boundary? true`, but the schemas "
+                 "artefact is not loaded, so its `:schema` cannot be checked and "
+                 "the handler does not run; add " maven " to deps and require "
+                 require-ns " at app boot."))
           {:extra (cond-> {:failing-id event-id}
                     frame (assoc :frame frame))})
 
