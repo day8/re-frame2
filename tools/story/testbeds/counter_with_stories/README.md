@@ -49,10 +49,11 @@ counter_with_stories/
 ├── views.cljs                               ; counter-card, counter-buttons, parity-badge
 ├── stories.cljs                             ; seven of the nine reg-* macros (no fragment/check)
 ├── elision_demo.cljs                        ; :sensitive + :large + event-emit
+├── story_static.cljs                        ; static-export entry (:story-static/counter-with-stories)
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
 ├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)
-├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:adapter-smokes)
-└── index.html                               ; the host page
+├── index.html                               ; the host page
+└── story_static.index.html                  ; the static export's host page
 ```
 
 ## Privacy + size elision demo
@@ -87,18 +88,21 @@ README markets as a headline feature:
   `:user/avatar-pdf` slot shows up as the marker map; everything
   else passes through.
 
-The example also registers a console-logging
-[`event-emit` listener](../../../../docs/core/observability.md#write-a-listener)
-at boot via `rf/register-listener!` (the `:events` channel). Every dispatched
-event prints one tight record (`{:event :event-id :frame :time
-:outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
-recipe forwards in production. The substrate is always-on: it
-survives `:advanced` + `goog.DEBUG=false` where the trace surface
-DCEs because event-emit is the production observability surface. The
-demo's registration is intentionally ungated so visitors can see
-the listener fire; production deployments gate the registration
-with `(not ^boolean re-frame.interop/debug-enabled?)` per the
-chapter-22 recipe.
+The example also registers a console-logging listener at boot,
+directly on the implementation-tier `re-frame.event-emit` registry
+(`register-event-listener!` in [`elision_demo.cljs`](elision_demo.cljs)),
+because the demo exists to show the raw record that the registration
+classification and the wire walker act on. Every processed event
+prints one tight record (`{:event :event-id :frame :time :outcome
+:elapsed-ms}`), and the substrate survives `:advanced` +
+`goog.DEBUG=false` where the trace surface is elided. The
+registration is intentionally ungated so visitors can see the
+listener fire. It is not how an app observes production: that is a
+sink, registered with `rf/register-observability-sink!` and named in
+a frame's `:observability` config or the
+`(rf/configure! {:observability …})` process default, which delivers
+the projected record — see
+[Consuming production telemetry](../../../../docs/core/observability.md#consuming-production-telemetry-declare-a-sink).
 
 Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
 assert every branch — commit-plane-classified `:large` app-db elision
@@ -108,45 +112,39 @@ event-emit listener firing per dispatch.
 
 ## Running
 
-The example is wired into the existing test orchestrator and rides
-under build id `examples/counter-with-stories`.
+The build id is `:examples/counter-with-stories`.
 
-### Smoke (Playwright)
-
-```bash
-# From implementation/
-npm run test:adapter-smokes
-```
-
-The adapter-smoke orchestrator at
-[`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`](../../../../implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs)
-compiles each adapter smoke, stages this directory's `index.html`,
-serves the output over HTTP, and runs the paired `spec.cjs`. The spec navigates between
-`/counter-with-stories/#/` and `/counter-with-stories/#/stories`,
-verifying both surfaces render.
-
-### Integration (CLJS test)
+### Interactive loop
 
 ```bash
 # From implementation/
-npm run test:cljs
+npm run dev -- :examples/counter-with-stories
 ```
 
-`shadow-cljs.edn`'s `node-test` build picks up
-`counter_with_stories.stories-cljs-test`. The tests assert every
-`reg-*` artefact registered, every variant runs through the
-four-phase lifecycle, and every `:script`'s assertions pass.
+Then visit `http://localhost:8042/#/stories` to hot-reload the Story
+shell against your edits (`#/` is the live counter). The dev server
+serves this directory ahead of the build output, so `index.html`
+needs no staging.
 
-### Single-example interactive loop
+### What covers it
 
-```bash
-# From implementation/ — once you've run the example orchestrator
-# once to stage the index.html.
-shadow-cljs watch examples/counter-with-stories
-```
+All commands run from `implementation/`.
 
-Then visit `http://127.0.0.1:8030/counter-with-stories/#/stories` to
-hot-reload the Story shell against your edits.
+- **Unit tests** — `npm run test:cljs`. Its `node-test` build runs
+  [`stories_cljs_test.cljs`](stories_cljs_test.cljs) and
+  [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs). The
+  first runs the four canonical `:story.counter` variants, the three
+  diagnostic fixtures and two matrix fixtures through the Story
+  runtime and checks each result, and pins the matrix variant set;
+  the second covers the elision demo above.
+- **Compile sweep** — `node scripts/check-examples-compile.cjs`
+  compiles this build alongside every other `:examples/*` and
+  `:testbeds/*` build; `--list` prints the roster.
+- **Story browser gates** — `npm run test:story-feature-load` and
+  `npm run test:story-play-scripts` compile this build, stage this
+  directory's `index.html` and drive the Story shell in Playwright;
+  `npm run test:story-static` builds and loads the
+  `:story-static/counter-with-stories` export.
 
 ## Bundle isolation
 
