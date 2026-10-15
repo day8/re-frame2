@@ -1005,7 +1005,7 @@
   to cover same-address actor churn). Either way the replacement must not
   install, and returning nil suppresses the spawned traces as well as the write.
   On the untouched path `rt-after-alloc` is handed straight back, so a spawn at
-  an EMPTY address pays one `actor-live?` read and nothing else."
+  an EMPTY address pays one `occupant-actor-live?` read and nothing else."
   [frame-id args spawned-id prepared rt-after-alloc continue?]
   (if-not (and (contains? args :fixed-actor-id)
                (rf.machines.lifecycle-fx.destroy/destroy-occupant-for-replacement!
