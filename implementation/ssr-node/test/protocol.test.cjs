@@ -151,9 +151,7 @@ test('the runtime allowlist belongs to the ENTRY too - an empty list reads nothi
 test('the byte ceiling is ONE ceiling over both partitions', () => {
   const state = { ':todos': '"' + 'a'.repeat(40) + '"' };
   const runtime = { ':rf.runtime/routing': '"' + 'b'.repeat(40) + '"' };
-  const bytesOf = (o) =>
-    Object.entries(o).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v), 0);
-  const ceiling = Math.max(bytesOf(state), bytesOf(runtime)) + 10; // room for either alone
+  const ceiling = 70; // Either partition fits; their combined 109 bytes do not.
   const base = { protocol: 1, entry: 'app/root' };
   assert.strictEqual(codeOf({ ...base, state }, { maxRequestBytes: ceiling }), null);
   assert.strictEqual(codeOf({ ...base, runtime }, { maxRequestBytes: ceiling }), null);
@@ -164,8 +162,7 @@ test('state is bounded, and the ceiling is measured in BYTES', () => {
   // An em dash is one code unit and three bytes, written as an escape so an
   // encoding-normalising editor cannot quietly ASCII-fy it.
   const value = `"${'\u2014'.repeat(40)}"`;
-  const bytes = Buffer.byteLength(':todos', 'utf8') + Buffer.byteLength(value, 'utf8');
-  assert.ok(Buffer.byteLength(value, 'utf8') > value.length, 'the fixture must be non-ASCII or it proves nothing');
+  const bytes = 128; // 120 bytes of em dashes, two quotes, and the six-byte key.
   const stateOnly = { protocol: 1, entry: 'app/root', state: { ':todos': value } };
   assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes - 1 }), CODE.REQUEST_TOO_LARGE);
   assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes }), null);
@@ -213,8 +210,7 @@ test('every field the normalized request carries is read exactly ONCE', () => {
   };
 
   const out = validateRequest(req, TABLES);
-  assert.strictEqual(out.entry, 'app/root', 'the control: this request must actually validate');
-  assert.strictEqual(out.args, '[1 2 3]', 'the request must carry the EDN text that was validated');
+  assert.deepStrictEqual([out.entry, out.args], ['app/root', '[1 2 3]']);
 
   const readTwice = Object.entries(counters)
     .filter(([, reads]) => reads() !== 1)
