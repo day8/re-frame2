@@ -1,110 +1,30 @@
 (ns day8.re-frame2-xray.panel-enum-guard-cljs-test
-  "SINGLE-SOURCE GUARD for the Xray panel enumeration.
-
-  ## What this guards
-
-  `day8.re-frame2-xray.panel-enum/panel-enum` is the ONE authoritative
-  enumeration of the mountable Xray panel set. Two other projections of
-  \"the set of panels\" must agree with it, or this test goes RED:
-
-    PROJECTION A — THE MOUNT FACADE. The live public `mount-<panel>!`
-      vars of `day8.re-frame2-xray.panels`. Reconciled BIDIRECTIONALLY:
-        - a `mount-*!` facade fn with no enum entry → RED (an orphan
-          mount fn the enum + spec never declared);
-        - an enum `:mount` name with no live facade fn → RED (a renamed
-          / removed fn the enum still claims).
-
-    PROJECTION B — THE XRAY API SPEC. The `mount-<panel>!` names the
-      spec enumerates in `007-UX-IA.md` §Mountable surface inventory +
-      `008-Embedding-Contract.md`. Reconciled BIDIRECTIONALLY:
-        - a spec-named `mount-*!` with no enum entry → RED (the spec
-          drifted ahead / kept a stale name);
-        - an enum `:mount` name the spec never mentions → RED (a panel
-          shipped but undocumented).
-
-  The api-manifest `:cljs-only` rows for `day8.re-frame2-xray.panels` are
-  reconciled against the LIVE vars by the CLJS enumeration probe and
-  `xray_spec_check`, so they inherit enum coherence through PROJECTION A.
-
-  Both projections are read at COMPILE time — the facade through
-  `emit-ns-publics`, the spec through `emit-spec-mount-fn-names` in
-  `panel_enum_spec_refs.clj` — so the test is a pure-data reconciliation.
-  Each projection is non-empty because the enum is: an empty projection
-  leaves every enum entry unmatched."
+  "Keep the live mount facade and API spec aligned with the panel enum."
   (:require-macros [re-frame.api-manifest.cljs-publics :refer [emit-ns-publics]]
                    [day8.re-frame2-xray.panel-enum-spec-refs
                     :refer [emit-spec-mount-fn-names]])
-  (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.set :as set]
+  (:require [cljs.test :refer-macros [deftest is]]
             [day8.re-frame2-xray.panel-enum :as panel-enum]
-            ;; Load-bearing: the analyzer must see the facade ns before
-            ;; `emit-ns-publics` expands.
+            ;; The analyzer must see the facade before emit-ns-publics expands.
             [day8.re-frame2-xray.panels]))
 
-;; ---------------------------------------------------------------------------
-;; The three projections, captured as plain sets.
-;; ---------------------------------------------------------------------------
-
 (def ^:private enum-mount-names
-  "PROJECTION SOURCE — the single source of truth's mount-fn set."
   panel-enum/mount-fn-names)
 
 (def ^:private facade-mount-names
-  "PROJECTION A — the live public `mount-<panel>!` vars of
-  `day8.re-frame2-xray.panels`, captured at compile time. Filtered to
-  the `mount-*!` shape (the ns has other publics — `render-panel!` is
-  private; `ManagedFxList` is an `rf.fresco/defview` boundary, with
-  `ManagedFxList-bridge` and `managed-fx-list-tree` beside it; the mount
-  fns are the panel facade)."
   (into #{}
         (comp (map first)
               (filter #(re-matches #"mount-[a-z][a-z0-9-]*!" %)))
         (emit-ns-publics day8.re-frame2-xray.panels)))
 
-;; A spec edit recompiles this call site; `panel_enum_spec_refs.clj` says how.
+;; The macro records spec dependencies so spec edits recompile this projection.
 (def ^:private spec-mount-names
-  "PROJECTION B — the `mount-<panel>!` names the Xray API spec
-  enumerates, captured at compile time."
   (emit-spec-mount-fn-names))
 
-;; ---------------------------------------------------------------------------
-;; PROJECTION A — facade ⟺ enum.
-;; ---------------------------------------------------------------------------
-
 (deftest facade-matches-enum
-  (testing "every live `mount-<panel>!` facade fn is declared in the
-            single-source enum, and every enum `:mount` resolves to a
-            live facade fn — bidirectional. A drift either way is the
-            facade + enum disagreeing on the set of panels."
-    (let [orphan-fns   (set/difference facade-mount-names enum-mount-names)
-          missing-fns  (set/difference enum-mount-names facade-mount-names)]
-      (is (empty? orphan-fns)
-          (str "Live `mount-<panel>!` facade fns with NO `panel-enum` "
-               "entry (add them to day8.re-frame2-xray.panel-enum/panel-enum "
-               "or remove the fn): " (sort orphan-fns)))
-      (is (empty? missing-fns)
-          (str "`panel-enum` `:mount` names with NO live facade fn in "
-               "day8.re-frame2-xray.panels (renamed / removed — update the "
-               "enum): " (sort missing-fns))))))
-
-;; ---------------------------------------------------------------------------
-;; PROJECTION B — spec ⟺ enum.
-;; ---------------------------------------------------------------------------
+  (is (= enum-mount-names facade-mount-names)
+      "The live mount facade and enum declare the same panels."))
 
 (deftest spec-matches-enum
-  (testing "every `mount-<panel>!` the Xray API spec names is declared
-            in the single-source enum, and every enum `:mount` is named
-            somewhere in the spec — bidirectional. A drift either way is
-            the spec inventory + enum disagreeing on the set of panels."
-    (let [stale-spec   (set/difference spec-mount-names enum-mount-names)
-          undocumented (set/difference enum-mount-names spec-mount-names)]
-      (is (empty? stale-spec)
-          (str "Xray spec (007-UX-IA.md / 008-Embedding-Contract.md) "
-               "names `mount-<panel>!` fns with NO `panel-enum` entry "
-               "(a stale / drifted spec reference — reconcile the spec or "
-               "the enum): " (sort stale-spec)))
-      (is (empty? undocumented)
-          (str "`panel-enum` `:mount` names the Xray spec never mentions "
-               "(an undocumented panel — add it to 007-UX-IA.md §Mountable "
-               "surface inventory or 008-Embedding-Contract.md): "
-               (sort undocumented))))))
+  (is (= enum-mount-names spec-mount-names)
+      "The API spec and enum declare the same panels."))
