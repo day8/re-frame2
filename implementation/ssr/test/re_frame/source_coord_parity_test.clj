@@ -1,43 +1,6 @@
 (ns re-frame.source-coord-parity-test
-  "Per Spec 006 §Source-coord annotation + §View tagging contract: the
-  JVM-side registration-boundary
-  annotation (`re-frame.views.jvm-source-coord-annotation`) and the
-  CLJS-side Reagent adapter's `format-source-coord` / `format-view-id`
-  (in `re-frame.adapter.context`, re-exported via `re-frame.views`) MUST
-  produce byte-identical attribute VALUES for the same input — same id,
-  same captured `:line` / `:column`. Pair tools that consume
-  `data-rf2-source-coord` / `data-rf-view` parse the same shape whether
-  the HTML came from server-side rendering or client-side Reagent;
-  divergent formats would silently break the source-mapping contract.
-
-  Server-side annotation happens at the reg-view registration boundary,
-  not in the emitter, and BOTH attributes are emitted on both hosts. This
-  test therefore pins BOTH formatters and,
-  at the end, drives the FULL render path through a callable head — the
-  shape hydratable pages actually use — to prove both attributes reach the
-  server markup.
-
-  Strategy: exercise the JVM formatters against fixed fixtures and assert
-  the canonical literals. The companion CLJS test
-  (`implementation/adapters/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`)
-  exercises the CLJS formatters against the SAME fixtures and asserts the
-  SAME literals. The literals ARE the cross-host byte-comparison point —
-  if either host's formatter drifts, its test fails.
-
-  ## Posture split
-
-  The formatters are ordinary pure functions, ungated, so the deftest
-  above the end-to-end one runs unchanged in both postures.
-
-  The end-to-end render is the exception. The attributes only reach server
-  markup because `reg-view` installs the annotation wrapper, and it installs
-  it only under `interop/debug-enabled?` — read once at namespace-load time,
-  so under the real `-Dre-frame.debug=false` gate the markup is bare by
-  design. Those three assertions sit inside a
-  `(when interop/debug-enabled? …)` arm; alongside them sits the
-  posture-independent half — that the callable head renders the registered
-  view's own `<p>body</p>` root at all — plus a `when-not` arm pinning the
-  exact bare bytes the production gate emits."
+  "JVM source-coordinate values match the client literals. Registered views
+  emit both annotations in dev and bare markup in production."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -47,14 +10,6 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; ---- the canonical attribute-value shapes (shared spec) ------------------
-;;
-;; `data-rf2-source-coord` = `<ns>:<sym>:<line>:<col>` (Spec 006
-;; §Source-coord annotation). `data-rf-view` = `(str id)` (Spec 006 §View
-;; tagging contract). The fixtures below are the same stamped-meta shape
-;; both hosts' formatters consume; the expected strings are the canonical
-;; literals the CLJS companion pins independently.
-
 (def fixture-id :rf.parity-test/sample-view)
 
 (def fixture-coords {:ns         'rf.parity-test
@@ -63,15 +18,10 @@
                      :file       "rf/parity_test.cljs"
                      :handler-id fixture-id})
 
-;; <ns>=rf.parity-test, <sym>=sample-view, <line>=42, <col>=7.
 (def expected-source-coord "rf.parity-test:sample-view:42:7")
 
-;; `data-rf-view` is `(str id)` — a printed keyword, leading colon included.
 (def expected-view-id ":rf.parity-test/sample-view")
 
-;; Degraded canonical: a programmatic registration that bypassed the macro
-;; path (no :line / :column) but still carried :ns. Per Spec 006
-;; §Source-coord annotation the source-coord degrades to <ns>:<sym>:?:?.
 (def fixture-coords-no-line-no-col
   {:ns         'rf.parity-test
    :file       "rf/parity_test.cljs"
@@ -79,43 +29,22 @@
 
 (def expected-source-coord-no-line-no-col "rf.parity-test:sample-view:?:?")
 
-;; ---- JVM side: the formatters pin the canonical literals -----------------
-
 (deftest jvm-format-source-coord-degraded-shape-byte-identical
-  (testing "When :line / :column are absent (programmatic reg-view*), the
-            JVM helper degrades to <ns>:<sym>:?:? — byte-identical to the
-            CLJS helper's degraded shape. Per Spec 006 §Source-coord
-            annotation."
+  (testing "Missing line and column use the canonical degraded value."
     (is (= expected-source-coord-no-line-no-col
            (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords-no-line-no-col))
         "JVM degraded source-coord must match the canonical degraded literal")))
 
-;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
-;;
-;; A registered view reached through its CALLABLE head — `[(rf/view id) …]`
-;; or a Var, the shape isomorphic pages actually compose with — renders WITH
-;; both annotations, so the server markup byte-matches the dev client render
-;; and hydration adopts.
-
 (deftest ssr-rendered-html-carries-both-annotations-through-callable-head
-  (testing "a registered view reached through `(rf/view id)`
-            renders with BOTH data-rf2-source-coord AND data-rf-view on its
-            root DOM element, and their values are exactly the shared
-            canonical literals the CLJS companion pins."
+  (testing "The registered callable head emits the canonical attribute values."
     (rf/reg-view* fixture-id fixture-coords (fn [] [:p "body"]))
     (let [html (rf.ssr/render-to-string [(rf/view fixture-id)] {})]
-      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= (str "<p data-rf2-source-coord=\"" expected-source-coord "\""
                     " data-rf-view=\"" expected-view-id "\">body</p>")
                html)
             (str "the full annotated root, both attributes present; got: "
                  (pr-str html))))
-
-      ;; The REAL-gate arm. Under `-Dre-frame.debug=false` the
-      ;; wrapper is never installed, so the same callable head renders the
-      ;; SAME element with neither attribute. Pinned by `=` rather than by a
-      ;; `not contains?` pair, which would pass vacuously.
       (when-not rf.interop/debug-enabled?
         (is (= "<p>body</p>" html)
             (str "under the production gate the callable head must render the "
