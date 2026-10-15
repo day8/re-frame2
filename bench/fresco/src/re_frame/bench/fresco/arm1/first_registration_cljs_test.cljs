@@ -1,66 +1,5 @@
 (ns re-frame.bench.fresco.arm1.first-registration-cljs-test
-  "THE OTHER REGISTRY TRANSITION.
-
-  `disposed_cell_cljs_test` closes the registry axis for a **replacement**
-  — an id that already has a handler and gets another one — because that
-  transition arrives at the arm as a disposal: the sub-cache evicts the
-  query's entry, the reaction is disposed, and
-  `re-frame.bench.fresco.arm1.runtime/invalidate-cell!` rides the event.
-
-  A **first** registration arrives as nothing at all. `registrar`'s
-  replacement hook fires only when a previous handler existed, so the
-  sub-cache evicts nothing and disposes nothing, and an arm that rode the
-  disposal alone would never hear about it.
-
-  That would matter to no one if a boundary could not hold the miss —
-  and the substrate is careful that it cannot. A subscribe to an
-  unregistered query emits `:rf.error/no-such-sub`, recovers to a
-  nil-yielding reaction, and **deliberately does not cache it**, so that
-  \"a later registration is observed by the next subscribe\"
-  (`re-frame.subs/build-and-cache!*`). Arm 1 breaks that assumption in
-  the one way it can: a cell holds its reaction for the life of every
-  boundary reading the key, and it never subscribes again. Unguarded, the
-  recovery the substrate declines to cache would be cached anyway, in the
-  arm's own cell, where nothing evicts it.
-
-  Unguarded, the boundary reads `nil`, the first `reg-sub` for the query
-  changes nothing, and no later write notifies it — **for the life of the
-  mount**, on a query that is by then perfectly well registered. That is
-  the shape a lazily loaded module hits. `disposed_cell_cljs_test`'s cell
-  answers a RETIRED computation; this one answers a computation that
-  never arrived. Both look alive — the boundary rendered, it painted,
-  nothing errored, and it will never change again.
-
-  The rows below are the direct witness. The transition has **two
-  halves**, and they are repaired by two different mechanisms because
-  they are two different situations.
-
-  A boundary that already HOLDS a cell is repaired by the registration
-  event: `first-registration!` scans the cells for the id and drops the
-  reference, so the next read falls through to the cold probe and the
-  rebuilt attachment notifies later writes. That is the mounted case, and
-  the first row.
-
-  A boundary inside the **render→commit gap** holds no cell, so that scan
-  reaches nothing on its behalf. It is repaired by the `registry-epoch`
-  term of `commit-basis`: a key with no cell contributes a
-  LIVE basis reading, the cell the commit creates is stamped with the
-  basis as it stands then, and a `reg-sub` between the two makes the two
-  numbers differ — so React's own post-`subscribe` tear check schedules
-  the re-render. This is not the registry term `disposed_cell_cljs_test`
-  rules out: that one would sit in every key's *live* contribution to
-  `getSnapshot`, move every mounted boundary in the application on every
-  `reg-sub`, and buy each one a render that reads back through a dead
-  reference. A term in the *basis* is read live by the staged branch
-  alone — so it reaches exactly the keys that have the defect, and the
-  extra render it buys reads back through a cell that is alive and
-  correct.
-
-  The bottom row is the bill, and it is what makes that distinction
-  checkable rather than argued: a first registration of an id **no cell
-  holds** must disturb a mounted boundary by nothing at all. Its
-  assertions hold with the term in place, which is the cleanest available
-  proof that the basis term is not the per-key live term."
+  "First registration repairs held misses and staged reads without disturbing unrelated cells."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -110,9 +49,7 @@
   [k]
   (js/setTimeout k 0))
 
-;; ---------------------------------------------------------------------------
 ;; The direct witness
-;; ---------------------------------------------------------------------------
 
 (deftest a-first-registration-reaches-a-boundary-that-already-holds-the-key
   (testing "The transition `add-replacement-hook!` cannot see. A boundary
@@ -212,9 +149,7 @@
                rather than at the next write")
           (release!))))))
 
-;; ---------------------------------------------------------------------------
 ;; What closing the transition costs
-;; ---------------------------------------------------------------------------
 
 (deftest a-first-registration-of-an-id-no-cell-holds-disturbs-nothing
   (testing "the bill, and the tripwire against a `:registry-epoch` term in
