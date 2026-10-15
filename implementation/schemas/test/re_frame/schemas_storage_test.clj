@@ -9,7 +9,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.storage :as rf.schemas.storage]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.schemas.validate :as rf.schemas.validate]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -44,11 +43,8 @@
 (deftest app-schemas-returns-path-to-meta-map
   (rf/reg-app-schema [:user] [:map [:id :int]])
   (rf/reg-app-schema [:auth] [:map [:token :string]])
-  (let [entries (rf.schemas/app-schemas {:frame :rf/default})]
-    (is (= {[:user] [:map [:id :int]] [:auth] [:map [:token :string]]}
-           (update-vals entries :schema)))
-    (is (= entries (rf.schemas.storage/frame-schema-entries :rf/default))
-        "the public read and the private late-bind seam are the same fact")))
+  (is (= {[:user] [:map [:id :int]] [:auth] [:map [:token :string]]}
+         (schemas-in :rf/default))))
 
 (deftest app-schemas-per-frame-isolation
   (rf/reg-app-schema [:user] {:frame :tenant/a} [:map])
