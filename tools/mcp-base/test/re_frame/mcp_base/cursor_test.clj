@@ -1,7 +1,4 @@
 (ns re-frame.mcp-base.cursor-test
-  "Tests for the shared cursor-pagination machinery. The JVM suite pins
-  the `:clj` codec arm; `cljs_branches_cljs_test` pins the `js/Buffer`
-  arm."
   (:require [clojure.test :refer [are deftest is]]
             [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
@@ -18,10 +15,7 @@
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
 
 (defn- pad-bit-alias
-  "A noncanonical alias of canonical b64 `token` that differs only in the
-  trailing pad bits, so it decodes to the same bytes under a different
-  spelling; nil if `token` has no pad slack. Mirrored in
-  `cljs_branches_cljs_test`."
+  "Change pad bits without changing the decoded bytes."
   [token]
   (let [decoded (rf.mcp-base.cursor/b64-decode token)
         i       (dec (count (re-find #"[^=]+" token)))
@@ -42,10 +36,6 @@
   (is (nil? (rf.mcp-base.cursor/encode-cursor nil)))
   (is (nil? (rf.mcp-base.cursor/encode-cursor 42))))
 
-;; ---------------------------------------------------------------------------
-;; decode-cursor recovery contract
-;; ---------------------------------------------------------------------------
-
 (deftest decode-cursor-absent-is-nil
   (is (nil? (rf.mcp-base.cursor/decode-cursor nil offset-cursor?)))
   (is (nil? (rf.mcp-base.cursor/decode-cursor "   " offset-cursor?))))
@@ -55,11 +45,7 @@
   (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor {:offset 0} offset-cursor?))))
 
 (deftest decode-cursor-rejects-noncanonical-base64-aliases
-  ;; The host decoders are lenient in different ways (js/Buffer drops
-  ;; non-alphabet chars where the JVM throws; both ignore non-zero pad
-  ;; bits), so a re-spelled token can decode to the same payload. Every
-  ;; such alias is ::malformed on both hosts; the CLJS mirror is
-  ;; `cursor-rejects-noncanonical-base64-aliases-cljs`.
+  ;; Lenient host decoders can accept several spellings of the same bytes.
   (let [canonical (rf.mcp-base.cursor/b64-encode "{:v 1 :after-id \"e\"}")
         pair?     (fn [m] (and (map? m) (some? (:after-id m))))]
     (are [token] (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor token pair?))
@@ -69,11 +55,7 @@
       (pad-bit-alias canonical))))                       ; same bytes, other pad bits
 
 (deftest decode-cursor-cap-is-characters-and-the-unit-is-unobservable
-  ;; The cap's guard is `(> (count s) ...)`, UTF-16 code units on both
-  ;; hosts. Code units and UTF-8 bytes agree on ASCII, and a non-ASCII
-  ;; token is ::malformed regardless (`decode-canonical-b64` refuses it),
-  ;; so the unit cannot be observed through `decode-cursor`. Each fixture
-  ;; sits under the character cap but over a byte cap, and is ::malformed.
+  ;; Non-ASCII tokens are malformed regardless of the cap's unit.
   (let [utf8-len #(alength (.getBytes ^String % "UTF-8"))]
     (doseq [s [(apply str (repeat 400 "—"))           ; 1 code unit, 3 bytes
                (apply str (repeat 400 "𝄞"))]]   ; 2 code units, 4 bytes
@@ -97,17 +79,13 @@
     (is (= [] @consulted))))
 
 (deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
-  ;; The size guard is a strict `>`: a real cursor whose token is exactly
-  ;; max-cursor-chars long still decodes.
   (let [payload {:v 1 :offset 0 :total 1 :sig (apply str (repeat 732 \s))}
         token   (rf.mcp-base.cursor/encode-cursor payload)]
     (is (= rf.mcp-base.cursor/max-cursor-chars (count token)))
     (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?)))))
 
 (deftest decode-cursor-rejects-tagged-literals
-  ;; Every tagged literal is refused, the built-in #inst / #uuid included:
-  ;; their registered readers would otherwise bypass the :default handler
-  ;; and carry a host Date / UUID through a permissive predicate.
+  ;; Built-in tags bypass :default unless explicitly rejected.
   (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))]
     (are [text] (= ::rf.mcp-base.cursor/malformed
                    (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/b64-encode text) permissive?))
@@ -116,9 +94,7 @@
       "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}")))
 
 (deftest decode-cursor-rejects-trailing-forms
-  ;; A cursor is ONE payload map. A trailing form, a `]` injected to close
-  ;; the reader's wrapping vector early, or a reproduced EOF sentinel each
-  ;; make it ::malformed; trailing whitespace does not.
+  ;; Injected brackets and sentinels must not disguise a trailing form.
   (let [m "{:v 1 :offset 0 :total 1 :sig \"s\"}"]
     (are [text] (= ::rf.mcp-base.cursor/malformed
                    (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/b64-encode text) offset-cursor?))
@@ -128,10 +104,6 @@
     (is (= {:v 1 :offset 0 :total 1 :sig "s"}
            (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/b64-encode (str m "   "))
                                              offset-cursor?)))))
-
-;; ---------------------------------------------------------------------------
-;; parse-limit-arg and cursor-stale-result
-;; ---------------------------------------------------------------------------
 
 (deftest parse-limit-arg-defaults-and-clamps
   (are [raw expected] (= expected (rf.mcp-base.cursor/parse-limit-arg raw 25 200))
