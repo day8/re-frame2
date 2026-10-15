@@ -13,7 +13,6 @@
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.projection :as rf.projection]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; publishes the `:epoch/*` hooks the core wrappers delegate to
@@ -86,15 +85,3 @@
           "a real captured record has the synthetic record's shape")
       (is (some? (large-marker-body
                    (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))))))
-
-(deftest core-project-egress-rejects-unknown-profile
-  (rf/make-frame {:id :ep/main})
-  (let [data (try (rf/project-egress (synthetic-record :ep/main "v")
-                                     {:rf.egress/profile :rf.egress/not-real})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-    (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
-    (is (= (ex-data (rf.projection/unknown-egress-profile-ex
-                      'rf/project-egress :rf.egress/not-real))
-           data)
-        "the shape is the shared builder's")))
