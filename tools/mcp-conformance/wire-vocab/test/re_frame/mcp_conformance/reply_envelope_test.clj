@@ -1,69 +1,7 @@
 (ns re-frame.mcp-conformance.reply-envelope-test
-  "Reply-envelope trace-egress wire-vocabulary gate.
-
-  ## Why this gate
-
-  EP-0011 is not only a runtime / Xray concern. Managed-Effects property 9
-  requires managed async families to emit trace rows FROM reply-envelope
-  facts, and Tool-Pair's off-box egress contract names the EP-0011 uniform
-  reply envelope among the record-shaped tool egress
-  (spec/Tool-Pair.md §`project-egress` record-shaped egress).
-  `tools/mcp-conformance` is the client-side MCP gate for re-frame2-pair-mcp's
-  `trace-window` / `watch-epochs` surfaces — the off-box delivery path over the
-  authoritative per-frame trace rings (Tool-Pair §Reading the per-frame
-  trace ring). Without this gate the surface would validate only the MCP
-  wrapper and a simple counter dispatch — no managed-async reply-envelope
-  trace content.
-
-  This is the wire-vocab counterpart to the live turn-shaped end-to-end
-  path (`live-re-frame2-pair-turn-observation.cjs`): a pure-JVM schema +
-  fixture + source-pin gate (the same shape as the `canonical-markers`
-  table) that pins the ADDITIVE `:rf.reply/*` trace vocabulary an MCP
-  consumer reads off a `trace-window` / event-bundle `:trace-events` row,
-  so a rename or drop of the MCP-visible reply-envelope keys FAILS in
-  `tools/mcp-conformance`.
-
-  ## The wire vocabulary this pins
-
-  Family completion / stale-suppression trace rows stamp the canonical
-  reply facts ADDITIVELY (Xray spec 013 §One work/reply vocabulary +
-  Managed-Effects §Tracing). The MCP-visible reply-envelope trace row
-  carries, alongside its bespoke family facts:
-
-    - `:rf.reply/status`      — the closed reply `:status` (the row's
-                                outcome; `:stale` on a suppression).
-    - `:rf.reply/work-id`     — the CANONICAL `[:rf.work/* …]` attempt-identity
-                                tuple; the join key the uniform work/reply
-                                view groups on.
-    - `:rf.reply/work-status` — the operational `:work/status`
-                                (`:suppressed` on a stale row).
-    - `:rf.reply/carried` / `:rf.reply/current` — the carried-vs-current
-                                stale-suppression correlation gate.
-
-  ONE NAME PER FACT. A reply-envelope row carries no bare `:work/id` beside
-  `:rf.reply/work-id`; the namespaced `:rf.reply/work-id` is the canonical
-  (and only) work-identity spelling on a reply-envelope trace row. (The bare
-  `:work/id` lives on the REPLY MAP itself and on non-reply resource-lifecycle rows — the durable
-  work-ledger identity — but NOT as a duplicate on a reply-envelope row.) An
-  MCP consumer joins on `:rf.reply/work-id`.
-
-  ## The gate shape (mirrors the per-marker pattern)
-
-    1. A canonical Malli schema for one reply-envelope trace row.
-    2. Fixtures matching the REAL production emissions (HTTP
-       `:rf.http/stale-suppressed`, resource `:rf.resource/stale-suppressed`,
-       machine `:rf.machine/done`) so a fixture drift trips the gate.
-    3. A per-family SOURCE-text pin asserting every fixture key appears as
-       DATA at that family's own emit site (so a key one family drops trips
-       this gate even though the literals live in the implementation tree,
-       not in re-frame2-pair-mcp, and another family still emits it).
-
-  Coverage boundary: this gate pins the reply-envelope trace VOCABULARY
-  visible to MCP consumers — the keys + their shapes. It does NOT
-  re-validate the whole managed-effect suite (the runtime / resources /
-  Xray tests own family-internal correctness + the live emission); it is
-  the MCP-egress-visible contract that those keys reach a `trace-window` /
-  `watch-epochs` consumer un-renamed. See README §EP-0011 coverage boundary."
+  "Reply-envelope vocabulary visible through MCP trace reads.
+  Schemas validate representative shapes; each family source pin catches
+  dropped or renamed keys independently of the other families."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [malli.core :as m]
@@ -81,37 +19,9 @@
        (keyword? (first v))
        (= "rf.work" (namespace (first v)))))
 
-;; ---------------------------------------------------------------------------
-;; The canonical reply-envelope trace-row schema. OPEN map — every emission
-;; rides its bespoke family facts ALONGSIDE the additive `:rf.reply/*`
-;; vocabulary (the row is NOT a single-key wrapper; it is a trace event's tag
-;; map). The load-bearing contract is the additive `:rf.reply/*` keys + their
-;; shapes. The work identity rides ONLY as `:rf.reply/work-id`; there is no
-;; bare `:work/id` duplicate (one name per fact). Its closed enums mirror
-;; re-frame.reply's status vocabularies as literal data: the gate consumes
-;; the WIRE facts and never :requires the substrate.
-;; ---------------------------------------------------------------------------
-
 (def ReplyEnvelopeTraceRow
-  "The MCP-visible reply-envelope trace-row shape (Managed-Effects §Tracing,
-  Xray spec 013 §One work/reply vocabulary). OPEN — additive bespoke family
-  facts (`:resource/key`, `:rf.machine/done`, `:recovery`, …) compose without
-  a schema bump.
-
-  Required additive reply-envelope slots (the MCP-visible contract):
-    :rf.reply/status      — closed reply `:status`.
-    :rf.reply/work-id     — the CANONICAL `[:rf.work/* …]` attempt-identity
-                            tuple; the join key (one name per fact; no bare
-                            `:work/id` duplicate).
-    :rf.reply/work-status — closed `:work/status`.
-
-  Optional (present on a stale-suppression row):
-    :rf.reply/carried / :rf.reply/current — the carried-vs-current gate.
-    :rf.reply/stale-reason — why the completion was suppressed.
-
-  A bare `:work/id` MUST NOT appear on a reply-envelope row as a duplicate of
-  `:rf.reply/work-id` (the trace-catalogue one-name-per-fact lint enforces
-  this repo-wide)."
+  "Open trace tags carry additive reply facts beside family-specific fields.
+  Work identity has one spelling: :rf.reply/work-id."
   [:map
    {:closed false}
    [:rf.reply/status      [:enum :ok :partial :error :cancelled :stale]]
@@ -120,12 +30,6 @@
    [:rf.reply/carried     {:optional true} [:maybe :any]]
    [:rf.reply/current     {:optional true} [:maybe :any]]
    [:rf.reply/stale-reason {:optional true} [:maybe :any]]])
-
-;; ---------------------------------------------------------------------------
-;; Fixtures — the REAL production emission shapes. Each mirrors a production
-;; `trace/emit!` call so a drift in the production tag map (a dropped key, a
-;; renamed key, a scalar work-id) trips this gate.
-;; ---------------------------------------------------------------------------
 
 (def ^:private http-stale-suppressed-fixture
   "Mirrors `re-frame.http.transport`'s `:rf.http/stale-suppressed` emit — a
@@ -178,12 +82,6 @@
    :resource resource-stale-suppressed-fixture
    :machine  machine-stale-suppressed-fixture})
 
-;; ---------------------------------------------------------------------------
-;; The production emit sites. The literals live in the implementation tree
-;; (not in re-frame2-pair-mcp) — the same posture the cross-MCP marker pins
-;; take against `mcp-base/vocab.cljc`.
-;; ---------------------------------------------------------------------------
-
 (def ^:private family-emit-sites
   "Each fixture family's ONE production emit site, as `[rel-path head]`
   pairs naming the form whose tag map the fixture mirrors (see
@@ -199,21 +97,11 @@
    :machine  [["implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc"
                "(rf.trace/emit! :rf.machine :rf.machine/done"]]})
 
-;; ===========================================================================
-;; (1) Schema conformance — every production-shaped fixture validates.
-;; ===========================================================================
-
 (deftest reply-envelope-fixtures-conform-to-schema
   (doseq [[family fixture] all-fixtures]
     (is (m/validate ReplyEnvelopeTraceRow fixture)
         (str family " reply-envelope trace fixture failed schema validation:\n"
              (me/humanize (m/explain ReplyEnvelopeTraceRow fixture))))))
-
-;; ===========================================================================
-;; (2) SOURCE-text pin — every fixture key appears as DATA at its own family's
-;;     emit site. A key one family drops or renames trips this gate even while
-;;     another family still emits it.
-;; ===========================================================================
 
 (deftest each-fixture-key-is-emitted-as-data-at-its-family-emit-site
   (doseq [[family fixture] all-fixtures
