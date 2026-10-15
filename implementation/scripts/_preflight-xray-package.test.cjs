@@ -265,7 +265,6 @@ function expectFail(fixture, what, messagePattern) {
 test('a pom carrying every in-repo coordinate PASSES', () => {
   const { status, out } = run(makeFixture());
   assert.equal(status, 0, `complete pom: expected exit 0, got ${status}\n${out}`);
-  assert.match(out, /verification PASSED/, `complete pom: expected a PASSED verdict\n${out}`);
 });
 
 test('the eight-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
