@@ -127,8 +127,8 @@
   ;; A's ranking would make an idle boundary look hot.
   (let [t (advisor/sub-timing {:app/a [(bundle 1 :e [(sub-ev :shared 5.0)])]
                                :app/b [(bundle 2 :e [(sub-ev :shared 50.0)])]})]
-    (is (= 5.0  (get-in t [:by-read [:app/a :shared] :elapsed-ms])))
-    (is (= 50.0 (get-in t [:by-read [:app/b :shared] :elapsed-ms])))))
+    (is (= [5.0 50.0]
+           (mapv #(get-in t [:by-read [% :shared] :elapsed-ms]) [:app/a :app/b])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Ranking — four axes in four units, and the order stated out loud
@@ -156,11 +156,9 @@
                                       (boundary [[:app/main :medium]])])}
                   (advisor/sub-timing windows))
         ids     (mapv #(get-in % [:attributable :edges 0 :sub-id]) (:rows adv))]
-    (is (= [:heavy :medium :light] ids)
-        "ranked by attributable subscription time, highest first — the
-         frequency order (3, 2, 6 runs) disagrees, so the sort axis matters")
-    (is (= [1 2 3] (mapv :rank (:rows adv))))
-    (is (= :time (get-in adv [:ordered-by :axis])))))
+    ;; Frequency order differs, so this proves that time owns the ranking.
+    (is (= [[:heavy :medium :light] [1 2 3] :time]
+           [ids (mapv :rank (:rows adv)) (get-in adv [:ordered-by :axis])]))))
 
 (deftest with-no-clock-the-roster-says-so-rather-than-implying-time
   (let [adv (advisor/advise
@@ -428,19 +426,11 @@
                                            [:app/main :todo/by-id [:todo/by-id 2]]])])}
                             (advisor/sub-timing
                               {:app/main [(bundle 1 :e [(sub-ev :todo/by-id 4.0)])]}))))]
-    (is (= 1 (get-in row [:axes :frequency :runs]))
-        "one run happened; 2 is one run counted once per cell that reads it")
-    (is (= 4.0 (get-in row [:axes :time :ms]))
-        "and 8.0 ms of attributable time would be a doubled sort key")
-    (is (= 2 (get-in row [:axes :read-churn :reads]))
-        (str "while the read COUNT still says two — the boundary really does "
-             "hold two read edges, and that axis is about the edge set rather "
-             "than about what the ring could price"))))
+    (is (= [1 4.0 2]
+           [(get-in row [:axes :frequency :runs])
+            (get-in row [:axes :time :ms])
+            (get-in row [:axes :read-churn :reads])]))))
 
 (deftest an-absent-door-yields-an-empty-roster-and-still-states-what-is-unmeasured
   (let [adv (advisor/advise {:mounted-boundaries nil} (advisor/sub-timing {}))]
-    (is (= [] (:rows adv)))
-    (is (= 3 (count (:unmeasured adv)))
-        (str "the three unmeasured classes are stated whether or not there is "
-             "a roster — a reader who saw them only when the roster was empty "
-             "would read a populated one as complete"))))
+    (is (= [[] 3] [(:rows adv) (count (:unmeasured adv))]))))
