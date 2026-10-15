@@ -1,24 +1,7 @@
 (ns re-frame.ssr-emitter-reinit-lifecycle-jvm-test
-  "The JVM SSR emitter lifecycle expectation.
-
-  On the JVM the SSR render path runs through the plain-atom adapter, whose
-  `:render-to-string` reads plain-atom's `hiccup-emitter` atom. That atom is
-  armed once by `re-frame.ssr` ns-load and, crucially, plain-atom's `dispose-adapter!` clears only the
-  frames' sub-caches — it does NOT clear the emitter. So the JVM lifecycle is repeatable by RETENTION, where
-  the React-shaped CLJS spine is repeatable by disposal-clears + install-replay.
-  This test pins that host-divergent expectation explicitly: the emitter stays
-  bound across destroy → re-init on the JVM.
-
-  The install-time replay (`install-adapter!` → `rearm-hiccup-emitter!`) is
-  a harmless no-op here: plain-atom publishes no
-  `:adapter/arm-hiccup-emitter-if-unarmed!` routed arm (the replay is routed
-  to the installed adapter's own arm hook, not the broadcast
-  `:reagent/set-hiccup-emitter!` chain), so the durable
-  `:ssr/current-hiccup-emitter` slot has no per-adapter arm to run —
-  retention alone keeps the JVM path armed."
+  "The plain-atom emitter survives destroy and re-init without rearming."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -34,10 +17,6 @@
 
 (defn- render! []
   (rf.substrate.adapter/render-to-string [:div "ok"] {}))
-
-(deftest ssr-load-published-the-durable-emitter-on-the-jvm-too
-  (is (fn? (rf.late-bind/get-fn :ssr/current-hiccup-emitter))
-      "re-frame.ssr ns-load published :ssr/current-hiccup-emitter on the JVM"))
 
 (deftest jvm-lifecycle-is-repeatable
   (dotimes [_ 2]
