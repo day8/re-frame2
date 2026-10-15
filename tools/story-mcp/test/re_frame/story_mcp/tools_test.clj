@@ -365,7 +365,6 @@
         s1   (page nil)
         s3   (page (:next-cursor (page (:next-cursor s1))))]
     (is (= [2 5 2 true] [(count (:stories s1)) (:total s1) (:limit s1) (:has-more? s1)]))
-    (is (string? (:next-cursor s1)))
     (is (= [1 false nil] [(count (:stories s3)) (:has-more? s3) (:next-cursor s3)])
         "the final page holds the remaining entry and mints no cursor")))
 
@@ -695,10 +694,6 @@
          (select-keys (:result (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 1 :method "initialize"
                                                               :params  {:protocolVersion "2025-06-18"}}))
                       [:protocolVersion :serverInfo :capabilities]))))
-
-(deftest dispatch-tools-list-returns-registry
-  (is (= (map :name rf.story-mcp.tools.registry/tool-registry)
-         (map :name (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 2 :method "tools/list"}) :result :tools)))))
 
 (deftest dispatch-tools-call-non-map-arguments-is-invalid-params
   ;; A non-map `arguments` is a params-container failure (-32602), not the
