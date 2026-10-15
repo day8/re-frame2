@@ -17,7 +17,7 @@ that workflow and the defaults that matter during migration.
 | `enabled: false` | Do not ensure; use route `:when` for conditional loads |
 | `select` | An ordinary subscription deriving from `:rf.resource/data` |
 | `staleTime` | Resource `:stale-after-ms` |
-| `gcTime` | Resource `:gc-after-ms`, with different timer semantics below |
+| `gcTime` | Resource `:gc-after-ms`, measured from the last owner's release |
 | `refetchInterval` | Resource `:poll-interval-ms`, while owned and visible |
 | `refetchOnWindowFocus` / `refetchOnReconnect` | Frame `:revalidate-on #{:focus :reconnect}` |
 | `placeholderData: keepPreviousData` | `:keep-previous?` on an ensure or route resource |
@@ -45,11 +45,11 @@ and reconnect, and automatic query retries. Resources chooses these separately:
 | Time-based staleness | Never stale by time alone | Set `:stale-after-ms`, including `0` for immediately stale |
 | Focus/reconnect | Off | Declare the frame's `:revalidate-on` set |
 | Retries | Off for reads and writes | Add `:retry` to the managed-HTTP args returned by the request function |
-| Unowned cache retention | GC checks every 300000 ms | Set `:gc-after-ms`, or `:never` to keep unowned entries |
+| Unowned cache retention | 300000 ms after the last owner is released | Set `:gc-after-ms`, or `:never` to keep unowned entries |
 
-A GC check is armed when a load settles and repeats while the entry is owned
-or loading. Releasing the final owner does not start a new five-minute
-retention window; collection can happen at the next pending check.
+As with `gcTime`, the retention window starts when the final owner is
+released, so returning within it reuses the cached entry. An entry nothing
+ever owned, such as an ownerless prefetch, is measured from its load settling.
 
 ```clojure
 (rf/reg-resource :article/by-slug
