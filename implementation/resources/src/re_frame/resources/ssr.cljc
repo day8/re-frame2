@@ -2449,10 +2449,11 @@
   Why arm at hydration. A hydrated entry whose route owner rode the wire is
   already OWNED on the client, so the client's ensure is a fresh-skip onto an
   owned entry, which arms nothing, and on the ordinary SSR boot no client
-  ensure runs at all. Releasing that owner arms nothing either, because a
-  release never starts a timer.
-    - GC. Without this arm no GC re-check ever runs and the entry
-      lives for the session. Arming is safe because `events/gc-fired-handler`
+  ensure runs at all.
+    - GC. An entry the reconcile left owner-free (its SSR owners orphaned)
+      has no owner whose release would re-arm a GC timer, so without this arm
+      no GC re-check ever runs and it lives for the session. Arming is safe
+      because `events/gc-fired-handler`
       re-checks the LIVE durable facts on fire: a still owned or in-flight
       entry is kept and its GC timer re-armed, and only an owner-free, idle
       entry is removed.

@@ -85,7 +85,9 @@
   :stale)
 
 (def gc-kind
-  "The `:gc` timer kind — arms `:gc-after-ms` after `:loaded-at`; on fire it
+  "The `:gc` timer kind — arms `:gc-after-ms` when a load settles, and again
+  for a full `:gc-after-ms` when the entry's last owner releases, so an
+  owner-free entry stays warm that long after its final release; on fire it
   nudges a re-checking `:rf.resource.internal/gc-fired` event whose handler
   removes the entry ONLY if it is still owner-free + not in flight. Per Spec
   016 §Stale and GC scheduling."
@@ -212,8 +214,9 @@
   `[frame-id resource-key]`, used on entry removal: the
   `:rf.resource/cancel-timers` fx (remove / clear-scope / a fired GC / a
   mutation's removals) and `clear-resource`'s disposal. Last-owner release
-  does not use it — the entry stays alive and keeps its GC reaper, so that
-  path cancels only the poll (`:rf.resource/cancel-poll-timers`).
+  does not use it — the entry stays alive, so that path cancels only the poll
+  (`:rf.resource/cancel-poll-timers`) and re-arms the GC timer (a partial
+  `:rf.resource/schedule-timers` naming `:gc`).
   Idempotent. Returns nil. EP-0020: the `:poll` kind is in the cancel so a
   removed entry never keeps polling."
   [frame-id resource-key]
@@ -416,7 +419,8 @@ mutation settle) names ALL declared kinds — the stale / GC delays derived from
 the durable `:loaded-at` + `:stale-after-ms` / `:gc-after-ms`, the poll delay
 the `:poll-interval-ms` supplied only for an actively-owned entry (EP-0020) —
 so it also cancels a policy removed by hot reload. A PARTIAL re-arm (a poll
-tick / a GC skip) names ONLY its own kind, preserving its siblings.
+tick / a GC skip / a last-owner release) names ONLY its own kind, preserving
+its siblings.
 `:server?` is read from the cascade frame's platform. No-op
 under `:server? true` (SSR uses the blocking-drain wait point + lazy client
 revalidation, never wall-clock background timers). The fired timer dispatches a
@@ -436,7 +440,8 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling /
   FULL-settlement reconcile (a successful load / mutation settle) names ALL the
   kinds it owns — arming the policied ones and CANCELLING a kind whose policy
   was dropped by hot reload — while a PARTIAL re-arm (a poll tick names only
-  `:poll`; a GC skip names only `:gc`) touches ONLY its own kind and thereby
+  `:poll`; a GC skip or a last-owner release names only `:gc`) touches ONLY
+  its own kind and thereby
   leaves its siblings alive. `nil` is never overloaded to mean both preserve
   and disarm: absence = preserve, a named nil = cancel.
 

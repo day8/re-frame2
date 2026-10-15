@@ -2,9 +2,9 @@
   "A hydrated resource entry stays GC-collectable when its route owner rides
   through hydration (Spec 016 §Freshness clock contract). Such an entry is
   already owned, so the client's ensure is a fresh-skip that arms nothing (on
-  the ordinary SSR boot no ensure runs at all), and a release never starts a
-  timer; so a client :rf/hydrate arms each hydrated entry's GC timer, and the
-  GC re-check keeps it while owned. Both instruments forward to production:
+  the ordinary SSR boot no ensure runs at all); so a client :rf/hydrate arms
+  each hydrated entry's GC timer, the GC re-check keeps it while owned, and the
+  release of its last owner re-arms it. Both instruments forward to production:
   the captured fx emissions and the real host timer table. Frames are
   :platform :client, because the JVM host default is :server."
   (:require
@@ -188,7 +188,7 @@
       (fire-armed-gc!)
       (assert-hydration-armed-and-collected! at-hydrate))))
 
-(deftest owned-fire-re-arms-release-keeps-the-timer-next-fire-collects
+(deftest owned-fire-re-arms-release-re-arms-next-fire-collects
   ;; the GC re-check is what makes arming at hydration safe
   (reg-article!)
   (let [route-owner [:route :route/article "nav-1"]]
@@ -203,8 +203,11 @@
             (str "an owned fire keeps the entry and re-arms a fresh timer at :gc-after-ms: "
                  (pr-str (observed))))
         (release! route-owner)
-        (is (and (some? re-armed) (= (:token re-armed) (:token (gc-slot))))
-            "a later release does not restart the armed timer")
+        (is (= [true true [300000 300000]]
+               [(some? (gc-slot)) (not= (:token re-armed) (:token (gc-slot)))
+                (mapv #(get-in % [:timers :gc]) (gc-arm-emissions))])
+            (str "the last owner's release re-arms a fresh timer at :gc-after-ms: "
+                 (pr-str (observed))))
         (fire-armed-gc!)
         (is (= [nil nil] [(entry) (gc-slot)])
             (str "the next fire collects the owner-free entry and releases its handle: "
