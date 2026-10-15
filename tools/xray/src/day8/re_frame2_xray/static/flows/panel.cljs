@@ -27,7 +27,9 @@
   as `rf.flows/flows-snapshot`).
   The per-frame `flows` atom is the SOLE store; the
   registrar `:flow` kind is RESERVED-but-empty (no write), so a
-  `(rf/registrations {:source :store :kind :flow})` read returns `{}` (an empty catalogue).
+  `(rf/registrations {:source :store :kind :flow})` read throws
+  `:rf.error/registrar-kind-not-queryable` — the flow registry is read
+  through `re-frame.flows/flows`, `flow-meta` and `flows-snapshot`.
   `flows-snapshot` returns the whole-registry `{frame-id {flow-id
   flow-map}}` value DIRECTLY — already in the per-frame shape the
   projection + picker-scoping helpers consume, so no flat-to-grouped
@@ -424,9 +426,11 @@
   Reads `rf.flows/flows-snapshot` — the whole-registry `{frame-id {flow-id
   flow-map}}` snapshot — NOT the registrar `:flow` slot. The per-frame
   `flows` atom is the SOLE store; the registrar `:flow` kind
-  is RESERVED-but-empty (no write), so a `(rf/registrations {:source :store :kind :flow})` /
-  `rf/registrations :flow` read returns `{}` and the panel would
-  render an empty catalogue. `flows-snapshot` deref's the process-global
+  is RESERVED-but-empty (no write), so a
+  `(rf/registrations {:source :store :kind :flow})` read throws
+  `:rf.error/registrar-kind-not-queryable`, naming `re-frame.flows/flows`,
+  `flow-meta` and `flows-snapshot` as the reads to use instead.
+  `flows-snapshot` deref's the process-global
   `re-frame.flows.registry/flows` atom directly, so — unlike a registrar
   read — it is generation-INDEPENDENT: it does not route through the
   registrar resolver and is unaffected by Xray's sub build binding to its
