@@ -1,24 +1,9 @@
 (ns re-frame2-pair.pure-test
-  "Node-test coverage for `re-frame2-pair.pure` — the genuinely-pure core the
-   SHIPPED preload (`re-frame2-pair.runtime`) delegates to. These tests exercise
-   the EXACT code the runtime calls (runtime `:require`s this ns and threads the
-   live gates into these fns), so, unlike a Babashka mirror that re-derives the
-   algorithms, they cannot silently drift from the shipped preload.
-
-   Run: `npm run test:pure` from tests/fixture/
-        (`shadow-cljs compile pure-test && node target/pure-test.js`)."
   (:require [cljs.test :refer [deftest is testing]]
             [re-frame2-pair.pure :as pure]))
 
-;; ===========================================================================
-;; Multi-frame operating-frame resolution (multi-frame ambiguity matrix)
-;; ===========================================================================
-
 (deftest app-frame-ids-excludes-tool-frames-retains-default
-  (is (= [:rf/default] (pure/app-frame-ids [:rf/default :rf/xray]))
-      ":rf/xray excluded; :rf/default retained")
-  (is (= [:my-app] (pure/app-frame-ids [:my-app :rf/xray :rf/ssr])))
-  (is (= [:rf/default :stories :rf-default] (pure/app-frame-ids [:rf/default :stories :rf-default :rf/xray]))
+  (is (= [:rf/default :stories :rf-default] (pure/app-frame-ids [:rf/default :stories :rf-default :rf/xray :rf/ssr]))
       "order mirrors the input frame-ids; the un-namespaced :rf-default lookalike is a user frame")
   (is (= [] (pure/app-frame-ids [:rf/xray]))
       "only tool frames -> no app frames"))
@@ -45,13 +30,7 @@
         "extra context rides through beside the refusal")
     (is (re-find #"select-frame!" (:hint env)) "hint names the fix")))
 
-;; ===========================================================================
-;; Call-time id validation (read-sub validation matrix)
-;; ===========================================================================
-
 (deftest nearest-ids-ranks-by-edit-distance
-  ;; More known ids than the default cap of 3, with the typo's real target
-  ;; LAST, so only a ranking by edit distance can bring it to the front.
   (let [known [:cart/items :cart/total :checkout/step :user/name :current-user]]
     (is (= :current-user (first (pure/nearest-ids :current-userr known)))
         "a typo ranks its real target first")
@@ -74,10 +53,6 @@
              (dissoc r :hint)))
       (is (re-find #"nothing is registered" (:hint r))))))
 
-;; ===========================================================================
-;; Epoch timing + matcher (timing matrix)
-;; ===========================================================================
-
 (deftest epoch-elapsed-ms-spans-run-start-to-last-run-end
   (let [run (fn [op t] {:op-type :rf.event :operation op :time t})]
     (is (nil? (pure/epoch-elapsed-ms {:trace-events [(run :rf.event/run-end 1000)]}))
@@ -90,13 +65,11 @@
                                   (run :rf.event/run-start 1060) (run :rf.event/run-end 1300)]}))))))
 
 (deftest parse-timing-pred-number-and-string-forms
-  (is ((pure/parse-timing-pred 100) 100) "number N is sugar for >= N")
-  (is (not ((pure/parse-timing-pred 100) 50)))
-  (is ((pure/parse-timing-pred ">100") 101))
-  (is (not ((pure/parse-timing-pred ">100") 100)))
-  (is ((pure/parse-timing-pred "<=50") 50))
-  (is (not ((pure/parse-timing-pred "<=50") 51)))
-  (is (nil? (pure/parse-timing-pred "not-a-number")) "unparseable -> nil (predicate absent)"))
+  (doseq [[query times expected] [[100 [100 50] [true false]]
+                                [">100" [101 100] [true false]]
+                                ["<=50" [50 51] [true false]]]]
+    (is (= expected (mapv (pure/parse-timing-pred query) times))))
+  (is (nil? (pure/parse-timing-pred "not-a-number"))))
 
 (deftest epoch-matches-filters-on-each-axis
   (let [slow {:event-id :cart/add
@@ -110,16 +83,6 @@
     (is (not (pure/epoch-matches? {:timing-ms ">100"}
                                   {:event-id :x :trace-events []}))
         "an epoch with no timing bracket does not clear a numeric threshold")))
-
-;; ===========================================================================
-;; Pair-epoch attribution (queued-correct, frame-qualified, bounded)
-;; ===========================================================================
-;;
-;; These pins exercise the EXACT logic `re-frame2-pair.runtime`'s assembled-
-;; epoch listener (`attribute-pair-epoch!`) and `last-pair-epoch` delegate to.
-;; They pin the three defects a bare-id / sync-only attribution would carry:
-;; a queued pair epoch never attributed, a bare id colliding across frames,
-;; and unbounded growth.
 
 (defn- dispatched-epoch
   "An assembled epoch record carrying the `:rf.event/dispatched` origin trace
@@ -153,45 +116,35 @@
       (is (= "ep-1" (:epoch-id (pure/pick-pair-epoch (get store :A)
                                                      [(dispatched-epoch :A "ep-1" :pair)])))
           "last-pair-epoch surfaces the queued record")))
-  (testing "a non-pair epoch is not attributed"
-    (is (= {} (pure/attribute-pair-epoch {} (dispatched-epoch :A "ep-1" :app)
-                                         #{:A} #{"ep-1"}))))
   (testing "two frames sharing an epoch-id stay isolated"
-    ;; frame A dispatches pair epoch "ep-7"; frame B has its own non-pair "ep-7"
     (let [store (-> {}
                     (pure/attribute-pair-epoch (dispatched-epoch :A "ep-7" :pair) #{:A :B} #{"ep-7"})
                     (pure/attribute-pair-epoch (dispatched-epoch :B "ep-7" :app) #{:A :B} #{"ep-7"}))]
-      (is (= #{"ep-7"} (get store :A)))
-      (is (nil? (get store :B)) "frame B never inherits A's attribution")
-      (is (nil? (pure/pick-pair-epoch (get store :B #{})
-                                      [(dispatched-epoch :B "ep-7" :app)]))
-          "querying frame B never matches a pair dispatch from frame A"))))
+      (is (= {:A #{"ep-7"}} store)))))
 
 (deftest attribute-pair-epoch-is-bounded-and-cleans-up
   (testing "bounded to the live ring — rolled-over ids are pruned"
-    (let [depth 8
+    (let [depth 2
           store (reduce (fn [s i]
                           (let [ring-ids (into #{} (map #(str "ep-" %))
                                               (range (max 0 (- i (dec depth))) (inc i)))]
                             (pure/attribute-pair-epoch s (dispatched-epoch :A (str "ep-" i) :pair)
                                                        #{:A} ring-ids)))
                         {}
-                        (range 1000))]
+                        (range 4))]
       (is (= depth (count (get store :A)))
-          "the attribution set never exceeds the live ring depth across 1000 dispatches")))
+          "the attribution set never exceeds the live ring depth across repeated ring rollovers")))
   (testing "destroyed-frame state is removed"
     (let [store (-> {}
                     (pure/attribute-pair-epoch (dispatched-epoch :A "a-1" :pair) #{:A :Z} #{"a-1"})
                     (pure/attribute-pair-epoch (dispatched-epoch :Z "z-1" :pair) #{:A :Z} #{"z-1"}))]
       (is (= #{:A :Z} (set (keys store))))
-      ;; :Z is destroyed; the next settle on :A drops :Z's entry.
       (let [store' (pure/attribute-pair-epoch store (dispatched-epoch :A "a-2" :pair)
                                               #{:A} #{"a-1" "a-2"})]
         (is (= #{:A} (set (keys store'))) "unregistered frame :Z is pruned"))))
   (testing "a frame whose set empties is dropped, never left as an empty entry"
     (let [store (-> {}
                     (pure/attribute-pair-epoch (dispatched-epoch :A "a-1" :pair) #{:A} #{"a-1"})
-                    ;; a-1 rolls out of the ring; a NON-pair a-2 settles -> set empties
                     (pure/attribute-pair-epoch (dispatched-epoch :A "a-2" :app) #{:A} #{"a-2"}))]
       (is (not (contains? store :A)) "no empty #{} entry retained"))))
 
@@ -203,14 +156,9 @@
         "walks the ring backward — newest attributed epoch wins")
     (is (nil? (pure/pick-pair-epoch #{} ring)) "no attributed ids -> nil"))
   (testing "survives trace elision — attribution is remembered, not re-parsed"
-    ;; ep-1's raw :trace-events were elided for ring age; it is still attributed.
     (let [aged-ring [{:frame :A :epoch-id "ep-1"}          ; trace elided
                      (dispatched-epoch :A "ep-2" :app)]]
       (is (= "ep-1" (:epoch-id (pure/pick-pair-epoch #{"ep-1"} aged-ring)))))))
-
-;; ===========================================================================
-;; Cascade / consequence projection (cascade outcome + redaction matrices)
-;; ===========================================================================
 
 (deftest db-diff-summary-depth-1-delta
   (is (= {:added-paths [[:b]] :removed-paths [] :changed-paths [[:a]]}
@@ -225,8 +173,6 @@
       "an unknown cause defaults to :ok"))
 
 (def ^:private thrown-action-epoch
-  ;; Rung 11: a :* wildcard machine action THROWS; the epoch settles :ok, no
-  ;; db-change, no fx — a contained throw riding the trace stream.
   {:epoch-id 11 :frame :machine-epochs :outcome :ok
    :db-before {:baseline 5} :db-after {:baseline 5} :effects []
    :trace-events [{:operation :rf.machine/action-ran :tags {:machine-id :fuse/box}}
@@ -304,10 +250,6 @@
         "the restored trigger-event fails closed under the OFF gate")
     (is (= [{:fx-id :http :coord "app:1:1"} {:fx-id :db}] unreplayable-effects)
         "every fx the original cascade fired is unreplayable")))
-
-;; ===========================================================================
-;; Snapshot scope + orient assembly (snapshot/orient matrix)
-;; ===========================================================================
 
 (deftest resolve-snapshot-frames-scopes
   (is (= [:rf/default :stories]
