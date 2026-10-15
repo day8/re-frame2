@@ -146,11 +146,6 @@
           http       (atom [])]
       (submit-capturing! f dispatched http)
       (let [s (slice f)]
-        (is (= #{:email :password} (set (keys (:errors s))))
-            "each invalid field produced a field error")
-        (is (true? (:submit-attempted? s))
-            ":submit-attempted? latches on the invalid branch too")
-        (is (= "short" (get-in s [:draft :password]))
-            "the password is retained for the fix-up; it never left the box")
-        (is (= [[] []] [@dispatched @http])
-            "no machine signal and no HTTP request")))))
+        (is (= [#{:email :password} true "short" [[] []]]
+               [(set (keys (:errors s))) (:submit-attempted? s)
+                (get-in s [:draft :password]) [@dispatched @http]]))))))
