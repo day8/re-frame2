@@ -183,10 +183,8 @@
              once in this file."
       (let [d (refusal :rf.error/fresco-state-bad-argument
                        #(read* f [::open? {:id 1}]))]
-        (is (some? d) "the read refused")
-        (is (= ::open? (:concern d)) "and NAMED the concern")
-        (is (= {:id 1} (:instance-key d)) "and carried the offending key")
-        (is (= :read (:op d)) "and the side it fired on")))
+        (is (= {:concern ::open? :instance-key {:id 1} :op :read}
+               (select-keys d [:concern :instance-key :op])))))
     (testing "and a missing key altogether"
       (is (refused? :rf.error/fresco-state-bad-argument ::open?
                     #(read* f [::open?]))))))
