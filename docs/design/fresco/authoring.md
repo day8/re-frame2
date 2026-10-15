@@ -258,11 +258,12 @@ kept from D016). `::h/revision` is where that law is spelled at the element:
 ```
 
 A change to the revision re-baselines the field to the model **without
-remount** — the node, the focus and the selection survive, and the caret lands
-at end-of-model on the commit carrying the reset. A `:value` that changes under
-an *unchanged* revision continues the draft rather than resetting it, which is
-what makes the distinction explicit rather than guessed. The comparison is `=`,
-so equal-but-fresh values are inert.
+remount** — the node and the focus survive, and the caret lands at
+end-of-model on the commit carrying the reset, so a selected range comes back
+collapsed there. A `:value` that changes under an *unchanged* revision
+continues the draft rather than resetting it, which is what makes the
+distinction explicit rather than guessed. The comparison is `=`, so
+equal-but-fresh values are inert.
 
 **Write a revision the way you would write an instance key**: a domain fact
 your events put in `app-db` — a record id, a load generation, a "form opened

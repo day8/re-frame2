@@ -400,11 +400,12 @@ async function caretUnderRealTyping(page, witness) {
   witness.eq(grouped.start, 5, 'a real keystroke kept the caret off the end');
 }
 
-// I15 — "preserve selection". A keystroke collapses a selection by itself,
-// so the only place the question is live is an OUT-OF-BAND write: a model
-// correction no keystroke caused, which `converge!` is deliberately not on.
-// What survives there is React's own selection restore, and
-// what it does is measured per engine rather than assumed.
+// I15 — "a selected range comes back collapsed". A keystroke collapses a
+// selection by itself, so the only place the question is live is an
+// OUT-OF-BAND write: a model correction no keystroke caused, which
+// `converge!` is deliberately not on. What survives there is React's own
+// selection restore, and what it does is measured per engine rather than
+// assumed.
 async function selectionAcrossAnOutOfBandWrite(page, witness) {
   const observed = await page.evaluate(async () => {
     const node = window.__TB__.el('upper');
