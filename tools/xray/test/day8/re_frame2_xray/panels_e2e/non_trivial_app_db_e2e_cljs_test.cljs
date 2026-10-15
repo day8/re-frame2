@@ -1,27 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.non-trivial-app-db-e2e-cljs-test
-  "Multi-frame e2e coverage of the Xray feature-matrix scenario
-  `non-trivial app-db diff substrate`: the 5-deep non-trivial-app-db
-  testbed driven through its six diff-shape buttons.
-
-  At the data layer:
-
-    - Each click is a distinct event whose handler mutates a different
-      app-db path. The bug surface is whether Xray's epoch capture +
-      App-DB Diff projection survives a realistic deep-tree mutation
-      stream.
-    - Rather than asserting only that the `rf-xray-app-db-diff` panel
-      mounts (a proxy for 'the diff projection didn't crash'), the
-      tests read the `:rf.xray/selected-epoch-record` sub after each
-      dispatch and assert it carries the expected before/after pair.
-
-  ## Bug class this catches
-
-  - App-DB Diff frozen on focused-event flip — when a
-    second dispatch arrives the spine head flips but the diff
-    projection holds the previous epoch. The 6-dispatch sequence
-    here makes that regression deterministic.
-  - Any regression in `:db-before` / `:db-after` extraction for
-    nested map / vector / set diffs."
+  "Distinct host mutations advance Xray selected epochs and current state."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -55,36 +33,24 @@
         (doseq [event mutation-events]
           (e2e/dispatch-host event)
           (let [record (e2e/sub-xray [:rf.xray/selected-epoch-record])]
-            (is (some? record)
-                (str ":rf.xray/selected-epoch-record nil after dispatching " (pr-str event)))
+
             (is (= event (:trigger-event record))
                 (str "spine focus did not advance to " (pr-str event)
                      " — panel-frozen regression"))))))))
 
 (deftest xray-app-db-diff-final-state-matches-handler-effects
-  (testing "after the 6-click sequence Xray's target-frame-db reflects the host's final shape"
-    (e2e/with-host-and-xray-frames
-      {:install-host nt/install-and-init!}
-      (fn []
-        (doseq [event mutation-events]
-          (e2e/dispatch-host event))
-        (let [target-db (e2e/sub-xray [:rf.xray/target-frame-db])]
-          ;; toggle-theme flipped :dark → :light.
-          (is (= :light (get-in target-db [:settings :theme]))
-              "settings.theme did not commit to :light after toggle-theme")
-          ;; add-cart-item appended a third line item.
-          (is (= 3 (count (get-in target-db [:cart :items])))
-              "cart.items did not grow to 3 after add-cart-item")
-          ;; bump-first-item-qty incremented the first item's qty (was 2).
-          (is (= 3 (get-in target-db [:cart :items 0 :qty]))
-              "cart.items[0].qty did not bump from 2 → 3")
-          ;; register-new-sku added BK-099 to a 5-deep set.
-          (is (contains? (get-in target-db [:catalog :categories :books :groups :tech :skus])
-                         "BK-099")
-              "BK-099 was not added to the 5-deep :catalog :categories :books :groups :tech :skus set")
-          ;; revoke-write removed :write from :session :auth :scopes.
-          (is (not (contains? (get-in target-db [:session :auth :scopes]) :write))
-              ":write was not revoked from :session :auth :scopes"))))))
+  (e2e/with-host-and-xray-frames
+    {:install-host nt/install-and-init!}
+    (fn []
+      (doseq [event mutation-events] (e2e/dispatch-host event))
+      (let [db (e2e/sub-xray [:rf.xray/target-frame-db])]
+        (is (= {:theme :light :items 3 :first-qty 3 :sku? true :write? false}
+               {:theme (get-in db [:settings :theme])
+                :items (count (get-in db [:cart :items]))
+                :first-qty (get-in db [:cart :items 0 :qty])
+                :sku? (contains? (get-in db [:catalog :categories :books :groups :tech :skus])
+                                 "BK-099")
+                :write? (contains? (get-in db [:session :auth :scopes]) :write)}))))))
 
 (deftest xray-epoch-history-records-six-mutations
   (testing ":rf.xray/epoch-history grows by exactly 6 over the 6 dispatches"
