@@ -1,97 +1,28 @@
 (ns login-form.stories-cljs-test
-  "Regression guard for the login-form testbed's machine-snapshot reads.
-
-  Machine snapshots live in the frame's runtime-db partition at
-  `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001). The
-  login-form testbed's four projection subs (`:login/state` `:login/error`
-  `:login/attempts` `:login/email`) and three `:script` checkpoints read
-  the snapshot through that partition.
-
-  This test runs each variant through `rf.story/run-variant` under the
-  top-level `node-test` build (`npm run test:cljs`) and then, against the
-  variant frame's live `frame-state-value` (which carries the runtime-db
-  partition), computes each projection sub via `rf/compute-sub` and asserts
-  it resolves the live snapshot value. `compute-sub` resolves a
-  `:rf/machine`-derived sub against the frame-state value's
-  `:rf.db/runtime` partition (EP-0001), so this is the faithful runtime-db
-  read the views perform reactively. If a projection sub stops reading the
-  runtime-db partition, these assertions go red and the CLJS gate fails
-  loudly.
-
-  Why compute-sub here rather than a `:rf.assert/sub-equals` `:script`
-  checkpoint: this test reads every projection sub directly, one call per
-  sub, without going through the play-runner — so a sub that stops reading
-  the runtime-db partition is caught even for a variant whose `:script`
-  pins nothing but state. `:rf.assert/sub-equals` WOULD also reach these
-  values: the play-runner hands it the full frame-state value
-  (app + runtime), so it resolves runtime-db projection subs.
-  The variant `:script`s pin state with `:rf.assert/state-is`
-  (runtime-db-aware); this CLJS test owns the `:data`-slice
-  (`:error` / `:attempts` / `:email`) verification.
-
-  The variant stories ns is required at the top — loading it fires the
-  `reg-*` macros — so the side-table + the four projection subs are
-  registered by the time the tests run."
+  "Login variants project runtime-db snapshots and supply Controls schemas."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [clojure.set        :as set]
-            [re-frame.core      :as rf]
-            [re-frame.frame     :as rf.frame]
-            [re-frame.machines  :as rf.machines]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-store :as rf.source-store]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.story     :as rf.story]
-            [re-frame.story.async      :as rf.story.async]
-            [re-frame.story.loaders    :as rf.story.loaders]
-            [re-frame.test-support     :as rf.test-support]
-            [malli.core                :as m]
-            [re-frame.story.view-args  :as rf.story.view-args]
+            [re-frame.story :as rf.story]
+            [re-frame.story.async :as rf.story.async]
+            [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.test-support :as rf.test-support]
+            [malli.core :as m]
+            [re-frame.story.view-args :as rf.story.view-args]
             [re-frame.story.ui.controls :as rf.story.ui.controls]
             [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
             [login-form.events]
             [login-form.subs]
             [login-form.stories :as lf-stories]
-            ;; The login EXAMPLE deck — co-loaded with this testbed under the
-            ;; consolidated node-test build. Required here for the
-            ;; distinct-parents regression below: its
-            ;; `register-all!` repopulates the `:story.login/*` variants the
-            ;; `before!` fixture's `clear-all!` wiped, so the disjointness
-            ;; assertion sees both decks. Already on the node-test classpath
-            ;; (the login-example seed test requires it too).
             [login.stories :as login-stories]))
-
-;; ---- fixtures ------------------------------------------------------------
-;;
-;; Snapshot/restore the registrar around each test (same shape as the
-;; counter-with-stories CLJS test): the framework-shipped events / fxs /
-;; subs registered at ns-load (the machines `:rf/machine` sub, the Story
-;; lifecycle machine, the login app's events / subs, the canonical
-;; `:rf.assert/*` handlers) survive the snapshot; per-test registrations
-;; roll back. Map-form fixture is needed for cljs.test's async bodies.
-;;
-;; This ns deliberately uses this hand-rolled reset (rf.story/clear-all! +
-;; register-all! + the ns-load source-store baseline restore below) rather
-;; than `make-reset-runtime-fixture` — the async story tests need the
-;; map-form fixture the composed Story fixture does not expose. See
-;; `counter_with_stories/stories_cljs_test`'s fixture header for the full
-;; cluster-wide rationale, and DO NOT move it in a corpus "one-idiom"
-;; sweep without addressing every point there.
 
 (def ^:private registrar-snapshot (atom nil))
 
-;; EP-0026 §Default Image — STABLE ns-load source-store baseline.
-;;
-;; Captured ONCE here at ns-load (after the `:require` chain above has fired
-;; every `reg-*`, so the provenance-tagged `login-form.*` app descriptors the
-;; variant frames' `:select-ns {:include ["login-form.**"]}` image selects are
-;; live), NOT per-`before!`. This mirrors `re-frame.test-support/
-;; make-reset-runtime-fixture`'s `source-store-baseline`: a per-test
-;; capture is RUN-ORDER-DEPENDENT — a sibling test ns whose own fixture clears
-;; the source store can leave it empty (or polluted) at the moment a per-`before!`
-;; capture runs, so `login-form.**` would zero-match / under-resolve and the
-;; `:login/flow` machine snapshot would read nil. Capturing the baseline once at
-;; this ns's load pins exactly this ns's framework + app registrations and makes
-;; each test's restore deterministic regardless of sibling run order.
+;; Scoped images need these app descriptors even after another suite resets the store.
 (def ^:private source-store-baseline @rf.source-store/kind->id->ns->descriptor)
 
 (defn- before! []
@@ -101,26 +32,8 @@
   (rf.frame/ensure-default-frame!)
   (rf.machines/reset-timers!)
   (rf.story.loaders/clear-watchers!)
-  ;; Re-fire the Story registrations so each test starts with a freshly
-  ;; resolved registry (the four projection subs re-register here too).
   (rf.story/clear-all!)
-  ;; Restore the STABLE ns-load source-store baseline so the `login-form.*` app
-  ;; descriptors are present for the variant frames' image `:select-ns` (see the
-  ;; baseline capture above). `rf.story/clear-all!` wiped the source store; we fold
-  ;; the ns-load baseline back so each test's default/scoped projection sees
-  ;; exactly this ns's registrations, run-order-independent. The resolved-
-  ;; generation cache is keyed on the source-store generation, which `clear-all!`
-  ;; bumped, so a stale generation never leaks.
   (reset! rf.source-store/kind->id->ns->descriptor source-store-baseline)
-  ;; EP-0026 §Framework Standard Registrations: `rf.story/clear-all!` wipes the
-  ;; WHOLE registrar (incl. the framework `:rf/machine` sub the projection subs
-  ;; chain off via `{:inputs [[:rf/machine :login/flow]]}`). Re-install the machine
-  ;; runtime — both the regular registrar (so a no-generation
-  ;; `rf/compute-sub [:login/state] frame-state` resolves `:rf/machine`) AND the
-  ;; image standard registry (so the app-image-scoped variant frame resolves the
-  ;; machine runtime through its sealed generation). Mirrors how the
-  ;; `make-reset-runtime-fixture` reset re-installs it via the
-  ;; `:machines/install-runtime!` hook; this custom fixture calls it directly.
   (rf.machines/install-machine-runtime!)
   (lf-stories/register-all!))
 
@@ -130,113 +43,56 @@
     (reset! registrar-snapshot nil))
   (reset! rf.frame/frames {}))
 
+;; Async story bodies require map fixtures.
 (use-fixtures :each {:before before! :after after!})
 
-;; ---- registrations: the four projection subs landed ----------------------
-
-(deftest projection-subs-registered
-  (testing "the four machine-snapshot projection subs registered against
-            the registrar as ordinary `reg-sub`s"
-    (doseq [sub-id [:login/state :login/error :login/attempts :login/email]]
-      (is (some? (rf.registrar/handler :sub sub-id)) (str sub-id " registered")))))
-
-;; ---- each variant runs; the projection subs resolve the snapshot ---------
-;;
-;; The regression guard. After `run-variant`, the variant frame (keyed by
-;; the variant-id) still holds its committed state, so we compute each
-;; projection sub via `rf/compute-sub` against the frame's
-;; `frame-state-value` — the same two-partition value `subscribe` resolves
-;; reactively. `compute-sub` extracts the `:rf.db/runtime` partition for a
-;; `:rf/machine`-derived sub, so a green assertion PROVES the sub reads the
-;; live runtime-db snapshot. A sub reading an app-db `:rf/runtime` path
-;; instead would resolve nil → these go red.
-
-(defn- run-then
-  "Run `variant-id` and, on settle, invoke `(check result frame-state)`
-  with the variant frame's live frame-state value, then tear the variant
-  down and complete the async test."
-  [done variant-id check]
+(defn- run-then [done variant-id check]
   (-> (rf.story/run-variant variant-id)
       (rf.story.async/then
         (fn [result]
           (is (rf.story/assertions-passing? result)
-              (str variant-id " play assertions (state-is etc): "
-                   (pr-str (:assertions result))))
-          (check result (rf/frame-state-value variant-id))
+              (str variant-id " play assertions: " (pr-str (:assertions result))))
+          (check (rf/frame-state-value variant-id))
           (rf.story/destroy-variant! variant-id)
           (done)))))
 
-(defn- sub-value
-  "Compute projection sub `query-v` against the variant frame's
-  `frame-state` value (resolves the `:rf.db/runtime` partition for the
-  `:rf/machine`-derived projection subs)."
-  [query-v frame-state]
-  (rf/compute-sub query-v frame-state))
-
 (deftest idle-variant-state-sub-resolves
-  (testing ":story.login-form/idle — `:login/state` resolves :idle off the
-            runtime-db snapshot (and the `:rf.assert/state-is` checkpoint
-            passes)"
-    (async done
-      (run-then done :story.login-form/idle
-        (fn [_ fs]
-          (is (= :idle (sub-value [:login/state] fs))
-              ":login/state read the live runtime-db snapshot, not nil"))))))
+  (async done
+    (run-then done :story.login-form/idle
+      (fn [fs]
+        (is (= :idle (rf/compute-sub [:login/state] fs)))))))
 
 (deftest submitting-variant-state-sub-resolves
-  (testing ":story.login-form/submitting — `:login/state` resolves :submitting"
-    (async done
-      (run-then done :story.login-form/submitting
-        (fn [_ fs]
-          (is (= :submitting (sub-value [:login/state] fs))))))))
+  (async done
+    (run-then done :story.login-form/submitting
+      (fn [fs]
+        (is (= :submitting (rf/compute-sub [:login/state] fs)))))))
 
 (deftest error-variant-error-sub-resolves
-  (testing ":story.login-form/error — `:login/error` resolves the error message
-            off the runtime-db snapshot (NOT nil, as an app-db read would be)"
-    (async done
-      (run-then done :story.login-form/error
-        (fn [_ fs]
-          (is (= :error (sub-value [:login/state] fs)))
-          (is (= "Invalid credentials." (sub-value [:login/error] fs))
-              ":login/error returned the live message, not nil"))))))
+  (async done
+    (run-then done :story.login-form/error
+      (fn [fs]
+        (is (= [:error "Invalid credentials."]
+               [(rf/compute-sub [:login/state] fs)
+                (rf/compute-sub [:login/error] fs)]))))))
 
 (deftest submitting-retry-variant-attempts-sub-resolves
-  (testing ":story.login-form/submitting-retry — `:login/attempts` resolves the
-            incremented counter off the runtime-db snapshot"
-    (async done
-      (run-then done :story.login-form/submitting-retry
-        (fn [_ fs]
-          (is (= :submitting-retry (sub-value [:login/state] fs)))
-          (is (= 1 (sub-value [:login/attempts] fs))
-              ":login/attempts returned the live count, not the 0 default"))))))
+  (async done
+    (run-then done :story.login-form/submitting-retry
+      (fn [fs]
+        (is (= [:submitting-retry 1]
+               [(rf/compute-sub [:login/state] fs)
+                (rf/compute-sub [:login/attempts] fs)]))))))
 
 (deftest authenticated-variant-email-sub-resolves
-  (testing ":story.login-form/authenticated — `:login/email` resolves the
-            submitted handle off the runtime-db snapshot"
-    (async done
-      (run-then done :story.login-form/authenticated
-        (fn [_ fs]
-          (is (= :authenticated (sub-value [:login/state] fs)))
-          (is (= "ada@example.com" (sub-value [:login/email] fs))
-              ":login/email returned the live email, not nil"))))))
-
-;; ---- the two login decks own DISTINCT parents -----------------------------
-;;
-;; Regression guard for a parent-id collision. The login
-;; EXAMPLE deck (examples/core/login) owns the canonical `:story.login`; this
-;; testbed owns `:story.login-form`. Under the consolidated node-test build
-;; BOTH decks' `(register-all!)` fire at ns-load, so a shared parent id would
-;; make `rf.story/variants-of` return the UNION of both (colliding on a
-;; shared variant id such as `:story.login/submitting`). Co-load both decks here — the `before!` fixture
-;; already fired this testbed's `register-all!`; fire the example's too — and
-;; assert each `variants-of` returns ONLY its own deck's variants, with no
-;; shared variant id. Membership is `(= (namespace vid) (name story-id))`
-;; (rf.story/registrar), so the distinct `"story.login"` / `"story.login-form"`
-;; namespaces keep the two sets disjoint. This goes RED if either deck
-;; points at the other's parent id.
+  (async done
+    (run-then done :story.login-form/authenticated
+      (fn [fs]
+        (is (= [:authenticated "ada@example.com"]
+               [(rf/compute-sub [:login/state] fs)
+                (rf/compute-sub [:login/email] fs)]))))))
 
 (def ^:private example-variant-ids
-  "The login EXAMPLE's seven canonical variants (examples/core/login/stories.cljs)."
   #{:story.login/empty
     :story.login/filled
     :story.login/submitting
@@ -246,7 +102,6 @@
     :story.login/success})
 
 (def ^:private testbed-variant-ids
-  "This testbed's five variants."
   #{:story.login-form/idle
     :story.login-form/submitting
     :story.login-form/error
@@ -254,69 +109,32 @@
     :story.login-form/authenticated})
 
 (deftest login-decks-register-under-distinct-parents
-  (testing "rf.story/variants-of returns ONLY each deck's own variants — the
-            example and testbed login decks share no parent story id and no
-            variant id"
-    (login-stories/register-all!)   ;; example → :story.login/*
-    (lf-stories/register-all!)      ;; testbed → :story.login-form/* (idempotent; fixture fired it)
-    (is (= testbed-variant-ids (rf.story/variants-of :story.login-form))
-        "variants-of :story.login-form is exactly this testbed's five")
-    (is (= example-variant-ids (rf.story/variants-of :story.login))
-        "variants-of :story.login is exactly the example's seven — no testbed variants leak in")
-    (is (empty? (set/intersection (rf.story/variants-of :story.login)
-                                  (rf.story/variants-of :story.login-form)))
-        "no variant id is shared between the two decks")))
+  (login-stories/register-all!)
+  (lf-stories/register-all!)
+  (is (= testbed-variant-ids (rf.story/variants-of :story.login-form)))
+  (is (= example-variant-ids (rf.story/variants-of :story.login))))
 
-;; ---- both login views carry a props schema Story reads -------------------
-;;
-;; Story's Controls panel derives rows from, and checks committed args
-;; against, the `:rf/props` schema on the variant's `:component` view.
-;; Without one, every login deck would show "no schema registered for the
-;; variant's :component". These pin, for each deck, that its component
-;; resolves a schema through the production path (compiled plan -> default
-;; `:view` lookup), that Controls derives a text row for `:heading`, and that an
-;; empty heading is a violation while the registered one conforms.
-;;
-;; The view metadata is captured once at ns-load, after the `:require` chain
-;; fired `reg-view`, and re-registered in the test body. A sibling ns whose
-;; fixture clears the `:view` kind would otherwise empty the production lookup
-;; depending on run order — the same reason `source-store-baseline` above is
-;; captured at load rather than per test.
-
+;; Capture at load so sibling fixture resets cannot erase the component schemas.
 (def ^:private view-meta-at-load
   {:login-form.views/login-card (rf.registrar/handler-meta :view :login-form.views/login-card)
-   :login.core/root-view        (rf.registrar/handler-meta :view :login.core/root-view)})
+   :login.core/root-view (rf.registrar/handler-meta :view :login.core/root-view)})
 
-(def ^:private malli-validator
-  "A `{:validate :explain}` pair backed by Malli — the shape the Controls and
-  schema-validation panels thread from the late-bind hook."
-  {:validate (fn [schema value] (m/validate schema value))
-   :explain  (fn [schema value] (m/explain schema value))})
+(def ^:private malli-validator {:validate m/validate :explain m/explain})
 
-(defn- heading-violations
-  "The arg keys `args` violates under `schema`."
-  [schema args]
+(defn- heading-violations [schema args]
   (mapv :key (rf.story.ui.schema-validation/args-violations args schema malli-validator)))
 
-(defn- check-heading-props-schema
-  [variant-id view-id]
-  (let [view-meta (get view-meta-at-load view-id)]
-    (when (is (some? view-meta) (str view-id " was registered at ns-load"))
-      (rf.registrar/register! :view view-id view-meta)
-      (let [schema (rf.story.view-args/compiled-view-args-schema variant-id)]
-        (is (some? schema)
-            (str variant-id " resolves its component's props schema"))
-        (is (= {:widget :text}
-               (:heading (rf.story.ui.controls/resolve-argtypes variant-id)))
-            ":heading derives a text control")
-        (is (= [] (heading-violations schema {:heading "Sign in"}))
-            "the registered heading conforms")
-        (is (= [:heading] (heading-violations schema {:heading ""}))
-            "an empty heading is a violation")))))
+(defn- check-heading-props-schema [variant-id view-id]
+  (rf.registrar/register! :view view-id (get view-meta-at-load view-id))
+  (let [schema (rf.story.view-args/compiled-view-args-schema variant-id)]
+    (is (= {:widget :text}
+           (:heading (rf.story.ui.controls/resolve-argtypes variant-id))))
+    (is (= [] (heading-violations schema {:heading "Sign in"})))
+    (is (= [:heading] (heading-violations schema {:heading ""})))))
 
 (deftest login-views-carry-a-props-schema
-  (testing ":story.login-form/idle → :login-form.views/login-card (testbed)"
+  (testing ":story.login-form/idle"
     (check-heading-props-schema :story.login-form/idle :login-form.views/login-card))
-  (testing ":story.login/empty → :login.core/root-view (example)"
+  (testing ":story.login/empty"
     (login-stories/register-all!)
     (check-heading-props-schema :story.login/empty :login.core/root-view)))

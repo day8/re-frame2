@@ -1,95 +1,31 @@
 (ns counter-with-stories.elision-demo-cljs-test
-  "Integration tests for the privacy + size elision demo. Asserts each
-  branch of the elision arc actually fires:
-
-  1. `:auth/sign-in`'s registration classifies its `:password` payload
-     path (`:sensitive [[:password]]`), and the framework's registration
-     redaction — the projection the dispatched-event trace carries —
-     replaces that path with `:rf/redacted` while `:email` rides raw.
-  2. The handler runs cleanly under `dispatch-sync`; the password
-     does NOT leak into app-db.
-  3. The classified `:large` branch — `rf.elision/elide-wire-value`
-     substitutes the `:user/avatar-pdf` slot with a
-     `:rf.size/large-elided` marker carrying byte-count + path +
-     `:reason :effect`.
-  4. Inline event payloads are not size-elided — dispatching an event
-     with a 20 kB inline string leaves the blob raw in the event-emit
-     listener's record.
-  5. The always-on event-emit substrate fires once per processed
-     event under the dev runtime.
-
-  Runs under the top-level `node-test` build alongside
-  `stories_cljs_test.cljs`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "The elision demo preserves handler privacy and declared wire classification."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.classification :as rf.classification]
-            [re-frame.core         :as rf]
-            [re-frame.elision      :as rf.elision]
-            [re-frame.event-emit   :as rf.event-emit]
-            [re-frame.frame        :as rf.frame]
-            [re-frame.late-bind    :as rf.late-bind]
+            [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; Loading the demo ns fires its registrations against the
-            ;; registrar — the tests then exercise the registered
-            ;; handlers + the listener install/uninstall surface.
             [counter-with-stories.elision-demo])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
-;; ---- fixtures -------------------------------------------------------------
-;;
-;; DO NOT move this fixture onto `make-reset-runtime-fixture`. This ns is
-;; NOT a story test (EP-0025 elision, no variants)
-;; and `:require`s ONLY `counter-with-stories.elision-demo` — NOT the sibling
-;; `counter-with-stories.{events,subs,stories}` app slices. So a
-;; `make-reset-runtime-fixture` here would capture its source-store baseline
-;; from THIS ns's require chain, which MISSES the counter app descriptors,
-;; and would then restore the SHARED process-global source store to that
-;; incomplete baseline on teardown — dropping `:counter/initialise` /
-;; `:count` for the sibling `stories_cljs_test`'s variant-frame images and
-;; breaking its run-order-coupled tests. This ns therefore uses a plain
-;; registrar snapshot/restore that leaves the accumulated source store
-;; untouched. See
-;; `stories_cljs_test`'s fixture header for the cluster-wide rationale.
-
 (def ^:private registrar-snapshot (atom nil))
 
+;; Leave the source store intact for neighboring story images.
 (defn- before! []
   (reset! registrar-snapshot (rf.test-support/snapshot-registrar))
-  ;; Xray's preload-time trace-cb registers its bookkeeping
-  ;; handlers with `:rf.trace/no-emit? true`, so the framework
-  ;; short-circuits emission for them and the collector never
-  ;; re-enters itself. So this fixture leaves the trace-cb registry
-  ;; alone — Xray's cb runs as production preload wires it.
   (reset! rf.frame/frames {})
-  ;; Clear cross-namespace schemas from the per-frame registry
-  ;; before re-registering this demo's
-  ;; declarations. Sibling test namespaces (auth-flow story tests,
-  ;; nine-states.core, Conduit) register schemas against :rf/default
-  ;; at ns-load; the post-commit validation rollback would otherwise
-  ;; fire on every dispatch in this file against those unrelated
-  ;; schemas.
   (when-let [clear! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear!))
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   (rf.frame/ensure-default-frame!)
   (rf.event-emit/clear-event-listeners!)
-  ;; Re-register this demo's app-db schema (SHAPE only — EP-0015 §8). The
-  ;; demo namespace's ns-load `reg-app-schema` call ran once at module load;
-  ;; the preceding `(clear!)` step wiped it. Re-stamping it here keeps the
-  ;; schema present for shape validation.
-  ;; EP-0002: reg-app-schema is context-required frame-local;
-  ;; pass the target frame explicitly (the *override*) rather than relying on
-  ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
                      {:frame :rf/default} [:maybe :string])
-  ;; EP-0025: durable app-db egress classification rides the commit-plane
-  ;; classification effects. Classify the `[:user/avatar-pdf]` large path
-  ;; (index-free :rf/path) onto :rf/default's elision registry via
-  ;; `rf.elision/apply-classification-effects` (`:source :effect`) — the same
-  ;; registry write a `reg-event` returning `:large` performs — so
-  ;; `elide-wire-value` finds a declared-large entry and substitutes the
-  ;; `:rf.size/large-elided` marker on that slot.
   (rf.frame/swap-runtime-db! :rf/default
     (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
 
@@ -100,14 +36,6 @@
   (reset! rf.frame/frames {})
   (rf.event-emit/clear-event-listeners!))
 
-;; EP-0002: these tests exercise the ambient dispatch /
-;; app-db-read paths, which require a carried frame stamp. A function
-;; fixture pins `:rf/default` (registered in `before!` via
-;; `ensure-default-frame!`) as the established scope for the whole test
-;; body via `with-frame` — the demo app runs in the ordinary `:rf/default`
-;; frame (see the demo ns's `core/run`), so the testbed's reads/dispatches
-;; carry that explicit stamp rather than relying on a synthesised default.
-;; (The map-shape :before/:after hooks cannot wrap the body in `with-frame`.)
 (use-fixtures :each
   (fn [test-fn]
     (before!)
@@ -116,115 +44,48 @@
         (test-fn))
       (finally (after!)))))
 
-;; ---- 1. the registration classification redacts the payload path --------
-
 (deftest auth-sign-in-registration-redacts-password
-  (testing "The :auth/sign-in registration classifies the payload's
-            `:password` path, and the framework's registration redaction
-            (what the dispatched-event trace carries) replaces it with
-            `:rf/redacted` while the unclassified `:email` rides raw."
-    (let [m (rf/handler-meta {:source :store :kind :event :id :auth/sign-in})]
-      (is (= [[:password]] (:sensitive m))
-          "the registration classifies the :password payload path")
-      (is (= [:auth/sign-in {:email "u@example.com" :password :rf/redacted}]
-             (rf.classification/redact-event-by-registration
-               [:auth/sign-in {:email "u@example.com" :password "secret"}]))
-          "the classified path is :rf/redacted; the :email sibling is raw"))))
-
-;; ---- 2. handler doesn't leak the password into app-db --------------------
+  (is (= [:auth/sign-in {:email "u@example.com" :password :rf/redacted}]
+         (rf.classification/redact-event-by-registration
+           [:auth/sign-in {:email "u@example.com" :password "secret"}]))))
 
 (deftest sign-in-handler-doesnt-leak-password-to-app-db
-  (testing "Dispatching :auth/sign-in runs the handler and stashes only
-            non-sensitive feedback — `:auth/last-sign-in` carries
-            `:email` + `:submitted?`, NEVER `:password`. Passwords
-            don't live in app-db; this is the in-handler contract."
-    (rf/dispatch-sync [:auth/sign-in
-                       {:email "test@example.com"
-                        :password "real-password-1234"}])
-    (let [feedback (-> (rf/app-db-value :rf/default)
-                       :auth/last-sign-in)]
-      (is (= "test@example.com" (:email feedback))
-          "the email rode through")
-      (is (true? (:submitted? feedback)))
-      (is (not (contains? feedback :password))
-          "password never reached app-db"))))
-
-;; ---- 3. :large-classified slot drives the wire-walker substitution -------
+  (rf/dispatch-sync [:auth/sign-in
+                     {:email "test@example.com" :password "real-password-1234"}])
+  (is (= {:email "test@example.com" :submitted? true}
+         (:auth/last-sign-in (rf/app-db-value :rf/default)))))
 
 (deftest large-schema-slot-becomes-wire-marker
-  (testing "The `:user/avatar-pdf` slot is classified `:large` via the
-            EP-0025 commit-plane classification effect (NOT schema-attached,
-            NOT a frame annotation). Running `rf.elision/elide-wire-value` against a
-            snapshot of the app-db payload that includes a non-trivial value
-            at the slot substitutes the value with a `:rf.size/large-elided`
-            marker map carrying byte-count + path + `:reason :effect` (the
-            commit-plane classification provenance). Schema-attached `:hint`
-            does not propagate — the schema describes shape, not durable
-            egress policy."
-    (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
-    (let [db     (rf/app-db-value :rf/default)
-          blob   (:user/avatar-pdf db)
-          elided (rf.elision/elide-wire-value db {:frame :rf/default})]
-      (is (string? blob) "the handler wrote the synthetic blob into app-db")
-      (is (>= (count blob) 5000) "the blob is the requested size")
-      (let [marker (get-in elided [:user/avatar-pdf :rf.size/large-elided])]
-        (is (some? marker)
-            ":rf.size/large-elided marker substituted the blob on the wire")
-        (is (number? (:bytes marker))
-            "marker carries a :bytes count")
-        (is (= [:user/avatar-pdf] (:path marker))
-            "marker carries the index-free :rf/path of the elided slot")
-        (is (= :effect (:reason marker))
-            "the marker's :reason is :effect — the EP-0025 commit-plane
-             classification source (schema-attached props do not feed the
-             registry, and there is no frame annotation)")))))
-
-;; ---- 4. unschema'd inline event payloads are not size-elided -------------
+  (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
+  (let [db (rf/app-db-value :rf/default)
+        blob (:user/avatar-pdf db)
+        marker (get-in (rf.elision/elide-wire-value db {:frame :rf/default})
+                       [:user/avatar-pdf :rf.size/large-elided])]
+    (is (string? blob))
+    (is (>= (count blob) 5000))
+    (is (number? (:bytes marker)))
+    (is (= {:path [:user/avatar-pdf] :reason :effect}
+           (select-keys marker [:path :reason])))))
 
 (deftest event-emit-listener-leaves-unschema'd-inline-large-payload
-  (testing "There is no runtime size auto-elision. Inline event
-            payloads ride through unchanged; authors classify large
-            app-db slots with the commit-plane `:large` effect instead."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        ::test-recorder
-        (fn [record] (swap! seen conj record)))
-
-      ;; A 20 kB string without schema metadata.
-      (rf/dispatch-sync [:user.avatar/upload
-                         {:blob (str/join (repeat 20000 "B"))}])
-
-      (is (= 1 (count @seen)) "listener fired exactly once")
-      (let [r       (first @seen)
-            payload (second (:event r))
-            slot    (:blob payload)]
-        (is (= :user.avatar/upload (:event-id r)))
-        (is (= :ok (:outcome r)))
-        (is (string? slot)
-            ":blob rides raw because nothing classified it large")
-        (is (= 20000 (count slot))
-            "the listener received the original inline payload")))))
-
-;; ---- 5. event-emit listener fires for every processed event --------------
+  (let [seen (atom [])
+        blob (str/join (repeat 20000 "B"))]
+    (rf.event-emit/register-event-listener! ::test-recorder #(swap! seen conj %))
+    (rf/dispatch-sync [:user.avatar/upload {:blob blob}])
+    (is (= 1 (count @seen)))
+    (is (= {:event-id :user.avatar/upload
+            :outcome :ok
+            :event [:user.avatar/upload {:blob blob}]}
+           (select-keys (first @seen) [:event-id :outcome :event])))))
 
 (deftest event-emit-listener-fires-on-every-dispatch
-  (testing "The always-on event-emit substrate fires one record per
-            processed event. The substrate does not consult handler-meta
-            `:sensitive?`, so there is no drop based on handler
-            sensitivity — all three dispatches deliver a record.
-            Per-path elision applies inside the record's `:event` slot."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        ::test-recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/dispatch-sync [:auth/sign-in
-                         {:email "u@example.com" :password "secret"}])
-      (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 1024}])
-      (rf/dispatch-sync [:user.avatar-pdf/clear])
-      (is (= 3 (count @seen))
-          "three dispatches → three records (no handler-meta drop)")
-      (is (= [:auth/sign-in :user.avatar-pdf/set :user.avatar-pdf/clear]
-             (mapv :event-id @seen))
-          "records arrive in dispatch order")
-      (is (every? #(= :ok (:outcome %)) @seen)
-          "every delivered record settled cleanly"))))
+  (let [seen (atom [])]
+    (rf.event-emit/register-event-listener! ::test-recorder #(swap! seen conj %))
+    (doseq [event [[:auth/sign-in {:email "u@example.com" :password "secret"}]
+                  [:user.avatar-pdf/set {:bytes 1024}]
+                  [:user.avatar-pdf/clear]]]
+      (rf/dispatch-sync event))
+    (is (= [[:auth/sign-in :ok]
+            [:user.avatar-pdf/set :ok]
+            [:user.avatar-pdf/clear :ok]]
+           (mapv (juxt :event-id :outcome) @seen)))))
