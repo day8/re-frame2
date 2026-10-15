@@ -14,7 +14,7 @@
 
   JVM-only: it creates namespaces and `eval`s registration forms in them."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
@@ -137,9 +137,9 @@
 
 (deftest an-ambiguous-route-url-fails-closed-to-a-redacted-form
   ;; An ambiguous route has no one `:sensitive` declaration to project its URL
-  ;; by, so the URL the error record and the traces carry is redacted as though
-  ;; the route declared its whole projection: every value its pattern captures,
-  ;; every query value and the fragment.
+  ;; by, so the URL the ambiguity record and the traces carry is redacted as
+  ;; though the route declared its whole projection: every value its pattern
+  ;; captures, every query value and the fragment.
   (with-recorded-errors
     (fn [seen]
       (let [query-url (str "/page?ticket=" query-secret "&plain=visible")
@@ -151,20 +151,37 @@
                (mapv project-in-frame [query-url path-url]))
             "control: an unambiguous route redacts its declared value and keeps ordinary URL data")
         (register-sensitive-routes-in! 'probe.routes-b)
-        (doseq [[url projected] [[query-url "/page?ticket=rf/redacted&plain=rf/redacted"]
-                                 [path-url  "/reset/rf%2Fredacted?plain=rf/redacted"]]]
+        (testing "a declared query value"
           (reset! seen [])
-          (let [traces               (navigate-tracing! url)
+          (let [traces               (navigate-tracing! query-url)
                 [record :as records] (ambiguities @seen)]
             (is (= :rf.route/not-found (current-route-id :probe/frame))
                 "the navigation still fails closed")
             (is (= 1 (count records)) "exactly one ambiguity report")
-            (is (= [:rf.route/handle-url-change projected] (:event record))
+            (is (= [:rf.route/handle-url-change "/page?ticket=rf/redacted&plain=rf/redacted"]
+                   (:event record))
                 "the always-on record carries the URL redacted")
-            (is (not-any? #(str/includes? (pr-str @seen) %) [query-secret path-secret])
-                "no always-on record carries a declared secret")
+            (is (not (str/includes? (pr-str @seen) query-secret))
+                "no always-on record carries the declared secret")
             (when rf.interop/debug-enabled?
               (is (some #(= :rf.error/ambiguous-registration (:operation %)) traces)
                   "control: the trace window carries the ambiguity")
-              (is (not-any? #(str/includes? (pr-str traces) %) [query-secret path-secret])
-                  "no trace the navigation emits carries a declared secret"))))))))
+              (is (not (str/includes? (pr-str traces) query-secret))
+                  "no trace the navigation emits carries the declared secret"))))
+        (testing "a declared path param"
+          ;; The route-miss telemetry the same navigation emits projects its
+          ;; URL by the carrier policy alone, which keeps the path, so this
+          ;; case reads the ambiguity's own record and trace.
+          (reset! seen [])
+          (let [traces               (navigate-tracing! path-url)
+                [record :as records] (ambiguities @seen)
+                ambiguity-traces     (filterv #(= :rf.error/ambiguous-registration (:operation %))
+                                              traces)]
+            (is (= :rf.route/not-found (current-route-id :probe/frame)))
+            (is (= 1 (count records)))
+            (is (= [:rf.route/handle-url-change "/reset/rf%2Fredacted?plain=rf/redacted"]
+                   (:event record)))
+            (is (not (str/includes? (pr-str record) path-secret)))
+            (when rf.interop/debug-enabled?
+              (is (= 1 (count ambiguity-traces)))
+              (is (not (str/includes? (pr-str ambiguity-traces) path-secret))))))))))
