@@ -7,15 +7,17 @@
   005 §Clock-abstraction primitive (`re-frame.interop/schedule-after!` /
   `cancel-scheduled!`):
 
-  - `re-frame.machines.timer` — the state-machine `:after` timers, keyed by
-    `{:parent :spawn :delay}` in a per-frame-nested table whose rich entry
-    value carries the host handle PLUS the sub-reaction, watcher key,
-    resolved-ms, epoch, state, and delay-source; cancellation emits the
+  - `re-frame.machines.timer` — the state-machine `:after` timers, one per
+    `{:parent :spawn :delay}` slot of a frame; cancellation emits the
     `:rf.machine.timer/cancelled` reply-envelope trace and tears down the
     dynamic-delay subscription watcher.
   - `re-frame.resources.timers` — the resource STALE / GC / POLL timers,
-    keyed by `[frame-id resource-key kind]` in a flat table whose entry
-    value is the bare host handle; cancellation is silent.
+    one per `[frame-id resource-key kind]` slot; cancellation is silent.
+
+  Both own their slots the same way: every arm stamps its slot with an
+  exact-attempt token, and a cancellation releases only the attempt whose
+  token it observed, so a late cancel never releases a successor re-armed
+  under the same key.
 
   Both share the SAME low-level arm step: schedule a thunk after a delay
   via `rf.interop/schedule-after!`, but ONLY when the delay is a positive
@@ -27,26 +29,21 @@
 
   ## What deliberately stays split
 
-  The whole advisory-timer skeleton does not collapse into one helper:
-  forcing it would lose load-bearing behaviour AND break the two test
-  suites that assert the exact table shapes. The pieces that stay in each
-  artefact, with why:
+  The whole advisory-timer skeleton does not collapse into one helper,
+  because the two artefacts differ in observable behaviour. The pieces that
+  stay in each artefact, with why:
 
-  - **The side-table itself.** The machines table is per-frame-NESTED
-    (`{frame-id {inner-key entry}}`) with a RICH entry map; the resources
-    table is FLAT (`{[frame-id rkey kind] handle}`) with a BARE handle.
-    Both shapes are asserted directly by their artefact's tests
-    (`@timer/after-timers` outer-frame-id `contains?` vs
-    `@timers/timer-table` flat-key `contains?`). One shared atom would have
-    to pick a shape and break the other.
+  - **The side-table itself.** Each artefact owns its table and the
+    bookkeeping beside each handle; the kernel holds no state.
 
   - **Cancel-then-arm orchestration + cancellation.** Machines cancels a
-    whole rich entry (release the sub-reaction watcher, unsubscribe, emit
-    the `:rf.machine.timer/cancelled` reply-envelope trace stamped with a
-    closed `:reason`) and SWALLOWS host-clock throws; resources cancels a
-    bare handle SILENTLY and does NOT swallow. The two cancel disciplines
-    are genuinely different observable behaviour — neither may adopt the
-    other's.
+    whole entry (release the sub-reaction watcher, unsubscribe, emit the
+    `:rf.machine.timer/cancelled` reply-envelope trace stamped with a
+    closed `:reason`) and SWALLOWS host-clock throws, through `cancel!`
+    below; resources cancels SILENTLY through
+    `re-frame.interop/cancel-scheduled!` and does NOT swallow. The two
+    cancel disciplines are genuinely different observable behaviour —
+    neither may adopt the other's.
 
   - **The advisory re-check / generation-epoch guard.** This is the
     load-bearing correctness boundary and it is per-artefact: machines
@@ -111,9 +108,9 @@
 
   Shared by the callers that release host handles defensively (the machines
   `:after` table, which tolerates a partial-state entry whose handle is
-  nil / already cleared). Resources cancels its bare handle directly without
-  swallowing — a deliberately different discipline — so it does NOT route
-  through here."
+  nil / already cleared). Resources calls `cancel-scheduled!` directly and
+  lets a throw propagate — a deliberately different discipline — so it does
+  NOT route through here."
   [handle]
   (when handle
     (try (rf.interop/cancel-scheduled! handle)
