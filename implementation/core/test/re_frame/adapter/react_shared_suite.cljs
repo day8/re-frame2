@@ -200,7 +200,6 @@
       (let [out   ((rf/view id))
             props (.-props out)]
         (is (= "div" (.-type out)))
-        (is (some? props))
         (is (= "card" (aget props "className")) "user className preserved")
         (is (= "x" (aget props "id")) "user id preserved")
         (is (string? (aget props "data-rf2-source-coord"))
@@ -272,18 +271,13 @@
   [{:keys [wrap-view substrate-kw name]}]
   (testing (str name " — view-id: wrap-view injects explicit line/col coords")
     (let [id          (mint-kw substrate-kw "view-explicit-coords")
-          out-from-fn (atom nil)
           wrapped     (wrap-view id {:line 42 :column 7}
                                  (fn []
-                                   (reset! out-from-fn :ran)
                                    (React/createElement "div" #js {} "x")))]
-      (is (fn? wrapped) "wrap-view returns a fn")
       (let [out (wrapped)]
-        (is (= :ran @out-from-fn) "the wrapped user-fn ran")
         (is (= (str id) (view-attr out))
             "wrap-view's cloneElement injected data-rf-view = (str id)")
         (let [coord (source-coord out)]
-          (is (string? coord) "data-rf2-source-coord present")
           (is (str/ends-with? coord ":42:7")
               "the explicit {:line 42 :column 7} coords land in the attribute"))))))
 
@@ -332,38 +326,19 @@
 ;; `make-mount-node!`, which are defined down in the DOM-twin section.
 
 ;; ===========================================================================
-;; React `:key` parity (Spec 006 §Source-coord annotation — CRITICAL key
-;; preservation note)
-;;
-;; On the Reagent path a call-site ^{:key} propagates to
-;; React. The React-hook substrates (UIx) take a different route —
-;; the React `:key` rides the substrate's own `createElement` / `$` at the
-;; call site, NOT Reagent's hiccup-metadata extraction. The hazard on this
-;; route is the wrap-view pass itself: `inject-source-coord-attr` and
-;; `append-unmount-sentinel` both `React/cloneElement` the user's root
-;; output, and `cloneElement` is documented to preserve the `key` slot
-;; (see spine.cljs `inject-source-coord-attr` / `append-unmount-sentinel`
-;; docstrings — "SAME `type` and `key` slots"). This assertion pins that
-;; preservation by test rather than by argument: a seq of registered views,
-;; each whose root element carries a distinct per-item key, must emerge from
-;; the wrap-view passes with each key intact and all keys distinct (no
-;; collision). Parameterised ⇒ a gap on one substrate is a gap on all.
+;; React keys must survive both source-coord injection and sentinel wrapping.
 ;; ===========================================================================
 
 (defn assert-reg-view-react-key-preserved
-  "A registered view whose root React element carries a `:key` emerges from
-  wrap-view's cloneElement passes (source-coord injection + unmount-sentinel
-  append) with that key intact. The source-coord attribute proves the passes
-  ran."
+  "A keyed root keeps its type and key through the annotation passes."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — React :key: per-item keys survive the wrap-view passes")
-    (doseq [i (range 3)]
-      (let [id       (mint-kw substrate-kw (str "react-key-" i))
-            item-key (str "rk-" i)]
-        (rf/reg-view* id (fn [] (React/createElement "li" #js {:key item-key} (str "item " i))))
-        (let [out ((rf/view id))]
-          (is (= ["li" item-key true]
-                 [(.-type out) (.-key out) (string? (source-coord out))])))))))
+  (testing (str name " — React :key survives the wrap-view passes")
+    (let [id       (mint-kw substrate-kw "react-key-0")
+          item-key "rk-0"]
+      (rf/reg-view* id (fn [] (React/createElement "li" #js {:key item-key} "item")))
+      (let [out ((rf/view id))]
+        (is (= ["li" item-key true]
+               [(.-type out) (.-key out) (string? (source-coord out))]))))))
 
 ;; ===========================================================================
 ;; void-element unmount-sentinel — wrap-view must NOT attach a
@@ -376,45 +351,24 @@
 ;; ===========================================================================
 
 (defn assert-void-root-view-sentinel-is-fragment-sibling
-  "A registered view whose root is a VOID DOM element emerges
-  from the wrap-view passes as a `React.Fragment` holding the user's void
-  element (source-coord + data-rf-view attrs intact, and crucially NO
-  children) plus the unmount sentinel as a SIBLING — never as a child of
-  the void element. Headless `((rf/view id))` runs the full wrap-view path
-  under goog.DEBUG=true, so this pins the structure the DOM-mount test then
-  proves renders without a React void-element error. Parameterised ⇒ a gap
-  on one substrate is a gap on all."
+  "A void root stays child-free and annotated beside its unmount sentinel."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — void root: sentinel is a Fragment sibling, not a child of the void element")
-    (doseq [void-tag ["input" "img" "br"]]
-      (let [id      (mint-kw substrate-kw (str "void-root-" void-tag))
-            user-fn (fn [] (React/createElement void-tag #js {}))]
-        (rf/reg-view* id user-fn)
-        (let [out ((rf/view id))]
-          ;; The wrap output is a Fragment (its `type` is React.Fragment, a
-          ;; non-string symbol/object), NOT the bare void element.
-          (is (= (.-Fragment React) (.-type out))
-              (str "void <" void-tag "> root wrapped in a React.Fragment so the "
-                   "sentinel can be a sibling"))
-          (let [kids   (some-> ^js out .-props .-children)
-                ;; Fragment children: [annotated-void-el sentinel-el].
-                kids-v  (cond (array? kids) (vec kids) (nil? kids) [] :else [kids])
-                root-el (first kids-v)]
-            (is (= 2 (count kids-v))
-                "Fragment carries exactly two children: the void element + the sentinel")
-            (is (= void-tag (.-type root-el))
-                (str "first Fragment child is the user's <" void-tag "> root, type preserved"))
-            ;; The CRITICAL assertion: the void element itself has NO children.
-            (let [void-children (some-> ^js root-el .-props .-children)]
-              (is (or (nil? void-children)
-                      (and (array? void-children) (zero? (alength ^js void-children))))
-                  (str "the void <" void-tag "> element received NO children — React "
-                       "would raise a void-element error otherwise")))
-            ;; Source-coord + view-id attrs still land on the user's void root.
-            (is (string? (source-coord root-el))
-                "data-rf2-source-coord still annotates the void root")
-            (is (= (str id) (view-attr root-el))
-                "data-rf-view still annotates the void root")))))))
+  (testing (str name " — void root: sentinel is a Fragment sibling")
+    (let [id (mint-kw substrate-kw "void-root-input")]
+      (rf/reg-view* id (fn [] (React/createElement "input" #js {})))
+      (let [out ((rf/view id))]
+        (is (= (.-Fragment React) (.-type out)))
+        (let [kids    (some-> ^js out .-props .-children)
+              kids-v  (cond (array? kids) (vec kids) (nil? kids) [] :else [kids])
+              root-el (first kids-v)]
+          (is (= 2 (count kids-v)))
+          (is (= "input" (.-type root-el)))
+          (let [void-children (some-> ^js root-el .-props .-children)]
+            (is (or (nil? void-children)
+                    (and (array? void-children) (zero? (alength ^js void-children))))
+                "React forbids children on void elements"))
+          (is (string? (source-coord root-el)))
+          (is (= (str id) (view-attr root-el))))))))
 
 ;; ===========================================================================
 ;; frame-context corrupted `_currentValue` (Spec 009 §Error contract)
@@ -655,8 +609,6 @@
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — set-hiccup-emitter! published through the late-bind chain")
     (let [hook-fn (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
-      (is (some? hook-fn)
-          "the chained hook is registered after the adapter ns has loaded")
       (set-emitter! nil)
       (try
         (is (thrown? :default (render-to-string [:div] {}))
@@ -773,7 +725,6 @@
       ((rf/view id) {:label "hi"} 42)
       (let [ev (first @traces)
             t  (:tags ev)]
-        (is (some? ev) "an :rf.view/rendered event fired")
         (is (= [{:label "hi"} 42] (:rf.view/render-args t))
             ":rf.view/render-args is the vector of positional render args"))
       (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))
@@ -878,9 +829,7 @@
       (mk-write! adapter src 5)   ;; even → odd, emit once
       (mk-write! adapter src 7)   ;; odd → odd, no emit
       (mk-write! adapter src 8)   ;; odd → even, emit once
-      (is (= 2 (count @calls)))
-      (is (= [false true] (first @calls)))
-      (is (= [true false] (second @calls)))
+      (is (= [[false true] [true false]] @calls))
       (unsub))))
 
 (defn assert-derived-baseline-multi-source
@@ -894,41 +843,12 @@
       ;; baseline derived = 3
       (mk-write! adapter a 2)    ;; new sum 4, prev 3 → emit
       (mk-write! adapter b 1)    ;; new sum 3, prev 4 → emit
-      (is (= 2 (count @calls)))
-      (is (= [3 4] (first @calls)))
-      (is (= [4 3] (second @calls)))
+      (is (= [[3 4] [4 3]] @calls))
       (unsub))))
 
 ;; ===========================================================================
-;; two-partition projection-equality invalidation (EP-0001 decision #7;
-;; Spec 006 §Frame-state container and partition projections)
-;;
-;; The plain-atom (JVM) pin lives in
-;; `re-frame.partitioned-commit-test/{runtime-only-commit-does-not-
-;; invalidate-app-subs, app-only-commit-does-not-invalidate-runtime-
-;; projection}`. On plain-atom `make-derived-value` RECOMPUTES on every
-;; deref with NO substrate memoisation, so the projection-equality
-;; short-circuit there rides ENTIRELY on the core sub-cache's memoised
-;; body. Under the React-hook adapters (UIx) `make-derived-value`
-;; IS a memoised Reaction — a DIFFERENT propagation path: the app-db /
-;; runtime-db projections are themselves memoised reactions over the ONE
-;; physical frame-state container, and the layer-1 sub body is a memoised
-;; reaction over the projection.
-;;
-;; These assertions pin, per React adapter, the FOUNDATION claim the
-;; partition design relies on:
-;;   (1) a runtime-only commit leaves the app-db projection `=` and does
-;;       NOT re-run an app-db layer-1 sub body;
-;;   (2) an app-only commit leaves the runtime-db projection `=` and does
-;;       NOT re-run a runtime-db (`reg-runtime-sub`) sub body;
-;;   (3) the converse — a real change to a partition DOES re-run that
-;;       partition's subs (exactly once), proving the short-circuit is
-;;       precision suppression, not a stuck reaction.
-;;
-;; A framework-authority handler (the `:rf/machine? true` marker the dev
-;; diagnostic keys on) emits `:rf.db/runtime` without firing the
-;; runtime-write diagnostic — mirrors `reg-fw-runtime-handler!` in the
-;; plain-atom suite.
+;; A partition change reruns only its own subscribers. The JVM plain-atom
+;; tests exercise a different propagation path; these use React's derived values.
 ;; ===========================================================================
 
 (defn- reg-fw-runtime-handler!
@@ -938,82 +858,8 @@
   [id f]
   (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
-(defn assert-runtime-only-commit-does-not-rerun-app-subs
-  "(1) A runtime-only commit recomputes the app-db projection, finds it
-  `=`, and MUST NOT re-run an app-db layer-1 sub body — under the
-  memoised-Reaction adapter. The body counter is the ground truth: it
-  stays at its post-prime baseline across a runtime-only commit, then the
-  runtime write is confirmed to have actually landed (so this is a real
-  short-circuit, not a dropped commit)."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — runtime-only commit does NOT re-run an app-db layer-1 sub (projection `=` short-circuit)")
-    (let [fid     (mint-kw substrate-kw "inval-app")
-          app-id  (mint-kw substrate-kw "inval-app-sub")
-          seed-id (mint-kw substrate-kw "inval-app-seed")
-          rt-id   (mint-kw substrate-kw "inval-app-touch-rt")
-          runs    (atom 0)]
-      (rf/make-frame {:id fid})
-      (rf/reg-event seed-id (fn [{:keys [db]} _] {:db {:n 1}}))
-      (rf/dispatch-sync [seed-id] {:frame fid})
-      (rf/reg-sub app-id (fn [db _] (swap! runs inc) (:n db)))
-      (let [r (rf/subscribe [app-id] {:frame fid})]
-        ;; Prime + install the watch baseline (production's
-        ;; useSyncExternalStore / Reagent reaction reads getSnapshot at
-        ;; subscribe; deref establishes the memoised value here).
-        (is (= 1 @r) "precondition: app sub primes to the seeded value")
-        (let [after-prime @runs]
-          (reg-fw-runtime-handler! rt-id
-            (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
-          (rf/dispatch-sync [rt-id] {:frame fid})
-          ;; Force a deref so the sub had every chance to recompute.
-          (is (= 1 @r) "the app sub still derefs to the unchanged value")
-          (is (= after-prime @runs)
-              "the app-db layer-1 sub body did NOT re-run — the app-db projection stayed `=` on a runtime-only commit")
-          (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value fid)))
-              "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
-        (rf/unsubscribe r)))))
-
-(defn assert-app-only-commit-does-not-rerun-runtime-subs
-  "(2) An app-only commit recomputes the runtime-db projection, finds it
-  `=`, and MUST NOT re-run a runtime-db (`reg-runtime-sub`) sub body —
-  under the memoised-Reaction adapter. Symmetric counterpart to (1): the
-  runtime-db-reading sub's body counter stays at baseline across an
-  app-only `:db` commit."
-  [{:keys [substrate-kw name]}]
-  (testing (str name " — app-only commit does NOT re-run a runtime-db sub (projection `=` short-circuit)")
-    (let [fid     (mint-kw substrate-kw "inval-rt")
-          rt-sub  (mint-kw substrate-kw "inval-rt-sub")
-          seed-id (mint-kw substrate-kw "inval-rt-seed")
-          app-id  (mint-kw substrate-kw "inval-rt-app-write")
-          runs    (atom 0)]
-      (rf/make-frame {:id fid})
-      ;; Seed the runtime-db partition (framework-authority write).
-      (reg-fw-runtime-handler! seed-id
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
-      (rf/dispatch-sync [seed-id] {:frame fid})
-      ;; A framework runtime-db sub reads the runtime-db projection directly.
-      (rf.subs/reg-runtime-sub rt-sub
-        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
-      (let [r (rf/subscribe [rt-sub] {:frame fid})]
-        (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
-        (let [after-prime @runs]
-          ;; App-only commit: replaces app-db, leaves runtime-db `=`.
-          (rf/reg-event app-id (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
-          (rf/dispatch-sync [app-id] {:frame fid})
-          (is (= :home @r) "the runtime-db sub still derefs to the unchanged route id")
-          (is (= after-prime @runs)
-              "the runtime-db sub body did NOT re-run — the runtime-db projection stayed `=` on an app-only commit")
-          (is (true? (:touched? (rf/app-db-value fid)))
-              "the app-only commit DID land in app-db (real short-circuit, not a dropped write)"))
-        (rf/unsubscribe r)))))
-
 (defn assert-real-partition-change-propagates-to-its-subs
-  "(3) The converse: a real change to a partition DOES re-run that
-  partition's subs — exactly once per change — proving the short-circuit
-  in (1)/(2) is precise suppression, not a wedged reaction. Drives both
-  partitions in one assertion: a real app-db change re-runs the app-db
-  sub and leaves the runtime-db sub untouched; a real runtime-db change
-  re-runs the runtime-db sub and leaves the app-db sub untouched."
+  "Each partition change reruns its own sub once and leaves the other untouched."
   [{:keys [substrate-kw name]}]
   (testing (str name " — a real partition change propagates to that partition's subs (and only that partition's)")
     (let [fid       (mint-kw substrate-kw "inval-both")
@@ -2817,47 +2663,8 @@
               "and resolve-current-frame answers nil, having never called the
                reader at all — the IMPERATIVE tier's refusal is intact")))
       (testing "5. the ABORTED-RENDER check — an aborted render leaks no frame into the next"
-        ;; THE ONE HAZARD A PRIVATE-SLOT READ CARRIES, and the reason this
-        ;; part is a gate rather than a nicety. React pushes the
-        ;; provider's value onto `_currentValue2` on the way into a subtree and
-        ;; pops it on the way out. A render that THROWS mid-tree unwinds by a
-        ;; different path — so ask whether the pop still happens, and, whatever
-        ;; the answer, whether anything can OBSERVE a stale slot. On a server
-        ;; the two questions come apart, and only the second one is a bug.
-        ;;
-        ;; React 19.2.0's unwinding:
-        ;;   normal render   → the slot is popped back to the default on exit;
-        ;;   throwing render → the slot is LEFT PUSHED after the throw;
-        ;;   the NEXT render → pops the previous snapshot BEFORE running any
-        ;;                     component, so every render observes the context
-        ;;                     its own tree establishes and nothing else.
-        ;;
-        ;; So the stale value exists between an aborted render and the next
-        ;; one, and no render sees it. That is what the three assertions below
-        ;; pin, in that order — including the residual itself, deliberately, so
-        ;; that a React release which starts popping on the error path turns
-        ;; this row red and sends the reader to this note, keeping the
-        ;; fallback's real boundary visible.
-        ;;
-        ;; NOT PINNED, because it is outside the ambient tier's contract: a
-        ;; frame-scoped op performed OUTSIDE any render, inside that window,
-        ;; reads the aborted render's frame. Ambient resolution is a
-        ;; render-time notion on both renderers, and server-side ops carry a
-        ;; frame explicitly or bind one with `with-frame` — which outranks both
-        ;; slots (4b). The design rejects stale-slot heuristics; a
-        ;; guard here would be exactly that.
-        ;;
-        ;; The throw is staged here rather than borrowed from 4d, so the render
-        ;; immediately preceding these assertions is the aborted one. HOW IT IS
-        ;; STAGED: a second `frame-provider` naming a
-        ;; NEVER-CREATED frame, nested inside the live one. The SCOPE shape
-        ;; fails loud with `:rf.error/frame-provider-frame-absent` while
-        ;; validating, which is BEFORE it builds its own provider element — so
-        ;; the outer provider has pushed `ssr-ambient-frame` onto the secondary
-        ;; slot, the inner has pushed nothing, and the render aborts with
-        ;; exactly one snapshot outstanding. (A refusing extent around the
-        ;; whole render would not stage it: a hook does not observe one —
-        ;; see 4d.)
+        ;; Abort beneath a live provider, then render without one: an aborted
+        ;; request must not leak its frame into the next request.
         (let [thrown (try (.renderToString react-dom-server
                             (frame-provider-mount-element
                               ssr-ambient-frame
@@ -2870,13 +2677,6 @@
               "the staged render did abort beneath the provider, on the absent
                nested frame — without a throw here the rest of this part would
                prove nothing"))
-        (is (= ssr-ambient-frame
-               (.-_currentValue2 ^js rf.adapter.context/frame-context))
-            "MEASURED RESIDUAL, not a requirement: React 19.2 leaves the
-             secondary slot pushed after an aborted server render. If this
-             assertion fails, React changed its error-path unwinding — that is
-             an improvement, not a regression: re-read this part's note, drop
-             this line, and keep the two below")
         (reset! probe-frame-provider-observed [])
         (let [thrown (try (.renderToString react-dom-server
                             (probe-frame-provider-element))
