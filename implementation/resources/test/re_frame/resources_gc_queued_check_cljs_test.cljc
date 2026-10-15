@@ -7,7 +7,9 @@
   and is collected by the window's own check (Spec 016 §The scoped-cache owner
   lifecycle, §Stale and GC scheduling). That holds whether the released owner
   attached through an `ensure` or through `adopt-owner`, which arms no window
-  of its own. An entry no owner ever held is still collected `:gc-after-ms`
+  of its own, and when the entry was removed and a mutation's populate wrote a
+  new one at the same key: the removed entry's check never collects its
+  replacement. An entry no owner ever held is still collected `:gc-after-ms`
   after its settle.
 
   The host clock is virtual and delivery is queued: each due timer runs its
@@ -126,6 +128,18 @@
                     :gc-after-ms   gc-ms}
                    (fn [{:keys [slug]} _ctx]
                      {:request {:method :get :url (str "/api/articles/" slug)}})))
+
+(defn- reg-save!
+  "A mutation that populates the article it saves."
+  []
+  (rf/reg-mutation :gcq/save
+                   {:params-schema [:map [:slug :string]]
+                    :populates     (fn [{:keys [slug]} result]
+                                     {{:resource :gcq/article :scope :rf.scope/global
+                                       :params {:slug slug}}
+                                      result})}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :put :url (str "/api/articles/" slug)}})))
 
 (defn- entry []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -254,14 +268,7 @@
 (deftest a-check-queued-behind-a-mutation-populate-waits-for-its-window
   ;; the ownerless settle at t=0 arms GC for t=1000
   (reg-article!)
-  (rf/reg-mutation :gcq/save
-                   {:params-schema [:map [:slug :string]]
-                    :populates     (fn [{:keys [slug]} result]
-                                     {{:resource :gcq/article :scope :rf.scope/global
-                                       :params {:slug slug}}
-                                      result})}
-                   (fn [{:keys [slug]} _ctx]
-                     {:request {:method :put :url (str "/api/articles/" slug)}}))
+  (reg-save!)
   (ensure!)
   (succeed!)
   (drain!)
@@ -276,6 +283,33 @@
   (drain!)
   (is (some? (entry)) "the older check does not collect the populated entry")
   (is (= {:title "Saved"} (:data (entry))) "the entry carries the populated value")
+  (run-to! (+ gc-ms gc-ms -1))
+  (is (some? (entry)) "kept for the whole window the populate armed")
+  (run-to! (+ gc-ms gc-ms))
+  (is (nil? (entry)) "collected by that window's check"))
+
+(deftest a-removed-entrys-check-does-not-collect-its-replacement
+  ;; the ownerless settle at t=0 arms GC for t=1000
+  (reg-article!)
+  (reg-save!)
+  (ensure!)
+  (succeed!)
+  (drain!)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :gcq/save :params {:slug "intro"}}])
+  (reset! fifo [])
+  (advance-to! 900)
+  (queue! [:rf.resource/remove {:resource :gcq/article :scope :rf.scope/global
+                                :params {:slug "intro"}}])
+  (queue! (conj (:on-success @last-request) {:status :ok :value {:title "Saved"}}))
+  ;; the removed entry's timer fires before the removal and the reply are delivered
+  (advance-to! gc-ms)
+  (is (= [:rf.resource/remove :rf.mutation.internal/succeeded
+          :rf.resource.internal/gc-fired]
+         @fifo)
+      "the removed entry's check is queued behind the removal and the populate")
+  (drain!)
+  (is (= {:title "Saved"} (:data (entry)))
+      "the removed entry's check does not collect the populated replacement")
   (run-to! (+ gc-ms gc-ms -1))
   (is (some? (entry)) "kept for the whole window the populate armed")
   (run-to! (+ gc-ms gc-ms))
