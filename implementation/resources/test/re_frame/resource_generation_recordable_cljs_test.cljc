@@ -4,12 +4,15 @@
   §Restore and replay). Replay that supplies the recorded allocation
   reproduces the generation whatever the host allocator's high-water, so a
   reply accepted at record time is accepted again; a re-minted generation
-  would stale-suppress it."
+  would stale-suppress it. The allocation's shape check needs no schemas
+  artefact."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
    [re-frame.fx :as rf.fx]
+   [re-frame.late-bind :as rf.late-bind]
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
@@ -105,6 +108,47 @@
           (is (= 11 (:generation (live-entry))))
           (reply-success! on-success)
           (is (not= :loaded (:status (live-entry)))))))))
+
+(defn- without-schemas-artefact
+  "Run `f` with the schemas artefact's validation seam unbound, as in an app
+  that never loaded `re-frame.schemas`."
+  [f]
+  (let [hooks [:schemas/validate-event!
+               :schemas/validate-with-registered-fn
+               :schemas/explain-with-registered-fn
+               :schemas/redact-validation-tags]
+        saved (mapv rf.late-bind/get-fn hooks)]
+    (try
+      (doseq [hook hooks] (rf.late-bind/set-fn! hook nil))
+      (f)
+      (finally
+        (doseq [[hook hook-fn] (map vector hooks saved)] (rf.late-bind/set-fn! hook hook-fn))))))
+
+(defn- refusal
+  "Run `f` without the schemas artefact. Returns the ex-data of the error that
+  refused it, whether thrown or reported to the always-on error listeners."
+  [f]
+  (let [reported (atom [])]
+    (rf.error-emit/register-error-listener!
+      ::refusal #(swap! reported conj (ex-data (:exception %))))
+    (try
+      (without-schemas-artefact f)
+      (first (remove nil? @reported))
+      (catch #?(:clj Throwable :cljs :default) e (ex-data e))
+      (finally (rf.error-emit/unregister-error-listener! ::refusal)))))
+
+(deftest generation-allocation-needs-no-schemas-artefact
+  (register-resource!)
+  (testing "a live ensure mints generation 1 with the schemas seam unbound"
+    (without-schemas-artefact #(ensure! nil))
+    (is (= 1 (:generation (live-entry)))))
+  (testing "a malformed supplied allocation is refused before it folds"
+    (with-fresh-runtime
+      (fn []
+        (register-resource!)
+        (let [data (refusal #(ensure! {:generation nil :counter "bad"}))]
+          (is (= [:rf.error/cofx-value-invalid :rf.resource/generation-allocation nil]
+                 [(:rf.error/id data) (:rf.cofx/id data) (live-entry)])))))))
 
 (deftest mutation-generation-allocation-is-recorded
   (rf/reg-mutation :gen/save
