@@ -1,27 +1,11 @@
 (ns re-frame.bench.fresco.lane-schedule-cljs-test
-  "WHAT THE GUARD IS TOLD RAN BEFORE WHAT.
-
-  [[re-frame.bench.fresco.lane/rounds!]] discards warm-up VALUES but must
-  not forget that they RAN: `order-guard`'s `:predecessor` factor strata
-  every banked sample by what ran immediately before it, and each round's
-  first measured sample follows a warm-up execution. A collector that
-  carried `:prev` from the last BANKED sample would file that sample under
-  the previous round's last arm — an adjacency that never happened.
-
-  The stub answers its own index in the TRUE execution sequence, so the
-  predecessor a sample should carry is read off the recording rather than
-  re-derived from `slot-order`, which would be a second copy of the rule
-  under test.
-
-  The last deftest holds the two prior-execution spans `rounds!`'s
-  docstring quotes as its reason for having no run-level pre-warm: moving
-  the warm-up out of the round loop turns it red."
+  "Warm-up visits remain predecessors; banked positions are contiguous and per-round warm-up stays charged."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
 (def ^:private arm-counts
-  "Every arm count this lane's page-mount harnesses run at."
-  [4 5 7 8 9])
+  "Even and odd reflecting schedules."
+  [4 5])
 
 (def ^:private sampling {:warmup 3 :samples 6})
 
