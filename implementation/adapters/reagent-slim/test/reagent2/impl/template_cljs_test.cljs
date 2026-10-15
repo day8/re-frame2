@@ -36,11 +36,11 @@
                           [:tab-index 42 42]]]
     (is (= expected (template/convert-prop-value k v)))))
 
-(deftype CallableProbe [calls]
+(deftype CallableProbe []
   IFn
-  (-invoke [_]     (swap! calls conj [])       :called-0)
-  (-invoke [_ a]   (swap! calls conj [a])      [:called-1 a])
-  (-invoke [_ a b] (swap! calls conj [a b])    [:called-2 a b]))
+  (-invoke [_] :called-0)
+  (-invoke [_ a] [:called-1 a])
+  (-invoke [_ a b] [:called-2 a b]))
 
 (deftest convert-prop-value-fn-yields-stable-callable-js-fn-rf2-fzbj-30
   (let [calls   (atom [])
@@ -57,19 +57,17 @@
            (js/Reflect.apply (template/convert-prop-value :on-click handler) nil #js [:x :y])))
     (is (= [[:x :y]] @calls)))
   (let [plain (fn [_e] :plain)]
-    (is (= [plain plain] [(template/convert-prop-value :on-click plain)
-                         (template/convert-prop-value plain)]))))
+    (is (= [true true] [(identical? plain (template/convert-prop-value :on-click plain))
+                         (identical? plain (template/convert-prop-value plain))]))))
 
 (deftest convert-prop-value-non-fn-ifn-still-wrapped
-  (let [calls (atom [])
-        probe (->CallableProbe calls)
+  (let [probe (->CallableProbe)
         out   (template/convert-prop-value :on-select probe)]
     (is (= "function" (goog/typeOf out)))
     (is (identical? out (template/convert-prop-value :on-select probe)))
     (is (= [:called-1 :a] (.call out nil :a)))
     (is (= [:called-2 :a :b] (.call out nil :a :b)))
-    (is (= :called-0 (.call (template/convert-prop-value probe) nil))
-        "the 1-arg form takes the same arm")))
+    (is (= :called-0 (.call (template/convert-prop-value probe) nil)))))
 
 (defn- CallsOnSelect
   [^js props]
