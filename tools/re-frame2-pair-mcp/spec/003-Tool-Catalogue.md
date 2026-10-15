@@ -17,8 +17,9 @@ registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance; both grow an
 EP-0023 `:frame` arity per rf2-srobm0), the image-generation read
-`describe-image` (rf2-srobm0 — the EP-0023 Use-Case 7 read over a frame's
-running image generation), the operating-frame
+`describe-image` (rf2-srobm0 — the EP-0023 Use-Case 7 read over what a
+frame runs: its image generation, or the live store for a frame made without
+`:images`), the operating-frame
 trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
 (rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
 surface the session frame pin, the escape from tier-4 `:ambiguous-frame`;
@@ -663,15 +664,17 @@ Drill via the existing `list-handlers` / `list-subscriptions` /
 `snapshot` / `get-path` / `read-sub` ops.
 
 **Frame-rebased registry (EP-0023, rf2-srobm0).** The `:registry` slot is
-**re-based on the operating frame's resolved image generation** when a single
-operating frame resolves — the **selected universe** that frame actually runs
-(the same `(kind, id)` can resolve differently per frame), keyed off the
-frame's generation rather than the process-wide registrar union. `:basis :frame`
-+ `:frame <id>` name the resolution. It **falls back** to `:basis :process` (the
-process-wide registrar counts) in a multi-frame ambiguous session (no operating
-frame resolves) or against a core predating the EP-0023
-frame-image-generation reads. Drill a frame's full per-kind ids with
-`list-handlers {:frame … :kind …}` or its whole generation with
+**re-based on what the operating frame resolves** when a single operating frame
+resolves — the **selected universe** that frame actually runs (the same
+`(kind, id)` can resolve differently per frame), read through the
+frame-targeted `(re-frame.core/registrations {:frame f :kind k})` query rather
+than the process-wide registrar union: its sealed image generation, or, for a
+frame made without `:images`, the registration store resolved live, less any id
+more than one namespace registers. `:basis :frame` + `:frame <id>` name the
+resolution. It **falls back** to `:basis :process` (the process-wide registrar
+counts) in a multi-frame ambiguous session (no operating frame resolves) or
+when the operating frame id names no frame. Drill a frame's full per-kind ids
+with `list-handlers {:frame … :kind …}` or its whole view with
 `describe-image {:frame …}`.
 
 Reserved `:rf/*` **tool frames** (Xray's `:rf/xray`, SSR slots, …) are
@@ -2462,8 +2465,9 @@ rejected with `:reason :not-a-sub-vector`, unreadable input with
 applies to `event` (rf2-vflrg). The sub-id (the vector head) is
 **validated against the live `:sub` registrar** (the read-side mirror
 of `dispatch`'s event-id validation, rf2-3bu3d.3): an unknown id returns
-the structured `:reason :unknown-id` with `:nearest` matches and does
-**not** subscribe — never a silent nil. A sub handler that throws while
+the structured `:reason :unknown-id` with `:nearest` matches, and an id the
+frame refuses as ambiguous returns `:reason :ambiguous-id` with its
+`:namespaces`; neither subscribes — never a silent nil. A sub handler that throws while
 computing returns `:reason :sub-error` carrying the message — a
 structured error, not a bare nil.
 
@@ -2489,8 +2493,8 @@ projection is the identity.
 
 Success: `{:ok? true :query-v <v> :frame <id> :value <elided-value>
 :elision <bool>}`. The structured failures (`:not-a-sub-vector` /
-`:invalid-sub-edn` / `:missing-sub` / `:unknown-id` / `:ambiguous-frame`
-/ `:sub-error`) ride back as `:isError` envelopes.
+`:invalid-sub-edn` / `:missing-sub` / `:unknown-id` / `:ambiguous-id` /
+`:ambiguous-frame` / `:sub-error`) ride back as `:isError` envelopes.
 
 ## read-dom
 
@@ -3287,11 +3291,14 @@ no `realm` arg: a registrar query is either the bare **process-global**
 registrar read or, with `frame`, the **frame-targeted** read below.
 
 **Frame-targeting — the forward direction** (EP-0023, rf2-srobm0). A frame's
-inspectable registration set is its **resolved image generation**: the same
+inspectable registration set is **what that frame resolves**: the same
 `(kind, id)` may resolve **differently per frame** (two frames running
 different images each resolve their own descriptor). The optional `frame` arg
-re-keys the lookup through **that frame's running image generation** rather
-than the process-global registrar — routing through the per-frame runtime fn
+re-keys the lookup through **that frame's own view** — its running image
+generation, or, for a frame made without `:images`, the registration store
+resolved live, where an id more than one namespace registers raises
+`:rf.error/ambiguous-registration` — rather than the process-global
+registrar, routing through the per-frame runtime fn
 `(re-frame2-pair.runtime/frame-registrar-describe frame kind id)`, which
 consumes the **public** facade read `(re-frame.core/handler-meta {:frame f
 :kind k :id id})` (rf2-wkw8na). The result carries the resolved descriptor's
@@ -3408,8 +3415,10 @@ on a specific `(kind, id)` pair.
 direction), `build` (string, optional).
 
 **Frame-targeting** (EP-0023, rf2-srobm0): same contract as `handler-meta`'s
-`frame` arg. The optional `frame` arg enumerates **only the ids that frame's
-running image generation carries** for the kind — routing through
+`frame` arg. The optional `frame` arg enumerates **only the ids that frame
+resolves** for the kind — from its running image generation, or, for a frame
+made without `:images`, the live store less any id more than one namespace
+registers — routing through
 `(re-frame2-pair.runtime/frame-registrar-list frame kind)`, which consumes
 the public `(re-frame.core/registrations {:frame f :kind k})` read — its keys are the registered ids (rf2-i4hk4b retired the `handler-ids` projection it used to call).
 This is the **selected universe** that frame actually runs, not the
@@ -3476,8 +3485,9 @@ surface). No back-compat shim; the old name hard-errors with
 
 ## describe-image
 
-Describe the **image generation** a frame is running — the EP-0023
-**Use-Case 7** read (Ref-Plan item 17, rf2-srobm0). Answers "what behaviour
+Describe **what a frame runs** — the **image generation** a frame made with
+`:images` is running, or the registration store a frame made without resolves
+live — the EP-0023 **Use-Case 7** read (Ref-Plan item 17, rf2-srobm0). Answers "what behaviour
 does **this** frame run, and where did each piece come from?" in one
 round-trip. A frame runs a composed **image** (selected registrations from
 one-or-more namespaces / inline sections, plus framework standards); the same
@@ -3485,8 +3495,12 @@ one-or-more namespaces / inline sections, plus framework standards); the same
 frame actually runs is what an agent driving it should see — not the
 process-wide registrar union.
 
-Routes through the runtime preload's `describe-image`, which reads **only** the
-public facade `(re-frame.core/frame-generation frame)` read (rf2-wkw8na).
+Routes through the runtime preload's `describe-image`, which reads **only**
+public facade reads: `(re-frame.core/frame-generation frame)` (rf2-wkw8na),
+and, for a frame made without `:images`, which seals no generation, the
+frame-targeted `(re-frame.core/registrations {:frame f :kind k})`, with
+`(re-frame.core/handler-meta {:frame f …})` naming each ambiguous id's
+namespaces.
 EP-0023 forbids tools from consuming `re-frame.live-frame` /
 `re-frame.image-assembly` internals directly; the facade re-surfaces the
 behaviour through the public read.
@@ -3510,6 +3524,16 @@ frame; a multi-frame session with no selection returns
  :counts   {<kind> N ...}          ; selected-registration count per kind
  :registrations {[<kind> <id>] <coordinate> ...}}  ; only with :include-ns true
 ```
+
+A frame made without `:images` reports `:images []` and adds two keys:
+
+```clojure
+{:live-store? true
+ :ambiguous   [{:kind <kind> :id <id> :namespaces ["<ns>" ...]} ...]}
+```
+
+`:ambiguous` names each id the frame refuses because more than one namespace
+registers it; such an id is left out of `:counts` and `:registrations`.
 
 > EP-0026 (rf2-dlvmpc) removed image-declared host capabilities end-to-end —
 > there is no `:rf.gen/requires`, so `describe-image` no longer returns a
