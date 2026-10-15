@@ -14,12 +14,7 @@
   the CONSUMER end: the machines runtime is DRIVEN, and the trace events it
   really emits are fed into Xray's production projections. No hand-authored
   destroy event sits between producer and consumer, so if an emitter moves a
-  reason to the other channel — or Xray validates channel and reason
-  independently — these tests go red.
-
-  The complementary negative cross-products (the tuples the matrix forbids)
-  are asserted in `cancellation-cascade-helpers-cljs-test`, which can author
-  the impossible events the runtime cannot produce."
+  reason to the other channel, these tests go red."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
