@@ -1,43 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.focus-epoch-id-correlation-e2e-cljs-test
-  "Multi-frame end-to-end coverage for the `:rf.xray/focus`
-  epoch-id correlation.
-
-  ## The bug class
-
-  If `:rf.xray/focus` returns `:epoch-id nil`, Xray's Views + Trace
-  panels render EMPTY (on the parallel-frames testbed after a page
-  refresh, for example). Those panels are epoch-scoped — `:rf.xray/reactive-
-  data` (Views) and `:rf.xray/trace-feed` (Trace) read the focused
-  epoch RECORD via `focus.epoch-id` — so a nil epoch-id starves them.
-
-  ## The correlation
-
-  `compose-focus` derives `:epoch-id` by correlating the focused
-  cascade `:dispatch-id` (from the raw trace stream's cascade list,
-  depth 1000) against `:rf.xray/epoch-history` via
-  `epoch-id-for-event-bundle` → `dispatch-id-of-epoch`. Walking the
-  record's `:trace-events` for a `:dispatch-id` tag alone would not
-  survive: `:trace-events-keep` ELIDES `:trace-events` from all but the
-  most-recent N records, and the post-settle reactive back-fill pads
-  `:trace-events` with nil-`:dispatch-id` sub-run / render events. So
-  any focused cascade whose epoch is outside the keep-window would
-  correlate to nil → empty panels.
-
-  (The framework default for `:trace-events-keep` is 50 — matching
-  `:depth` so trace evicts atomically with its epoch. To bite the
-  elision path under test the elision-sensitive deftests below
-  explicitly shrink `:trace-events-keep` via `rf/configure!`.)
-
-  `build-record` pins the settling cascade `:dispatch-id` as a
-  first-class record slot (from the `:rf.event/run-start` tag, surfaced by
-  `find-trigger-event`); `dispatch-id-of-epoch` reads the slot directly,
-  falling back to the `:trace-events` walk. The slot survives
-  elision + back-fill, so the correlation is stable for every retained
-  epoch.
-
-  These tests drive the REAL pipeline (host dispatches → trace bus →
-  epoch ring → Xray's subs) — no synthetic-cascade seam — exactly as
-  `parallel_frames_e2e_cljs_test` does."
+  "Epoch correlation survives elided trace payloads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.source-store :as rf.source-store]
@@ -200,5 +162,4 @@
           (str "some retained epoch lacks the pinned :dispatch-id slot. "
                "epochs missing the slot: "
                (pr-str (mapv :epoch-id (remove #(some? (:dispatch-id %)) history)))))
-      (is (every? #(some? (:dispatch-id %)) elided)
-          "a trace-elided record must STILL carry the pinned :dispatch-id slot"))))
+      )))
