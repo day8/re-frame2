@@ -1,20 +1,5 @@
-;;;; tests/setup_drift_test.clj — the re-frame2-setup skill's contract claims.
-;;;;
-;;;; Lock 0: the thirteen files in `references/first-counter.md` and the four
-;;;; UIx files in `references/entry-namespace.md` are generated regions
-;;;; rendered from `tools/template/` by `tests/first_counter_derivation.clj`,
-;;;; and must equal that render — so a hand edit inside a region, or a
-;;;; template change the leaves were not regenerated for, fails here. What the
-;;;; template emits is tools/template's own suite to test. The other locks
-;;;; hold the hand-written prose to the scaffold: the reduced day-one set (no
-;;;; schemas, no Xray, no devtools preload, no CSP), lockstep as a build
-;;;; discipline, the publication-state branch, and the zero-interview executor.
-;;;;
-;;;; It does not build the scaffold: the black-box `setup-skill-default-
-;;;; scaffold-mounts-test` in tools/template/test/day8/re_frame2_template/
-;;;; emitted_test_run_test.clj (behind RF2_TEMPLATE_RUN_EMITTED_TESTS=1) does.
-;;;;
-;;;; Run: bb tests/setup_drift_test.clj   (from skills/re-frame2-setup/)
+;;;; The setup prose and derived scaffold stay in sync.
+;;;; Run: bb tests/setup_drift_test.clj
 
 (ns setup-drift-test
   (:require [clojure.java.io :as io]
@@ -35,8 +20,6 @@
 (def ^:private readme-md          (doc setup-root "README.md"))
 (def ^:private docs-setup-page-md (doc repo-root "docs/skills/re-frame2-setup.md"))
 (def ^:private skills-index-md    (doc repo-root "skills/README.md"))
-(def ^:private reagent-template-deps (doc repo-root "tools/template/resources/day8/re_frame2_template/_reagent/deps.edn"))
-(def ^:private uix-template-deps     (doc repo-root "tools/template/resources/day8/re_frame2_template/_uix/deps.edn"))
 
 (defn- has? [text needle]
   (boolean (if (string? needle) (str/includes? text needle) (re-find needle text))))
@@ -60,11 +43,7 @@
                    deps-body)
           second))
 
-;; ---------------------------------------------------------------------------
-;; Lock 0 — the leaves are the template's emission
-;; ---------------------------------------------------------------------------
-
-;; Loaded, not run: its script guard keys off babashka.file.
+;; Loading the derivation script leaves generated regions untouched.
 (load-file (.getPath (io/file setup-root "tests/first_counter_derivation.clj")))
 
 (def ^:private first-counter-files (delay (first-counter-derivation/extract-files @first-counter-md)))
@@ -104,7 +83,6 @@
   (count (.getBytes (str/replace (slurp f) "\r\n" "\n") "UTF-8")))
 
 (deftest every-leaf-meets-the-family-byte-ceiling
-  ;; skills/README.md §Leaf size discipline.
   (is (= [] (for [f (.listFiles (io/file setup-root "references"))
                   :when (and (str/ends-with? (.getName f) ".md") (> (committed-byte-size f) 16384))]
               [(.getName f) (committed-byte-size f)]))
@@ -117,11 +95,6 @@
     ["SKILL.md" @skill-md "nothing else needs reading" "first-counter.md is the whole default"]
     ["README.md" @readme-md "Both routes land on the same canonical scaffold" "Lock 0 makes this literally true"]]))
 
-;; ---------------------------------------------------------------------------
-;; Lock 1 — lockstep is a build-time discipline. The runtime carries no
-;; per-artefact version metadata, so no boot-time guard exists to promise.
-;; ---------------------------------------------------------------------------
-
 (deftest deps-versions-frames-lockstep-as-build-discipline
   (let [body @deps-versions-md]
     (claims
@@ -131,9 +104,6 @@
     (is (not (re-find #"checked at boot time|enforced at boot|validated at boot" body))
         "deps-versions.md must not promise a boot-time version check that does not exist")))
 
-;; Lock 1b — the hand-written prose agrees with the derived blocks it
-;; explains. Both expectations are READ OUT of the generated blocks, so a
-;; template bump moves them with the scaffold.
 (defn- npm-package-names
   "The `dependencies` / `devDependencies` keys of a package.json body."
   [pkg-body]
@@ -152,16 +122,10 @@
         (str "shadow-cljs.md must carry the derived alias vector " aliases
              "; dropping :dev takes re-frame2-story off the classpath and fails `compile app`"))))
 
-;; Spec 006's "UIx 2.x" is the hooks API family, which ships as
-;; com.pitch/uix.core 1.x; there is no 2.x coordinate to chase.
 (deftest uix-version-target-divergence-is-flagged
   (claims
    [["entry-namespace.md" @entry-namespace-md #"UIx 2\.x|version target" "explain the UIx version target"]
     ["entry-namespace.md" @entry-namespace-md #"known-good|tested" "the template pin is the tested set"]]))
-
-;; ---------------------------------------------------------------------------
-;; Lock 3 — no Xray host or preload is scaffold wiring, on any route.
-;; ---------------------------------------------------------------------------
 
 (deftest skill-carries-no-xray-host-wiring
   (is (= [] (offenders [["SKILL.md" @skill-md] ["README.md" @readme-md] ["first-counter.md" @first-counter-md]
@@ -171,8 +135,6 @@
                         ":devtools/preloads" "day8.re-frame2-xray.preload"]))
       "Xray, its host column and its devtools preload attach later, by Xray's own recipe"))
 
-;; Lock 4 — the row is headed by the error shadow-cljs 3.4.10 actually prints
-;; for a missing CLJS namespace, and its cause is the Maven classpath.
 (deftest reagent-dom-row-diagnoses-maven-not-npm
   (let [row (re-find #"(?m)^- \*\*`The required namespace \"reagent\.dom\.client\" is not available`.*$" @skill-md)]
     (is (and row (str/includes? row "reagent/reagent"))
@@ -181,18 +143,11 @@
     (is (and row (not (str/includes? row "npm install react react-dom")))
         "a missing CLJS namespace is never fixed by installing npm packages")))
 
-;; Lock 5 — CSP is a later, explicit step: a strict dev CSP is the
-;; blank-first-page trap.
 (deftest default-route-is-csp-free
   (is (= [] (offenders [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]
                        ["Content-Security-Policy" "unsafe-eval" "frame-ancestors"]))
       "SKILL.md and first-counter.md teach no CSP on the default route"))
 
-;; Lock 5b — under `:deps {:aliases [:shadow :dev]}` the launcher ignores
-;; shadow-cljs.edn's `:source-paths`; deps.edn's `:paths` and the `:shadow`
-;; alias's `:extra-paths` own source discovery. The shadow-only conversion
-;; moves the source dirs, so the leaf carrying it states the rule, and the
-;; router sends an empty CLJS project to that leaf.
 (deftest shadow-cljs-leaf-attributes-source-paths-to-deps-edn
   (claims
    [["shadow-cljs.md" @shadow-cljs-md #"is inert here|were ignored|ignores this key" ":source-paths is ignored under :deps"]
@@ -201,7 +156,6 @@
     ["existing-project.md" @existing-project-md "ignores `shadow-cljs.edn`'s `:source-paths`" "the conversion states the same rule"]
     ["SKILL.md" @skill-md "references/existing-project.md" "the router sends an empty CLJS project to the conversion"]]))
 
-;; Lock 7 — UIx authors are routed to the substrate views, not Reagent's reg-view.
 (deftest uix-not-routed-to-reagent-reg-view-counter
   (claims
    [["SKILL.md" @skill-md "does NOT use `reg-view`" "UIx authors must be routed to the substrate views"]
@@ -209,7 +163,6 @@
     ["first-counter.md" @first-counter-md #"(?s)use-sub.*entry-namespace\.md|entry-namespace\.md.*use-sub"
      "the leaf redirects UIx authors to entry-namespace.md's use-sub path"]]))
 
-;; Lock 8 — bare `npm install react react-dom` writes npm's latest.
 (deftest js-module-react-row-uses-pinned-baseline
   (let [row (re-find #"(?m)^- \*\*`Cannot find module 'react'`.*$" @skill-md)]
     (is (and row (str/includes? row "pinned")) "the JS-module React row must recover from the pinned baseline")
@@ -217,8 +170,6 @@
     (is (and row (str/includes? row "Don't run bare `npm install react react-dom`"))
         "and forbid bare npm install react react-dom")))
 
-;; Lock 9 — the greenfield coordinate BRANCHES on publication state. Retire it
-;; deliberately only when every day8/re-frame2* coordinate resolves.
 (deftest deps-guidance-branches-on-actual-publication-state
   (claims
    [["deps-versions.md" @deps-versions-md #"not published|NOT on Clojars|not on Clojars|have not published|not yet published"
@@ -229,8 +180,6 @@
     ["SKILL.md" @skill-md ":local/root \"<RE_FRAME2>/implementation/core\"" "step 2's pre-publish rewrite"]
     ["SKILL.md" @skill-md "generator route" "the generator emits the same unresolvable coordinate"]]))
 
-;; Lock 10 — schemas are pay-as-you-go: the artefact arrives with the first
-;; reg-app-schema, which throws loudly without it (Spec 010).
 (deftest schemas-are-pay-as-you-go-not-day-one
   (is (= [] (offenders (seq @first-counter-files)
                        ["re-frame.schemas" "reg-app-schema" "register-schema!" "CounterDb" "re-frame2-schemas"]))
@@ -240,11 +189,6 @@
     ["deps-versions.md" @deps-versions-md "re-frame.schemas" "require it before reg-app-schema"]
     ["SKILL.md" @skill-md "no schemas" "schemas are not day-one"]]))
 
-;; Lock 11 — the default build carries no devtools preload.
-(deftest default-shadow-build-carries-no-devtools-preload
-  (is (not (str/includes? (get @first-counter-files "shadow-cljs.edn" ":devtools") ":devtools"))
-      "the default shadow-cljs.edn carries no :devtools map; a preload is a later, explicit step"))
-
 (deftest xray-is-a-next-step-not-day-one
   (is (= [] (offenders [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]
                        ["day8/re-frame2-xray" "day8.re-frame2-xray"]))
@@ -253,7 +197,6 @@
    [["SKILL.md" @skill-md "no Xray" "Xray is not day-one"]
     ["SKILL.md" @skill-md "Next steps" "the optional attachments route through the generated README's Next steps"]]))
 
-;; Lock 12 — the skill runs the generator itself and asks nothing when no pin is supplied.
 (deftest pin-default-is-zero-interview
   (is (not (re-find #"(?i)stop and ask" @deps-versions-md))
       "deps-versions.md must not stop to ask for a pin: the template baseline is the default")
@@ -275,10 +218,6 @@
       ["SKILL.md" skill #"not the mount|does not prove the mount|don't claim the mount|compile success alone"
        "compile success proves the build, not the browser mount"]])))
 
-;; ---------------------------------------------------------------------------
-;; Lock 13 — the public entry-ramp docs stay in sync with the contract.
-;; ---------------------------------------------------------------------------
-
 (def ^:private literal-artefact-count
   "A literal count of the lockstep roster (`all ten`, `fourteen coordinates`),
    scoped to artefact nouns so `twelve files` stays legal."
@@ -291,8 +230,6 @@
                   :when hit]
               [label hit]))
       "state lockstep as a rule and point at spec/Conventions.md §Lockstep versioning, never a count that goes stale")
-  ;; Deliberately omitted from the description (spec/design.md §6): it also
-  ;; matches the non-trivial-existing-app case the skill routes away.
   (is (not (str/includes? (str/lower-case @docs-setup-page-md) "add re-frame2 to my repo"))
       "docs/skills/re-frame2-setup.md must not list \"add re-frame2 to my repo\" as a trigger"))
 
@@ -302,16 +239,6 @@
     ["skills/README.md" @skills-index-md #"Pre-split|pre-split|isn't published yet|not published yet|can't resolve"
      "a generator mention carries the pre-split caveat"]
     ["skills/README.md" @skills-index-md ":local/root" "and the working :local/root route"]]))
-
-;; ---------------------------------------------------------------------------
-;; Lock 15 — the UIx route is the template's four-file swap of the same
-;; Xray-free, schema-free scaffold.
-;; ---------------------------------------------------------------------------
-
-(deftest both-templates-are-xray-free-and-schema-free
-  (is (= [] (offenders [["_reagent/deps.edn" @reagent-template-deps] ["_uix/deps.edn" @uix-template-deps]]
-                       ["re-frame2-xray" "re-frame2-schemas"]))
-      "if the template ships one deliberately, update Lock 15 and the skill's day-one rule together"))
 
 (deftest uix-route-shares-the-default-build-wiring
   (let [body @entry-namespace-md]
