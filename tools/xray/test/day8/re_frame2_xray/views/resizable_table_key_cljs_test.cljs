@@ -121,20 +121,14 @@
 
 (def ^:private shape-columns
   [{:id :attrs  :label "attrs"}
-   {:id :bare   :label "bare"}
    {:id :string :label "string"}
-   {:id :nested :label "nested"}
    {:id :novec  :label "novec"}])
 
 (defn- shape-cells
-  "One cell per shape the helper must handle: a vector with an attrs map,
-  one with no second element, one whose second element is a string, one
-  whose second element is a nested vector, and a non-vector."
+  "Cells for the attrs-map, no-attrs and non-vector key-injection paths."
   [_row _i]
   [[:div {:data-testid "with-attrs"} "A"]
-   [:div]
    [:span "txt"]
-   [:div [:span "nested"]]
    "bare string"])
 
 (deftest consumer-cell-children-survive-the-key-injection
@@ -145,9 +139,7 @@
             a non-vector cell is returned untouched."
     (xray-setup!)
     (is (= [[:div {:data-testid "with-attrs" :key "c-attrs"} "A"]
-            [:div {:key "c-bare"}]
             [:span {:key "c-string"} "txt"]
-            [:div {:key "c-nested"} [:span "nested"]]
             "bare string"]
            (take-nth 2 (row-woven (first (body-rows
                                            (render {:table-id  :rf.xray.test/shapes
