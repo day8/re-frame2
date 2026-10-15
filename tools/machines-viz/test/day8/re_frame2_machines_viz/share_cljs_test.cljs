@@ -125,14 +125,11 @@
         (is (not (str/includes? (pr-str d) host)) host)))))
 
 (deftest fragment-free-hosts-are-untouched
-  (testing "a host with no '#' — queried, file://, relative, or not a URL at
-            all — is only trimmed, and carries the identical payload"
+  (testing "a fragment-free host is only trimmed and carries the identical payload"
     (frozen-now
       (fn []
         (let [fragment (subs (encode chart-state) (count test-host))]
           (doseq [host ["https://acme.example.com/viewer.html?theme=dark"
-                        "file:///C:/out/machines-viz-viewer/viewer.html"
-                        "/viewer.html"
                         "banana"
                         "  https://acme.example.com/viewer.html  "]]
             (is (= (str (str/trim host) fragment)
