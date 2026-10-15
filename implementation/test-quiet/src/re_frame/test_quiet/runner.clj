@@ -471,7 +471,10 @@
 ;;   - GREEN: drop the buffer silently (quiet on success);
 ;;   - RED:   replay it to the real stderr from the `:summary` reporter
 ;;            hook below, BEFORE cognitect computes its exit code, so a
-;;            failing run keeps the diagnostic context.
+;;            failing run keeps the diagnostic context;
+;;   - THREW: replay it from `-main` on the way out, because a namespace
+;;            that throws on load, or a throwing `:once` fixture, never
+;;            reaches `:summary`.
 ;;
 ;; clojure.test routes its assertion / FAIL / ERROR / summary output
 ;; through `clojure.test/*test-out*` (bound to the real `*out*`), NOT
@@ -535,6 +538,30 @@
              (String. ^chars char-buffer (int offset) (int length))))))
       (flush [])
       (close []))))
+
+(defn- replay-captured-stderr!
+  "Write whatever `stderr-ring` holds to `original-err`, under a
+  `[test-quiet]` header saying `reason`, and flush it. An empty ring
+  replays nothing.
+
+  The snapshot is taken under the ring's monitor, the SAME lock every
+  writer in `buffering-stderr-writer` takes, so the `.length` guard and the
+  `.toString` copy observe a consistent ring rather than a mutation
+  half-applied by a still-live background writer. The copy is made under
+  the lock and the (unbounded) replay I/O outside it, so a writer is never
+  blocked on the replay."
+  [^StringBuilder stderr-ring ^java.io.Writer original-err reason]
+  (let [captured-stderr (locking stderr-ring
+                          (when (pos? (.length stderr-ring))
+                            (.toString stderr-ring)))]
+    (when captured-stderr
+      (.write original-err
+              (str "\n[test-quiet] buffered stderr replayed because "
+                   reason ":\n"))
+      (.write original-err captured-stderr)
+      (when-not (.endsWith captured-stderr "\n")
+        (.write original-err "\n"))
+      (.flush original-err))))
 
 ;; ----------------------------------------------------------------------
 ;; What a lane claims, and what it must therefore prove — the coverage
@@ -1148,8 +1175,9 @@
   returns, straight after `-main` does.
 
   The replay is bounded to the test-run red path. cognitect only fires
-  `:summary` once it has reached `run-tests`, so the buffered stderr is
-  replayed only for a red run that actually executed tests.  The non-test
+  `:summary` once it has reached `run-tests`, so this method replays the
+  buffered stderr only for a red run that actually executed tests; a run
+  that throws before its summary is replayed by `-main`.  The non-test
   exit-1 path — a CLI parse error (`cognitect.test-runner/-main` prints the
   parse diagnostics + usage and `System/exit`s 1 BEFORE ever calling
   `run-tests`) — never fires `:summary`, so its buffer is dropped, not
@@ -1170,24 +1198,7 @@
   (fn summary-replay [summary]
     (let [{:keys [fail error]} summary]
       (when (pos? (+ (or fail 0) (or error 0)))
-        ;; Snapshot `stderr-ring` under its monitor — the SAME lock every
-        ;; writer in `buffering-stderr-writer` takes — so the `.length`
-        ;; guard and the `.toString` copy observe a consistent ring rather
-        ;; than a mutation half-applied by a still-live background writer.
-        ;; Copy out under the lock, then do the (unbounded) original-err replay
-        ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
-        ;; empty ring yields `nil` and replays nothing.
-        (let [captured-stderr (locking stderr-ring
-                                (when (pos? (.length stderr-ring))
-                                  (.toString stderr-ring)))]
-          (when captured-stderr
-            (.write original-err
-                    (str "\n[test-quiet] buffered stderr replayed"
-                         " because the run was RED:\n"))
-            (.write original-err captured-stderr)
-            (when-not (.endsWith captured-stderr "\n")
-              (.write original-err "\n"))
-            (.flush original-err)))))
+        (replay-captured-stderr! stderr-ring original-err "the run was RED")))
     ;; Delegate to the prior :summary so the canonical
     ;; "Ran N tests…/K failures, J errors." line still prints.
     (when prior-summary-method
@@ -1268,7 +1279,8 @@
   ;; once cognitect reaches `run-tests`, so the non-test exit-1 path (a CLI
   ;; parse error) drops its buffer rather than replaying it — sound because
   ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`
-  ;; (see `make-summary-replay-method`).
+  ;; (see `make-summary-replay-method`). A run that THROWS replays it from
+  ;; the catch at the bottom of this function.
   (let [;; This lane's claim, resolved BEFORE anything is rebound so a
         ;; malformed floor is a plain stderr diagnostic + exit 2, not a
         ;; buffered one. `--probe` is ours and is stripped from
@@ -1339,4 +1351,13 @@
       (System/setErr (java.io.PrintStream. system-err-bridge true "UTF-8")))
     (binding [*out* filtered-stdout
               *err* buffered-stderr]
-      (apply cognitect.test-runner/-main forwarded-args))))
+      ;; cognitect has no catch around its `require` and run, so a namespace
+      ;; that throws on load, or a throwing `:once` fixture, leaves from here
+      ;; without reaching `:summary`. Replay the ring on the way out, then
+      ;; rethrow so `clojure.main` still reports the throw and exits 1.
+      (try
+        (apply cognitect.test-runner/-main forwarded-args)
+        (catch Throwable thrown
+          (replay-captured-stderr! stderr-ring original-err
+                                   "the run threw before its summary")
+          (throw thrown))))))

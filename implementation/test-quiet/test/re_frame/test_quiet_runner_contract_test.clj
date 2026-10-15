@@ -44,7 +44,8 @@
 (defn- invoke-runner
   "Relaunch `-main` in a fresh JVM with `roots` appended to this classpath and
   `dir` as `-d`. `env` is layered over an environment stripped of
-  `RF2_MIN_TESTS`, so an outer shell's floor cannot perturb a pin."
+  `RF2_MIN_TESTS` and `RF2_VERBOSE_TESTS`, so an outer shell's floor or
+  verbosity cannot perturb a pin."
   [{:keys [roots dir env]} & runner-args]
   (let [java-executable (str (io/file (System/getProperty "java.home") "bin"
                                       (if (str/includes?
@@ -61,6 +62,7 @@
                                                runner-args))
         child-env       (.environment builder)]
     (.remove child-env "RF2_MIN_TESTS")
+    (.remove child-env "RF2_VERBOSE_TESTS")
     (doseq [[k v] env] (.put child-env k v))
     (drain-process (.start builder))))
 
@@ -123,6 +125,51 @@
         (is (str/includes? out "1 failures, 1 errors.") out)
         (is (str/includes? err "RAW-SYSERR-MARKER-RED") err)))))
 
+(defn- invoke-verbose-runner
+  "`invoke-quiet-runner` with `RF2_VERBOSE_TESTS=1`."
+  [dir]
+  (invoke-runner {:roots [dir] :dir dir :env {"RF2_VERBOSE_TESTS" "1"}}))
+
+(deftest verbose-green-run-names-each-namespace-once
+  ;; Under the flag each namespace's banner prints as it begins, so a green
+  ;; run names what it ran. Discovery order is the filesystem's, so either
+  ;; order of the two banners is the contract.
+  (with-fixture-dir
+    (fn [dir]
+      (write-fixture! dir "verbose_alpha_test" "verbose-alpha-test"
+                      "(deftest an-alpha-test (is (= 1 1)))")
+      (write-fixture! dir "verbose_beta_test" "verbose-beta-test"
+                      "(deftest a-beta-test (is (= 1 1)))")
+      (let [{:keys [exit out err]} (invoke-verbose-runner dir)
+            shape (fn [first-ns second-ns]
+                    ["" (str "Testing probe." first-ns)
+                     "" (str "Testing probe." second-ns)
+                     "" "Ran 2 tests containing 2 assertions." "0 failures, 0 errors." ""])]
+        (is (zero? exit) (str out err))
+        (is (contains? #{(shape "verbose-alpha-test" "verbose-beta-test")
+                         (shape "verbose-beta-test" "verbose-alpha-test")}
+                       (str/split (str/replace out "\r" "") #"\n" -1))
+            out)))))
+
+(deftest verbose-red-run-prints-each-banner-once
+  ;; The banner printed at entry marks its namespace printed, so the failures
+  ;; that follow in it do not print it again, and a passing namespace beside
+  ;; them is still named.
+  (with-fixture-dir
+    (fn [dir]
+      (write-fixture! dir "verbose_passing_test" "verbose-passing-test"
+                      "(deftest a-passing-test (is (= 1 1)))")
+      (write-fixture! dir "verbose_failing_test" "verbose-failing-test"
+                      (str "(deftest a-failing-test (is (= :exp :act)))\n"
+                           "(deftest an-erroring-test"
+                           " (is (= 1 (throw (ex-info \"verbose-boom\" {})))))"))
+      (let [{:keys [exit out err]} (invoke-verbose-runner dir)]
+        (is (= 1 exit) (str out err))
+        (is (= 1 (count (re-seq #"Testing probe\.verbose-passing-test" out))) out)
+        (is (= 1 (count (re-seq #"Testing probe\.verbose-failing-test" out))) out)
+        (is (str/includes? out "FAIL in (a-failing-test)") out)
+        (is (str/includes? out "ERROR in (an-erroring-test)") out)))))
+
 (deftest namespace-load-throw-exits-nonzero
   ;; A throw at require time is outside any `is`, so clojure.test never
   ;; counts it; it must still fail the process.
@@ -134,6 +181,38 @@
       (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
         (is (= 1 exit) (str out err))
         (is (str/includes? (str out err) "LOAD-THROW-MARKER"))))))
+
+(deftest namespace-load-throw-replays-buffered-stderr
+  ;; A throw at require time never reaches `:summary`, so the stderr written
+  ;; before it, through `*err*` and raw System.err alike, is replayed on the
+  ;; way out.
+  (with-fixture-dir
+    (fn [dir]
+      (write-fixture! dir "load_throw_stderr_test" "load-throw-stderr-test"
+                      (str "(binding [*out* *err*] (println \"PRE-LOAD-THROW-ERR-MARKER\"))\n"
+                           "(.println System/err \"PRE-LOAD-THROW-RAW-MARKER\")\n"
+                           "(deftest anchor (is (= 1 1)))\n"
+                           "(throw (ex-info \"LOAD-THROW-STDERR-MARKER\" {}))"))
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+        (is (= 1 exit) (str out err))
+        (is (str/includes? err "[test-quiet] buffered stderr replayed because the run threw")
+            err)
+        (is (str/includes? err "PRE-LOAD-THROW-ERR-MARKER") err)
+        (is (str/includes? err "PRE-LOAD-THROW-RAW-MARKER") err)))))
+
+(deftest once-fixture-throw-replays-buffered-stderr
+  ;; A throwing `:once` fixture escapes `run-tests` the same way.
+  (with-fixture-dir
+    (fn [dir]
+      (write-fixture! dir "once_throw_test" "once-throw-test"
+                      (str "(use-fixtures :once"
+                           " (fn [_run]"
+                           "   (binding [*out* *err*] (println \"PRE-ONCE-THROW-ERR-MARKER\"))"
+                           "   (throw (ex-info \"ONCE-THROW-MARKER\" {}))))\n"
+                           "(deftest anchor (is (= 1 1)))"))
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+        (is (= 1 exit) (str out err))
+        (is (str/includes? err "PRE-ONCE-THROW-ERR-MARKER") err)))))
 
 (deftest map-literal-fixture-refuses-the-run
   ;; cljs.test's map fixture is a key lookup on the JVM: the failing test never
