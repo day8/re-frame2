@@ -1,40 +1,5 @@
 (ns re-frame.route-algebra-view-test
-  "Tests for the derivation/process algebra view of routes. Per
-  [spec/Derivations.md] §Routes expose algebra views
-  and the `:rf/derivation-node` shape in
-  [spec/Spec-Schemas.md].
-
-  `re-frame.routing.tooling/route-algebra-view` lowers every registered route
-  into the normalized algebra node every declared fact/process shares — the
-  first PROCESS-LIKE member: a `:route-fact` whose output MATERIALIZES the
-  route slice into runtime-db at `[:rf.runtime/routing :current]`, evaluated
-  `:on-route`, owned by its `:frame`. `…/route-slice-algebra-view` is the live
-  counterpart, reading a frame's runtime-db route slice. Both live in the
-  bundle-isolated tooling sibling, consumed by Xray and the conformance
-  fixtures.
-
-  These tests pin:
-    - the static node, whole: the fixed classifications, the `:rf/route`
-      fact id, the route-transition `:inputs`, the runtime-db `:output` and
-      the source form;
-    - the route-owned resource activation edges (the `:resources`
-      route-metadata lowering — parametric target, entry fns never run);
-    - the live route slice projection, with and without a live owner;
-    - the `:source` / `:doc` passthrough.
-
-  ## Posture split
-
-  The node SHAPE is production-real and carries no posture guard: it runs in
-  the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
-
-  Two leaf slots are NOT: `:source` and `:doc`. Source coords are captured
-  behind `rf.interop/debug-enabled?` (Spec 001 §Source-coordinate capture), and
-  `:doc` is a pure-documentation key the registrar STRIPS before storage in
-  production builds (Spec 001 §Production elision contract) so its string
-  bytes DCE out of the bundle. The deftest that reads them therefore branches:
-  the dev arm makes the presence assertion, and the production arm asserts
-  the ELISION — that the strip really happened. Neither arm is vacuous."
+  "Route fact nodes, resource edges and live slices (Derivations). Source coordinates and docs elide in production."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
