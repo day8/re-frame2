@@ -1,8 +1,11 @@
 # Flows: derived values your handlers can read
 
-Most derived values are [subscriptions](subscriptions.md). But a subscription's value
-lives in a cache that only views read. An [event handler](glossary.md#event-handler)
-can't reach it, and neither can an app-db validation [schema](glossary.md#schema).
+Most derived values are [subscriptions](subscriptions.md). A subscription's value
+lives in a cache that views read, not in app-db. An
+[event handler](glossary.md#event-handler) can compute the same value with the same
+pure function, but some values must be app-db data themselves, kept current whichever
+event writes their inputs, so that handlers and app-db validation
+[schemas](glossary.md#schema) read them as plain data.
 
 When a derived value needs to be plain data in app-db, use a
 **[flow](glossary.md#flow)**: a registered rule that says *"when these paths change,
@@ -226,7 +229,6 @@ A typical app has dozens of subscriptions and a handful of flows at most:
 | Symptom | Cause | Fix |
 |---|---|---|
 | `:rf.error/flows-artefact-missing` on the first flow call | The flows artefact isn't loaded | Add `day8/re-frame2-flows` and require `re-frame.flows` once |
-| The output path never appears and nothing is reported | `:rf.fx/reg-flow` ran without the flows artefact, so the effect did nothing | Add `day8/re-frame2-flows` and require `re-frame.flows` once |
 | `:rf.error/no-frame-context` from `reg-flow` | Registered outside any frame scope | Pass `:frame`, wrap in `with-frame`, or use `:rf.fx/reg-flow` from a handler |
 | `:rf.error/flow-frame-not-live` from a top-level `reg-flow` | `:frame` names a frame `frame-root` hasn't created yet | Register it from the seed event with `:rf.fx/reg-flow` |
 | Output path is `nil` right after registering | A directly registered flow first computes on the next event in its frame | Dispatch an event after registering, or use `:rf.fx/reg-flow` |
@@ -300,8 +302,14 @@ There is no `flows/clear-flow`.
 
 Calling `reg-flow` again with a registered id, on the same frame, replaces the
 definition. The flow re-runs on the next event even if its inputs didn't change, and
-the dependency order is recomputed. That is what makes hot reload work: edit a derive
-fn, save, and the running app uses it.
+the dependency order is recomputed. Hot reload relies on this, so an edited derive fn
+reaches the running app only when its `reg-flow` call runs again. A top-level
+`reg-flow` does: saving its namespace re-runs it. A flow registered from a
+`frame-root` seed event does not, because a reload remounts `frame-root` without
+re-running `:initial-events` ([frame-root's lifetime](frames.md#frame-roots-lifetime)).
+To pick up the edit, dispatch an event that returns the same `:rf.fx/reg-flow` effect
+from your `^:dev/after-load` hook ([Hot reload](how-to/boot-and-mount-an-app.md#hot-reload)),
+or reload the page.
 
 If the replacement moves `:output-path`, the old path is removed from app-db. Keep
 the same path and the next recompute overwrites it in place.
@@ -470,6 +478,7 @@ lists each id.
 
 Without the `day8/re-frame2-flows` artefact, or if nothing has required
 `re-frame.flows`, the first `reg-flow` or `rf/clear :flow` throws
-`:rf.error/flows-artefact-missing`, naming the calling function. The
-`:rf.fx/reg-flow` and `:rf.fx/clear-flow` effects do nothing instead. The schemas,
-machines, and routing artefacts work the same way.
+`:rf.error/flows-artefact-missing`, naming the calling function; the schemas,
+machines, and routing artefacts work the same way. The `:rf.fx/reg-flow` and
+`:rf.fx/clear-flow` effects raise the same error as an effect failure: the event's
+commit stands and later effects still run.
