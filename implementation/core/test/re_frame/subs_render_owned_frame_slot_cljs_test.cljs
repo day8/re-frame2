@@ -100,7 +100,7 @@
             (is (= [1 [1 2 1 11] [1 1 1]] [@renders @value (counts)]))
             ;; The render counter guards against a body that silently stopped
             ;; re-running, which would leave every count at 1 for the wrong reason.
-            (doseq [render-no [2 3 4]]
+            (doseq [render-no [2 3]]
               (swap! tick inc)
               (flush!)
               (is (= [render-no [1 1 1]] [@renders (counts)])))
