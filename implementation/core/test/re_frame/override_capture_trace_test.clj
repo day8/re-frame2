@@ -79,20 +79,14 @@
         (is (= {:ovc/real :rf/fn-override} (:rf.event/fx-overrides tags)))))))
 
 (deftest lexical-with-fx-overrides-merges-under-per-call
-  (testing "rf/with-fx-overrides's lexical binding merges into the captured
-            :fx-overrides"
-    (let [tags (rf/with-fx-overrides {:ovc/lexical :ovc/lexical-stub}
-                 (run-start-tags [:ovc/run]))]
-      (is (= {:ovc/lexical :ovc/lexical-stub} (:fx-overrides @captured-envelope)))
-      (when rf.interop/debug-enabled?
-        (is (= {:ovc/lexical :ovc/lexical-stub} (:rf.event/fx-overrides tags))))))
-  (testing "per-call wins over lexical on key collision"
-    (let [tags (rf/with-fx-overrides {:ovc/dual :ovc/from-lexical}
-                 (run-start-tags [:ovc/run]
-                                 {:fx-overrides {:ovc/dual :ovc/from-call}}))]
-      (is (= {:ovc/dual :ovc/from-call} (:fx-overrides @captured-envelope)))
-      (when rf.interop/debug-enabled?
-        (is (= {:ovc/dual :ovc/from-call} (:rf.event/fx-overrides tags)))))))
+  (let [expected {:ovc/lexical :ovc/lexical-stub :ovc/dual :ovc/from-call}
+        tags (rf/with-fx-overrides {:ovc/lexical :ovc/lexical-stub
+                                    :ovc/dual :ovc/from-lexical}
+               (run-start-tags [:ovc/run]
+                               {:fx-overrides {:ovc/dual :ovc/from-call}}))]
+    (is (= expected (:fx-overrides @captured-envelope)))
+    (when rf.interop/debug-enabled?
+      (is (= expected (:rf.event/fx-overrides tags))))))
 
 (deftest interceptor-override-rides-verbatim
   (testing "a per-call :interceptor-overrides entry rides the run-start tag
