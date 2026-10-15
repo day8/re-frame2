@@ -3553,14 +3553,19 @@
   by an explicit `:loaded-at` comparison: every re-load advances the entry's
   generation through a settle that re-arms (cancel-then-arm) the GC timer, so
   a re-load since the timer armed CANCELS the timer that would otherwise be
-  firing here. A GC timer that actually fires is thus always the most-
-  recently-armed one for the CURRENT generation — a stale-generation timer
-  cannot survive to reach this re-check. The owner-free + idle gate below is
-  the actual sufficient eligibility condition.
+  firing here. Cancel-then-arm reaches a timer only until it fires, though:
+  its re-check is then an event in the router queue, behind anything queued
+  before it, so a final owner release queued ahead of it arms a newer window
+  before it lands. The timer's `:armed-while-owned?` stamp covers that: an
+  owned entry is collected only by the window its last owner's release arms,
+  so a check from a window armed while the entry was owned never collects.
 
   GC-eligibility re-check (against the LIVE durable facts):
     - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
     - the entry has an active owner — pinned alive, no GC (`:has-owner`);
+    - the timer armed while the entry was owned (`:armed-while-owned?`) and
+      the entry is now owner-free — its last owner's release armed the
+      window that collects it, so no GC (`:superseded`);
     - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
     - otherwise the entry is owner-free + idle — REMOVE it (recompute the
       reverse indexes) and cancel its advisory timers.
@@ -3574,14 +3579,17 @@
   that release re-arms a full window itself (`release-owner-from-identities`),
   so a check while the entry is held would only repeat this no-op. The owner
   test comes first, so an entry that is both owned and in flight waits for
-  that release too. A `:no-entry` skip has nothing left to collect. The
-  re-arm is gated on a positive `:gc-after-ms`; `:never` armed no timer to
-  fire here."
+  that release too. A `:superseded` skip arms nothing for the same reason:
+  the release has already armed the current window, whose own re-check sees
+  any work still in flight. A `:no-entry` skip has nothing left to collect.
+  The re-arm is gated on a positive `:gc-after-ms`; `:never` armed no timer
+  to fire here."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {resource-key :resource/key}]]
+   [_event-id {resource-key :resource/key armed-while-owned? :armed-while-owned?}]]
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (rf.resources.state/entry-path resource-key))]
-    (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry)))
+    (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry))
+             (not armed-while-owned?))
       ;; `:entries` is keyed on the byte `key-id`; dissoc by it
       ;; (a dissoc by the scoped-key VECTOR would be a no-op and the GC removal
       ;; would silently leak the entry). GC removes ONE entry, so
@@ -3613,6 +3621,7 @@
                {:frame-id frame-id :resource/keys [resource-key]}]]})
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
+                           armed-while-owned?            :superseded
                            :else                         :in-flight)
             ;; Only an in-flight skip re-arms, at the resource's own
             ;; :gc-after-ms, so the settle is followed by another re-check.
