@@ -1,41 +1,5 @@
 (ns re-frame.migration.fresco.corpus-test
-  "**THE GOLDEN-FILE CORPUS IS THE SPEC** (design §5).
-
-  Each case is a directory under `test/corpus/`:
-
-      <case>/input.cljs           the consumer namespace, as written under Reagent
-      <case>/expected.cljs        what the fixer writes
-      <case>/expected-report.edn  what the fixer says
-
-  and every case asserts four things:
-
-  1. the rewrite — `input` transforms to `expected`, BYTE FOR BYTE, so a
-     change in whitespace, comment placement or key order fails;
-  2. the report — the entries over `input` equal `expected-report`,
-     `:note` prose included, so **a change to what the tool SAYS is gated
-     exactly as hard as a change to what it WRITES** (§7.1);
-  3. **idempotence** — running the fixer on `expected` returns `expected`
-     unchanged, which is §4.7's claim that every output is outside its own
-     rewrite's input language;
-  4. determinism — a second analysis of `input` reports identically.
-
-  **`entries` is not the whole report.** The `:suggestions` block — the
-  half that tells a migrator what to WRITE — is assembled by
-  `report/build` and is not compared here, which is how a sketch that
-  named a contract the door refuses survived for the tool's whole life
-  (rf2-vi11). `sketch_test.clj` is the gate on that half, and it runs
-  over these same cases.
-
-  The report is compared as DATA read back from EDN rather than as
-  characters. The claim being gated is what the tool says, and every field
-  including the full `:note` participates in that comparison; pinning the
-  pretty-printer's line breaks as well would red the corpus on a Clojure
-  upgrade that changed nothing about the tool. The rewritten SOURCE is
-  compared as characters, because there formatting is the whole point.
-
-  Set `RF2_CODEMOD_REGEN=1` to rewrite the expectation files from the
-  tool's current behaviour. Regenerating is how a case is authored; it is
-  never how one is fixed."
+  "Golden source, report data, idempotence and determinism are the migration contract."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -57,23 +21,12 @@
                  (.listFiles ^java.io.File dir))))
 
 (defn- report-shape
-  "The comparable shape of a report: the entries, with the transient
-  `:form` excerpt dropped (it is the input text, already asserted by the
-  input file itself) and everything the tool DECIDED kept."
   [entries]
   (mapv #(select-keys % [:line :col :class :action :head :detail :note]) entries))
 
 (defn- read-edn [f] (edn/read-string (slurp f)))
 
 (defn- write-edn!
-  "Write an expectation file, LF whoever regenerated it.
-
-  `pp/pprint` emits the PLATFORM line separator, so a regen on Windows
-  rewrote all ten fixtures to CRLF — the exact thing `.gitattributes`
-  pins this tree against, and noise that buries the one case a regen was
-  meant to change. Normalise here: the bytes a regen produces must not
-  depend on who ran it, which is the same claim the fixtures themselves
-  make."
   [f data]
   (spit f (str/replace (with-out-str (pp/pprint data)) "\r\n" "\n")))
 
@@ -100,8 +53,6 @@
         (spit exp-f (:source result))
         (write-edn! rep-f entries))
 
-      ;; A missing expectation file throws inside the `is` that reads it, and
-      ;; `is` reports that as an error under this case's `testing` name.
       (testing (str name* " — the rewrite")
         (is (= (slurp exp-f) (:source result))
             (str name* ": the fixer wrote something other than expected.cljs")))
