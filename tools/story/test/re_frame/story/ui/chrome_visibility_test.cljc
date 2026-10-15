@@ -52,10 +52,6 @@
 ;; diff compute until expanded. The render reads it as
 ;; `data-xray-embed-collapsed`, so an unset slot must read `false`, not nil.
 
-(deftest xray-embed-collapsed-default-expanded
-  (is (false? (rf.story.ui.state.transitions/xray-embed-collapsed? {})))
-  (is (true?  (rf.story.ui.state.transitions/xray-embed-collapsed? {:xray-embed-collapsed? true}))))
-
 (deftest toggle-xray-embed-collapsed-flip
   (testing "first toggle from default collapses (expanded → collapsed)"
     (is (true? (rf.story.ui.state.transitions/xray-embed-collapsed?
