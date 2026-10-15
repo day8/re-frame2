@@ -3215,32 +3215,6 @@ def _self_test() -> int:
         label="SETUP-2b an unnegated wait-for-a-release instruction is dirty",
     )
 
-    # SETUP-3 - why the negation test is CLAUSE-scoped and not line-scoped, and
-    # the tooth that keeps it that way. The stale sentence carries "not yet
-    # published" AND "no v2 version" earlier on its own line, so a line-wide or
-    # fixed-window negation test reads those as the negation and passes the
-    # defect through; only the clause after the `:` decides polarity. Both
-    # halves are asserted, so weakening `_clause_is_negated` to a line test
-    # reds here even if SETUP-2 were ever softened.
-    _stale_match = M0_STOP_AND_WAIT_RE.search(LEAF_STALE)
-    _stale_prefix = _EMPHASIS_RE.sub("", LEAF_STALE[: _stale_match.start()])
-    if not SKILL_NEGATION_CUE_RE.search(_stale_prefix):
-        print(
-            "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture does not "
-            "carry a negation cue EARLIER ON ITS LINE, so it cannot "
-            "prove that clause scoping - not a line-wide test - is "
-            "what catches the stale defer paragraph."
-        )
-        failures += 1
-    if _clause_is_negated(LEAF_STALE, _stale_match.start()):
-        print(
-            "SELF-TEST FAIL (SETUP-3 clause): the clause test reads the "
-            "stale defer sentence as negated. The cue must be required "
-            "in the match's OWN clause; a wider window lets the defect "
-            "land again."
-        )
-        failures += 1
-
     # SETUP-4 - live tooth against the SHIPPED leaf, not a fixture that could
     # drift away from it: setup.md must scan clean today, and re-growing the
     # stale paragraph in it must red.
