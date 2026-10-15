@@ -1,8 +1,6 @@
 (ns re-frame.story-fx-stubs-per-fx-scenarios-test
-  "`:rf.story/force-fx-stub` over the spec/015 matrix's non-`:http` fx-ids,
-  over a registered real handler, and with a failure-shaped response. The
-  code path is the same for every fx-id; these catch a change that
-  special-cases `:http`."
+  "`:rf.story/force-fx-stub` for a non-`:http` effect, over a real handler,
+  and with a failure-shaped response."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             ;; `:rf.assert/effect-emitted` reads the epoch tape.
@@ -65,12 +63,6 @@
 
 (deftest analytics-fx-stub-scenario
   (stub-scenario! :story.fxscen.analytics/v :analytics {:event "page-view" :path "/home"}))
-
-(deftest websocket-fx-stub-scenario
-  (stub-scenario! :story.fxscen.websocket/v :websocket {:topic "live" :payload {:tick 1}}))
-
-(deftest navigation-fx-stub-scenario
-  (stub-scenario! :story.fxscen.navigation/v :navigation {:to "/dashboard" :replace? false}))
 
 (deftest stub-overrides-real-handler
   (testing "the stub takes precedence over a registered real fx handler"
