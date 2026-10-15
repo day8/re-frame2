@@ -87,8 +87,10 @@
     50  801 true))
 
 (deftest reported-count-is-always-in-token-units
-  ;; At the token limit, a character overflow must use the fallback count.
-  (is (= 200 (rf.mcp-base.cap/reported-count 100 801 100))))
+  ;; Decoupled sums distinguish primary token reporting from character fallback.
+  (are [tokens chars expected] (= expected (rf.mcp-base.cap/reported-count tokens chars 100))
+    150 1600 150
+    100 801  200))
 
 (deftest apply-cap-many-short-strings-trips-char-gate
   ;; Three-character slots contribute zero tokens but still trip the character cap.
