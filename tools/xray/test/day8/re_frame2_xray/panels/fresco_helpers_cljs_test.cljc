@@ -96,11 +96,11 @@
 
 (deftest the-empties-are-pairwise-distinct
   (testing "presence classifies the four states"
-    (is (= :absent   (hh/presence nil true)))
-    (is (= :mismatch (hh/presence (assoc mounted :producer :someone/else) true))
-        "an adapter-neutral schema means the PRODUCER is part of the pin")
-    (is (= :idle     (hh/presence mounted true)))
-    (is (= :live     (hh/presence mounted false))))
+    (is (= [:absent :mismatch :idle :live]
+           [(hh/presence nil true)
+            (hh/presence (assoc mounted :producer :someone/else) true)
+            (hh/presence mounted true)
+            (hh/presence mounted false)])))
 
   (testing "no two states share a sentence or a testid"
     (let [says     (map :says (vals hh/presence-copy))
@@ -183,10 +183,9 @@
                               :readers [(assoc boundary-a :views todo-row-views)
                                         (assoc boundary-b :views :unknown)]}]})
         [row] (hh/attribution-rows e)]
-    (is (= 3 (:fan-out row)))
-    (is (= ["[:todo 7]" "[:todo 7] + [:user 1]"] (mapv :label (:readers row))))
-    (is (= ["app.views/todo-row" nil] (mapv :view-label (:readers row)))
-        "a reader is named where the producer names it, and unnamed where it does not")))
+    (is (= [3 [["[:todo 7]" "app.views/todo-row"]
+               ["[:todo 7] + [:user 1]" nil]]]
+           [(:fan-out row) (mapv (juxt :label :view-label) (:readers row))]))))
 
 (deftest a-row-key-carries-the-WHOLE-projected-identity
   ;; Attribution rows slugged by sub-id alone, or Why rows slugged without
@@ -200,10 +199,8 @@
           [a b] (hh/attribution-rows e)]
       (is (not= (:slug a) (:slug b))
           "a sub-id-only slug gives both `row` — one testid over two subscriptions")
-      (is (= ["[:row 1]" "[:row 2]"] [(:label a) (:label b)])
-          "and a view printing only `:row` would make the rows READ the same too")
-      (is (= [:frame/a :frame/b] [(:frame-id a) (:frame-id b)])
-          "the frame is on the row for the renderer to print")))
+      (is (= [["[:row 1]" :frame/a] ["[:row 2]" :frame/b]]
+             (mapv (juxt :label :frame-id) [a b])))))
 
   (testing "the Why rows carry the frame, because two frames' labels are equal"
     (let [ex (fn [frame q]
@@ -232,21 +229,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private legal-components
-  "Every SHAPE a projected identity component legally takes, and the pairs
-  of shapes that a lossy encoding folds together.
-
-  The collision this pool exists to catch is found by GENERATING
-  identities; asserting only that three fixtures come out distinct is
-  true of a constant function on three points. So the guard below is a
-  property over a generated space and the hand-written rows underneath it
-  are for readability only.
-
-  The pool is chosen so that the three ways a slug can lose information
-  are all present and all adjacent: the namespace separator (`:a/b`), an
-  in-name hyphen (`:a-b`), and the boundary BETWEEN two components
-  (`:a` then `:b/c`). Numbers `1` and `12` sit next to each other for the
-  same reason, and `[:a :b]` next to `[[:a] :b]` puts a nesting level
-  where a flattening encoding cannot see it."
+  "Namespace, separator and nesting collisions belong in the generated identity space."
   [;; keywords: plain, namespaced, hyphenated, and both
    :a :b
    :a/b :b/a
@@ -262,20 +245,14 @@
    :rf/redacted :unknown])
 
 (def ^:private legal-identities
-  "The cross-product of [[legal-components]] in all three projected
-  positions — frame, registration id, query. Every element is a legal
-  projected identity and no two are equal, so the count IS the number of
-  distinct keys the panel must be able to mint."
+  "The cross-product exercises all three projected identity positions."
   (vec (for [frame legal-components
              sub   legal-components
              query legal-components]
          [frame sub query])))
 
 (def ^:private legal-boundary-keys
-  "Boundary keys over the same space: the empty key, every identity as a
-  one-read key, and every ordered pair drawn from a slice of the space —
-  a boundary reads a SET of cells, so the encoding has to survive the
-  join between elements as well as the join inside one."
+  "Ordered pairs also exercise the join between read identities."
   (into [[]]
         (concat (map vector legal-identities)
                 (for [a (take 30 legal-identities)
@@ -458,32 +435,15 @@
   (is (= #{:rf/xray custom-shell-frame} (hh/own-frames custom-shell-frame))))
 
 (deftest xray-own-frame-rows-are-dropped-from-every-roster
-  (testing "a boundary seated in an Xray shell's frame is the tool, not the
-            application, and none of the four rosters may carry it"
-    (doseq [tool-frame [:rf/xray custom-shell-frame]]
-      (testing (str "shell frame " tool-frame)
-        (let [e (hh/without-own-frame (mixed-evidence tool-frame) (hh/own-frames tool-frame))]
-          (is (= [:app/main]
-                 (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
-              "the application's boundary survives the census and the shell's
-               own does not")
-          (is (= [:app/main]
-                 (mapv :frame-id (hh/attribution-rows (:read-attribution e))))
-              "an edge the shell's own boundary holds is not an application read")
-          (is (= [:app/main]
-                 (mapv :frame (hh/explain-rows (:explain-render e))))
-              "and the Why view drops it too — the four are filtered TOGETHER,
-               so a boundary absent from the census cannot still appear in a
-               view derived from the same one-turn read")
-
-          (testing "intents drop on EVERY frame, not ANY"
-            (is (= [:todo/toggle :todo/spans :todo/frameless]
-                   (mapv :event-id (hh/intent-rows (:intents e))))
-                "the tool-only dispatch goes; the MIXED one stays, because a
-                 dispatch that reached an application frame is the user's
-                 whatever else it also touched; and the frameless one stays,
-                 because an empty frame set is an absence and not a claim
-                 about Xray")))))))
+  (doseq [tool-frame [:rf/xray custom-shell-frame]]
+    (let [e (hh/without-own-frame (mixed-evidence tool-frame) (hh/own-frames tool-frame))]
+      ;; A mixed-frame or frameless dispatch remains application evidence.
+      (is (= [[:app/main] [:app/main] [:app/main]
+              [:todo/toggle :todo/spans :todo/frameless]]
+             [(mapv :frame (hh/mounted-rows (:mounted-boundaries e)))
+              (mapv :frame-id (hh/attribution-rows (:read-attribution e)))
+              (mapv :frame (hh/explain-rows (:explain-render e)))
+              (mapv :event-id (hh/intent-rows (:intents e)))])))))
 
 (deftest xray-read-free-chrome-is-not-application-evidence
   ;; A read-free boundary has the key `[]` and the frame `:unknown`, so its
