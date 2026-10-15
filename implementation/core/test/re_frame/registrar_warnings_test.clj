@@ -71,17 +71,6 @@
                         (merge (or provenance {})
                                {:handler-fn (fn [{:keys [db]} _] {:db db})}))))
 
-(deftest missing-doc-fires-when-doc-absent
-  (let [recorded (record-traces! ::missing-absent)]
-    (with-stamped-coords
-      (fn []
-        (rf/reg-event :ev/no-doc (fn [{:keys [db]} _] {:db db}))))
-    (assert-registered :event :ev/no-doc)
-    (when rf.interop/debug-enabled?
-      (is (= [[:event :ev/no-doc 're-frame.registrar-warnings-test]]
-             (mapv (comp (juxt :kind :id (comp :ns :source-coords)) :tags)
-                   (warnings-of recorded :rf.warning/missing-doc)))))))
-
 (deftest missing-doc-fires-when-doc-is-nil-or-empty
   ;; nil and "" are both unusable; the empty string is the less obvious one
   (let [recorded (record-traces! ::missing-empty)]
@@ -112,7 +101,9 @@
         (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db db}))))
     (assert-registered :event :ev/same-id)
     (when rf.interop/debug-enabled?
-      (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))
+      (is (= [[:event :ev/same-id 're-frame.registrar-warnings-test]]
+             (mapv (comp (juxt :kind :id (comp :ns :source-coords)) :tags)
+                   (warnings-of recorded :rf.warning/missing-doc)))
           "one warning across three registrations of the same id"))))
 
 (deftest missing-doc-fires-once-per-id-within-kind
