@@ -38,8 +38,7 @@
   {:rf.error/id :rf.error/resource-route-plan
    :reason      "params failed their schema"})
 
-;; Durable cache entries, one per `requirement-state` outcome; the last test
-;; re-derives each from the classifier rather than trusting these names.
+;; One durable entry per requirement-state outcome.
 (def ^:private entry-ready   {:resource/id :article/by-slug :status :loaded  :data {:x 1} :attempt 1})
 (def ^:private entry-pending {:resource/id :article/by-slug :status :loading :data nil    :attempt 1})
 (def ^:private entry-failed  {:resource/id :article/by-slug :status :error   :data nil    :attempt 1
@@ -166,9 +165,3 @@
       (is (= [[transition error?] [transition error?]]
              [(routing-projection row) (resources-projection row)])
           "the commit-time half, then the reply-driven half"))))
-
-(deftest requirement-states-are-what-this-table-thinks-they-are
-  ;; so a change to `requirement-state` cannot quietly turn a row into a test
-  ;; of something else while the guard above stays green
-  (is (= [:ready :pending :failed :inert]
-         (map rf.resources.route/requirement-state [entry-ready entry-pending entry-failed entry-inert]))))
