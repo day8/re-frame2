@@ -1,13 +1,5 @@
 (ns re-frame.flows-direct-clear-settle-trace-incarnation-cljs-test
-  "Exact-incarnation fence for the traces the direct-clear settle emits, on
-  both hosts.
-
-  The settle runs inside the cold serialized region, which defers listener
-  delivery past the release, so its pass carries a continuation predicate
-  bound to A's pinned incarnation: a listener that destroys A and publishes a
-  same-id B while the dependent's `:rf.flow/computed` fans out stands, and
-  every later listener is suppressed. With A live, a later listener still
-  receives the event. Listeners fan out in insertion order."
+  "Direct clear trace delivery follows exact frame ownership."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
@@ -53,10 +45,10 @@
                          (rf/make-frame {:id frame-id}))))
     (listen! ::observer #(swap! observed conj %))
     (try
-      (is (= :producer (rf/clear :flow :producer {:frame frame-id})))
-      (is (= 1 @hits) "the already-entered delivery stands")
-      (is (= [] @observed) "no later listener receives A's stale computed event")
-      (is (= {} (rf/app-db-value frame-id)) "A's stale settle installed nothing into B")
+      (is (= [:producer 1 [] {}]
+             [(rf/clear :flow :producer {:frame frame-id})
+              @hits @observed (rf/app-db-value frame-id)])
+          "only the entered delivery stands; stale delivery and writes stop")
       (finally
         (unlisten!)))))
 
@@ -70,7 +62,7 @@
     (listen! ::observer #(swap! observed conj (get-in % [:tags :result])))
     (try
       (rf/clear :flow :producer {:frame frame-id})
-      (is (= [:absent] @observed))
-      (is (= {:input 5 :derived :absent} (rf/app-db-value frame-id)))
+      (is (= [[:absent] {:input 5 :derived :absent}]
+             [@observed (rf/app-db-value frame-id)]))
       (finally
         (unlisten!)))))
