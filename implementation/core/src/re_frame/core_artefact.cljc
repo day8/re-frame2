@@ -43,7 +43,7 @@
   | `:hook`      | yes       | late-bind hook key (e.g. `:flows/clear-flow`)                                            |
   | `:where`     | no        | quoted user-facing fn symbol (e.g. `'rf/clear`) stamped on the missing-artefact throw. Defaults to `'rf/<name>` (the common case) |
   | `:artefact`  | yes       | symbol resolving to an `artefact-info` map (see below) — typically a `def` in the same ns |
-  | `:on-absent` | yes       | absent-fn policy — `:throw` / `:nil` / `:false` / `:empty-vec` / `:empty-map`, or any literal value |
+  | `:on-absent` | yes       | absent-fn policy — `:throw` / `:nil` / `:false` / `:empty-vec`, or any literal value |
   | `:ex-data`   | no        | extra ex-data slots merged onto the throw map (only meaningful when `:on-absent :throw`). Symbol values resolve in the arity's local scope and are dropped from shorter arities that don't bind the symbol |
   | `:arglists`  | no        | passed through to the public fn's `:arglists` metadata (for variadic forms)              |
 
@@ -151,8 +151,8 @@
 
      `on-absent` is the value the wrapper returns when the late-bind
      hook is unregistered. Accepts a few sugar keywords (`:throw` /
-     `:nil` / `:false` / `:empty-vec` / `:empty-map`) or any literal
-     value (e.g. `0`, `:rf/default`). `:throw` routes through
+     `:nil` / `:false` / `:empty-vec`) or any literal value (e.g. `0`,
+     `:rf/default`). `:throw` routes through
      `late-bind/require-fn!` with the structured missing-artefact
      ex-info shape."
      [name-sym {:keys [hook where artefact on-absent ex-data]} args body-kind]
@@ -162,7 +162,6 @@
                        :nil       nil
                        :false     false
                        :empty-vec []
-                       :empty-map {}
                        on-absent)]
        (cond
          ;; Recursion: a literal vector of args to pass to the public surface.

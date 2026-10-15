@@ -39,7 +39,7 @@
     (is (re-find #"re-frame.test-fake-artefact" (:reason data)) ":reason names the producing ns")
     (is (re-find #"\[:rf\.error/test-artefact-missing\]" (.getMessage ^Throwable e)))))
 
-;; ---- the silent policies: :nil / :false / :empty-vec / :empty-map / literal -
+;; ---- the silent policies: :nil / :false / :empty-vec / literal ------------
 
 (defwrapper nil-wrapper
   "Test wrapper — :on-absent :nil."
@@ -54,11 +54,6 @@
 (defwrapper empty-vec-wrapper
   "Test wrapper — :on-absent :empty-vec."
   {:hook :test/empty-vec-hook :artefact test-artefact :on-absent :empty-vec}
-  ([] :delegate))
-
-(defwrapper empty-map-wrapper
-  "Test wrapper — :on-absent :empty-map."
-  {:hook :test/empty-map-hook :artefact test-artefact :on-absent :empty-map}
   ([] :delegate))
 
 (defwrapper literal-wrapper
@@ -78,7 +73,6 @@
     nil          nil-wrapper
     false        false-wrapper
     []           empty-vec-wrapper
-    {}           empty-map-wrapper
     :rf/sentinel literal-wrapper))
 
 ;; ---- :ex-data sym scoping -----------------------------------------------
