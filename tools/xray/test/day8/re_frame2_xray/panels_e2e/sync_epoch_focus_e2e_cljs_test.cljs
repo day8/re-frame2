@@ -23,10 +23,17 @@
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]))
+            [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
+;; Xray's trace collector is process-global, and until something clears it
+;; it holds every trace emitted while the test bundle loaded. Clear it so
+;; the history-only seed really has no trace buffer behind it, whichever
+;; namespace ran first.
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+   {:adapter rf.substrate.plain-atom/adapter
+    :init-fn trace-collector/reset-for-test!}))
 
 (defn- epoch-record
   "Minimal `:rf/epoch-record` matching the panel-gallery fixture shape —
