@@ -1,10 +1,5 @@
 (ns re-frame.adapter.uix-dispatch-frame-capture-cljs-test
-  "UIx entry-point for the *current-frame*-across-dispatch contract,
-  forwarded from the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`).
-
-  Separate from `uix_react_shared_cljs_test.cljs` because the async cases
-  need a map-form fixture, whose teardown lands after `done`."
+  "UIx synchronous and deferred dispatch preserve the captured frame."
   (:require [cljs.test :refer-macros [deftest async use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
@@ -19,8 +14,6 @@
    :substrate-kw :uix
    :name         "UIx"})
 
-;; ---- synchronous cases ----------------------------------------------------
-
 (deftest sync-dispatch-routes-to-handlers-frame
   (rf.adapter.react-shared-suite/assert-dfc-sync-dispatch-routes-to-handlers-frame cfg))
 
@@ -29,8 +22,6 @@
 
 (deftest sync-dispatch-isolation
   (rf.adapter.react-shared-suite/assert-dfc-sync-dispatch-isolation cfg))
-
-;; ---- asynchronous cases (map-form fixture mandatory) ----------------------
 
 (deftest raw-dispatch-from-set-timeout-falls-through
   (async done (rf.adapter.react-shared-suite/assert-dfc-raw-dispatch-from-set-timeout-falls-through cfg done)))
