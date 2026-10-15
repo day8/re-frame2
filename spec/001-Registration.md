@@ -242,9 +242,9 @@ The registry is a public, queryable structure. Tools and agents read it without 
 | Function | Returns |
 |---|---|
 | `(rf/registrations {:source :store :kind kind})` | All registrations for a kind. Returns `id → metadata`. |
-| `(rf/registrations {:frame f :kind kind})` | Same, resolved through live frame `f`'s own sealed image generation instead of the process source store. |
+| `(rf/registrations {:frame f :kind kind})` | Same, resolved through live frame `f`'s own view instead of the process source store: its sealed image generation, or, for a frame made without `:images`, the live store less any ambiguous id. |
 | `(rf/handler-meta {:source :store :kind kind :id id})` | A single registration's metadata. Returns `nil` if not registered. |
-| `(rf/handler-meta {:frame f :kind kind :id id})` | Same, resolved through live frame `f`'s generation. |
+| `(rf/handler-meta {:frame f :kind kind :id id})` | Same, resolved through live frame `f`'s own view; for a frame made without `:images`, an ambiguous id throws `:rf.error/ambiguous-registration`. |
 | `(rf/frame-ids)` | All registered frame ids. |
 | `(rf/frame-meta frame-id)` | Metadata for a specific frame. |
 

@@ -31,14 +31,14 @@ recreates the frame; these are distinct lifecycle operations.
 ### Image composition + the Story runtime image (EP-0026)
 
 Under [EP-0026 §Default Image](../../../docs/EP/EP-0026-image-api-simplification.md) every frame created
-with `rf/make-frame` ALWAYS carries a resolved image generation: a PRESENT
+with `rf/make-frame` ALWAYS resolves an image: a PRESENT
 `:images` resolves the selected generation; an ABSENT `:images` resolves the
 **default image** — the implicit selector over the WHOLE registration source
-store, FAILING LOUD on a cross-namespace same-`[kind id]` collision. A variant
+store, read live with no generation, FAILING LOUD on a cross-namespace same-`[kind id]` collision. A variant
 frame is created by `frames/allocate!`, and the framework's
 `call-with-frame-resolution` routes every `{:frame variant-id}` dispatch —
 event-handler lookup, declared cofx, the whole fx walk — through THAT frame's
-own generation ([EP-0023 §Frame-derived live registration
+own view ([EP-0023 §Frame-derived live registration
 resolution](../../../docs/EP/EP-0023-image-loaded-frames.md)).
 
 So `allocate!` ALWAYS composes the variant frame's `:images` vector
