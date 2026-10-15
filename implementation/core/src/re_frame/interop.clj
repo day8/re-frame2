@@ -179,7 +179,7 @@
     (.cancel ^ScheduledFuture handle false))
   nil)
 
-;; Per Spec 005 §Clock abstraction (005:1684-1690): the state-machine
+;; Per Spec 005 §Clock abstraction: the state-machine
 ;; `:after` clock surface is named `schedule-after!` / `cancel-scheduled!`
 ;; / `now-ms` in `re-frame.interop`. The JVM realisation rides the same
 ;; ScheduledExecutorService the generic `set-timeout!` / `clear-timeout!`
