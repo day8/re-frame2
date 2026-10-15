@@ -1,29 +1,5 @@
 (ns re-frame.bench.fresco.arm1.ambient-refusal-cljs-test
-  "AMBIENT `rf/subscribe` / `rf/dispatch` INSIDE A BODY REFUSE.
-
-  Fresco mounts the shared adapter-context Provider, and the UIx adapter's
-  `:adapter/current-frame` reader reads that slot — so without a fence an
-  ambient `rf/subscribe` inside a boundary body would RESOLVE the
-  boundary's own frame and quietly succeed: a render-phase sub-cache
-  mutation, ZERO collector edges, and a boundary that never re-renders
-  when that subscription moves (HD-002 clause (a)).
-  [[re-frame.bench.fresco.front.intent/with-frame]] establishes core's
-  refusal tier over every render extent and declares the extent's own
-  frame, so the answer is a loud `:rf.error/ambient-frame-refused` under
-  every adapter, while an explicit or matching carry still answers.
-
-  The refusal rows publish the frame on the shared context slot
-  ([[with-context-frame]]), which is what React does while rendering under
-  a `frame-provider` and the configuration in which the hazard would
-  succeed; `the-refusal-unwinds-with-the-body` shows the same read
-  succeeding once the body has returned. Bodies run through `render-body`
-  rather than a React root because React routes a render-phase throw to
-  `reportError`, where `cljs.test` cannot see it.
-
-  Core's refusal logic is platform-neutral and pinned on the JVM by
-  `re-frame.frame-resolver-test`; these rows hold the CLJS half — the
-  context tier withdrawn, the prototype's extent declaring its frame, the
-  always-on emission, and keywords compared by value."
+  "Render extents refuse ambient access, preserve explicit carries and unwind after the body."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.uix :as rf.adapter.uix]
