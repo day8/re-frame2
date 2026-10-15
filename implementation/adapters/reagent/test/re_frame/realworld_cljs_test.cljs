@@ -1,10 +1,5 @@
 (ns re-frame.realworld-cljs-test
-  "Behaviour of the RealWorld (Conduit) example, examples/real-apps/realworld_http/.
-   The example source is test-free, so its tests live here. Requiring
-   `realworld-http.core` registers every feature's handlers, subs, machines and
-   routes; each test drives them in a fresh frame whose managed HTTP is either a
-   canned reply or a held request the test settles by hand. The production-seam
-   receipt at the bottom alone runs against the app's own demo backend."
+  "Managed-HTTP RealWorld contracts preserve validation, leafwise edits, reply ownership and persistent backend writes."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
@@ -12,8 +7,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            ;; Activates the Malli validator, without which app-db schemas
-            ;; soft-pass and a schema rejection could never roll a commit back.
             [re-frame.schemas.malli]
             [re-frame.views]
             [re-frame.http.test-support]
@@ -30,22 +23,11 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
-     ;; Each test's frame is top-level, so its :initial-events drain synchronously.
      :ambient-frame nil
-     ;; The production-seam receipt is an (async done …) row, which cljs.test
-     ;; runs only under a map fixture.
      :async?        true
-     ;; The RealWorld twins share event ids and a :rf.route/not-found route, so
-     ;; this suite reinstates its own app's registrations per test.
      :app-ns        "realworld-http."}))
 
-;; ============================================================================
-;; HARNESS
-;; ============================================================================
-
 (defn- reg-canned-success!
-  "Register `fx-id` as a managed-HTTP override that answers every request at
-   once with `value`."
   [fx-id value]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
@@ -54,7 +36,6 @@
        frame-ctx (assoc args :value value)))))
 
 (defn- reg-canned-failure!
-  "Register `fx-id` as a managed-HTTP override that fails every request at once."
   [fx-id kind tags]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
@@ -63,23 +44,16 @@
        frame-ctx (assoc args :kind kind :tags tags)))))
 
 (defn- reg-capturing-managed!
-  "Register `fx-id` as a managed-HTTP override that records each request in the
-   `sink` atom and answers none of them."
   [fx-id sink]
   (rf/reg-fx fx-id
     {:platforms #{:client :server}}
     (fn [_frame-ctx args] (swap! sink conj args) nil)))
 
 (defn- wire-user
-  "A User as the Conduit API returns it."
   [username token bio]
   {:email (str username "@example.com") :token token :username username :bio bio :image nil})
 
 (defn- with-held-fx
-  "Run `(body-fn f lowered)` in a booted frame whose managed HTTP is held: every
-   request lands in the `lowered` atom and none settles until the test settles
-   it, in whatever order a slow network would pick. `username` (default `zed`,
-   a third party no assertion is about) is signed in first; nil signs nobody in."
   ([body-fn] (with-held-fx "zed" body-fn))
   ([username body-fn]
    (let [lowered (atom [])]
@@ -93,8 +67,6 @@
        (body-fn f lowered)))))
 
 (defn- settle-ok!
-  "Deliver a success to a reply `target` the way the transport does: the reply
-   envelope appended as its last arg."
   [f target value]
   (rf/dispatch-sync (conj target {:status :ok :value value}) {:frame f}))
 
@@ -103,13 +75,10 @@
                     {:frame f}))
 
 (defn- req-by-id
-  "The latest held request carrying `:request-id` `id`."
   [lowered id]
   (last (filter #(= id (:request-id %)) lowered)))
 
 (defn- req-by-method+url
-  "The latest held request with HTTP `method` whose URL ends with `url-suffix`.
-   One-shot writes carry no `:request-id`, so they are found by what they are."
   [lowered method url-suffix]
   (last (filter #(and (= method (get-in % [:request :method]))
                       (str/ends-with? (get-in % [:request :url]) url-suffix))
@@ -123,7 +92,6 @@
     (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame f})))
 
 (defn- location
-  "Where the reader is: `[route-id params]`."
   [f]
   [(sub f [:rf.route/id]) (sub f [:rf.route/params])])
 
@@ -155,13 +123,7 @@
 (defn- full-profile [username following?]
   {:username username :bio (str "Bio of " username) :image nil :following following?})
 
-;; ============================================================================
-;; auth
-;; ============================================================================
-
 (defn- with-local-storage
-  "Run `f` with `globalThis.localStorage` defined by the JS property `descriptor`,
-   then put back whatever was there before."
   [descriptor f]
   (let [g     js/globalThis
         prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
@@ -174,7 +136,6 @@
           (js-delete g "localStorage"))))))
 
 (defn- with-saved-jwt
-  "Run `f` over a localStorage holding `token` under the contract key `jwtToken`."
   [token f]
   (with-local-storage
     #js {:configurable true
@@ -184,13 +145,10 @@
     f))
 
 (defn- init-auth!
-  "Run `:auth/initialise` in frame `f`, so the app's own storage effect reads `token`."
   [f token]
   (with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
 
 (defn- submit-login!
-  "Log in the way the view does: through the credential-owning form, never a
-   password-bearing machine dispatch."
   [f]
   (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
   (rf/dispatch-sync [:auth.login-form/edit-field :email "reader@example.com"] {:frame f})
@@ -233,9 +191,6 @@
       (is (= [nil :idle] [(get-in (rf/app-db-value f) [:auth :token]) (sub f [:auth/state])]))))
 
   (testing "the stored session user is token-free and passes the app's real AuthSlice"
-    ;; An anonymous frame carries no app schema, so this one registers the real
-    ;; AuthSlice: a slice requiring the wire User's :token would reject the
-    ;; commit and roll the login back.
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
       (rf/dispatch-sync [:auth/store-session (wire-user "alice" "jwt-abc" nil)] {:frame f})
@@ -258,19 +213,7 @@
                  [(:username (sub f [:auth/user])) (get-in (rf/app-db-value f) [:auth :token])
                   (sub f [:auth/state])])))))))
 
-;; ============================================================================
-;; auth — the cold-boot deep-link race
-;; ============================================================================
-;;
-;; A frame runs its :initial-events (the saved token lands), then does its first
-;; URL sync, without awaiting the `GET /user` that restores who the token stands
-;; for. So the first route decision sees a token and no user. A test only sees
-;; that window with a real URL-bound frame booting on the protected link, and a
-;; managed-HTTP stub that holds the restore until the test settles it.
-
 (defn- decode-to-url-strategy
-  "A `:url-strategy` whose `:decode` reports `url`. Node has no `window`, so the
-   history strategy would decode \"/\" and boot to home, which cannot fail."
   [url]
   {:encode            (fn [path] path)
    :decode            (fn [] url)
@@ -279,8 +222,6 @@
    :install-listener! (fn [_on-change] (fn teardown [] nil))})
 
 (defn- booting-frame!
-  "A frame wired as `realworld-http.core/mount!` wires the real one, booting at
-   `url` over a store holding `token`, its requests held in `sink`."
   [url token sink]
   (reg-capturing-managed! :realworld.test/held-managed sink)
   (with-saved-jwt token
@@ -303,9 +244,7 @@
         (with-new-frame [f (booting-frame! "/settings" "jwt-saved" sink)]
           (is (= [1 nil {:to :realworld.user/settings} true]
                  [(count @sink) (sub f [:rf.route/id]) (return-to f)
-                  (sub f [:realworld.routing/deferred-entry?])])
-              "only the restore is out, nothing committed, the destination stashed, and
-               the shell shows 'restoring your session' rather than login")
+                  (sub f [:realworld.routing/deferred-entry?])]))
           (settle-ok! f (:on-success (first @sink)) restored)
           (is (= [:realworld.user/settings "alice" :authed nil false]
                  [(sub f [:rf.route/id]) (:username (sub f [:auth/user])) (sub f [:auth/state])
@@ -342,10 +281,6 @@
           (settle-ok! f (:on-success (req-by-method+url @sink :get "/user")) restored)
           (is (= [:realworld.article/show :authed] [(sub f [:rf.route/id]) (sub f [:auth/state])])))))))
 
-;; ============================================================================
-;; routing
-;; ============================================================================
-
 (deftest realworld-routing
   (testing "the tag filter is a path route, and an unknown URL is not-found"
     (with-held-fx nil
@@ -361,7 +296,7 @@
       (fn [f _lowered]
         (doseq [url ["/settings" "/editor" "/editor/my-slug?tab=preview#comments"]]
           (visit! f url)
-          (is (= :realworld.auth/login (sub f [:rf.route/id])) url))
+          (is (= :realworld.auth/login (sub f [:rf.route/id]))))
         (is (= {:to       :realworld.editor/edit
                 :params   {:slug "my-slug"}
                 :query    {"tab" "preview"}
@@ -372,16 +307,12 @@
         (is (= [[:realworld.editor/edit {:slug "my-slug"} {"tab" "preview"} "comments"] nil]
                [(address f) (return-to f)]))))))
 
-;; ============================================================================
-;; pagination
-;; ============================================================================
-
 (deftest realworld-pagination
   (testing "paginate-path joins the path, the filter and the limit/offset window"
     (doseq [[params page parts] [[nil 1 ["limit=10" "offset=0"]]
                                  [{:tag "clojure"} 3 ["tag=clojure" "limit=10" "offset=20"]]]]
       (let [p (rh/paginate-path "/articles" params page)]
-        (is (and (str/starts-with? p "/articles?") (every? #(str/includes? p %) parts)) p))))
+        (is (and (str/starts-with? p "/articles?") (every? #(str/includes? p %) parts))))))
 
   (testing "a page change keeps the active feed, tag or profile tab and moves only ?page="
     (with-held-fx
@@ -409,10 +340,6 @@
           (page! :profile/show-page 3)
           (is (= [:realworld.profile/favorites 3] [(sub f [:rf.route/id]) (page)])))))))
 
-;; ============================================================================
-;; ssr
-;; ============================================================================
-
 (deftest realworld-ssr
   (testing "the hydration payload ships the app slices and durable runtime trees, and
             never the JWT"
@@ -429,15 +356,6 @@
               :rf/runtime-db {:rf.runtime/routing  {:current {:route-id :realworld/home}}
                               :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}}}
              (select-keys payload [:rf/app-db :rf/runtime-db]))))))
-
-;; ============================================================================
-;; home feeds and tags
-;; ============================================================================
-;;
-;; Your Feed (:feed/load) and the Global Feed (:articles/load) carry different
-;; request ids, so neither supersedes the other, and both settle the one
-;; :realworld/articles-home machine, whose settled states take no further
-;; :fetch-succeeded. A reply for the feed the reader left must not settle it.
 
 (defn- home [f]
   [(sub f [:articles.home/render]) (mapv :slug (sub f [:articles.home/active-articles]))])
@@ -498,10 +416,6 @@
         (settle-ok! f (:on-success (last @lowered)) {:tags ["intro" "demo" "clojure"]})
         (is (= ["intro" "demo" "clojure"] (sub f [:tags/data])))))))
 
-;; ============================================================================
-;; article editor
-;; ============================================================================
-
 (defn- ed-has-tag? [f tag]
   (sub f [:rf.machine/has-tag? :ui/article-editor tag]))
 
@@ -511,7 +425,6 @@
               {:article (full-article slug)}))
 
 (defn- editor-delete!
-  "Press Delete in the editor; returns the held DELETE."
   [f lowered slug]
   (rf/dispatch-sync [:editor/delete] {:frame f})
   (req-by-method+url @lowered :delete (str "/articles/" slug)))
@@ -544,12 +457,12 @@
       (fn [f lowered]
         (rf/dispatch-sync [:editor/edit-field :title "Only a title"] {:frame f})
         (rf/dispatch-sync [:editor/submit] {:frame f})
-        (is (= {:description "Description is required."
-                :body        "Body is required."
-                :_form       "Please fix the highlighted fields."}
-               (sub f [:editor/errors])))
-        (is (= ["Description is required." [] nil]
-               [(sub f [:editor/field-error :description]) @lowered (sub f [:editor/submit-error])])))))
+        (is (= [{:description "Description is required."
+                 :body        "Body is required."
+                 :_form       "Please fix the highlighted fields."}
+                ["Description is required." [] nil]]
+               [(sub f [:editor/errors])
+                [(sub f [:editor/field-error :description]) @lowered (sub f [:editor/submit-error])]])))))
 
   (testing "a load that settles after the reader typed seeds only the untouched fields,
             leaving the typed one dirty"
@@ -561,10 +474,12 @@
                     {:article {:slug "hello-world" :title "Hello, world" :description "Intro"
                                :body "Body text" :tagList ["intro" "demo"]}})
         (let [{:keys [slug draft baseline touched]} (sub f [:editor/slice])]
-          (is (= {:title "My unsaved heading" :description "Intro" :body "Body text" :tagList "intro, demo"}
-                 draft))
-          (is (= {:title "" :description "Intro" :body "Body text" :tagList "intro, demo"} baseline))
-          (is (= ["hello-world" #{:title} true] [slug touched (sub f [:editor/dirty?])]))))))
+          (is (= [{:title "My unsaved heading" :description "Intro" :body "Body text" :tagList "intro, demo"}
+                  {:title "" :description "Intro" :body "Body text" :tagList "intro, demo"}
+                  ["hello-world" #{:title} true]]
+                 [draft
+                  baseline
+                  [slug touched (sub f [:editor/dirty?])]]))))))
 
   (testing "a load reply for an article the reader has left is refused outright, which
             the leafwise seed alone would not do"
@@ -572,8 +487,7 @@
       (fn [f lowered]
         (visit! f "/editor/alpha" "/editor/beta")
         (is (= #{[:editor/load-article "alpha"] [:editor/load-article "beta"]}
-               (set (map :request-id @lowered)))
-            "distinct per-slug request ids, so managed HTTP's supersede never fires between them")
+               (set (map :request-id @lowered))))
         (settle-ok! f (:on-success (req-by-id @lowered [:editor/load-article "beta"]))
                     {:article (full-article "beta")})
         (let [beta (sub f [:editor/slice])]
@@ -630,7 +544,7 @@
           (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show :params {:username "eve"}}]
                             {:frame f})
           (let [pending (sub f [:rf/pending-navigation])]
-            (is (some? pending) "the dirty draft's :can-leave guard holds the navigation")
+            (is (some? pending))
             (rf/dispatch-sync [:rf.route/continue (:id pending)] {:frame f}))
           (settle-ok! f (:on-success put) {:article (full-article "alpha")})
           (is (= [:realworld.profile/show {:username "eve"}] (location f)))))))
@@ -653,27 +567,15 @@
                     {:article (full-article "beta")})
         (is (= [:realworld.article/show {:slug "beta"}] (location f)))))))
 
-;; ============================================================================
-;; settings — the :settings/form machine, and saves that outlive their session
-;; ============================================================================
-;;
-;; A PUT /user is on the wire when Logout, an account switch or the next
-;; account's own save happens; its reply must neither write the departed
-;; account's User and token into the live session nor settle or scrub a form
-;; that now belongs to someone else.
-
 (defn- settings-form [f]
   (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/machines :snapshots :settings/form]))
 
 (defn- session
-  "Who is signed in, as `[username token]`."
   [f]
   (let [db (rf/app-db-value f)]
     [(get-in db [:auth :user :username]) (get-in db [:auth :token])]))
 
 (defn- park-settings-save!
-  "Sign `owner` in, open Settings by its route (whose :on-match seeds the draft),
-   set `field` to `value` and submit. Returns the held PUT."
   [f lowered owner field value]
   (rf/dispatch-sync [:auth/store-session (wire-user owner "jwt-1" nil)] {:frame f})
   (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
@@ -682,8 +584,6 @@
   (req-by-method+url @lowered :put "/user"))
 
 (defn- log-out!
-  "What Logout does here: clear the session, scrub the settings form and go home,
-   so the next account's Settings visit is a fresh route entry."
   [f]
   (rf/dispatch-sync [:auth/clear-session] {:frame f})
   (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
@@ -782,14 +682,13 @@
               bob    (park-settings-save! f lowered "bob" :username "alice")
               ledger #(let [db (rf/app-db-value f)]
                         [(:settings.saves-in-flight db) (:settings.saves-answered db 0)])]
-          (is (= 2 (count (first (ledger)))) "two unanswered saves claim `alice`")
+          (is (= 2 (count (first (ledger)))))
           (settle-ok! f (:on-success alice) {:user (wire-user "alice" "alice-jwt-2" "Alice bio")})
           (let [form (settings-form f)]
             (is (= [["bob" "jwt-1"] :submitting "alice" {:owner "bob" :username "alice"}
                     :realworld.user/settings]
                    [(session f) (:state form) (get-in form [:data :draft :username])
-                    (get-in form [:data :pending]) (sub f [:rf.route/id])])
-                "no session swap, no settle, no scrub and no navigation"))
+                    (get-in form [:data :pending]) (sub f [:rf.route/id])])))
           (settle-fail! f (:on-failure bob))
           (is (= [:incorrect ["bob" "jwt-1"] [[] 0]]
                  [(:state (settings-form f)) (session f) (ledger)]))
@@ -810,16 +709,11 @@
         (is (= [["robert" "bob-jwt-2"] :correct :realworld.profile/show]
                [(session f) (:state (settings-form f)) (sub f [:rf.route/id])]))))))
 
-;; ============================================================================
-;; comments
-;; ============================================================================
-
 (defn- settle-comments! [f lowered slug]
   (settle-ok! f (:on-success (req-by-id @lowered [:comments/load slug]))
               {:comments [(full-comment slug)]}))
 
 (defn- open-article!
-  "Enter /article/<slug> and settle its comments with one, `c-<slug>`."
   [f lowered slug]
   (visit! f (str "/article/" slug))
   (settle-comments! f lowered slug))
@@ -868,8 +762,7 @@
                     {:comments [(saved-comment 1 "First!")]})
         (post-comment! f "Great read")
         (let [posts #(filterv (fn [r] (= :post (get-in r [:request :method]))) @lowered)]
-          (is (= 1 (count (posts)))
-              "the optimistic candidate, temp id and all, passes the schema, so its POST goes out")
+          (is (= 1 (count (posts))))
           (settle-ok! f (:on-success (last (posts))) {:comment (saved-comment 7 "Great read")})
           (is (= [[1 7] :idle ""] [(comment-ids f) (:status (comment-form f)) (draft-body f)]))
           (post-comment! f "Second thoughts")
@@ -883,19 +776,7 @@
           (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/articles/alpha/comments/7")))
           (is (= [[1] [1 7]] [deleted (comment-ids f)])))))))
 
-;; ============================================================================
-;; article page — replies stay owned by the slug they were issued for
-;; ============================================================================
-;;
-;; /article/:slug's on-match loads the article and its comments under per-slug
-;; request ids, so a walk from alpha to beta leaves all four requests
-;; deliverable. Every settle, reads and writes alike, carries its slug and is
-;; refused once the page has moved on; the comment form, a boot-time singleton,
-;; is reset on a new slug so that refusing a late settle cannot strand it
-;; mid-submit.
-
 (defn- settle-article!
-  "Settle the held GET for /article/<slug>, its author `author` at `following?`."
   ([f lowered slug] (settle-article! f lowered slug "alice" false))
   ([f lowered slug author following?]
    (settle-ok! f (:reply-to (req-by-id @lowered [:article/load slug]))
@@ -910,8 +791,7 @@
         (visit! f "/article/alpha" "/article/beta")
         (is (= #{[:article/load "alpha"] [:comments/load "alpha"]
                  [:article/load "beta"] [:comments/load "beta"]}
-               (set (map :request-id @lowered)))
-            "distinct per-slug request ids, so supersede never fires between them")
+               (set (map :request-id @lowered))))
         (settle-article! f lowered "beta")
         (settle-comments! f lowered "beta")
         (let [page   #(vector (sub f [:article/slice]) (sub f [:comments/slice]))
@@ -963,9 +843,9 @@
             (settle-ok! f (:on-success post) {:comment (saved-comment "saved-a" "Posted on alpha")})
             (settle-fail! f (:on-failure post))
             (settle-fail! f (:on-failure del))
-            (is (= before (beta)))
-            (is (= [["c-beta"] "Typing on beta" nil]
-                   [(comment-ids f) (draft-body f) (:submit-error (comment-form f))])))))))
+            (is (= [before [["c-beta"] "Typing on beta" nil]]
+                   [(beta)
+                    [(comment-ids f) (draft-body f) (:submit-error (comment-form f))]])))))))
 
   (testing "a new article releases the comment form, so refusing a late settle cannot
             strand it mid-submit"
@@ -991,9 +871,7 @@
         (rf/dispatch-sync [:auth/store-session (wire-user "bob" "jwt-bob" nil)] {:frame f})
         (visit! f "/article/alpha")
         (is (= [:fetching "" false]
-               [(:status (sub f [:comments/slice])) (draft-body f) (sub f [:comment-form/submitting?])])
-            "bob's entry is a same-slug refresh, which keeps the form, so the empty box is
-             the logout's doing")))))
+               [(:status (sub f [:comments/slice])) (draft-body f) (sub f [:comment-form/submitting?])]))))))
 
 (deftest realworld-article-social-cross-slug
   (testing "late follow and delete settles from the article the reader left touch neither
@@ -1025,7 +903,7 @@
         (rf/dispatch-sync [:article/delete] {:frame f})
         (let [del (req-by-method+url @lowered :delete "/articles/alpha")]
           (visit! f "/profile/eve")
-          (is (= "alpha" (:slug (sub f [:article/slice]))) "so a slug-only gate would admit the settle")
+          (is (= "alpha" (:slug (sub f [:article/slice]))))
           (settle-ok! f (:on-success del) nil)
           (is (= [:realworld.profile/show {:username "eve"}] (location f)))))))
 
@@ -1049,10 +927,6 @@
         (settle-ok! f (:on-success (req-by-method+url @lowered :delete "/articles/alpha")) nil)
         (is (= :realworld/home (sub f [:rf.route/id])))))))
 
-;; ============================================================================
-;; favourites
-;; ============================================================================
-
 (deftest realworld-favorites
   (testing "a favourite flips optimistically and a failed request rolls the row back"
     (with-held-fx
@@ -1064,17 +938,6 @@
           (settle-fail! f (:on-failure (req-by-method+url @lowered :post "/articles/hello/favorite")))
           (is (= [{:favorited true :favoritesCount 1} {:favorited false :favoritesCount 0}]
                  [optimistic (row)])))))))
-
-;; ============================================================================
-;; profile page — replies stay owned by the username they were issued for
-;; ============================================================================
-;;
-;; The profile page applies the article page's rule to its banner and its two
-;; tab lists, plus a read-time guard: the tabs load on separate routes, so a
-;; list still holding another profile's rows must not render them. A
-;; follow/unfollow is serialised by `:profile.follow-pending`, a latch keyed by
-;; username and held outside the banner slice: a second intent while one is in
-;; flight sends nothing, so no opposite pair can settle out of order.
 
 (defn- pf-has-tag? [f tag]
   (sub f [:rf.machine/has-tag? :ui/profile tag]))
@@ -1138,13 +1001,14 @@
                 (mapv :slug (sub f [:profile.articles/data]))]))
         (reset! lowered [])
         (visit! f "/profile/bob/favorites")
-        (is (= #{[:profile/load "bob"] [:profile.favorites/load "bob"]} (set (map :request-id @lowered)))
-            "the favorites route reloads the banner and the favorited list, never the authored one")
-        (is (= [:loading nil] [(:status (sub f [:profile/slice])) (sub f [:profile/data])]))
         (let [authored (:profile.articles (rf/app-db-value f))]
-          (is (= ["alice" 1 nil 0 []]
-                 [(:username authored) (count (:data authored)) (sub f [:profile.articles/data])
-                  (sub f [:profile.articles/count]) (sub f [:profile/current-articles])]))))))
+          (is (= [#{[:profile/load "bob"] [:profile.favorites/load "bob"]}
+                  [:loading nil]
+                  ["alice" 1 nil 0 []]]
+                 [(set (map :request-id @lowered))
+                  [(:status (sub f [:profile/slice])) (sub f [:profile/data])]
+                  [(:username authored) (count (:data authored)) (sub f [:profile.articles/data])
+                   (sub f [:profile.articles/count]) (sub f [:profile/current-articles])]]))))))
 
   (testing "the favorites tab loads the banner and the favorited list"
     (with-held-fx
@@ -1172,8 +1036,7 @@
         (rf/dispatch-sync [:profile/follow] {:frame f})
         (settle-ok! f (:on-success (req-by-method+url @lowered :post "/profiles/bob/follow"))
                     {:profile (assoc (full-profile "bob" true) :bio "Fresh bio")})
-        (is (= {:username "bob" :bio "Fresh bio" :image nil :following true} (sub f [:profile/data]))
-            "a follow success re-seeds the banner from the server")
+        (is (= {:username "bob" :bio "Fresh bio" :image nil :following true} (sub f [:profile/data])))
         (rf/dispatch-sync [:profile/unfollow] {:frame f})
         (let [flipped (:following (sub f [:profile/data]))]
           (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/profiles/bob/follow")))
@@ -1196,8 +1059,7 @@
           (is (false? (latched)))
           (rf/dispatch-sync [:profile/unfollow] {:frame f})
           (rf/dispatch-sync [:profile/follow] {:frame f})
-          (is (= [false 2 true] [(following) (sent) (latched)])
-              "once released the unfollow goes out, and a follow during it is refused in turn")
+          (is (= [false 2 true] [(following) (sent) (latched)]))
           (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/profiles/alice/follow")))
           (is (= [true false] [(following) (latched)]))))))
 
@@ -1212,9 +1074,7 @@
           (rf/dispatch-sync [:profile/unfollow] {:frame f})
           (is (= [true true 1]
                  [(:following (sub f [:profile/data])) (sub f [:profile/follow-pending?])
-                  (count (follow-requests @lowered "alice"))])
-              "back on alice with her POST still out, the button is disabled and the
-               Unfollow sends nothing")
+                  (count (follow-requests @lowered "alice"))]))
           (settle-ok! f (:on-success a-follow) {:profile (full-profile "alice" true)})
           (rf/dispatch-sync [:profile/unfollow] {:frame f})
           (is (= [false 2] [(:following (sub f [:profile/data])) (count (follow-requests @lowered "alice"))]))))))
@@ -1236,15 +1096,6 @@
         (settle-fail! f (:on-failure (req-by-method+url @lowered :post "/profiles/bob/follow")))
         (is (= [#{"carol"} true] [(follow-pending f) (sub f [:profile/follow-pending?])]))))))
 
-;; ============================================================================
-;; the favourite heart and the article byline's Follow, serialised
-;; ============================================================================
-;;
-;; Both are the profile follow's hazard: a second click reads the first click's
-;; optimistic flip and so sends the opposite method. The favourite takes its own
-;; per-slug `:favorite-pending`; the byline takes the profile's username-keyed
-;; latch, so a follow held from either page refuses the other.
-
 (deftest realworld-toggle-latches-favorite-and-byline-follow
   (testing "the favourite is serialised per slug: a second click while one is in flight
             changes nothing and sends nothing, the reply re-seeds the row, and either
@@ -1264,7 +1115,7 @@
             (is (= [[true 1] before 1 true] [(row) (sub f [:article/slice]) (sent) (latched)])))
           (settle-ok! f (:on-success (req-by-method+url @lowered :post "/articles/hello/favorite"))
                       {:article (assoc (full-article "hello") :favorited true :favoritesCount 42)})
-          (is (= [[true 42] false] [(row) (latched)]) "the server's count replaces the optimistic one")
+          (is (= [[true 42] false] [(row) (latched)]))
           (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
           (is (= [[false 41] 2 true] [(row) (sent) (latched)]))
           (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/articles/hello/favorite")))
@@ -1281,34 +1132,19 @@
           (settle-article! f lowered "alpha" "alice" false)
           (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
           (is (= [false 1 true]
-                 [(:following (sub f [:article/author])) (sent) (sub f [:article/author-follow-pending?])])
-              "the byline click is refused by the banner's mutation, and its button reads disabled")
+                 [(:following (sub f [:article/author])) (sent) (sub f [:article/author-follow-pending?])]))
           (settle-ok! f (:on-success (req-by-method+url @lowered :post "/profiles/alice/follow"))
                       {:profile (full-profile "alice" true)})
           (is (= [#{} false] [(follow-pending f) (sub f [:article/author-follow-pending?])]))
           (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
           (is (= [true 2 #{"alice"}] [(:following (sub f [:article/author])) (sent) (follow-pending f)]))
           (visit! f "/profile/alice")
-          (is (true? (sub f [:profile/follow-pending?])) "the banner is disabled by the byline's mutation")
+          (is (true? (sub f [:profile/follow-pending?])))
           (let [banner (:following (sub f [:profile/data]))]
             (settle-fail! f (:on-failure (req-by-method+url @lowered :post "/profiles/alice/follow")))
-            (is (= [#{} banner] [(follow-pending f) (:following (sub f [:profile/data]))])
-                "the byline's rollback releases alice and leaves the banner's flag alone")))))))
-
-;; ============================================================================
-;; THE PRODUCTION-SEAM RECEIPT
-;; ============================================================================
-;;
-;; The README claims a comment you post is still there when the page re-reads.
-;; A backend answering every later GET out of a frozen seed would break that,
-;; and no canned or held reply can see it. So this frame is wired as the served
-;; app is (`:rf.http/managed` → `:realworld.demo/http-stub`), every reply comes
-;; back through the demo backend's own deferred path, and the test waits for the
-;; slice to settle. The frame is a plain anon record because `with-new-frame`
-;; would destroy it when the body returns, before anything has settled.
+            (is (= [#{} banner] [(follow-pending f) (:following (sub f [:profile/data]))]))))))))
 
 (defn- backend-comments
-  "What the demo backend answers `GET /articles/<slug>/comments` with right now."
   [slug]
   (:comments
     (:ok (second (demo/transition @rh/demo-state
@@ -1332,7 +1168,7 @@
         (visit! f (str "/article/" slug))
         (-> (rf.test-support/poll-until loaded? {:label "the route's comments load settles"})
             (.then (fn [_]
-                     (is (= (backend-comments slug) (comments)) "the first load is the backend's answer")
+                     (is (= (backend-comments slug) (comments)))
                      (post-comment! f "great read")
                      (rf.test-support/poll-until
                        #(= 1000 (:id (second (comments))))
@@ -1342,12 +1178,10 @@
                      (rf.test-support/poll-until loaded? {:label "the later load settles"})))
             (.then (fn [_]
                      (let [cs (comments)]
-                       (is (= [[1 1000] "great read" "demo"]
-                              [(mapv :id cs) (:body (second cs)) (-> cs second :author :username)])
-                           "the later load still has the comment, as the backend saved it")
-                       (is (= (backend-comments slug) cs)
-                           "…and is the backend's current state, not a seed"))))
+                       (is (= [[[1 1000] "great read" "demo"] (backend-comments slug)]
+                              [[(mapv :id cs) (:body (second cs)) (-> cs second :author :username)]
+                               cs])))))
             (.catch (fn [e]
-                      (is false (str "production-seam receipt did not settle: " (.-message e)))
+                      (is false)
                       nil))
             (.then (fn [_] (done))))))))
