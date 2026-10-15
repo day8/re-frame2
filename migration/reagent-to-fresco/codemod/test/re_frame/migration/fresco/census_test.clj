@@ -52,10 +52,9 @@
 
 (deftest an-unbindable-require-is-reported
   (let [{:keys [entries unresolved?]} (scan vendored-require "app/panel.cljs")]
-    (is (true? unresolved?))
-    (is (= [[:unresolved-reagent-require 1 nil]
-            [:unresolved-alias 6 {:api "atom" :symbol "r/atom"}]]
-           (mapv (juxt :class :line :detail) entries))
+    (is (= [true [[:unresolved-reagent-require 1 nil]
+                [:unresolved-alias 6 {:api "atom" :symbol "r/atom"}]]]
+           [unresolved? (mapv (juxt :class :line :detail) entries)])
         "exactly two: the require at the `ns` form, where the fix goes, and the call
          naming the symbol it could not bind. `(atom nil)` on line 4 is
          `clojure.core`'s: an alias is what could not be bound, so a call with no
