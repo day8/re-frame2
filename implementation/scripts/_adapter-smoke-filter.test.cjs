@@ -51,10 +51,13 @@ console.log('adapter-smoke-filter selection tests');
 // path-shaped filter selects its one adapter; commas OR-match.
 it('filters select by build id or spec path, commas OR-match, and empty selects both', () => {
   assert.deepStrictEqual(
-    ['', 'adapters/reagent-testbed', 'uix/testbed', 'reagent-testbed,uix/testbed'].map(selectBuildIds),
+    ['', 'adapters/reagent-testbed', 'uix/testbed', 'uix_testbed', 'uix\\testbed',
+      'reagent-testbed,uix/testbed'].map(selectBuildIds),
     [
       ['adapters/reagent-testbed', 'adapters/uix-testbed'],
       ['adapters/reagent-testbed'],
+      ['adapters/uix-testbed'],
+      ['adapters/uix-testbed'],
       ['adapters/uix-testbed'],
       ['adapters/reagent-testbed', 'adapters/uix-testbed'],
     ],
@@ -80,10 +83,6 @@ it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4
       `filter '${term}' (an absolute REPO_ROOT prefix segment) over-selected`,
     );
   }
-});
-
-it('normalizeForFilter collapses _, \\ and / to a single -', () => {
-  assert.deepStrictEqual(['a_b', 'a\\b', 'a/b'].map(normalizeForFilter), ['a-b', 'a-b', 'a-b']);
 });
 
 // ---- manifest vs on-disk reconciliation: the same functions run-adapter-smokes.cjs calls
