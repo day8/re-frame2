@@ -1,106 +1,51 @@
 (ns reagent2.core-cljs-test
-  "Unit tests for the `reagent2.core` surface without a dedicated file:
-  force-update, the Form-3 state wrappers (`set-state` merges while
-  `replace-state` resets) and argv accessors, and the `reaction` macro."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  "Public state, argv, force-update and reaction contracts."
+  (:require [cljs.test :refer-macros [deftest is]]
             [reagent2.core :as r]
             [reagent2.ratom]))
 
-;; ---------------------------------------------------------------------------
-;; force-update — 1-arity routes .forceUpdate on `this`
-;; ---------------------------------------------------------------------------
-
-(defn- fake-react-instance
-  "Build a minimal stand-in for a mounted React class instance. Tracks
-  .forceUpdate invocations on the `calls` atom."
-  [calls]
-  (let [c #js {}]
-    (set! (.-forceUpdate c)
-          (fn [] (swap! calls conj :force-update)))
-    c))
-
 (deftest force-update-1-arity-calls-forceupdate
-  (testing "(force-update this) invokes .forceUpdate on the instance"
-    (let [calls (atom [])
-          this  (fake-react-instance calls)]
-      (r/force-update this)
-      (is (= [:force-update] @calls)
-          ".forceUpdate fired exactly once"))))
-
-;; ---------------------------------------------------------------------------
-;; Form-3 component state: `state-atom` lazily caches a per-instance RAtom.
-;; ---------------------------------------------------------------------------
+  (let [calls (atom [])
+        this  #js {:forceUpdate (fn [] (swap! calls conj :force-update))}]
+    (r/force-update this)
+    (is (= [:force-update] @calls))))
 
 (deftest state-reads-the-cell
-  (testing "(state this) is nil before any state is set, then reflects
-            the cached state-atom's value"
-    (let [this #js {}]
-      (is (nil? (r/state this))
-          "no state set yet → nil (derefs the freshly-seeded cell)")
-      (reset! (r/state-atom this) {:count 3})
-      (is (= {:count 3} (r/state this))
-          "state derefs the same cell that state-atom returns"))))
+  (let [this #js {}]
+    (is (nil? (r/state this)))
+    (reset! (r/state-atom this) {:count 3})
+    (is (= {:count 3} (r/state this)))))
 
 (deftest set-state-merges
-  (testing "(set-state this m) MERGES m into the existing state map —
-            sibling keys survive; colliding keys are overwritten"
-    (let [this #js {}]
-      (r/set-state this {:a 1 :b 2})
-      (r/set-state this {:b 20 :c 3})
-      (is (= {:a 1 :b 20 :c 3} (r/state this))
-          "second set-state merged: :a survived, :b overwritten, :c added"))))
+  (let [this #js {}]
+    (r/set-state this {:a 1 :b 2})
+    (r/set-state this {:b 20 :c 3})
+    (is (= {:a 1 :b 20 :c 3} (r/state this)))))
 
 (deftest replace-state-resets
-  (testing "(replace-state this m) REPLACES the whole state map —
-            prior keys are dropped, NOT merged (the set-state contrast)"
-    (let [this #js {}]
-      (r/set-state this {:a 1 :b 2})
-      (r/replace-state this {:only :this})
-      (is (= {:only :this} (r/state this))
-          "replace-state dropped :a and :b — it reset, did not merge"))))
+  (let [this #js {}]
+    (r/set-state this {:a 1 :b 2})
+    (r/replace-state this {:only :this})
+    (is (= {:only :this} (r/state this)))))
 
-;; ---------------------------------------------------------------------------
-;; Form-3 argv accessors: the head is the render fn, argv[1] is the props
-;; map iff it is a map, and children follow the head and any props map.
-;; ---------------------------------------------------------------------------
-
-(defn- fake-instance
-  "Minimal stand-in carrying the .-cljsArgv slot the accessors read."
-  [argv]
-  (let [c #js {}]
-    (set! (.-cljsArgv c) argv)
-    c))
+(defn- fake-instance [argv]
+  #js {:cljsArgv argv})
 
 (deftest props-returns-map-second-arg
-  (testing "(props this) returns argv[1] iff it is a map, else nil"
-    (let [render-fn (fn [_])]
-      (is (= {:k :v}
-             (r/props (fake-instance [render-fn {:k :v} :child])))
-          "map second arg surfaces as props")
-      (is (nil? (r/props (fake-instance [render-fn :child])))
-          "non-map second arg → nil props"))))
+  (let [render-fn (fn [_])]
+    (is (= [{:k :v} nil]
+           [(r/props (fake-instance [render-fn {:k :v} :child]))
+            (r/props (fake-instance [render-fn :child]))]))))
 
 (deftest children-skip-props-map
-  (testing "(children this) returns the tail after the head, skipping a
-            leading props map when present"
-    (let [render-fn (fn [_])]
-      (is (= [:a :b]
-             (vec (r/children (fake-instance [render-fn {:k :v} :a :b]))))
-          "props map present → children start after it")
-      (is (= [:a :b]
-             (vec (r/children (fake-instance [render-fn :a :b]))))
-          "no props map → children start right after the head"))))
-
-;; ---------------------------------------------------------------------------
-;; `r/reaction` is a macro over its body, as in stock Reagent: a thunk-taking
-;; function would run the body eagerly at the call site.
-;; ---------------------------------------------------------------------------
+  (let [render-fn (fn [_])]
+    (is (= [[:a :b] [:a :b]]
+           [(vec (r/children (fake-instance [render-fn {:k :v} :a :b])))
+            (vec (r/children (fake-instance [render-fn :a :b])))]))))
 
 (deftest reaction-body-is-deferred-until-deref
-  (testing "(r/reaction body) does not run body at construction; the
-            first deref runs it once"
-    (let [runs (atom 0)
-          rx   (r/reaction (do (swap! runs inc) :computed))]
-      (is (zero? @runs) "body did not run at construction")
-      (is (= :computed @rx) "deref yields the body's value")
-      (is (= 1 @runs) "the first deref ran the body exactly once"))))
+  (let [runs (atom 0)
+        rx   (r/reaction (do (swap! runs inc) :computed))]
+    (is (zero? @runs))
+    (is (= :computed @rx))
+    (is (= 1 @runs))))
