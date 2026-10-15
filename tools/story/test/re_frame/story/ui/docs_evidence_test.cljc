@@ -97,9 +97,8 @@
     (let [exc  (rf.story.ui.docs/evidence-excerpt
                  (rf.story.play.evidence/narrative script epoch-tape))
           beat (first (:beats exc))]
-      (is (true? (:available? exc)))
-      (is (= 100 (:epoch-id beat)))
-      (is (some? (:strength beat))
+      (is (= [true 100 true]
+             [(:available? exc) (:epoch-id beat) (some? (:strength beat))])
           "excerpt beats carry the spine's evidence-strength projection")))
   (testing "a longer narrative caps the inline beats and reports the overflow"
     (let [long-tape   (mapv (fn [i]
@@ -112,9 +111,9 @@
           long-script (mapv (fn [i] [:dispatch [:e i]]) (range 5))
           exc (rf.story.ui.docs/evidence-excerpt
                 (rf.story.play.evidence/narrative long-script long-tape))]
-      (is (= 5 (:beat-count exc)))
-      (is (= rf.story.ui.docs/evidence-excerpt-beat-cap (count (:beats exc))))
-      (is (= (- 5 rf.story.ui.docs/evidence-excerpt-beat-cap) (:more exc)))))
+      (is (= [5 rf.story.ui.docs/evidence-excerpt-beat-cap
+              (- 5 rf.story.ui.docs/evidence-excerpt-beat-cap)]
+             ((juxt :beat-count #(count (:beats %)) :more) exc)))))
   (testing "a nil narrative is an honest no-evidence excerpt"
     (is (= {:available? false :beats [] :beat-count 0 :more 0}
            (rf.story.ui.docs/evidence-excerpt nil)))))
