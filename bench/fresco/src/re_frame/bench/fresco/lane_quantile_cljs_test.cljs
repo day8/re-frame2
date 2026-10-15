@@ -1,8 +1,5 @@
 (ns re-frame.bench.fresco.lane-quantile-cljs-test
-  "[[re-frame.bench.fresco.lane/quantile]] is linear interpolation at
-  `h = (n-1)q`, and [[re-frame.bench.fresco.lane/summarise]]'s `:p50` is the
-  same estimator. Each fixture is one where the conventions disagree:
-  `p95` of `1..20` is `19.05` here and `19` by nearest rank."
+  "Tail quantiles interpolate sorted readings and agree with the published median estimator."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
