@@ -210,8 +210,8 @@
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
   expectation block closes early passes having verified less than it claims.
-  Throws rather than returning `:fixture/load-error`, which the
-  runner classifies as a SKIP — as silent as the defect. Full rationale on
+  Throws rather than returning a load-error map, which a runner could
+  only skip — as silent as the defect. Full rationale on
   `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
@@ -235,14 +235,9 @@
     form))
 
 (defn- load-fixture
-  "Read one EDN fixture, applying the same `::name` rewrite the JVM core
-  runner uses so `clojure.edn/read-string` (no reader resolver) accepts
-  auto-resolved keywords."
+  "Read one plain-EDN fixture."
   [file]
-  (let [raw   (slurp file)
-        fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
-                           ":rf.machine.timer/$1")]
-    (read-one-form fixed (.getName file))))
+  (read-one-form (slurp file) (.getName file)))
 
 (defn- all-ssr-fixtures
   "Every fixture file whose name matches `ssr-*.edn`. Returns
@@ -547,61 +542,17 @@
   (rf.event-emit/unregister-event-listener! always-on-event-listener-id))
 
 ;; ---- matchers ------------------------------------------------------------
-
-(defn- submap?
-  "True if every key of `expected` is present in `actual` with a
-  matching value. Recurses into nested maps."
-  [expected actual]
-  (cond
-    (and (map? expected) (map? actual))
-    (every? (fn [[k v]]
-              (let [a (get actual k)]
-                (if (and (map? v) (map? a))
-                  (submap? v a)
-                  (= v a))))
-            expected)
-
-    :else (= expected actual)))
-
-(defn- trace-matches?
-  "Partial match — every key of `exp` appears in `act` with a matching
-  value. Nested-map keys partial-match the same way."
-  [exp act]
-  (every? (fn [[k v]]
-            (let [a (get act k)]
-              (cond
-                (and (map? v) (map? a))
-                (every? (fn [[kk vv]] (= vv (get a kk))) v)
-                :else (= v a))))
-          exp))
-
-(defn- check-trace-emissions
-  "Order-preserving subset match — every expected trace must appear in
-  `actual` in declaration order. Extras tolerated."
-  [actual expected]
-  (loop [actual   actual
-         expected expected
-         failures []]
-    (cond
-      (empty? expected) failures
-      (empty? actual)
-      (conj failures (str "expected trace not seen: " (pr-str (first expected))))
-      :else
-      (let [exp (first expected)
-            i   (->> actual
-                     (map-indexed vector)
-                     (some (fn [[i a]] (when (trace-matches? exp a) i))))]
-        (if i
-          (recur (drop (inc i) actual) (rest expected) failures)
-          (recur actual (rest expected)
-                 (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
+;;
+;; Partial expectations go through the shared `rf.conformance/submap?` and
+;; `rf.conformance/check-trace-emissions`, so this runner matches exactly as
+;; the core corpus runner does.
 
 (defn- check-trace-not-emitted
   "Every `not-trace` shape must NOT appear in the captured traces."
   [actual not-traces]
   (vec
     (keep (fn [nt]
-            (when (some #(trace-matches? nt %) actual)
+            (when (some #(rf.conformance/submap? nt %) actual)
               (str "trace that should NOT have fired did: " (pr-str nt))))
           not-traces)))
 
@@ -865,8 +816,8 @@
             ;; The production counterpart is `always-on-failures` below; the
             ;; two are complementary, not a substitution.
             trace-failures (when rf.interop/debug-enabled?
-                             (check-trace-emissions @traces
-                                                    (:trace-emissions expect)))
+                             (rf.conformance/check-trace-emissions
+                               @traces (:trace-emissions expect)))
             not-emit-failures (when rf.interop/debug-enabled?
                                 (check-trace-not-emitted @traces
                                                          (:trace-not-emitted expect)))
@@ -930,7 +881,7 @@
                               :payload  :absent}]
                 {:expected expected-rr
                  :actual   rr
-                 :passed?  (submap? expected-rr rr)}))
+                 :passed?  (rf.conformance/submap? expected-rr rr)}))
             ;; ---- :ssr/rendered-head-contains -------------------------
             expected-rh   (:ssr/rendered-head-contains expect)
             rh-check
@@ -943,7 +894,7 @@
                  :passed? (empty? misses)}))]
         (rf.trace.tooling/clear-listeners!)
         {:fixture-id        fid
-         :passed?           (and (or (nil? expected-db) (submap? expected-db final-db))
+         :passed?           (and (or (nil? expected-db) (rf.conformance/submap? expected-db final-db))
                                  (every? #(= (:expected %) (:actual %)) sub-checks)
                                  (empty? trace-failures)
                                  (empty? not-emit-failures)
@@ -982,12 +933,6 @@
   (let [results (atom [])]
     (doseq [[fname fixture] (all-ssr-fixtures)]
       (cond
-        (:fixture/load-error fixture)
-        (swap! results conj {:fixture-id fname
-                             :skipped?   true
-                             :reason     "load error"
-                             :error      (:fixture/load-error fixture)})
-
         (not (spec-version-claimed? fixture))
         (swap! results conj {:fixture-id   (:fixture/id fixture)
                              :fname        fname

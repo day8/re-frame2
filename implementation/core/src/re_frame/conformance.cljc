@@ -837,8 +837,8 @@
 (defn check-trace-emissions
   "Order-preserving SUBSET match of `expected-traces` against `actual-traces`
   per spec/conformance/README.md §Fixture lifecycle: each expected trace must
-  appear in `actual-traces` in declaration order, matched partially by its
-  specified keys (absent keys ignored; nested-map keys matched submap-wise).
+  appear in `actual-traces` in declaration order, matched by `submap?` — its
+  specified keys at every depth, extra actual keys ignored.
   Extras between matches are tolerated (the runtime may emit bookkeeping traces
   the fixture doesn't care about). Returns a vector of failure-message strings
   (empty on full match).
@@ -859,17 +859,7 @@
       (let [exp (first expected)
             match-idx (->> actual
                            (map-indexed vector)
-                           (some (fn [[i a]]
-                                   (when (every? (fn [[k v]]
-                                                   (let [actual-v (get a k)]
-                                                     (cond
-                                                       (map? v)
-                                                       (every? (fn [[kk vv]]
-                                                                 (= vv (get actual-v kk)))
-                                                               v)
-                                                       :else (= v actual-v))))
-                                                 exp)
-                                     i))))]
+                           (some (fn [[i a]] (when (submap? exp a) i))))]
         (if match-idx
           (recur (drop (inc match-idx) actual) (rest expected) failures)
           (recur actual (rest expected)

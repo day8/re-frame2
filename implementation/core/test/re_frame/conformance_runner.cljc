@@ -39,8 +39,8 @@
        :register-trace-listener!   (fn [fixture-id listener-fn] …)
        :unregister-trace-listener! (fn [fixture-id] …)}
 
-  This is a test-only namespace under `core/test`, `:require`d only by the
-  two leaf runners, so production source and bundle graphs never see it.
+  This is a test-only namespace under `core/test`, `:require`d only by test
+  namespaces, so production source and bundle graphs never see it.
 
   ## Fail-loud expectation keys
 
@@ -616,7 +616,7 @@
 ;; ---- expectation matchers -------------------------------------------------
 
 (defn- check-error-emit-records
-  "Positional partial-submap matcher for `:error-emit-records`
+  "Order-preserving `submap?` matcher for `:error-emit-records`
   (mirror of `check-trace-emissions`). Returns a vector of failure strings."
   [actual-records expected-records]
   (loop [actual   actual-records
@@ -635,8 +635,7 @@
             match-idx (->> actual
                            (map-indexed vector)
                            (some (fn [[i a]]
-                                   (when (every? (fn [[k v]] (= v (get a k))) exp)
-                                     i))))]
+                                   (when (rf.conformance/submap? exp a) i))))]
         (if match-idx
           (recur (drop (inc match-idx) actual) (rest expected) failures)
           (recur actual (rest expected)
@@ -1880,18 +1879,14 @@
         (println "    public-error actual:  " (:actual pec))))))
 
 (defn run-corpus-fixture
-  "The corpus verdict for one `[fname fixture]` entry: a skip for a load
-  error, an unclaimed spec version or an allowlisted capability; a failure
+  "The corpus verdict for one `[fname fixture]` entry: a skip for an
+  unclaimed spec version or an allowlisted capability; a failure
   for an unknown capability, an unknown top-level key or an unknown
   `:fixture/expect` key; otherwise `run-fixture`'s result. The key checks
   follow the capability gate, so a fixture this build does not claim may
   carry keys only a sibling runner reads."
   [fname fixture host]
   (cond
-    (:fixture/load-error fixture)
-    {:fixture-id fname :skipped? true :reason "load error"
-     :error (:fixture/load-error fixture)}
-
     (not (spec-version-claimed? fixture))
     {:fixture-id   (:fixture/id fixture)
      :skipped?     true

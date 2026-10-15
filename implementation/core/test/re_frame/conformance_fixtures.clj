@@ -52,9 +52,8 @@
   The JVM-side conformance runner (re-frame.conformance-test) reads
   fixtures the conventional way (`slurp` + `clojure.edn/read-string`)
   and needs no such edge: `clojure -M:test` keeps no analyzer cache, so
-  every run re-reads the corpus. This macro applies the same `::name`
-  → `:rf.machine.timer/name` rewrite that runner uses so
-  the CLJS corpus loads the same data without an EDN-reader resolver."
+  every run re-reads the corpus. Both read the same plain EDN, so the
+  CLJS corpus loads the same data with no EDN-reader resolver."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -124,27 +123,16 @@
          vec)))
 
 (defn- load-fixture
-  "Read the fixture named `file-name` in the ClojureScript
-  macro-expansion environment `env`, applying the same `::name` rewrite
-  the JVM runner uses so `clojure.edn/read-string` (which has no reader
-  resolver) accepts auto-resolved keywords.
+  "Read the plain-EDN fixture named `file-name` in the ClojureScript
+  macro-expansion environment `env`, exactly as the JVM runner reads it.
 
   The read goes through the recording reader, so this file becomes a
   build dependency of the namespace being compiled."
   [env file-name]
-  (let [raw   (rf.build.spec-resource/slurp-resource
-                env
-                (str fixtures-resource-dir "/" file-name))
-        ;; Rewrite ONLY a standalone auto-resolved keyword `::name` (one
-        ;; beginning a token — preceded by `(` / `[` / `{` / whitespace).
-        ;; The lookbehind keeps the rewrite from corrupting a `::` INSIDE a
-        ;; value, e.g. the CEDN-1 keyword token `"k::answer"` in an EP-0012
-        ;; `:expect` string. Mirror of the JVM runner's
-        ;; load-fixture rewrite.
-        fixed (str/replace raw
-                           #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
-                           ":rf.machine.timer/$1")]
-    (read-one-form fixed file-name)))
+  (read-one-form (rf.build.spec-resource/slurp-resource
+                   env
+                   (str fixtures-resource-dir "/" file-name))
+                 file-name))
 
 (defn- load-all-fixtures
   "Return a sorted-by-filename vector of `[filename fixture-data]`
