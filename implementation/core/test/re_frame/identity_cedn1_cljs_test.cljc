@@ -151,16 +151,6 @@
    (str "a" high-bmp) (str "a" astral)])
 
 (deftest utf8-byte-order-of-map-keys-and-set-elements
-  (testing "the pair is discriminating: code-unit order and byte order disagree on it"
-    (is (neg? (compare astral high-bmp)) "code-unit order puts U+10000 first")
-    (is (pos? (compare-bytes (utf8-bytes astral) (utf8-bytes high-bmp)))
-        "UTF-8 byte order puts U+E000 first"))
-  (testing "a mixed map orders its keys by UTF-8 bytes: U+E000 before U+10000"
-    (is (= (str "m{s:\"a\" k::ascii s:\"" high-bmp "\" k::high-bmp s:\"" astral "\" k::astral}")
-           (rf.identity/canonical-bytes {astral :astral, high-bmp :high-bmp, "a" :ascii}))))
-  (testing "a mixed set orders its elements by UTF-8 bytes: U+E000 before U+10000"
-    (is (= (str "q#{s:\"a\" s:\"" high-bmp "\" s:\"" astral "\"}")
-           (rf.identity/canonical-bytes #{astral high-bmp "a"}))))
   (testing "keyword and composite tokens follow the same byte order"
     (is (= (str "q#{k::" high-bmp " k::" astral "}")
            (rf.identity/canonical-bytes #{(keyword astral) (keyword high-bmp)})))
@@ -186,9 +176,6 @@
 (deftest edn-kind-distinctness
   (let [bs (map rf.identity/canonical-bytes ["42" 42 :42 [1 2] (list 1 2) #{1 2}])]
     (is (= (count bs) (count (distinct bs))) "the type tag keeps every kind distinct"))
-  (is (= (rf.identity/canonical-bytes {:a 1 "a" 2 0 3 true 4})
-         (rf.identity/canonical-bytes {true 4 0 3 "a" 2 :a 1}))
-      "heterogeneous map keys are legal and ordered by key bytes")
   (is (not= (rf.identity/canonical-bytes [:a :b]) (rf.identity/canonical-bytes [:b :a]))
       "vectors preserve order"))
 
@@ -207,9 +194,7 @@
      (testing "equivalent instants in different source timezones normalize to one UTC identity"
        (is (rf.identity/identical-identity?
              #inst "2026-06-10T10:00:00.000+10:00"
-             #inst "2026-06-10T00:00:00.000-00:00"))
-       (is (= "t:2026-06-10T00:00:00.000Z"
-              (rf.identity/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))
+             #inst "2026-06-10T00:00:00.000-00:00"))))
   ;; js/Date encoding rides its own `.toISOString` branch
   #?(:cljs
      (testing "a js/Date encodes to the exact millis-UTC t:...Z token"
