@@ -84,9 +84,9 @@
  ;; The macrostep violation emits exactly one
  ;; :rf.error/schema-validation-failure with :where :machine-data and
  ;; :phase :macrostep, carrying the offending {:n 0} value and :rollback? true.
- ;; The matcher partial-matches the trace by its named keys and matches the
- ;; map-valued :tags one level deep. (Only the violating macrostep emits this
- ;; trace; the conforming bootstrap step does not.)
+ ;; The matcher compares the trace as a recursive submap: its named keys at
+ ;; every depth, extra actual keys ignored. (Only the violating macrostep
+ ;; emits this trace; the conforming bootstrap step does not.)
  {:trace-emissions
   [{:operation :rf.error/schema-validation-failure
     :op-type   :error

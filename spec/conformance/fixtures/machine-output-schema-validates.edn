@@ -72,8 +72,8 @@
  ;; The completion-output violation emits exactly one
  ;; :rf.error/schema-validation-failure with :where :machine-output and
  ;; :phase :completion, carrying the offending payload and :rollback? false.
- ;; The matcher partial-matches the trace by its named keys and matches the
- ;; map-valued :tags one level deep.
+ ;; The matcher compares the trace as a recursive submap: its named keys at
+ ;; every depth, extra actual keys ignored.
  {:trace-emissions
   [{:operation :rf.error/schema-validation-failure
     :op-type   :error
