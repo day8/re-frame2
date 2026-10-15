@@ -382,17 +382,30 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defonce ^:private replacement-hooks
-  ;; Subscribers to "an existing id was replaced". Each is called with
-  ;; a map {:kind :id :was :now}. Registered by namespaces that need to
-  ;; respond to hot-reload (e.g. subs.cljc invalidates its cache).
+  ;; Subscribers to "what an existing id means just changed": a
+  ;; re-registration, or the hot-reload sweep deleting the id. Each is called
+  ;; with a map {:kind :id :was :now :different-fn?}, `:now` nil for a
+  ;; deletion. Registered by namespaces that need to respond to hot-reload
+  ;; (e.g. subs.cljc invalidates its cache).
   (atom []))
 
 (defn add-replacement-hook!
   "Register a fn called on every register! that replaces an existing
-  registration. Args: a map {:kind kind :id id :was prev-meta :now new-meta}."
+  registration, and on every deletion by the hot-reload sweep
+  ([[sweep-reload-cycle!]]). Args: a map {:kind kind :id id :was prev-meta
+  :now new-meta :different-fn? bool}; `:now` is nil for a deletion. An
+  explicit [[unregister!]] does not fire it."
   [f]
   (swap! replacement-hooks conj f)
   nil)
+
+(defn- run-replacement-hooks!
+  "Call every replacement hook with `change`. Hooks run isolated — a
+  listener's failure does not propagate."
+  [change]
+  (doseq [f @replacement-hooks]
+    (try (f change)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defonce ^:private registration-hooks
   ;; Subscribers to "any id was registered" — first-time OR re-registration.
@@ -819,10 +832,8 @@
         ;; don't propagate. Hooks fire on EVERY re-registration so dependent
         ;; namespaces can clean up their caches even on idempotent reloads
         ;; (the same fn shape is fine; closure state may differ).
-        (doseq [f @replacement-hooks]
-          (try (f {:kind kind :id id :was previous :now metadata
-                   :different-fn? different?})
-               (catch #?(:clj Throwable :cljs :default) _ nil)))
+        (run-replacement-hooks! {:kind kind :id id :was previous :now metadata
+                                 :different-fn? different?})
         ;; Per Spec 001 §Hot-reload trace surface: emit
         ;; `:rf.registry/handler-replaced` on EVERY re-registration —
         ;; not only when the handler-fn changes. Kinds like `:route`
@@ -1022,17 +1033,30 @@
 
 (defn- forget-stale-registration!
   "Forget the registration namespace `provenance` made of `[kind id]`. When no
-  other namespace registers the id, that is [[unregister!]]. Otherwise the
-  other registrations stay, and the registrar's latest-writer slot, if it held
-  the forgotten one, moves to the one survivor, or empties when several remain
-  (the id is ambiguous until one is cleared)."
+  other namespace registers the id, that is [[unregister!]] followed by the
+  replacement hooks with `:now` nil: the deletion changed what the id means,
+  so state built from the deleted registration goes with it — a sub's cached
+  reactions above all, which nothing else drops in a frame made without
+  `:images`: it has no generation for a reprojection to diff, so it would keep
+  running the deleted body. [[unregister!]] fires no hook
+  itself, because an explicit `(rf/clear :sub id)` is registry-only and leaves
+  the cache to `clear-sub-cache!`. The hooks run after [[unregister!]] has
+  marked the live-frame projection dirty, so a consumer rebuilding inside one
+  resolves a world without the id.
+
+  Otherwise the other registrations stay, and the registrar's latest-writer
+  slot, if it held the forgotten one, moves to the one survivor, or empties
+  when several remain (the id is ambiguous until one is cleared)."
   [kind id provenance]
   (rf.source-store/forget-descriptor! kind id provenance)
   (let [survivors (rf.source-store/descriptors-for kind id)
         reg       (active-registrar)]
     (cond
       (empty? survivors)
-      (unregister! kind id)
+      (let [previous (-> @reg (get kind) (get id))]
+        (unregister! kind id)
+        (run-replacement-hooks! {:kind kind :id id :was previous :now nil
+                                 :different-fn? true}))
 
       (= provenance (rf.source-store/provenance-ns (-> @reg (get kind) (get id))))
       (swap! reg update kind
@@ -1045,8 +1069,9 @@
   "Close the hot-reload cycle [[begin-reload-cycle!]] opened. Every namespace
   that registered anything during it loses each registration it did not make
   again — a handler moved to another namespace, renamed or deleted — so a
-  moved id resolves to its new home and a deleted one is gone. A namespace
-  that registered nothing keeps everything. With no cycle open (the first
+  moved id resolves to its new home and a deleted one is gone, a deleted
+  sub's cached reactions included. A namespace that registered nothing keeps
+  everything. With no cycle open (the first
   boot) it does nothing. Marks the live-frame projection dirty when anything
   was forgotten, so frames with explicit `:images` re-assemble; a frame made
   without `:images` reads the store at its next cascade anyway. Returns nil."

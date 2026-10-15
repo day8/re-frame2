@@ -68,7 +68,7 @@
   observe the sub-cache lifecycle's terminal half — created / run / skip
   / **dispose**. The reason axis discriminates the eviction path:
   `:no-more-derefers` (synchronous fire on 1 → 0), `:hot-reload`
-  (re-registration evicted), `:cache-clear` (explicit test/REPL
+  (re-registered or reload-deleted), `:cache-clear` (explicit test/REPL
   teardown), `:frame-destroy` (the frame's cache was torn down by
   `destroy-frame!` — routed in via the
   `:subs.cache/dispose-all-for-frame-destroy!` late-bind hook so
@@ -321,8 +321,9 @@
 ;; ---- hot-reload invalidation ---------------------------------------------
 ;;
 ;; Per Spec 001 §Hot-reload semantics + Cross-Spec-Interactions §18: when a
-;; :sub re-registers, every cached reaction whose query-id is that sub MUST
-;; be disposed and evicted across every frame's cache — AND so must every
+;; :sub re-registers, or the hot-reload sweep deletes it, every cached
+;; reaction whose query-id is that sub MUST be disposed and evicted across
+;; every frame's cache — AND so must every
 ;; cached DOWNSTREAM sub that depends on it (directly or transitively) via
 ;; declared inputs. Cached reactions hold the OLD body via closure (and downstream
 ;; reactions hold the OLD input reaction); without invalidating the whole
@@ -393,8 +394,9 @@
   The ONE per-frame invalidation primitive, shared by the two eviction
   triggers that mean \"this sub's definition moved under a live cache\":
 
-    * `reg-sub` REPLACEMENT — `invalidate-sub-on-replace!` below, over every
-      frame, with a one-element `sub-ids` (Spec 001 §Hot-reload semantics);
+    * `reg-sub` REPLACEMENT, or the hot-reload sweep DELETING a sub —
+      `invalidate-sub-on-replace!` below, over every frame, with a
+      one-element `sub-ids` (Spec 001 §Hot-reload semantics);
     * a frame's resolved image GENERATION changing — `re-frame.live-frame`'s
       `invalidate-subs-for-generation-change!`, over the ONE frame that moved,
       with the `:sub` ids the two generations differ on (EP-0023 §Hot
