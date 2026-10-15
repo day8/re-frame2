@@ -82,6 +82,6 @@
         "each seed was rolled back by the siblings still absent; this also proves the validator is live")))
 
 (deftest every-shipped-registration-tolerates-absence
-  (doseq [[path schema] app-schema/app-db-schemas]
-    (is (true? (m/validate schema nil))
-        (str "the registration at " path " admits nil"))))
+  (is (= (zipmap (keys app-schema/app-db-schemas) (repeat true))
+         (into {} (map (fn [[path schema]] [path (m/validate schema nil)]))
+               app-schema/app-db-schemas))))
