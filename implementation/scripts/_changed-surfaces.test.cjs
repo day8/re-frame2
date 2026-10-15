@@ -2833,10 +2833,6 @@ const DECLARED_NO_SURFACE_OUTPUT = {
     why: "linter configuration; lint.yml's own surface classifier lists .clj-kondo/* explicitly",
     coveredBy: ['.github/workflows/lint.yml'],
   },
-  '.clj-kondo/hooks': {
-    why: 'clj-kondo macro hooks — real Clojure, but consumed only by the linter, and armed by the same lint.yml surface as the config beside them',
-    coveredBy: ['.github/workflows/lint.yml'],
-  },
   // The Fresco bench lane — the measurement harness — is its own hand-run
   // shadow project here, off every per-PR lane deliberately:
   // its suites exercise LOCAL COPIES of the runtime, so running its
