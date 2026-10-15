@@ -21,8 +21,7 @@
   per-registration GENERATION token (see the listener-registry section) rather
   than a cross-atom update, so no operation requires an atomic update across two
   of these stores."
-  (:require [re-frame.privacy :as rf.privacy]
-            [re-frame.trace :as rf.trace]))
+  (:require [re-frame.privacy :as rf.privacy]))
 
 ;; ---- configuration --------------------------------------------------------
 
@@ -270,183 +269,6 @@
   "Drop the named frame's ring buffer."
   [frame-id]
   (swap! histories dissoc frame-id)
-  nil)
-
-;; ---- one-shot commit observation ------------------------------------------
-;;
-;; A replay has to report the epoch the REPLAYED event itself committed
-;; (Tool-Pair §Replay). The ring cannot answer that: a queued child settles
-;; AFTER its parent, so at a depth the cascade overruns the child evicts the
-;; parent's record and the oldest surviving record of that dispatch is the
-;; CHILD. Nothing in the retained window distinguishes that case
-;; from the one where the parent survived — the counts are identical when the
-;; cascade commits exactly `depth` records.
-;;
-;; COMMIT ORDER ALONE IS NOT THAT IDENTITY. The router emits
-;; `:rf.event/dispatched` BEFORE it starts the dispatch's own drain, and a
-;; public trace listener is expressly allowed to `dispatch-sync` from there
-;; (see `trace/tooling`'s reentrancy note). That nested cascade runs to
-;; completion — and COMMITS — inside the armed window, before the armed
-;; caller's own event has run at all, so a first-commit slot would hand back
-;; another operation's state, effects and trace under the replayed event's
-;; name. Filtering by `:event-id` cannot repair it — the same
-;; handler with different arguments produces the same keyword.
-;;
-;; So the slot correlates on DISPATCH IDENTITY, and takes it from the one
-;; ordering the interleave cannot invert. `trace/deliver!` runs EPOCH CAPTURE
-;; as its own stage BEFORE the public tooling fan-out, so capture sees the
-;; armed caller's `:rf.event/dispatched` strictly before any listener body for
-;; that event runs — hence strictly before the listener can create a nested
-;; dispatch at all. The FIRST dispatch-id capture reports for the frame while
-;; the arming stands is therefore the armed caller's own, whatever order the
-;; tooling listeners happen to sit in; every later cascade (a listener's
-;; nested `dispatch-sync`, a queued child, the rest of the drain) is a
-;; different id and is refused. `note-commit!` fills the slot only from the
-;; record carrying THAT id.
-;;
-;; THAT ORDERING IS PER THREAD, NOT PER FRAME. It puts the armed
-;; caller's emit ahead of anything the caller's OWN thread does next, and says
-;; nothing about another JVM thread. A same-frame dispatch there emits its
-;; `:rf.event/dispatched` on ITS thread and before any drain lock — the router
-;; emits ahead of `drain-block!`, and an async `dispatch!` emits at enqueue —
-;; so no frame boundary keeps it out of the gap between the arming and the
-;; armed caller's `dispatch-sync!`, and a frame-wide first arrival would adopt
-;; it. So the slot also records the
-;; thread that armed it, and only that thread may supply the id. The armed
-;; caller's `dispatch-sync!` emits synchronously on the calling thread, so the
-;; first id that thread reports is its own. CLJS has one thread: there is no
-;; check to make.
-;;
-;; The slot is filled at COMMIT, so it names the armed caller's epoch
-;; whether or not the ring still holds it, and the caller asks the ring —
-;; separately — whether that epoch is retained. The queued child above
-;; therefore never answers: it is neither the first commit nor the armed
-;; dispatch-id.
-;;
-;; THERE IS NO FIRST-COMMIT FALLBACK. A fallback answering when no id has
-;; been captured would serve the posture in which dispatch ids do not
-;; exist. That posture has no epochs either — capture is a trace stage, and
-;; the ring stays empty under the production gate — so such a fallback could
-;; only fire in dev, when the armed caller's OWN dispatch emitted nothing: a
-;; handler registered with `:rf.trace/no-emit?`, whose dispatch commits no
-;; epoch at all. Every commit it could adopt would be somebody else's —
-;; another thread's dispatch, or the quiet handler's own queued child — and
-;; replay would report it under the replayed event's name. No id means no
-;; evidence, and the slot answers nil.
-;;
-;; AND THE FIRST ID IS THE CALLER'S ONLY WHEN ITS LINEAGE SAYS SO.
-;; "First from the arming thread" presumes the caller's own dispatch reported
-;; at all. A quiet handler's does not, and nor does anything enqueued inside
-;; its handler scope — but a TRACED child it queued runs with tracing on
-;; again, so that child's own queued grandchild can be the first
-;; `:rf.event/dispatched` the arming thread reports, and adopting it would
-;; correlate the grandchild's commit to the caller exactly.
-;; Spec 009's run lineage tells the two apart: a dispatch's
-;; `:rf.trace/parent-dispatch-id` is the dispatch whose handler scope enqueued
-;; it, absent at top level. The caller's own dispatch is made from the scope
-;; the caller ARMED in, and everything its cascade enqueues names a run inside
-;; that cascade instead, so the slot records the arming scope's dispatch-id
-;; and the first id the arming thread reports DECIDES: taken when its parent
-;; matches, and otherwise the slot closes with no id. Closing rather than
-;; waiting is what makes it exact — the caller's own emit precedes its drain,
-;; so once a descendant has reported, the caller's never will.
-;;
-;; The arming token keeps a second, concurrent arming honest instead of
-;; silently clobbering: `take-observed-commit!` answers nil for a caller whose
-;; arming was replaced, which is the same "no retained epoch" the documented
-;; nil already means.
-
-(defonce ^:private commit-observations (atom {}))
-
-(defn arm-commit-observation!
-  "Arm a one-shot commit observation for `frame-id`; returns the token to
-  hand back to `take-observed-commit!`. Always pair the two — a caller that
-  arms and does not take leaves a slot the next commit writes into.
-
-  Arm it IMMEDIATELY before the dispatch whose epoch you want, on the thread
-  that makes it: the armed caller's own dispatch has to be the first one epoch
-  capture sees for the frame FROM THAT THREAD, which is what makes the
-  correlation above exact. The slot also records the dispatch-id of the
-  handler scope it is armed in (nil at top level): the armed dispatch carries
-  that as its parent, and nothing its cascade enqueues does."
-  [frame-id]
-  (let [token  #?(:clj (Object.) :cljs (js-obj))
-        parent (some-> rf.trace/*handler-scope* :dispatch-id)]
-    (swap! commit-observations assoc frame-id
-           #?(:clj  {:token token :parent parent :thread (Thread/currentThread)}
-              :cljs {:token token :parent parent}))
-    token))
-
-(defn take-observed-commit!
-  "Disarm `frame-id`'s observation and return the epoch-id committed by the
-  DISPATCH the arming caller itself started — nil when it committed nothing
-  (including when capture never heard its id, so no commit is evidence of it),
-  or when a later arming replaced this one."
-  [frame-id token]
-  (let [slot (get @commit-observations frame-id)]
-    (when (identical? token (:token slot))
-      (swap! commit-observations dissoc frame-id)
-      (:epoch-id slot))))
-
-#?(:clj
-   (defn- armed-on-this-thread?
-     "True when `slot` was armed by the calling thread."
-     [slot]
-     (identical? (Thread/currentThread) (:thread slot))))
-
-(defn note-observed-dispatch!
-  "Record `dispatch-id` as the armed observation's target for `frame-id`, once.
-
-  Called from the epoch-capture stage on `:rf.event/dispatched`. Capture runs
-  ahead of the public tooling fan-out, so the first id to arrive here FROM THE
-  ARMING THREAD is the armed caller's own dispatch and not one a listener
-  started from inside it. An id reported by any other thread is refused: on
-  the JVM another thread's same-frame dispatch can reach this first.
-
-  That first id DECIDES, once: it is the caller's own only when its
-  `parent-dispatch-id` is the scope the caller armed in. Otherwise the
-  caller's own emit was suppressed and this is a descendant's, so the slot
-  closes with no id and no commit can fill it.
-  A no-op when nothing is armed (the ordinary hot path: one map read, no
-  write), and after the first id has landed."
-  [frame-id dispatch-id parent-dispatch-id]
-  (when (and dispatch-id (contains? @commit-observations frame-id))
-    (swap! commit-observations
-           (fn [observations]
-             (let [slot (get observations frame-id)]
-               (if (and slot
-                        (not (contains? slot :dispatch-id))
-                        #?(:clj (armed-on-this-thread? slot)))
-                 (assoc observations frame-id
-                        (assoc slot :dispatch-id
-                               (when (= parent-dispatch-id (:parent slot))
-                                 dispatch-id)))
-                 observations))))
-    nil))
-
-(defn- note-commit!
-  "Record `record`'s epoch-id against `frame-id`'s armed observation, once,
-  when the record was committed by the dispatch the observation targets, and
-  never otherwise. A no-op when nothing is armed (the ordinary hot path: one
-  map read, no write)."
-  [frame-id record]
-  (let [epoch-id    (:epoch-id record)
-        dispatch-id (:dispatch-id record)]
-    (when (and epoch-id dispatch-id (contains? @commit-observations frame-id))
-      (swap! commit-observations
-             (fn [observations]
-               (let [slot (get observations frame-id)]
-                 (if (and slot
-                          (= dispatch-id (:dispatch-id slot))
-                          (not (contains? slot :epoch-id)))
-                   (assoc observations frame-id (assoc slot :epoch-id epoch-id))
-                   observations))))
-      nil)))
-
-(defn reset-commit-observations!
-  "Drop every armed commit observation (fixture / global history reset)."
-  []
-  (reset! commit-observations {})
   nil)
 
 (defn- epoch-index
@@ -1295,7 +1117,6 @@
   (reset-last-settled-epochs!)
   (reset-mount-attribution!)
   (reset-frame-owners!)
-  (reset-commit-observations!)
   nil)
 
 ;; ---- listener registry ----------------------------------------------------
@@ -2097,13 +1918,6 @@
   erased, cleanup-before-commit rejects, and B-before-commit rejects. No
   callback runs inside this transaction.
 
-  The commit observation is filled here rather than in `record!` because it
-  answers \"which epoch did this dispatch commit?\", which is true of a record
-  the ring immediately evicted — and true at depth 0, where `record!` appends
-  nothing at all. It is handed the WHOLE record rather than the epoch-id alone
-  because the answer is correlated by the record's `:dispatch-id`, not by
-  commit order.
-
   ONLY AN `:ok` RECORD MOVES THE ANCHOR. `last-settled-epoch` names
   the last epoch that actually SETTLED, which is what restore rewinds to and
   what a post-settle observation back-fills onto; a `:halted-depth` /
@@ -2112,10 +1926,9 @@
   `restore-epoch!` refuse the newest epoch — `:rf.epoch/restore-non-ok-record`
   — even though the state it names is the live state, and would point
   `commit-halt-record!`'s own durable-snapshot lookup at a record carrying no
-  write of its own. The halt record is still appended to the ring and still
-  reported as this dispatch's commit observation: it stays fully visible to
-  devtools as the \"drain halted here\" marker, which is its entire purpose. It
-  simply does not get to claim it is the settled state."
+  write of its own. The halt record is still appended to the ring: it stays
+  fully visible to devtools as the \"drain halted here\" marker, which is its
+  entire purpose. It simply does not get to claim it is the settled state."
   [frame-id owner-token record]
   (boolean
     (with-frame-owner-lock
@@ -2124,7 +1937,6 @@
           (record! record)
           (when (= :ok (get record :outcome :ok))
             (set-last-settled-epoch! frame-id (:epoch-id record)))
-          (note-commit! frame-id record)
           true)))))
 
 (defn cleanup-frame-owner!

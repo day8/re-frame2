@@ -15,7 +15,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
-            #?(:clj [re-frame.epoch.state :as rf.epoch.state])
+            #?(:clj [re-frame.router :as rf.router])
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — publishes the machines late-bind hooks
@@ -365,8 +365,7 @@
 
 ;; A public trace listener may `dispatch-sync` from the router's
 ;; `:rf.event/dispatched`, which is emitted before the replay's own drain: that
-;; nested cascade commits INSIDE replay's armed window, before the replayed
-;; event has run.
+;; nested cascade commits during the replay, before the replayed event has run.
 
 (def ^:private interleave-frame-id :epoch-replay/interleave)
 
@@ -410,33 +409,41 @@
       (is (= (:epoch-id (last after)) (:epoch-id res))
           "the reported epoch is the replayed dispatch's own new record"))))
 
-;; The concurrent sibling: another JVM thread's dispatch lands in the gap
-;; between the replay arming its observation and entering `dispatch-sync!`. The
-;; gap is PLACED, not raced: the real `arm-commit-observation!` runs, then the
-;; replay thread parks on a latch until the other thread's dispatch has
-;; returned. JVM only — CLJS has one thread and no such gap.
+;; The concurrent sibling: another JVM thread's same-frame dispatch commits
+;; just before the replay's own dispatch, or just after it and before replay
+;; reads the ring. The gap is PLACED, not raced: the replay thread parks in
+;; the router entry it dispatches through until the other thread's dispatch
+;; has returned. JVM only — CLJS has one thread and no such gap.
 
 #?(:clj
-   (defn- replay-with-foreign-dispatch-after-arming
+   (defn- replay-with-foreign-dispatch
      "Replay `source-epoch-id` in `fid` on a background thread, parking that
-     thread immediately AFTER the real observation arming while THIS thread
+     thread `park` (`:before` or `:after`) its own dispatch while THIS thread
      dispatch-syncs `foreign-event` into the same frame. Then release the
-     replay and return its result. The latch bounds turn a regression into one
-     failed deftest, not a hang."
-     [fid source-epoch-id foreign-event]
-     (let [armed    (CountDownLatch. 1)
-           release  (CountDownLatch. 1)
-           real-arm rf.epoch.state/arm-commit-observation!]
-       (with-redefs [rf.epoch.state/arm-commit-observation!
-                     (fn [frame]
-                       (let [token (real-arm frame)]
-                         (.countDown armed)
-                         (.await release 10 TimeUnit/SECONDS)
-                         token))]
+     replay and return its result. Only the first call through the entry
+     parks: it is the replay's, because this thread waits for it, and the
+     foreign `dispatch-sync` reaches the same entry. The latch bounds turn a
+     regression into one failed deftest, not a hang."
+     [fid source-epoch-id foreign-event park]
+     (let [parked  (CountDownLatch. 1)
+           release (CountDownLatch. 1)
+           first?  (atom true)
+           real    rf.router/dispatch-sync-with-id!
+           hold!   (fn []
+                     (.countDown parked)
+                     (.await release 10 TimeUnit/SECONDS))]
+       (with-redefs [rf.router/dispatch-sync-with-id!
+                     (fn [event opts]
+                       (if (compare-and-set! first? true false)
+                         (do (when (= :before park) (hold!))
+                             (let [dispatch-id (real event opts)]
+                               (when (= :after park) (hold!))
+                               dispatch-id))
+                         (real event opts)))]
          (let [replay (future (rf/replay-epoch! fid source-epoch-id))]
            (try
-             (is (.await armed 10 TimeUnit/SECONDS)
-                 "the replay thread armed its observation and parked")
+             (is (.await parked 10 TimeUnit/SECONDS)
+                 "the replay thread reached its dispatch and parked")
              (rf/dispatch-sync foreign-event {:frame fid})
              (finally
                (.countDown release)))
@@ -444,28 +451,56 @@
 
 #?(:clj
    (deftest replay-result-names-its-own-dispatch-not-another-threads
-     (testing "another thread's same-frame dispatch commits between replay's
-               observation arming and its dispatch; the reported epoch is still
-               the replay's own record"
+     (testing "another thread's same-frame dispatch commits just before one
+               replay's dispatch and just after another's; each reported epoch
+               is that replay's own record, not the first or the newest"
        (rf/configure! {:epoch-history {:depth 10}})
        (rf/make-frame {:id interleave-frame-id})
        (rf/reg-event :review/add add-handler)
        (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-       (let [source (last (rf/epoch-history interleave-frame-id))
-             res    (replay-with-foreign-dispatch-after-arming
-                      interleave-frame-id (:epoch-id source) [:review/add 100])
-             after  (rf/epoch-history interleave-frame-id)]
-         (is (= [[:review/add 1] [:review/add 100] [:review/add 1]]
-                (mapv :trigger-event after))
-             "the other thread's dispatch committed INSIDE replay's armed window")
-         (is (= (:epoch-id (last after)) (:epoch-id res))
-             "the reported epoch is the replay's OWN new record")))))
+       (let [source-id (:epoch-id (last (rf/epoch-history interleave-frame-id)))
+             before    (replay-with-foreign-dispatch
+                         interleave-frame-id source-id [:review/add 100] :before)
+             after     (replay-with-foreign-dispatch
+                         interleave-frame-id source-id [:review/add 100] :after)
+             history   (rf/epoch-history interleave-frame-id)]
+         (is (= [[:review/add 1]
+                 [:review/add 100] [:review/add 1]
+                 [:review/add 1] [:review/add 100]]
+                (mapv :trigger-event history))
+             "the other thread's dispatch committed before the first replay's and after the second's")
+         (is (= [(:epoch-id (nth history 2)) (:epoch-id (nth history 3))]
+                [(:epoch-id before) (:epoch-id after)])
+             "each reported epoch is that replay's OWN new record")))))
+
+;; The incarnation fence answers for a dispatch the router refused. A replay
+;; the router RAN is not a refusal, even when its own cascade destroys the
+;; frame and takes the ring with it.
+
+(def ^:private doomed-frame-id :epoch-replay/doomed)
+
+(deftest replay-that-destroys-its-own-frame-is-not-refused
+  (testing "the replayed event destroys its frame on its second run: the
+            replay ran, so it reports ok with a nil epoch rather than the
+            fence's no-such-handler"
+    (rf/make-frame {:id doomed-frame-id})
+    (rf/reg-event :review/destroy-on-rerun
+      (fn [{:keys [db]} _]
+        (if (:ran db)
+          (do (rf/destroy-frame! doomed-frame-id) {})
+          {:db (assoc db :ran true)})))
+    (rf/dispatch-sync [:review/destroy-on-rerun] {:frame doomed-frame-id})
+    (let [source-id (:epoch-id (last (rf/epoch-history doomed-frame-id)))
+          res       (rf/replay-epoch! doomed-frame-id source-id)]
+      (is (= [] (rf/epoch-history doomed-frame-id))
+          "the frame, and its ring, went with the replayed event")
+      (is (= {:ok? true :epoch-id nil} (select-keys res [:ok? :epoch-id]))))))
 
 ;; A handler registered `:rf.trace/no-emit? true` commits no epoch, and epoch
 ;; capture never hears its `:rf.event/dispatched`. Replay runs against CURRENT
-;; code, so replaying a handler re-registered quiet is ordinary use: with no
-;; dispatch id of its own no commit is evidence of the replay, and the answer
-;; is nil — not a commit some other dispatch made.
+;; code, so replaying a handler re-registered quiet is ordinary use: no record
+;; carries the replay's dispatch id, and the answer is nil — not a commit some
+;; other dispatch made.
 
 (defn- reg-quiet!
   "Re-register `event-id` with `handler` and its tracing opted out."
@@ -503,9 +538,8 @@
 (deftest replay-over-two-queued-levels-reports-its-own-epoch-or-nil-when-quiet
   (testing "a traced replay over two queued levels reports its OWN new parent
             record. Re-registered quiet, the same replay reports nil: the quiet
-            parent's emit and its child's enqueue are suppressed, so the traced
-            child's enqueue of the grandchild is the first dispatch the arming
-            thread sees, and adopting it would name the grandchild's record"
+            parent commits no record, and its child's and grandchild's records
+            carry their own dispatch ids"
     (rf/configure! {:epoch-history {:depth 10}})
     (rf/make-frame {:id evict-frame-id})
     (register-three-generations!)
