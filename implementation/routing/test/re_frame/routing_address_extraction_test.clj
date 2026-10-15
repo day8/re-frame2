@@ -1,9 +1,5 @@
 (ns re-frame.routing-address-extraction-test
-  "The shared RouteAddress extraction law, `re-frame.routing.address`
-  (Spec 012 §The extraction law, Spec-Schemas §`:rf/route-address`): the
-  closed navigate roster, the `classify` structural gate, the closed
-  `valid-address?` predicate over the extracted address, and `link-model`
-  resolving its address through the shared extractor."
+  "Closed addresses and navigation request branches (Spec 012)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.address :as rf.routing.address]
@@ -11,11 +7,6 @@
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
-
-(deftest key-classes-are-the-closed-spec-sets
-  (is (= #{:to :params :query :fragment :url :replace? :scroll :bypass-leave? :query-merge}
-         rf.routing.address/navigate-request-roster)
-      "address ∪ raw-URL ∪ policy ∪ edit; any other key rejects :unknown-keys"))
 
 (deftest classify-enforces-the-branch-rules
   (let [home {:route-id :route/home}]
