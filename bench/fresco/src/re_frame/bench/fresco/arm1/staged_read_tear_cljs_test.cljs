@@ -1,85 +1,5 @@
 (ns re-frame.bench.fresco.arm1.staged-read-tear-cljs-test
-  "A STAGED READ THAT MOVES BEFORE THE COMMIT.
-
-  `generation_fence_coverage_cljs_test` states what the generation
-  fence covers and where it cannot reach; this file proves that gap
-  closed over Arm 1's OWN runtime rather than a transcription of it.
-
-  ## The gap these rows are about
-
-  Two windows, and the fence guards only one of them:
-
-      the mount     render reads a site … COMMIT acquires that site
-                    |<------- the render->commit gap ------->|
-
-      the fence     capture … BODY RUNS … compare … RETURN
-                    |<---- one body run ---->|
-
-  `render-body` compares and returns; the commit that follows — React
-  calling the read-set entry's `subscribe`, where `acquire-cell!`
-  installs the edge and the watch — compares nothing, by design (`no
-  commit-phase deref`). What reaches the gap instead is the epoch-sum
-  `getSnapshot` plus React's own post-`subscribe` re-check, and that is
-  real — but driven by the flush generation alone it would not be
-  enough. An epoch moves only when `flush!` finds a dirty cell, and
-  `mark-dirty!` takes a CELL: its callers are the value-change watch
-  `acquire-cell!` installs AT COMMIT and the rewire of a cell that
-  already exists. So for a key nothing holds yet — no cell, no watch, no
-  epoch — a move in the gap marks nothing and bumps nothing, and a
-  `getSnapshot` built on those counters alone would answer the same
-  number before and after the commit. The boundary would paint the old
-  value and, because the watch's baseline is already the new one, **no
-  later notification would come for a change that had already
-  happened**. That is Spec 006 invariant 5's stronger half: *a staged
-  site publishes stale and nothing ever corrects it.*
-
-  A baseline deref at acquire — which this arm performs, and which
-  answers a DIFFERENT problem (a fresh reaction whose
-  `unset` baseline any real value counts as moved from reports movement on
-  the first later commit whatever it did) — cannot close this one. It gives
-  the cell a correct baseline and no COMPARISON: it silently adopts the
-  moved value as though it had always been that.
-
-  ## What closes it
-
-  One term, in the one place React already looks. A key with no cell
-  contributes its frame's `commit-basis` to `getSnapshot` instead of
-  nothing, and a cell records the basis it was CREATED at:
-
-      commit-basis(frame) = the runtime's flush generation
-                          + `re-frame.frame/frame-commit-epoch`
-                          + the runtime's registry epoch
-
-  The second term is the substrate's own read-evidence
-  counter — one bump per physical frame-state install, at both write
-  chokepoints — and Spec 006 uses it to answer exactly this
-  question without watching anything. The third counts `:sub`
-  registrations, which are neither a flush nor an install;
-  this file's rows are the version axis and do not exercise it. So a
-  staged key's number is `basis@render` while the boundary renders and
-  `basis@commit` once the commit acquires it: equal when nothing moved in
-  the gap, different when something did. React stores each fiber's render-time snapshot and
-  re-reads `getSnapshot` immediately after `subscribe` returns
-  (`updateStoreInstance` is the very next passive effect), so the
-  comparison is per boundary, is one number, and holds **no record of
-  what any read returned**.
-
-  ## What these rows are, and what they are not
-
-  They are the seam React occupies, driven by hand: `render-body` is the
-  render, `snapshot-of` is `useSyncExternalStore`'s capture and React's
-  `checkIfSnapshotChanged`, `commit-boundary!` is `subscribe`. Nothing
-  here mocks the sub layer, the frames or the watches — the adapter is
-  the React spine's, because under `plain-atom` a subscription never
-  notifies and every one of these assertions would pass by never firing.
-  `arm1/generation_fence_dom_cljs_test`'s staged row then proves REACT
-  drives this seam, in a real browser, against the real DOM.
-
-  Two rows would fail on a runtime that counted the flush generation
-  alone — `a-staged-read-that-moves-in-the-gap-is-corrected` and
-  `the-fence-sees-a-mid-body-move-of-a-key-nothing-holds` — and the
-  remaining rows are what stop the staged term from meaning \"re-render
-  always\": a clean mount must ask React for nothing."
+  "Snapshot checks detect staged and retained changes while a clean mount requests no extra render."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -114,9 +34,7 @@
   [seen]
   (fn [_] (let [v (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0])] (vreset! seen v) [:li (str v)])))
 
-;; ---------------------------------------------------------------------------
 ;; The tear, and what closes it
-;; ---------------------------------------------------------------------------
 
 (deftest a-staged-read-that-moves-in-the-gap-is-corrected
   (testing "hd-002-adjudication.md §6.1's adversarial witness, executed
@@ -193,9 +111,7 @@
            moved with it")
       (hold!))))
 
-;; ---------------------------------------------------------------------------
 ;; The same blind spot, inside the fence's own window
-;; ---------------------------------------------------------------------------
 
 (deftest the-fence-sees-a-mid-body-move-of-a-key-nothing-holds
   (testing "the sibling hole, and the reason the fence compares the basis
