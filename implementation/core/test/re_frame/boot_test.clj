@@ -32,14 +32,13 @@
 
 (deftest init-is-idempotent
   (rf/init! rf.substrate.plain-atom/adapter)
-  (is (some? (rf.substrate.adapter/current-adapter)))
-  (is (empty? @rf.frame/frames) "init! creates no frame, :rf/default included")
   (let [adapter-after-first (rf.substrate.adapter/current-adapter)
         frames-after-first  @rf.frame/frames]
     (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
-        "the second init! does not re-install")
-    (is (= frames-after-first @rf.frame/frames))))
+    (is (= [true true {} {}]
+           [(some? adapter-after-first)
+            (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
+            frames-after-first @rf.frame/frames]))))
 
 (deftest init-rejects-a-different-adapter
   ;; init! asks "is this the seated adapter?" (same canonical :kind, else
