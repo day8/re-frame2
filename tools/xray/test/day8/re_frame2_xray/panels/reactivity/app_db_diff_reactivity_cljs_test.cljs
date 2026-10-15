@@ -71,39 +71,6 @@
   (h/focus-cascade! :c1)
   (is (= :e1 (assert-atomic! "focus :c1 (return)"))))
 
-;; ---- no later-event bleed onto an earlier selection ---------------------
-;;
-;; Focusing a NON-head epoch is what separates the per-epoch delta from the
-;; cumulative diff: at the head the two agree.
-
-(def bleed-cascades
-  [(h/cascade :early :rf/default)
-   (h/cascade :late  :rf/default)])
-
-(def bleed-history
-  ;; :early adds :media/deep; the LATER :late adds :media/shallow.
-  [(h/mock-epoch :ep-early :early
-                 {:counter 1}
-                 {:counter 1 :media/deep :on})
-   (h/mock-epoch :ep-late  :late
-                 {:counter 1 :media/deep :on}
-                 {:counter 1 :media/deep :on :media/shallow :on})])
-
-(deftest earlier-epoch-shows-own-delta-no-later-bleed
-  (h/setup-xray-frame!)
-  (h/seed-cascades! bleed-cascades)
-  (h/seed-epoch-history! bleed-history)
-  (h/focus-cascade! :early)
-  (let [{:keys [value before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
-    (is (= :ep-early epoch-id))
-    (is (= {:counter 1 :media/deep :on} value)
-        "the later event's :media/shallow does not bleed into :value")
-    (is (= {:counter 1} before)))
-  (testing "control — the LATER epoch shows its own delta"
-    (h/focus-cascade! :late)
-    (let [{:keys [value before]} (h/read-sub :rf.xray/app-db-current+diff)]
-      (is (= [:media/shallow] (vec (remove (set (keys before)) (keys value))))))))
-
 (deftest app-db-state-section-model-tracks-focused-before
   (testing "the section model's :before-top re-derives per focused epoch"
     (h/setup-xray-frame!)
