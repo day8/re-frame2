@@ -343,8 +343,9 @@
   "Re-register machine runtime effects and subscriptions in both the regular
   registrar and framework-standard registry. Idempotent.
 
-  The regular registrar serves no-generation/default-image lookups. The
-  standard registry supplies the same handlers to sealed image generations.
+  The regular registrar serves lookups no frame resolves. The standard
+  registry supplies the same handlers to sealed image generations and to the
+  live view of a frame made without `:images`.
 
   Uses descriptors captured at namespace load, so it still works after the
   registrar has been cleared."
@@ -356,7 +357,8 @@
 
 ;; Register at namespace load so an image-loaded frame created by a standalone
 ;; require'r (no `init!`) resolves the machine runtime through its generation,
-;; and a no-generation caller resolves it through the registrar.
+;; a frame made without `:images` through the standards its live view reads,
+;; and any other caller through the registrar.
 (install-machine-runtime!)
 
 ;; Publish a late-bind hook so `re-frame.test-support`'s reset fixture can

@@ -23,7 +23,7 @@
   inside frame A targeting frame B). It reads the target frame's app-db
   and route slice by id, which needs no ambient scope; but the `:head`
   and `:route` lookups are ordinary `(kind, id)` resolutions, and those
-  route through `re-frame.registrar/*generation*` — which a read made
+  route through `re-frame.registrar/*generation*` or `*live-view*` — which a read made
   outside `with-frame` finds unbound.
 
   Left unbound, a head id registered from two namespaces, with two frames
@@ -36,11 +36,10 @@
   Every read that participates in producing the model therefore runs
   inside ONE `re-frame.live-frame/call-with-frame-resolution` extent on
   the target frame — route metadata selection, head lookup, and the head
-  fn's own invocation, so a coherent generation covers the whole read
-  rather than half of it. A target that names no image-loaded frame binds
-  nothing and takes the plain registrar-atom path, which is the path of
-  the ordinary single-image / default-image
-  application."
+  fn's own invocation, so one coherent view covers the whole read
+  rather than half of it. A frame made without `:images` binds a live view
+  of the registration store instead, and a target that names neither binds
+  nothing and takes the plain registrar-atom path."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
@@ -204,8 +203,8 @@
      ;; registration that NAMES the head, the head registration itself and
      ;; the head fn's body must come from the same image, or a
      ;; route-declared head resolves in one generation and executes in
-     ;; another. A frame with no sealed generation binds nothing — the
-     ;; plain registrar-atom path.
+     ;; another. A frame with neither a sealed generation nor the live mark
+     ;; binds nothing — the plain registrar-atom path.
      (rf.live-frame/call-with-frame-resolution
        frame-id
        (fn []

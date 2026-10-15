@@ -288,7 +288,7 @@
   `:sensitive`), not app-db-owned (the frame's classification).
 
   The hook resolves the event's marks through
-  `registrar/handler-meta`, which reads the AMBIENT generation. Run it inside
+  `registrar/handler-meta`, which reads the AMBIENT resolution. Run it inside
   the RECORD OWNER's resolution scope whenever the projection resolved one
   (`:frame` in `elision-opts` — the same owner the leaf walker is seeded with),
   so an image-local event declaration answers for its own record. Without it a
@@ -320,8 +320,8 @@
 
   The one event projection every always-on route shares: this ns's sink
   route, and the `re-frame.event-emit` / `re-frame.error-emit` records, which
-  call it with `{:frame <owner>}` so the registration pass resolves in the
-  owner's generation and the walk reads the owner's durable classification.
+  call it with `{:frame <owner>}` so the registration pass resolves through the
+  owner's own view and the walk reads the owner's durable classification.
   A nil owner keeps the ambient resolution, and the walk then fails closed."
   [event elision-opts]
   (-> event

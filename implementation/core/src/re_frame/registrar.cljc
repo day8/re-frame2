@@ -193,8 +193,8 @@
 ;;
 ;;     target frame -> resolved image generation -> registration resolution
 ;;
-;; A live frame (`re-frame.live-frame/make-frame`) has a SEALED image
-;; generation on its `frames` record (the `:generation` slot) rather than
+;; A frame made with `:images` (`re-frame.live-frame/make-frame`) has a SEALED
+;; image generation on its `frames` record (the `:generation` slot) rather than
 ;; addressing a realm registrar atom. The generation's `:rf.gen/resolver` is the id-disjoint
 ;; `{[kind id] descriptor}` map a frame resolves `(kind, id)` lookups through
 ;; (the descriptor is the SAME registration-metadata shape `register!` stores —
@@ -204,12 +204,14 @@
 ;;
 ;; `*generation*` is the resolution-routing seam: when BOUND (a dispatch /
 ;; subscribe / fx / cofx / view / resource lookup is in flight against an
-;; EP-0023 frame object), `lookup` / `handler` / `registrations` / `ids`
-;; resolve through the generation's resolver FIRST instead of the registrar
-;; atom. When nil — the absence-is-default path, taken by EVERY caller that is
-;; not resolving against a frame object (the realm-routed dispatch and the
-;; single-realm default path alike) — the reads target `active-registrar`'s
-;; atom. This var is consulted with ONE nil check on the read hot path; the
+;; EP-0023 frame object made with `:images`), `lookup` / `handler` /
+;; `registrations` / `ids` resolve through the generation's resolver FIRST
+;; instead of the registrar atom. When nil, a bound [[*live-view*]] (a frame
+;; made without `:images`) answers instead; with neither bound — the
+;; absence-is-default path, taken by EVERY caller that is not resolving
+;; against a frame object (the realm-routed dispatch and the single-realm
+;; default path alike) — the reads target `active-registrar`'s atom. This var
+;; is consulted with ONE nil check on the read hot path; the
 ;; dominant production path leaves it unbound and pays a single `nil?` branch.
 ;;
 ;; PERF / coherence: like `*registrar*`, the binding is established ONCE per
@@ -905,7 +907,8 @@
     ;; hook, removals ride this) so default-image frames drop the cleared
     ;; handler at their next resolution rather than resolving a stale sealed
     ;; generation. NOT gated on `rf.interop/debug-enabled?` — the
-    ;; sealed generation is produced unconditionally by `make-frame`, so
+    ;; sealed generation of a frame made with `:images` is produced
+    ;; unconditionally by `make-frame`, so
     ;; skipping the dirty mark in production would leave a cleared handler
     ;; resolving forever out of a store that no longer backs it. Late-bound by keyword;
     ;; unpublished (no frame ever constructed) means no-op.

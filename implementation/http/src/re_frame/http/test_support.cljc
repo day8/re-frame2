@@ -678,8 +678,8 @@
   fx-override `{:rf.http/managed <scope-stub-fx-id>}`
   (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides` seam)
   for the thunk's dynamic extent. `scope-stub-fx-id` is registered at ns-load,
-  so it is resolvable through the SEALED image generation of a
-  frame created BEFORE the scope was entered — the exact tutorial nesting
+  so a frame created BEFORE the scope was entered resolves it, including one
+  that sealed its image generation then — the exact tutorial nesting
   `(with-new-frame [f (make-frame {})] (with-request-stubs … (fn [] …)))` routes
   through the stub instead of escaping to the real transport. Every
   `dispatch-sync` inside the body auto-routes by `:request :method` +

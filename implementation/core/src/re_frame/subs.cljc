@@ -1797,8 +1797,8 @@
   and the error payloads all key the backing record unchanged — a keyword
   passes through. The generation-resolution seam
   (`rf.live-frame/call-with-frame-resolution`) then reads the frame's sealed
-  generation off the record by this id — so a value target builds against its
-  OWN image, byte-identical to the keyword form. Mirrors the dispatch-side normalization in
+  generation, or its live mark, off the record by this id — so a value target
+  builds against its OWN view, byte-identical to the keyword form. Mirrors the dispatch-side normalization in
   `re-frame.router/build-envelope`.
 
   Per Spec 006 §The sub-override subscribe seam (CLJS /
@@ -1883,10 +1883,11 @@
    ;; `compute-and-cache!`) resolve the sub handler through the frame's OWN
    ;; image (the image-resolution seam, invoked at the live subscribe entry).
    ;; Two frames running DIFFERENT images thus build the same sub-id against
-   ;; their own image's descriptor. A target naming no image-loaded frame (a
-   ;; single-realm default frame) derives no generation, so this binds nothing
-   ;; and the build resolves through the registrar atom directly
-   ;; (absence-is-default). DERIVED from the carried target (EP-0002).
+   ;; their own image's descriptor. A frame made without `:images` binds a
+   ;; live view of the registration store instead; a target naming neither
+   ;; derives nothing, so this binds nothing and the build resolves through the
+   ;; registrar atom directly (absence-is-default). DERIVED from the carried
+   ;; target (EP-0002).
    (rf.live-frame/call-with-frame-resolution
      frame-id
      (fn []

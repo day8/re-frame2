@@ -50,7 +50,7 @@
       `:large` policy (passed as the explicit `:frame` opt so the named
       frame's policy applies regardless of any ambient scope);
     - a **live sub's `:value`** first redacted by that sub's own registration
-      classification, resolved in the frame's generation — the projection
+      classification, resolved through the frame's own view — the projection
       its `:sub/run` trace applies to the same value;
     - **fail-closed** on a nil / unreachable frame — the observed frame-id
       is stamped as the `:frame` opt whatever it is, and `elide-wire-value`
@@ -426,7 +426,7 @@
     output, so before that walk it takes the sub's registration
     `:sensitive` / `:large` paths through `rf.classification/project-sub-value`,
     the projection the sub's `:sub/run` trace applies to the same value. The
-    registration resolves in `frame-id`'s generation; the node's query-vector
+    registration resolves through `frame-id`'s own view; the node's query-vector
     `:id` stays raw.
 
   STRUCTURE IS PRESERVED (the headline guarantee): a redacted value / param

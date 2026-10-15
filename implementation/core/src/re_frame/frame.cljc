@@ -80,8 +80,8 @@
 
 ;; ---- runnable frame OBJECT marker + target normalization ------------------
 ;;
-;; `re-frame.live-frame/make-frame` returns a SINGLE runnable image-loaded
-;; frame OBJECT — a map carrying the resolved image generation AND a reference
+;; `re-frame.live-frame/make-frame` returns a SINGLE runnable frame OBJECT — a
+;; map carrying a reference
 ;; (`:rf.frame/runnable-id`) to the backing runnable RECORD this ns owns in
 ;; `frames`. The object IS the public live frame; its runnable interior
 ;; (app-db / runtime-db / queue / sub-cache / lifecycle) is the record reached
@@ -2438,8 +2438,9 @@
   (let [;; EP-0024: `make-frame` threads the resolved generation through the
         ;; config under the reserved `:rf.frame/generation` key so it is installed
         ;; on the record BEFORE construction setup runs — an `:initial-events`
-        ;; cascade then resolves through the frame's OWN image generation (not the
-        ;; global registrar). EP-0027: a fresh frame ALWAYS starts with app-db
+        ;; cascade then resolves through the frame's OWN view (its image
+        ;; generation, or the live store for a frame made without `:images`), not
+        ;; the global registrar. EP-0027: a fresh frame ALWAYS starts with app-db
         ;; `{}` (Spec 002 §Frames always start with app-db = {}). There is no
         ;; `:initial-db` seed — seeding app-db is itself a setup
         ;; event (`[:rf/set-db {…}]` as the first `:initial-events` step), so the

@@ -74,8 +74,8 @@
   sensitivity is per-path, not per-handler, and the record's `:event` is
   projected in two steps (Spec 015), each redacting a sensitive value inside
   the record rather than suppressing the record: first the event
-  registration's own `:sensitive` / `:large` paths, resolved in the frame's
-  generation, then `re-frame.elision/elide-wire-value` against the frame's
+  registration's own `:sensitive` / `:large` paths, resolved through the
+  frame's own view, then `re-frame.elision/elide-wire-value` against the frame's
   `[:rf.runtime/elision]` registry. Both come from
   `re-frame.projection/project-event-slot`, the pass the frame-owned sink
   route and the error-emit record also run."
@@ -125,7 +125,7 @@
   drops the record when `:rf.trace/no-emit?` is set.
   A surviving record's `:event` is projected ONCE, with off-box defaults,
   by `re-frame.projection/project-event-slot`: the event registration's
-  `:sensitive` / `:large` paths in `frame`'s generation, then the
+  `:sensitive` / `:large` paths in `frame`'s own view, then the
   wire-walker against `frame`'s durable classification (large →
   `:rf.size/large-elided`; sensitive → `:rf/redacted`). The record then
   fans out through the emit-substrate registry. Listener exceptions are
