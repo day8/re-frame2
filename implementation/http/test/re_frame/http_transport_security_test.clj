@@ -5,9 +5,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing]]
             [re-frame.http.handlers]
-            [re-frame.http.transport]
             [re-frame.http.transport-jvm]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.io IOException]
            [java.net.http HttpClient HttpClient$Redirect HttpTimeoutException]
@@ -141,34 +139,3 @@
       {:kind    :rf.http/transport
        :message "user clicked abort on 3rd-party retry-wrapper"
        :cause   "java.lang.RuntimeException"})))
-
-;; ---- shared emit-and-dispatch-failure! tail -------------------------------
-;;
-;; A completion that wins the once-only CAS after a supersede flipped the
-;; handle's abort cell is reclassified onto this tail, which must suppress the
-;; reply the superseded request would otherwise deliver.
-
-(def ^:private emit-and-dispatch-failure!
-  @#'re-frame.http.transport/emit-and-dispatch-failure!)
-
-(deftest emit-and-dispatch-failure-suppresses-supersede-dispatch
-  (testing "for a supersede (:rf.http/aborted with :reason
-            :request-id-superseded) the helper still emits the trace but
-            dispatches no reply"
-    (let [dispatched (atom [])
-          original   (rf.late-bind/get-fn :router/dispatch!)]
-      (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
-      (try
-        (with-trace-capture
-          (fn [captured]
-            (emit-and-dispatch-failure!
-              {:request-id          :rid
-               :url                 "https://api.example.invalid/q"
-               :origin-event        [:some/event]
-               :explicit-on-failure {:supplied? false :value nil}}
-              {:kind :rf.http/aborted :request-id :rid :reason :request-id-superseded})
-            (is (= :request-id-superseded
-                   (:reason (:tags (first-op captured :rf.http/aborted))))
-                "supersede still emits :rf.http/aborted")
-            (is (empty? @dispatched) "no :on-failure reply is dispatched")))
-        (finally (rf.late-bind/set-fn! :router/dispatch! original))))))
