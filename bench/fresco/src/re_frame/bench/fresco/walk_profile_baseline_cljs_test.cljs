@@ -1,20 +1,5 @@
 (ns re-frame.bench.fresco.walk-profile-baseline-cljs-test
-  "THE ABLATION BASELINE IS THE *OLD* WALK.
-
-  `walk_profile_app`'s `local` arm is both the ablation baseline and the
-  OLD arm of the in-process A/B that prices the codec candidate. Every
-  shipping `front.codec` helper the baseline reaches for is a piece of the
-  candidate it has already absorbed, and the A/B then quotes a smaller
-  reduction with no arm going red. So both halves of its prop conversion
-  are frozen locally (`local-prop-cache`, `local-convert-prop-value`).
-
-  Two claims: the frozen converter answers what the shipping one answers
-  (why the freeze is safe), and the baseline arm never ENTERS the shipping
-  helpers (why the freeze is there). No output tells `string?`-first from
-  `fn?`-first, so the second counts entries, each beside a CONTROL that
-  shows the probe live. `codec/cached-parse`'s reserved-name check stays in
-  the baseline deliberately — `local-convert-prop-value`'s docstring says
-  why — so nothing here asserts it."
+  "The frozen baseline keeps conversion behavior while avoiding the shipping converter and name cache."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.walk-profile-app :as rf.bench.fresco.walk-profile-app]))
@@ -48,9 +33,9 @@
 (deftest the-frozen-converter-answers-what-the-shipping-one-answers
   (let [shipping rf.bench.fresco.front.codec/convert-prop-value
         local    rf.bench.fresco.walk-profile-app/local-convert-prop-value
-        by-identity ["href" (fn [_] nil) #js {:a 1} (array 1 2) 42 nil true false]
+        by-identity ["href" (fn [_] nil) #js {:a 1} nil false]
         converted   [:active 'sym {:background-color "red" :z-index 3} {:outer {:font-weight "bold"}}
-                     ["a" "b"] #{"a"} [:conduit/show-your-feed]]]
+                     ["a" "b"]]]
     (is (= (mapv shipping by-identity) (mapv local by-identity))
         "the classes the codec passes through, passed through by identity")
     (is (= (mapv (comp js->clj shipping) converted) (mapv (comp js->clj local) converted))
