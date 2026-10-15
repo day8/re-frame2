@@ -1355,11 +1355,10 @@
   Returns the effects map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db, :as coeffects}
+    time-ms :rf/time-ms, app-db :db}
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.mutation-registry/require-mutation-spec! mutation where)
         ;; Thread `:params` presence (absent vs explicit nil) to
         ;; the validation boundary: an absent slot defaults to `{}` there, an
@@ -1404,7 +1403,7 @@
         ;; instance-id + work-id derive from it, so recording the generation
         ;; reproduces both on replay for free — a recorded mutation reply
         ;; keeps its current-vs-stale verdict on replay.
-        generation (:generation gen-allocation)
+        generation (rf.resources.state/allocated-generation gen-allocation)
         instance-id (mint-instance-id mutation instance generation)
         ;; the work-id reuses the resource work-id shape, but keyed by the
         ;; instance id (a mutation's identity unit) + generation, so a

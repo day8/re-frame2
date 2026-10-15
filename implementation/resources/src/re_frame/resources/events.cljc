@@ -375,10 +375,9 @@
   Returns the reg-event effects map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db, :as coeffects}
+    time-ms :rf/time-ms, app-db :db}
    {:keys [resource owner cause keep-previous? reply-to] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         ;; EP-0016 D1 — the OPTIONAL call-site
         ;; `:reply-to` read-completion continuation. It rides the durable work
@@ -670,7 +669,7 @@
       ;; replay reproduces the identical generation (and therefore the
       ;; identical `:work/id`, which derives from it) — a recorded managed
       ;; reply keeps its current-vs-stale verdict on replay.
-      (let [generation (:generation gen-allocation)
+      (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
             ;; The transport correlation token is the
             ;; frame-QUALIFIED request-id, NOT the bare work-id: two frames
@@ -948,10 +947,9 @@
   `:page-error` (`entry-page-failed`). Returns the reg-event effects map."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db, :as coeffects}
+    time-ms :rf/time-ms, app-db :db}
    {:keys [resource cause] supplied-owner :owner :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
@@ -1050,7 +1048,7 @@
 
       ;; ----- issue the next page fetch (fresh generation, APPEND) ---------
       :else
-      (let [generation (:generation gen-allocation)
+      (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms
@@ -1192,11 +1190,10 @@
   or re-loaded). Returns the reg-event effects map."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db, :as coeffects}
+    time-ms :rf/time-ms, app-db :db}
    {:keys [resource owner cause] page-param :rf.resource/page-param
     page-index :rf.resource/page-index :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
@@ -1226,7 +1223,7 @@
 
       ;; ----- issue the replacement fetch for THIS page (fresh generation) --
       :else
-      (let [generation (:generation gen-allocation)
+      (let [generation (rf.resources.state/allocated-generation gen-allocation)
             work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms

@@ -22,7 +22,6 @@
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.decisions :as rf.routing.decisions]
             [re-frame.routing.events :as rf.routing.events]
-            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
@@ -210,8 +209,7 @@
     rdb-raw        :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
-    app-db         :db
-    :as            coeffects}
+    app-db         :db}
    [_ request0 :as event-vec]]
     (let [;; EP-0002 carried invariant -- `:rf.route/navigate` is a cascade
           ;; event, so the cofx carries the frame stamp under `:rf.frame/id`;
@@ -220,7 +218,6 @@
           frame (rf.frame/require-frame-stamp!
                   frame :rf.route/navigate
                   {:where 'rf.route/navigate-handler})
-          _    (rf.routing.nav-counters/check-allocations! coeffects)
           rdb  (or rdb-raw {})
           ;; The current route slice (durable framework runtime-db fact). Read
           ;; once so the in-place patch and `:query-merge` both resolve

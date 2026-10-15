@@ -23,6 +23,7 @@
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.classification :as rf.routing.classification]
+            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.readiness :as rf.routing.readiness]
             [re-frame.trace :as rf.trace]))
 
@@ -221,7 +222,8 @@
   (let [;; The nav-token rides the RECORDABLE `:rf.route/nav-allocation`
         ;; cofx — `:token` is published into the slice (recorded + replay-stable),
         ;; `:counter` advances the host high-water via the bump fx below.
-        {token :token counter :counter} nav-allocation
+        {token :token counter :counter}
+        (rf.routing.nav-counters/checked-nav-allocation nav-allocation)
         committed (-> (merge-route-slice rdb {:route-id   route-id
                                               :params     params
                                               :query      query

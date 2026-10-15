@@ -186,8 +186,7 @@
 
   It declares no `:schema`, so routing runs without the schemas artefact.
   The `{:token \"nav-N\" :counter N}` shape is checked always-on by
-  `check-allocations!`, which every nav handler declaring this cofx calls
-  on entry."
+  `checked-nav-allocation` where the token folds into the route slice."
   {:recordable? true
    :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
 minted at processing-start from the host nav-token
@@ -220,7 +219,8 @@ Recorded so record+replay re-presents the same nav-token verbatim
 
   Like `nav-allocation-cofx-meta` it declares no `:schema`; the
   `{:id \"pn-N\" :counter N}` shape is checked always-on by
-  `check-allocations!`."
+  `checked-pending-nav-allocation` where the id folds into the
+  pending-navigation slot."
   {:recordable? true
    :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
 minted at processing-start from the host pending-nav
@@ -246,13 +246,15 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
 ;; ---- the always-on allocation shape check ---------------------------------
 ;;
 ;; The cofx machinery delivers a supplied or replayed allocation as recorded,
-;; checking only that it is EDN, so the nav handlers check both shapes
-;; themselves before anything folds. A malformed fact would otherwise be
-;; trusted: a nil nav-token in the route slice corrupts stale-suppression and
-;; silently no-ops the host counter bump, and a nil pending-nav id leaves a
-;; recorded `[:rf.route/continue "pn-N"]` matching nothing, so the navigation
-;; stays blocked forever. Plain predicates rather than a cofx `:schema`, so
-;; the check runs in every build with or without the schemas artefact.
+;; checking only that it is EDN, so routing checks each shape where the
+;; allocation folds into route state: after the request and its params are
+;; validated, and before the handler returns any effect. A malformed fact
+;; would otherwise be trusted: a nil nav-token in the route slice corrupts
+;; stale-suppression and silently no-ops the host counter bump, and a nil
+;; pending-nav id leaves a recorded `[:rf.route/continue "pn-N"]` matching
+;; nothing, so the navigation stays blocked forever. Plain predicates rather
+;; than a cofx `:schema`, so the check runs in every build with or without
+;; the schemas artefact.
 
 (defn- nav-allocation?
   [v]
@@ -271,29 +273,28 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
          "the route state.")
     {:extra {:rf.cofx/id cofx-id :value value}}))
 
-(defn check-allocations!
-  "Throw `:rf.error/cofx-value-invalid` unless each allocation `coeffects`
-  carries has its shape: `:rf.route/nav-allocation` is
-  `{:token string :counter int}` and `:rf.route/pending-nav-allocation` is
-  `{:id string :counter int}`. Every nav handler that declares the two
-  allocation cofx calls this on entry. The router delivers every declared
-  fact, so a handler it runs carries both and never runs on a malformed one,
-  whether generated, supplied or replayed. A coeffects map without an
-  allocation, as when a handler is called directly, is not graded, exactly
-  as no delivery-time check reaches it. Returns nil."
-  [coeffects]
-  (when (and (contains? coeffects :rf.route/nav-allocation)
-             (not (nav-allocation? (:rf.route/nav-allocation coeffects))))
+(defn checked-nav-allocation
+  "Return `allocation` when it is `{:token string :counter int}`, and throw
+  `:rf.error/cofx-value-invalid` otherwise. The commit reads the allocation
+  through this where the token folds into the route slice, so every
+  allocation that would fold is checked, whether generated, supplied or
+  replayed."
+  [allocation]
+  (when-not (nav-allocation? allocation)
     (refuse-allocation! :rf.route/nav-allocation
-                        "`{:token string :counter int}`"
-                        (:rf.route/nav-allocation coeffects)))
-  (when (and (contains? coeffects :rf.route/pending-nav-allocation)
-             (not (pending-nav-allocation?
-                    (:rf.route/pending-nav-allocation coeffects))))
+                        "`{:token string :counter int}`" allocation))
+  allocation)
+
+(defn checked-pending-nav-allocation
+  "Return `allocation` when it is `{:id string :counter int}`, and throw
+  `:rf.error/cofx-value-invalid` otherwise. A leave block reads the
+  allocation through this where the id folds into the pending-navigation
+  slot."
+  [allocation]
+  (when-not (pending-nav-allocation? allocation)
     (refuse-allocation! :rf.route/pending-nav-allocation
-                        "`{:id string :counter int}`"
-                        (:rf.route/pending-nav-allocation coeffects)))
-  nil)
+                        "`{:id string :counter int}`" allocation))
+  allocation)
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
 

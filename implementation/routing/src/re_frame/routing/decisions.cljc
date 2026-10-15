@@ -40,6 +40,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.nav-fx :as rf.routing.nav-fx]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
@@ -332,7 +333,9 @@
     (cond
       ;; ---- stage 4 rejected: a resumable leave-only pending value -------
       (not leave-ok?)
-      (let [{pn-id :id pn-counter :counter} pending-nav-allocation
+      (let [{pn-id :id pn-counter :counter}
+            (rf.routing.nav-counters/checked-pending-nav-allocation
+              pending-nav-allocation)
             rejecting-guard (guard-id current-meta :can-leave)
             pending (cond-> {:id              pn-id
                              :destination     (destination-of target requested-url)
