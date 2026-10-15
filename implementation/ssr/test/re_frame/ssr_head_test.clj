@@ -30,15 +30,12 @@
 ;; ---- reg-head ---------------------------------------------------------------
 
 (deftest reg-head-accepts-metadata-arity
-  (is (= :head/with-meta
-         (rf/reg-head :head/with-meta {:doc "Article-page head model"} (fn [_db _route] {:title "x"})))
-      "reg-head returns its id (Conventions §reg-* return-value convention)")
-  (let [m (rf.registrar/lookup :head :head/with-meta)]
-    (is (= {:title "x"} ((:handler-fn m) {} nil))
-        "the metadata argument does not displace the head-fn")
-    ;; `:doc` is pure documentation: kept in dev, elided under the production
-    ;; gate (Spec 001 §Production elision contract).
-    (is (= (when rf.interop/debug-enabled? "Article-page head model") (:doc m)))))
+  (let [id (rf/reg-head :head/with-meta {:doc "Article-page head model"}
+                        (fn [_db _route] {:title "x"}))
+        m  (rf.registrar/lookup :head id)]
+    (is (= [:head/with-meta {:title "x"}
+             (when rf.interop/debug-enabled? "Article-page head model")]
+           [id ((:handler-fn m) {} nil) (:doc m)]))))
 
 ;; ---- head-model selection ---------------------------------------------------
 
@@ -142,8 +139,9 @@
           (rf.ssr/head-model->html {:json-ld [{nil "a"}]})))))
 
 (deftest head-model->html-empty-model-and-wrap-opt
-  (is (= "" (rf.ssr/head-model->html {})) "an empty model emits no orphan tags")
-  (is (= "<head><title>Hi</title></head>" (rf.ssr/head-model->html {:title "Hi"} {:wrap? true}))))
+  (is (= ["" "<head><title>Hi</title></head>"]
+         [(rf.ssr/head-model->html {})
+          (rf.ssr/head-model->html {:title "Hi"} {:wrap? true})])))
 
 (deftest head-model->html-escaping
   (is (= (str "<title>Hello &lt;script&gt;alert(1)&lt;/script&gt;</title>"
