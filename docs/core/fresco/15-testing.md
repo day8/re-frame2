@@ -346,7 +346,7 @@ sequence, call `(hm/settle! m)` before asserting.
 | `hm/dispatch-and-settle!` | Dispatch into the mount's frame, run that event synchronously and commit the result. Follow-up work the router only queued is not waited for; use `hm/settle-until!` |
 | `hm/settle!` | Commit pending work after a user-event or other external interaction |
 | `hm/settle-until!` | Wait until a predicate holds, then settle; returns a promise of the handle. Use it for work the router has only queued, such as after a route-link click |
-| `hm/advance-clock!` | Advance the mount's [virtual clock](#virtual-clock-behaviour) and run due work |
+| `hm/advance-clock!` | Advance the page-wide [virtual clock](#virtual-clock-behaviour) and run due work |
 | `hm/bodies-run` | Call a function and return how many view bodies ran while it did. Settle inside the function, or the count is short |
 | `hm/unmount!` | Tear down the root |
 | `hm/assert-clean!` | After unmount, check that no subscription, reader edge, boundary registration, cached read set or frame survived compared with the pre-mount baseline |
@@ -366,7 +366,7 @@ accepted keys, so a misspelt option cannot be ignored in silence.
 | `:initial-events` | Setup events run into the new frame in order, before the first render; core's `rf/make-frame` option |
 | `:images` | The image composition the frame is built from, passed to `rf/make-frame` as given. Omit it for the default image |
 | `:container` | An existing element to render into. The default is a fresh `<div>` attached to `document.body` |
-| `:clock` | `true` gives the mount a [virtual clock](#virtual-clock-behaviour) |
+| `:clock` | `true` installs the page-wide [virtual clock](#virtual-clock-behaviour) while this mount is open |
 
 The default image covers every registration loaded, and it refuses to pick
 between two namespaces registering one `[kind id]`: using that id raises
@@ -412,7 +412,7 @@ Use Chromium, Firefox, and WebKit for behaviour that depends on an actual
 browser engine:
 
 - IME composition;
-- caret and selection restoration;
+- caret restoration and selection behaviour;
 - focus traversal;
 - layout and scroll geometry;
 - hydration against real server bytes;
@@ -653,6 +653,11 @@ A virtual clock is opt-in:
 ```clojure
 (hm/mount! [view] {:clock true})
 ```
+
+The clock is page-wide: while any mount that asked for it is open, every
+`setTimeout`, `setInterval` and `Date.now` on the page is virtual, and
+`hm/advance-clock!` on one handle fires every timer that falls due, whichever
+mount armed it.
 
 `hm/advance-clock!` advances `Date.now`, `setTimeout`, and `setInterval`. This
 matters because retention often compares a deadline with `Date.now`; firing a

@@ -35,10 +35,13 @@ four guarantees:
 2. **The model remains authoritative.** The field displays the value committed
    by the handler. Accepted input remains, normalized input shows the
    normalized value, and rejected input returns to the unchanged model value.
-3. **Caret and selection are preserved** when the model rejects or rewrites an
-   edit, including edits in the middle of a string. The node is not remounted.
-   This applies to `text`, `search`, `url`, `tel` and `password` inputs and to
-   textareas. `email` and `number` inputs expose no selection to scripts, so a
+3. **The caret keeps its place** when the model rejects or rewrites an edit,
+   including edits in the middle of a string: it comes back at the same
+   distance from the end of the committed value, so a normalization that
+   rewrites the text before it still leaves it after the character just typed.
+   A selected range comes back collapsed to that one caret. The node is not
+   remounted. This applies to `text`, `search`, `url`, `tel` and `password`
+   inputs and to textareas. `email` and `number` inputs expose no selection to scripts, so a
    handler that rejects or rewrites an edit there leaves the caret at the end.
 4. **IME composition is not interrupted.** Keyboard maps do not treat
    composition Enter or Escape as application commands, and a model correction
@@ -114,7 +117,8 @@ Every controlled keystroke is a complete pipeline run;
 ??? info "For readers coming from Reagent"
     A common Reagent pattern adds a local ratom to protect a field from async
     rendering. Do not copy that pattern into Fresco. The controlled path is
-    synchronous and the runtime already preserves selection and composition.
+    synchronous and the runtime already restores the caret and protects
+    composition.
     When an edit needs a separate draft/commit lifecycle, use the
     [forms module](05-forms.md) rather than a second atom.
 
@@ -261,7 +265,7 @@ commits on Enter or blur and cancels on Escape.
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
 | Fast typing drops characters | The controlled write was deferred through a timer, debounce, queued effect, or promise | Commit the field value synchronously. Debounce downstream consumers, not the write |
-| The caret moves to the end after each accepted/rejected edit | On an `email` or `number` input, expected: those types expose no selection. Otherwise the normal controlled path failed to preserve selection | On other types, treat this as a runtime bug and report it; do not remount or add a second writer |
+| The caret moves to the end after each accepted/rejected edit | On an `email` or `number` input, expected: those types expose no selection. Otherwise the normal controlled path failed to restore the caret | On other types, treat this as a runtime bug and report it; do not remount or add a second writer |
 | Enter commits unfinished composition text | A custom key handler bypassed Fresco's keyboard map | Use the data keyboard map so IME checks run centrally |
 | A rejected edit kills the active composition | Another writer changed the DOM value during composition | Find the ref, foreign script, or uncontrolled sibling writing the same field; a controlled field must have one writer |
 | IME text briefly lands stale and then corrects | The app-db write was deferred beyond the input turn | Keep the controlled write synchronous. The composition survives, but a deferred model update arrives late |
@@ -297,7 +301,7 @@ browser event.
 On the event path, Fresco uses `flushSync` only for controlled-text convergence
 (`h/render!` and `h/unmount!` also commit inside it). It commits the
 pending value before React's end-of-event restore so that both the value and
-selection are correct when the handler accepts, rejects, or normalizes an
+the caret are correct when the handler accepts, rejects, or normalizes an
 edit. The path runs once per controlled text keystroke and once when an IME
 composition closes. Pages without a controlled text input do not pay for it.
 Using `flushSync` elsewhere in application code should be treated as an
@@ -307,8 +311,9 @@ architecture problem rather than a normal Fresco technique.
 
 When the handler returns `nil`, the DOM may briefly contain the typed
 character. React restores the unchanged model value at the end of the discrete
-event, but that restore normally loses selection. Fresco restores the caret
-and selection on the controlled converge path. The handler still only returns
+event, but that restore normally loses the caret. Fresco restores the caret
+on the controlled converge path, at its distance from the end of the committed
+value; a selected range comes back collapsed. The handler still only returns
 `nil`.
 
 ### Composition handling
