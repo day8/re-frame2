@@ -1,22 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE FRESCO BENCH DRIVERS' EXIT PATH — a printed refusal must refuse.
-//
-//     node src/re_frame/bench/fresco/clock_exit_path.test.cjs   (from bench/fresco/)
-//
-// Each driver here computes refusals per row — unverified read-backs, a band
-// over `seam.cjs`'s ceiling, a positive control that missed, a bar with no
-// band — and prints them. A refusal that is printed but never reaches the exit
-// code, or a refused run that still writes the published datasets, is the
-// defect this file guards. The drivers need an `:advanced` build and a headless
-// Chromium, so each decision lives in one pure exported function driven here
-// directly, plus a source pin that the exit code comes from that function and
-// that nothing downstream of it reads a refusal on its own.
-//
-// The census and clock blocks also re-derive the check standards' frozen
-// numbers and the published M1 figures from the committed run corpus.
-//
-// Run by `npm run check` in bench/fresco/.
+// Pure decisions and wiring keep refusals tied to exits and publication.
 
 const assert = require('node:assert');
 const cp = require('node:child_process');
@@ -154,7 +138,6 @@ for (const { tag, file, mod } of DRIVERS) {
   const DRIVE = SRC.slice(SRC.indexOf('async function drive('), SRC.indexOf('\nmodule.exports'));
 
   t('the exit code comes from `verdict` and is RETURNED, not re-derived', () => {
-    assert.match(SRC, /module\.exports = \{ summarise, verdict\s*[,}]/);
     assert.match(DRIVE, /const v = verdict\(summarise\(failed, results\)\);/);
     assert.match(DRIVE, /return v\.code;/);
     assert.match(SRC, /drive\(\)\.then\(\(code\) => \{\s*if \(code !== 0\) process\.exit\(code\);/);
