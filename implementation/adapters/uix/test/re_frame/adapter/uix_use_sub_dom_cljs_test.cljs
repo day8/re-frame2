@@ -1,27 +1,5 @@
 (ns re-frame.adapter.uix-use-sub-dom-cljs-test
-  "UIx DOM/browser entry-point for the use-sub twin of the
-  parameterised React-adapter suite (`re-frame.adapter.react-shared-suite`).
-
-  UIx defines its probe components with `uix.core/defui` + `$` + uix
-  hooks — substrate macros the suite cannot mint at runtime — so the probe
-  vars, their side-channel observation atoms, and the substrate-baked
-  frame/query keywords are built HERE and handed to the suite via the cfg
-  map (Approach A: components passed in as elements + atoms + keywords).
-  The orchestration (make-frame, dispatch, mount under act, assert) lives
-  once in the suite.
-
-  Coverage forwarded includes:
-    - use-sub sees post-dispatch values via useSyncExternalStore
-    - 1-arg form resolves through the surrounding frame-provider
-    - 2-arg form pins an explicit frame, no cross-frame leakage
-    - sub-cache refcount cleanup on unmount
-    - stable-deps-key: one subs/subscribe across N re-renders, unsubscribe
-      unmount-only, spy assertions
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
-  (ns-regexp `-dom-cljs-test$`) discovers it for the real DOM assertions;
-  `:node-test`'s `cljs-test$` regex also matches, where every suite fn
-  self-gates on `(browser?)` and no-ops cleanly."
+  "Native UIx probes for the shared hook contracts. Separate frame IDs keep cold reads cold."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -33,31 +11,14 @@
             [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
             [re-frame.test-support :as rf.test-support]))
 
-;; MAP-FORM fixture with `:async? true`: the provisional-horizon
-;; assertions below are `(async done …)` tests, and cljs.test refuses to run an
-;; async test under a plain-fn `:each` fixture ("Async tests require fixtures to
-;; be specified as maps") — the `:after` half has to land after the async
-;; `done`, which a plain fn cannot express. The horizon is one host macrotask —
-;; `setTimeout 4` — and nothing synchronous crosses it; the
-;; suite's own settles wait PAST it (`settle-past-the-horizon!`).
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter :async? true}))
-
-;; ---- side-channel atoms ----------------------------------------------------
-;; Read by the UIx probe components below. The probes are defui top-levels
-;; (uix `defui` defines a Var; it cannot sit inside a `let`) and close
-;; over these atoms; the suite `reset!`s the atom each assertion cares
-;; about at the top of its body.
 
 (def ^:private probe-observed                (atom []))
 (def ^:private probe-frame-provider-observed (atom []))
 (def ^:private refcount-target               (atom nil))
 (def ^:private stable-deps-set-tick          (atom nil))
-;; Key-change probe side-channels: the child reads its (frame,
-;; query-v) from these atoms (2-arg explicit-pin use-sub) and records
-;; every use-sub return; the parent stashes its set-tick here so the
-;; suite can swap the target on the MOUNTED child and force a re-render.
 (def ^:private key-change-set-tick           (atom nil))
 (def ^:private key-change-frame              (atom nil))
 (def ^:private key-change-query              (atom nil))
@@ -74,24 +35,9 @@
     (swap! probe-frame-provider-observed conj v)
     ($ :div (str "k=" v))))
 
-;; ---- which context slot does the SERVER renderer populate? -----------------
-;; Reads five observation points off the SHARED frame-context during a render,
-;; so the suite can pin the MECHANISM of the SSR behaviour rather than only its
-;; symptom: the private `_currentValue` slot (the PRIMARY, client-renderer
-;; slot), the private `_currentValue2` slot (React's SECONDARY slot, which
-;; `react-dom/server` writes), the PUBLIC `useContext` return
-;; (renderer-agnostic), the SHARED READER
-;; `function-component-current-frame` — the `:adapter/current-frame` hook every
-;; ambient consumer funnels through, so an assertion on it proves the resolution
-;; is central rather than hook-local — and `frame/resolve-current-frame`, which
-;; layers the ambient-REFUSAL tier in front of that reader.
-;;
-;; Deliberately calls no re-frame HOOK: it must render under
-;; `react-dom/server` whatever the reader answers, so it can measure a refusal
-;; as readily as a resolution.
-
 (def ^:private ssr-slot-observed (atom nil))
 
+;; Observe both React renderer slots and the public readers during server rendering.
 (defui ProbeSsrSlots []
   (let [ctx rf.adapter.context/frame-context]
     (reset! ssr-slot-observed
@@ -101,11 +47,6 @@
              :reader         (rf.adapter.context/function-component-current-frame)
              :resolve        (rf.frame/resolve-current-frame)})
     ($ :div "slots")))
-
-;; ---- use-frame probe -------------------------------------------------------
-;; Pushes each render's `use-frame` ops map into a side-channel atom; the
-;; suite asserts shape / provider resolution / dispatch lock / reference
-;; stability once, in the suite.
 
 (def ^:private use-frame-observed (atom []))
 
@@ -119,48 +60,24 @@
         v (rf.adapter.uix/use-sub [:rf.uix-use-sub-test/m] {:frame target})]
     ($ :div (str "m=" v))))
 
-;; ---- Suspense abort-before-commit probes ----------------------------------
-;; ProbeSuspenseInner calls use-sub in its render phase, THEN renders a
-;; child that suspends (throws a never-resolving thenable). Under a concurrent
-;; root React begins rendering the subtree, runs the use-sub render
-;; phase, the child suspends, and React commits the Suspense FALLBACK instead
-;; — so the use-sub-calling fiber NEVER commits (its effects /
-;; store-subscribe never run). The render phase is net-zero on sub-cache
-;; ref-count, so the abandoned render leaks nothing.
-
+;; Never resolving keeps the use-sub fiber abandoned before commit.
 (defonce ^:private uix-never-resolving-thenable
-  ;; A thenable React will treat as a pending Suspense source. It never
-  ;; resolves, so the boundary stays on its fallback for the whole test —
-  ;; the inner probe's fiber is abandoned before commit and never retried
-  ;; to completion within the act() flush.
   #js {:then (fn [_resolve _reject] nil)})
 
 (defui ProbeSuspender []
   (throw uix-never-resolving-thenable))
 
 (defui ProbeSuspenseInner []
-  ;; Render-phase use-sub acquisition happens HERE, before the
-  ;; suspending child unwinds the subtree.
   (let [target @refcount-target
         _v (rf.adapter.uix/use-sub [:rf.uix-use-sub-test/m] {:frame target})]
     ($ :div ($ ProbeSuspender))))
 
 (defn- uix-suspense-abort-element
-  "A React `Suspense` boundary (built with React/createElement so we don't
-  depend on a substrate suspense helper) wrapping a UIx probe that calls
-  use-sub then suspends. Returns a React element."
+  "Suspend after use-sub has acquired its render-phase subscription."
   []
   (React/createElement React/Suspense
                        #js {:fallback ($ :div "fallback")}
                        ($ ProbeSuspenseInner)))
-
-;; ---- sibling-collision probes ---------------------------------------------
-;; Two INDEPENDENT siblings reading the SAME query under the SAME frame —
-;; they share one cached reaction. Each renders its observed value into a
-;; distinct text node so the suite reads "a=N b=N" off the parent's
-;; textContent. A hash-of-reaction watch key would leave the first-mounted
-;; sibling stale; the unique per-invocation key keeps both subscribers'
-;; useSyncExternalStore callbacks alive.
 
 (def ^:private siblings-observed-a (atom []))
 (def ^:private siblings-observed-b (atom []))
@@ -177,8 +94,6 @@
     (swap! siblings-observed-b conj v)
     ($ :span (str " b=" v))))
 
-;; ---- 2-arg explicit-pin probes --------------------------------------------
-
 (def ^:private probe-2arg-a-observed (atom []))
 (def ^:private probe-2arg-b-observed (atom []))
 
@@ -192,14 +107,6 @@
     (swap! probe-2arg-b-observed conj v)
     ($ :div (str "b=" v))))
 
-;; ---- stable-deps-key probes -----------------------------------------------
-;; A parent that owns a tick state (used to force re-renders) plus a child
-;; that reads a fixed query-v via use-sub. The literal
-;; `[:rf.uix-stable-deps/p]` vector evaluates to a fresh JS object each
-;; render — exactly the shape an unstable deps key would walk into. The parent
-;; stashes its set-tick fn into a side-channel atom so the suite can drive
-;; forced re-renders from outside.
-
 (defui ProbeStableDepsChild []
   (let [v (rf.adapter.uix/use-sub [:rf.uix-stable-deps/p] {:frame :rf.uix-stable-deps/probe-frame})]
     ($ :div (str "p=" v))))
@@ -207,20 +114,10 @@
 (defui ProbeStableDepsParent []
   (let [[tick set-tick] (uix/use-state 0)]
     (uix/use-effect
-      ;; React state-setters have stable identity across renders so an
-      ;; empty deps vec is correct — silences UIx's lint and matches
-      ;; React's "set-state setter is stable" guarantee. The effect runs
-      ;; once on mount to stash the setter for the test driver.
       (fn [] (reset! stable-deps-set-tick set-tick) js/undefined)
       [])
     ($ :div {:data-tick tick}
        ($ ProbeStableDepsChild))))
-
-;; ---- key-change probes ----------------------------------------------------
-;; A child that reads its (frame, query-v) from side-channel atoms via the
-;; 2-arg explicit-pin use-sub and records every observed value, under a
-;; parent that owns a tick + stashes its set-tick. The suite swaps the atoms
-;; and bumps the tick to change the subscription target on the MOUNTED child.
 
 (defui ProbeKeyChangeChild []
   (let [fr @key-change-frame
@@ -237,15 +134,6 @@
     ($ :div {:data-tick tick}
        ($ ProbeKeyChangeChild))))
 
-;; ---- render→commit window probes ------------------------------------------
-;; Three components in one pass. The SUBSCRIBER reads the query. The MUTATOR
-;; renders after it and writes app-db from its own render body, so the write
-;; lands strictly between that read and the commit — deterministic, no timer.
-;; The OBSERVER's layout effect records the FIRST committed, layout-visible
-;; DOM (a render React discards before committing never runs one). The suite
-;; installs the write thunk — nil for the unmoved control — arms the one shot,
-;; and reads the atoms.
-
 (def ^:private gap-write!       (atom nil))
 (def ^:private gap-armed?       (atom false))
 (def ^:private gap-first-commit (atom nil))
@@ -258,10 +146,8 @@
     (swap! gap-observed conj v)
     ($ :div (str "g=" v))))
 
+;; Disarm before writing so a corrective render can converge.
 (defui ProbeGapMutator []
-  ;; ONE-SHOT render-phase write. Disarming BEFORE the write is what lets a
-  ;; corrective re-render converge: React discarding a torn concurrent render
-  ;; re-runs this body, and a second write would keep the store moving forever.
   (when @gap-armed?
     (reset! gap-armed? false)
     (when-let [w @gap-write!] (w)))
@@ -284,21 +170,11 @@
      ($ ProbeGapMutator)
      ($ ProbeGapObserver)))
 
-;; ---- PUBLIC-mount-schedule probes ----------------------------------------
-;; Nothing here forces React's schedule: these mount through
-;; `re-frame.substrate.adapter/render` with no act and no flushSync, and the
-;; suite reads its numbers from the probes' own effects.
-
 (def ^:private pm-on-commit         (atom nil))
 (def ^:private gap-public-set-phase (atom nil))
 
+;; Declare this effect after use-sub so it observes the committed store subscription.
 (defui ProbePublicMount []
-  ;; The `use-effect` is declared AFTER the read on purpose: React pushes
-  ;; `useSyncExternalStore`'s `subscribeToStore` passive effect while the hook
-  ;; runs and this one after it, and a fiber's passive effects run in push
-  ;; order — so this callback is the first instant after the commit-owned
-  ;; subscribe. That ordering, not a timer, is what makes the suite's snapshot
-  ;; of the numbers deterministic.
   (let [target @refcount-target
         v      (rf.adapter.uix/use-sub [:rf.uix-use-sub-test/m] {:frame target})]
     (uix/use-effect
@@ -306,11 +182,8 @@
       [])
     ($ :div (str "m=" v))))
 
+;; Mount idle so the transition updates the root created by the public render slot.
 (defui ProbeGapPublicRoot []
-  ;; Mounts idle, so the gap probe arrives as an UPDATE the suite can put on a
-  ;; transition lane — on the root the PUBLIC render slot created, rather than
-  ;; on a raw createRoot of the test's own. The mount effect stashes the setter;
-  ;; the suite drives the phase change inside `React/startTransition`.
   (let [[phase set-phase] (uix/use-state :idle)]
     (uix/use-effect
       (fn [] (reset! gap-public-set-phase set-phase) js/undefined)
@@ -321,15 +194,6 @@
          ($ ProbeGapSubscriber)
          ($ ProbeGapMutator)
          ($ ProbeGapObserver)))))
-
-;; ---- eviction / reacquisition probes --------------------------------------
-;;
-;; Two INDEPENDENT consumers of the same (frame, query). The first is the
-;; ORIGINAL holder whose committed reaction the framework evicts underneath it;
-;; the second mounts afterwards onto the REBUILT entry, so the suite can prove
-;; the original's later cleanup does not decrement the successor's reference.
-;; Both take their frame from `evict-target` (a dedicated atom, so these cases
-;; cannot collide with the refcount probes above).
 
 (def ^:private evict-target                  (atom nil))
 (def ^:private probe-evict-observed          (atom []))
@@ -347,14 +211,6 @@
     (swap! probe-evict-successor-observed conj v)
     ($ :div (str "s=" v))))
 
-;; ---- explicit-target probe ------------------------------------------------
-;;
-;; Reads its ENTIRE opts map from a side-channel atom, so one probe covers
-;; `{}`, `{:frame nil}`, a legal keyword target and a legal live frame VALUE
-;; without changing its hook shape between cases — the hook COUNT is identical
-;; on every one of them, which is the property the explicit-only design exists
-;; to preserve.
-
 (def ^:private nil-frame-opts     (atom {}))
 (def ^:private nil-frame-observed (atom []))
 
@@ -364,65 +220,42 @@
     (swap! nil-frame-observed conj v)
     ($ :div (str "v=" v))))
 
-;; ---- cfg + forwarded deftests ---------------------------------------------
-
 (def ^:private cfg
   {:adapter               rf.adapter.uix/adapter
    :name                  "UIx"
-   ;; Mount the NATIVE frame-provider component via
-   ;; UIx's `$` using the idiomatic TRAILING-CHILDREN shape (no `:children`
-   ;; prop-map key), not a direct CLJS-fn invocation.
    :frame-provider-mount-element
    (fn [frame-kw child-el]
      ($ rf.adapter.uix/frame-provider {:frame frame-kw} child-el))
-   ;; tracks-app-db
    :probe-element         (fn [] (uix/$ Probe))
    :probe-observed        probe-observed
    :refcount-target       refcount-target
    :us-frame              :rf.uix-use-sub-test/probe-frame
    :us-query              :rf.uix-use-sub-test/n
-   ;; frame-provider 1-arg
    :probe-frame-provider-element  (fn [] (uix/$ ProbeFrameProvider))
    :probe-frame-provider-observed probe-frame-provider-observed
-   :frame-provider-frame          :rf.uix-use-sub-test/frame-provider-frame
    :frame-provider-query          :rf.uix-use-sub-test/k
-   ;; The ambient (1-arg) form under `react-dom/server`. Its own
-   ;; frame: the row is a COLD server render and must not read a sub-cache
-   ;; some earlier browser-lane row warmed.
    :ssr-ambient-frame             :rf.uix-5rqn/ssr-ambient-frame
-   ;; The tier-1 contender for the dynamic-precedence control: a SECOND frame,
-   ;; so "the dynamic var won" is distinguishable from "the provider won".
    :ssr-dynamic-frame             :rf.uix-5rqn/ssr-dynamic-frame
    :probe-ssr-slots-element       (fn [] (uix/$ ProbeSsrSlots))
    :ssr-slot-observed             ssr-slot-observed
-   ;; use-frame (capture-frame in hook position)
    :probe-use-frame-element (fn [] (uix/$ ProbeUseFrame))
    :use-frame-observed      use-frame-observed
    :uf-frame                :rf.uix-use-frame/probe-frame
-   ;; 1-arg full frame-resolution chain (reuses ProbeFrameProvider
-   ;; + :frame-provider-query :k; isolated frame ids per case).
    :provider-tier-frame               :rf.uix-4mi2zj/provider-tier-frame
    :dynamic-precedence-provider-frame :rf.uix-4mi2zj/precedence-provider-frame
    :dynamic-precedence-dynamic-frame  :rf.uix-4mi2zj/precedence-dynamic-frame
    :no-scope-frame                    :rf.uix-4mi2zj/no-scope-frame
    :substrate-kw                      :uix
-   ;; 2-arg explicit pin
    :probe-2arg-element    (fn [] (uix/$ :div (uix/$ Probe2ArgA) (uix/$ Probe2ArgB)))
    :probe-2arg-a-observed probe-2arg-a-observed
    :probe-2arg-b-observed probe-2arg-b-observed
    :tenant-a-frame        :rf.uix-explicit-pin/tenant-a
    :tenant-b-frame        :rf.uix-explicit-pin/tenant-b
    :explicit-pin-query    :rf.uix-explicit-pin/n
-   ;; refcount cleanup
    :probe-refcount-element (fn [] (uix/$ ProbeRefcount))
    :rc-frame              :rf.uix-use-sub-test/refcount-frame
    :rc-query              :rf.uix-use-sub-test/m
-   ;; Its own frame (so its own sub-cache), because the
-   ;; assertion is only load-bearing on a COLD read and it says so.
    :nr-frame              :rf.uix-no-retain/probe-frame
-   ;; The render→commit window observed at the FIRST
-   ;; commit. Four rows = four frames, because the pre-commit path is only
-   ;; reachable on a COLD read and each row must be one.
    :probe-gap-element     (fn [] (uix/$ ProbeGapRoot))
    :gap-write!            gap-write!
    :gap-armed?            gap-armed?
@@ -435,16 +268,9 @@
    :gap-blocking-control-frame    :rf.uix-gap/blocking-control-frame
    :gap-concurrent-frame          :rf.uix-gap/concurrent-frame
    :gap-concurrent-control-frame  :rf.uix-gap/concurrent-control-frame
-   ;; The provisional hand-off's three own frames, for the same
-   ;; reason: adoption, the one-shot reaper, the layer-2 horizon cascade and
-   ;; the SSR horizon are all COLD-read properties, so each needs a sub-cache
-   ;; no other assertion has warmed.
    :ad-frame              :rf.uix-handoff/adoption-frame
    :hz-frame              :rf.uix-handoff/horizon-frame
    :ssr-frame             :rf.uix-handoff/ssr-frame
-   ;; The PUBLIC mount schedule: adapter render
-   ;; slot, no act, no flushSync. Own frames again, for the same cold-read
-   ;; reason, and one per row of the escrow-leg pair.
    :probe-public-mount-element (fn [] (uix/$ ProbePublicMount))
    :pm-on-commit          pm-on-commit
    :pm-frame              :rf.uix-handoff/public-schedule-frame
@@ -452,27 +278,17 @@
    :gap-public-set-phase  gap-public-set-phase
    :pm-gap-frame          :rf.uix-handoff/public-gap-frame
    :pm-gap-control-frame  :rf.uix-handoff/public-gap-control-frame
-   ;; The reaped provisional's own frame. The
-   ;; abandonment and the later mount must race on the SAME (frame, query), and
-   ;; the frame must be cold before the abandoned render, so it is its own.
    :rv-frame              :rf.uix-handoff/reaped-provisional-frame
-   ;; Suspense abort-before-commit probe (reuses :rc-frame /
-   ;; :rc-query so the abandoned render and the committed control mount race
-   ;; on the SAME (frame, query)).
    :probe-suspense-abort-element uix-suspense-abort-element
-   ;; sibling-collision — both siblings under one parent div so
-   ;; the suite reads "a=N b=N" off textContent.
    :probe-siblings-element (fn [] (uix/$ :div (uix/$ ProbeSiblingA) (uix/$ ProbeSiblingB)))
    :siblings-observed-a   siblings-observed-a
    :siblings-observed-b   siblings-observed-b
    :sib-frame             :rf.uix-siblings/frame
    :sib-query             :rf.uix-siblings/n
-   ;; stable deps key
    :probe-stable-deps-element (fn [] (uix/$ ProbeStableDepsParent))
    :stable-deps-set-tick  stable-deps-set-tick
    :stable-deps-frame     :rf.uix-stable-deps/probe-frame
    :stable-deps-query     :rf.uix-stable-deps/p
-   ;; key-change serves the NEW target
    :probe-key-change-element (fn [] (uix/$ ProbeKeyChangeParent))
    :key-change-set-tick   key-change-set-tick
    :key-change-frame      key-change-frame
@@ -482,14 +298,8 @@
    :kc-frame2             :rf.uix-key-change/frame-b
    :kc-query-a            :rf.uix-key-change/qa
    :kc-query-b            :rf.uix-key-change/qb
-   ;; flush-render! synchronous-commit proof. Reuses the Probe
-   ;; (reads :refcount-target for its frame, queries :rf.uix-use-sub-test/n)
-   ;; under a fresh isolated frame so it can't collide with the use-sub
-   ;; cases above.
    :fr-frame              :rf.uix-flush-render/probe-frame
    :fr-query              :rf.uix-use-sub-test/n
-   ;; Reacquisition after a framework-owned cache eviction, and the
-   ;; ownership edge on the committed release.
    :probe-evict-element            (fn [] (uix/$ ProbeEvict))
    :probe-evict-observed           probe-evict-observed
    :probe-evict-successor-element  (fn [] (uix/$ ProbeEvictSuccessor))
@@ -497,8 +307,6 @@
    :evict-target                   evict-target
    :ev-frame                       :rf.uix-evict/frame
    :ev-query                       :rf.uix-evict/n
-   ;; The explicit arm resolves ONE concrete target before any
-   ;; acquisition; a missing / nil `:frame` refuses and retains nothing.
    :probe-nil-frame-element        (fn [] (uix/$ ProbeNilFrame))
    :nil-frame-opts                 nil-frame-opts
    :nil-frame-observed             nil-frame-observed
@@ -508,29 +316,18 @@
 (deftest use-sub-tracks-app-db-changes
   (rf.adapter.react-shared-suite/assert-use-sub-tracks-app-db-changes cfg))
 
-(deftest use-sub-frame-provider-resolution
-  (rf.adapter.react-shared-suite/assert-use-sub-frame-provider-resolution cfg))
-
 (deftest use-sub-ambient-under-ssr
   (rf.adapter.react-shared-suite/assert-use-sub-ambient-under-ssr cfg))
 
 (deftest use-sub-2-arg-pins-explicit-frame
   (rf.adapter.react-shared-suite/assert-use-sub-2-arg-pins-explicit-frame cfg))
 
-;; use-frame returns EXACTLY the capture-frame ops map for the
-;; ambient provider frame: shape, provider resolution, dispatch lock, and
-;; reference stability across re-renders.
 (deftest use-frame-capture-frame-in-hook-position
   (rf.adapter.react-shared-suite/assert-use-frame-capture-frame-in-hook-position cfg))
 
-;; The same memo across a same-id REINCARNATION. The row above
-;; pins that a re-render returns the identical map; this one pins what that
-;; memo is keyed on, because a frame keyword is `=` across a destroy +
-;; same-id create and the bundle is pinned to an incarnation.
 (deftest use-frame-retargets-across-a-same-id-reincarnation
   (rf.adapter.react-shared-suite/assert-use-frame-retargets-across-a-same-id-reincarnation cfg))
 
-;; ONE hook frame-resolution rule — React context, and nothing else.
 (deftest use-sub-provider-tier-resolution-ambient-cleared
   (rf.adapter.react-shared-suite/assert-use-sub-provider-tier-resolution-ambient-cleared cfg))
 
@@ -543,98 +340,42 @@
 (deftest hook-no-provider-with-dynamic-scope-raises-no-frame-context
   (rf.adapter.react-shared-suite/assert-hook-no-provider-with-dynamic-scope-raises-no-frame-context cfg))
 
-;; The SCHEDULING half of the same rule. Every row above renders inside
-;; `act()`, which runs the body on
-;; the calling stack — the right harness for an adversarial precedence
-;; contest and the wrong one for "the same tree resolves the same frame
-;; under either scheduling mode". This row renders with the act
-;; environment OFF, so the body runs a host task later with the binding
-;; unwound.
 (deftest hook-scheduled-render-after-unwind-reads-context-only
   (rf.adapter.react-shared-suite/assert-hook-scheduled-render-after-unwind-reads-context-only cfg))
 
 (deftest use-sub-cleanup-decrements-sub-cache-refcount
   (rf.adapter.react-shared-suite/assert-use-sub-cleanup-decrements-refcount cfg))
 
-;; Two sibling components subscribing to the SAME cached reaction must
-;; BOTH receive invalidation after one dispatch (a hash-of-reaction watch
-;; key would let the last-mounted sibling overwrite the earlier one's
-;; useSyncExternalStore callback → stale UI).
 (deftest use-sub-siblings-same-query-both-invalidate
   (rf.adapter.react-shared-suite/assert-use-sub-siblings-same-query-both-invalidate cfg))
 
-;; StrictMode double-mount: the refcount/disposal dance under React's
-;; default-dev double-invoke (the riskiest seam). Reuses the refcount-probe
-;; cfg surface.
 (deftest use-sub-strictmode-double-mount-refcount-balances
   (rf.adapter.react-shared-suite/assert-use-sub-strictmode-double-mount-refcount-balances cfg))
 
-;; A useMemo factory re-run on unchanged deps (React's
-;; documented perf-opt discard) must not leak a sub-cache ref-count.
 (deftest use-sub-memo-recompute-no-refcount-leak
   (rf.adapter.react-shared-suite/assert-use-sub-memo-recompute-no-refcount-leak cfg))
 
-;; An abandoned/restarted render that ran use-sub before
-;; commit must leave no pinned sub-cache ref-count.
 (deftest use-sub-abandoned-render-no-refcount-leak
   (rf.adapter.react-shared-suite/assert-use-sub-abandoned-render-no-refcount-leak cfg))
 
-;; A first-mount render aborted BEFORE commit via Suspense must leak no
-;; sub-cache ref-count (the real abort-before-commit path, where React
-;; discards the never-committed fiber).
 (deftest use-sub-suspense-abort-before-commit-no-refcount-leak
   (rf.adapter.react-shared-suite/assert-use-sub-suspense-abort-before-commit-no-refcount-leak cfg))
 
 (deftest use-sub-stable-deps-key
   (rf.adapter.react-shared-suite/assert-use-sub-stable-deps-key cfg))
 
-;; getSnapshot must deref the durable COMMITTED reaction, not the
-;; disposed render-phase handle (the React useSyncExternalStore disposed-
-;; reaction hazard). Object-identity proof; reuses the refcount-probe surface.
 (deftest use-sub-getsnapshot-tracks-committed-reaction
   (rf.adapter.react-shared-suite/assert-use-sub-getsnapshot-tracks-committed-reaction cfg))
 
-;; The disposed render-phase reaction must be unreachable: every
-;; deref the spine performs hits the sub-cache's CURRENT tenant, and the cold
-;; mount itself shows a deref of the committed reaction (React's post-subscribe
-;; getSnapshot call, which is what still catches a render→commit write).
 (deftest use-sub-render-phase-reaction-not-retained
   (rf.adapter.react-shared-suite/assert-use-sub-render-phase-reaction-not-retained cfg))
 
-;; A write landing in the
-;; render→commit gap, observed AT THE FIRST COMMIT (layout-visible, i.e.
-;; paint-eligible) rather than after the dust settles: two lanes, each with an
-;; unmoved control. The blocking row pins React's own no-pre-commit-check
-;; behaviour; the concurrent row pins that our pre-commit snapshot can still
-;; REPORT the movement, so React discards the torn render instead of painting
-;; state the app-db has already revoked.
 (deftest use-sub-render-to-commit-window-first-commit
   (rf.adapter.react-shared-suite/assert-use-sub-render-to-commit-window-first-commit cfg))
 
-;; The hook-scoped provisional hand-off. A cold mount's commit
-;; ADOPTS the reaction its render built (one construction, not two); the reaper
-;; armed at acquisition is a no-op once that adoption has spent the token; an
-;; abandoned layer-2 cold render releases parent AND inputs at the horizon; and
-;; a server render, which never commits at all, nets zero there too.
 (deftest use-sub-commit-adopts-the-render-phase-reaction
   (rf.adapter.react-shared-suite/assert-use-sub-commit-adopts-the-render-phase-reaction cfg))
 
-;; The same two integers, on the
-;; PUBLIC mount schedule: `re-frame.substrate.adapter/render`, no act, no
-;; flushSync. The row above forces React's passive subscribe forward, which is
-;; the ordering the hand-off needs; this one forces nothing, and there the
-;; reaper wins and the commit rebuilds — so it pins TWO builds. It does so
-;; with the horizon at `setTimeout 4` too: this PAGE's render-to-flush gap
-;; measures > 128 ms, so no shippable horizon flips
-;; it, and the row is a witness for the runner's schedule rather than a
-;; consumer's (the sweep is in the suite's block comment). Its companion pins
-;; that on this schedule `get-snap` still reports a write landing in the
-;; render→commit gap, in both states the escrow token can be in at React's
-;; pre-commit consistency check. Unspent — the check runs in the render's own
-;; task, before any macrotask can reap — it derefs the reaction the token
-;; holds. Spent by the reaper, it reads through a one-shot `subscribe-once`
-;; of the token's query, memoised in the token against the frame state it
-;; read, so the check sees the write and nothing is retained.
 (deftest use-sub-browser-runner-schedule-rebuilds
   (rf.adapter.react-shared-suite/assert-use-sub-browser-runner-schedule-rebuilds cfg))
 
@@ -647,57 +388,28 @@
 (deftest use-sub-abandoned-layer-2-render-cascades-at-the-horizon
   (rf.adapter.react-shared-suite/assert-use-sub-abandoned-layer-2-render-cascades-at-the-horizon cfg))
 
-;; The adversarial row, and the reason the horizon is a performance bet and
-;; never a correctness one. A
-;; provisional the reaper released must be unreachable, and a later mount must
-;; paint an app-db movement the abandoned render never saw. That holds whether
-;; the later mount adopts its own render build or rebuilds after its own reaper
-;; — so whichever way the race turns, what changes is a construction and never
-;; a stale paint.
 (deftest use-sub-reaped-provisional-is-never-adopted-by-a-later-mount
   (rf.adapter.react-shared-suite/assert-use-sub-reaped-provisional-is-never-adopted-by-a-later-mount cfg))
 
 (deftest use-sub-ssr-render-without-commit-nets-zero-at-the-horizon
   (rf.adapter.react-shared-suite/assert-use-sub-ssr-render-without-commit-nets-zero-at-the-horizon cfg))
 
-;; A query-v / frame change on a MOUNTED component must render the
-;; NEW target's value on the change-commit (parity with Reagent's in-render
-;; recompute), never the previous target's. Value + object-identity proof, plus
-;; a stable-key control (no over-invalidation).
 (deftest use-sub-key-change-serves-new-target
   (rf.adapter.react-shared-suite/assert-use-sub-key-change-serves-new-target cfg))
 
-;; flush-render! synchronously commits a pending render (the
-;; proof the pair-MCP headless dispatch→render loop depends on).
 (deftest flush-render-synchronously-commits
   (rf.adapter.react-shared-suite/assert-flush-render-synchronously-commits cfg))
 
-;; Locks the 2-arity unsubscribe contract at the spine cleanup call site (a
-;; 3-arity grace-opts shape would break sync-dispose silently).
 (deftest use-sub-cleanup-calls-unsubscribe-with-2-args
   (rf.adapter.react-shared-suite/assert-use-sub-cleanup-calls-unsubscribe-with-2-args cfg))
 
-;; :rf.view/unmounted parity for the React-hook spine. The
-;; probe view + element are built in the suite (raw React/createElement),
-;; so this forwards on :substrate-kw alone (no substrate `defui`/`$`).
 (deftest view-unmount-emits-on-react-hook-teardown
   (rf.adapter.react-shared-suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
 
-;; A registered view returning a VOID DOM root (<input>) mounts
-;; + unmounts with no React void-element warning/error, and still fires
-;; exactly one :rf.view/unmounted (the unmount sentinel rides as a Fragment
-;; sibling, not a child of the void element). Probe built in the suite.
 (deftest void-root-view-unmount-no-warning
   (rf.adapter.react-shared-suite/assert-void-root-view-unmount-no-warning
     {:substrate-kw :uix :name "UIx"}))
-
-;; ---- frame-provider under the idiomatic `$` trailing-children shape --------
-;;
-;; `frame-provider` is a native `defui`, so `$` passes its props losslessly; a
-;; plain fn there would go through `interpret-attrs`, which stringifies the
-;; keyword `:frame` and silently falls back to `:rf/default`. Children ride
-;; `$`'s trailing args, as for any UIx component.
 
 (defn- browser? []
   (and (exists? js/document)
@@ -706,6 +418,7 @@
 (defn- get-act []
   (when (exists? (.-act React)) (.-act React)))
 
+;; Multiple trailing children exercise the native $ marshalling path.
 (deftest frame-provider-trailing-children-propagate-frame
   (testing "UIx — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render"
     (if-not (browser?)
@@ -715,10 +428,6 @@
           (is true "act() not reachable from this runner; skipping")
           (let [frame-kw :rf.uix-use-sub-test/frame-provider-frame
                 query-v  [:rf.uix-use-sub-test/k]]
-            ;; Clear the fixture's ambient `:rf/default` dynamic scope. The
-            ;; 1-arg `use-sub` in ProbeFrameProvider reads React context
-            ;; ONLY, so this is belt-and-braces — see the note in the
-            ;; suite's assert-use-sub-frame-provider-resolution.
             (binding [rf.frame/*current-frame* nil]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (reset! probe-frame-provider-observed [])
@@ -731,9 +440,6 @@
                 (try
                   (act-fn
                     (fn []
-                      ;; The idiomatic public call shape — TWO native trailing
-                      ;; children (no `:children` key), flowing through UIx's
-                      ;; `$` → `glue-args` → the native `defui` shell.
                       (.render root
                         ($ rf.adapter.uix/frame-provider
                            {:frame frame-kw}
@@ -743,11 +449,6 @@
                       "both trailing children rendered and read the wrapped frame's value, not :rf/default")
                   (finally
                     (try (.unmount root) (catch :default _ nil))))))))))))
-
-;; ---- subscription lifetime ------------------------------------------------
-;;
-;; Real React lifecycle cases: a MOUNTED component whose cached reaction the
-;; framework evicts, and the explicit-target arm's refusal.
 
 (deftest use-sub-reacquires-after-eviction
   (rf.adapter.react-shared-suite/assert-use-sub-reacquires-after-eviction cfg))
@@ -760,15 +461,6 @@
 
 (deftest use-sub-live-frame-value-target-balances
   (rf.adapter.react-shared-suite/assert-use-sub-live-frame-value-target-balances cfg))
-
-;; ---- a same-id reincarnation under a mounted use-sub ----------------------
-;;
-;; A frame destroyed and re-made under the same id is a NEW incarnation that
-;; answers to the same keyword. A mounted `use-sub` must identify its frame by
-;; incarnation, as `use-frame` does: the next render of the SAME instance reads
-;; and listens to the successor. The child holds the ambient (provider) form and
-;; the explicit `{:frame …}` form side by side; the parent's tick re-renders the
-;; mounted child without remounting it.
 
 (def ^:private reincarnation-frame    :rf.uix-reincarnation/frame)
 (def ^:private reincarnation-query    [:rf.uix-reincarnation/n])
