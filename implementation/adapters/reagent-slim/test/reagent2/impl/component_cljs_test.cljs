@@ -138,31 +138,23 @@
               ^js (component/create-class* {:reagent-render (fn [_] [:div])})))))
 
 (deftest error-boundary-derived-state-syncs-into-reagent-atom-rf2-ygknv
-  (let [render-calls (atom [])
-        ^js klass (component/create-class*
+  (let [^js klass (component/create-class*
                     {:reagent-render
                      (fn [_]
-
                        (let [this (component/current-component)
                              s    @(component/state-atom this)]
-                         (swap! render-calls conj s)
                          (if (:cljsHasError s)
                            [:div.fallback "Something went wrong"]
                            [:div.ok "child"])))
                      :component-did-catch (fn [_ _ _])})
-        inst  (new klass #js {:__rfArgv [(fn [_] nil)]})]
+        inst (new klass #js {:__rfArgv [(fn [_] nil)]})]
     (set! (.-forceUpdate inst) (fn [] nil))
     (let [^js el (.call (.. klass -prototype -render) inst)]
-      (is (= "ok" (.-className (.-props el)))
-          "before any error, the boundary renders its normal child"))
-
+      (is (= "ok" (.-className (.-props el)))))
     (let [patch (.call (.-getDerivedStateFromError klass) nil (js/Error. "boom"))]
-      (set! (.-state inst)
-            (js/Object.assign #js {} (.-state inst) patch)))
-
+      (set! (.-state inst) (js/Object.assign #js {} (.-state inst) patch)))
     (let [^js el (.call (.. klass -prototype -render) inst)]
-      (is (= "fallback" (.-className (.-props el)))
-          "boundary render reading (state-atom this) shows the fallback UI"))
+      (is (= "fallback" (.-className (.-props el)))))
     (.call (.. klass -prototype -componentWillUnmount) inst)))
 
 (deftest error-boundary-no-spurious-marker-without-error-rf2-ygknv
