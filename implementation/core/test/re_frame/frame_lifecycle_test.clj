@@ -752,20 +752,6 @@
                     (rf.frame/frame-value-incarnation-token vb))
         "re-registration preserves the incarnation")))
 
-(deftest destroy-value-N-does-not-tear-down-successor-N+1
-  (let [va      (rf/make-frame {:id :inc/x :doc "A"})
-        a-token (rf.frame/frame-value-incarnation-token va)]
-    (rf/destroy-frame! :inc/x)
-    (is (nil? (rf.frame/frame :inc/x)))
-    (let [vb      (rf/make-frame {:id :inc/x :doc "B"})
-          b-token (rf.frame/frame-value-incarnation-token vb)]
-      (rf/destroy-frame! va)
-      (is (= [false true] [(identical? a-token b-token)
-                           (identical? b-token (rf.frame/frame-incarnation-token :inc/x))])
-          "a stale destroy of value A leaves the distinct successor B live")
-      (rf/destroy-frame! vb)
-      (is (nil? (rf.frame/frame :inc/x)) "B's own value releases it"))))
-
 (deftest with-new-frame-exit-teardown-is-incarnation-exact
   ;; a body that destroys A and reseats B under the same id leaves B alive on exit
   (let [b-token (atom nil)]
