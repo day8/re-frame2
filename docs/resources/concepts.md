@@ -273,10 +273,10 @@ A route releases its owner on leave. A machine using `[:machine actor-id]`
 as owner releases it on actor destruction. Your own owner, as in the preview
 example, needs a matching `release-owner` event.
 
-Owned entries survive GC and refetch when invalidated. Once unowned and no
-longer loading, an entry can be collected at the next `:gc-after-ms` check
-(default five minutes). The check is armed when a load settles; it does not
-promise five full minutes of retention after the owner leaves.
+Owned entries survive GC and refetch when invalidated. Once its last owner
+is released, an entry stays cached for `:gc-after-ms` (default five minutes)
+and is then collected unless something owns or is loading it, so returning
+within that window reuses the cached data.
 
 An ownerless ensure is useful for warming the cache. It loads normally but
 keeps nothing alive. A subscription is always passive, even while a view
