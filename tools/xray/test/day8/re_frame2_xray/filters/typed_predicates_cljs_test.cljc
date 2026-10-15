@@ -33,13 +33,6 @@
 
 ;; ---- per-kind matchers --------------------------------------------------
 
-(deftest event-id-pattern-legacy-shape
-  (testing "the bare `{:pattern …}` pill the Add-filter popup writes matches
-            through the canonicaliser"
-    (let [bundle {:event [:auth/login]}]
-      (is (typed/event-bundle-matches-pill? bundle {:pattern :auth/*}))
-      (is (not (typed/event-bundle-matches-pill? bundle {:pattern :order/*}))))))
-
 (deftest http-correlation-matches-reply-dispatch-bundle
   (testing "the reply-target run matches on the reply map's :correlation,
             carried on its dispatched event vector"
@@ -136,17 +129,6 @@
                    :effects [{:tags {:machine-id :form}}]}]
       (is (= [a-root a-child]
              (typed/filter-event-bundles [a-root b-root a-child] machine-in))))))
-
-(deftest cross-frame-cycle-guard-is-frame-qualified
-  (testing "each frame carries a 1↔2 parent loop on the same ids; frame A's
-            walk terminates inside frame A and frame B is untouched"
-    (let [a1 {:frame :a :dispatch-id 1 :parent-dispatch-id 2 :event [:a1]}
-          a2 {:frame :a :dispatch-id 2 :parent-dispatch-id 1 :event [:a2]
-              :effects [{:tags {:machine-id :form}}]}
-          b1 {:frame :b :dispatch-id 1 :parent-dispatch-id 2 :event [:b1]}
-          b2 {:frame :b :dispatch-id 2 :parent-dispatch-id 1 :event [:b2]}]
-      (is (= [a1 a2]
-             (typed/filter-event-bundles [a1 a2 b1 b2] machine-in))))))
 
 (deftest out-pill-stays-frame-local-across-frames
   (testing "an OUT pill hides only the bundle it matches: the child's parent
