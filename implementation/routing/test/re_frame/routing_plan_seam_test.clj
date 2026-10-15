@@ -1,44 +1,5 @@
 (ns re-frame.routing-plan-seam-test
-  "Focused tests for the ONE resolved-target / route-plan seam
-  `re-frame.routing.resolve` (EP-0037 R0).
-
-  Pins the ResolvedTarget fact shape, the route-plan every door builds
-  (`:source` / `:cause` / `:target` / `:branch` / `:leaf-plan`), the leaf
-  resource plan (the route's `:on-match` loaders), and the plan diagnostic
-  projection. Per Spec 012 §The one planning pipeline and §Resolved target and
-  the plan diagnostic projection.
-
-  The pure-constructor tests prove the seam's SHAPE. The door-wiring tests
-  prove the doors actually reach it — that the link door and the commit hop
-  resolve one URL to ONE target, and that the URL-change door reports which of
-  its sub-doors fired. A test that only loops causes through the pure
-  constructor cannot fail when a door passes the wrong cause or resolves its
-  own target.
-
-  ## Posture split
-
-  The SEAM ITSELF is production-real and carries no posture guard: every pure
-  constructor test and every door-wiring test runs in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane).
-
-  What IS dev-only is the `:rf.route/planned` TRACE — the one bus the plan
-  diagnostic projection rides — and the two `:rf.warning/*` fail-closed
-  advisories. All three go through `trace/emit!` / `trace/emit-error!`, gated on
-  `rf.interop/debug-enabled?` and read once at load time, so their assertions
-  sit inside `(when rf.interop/debug-enabled? …)` dev-instrumentation arms.
-  Under the gate the trace ring is empty, so a NEGATIVE read there (an empty
-  `planned` result, a `not-any?`, a `re-find` over `(pr-str nil)`) would pass
-  vacuously.
-
-  PRODUCTION WITNESSES stand beside those arms. The projection is a PURE
-  function (`rf.routing.resolve/plan-trace-tags`, pinned posture-independently
-  below), so the redaction the trace relies on is checkable with no gate
-  between the call and the verdict. The commits themselves are runtime-db
-  facts: the slice moves, the `:on-match` leaf plan really dispatches, the
-  nav-token really does NOT move on a no-op, and the `:routing/on-route-entry`
-  late-bind hook — a FN, not a trace — really does receive the fail-loud
-  `:branch-error` the activation composes over."
+  "Resolved targets, navigation plans and agreement across doors. Trace assertions require debug; runtime and projection checks run in both postures."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
