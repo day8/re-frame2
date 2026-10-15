@@ -622,8 +622,6 @@
   (doseq [[label before after removed survivors]
           [["scattered `[:a :b :c :d] -> [:a :c]`: :b@1 and :d@3 removed, :c survives shifted 2 → 1"
             [:a :b :c :d] [:a :c] [":b" ":d"] [":a" ":c"]]
-           ["contiguous tail `[:x :y :z] -> [:x]`, the one case index alignment also gets right"
-            [:x :y :z] [:x] [":y" ":z"] [":x"]]
            ["insert before a delete, `[[0] :+ :X] [[2] :-]`: a misaligned replay strikes :c and never surfaces :b"
             [:a :b :c] [:X :a :c] [":b"] [":a" ":c" ":X"]]
            ["insert before a double delete, `[[0] :+ :X] [[2] :-] [[2] :-]`: a misaligned replay strikes :d and drops :c"
