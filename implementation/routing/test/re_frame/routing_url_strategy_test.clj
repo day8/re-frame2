@@ -1,28 +1,5 @@
 (ns re-frame.routing-url-strategy-test
-  "URL-strategy seam tests: the pure `:encode` / `:decode` legs of the two
-  shipped strategies — `history-url-strategy` (default, path-form) and
-  `hash-url-strategy` (`#`-prefixed) — and of the `with-base-path` combinator,
-  the registration-time preflight, and the frame-config resolution the consult
-  points share. Per Spec 012 §URL strategies. The CLJS-only side-effecting legs
-  are driven in `routing_url_strategy_cljs_test.cljs`.
-
-  ## Posture split
-
-  The fail-loud validation seam is FRAME CONSTRUCTION:
-  `preflight-frame-config!` runs `validate-url-strategy!` UNCONDITIONALLY at
-  `re-frame.frame/upsert-frame!`, the sole `frames`-store config writer. The
-  preflight tests therefore carry no posture guard and run in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
-  `-Dre-frame.debug=false` lane).
-
-  The CONSULT path is a trusted read: `url-strategy-from-config` pays no
-  per-render validation, and all that sits there is a
-  `(when rf.interop/debug-enabled? …)` tripwire, DCE'd from production CLJS
-  bundles and dead on a JVM started with `-Dre-frame.debug=false`.
-  `custom-url-strategy-missing-leg-tripwire` therefore branches on
-  `rf.interop/debug-enabled?`: the dev arm asserts the tripwire fails loud, and
-  the production arm asserts the read returns the declared value verbatim,
-  throwing nothing."
+  "URL strategy composition, registration preflight and history fallback. Consult-time diagnostics require debug."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
