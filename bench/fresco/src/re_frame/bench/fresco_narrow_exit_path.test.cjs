@@ -1,34 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE NARROW-WRITE DRIVER'S EXIT PATH — a printed refusal must refuse.
-//
-//     node src/re_frame/bench/fresco_narrow_exit_path.test.cjs   (from bench/fresco/)
-//
-// WHAT THIS PINS. Two of this driver's own listed gates are computed, printed
-// and written into `report.json`, and a verdict block that read neither would
-// exit 0 on a run it had just refused in print.
-//
-//   * THE WARM-UP. `settled[arm]` is computed inside the `WARMUP_MAX` loop
-//     and printed, then stored as `warmupSettled`. A verdict that did not read
-//     it would let every arm hit the ceiling still trending, print
-//     `VERDICT: reportable.` and exit 0, on figures taken off a site that was
-//     still moving.
-//
-//   * THE CLAMP. `clamped` is computed against the measured
-//     `performance.now()` quantum and printed as `CLAMP-LIMITED, not
-//     quotable as absolute` — beside a table whose entire purpose is to
-//     quote absolutes — so a verdict that never read it would quote them.
-//
-// The driver's other gates share that shape (a stale write, a broken leg
-// identity, a padded verification denominator), which is why the
-// decision lives in ONE pure function with nothing downstream of it.
-//
-// WHY IT IS PINNED HERE. The driver needs an `:advanced` release build and a
-// headless Chromium, so its verdict cannot be exercised end-to-end in a unit
-// test. `verdict` is pure and exported; this file drives it directly, and
-// then pins the wiring that keeps it the exit.
-//
-// Run by `npm run check` in bench/fresco/.
+// Pure gates and source wiring keep the browser driver able to refuse a run.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
