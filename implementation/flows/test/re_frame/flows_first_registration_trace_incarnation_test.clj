@@ -1,14 +1,5 @@
 (ns re-frame.flows-first-registration-trace-incarnation-test
-  "Exact-incarnation fence for the first-registration trace through the
-  trace-emit callback pipeline.
-
-  A direct cold `reg-flow` has no parent continuation predicate, so its
-  `:rf.flow/registered` emit runs under one bound to A's pinned incarnation:
-  a listener that destroys A and publishes a same-id B mid-fan-out is the
-  already-entered delivery and stands, and every later listener is
-  suppressed. A declares no output marks, so the listener fan-out is the only
-  callback seam. Listeners fan out in insertion order, so the destroyer is
-  registered first."
+  "First-registration trace delivery stops when a listener replaces the frame owner."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows]
@@ -38,10 +29,10 @@
         (when (= :rf.flow/registered (:operation ev))
           (swap! observed conj (get-in ev [:tags :flow-id])))))
     (try
-      (is (= :flow.trace.fence/a
-             (rf/reg-flow :flow.trace.fence/a {:frame id :inputs [[:an]] :output-path [:aout]} identity)))
-      (is (= 1 @destroyer-hits) "the already-entered delivery stands")
-      (is (= [] @observed) "no later listener receives A's stale event")
+      (is (= [:flow.trace.fence/a 1 []]
+             [(rf/reg-flow :flow.trace.fence/a {:frame id :inputs [[:an]] :output-path [:aout]} identity)
+              @destroyer-hits @observed])
+          "only the already-entered delivery stands after owner loss")
       ;; The fence does not poison the successor's own registration.
       (rf/reg-flow :flow.trace.fence/b {:frame id :inputs [[:bn]] :output-path [:bout]} identity)
       (is (= [:flow.trace.fence/b] @observed))
