@@ -267,10 +267,10 @@
   `poll-fired-handler` makes its default-pause-when-hidden decision from its
   recordable event payload, never an ambient host read at the cascade site.
 
-  A `:gc`-kind fire whose timer armed while the entry was owned
-  (`armed-while-owned?`) stamps `:armed-while-owned? true` the same way, so
-  `gc-fired-handler` can tell an owned window's check from the window the last
-  owner's release arms."
+  A `:gc`-kind fire whose timer armed while the entry was owned stamps
+  `:armed-while-owned? true` onto its payload (`schedule!` reads the owner set
+  as the timer arms), so `gc-fired-handler` tells an owned window's check from
+  the window the last owner's release arms by its payload alone."
   [frame-id resource-key kind armed-while-owned?]
   (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (let [event-id (condp = kind
