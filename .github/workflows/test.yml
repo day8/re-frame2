@@ -2851,7 +2851,6 @@ jobs:
     # an EXPLICIT contributor map on BOTH hosts, so it deliberately does
     # NOT exercise JVM `default-contributors` auto-resolution; that path is
     # core's, pinned by `default-contributors-resolves-every-jvm-sibling`
-    # and `default-contributors-wires-the-machine-selector-targets-surface`
     # in implementation/core/test/re_frame/derivation_graph_test.clj. The
     # tier proves the four EP-0014 laws across all five families —
     # subscriptions, flows, resources, route facts, machines. Mirrors the

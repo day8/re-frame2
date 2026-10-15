@@ -605,12 +605,16 @@
 ;; actually exercise all of the above live next door in re-frame.examples-test
 ;; (implementation/core/test/) and run on the JVM. If you're curious what's
 ;; covered:
-;;   - `ssr-example-runs-end-to-end` — the whole server flow: per-request frame,
-;;     :rf/server-init, the article fetch through a canned stub,
-;;     render-to-string, render-hash.
-;;   - `ssr-example-handle-request-tears-down-per-request-frame` and
-;;     `…-tears-down-on-throw` — proof the frame is torn down on both the happy
-;;     path and the throw path.
-;;   - `ssr-example-client-hydration-*` — the client side: the server-hash
-;;     stash, verify on both a matching and a divergent hash, and fail-closed
-;;     behaviour on a malformed payload.
+;;   - `ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch` — the
+;;     whole round trip: per-request frame, :rf/server-init, the article fetch
+;;     through a canned stub, render-to-string, and a payload whose render
+;;     hash the client frame stashes when it hydrates.
+;;   - `ssr-example-handle-request-tears-down-on-throw` — the per-request frame
+;;     and its request slot are released even when the render throws; the
+;;     delayed-reply and failure/deadline tests check that no frame outlives a
+;;     200 or a 503.
+;;   - `ssr-example-client-hydration-verifies-the-render-hash` — the verify
+;;     step, on both a matching and a divergent hash.
+;; Fail-closed hydration of a malformed payload is the framework's job rather
+;; than the example's, so re-frame.ssr-hydration-test (implementation/ssr/test/)
+;; covers it.

@@ -67,8 +67,7 @@ artefacts=(
   # The suite supplies an EXPLICIT contributor map on BOTH
   # hosts, so it deliberately does NOT exercise JVM `default-contributors`
   # auto-resolution; that path is core's, pinned by
-  # `default-contributors-resolves-every-jvm-sibling` and
-  # `default-contributors-wires-the-machine-selector-targets-surface` in
+  # `default-contributors-resolves-every-jvm-sibling` in
   # implementation/core/test/re_frame/derivation_graph_test.clj. It
   # proves the cross-family laws (graph edges / lifecycle release /
   # on-demand reads / graph egress) across all five families —
