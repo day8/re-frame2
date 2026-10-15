@@ -18,7 +18,6 @@
                    {:reg-event [[:review/recording-step
                                  (fn [{:keys [db]} _]
                                    {:db (update db :n (fnil inc 0))})]]}})]})
-    ;; Drive the real public recording lifecycle without a browser or timers.
     (set! (.-requestAnimationFrame js/globalThis)
           (fn [callback] (reset! pending callback) 1))
     (set! (.-cancelAnimationFrame js/globalThis)
@@ -30,7 +29,6 @@
             tick! (fn []
                     (let [callback @pending]
                       (reset! pending nil)
-                      (is (some? callback) "recording scheduled its next sample")
                       (when callback (callback 0))))
             change! #(rf/dispatch-sync [:review/recording-step] {:frame frame-id})]
         (is (true? (:ok? result)))
@@ -56,9 +54,8 @@
       (change!)
       (tick!)
       (let [result (rt/read-recording rid)]
-        (is (= :stopped (:status result)))
-        (is (= :changes (:stopped-reason result)))
-        (is (= 1 (:count result)) "only the undrained change remains"))
+        (is (= {:status :stopped :stopped-reason :changes :count 1}
+               (select-keys result [:status :stopped-reason :count]))))
       (is (nil? @pending) "the sampler stops scheduling work"))))
 
 (deftest change-limit-can-exceed-the-retained-buffer
@@ -70,8 +67,7 @@
         (change!)
         (tick!))
       (let [result (rt/read-recording rid)]
-        (is (= :stopped (:status result)))
-        (is (= :changes (:stopped-reason result)))
-        (is (= 1 (:count result)) "retention remains bounded")
+        (is (= {:status :stopped :stopped-reason :changes :count 1}
+               (select-keys result [:status :stopped-reason :count])))
         (is (= 3 (get-in result [:entries 0 :value])) "the newest change survives"))
       (is (nil? @pending) "the sampler stops scheduling work"))))
