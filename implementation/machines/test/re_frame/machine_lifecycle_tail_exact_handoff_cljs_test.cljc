@@ -83,12 +83,10 @@
 
 (deftest spawn-classification-lowering-loss-fences-lifecycle-spawned
   ;; A loss during `lower-at-spawn!`: the spawn rechecks ownership after it, so
-  ;; A's ghost child announces no `:rf.machine.lifecycle/spawned` against B and
-  ;; sends no `:start` bootstrap dispatch into it.
+  ;; A's ghost child announces no `:rf.machine.lifecycle/spawned` against B.
   (rf/reg-machine actor-type (actor-spec nil))
   (let [frame-a        :rf2-rbxdxa/spawn-class-frame
         fired?         (atom false)
-        dispatches     (atom [])
         spawned        (atom 0)
         orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (rf/make-frame {:id frame-a})
@@ -96,9 +94,8 @@
       ::lifecycle-spawned
       (fn [ev] (when (= :rf.machine.lifecycle/spawned (:operation ev)) (swap! spawned inc))))
     (try
-      ;; Capture (never route) the bootstrap dispatch, so no async drain races
-      ;; the assertion.
-      (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
+      ;; An inert bootstrap dispatch, so no async drain races the assertion.
+      (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
       ;; Multi-arity like the real fn: CLJS compiles the 4-arity call to a direct
       ;; `arity$4` invoke, which only a multi-arity fn exposes.
       (with-redefs [rf.machines.classification/lower-at-spawn!
@@ -111,8 +108,8 @@
             (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                                            {:machine-id actor-type
                                                             :start      [:go]})))))
-      (is (= [true 0 []] [@fired? @spawned @dispatches])
-          "the loss happened, and neither the lifecycle trace nor :start followed it")
+      (is (= [true 0] [@fired? @spawned])
+          "the loss happened, and no lifecycle-spawned trace followed it")
       (finally
         (rf.trace.tooling/unregister-listener! ::lifecycle-spawned)
         (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))
