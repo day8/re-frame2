@@ -1,13 +1,5 @@
 (ns re-frame.bench.fresco.front.dogfood-cljs-test
-  "THE DOGFOOD STATE LAYER, and the front half composed end to end.
-
-  The events and subscriptions all three renderings share, and the proof
-  that the front half composes: an intent in the authoring spelling,
-  lowered through the codec's prop walk and invoked as the browser would,
-  reaches a real event handler and moves a real app-db. The screen's
-  narrow and broad writes against the arm's dependency edges are
-  `the-table-answers-the-screens-own-narrow-and-broad-writes` in
-  `arm1/cell_table_laws_cljs_test`. Nothing here mounts a screen."
+  "The shared screen state and lowered browser intents agree on edits, filtering, ordering and submission."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
