@@ -22,8 +22,8 @@ test('the bytes out of HTTP are the same bytes, and Content-Length counts them',
     try {
       const res = await post(`http://127.0.0.1:${http.port}/render`, { protocol: 1, entry: 'app/root', state: {} });
       assert.deepStrictEqual(
-        [res.status, res.buf, res.headers.get('content-length')],
-        [200, Buffer.from(CORPUS.BODY, 'utf8'), String(utf8(CORPUS.BODY))],
+        [res.status, res.buf, Number(res.headers.get('content-length'))],
+        [200, Buffer.from(CORPUS.BODY, 'utf8'), utf8(CORPUS.BODY)],
       );
     } finally {
       await http.close();
