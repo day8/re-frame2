@@ -2,7 +2,7 @@
   "The live Story/MCP boundary omits rendering output and options;
   render-variant remains the explicit rendering authority."
   (:require [clojure.string :as string]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.story :as rf.story]
@@ -44,23 +44,20 @@
 
 (deftest real-run-variant-emits-no-rendering-slot
   (let [outcome (run-real! nil)]
-    (is (rf.story/valid-run-result? outcome)
-        (str (rf.story/explain-run-result outcome)))
-    (is (not (contains? outcome retired-result-slot))))
+    (is (= [true false]
+           [(rf.story/valid-run-result? outcome) (contains? outcome retired-result-slot)])
+        (str (rf.story/explain-run-result outcome))))
   (let [outcome (run-real! {retired-run-opt true})]
-    (is (not= ::timed-out outcome) "the real run must settle")
-    (is (not (contains? outcome retired-result-slot)))))
+    (is (= [true false] [(not= ::timed-out outcome) (contains? outcome retired-result-slot)]))))
 
 (deftest real-mcp-run-and-preview-payloads-carry-no-rendering-slot
   (doseq [tool ["run-variant" "preview-variant"]]
-    (testing tool
-      (let [r (invoke tool {:variant-id "story.cart/full"})
-            s (:structuredContent r)]
-        (is (not (true? (:isError r))) (pr-str r))
-        (is (map? s))
-        (is (contains? s :app-db) "a real run projection")
-        (is (some? (:status s)))
-        (is (not (contains? s retired-result-slot)))))))
+    (let [r (invoke tool {:variant-id "story.cart/full"})
+          s (:structuredContent r)]
+      (is (= [true true true true false]
+             [(not (true? (:isError r))) (map? s) (contains? s :app-db)
+              (some? (:status s)) (contains? s retired-result-slot)])
+          (str tool ": " (pr-str r))))))
 
 (deftest no-tool-descriptor-advertises-rendered-output
   (doseq [{:keys [name description inputSchema]} rf.story-mcp.tools.registry/tool-registry]
