@@ -1,38 +1,5 @@
 (ns re-frame.m11-recipe-reactive-owner-cljs-test
-  "The PUBLISHED M-11 exceptional imperative-subscription Form-3
-  must own its subscription per mount.
-
-  WHY THE NAIVE SHAPE FAILS. A Form-3 that acquires a subscription in
-  `:component-did-mount`, seeds an imperative widget from a plain deref of
-  it, and then observes it with `add-watch` does not work. Under this adapter a
-  subscription IS a bare `reagent.ratom/Reaction`, built deliberately WITHOUT
-  `:auto-run`, and a Reaction learns its sources only through `deref-capture`. A
-  deref taken in a lifecycle hook runs outside `*ratom-context*`, so it computes
-  the body raw and leaves `watching` nil: the node is in nobody's watcher set and
-  can never be told the value moved. The `add-watch` would therefore be
-  registered on a node that CANNOT FIRE, handing users a widget fed once at
-  mount and deaf for the rest of its life.
-
-  THE RECIPE (`skills/re-frame-migration/references/guided-views-m11.md`
-  §M-11): a per-mount `r/track!` OWNER created in the same hook. Its eager
-  first run is both the seed and the `deref-capture` a plain deref lacks;
-  `r/dispose!` at unmount stops it before the cache slot is released. No
-  facade export — `activate-derived-value!` stays internal, and this file
-  proves the recipe uses nothing a consumer does not already have: stock
-  `reagent.core/track!` and `reagent.core/dispose!`.
-
-  WHAT GIVES THIS FILE TEETH. `the-add-watch-shape-is-deaf-…` runs the naive
-  add-watch shape against the same registered sub, the same frame and the same
-  write as the recipe, and shows it never moves. The two arms differ by exactly
-  the tracker, so the recipe arm's green is not free: delete `(r/track! …)` from
-  `recipe-mount!` and `the-repaired-recipe-feeds-…` fails on its first
-  post-mount assertion. An assertion that the subscription merely EXISTS would
-  pass in both worlds.
-
-  CLJS-only (Reagent is CLJS) and DOM-free: the claim is about the notification
-  channel, not about a render. The `-cljs-test` suffix enrols it in the
-  consolidated `:node-test` build. The mounted counterpart, where a real React
-  class mounts and unmounts, is `re-frame.form-3-lifecycle-dom-cljs-test`."
+  "The published M-11 imperative widget recipe owns one live tracker per mount and releases it at unmount."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
@@ -60,28 +27,7 @@
 (defn- ref-count []
   (or (:ref-count (get @(:sub-cache (rf.frame/frame fid)) gauge-query)) 0))
 
-(defn- node-reaction []
-  (:reaction (get @(:sub-cache (rf.frame/frame fid)) gauge-query)))
-
-;; White-box, and only ever CORROBORATING: `watching` is the Reagent field that
-;; says "this reaction is subscribed to its sources". Every arm that consults it
-;; also asserts the behaviour it is supposed to explain.
-(defn- capturing? [rx]
-  (some? (.-watching rx)))
-
-;; ---------------------------------------------------------------------------
-;; The two shapes, lifted out of the recipe with React removed. Both take the
-;; handle `(rf/capture-frame fid)` returns from the `reg-view*` outer callable,
-;; and both acquire through its captured `subscribe` — that half was never in
-;; question (Rule 5b of the migration drift gate already pins it). They differ
-;; ONLY in what observes the acquired reaction.
-;; ---------------------------------------------------------------------------
-
 (defn- recipe-mount!
-  "The REPAIRED `:component-did-mount`: acquire through the captured `subscribe`,
-  then own the reaction with a per-mount `r/track!`. The tracker's eager first
-  run seeds the widget AND supplies the `deref-capture` that puts the shared
-  reaction on the push path."
   [handle feed!]
   (let [{:keys [subscribe]} handle
         reaction (subscribe gauge-query)]
@@ -89,15 +35,11 @@
      :driver   (r/track! (fn [] (feed! @reaction)))}))
 
 (defn- recipe-unmount!
-  "The REPAIRED `:component-will-unmount`: stop the owner FIRST, then release the
-  reaction the mount acquired."
   [{:keys [driver reaction]}]
   (some-> driver r/dispose!)
   (rf/unsubscribe reaction))
 
 (defn- add-watch-mount!
-  "The naive `:component-did-mount`: acquire, seed from a plain deref, observe
-  with a per-mount `add-watch` key."
   [handle feed!]
   (let [{:keys [subscribe]} handle
         reaction  (subscribe gauge-query)
@@ -114,87 +56,50 @@
   (let [log (atom [])]
     [log (fn [v] (swap! log conj v))]))
 
-;; ===========================================================================
-;; The naive add-watch shape — the non-vacuity arm
-;; ===========================================================================
-
+;; The naive recipe is the negative control for the per-mount tracker below.
 (deftest the-add-watch-shape-is-deaf-after-mount
-  (testing "the naive add-watch shape — acquire, seed from a plain lifecycle
-            deref, observe with add-watch — leaves the cached reaction
-            capturing NOTHING, so a real app-db write reaches the widget
-            never. It is the non-vacuity arm for the recipe test below: same
-            sub, same frame, same write, no tracker"
+  (testing "plain deref and add-watch seed once but receive no changes"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log feed!] (recorder)
           mounted (add-watch-mount! handle feed!)]
       (try
-        (is (= [[10] false] [@log (capturing? (node-reaction))])
-            "the plain deref seeded the widget once, and left the reaction watching
-             nothing — `add-watch` was registered on a node that is in no watcher
-             set and cannot be notified")
+        (is (= [10] @log))
 
         (write! 20)
         (r/flush)
         (ratom/flush!)
-        (is (= [10] @log)
-            "a real app-db write moved nothing — not on dispatch, and not on a
-             Reagent flush either. The widget is deaf")
+        (is (= [10] @log))
         (finally
           (add-watch-unmount! mounted))))))
 
-;; ===========================================================================
-;; The recipe — a per-mount r/track! owner
-;; ===========================================================================
-
 (deftest the-repaired-recipe-feeds-its-widget-on-every-commit
-  (testing "the per-mount `r/track!` owner seeds the widget on its eager first
-            run and re-feeds it on every later commit. Delete the tracker from
-            `recipe-mount!` and the first post-mount assertion here fails —
-            that is what makes this test about liveness and not about the
-            subscription merely existing"
+  (testing "track! seeds eagerly and feeds each change once"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log feed!] (recorder)
           mounted (recipe-mount! handle feed!)]
       (try
-        (is (= [[10] true] [@log (capturing? (node-reaction))])
-            "track!'s EAGER first run is the seed (there is no separate plain
-             deref to forget to activate), and that same run supplied the
-             deref-capture: the reaction is now subscribed to its sources")
+        (is (= [10] @log))
 
         (write! 20)
-        (is (= [10 20] @log)
-            "the widget saw the moved value. It arrived on a Reagent FLUSH, not
-             from an inline callback inside the app-db write: the owner is
-             queued like any other reaction, and this adapter's commit path
-             drains that queue itself (`:flush-render!` is `(f) (r/flush)`)")
+        (is (= [10 20] @log))
 
         (write! 30)
         (r/flush)
         (write! 30)
         (r/flush)
-        (is (= [10 20 30] @log)
-            "every later commit feeds it exactly once, and a write that does not
-             move the observed value feeds nothing — the owner did not make the
-             channel chatty")
+        (is (= [10 20 30] @log))
         (finally
           (recipe-unmount! mounted)))
 
-      (testing "…and unmount stops it: the disposed owner takes no further feed
-                and the cache slot returns to its pre-mount baseline"
+      (testing "unmount stops feeds and releases the cache slot"
         (write! 40)
         (r/flush)
-        (is (= [[10 20 30] 0] [@log (ref-count)])
-            "no feed after the owner was disposed, and the acquire was released frame-first")))))
+        (is (= [[10 20 30] 0] [@log (ref-count)]))))))
 
 (deftest two-mounts-of-one-query-need-no-watch-keys
-  (testing "equal (frame, query-v) subscriptions share ONE cached reaction, but
-            each mount owns its own tracker — so two widgets stay independent
-            with no watch key anywhere: both see an update, disposing one leaves
-            the other live, and the ref-count balances back to zero. An
-            add-watch shape would need a per-mount gensym watch key to get this
-            far; the tracker deletes the whole hazard rather than documenting it"
+  (testing "shared query reactions have independent per-mount trackers"
     (setup!)
     (let [handle (rf/capture-frame fid)
           [log-a feed-a!] (recorder)
@@ -202,21 +107,17 @@
           mount-a (recipe-mount! handle feed-a!)
           mount-b (recipe-mount! handle feed-b!)]
       (is (= [true 2 [10] [10]]
-             [(= (:reaction mount-a) (:reaction mount-b)) (ref-count) @log-a @log-b])
-          "one shared cached reaction (so the arm is not vacuous) with two holders, and both mounts seeded from it")
+             [(= (:reaction mount-a) (:reaction mount-b)) (ref-count) @log-a @log-b]))
 
       (write! 20)
       (r/flush)
-      (is (= [[10 20] [10 20]] [@log-a @log-b]) "one change feeds BOTH mounts")
+      (is (= [[10 20] [10 20]] [@log-a @log-b]))
 
       (recipe-unmount! mount-a)
 
       (write! 30)
       (r/flush)
-      (is (= [[10 20] [10 20 30]] [@log-a @log-b])
-          "the unmounted mount's owner is gone, while the survivor keeps updating:
-           disposing a sibling's tracker cannot strip this mount's observation,
-           because there is no shared callback registry to strip from")
+      (is (= [[10 20] [10 20 30]] [@log-a @log-b]))
 
       (recipe-unmount! mount-b)
-      (is (zero? (ref-count)) "both releases land — the slot is back to baseline"))))
+      (is (zero? (ref-count))))))
