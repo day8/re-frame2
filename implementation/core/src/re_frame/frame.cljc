@@ -4904,51 +4904,6 @@
             (release-frame-construction! transaction-owner))
           (release-frame-destroy-claim! id expected-incarnation-token)))))))))))
 
-;; ---- reset-frame! — throwing stub -------------------------------------------
-;;
-;; There is no `reset-frame!` verb (destroy-frame! + make-frame with the same
-;; config, full replace): the frame lifecycle is one axis (create/refresh via
-;; `make-frame`, destroy via `destroy-frame!`), not three verbs. A full replace
-;; is reproducible by composition — `(destroy-frame! id) (make-frame config)`,
-;; re-supplying the SAME config (which carries `:id`, and `:images` for an
-;; image-loaded frame, so the recreated frame keeps its resolved generation).
-;; There is no internal-only variant either: the mid-cascade atomicity guard a
-;; dedicated verb could offer (reject BEFORE any teardown) has no equivalent in
-;; the two-call composition, and that is accepted — frame
-;; construction/destruction is a top-level/view-only operation
-;; (EP-0027), so the composition's non-atomicity only bites a call site that
-;; already violates that rule.
-;;
-;; The name exists ONLY as a `^:no-doc` throwing stub (the project's
-;; actionable-removed-API pattern, like the EP-0018 `reg-event-db` / EP-0022
-;; `rf/path` stubs): a stale `(rf/reset-frame! …)` call site resolves to a
-;; real var and fails LOUDLY with `:rf.error/reset-frame-removed`, naming the
-;; two-call composition as the replacement. `^:no-doc` drops it from the API
-;; manifest generator + the CLJS publics probe. Plain `defn` (not
-;; macro-generated) so it compiles identically on JVM and CLJS. Aliased onto
-;; the `re-frame.core` facade in core.cljc.
-
-(defn ^:no-doc reset-frame!
-  "REMOVED (no alias). There is no dedicated reset verb — a
-  full replace is `(destroy-frame! id) (make-frame config)`, re-supplying
-  the SAME config (which carries `:id`, and `:images` for an image-loaded
-  frame) the caller already holds. Calling `reset-frame!` is the hard error
-  `:rf.error/reset-frame-removed`, naming that composition as the
-  replacement. See spec/002-Frames.md §Resetting a frame — destroy + make-frame
-  and spec/API.md §Frame lifecycle."
-  [& args]
-  (rf.error/throw-error!
-    :rf.error/reset-frame-removed
-    'rf/reset-frame!
-    (str "`reset-frame!` is REMOVED (no alias) — a full frame "
-         "reset is reproducible by composition: `(destroy-frame! id) "
-         "(make-frame config)`, re-supplying the SAME config (which "
-         "carries `:id`, and `:images` for an image-loaded frame) you "
-         "already hold. See spec/002-Frames.md §Resetting a frame — "
-         "destroy + make-frame.")
-    {:recovery :destroy-frame-then-make-frame-with-same-config
-     :extra    {:got args}}))
-
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
 ;;
 ;; Per Spec 002 §`:rf/default` is an ordinary id: `:rf/default`

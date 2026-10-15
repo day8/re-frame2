@@ -945,7 +945,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 
 ### Resetting a frame
 
-Calling `rf/reset-frame!` throws `:rf.error/reset-frame-removed`. To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` and releases per-feature resources, then create it again from the same config:
+To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` and releases per-feature resources, then create it again from the same config:
 
 ```clojure
 ;; Destroy, then re-create from the same config (which carries :id :app/main).
@@ -1105,7 +1105,7 @@ Calling `rf/reset-frame!` throws `:rf.error/reset-frame-removed`. To replace a f
 
 ### Hot-reloading a frame's images
 
-Re-evaluating a `reg-*` form during development updates the live frames that select it; you call nothing. Calling `rf/reload-images!` throws `:rf.error/reload-images-removed`. To change which images a frame runs, call `make-frame` again with the same `:id` and a new `:images` vector. Frame memory is kept: `app-db`, `runtime-db`, caches and lifecycle continue unchanged, and the frame's generation is replaced:
+Re-evaluating a `reg-*` form during development updates the live frames that select it; you call nothing. To change which images a frame runs, call `make-frame` again with the same `:id` and a new `:images` vector. Frame memory is kept: `app-db`, `runtime-db`, caches and lifecycle continue unchanged, and the frame's generation is replaced:
 
 ```clojure
 ;; config is the map the frame was created with; change only :images.
