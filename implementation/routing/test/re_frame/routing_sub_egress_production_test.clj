@@ -1,26 +1,5 @@
 (ns re-frame.routing-sub-egress-production-test
-  "Route sub classification egresses in PRODUCTION, and this namespace says so
-  under the real gate.
-
-  Core's `:rf.sub/run` projection is reached only from `trace/emit!`, behind
-  `interop/debug-enabled?`, so it has no production egress. Off-box direct
-  reads do: a read that names a route read sub through `:query-v` (Pair MCP
-  `read-sub`, `list-subscriptions :include-values`, `snapshot :sub-cache`,
-  Xray) reaches `rf.elision/elide-wire-value`, which consults the
-  `:routing/route-sub-egress-path` hook and re-seeds the walk at the sub's
-  runtime-db storage position, so the route's re-rooted `:sensitive` /
-  `:large` declarations match the bare value the sub returns. Nothing on that
-  path reads `interop/debug-enabled?`, so it redacts in a production build
-  exactly as in a dev one.
-
-  The namespace carries no trace leg, so every assertion holds in dev AND
-  under `-Dre-frame.debug=false`; the `jvm-routing-prod-gate` CI job runs it
-  through `scripts/test-routing-prod-gate.sh`:
-
-      clojure -J-Dre-frame.debug=false -M:test -n re-frame.routing-sub-egress-production-test
-
-  Nothing here rebinds `interop/debug-enabled?`: it is read once at load time,
-  so the posture comes from the JVM flag."
+  "Route subscription egress redacts sensitive values and elides large values in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -55,10 +34,11 @@
 (deftest route-sub-egress-redacts-the-classified-slice-off-box
   (navigate-to-classified-route!)
   (let [wire (rf.elision/elide-wire-value (route-slice) {:query-v [:rf/route] :frame :rf/default})]
-    (is (= rf.privacy/redacted-sentinel (get-in wire [:query :token])) "the :sensitive value redacts")
-    (is (rf.elision/marker? (get-in wire [:query :payload])) "the :large value elides to a size marker")
-    (is (= :route/oauth (:route-id wire)) "unclassified slots ride verbatim")
-    (is (not (.contains (pr-str wire) token-secret)) "the raw token appears nowhere on the wire")))
+    (is (= [rf.privacy/redacted-sentinel true :route/oauth false]
+           [(get-in wire [:query :token])
+            (rf.elision/marker? (get-in wire [:query :payload]))
+            (:route-id wire)
+            (.contains (pr-str wire) token-secret)]))))
 
 (deftest the-other-two-seed-table-entries-redact-too
   (testing ":rf.route/query and :rf.route/params return sub-projections of the
