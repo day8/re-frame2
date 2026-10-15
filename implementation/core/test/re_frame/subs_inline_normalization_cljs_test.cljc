@@ -42,15 +42,11 @@
           (:sensitive (rf.subs/lower-inline-sub :norm/inline-cls {:sensitive [[:token]]} body))])))
 
 (deftest runtime-owned-slots-win-over-metadata
-  (is (= {:handler-fn body :input-kind :db :input-signals []}
+  (is (= {:handler-fn body :input-kind :db :input-signals [] :myapp/analytics-id 7}
          (select-keys (rf.subs/lower-inline-sub :norm/inline-slots
-                                                {:input-kind :parametric :input-signals [:x]}
+                                                {:input-kind :parametric :input-signals [:x] :myapp/analytics-id 7}
                                                 body)
-                      [:handler-fn :input-kind :input-signals]))))
-
-(deftest namespaced-extension-keys-survive-on-inline-path
-  (is (= 7 (:myapp/analytics-id
-            (rf.subs/lower-inline-sub :norm/inline-ext {:myapp/analytics-id 7} body)))))
+                      [:handler-fn :input-kind :input-signals :myapp/analytics-id]))))
 
 (deftest retired-key-diagnostic-names-the-authored-inline-id
   ;; Through the REAL image assembly: a lowering that hardcoded a synthetic
