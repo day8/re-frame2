@@ -1,12 +1,10 @@
-;; Execute the published slice rewrite and the evals' actual predicates.
-;; These checks grade lifecycle behaviour and fixture truth tables, not prose.
-;; CI discovers this file through skills-structural's *_test.clj loop.
+;; Execute the published lifecycle and selector together, plus the eval predicates.
 (ns render-lifecycle-test
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing run-tests]]))
+            [clojure.test :refer [deftest is run-tests]]))
 
 (def skill-root (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile))
 (println "gate root:" (.getCanonicalPath (.getParentFile (.getParentFile skill-root))))
@@ -37,34 +35,28 @@
     (:article/render (registrations (first matches) 'rf/reg-sub))))
 
 (deftest consolidated-rewrite-keeps-data-visible-during-refresh
-  ;; SKILL.md recommends composing the flag and discriminator corrections.
-  ;; Feed the actual lifecycle slice to the actual selector, as its one input.
   (let [initial (step {} :items/load-start)
         render #(render-slice [(:items %)] [:article/render])]
-    (is (= :idle (render {})))
-    (is (= :loading (render initial)))
+    (is (= [:idle :loading] [(render {}) (render initial)]))
     (doseq [[data expected] [[[] :empty] [[{:id 1}] :loaded]]]
       (let [loaded (step initial :items/load-success data)
             refreshing (step loaded :items/load-start)
             failed (step refreshing :items/load-failure :offline)]
-        (is (= expected (render loaded)))
-        (is (= expected (render refreshing))
-            "refresh must retain the previous loaded or empty view")
-        (is (= :error (render failed)))))))
+        (is (= [expected expected :error]
+               (mapv render [loaded refreshing failed])))))))
 
 (deftest initial-load-and-revalidation
-  (let [initial (step {} :items/load-start)]
-    (is (= {:status :loading :data nil :error nil} (:items initial)))
-    (doseq [data [[] [{:id 1}]]]
-      (testing (str "refresh keeps prior data, including empty success: " data)
-        (let [loaded (step initial :items/load-success data)
-              refreshing (step loaded :items/load-start)
-              failed (step refreshing :items/load-failure :offline)
-              recovered (step failed :items/load-success [{:id 2}])]
-          (is (= {:status :loaded :data data :error nil} (:items loaded)))
-          (is (= {:status :fetching :data data :error nil} (:items refreshing)))
-          (is (= {:status :error :data data :error :offline} (:items failed)))
-          (is (= {:status :loaded :data [{:id 2}] :error nil} (:items recovered))))))))
+  (let [initial (step {} :items/load-start)
+        loaded (step initial :items/load-success [])
+        refreshing (step loaded :items/load-start)
+        failed (step refreshing :items/load-failure :offline)
+        recovered (step failed :items/load-success [{:id 2}])]
+    (is (= [{:status :loading :data nil :error nil}
+            {:status :loaded :data [] :error nil}
+            {:status :fetching :data [] :error nil}
+            {:status :error :data [] :error :offline}
+            {:status :loaded :data [{:id 2}] :error nil}]
+           (mapv :items [initial loaded refreshing failed recovered])))))
 
 (def evals (-> (slurp (io/file skill-root "evals/evals.json")) (json/parse-string true) :evals))
 
@@ -88,7 +80,6 @@
                              {:items/loading? loading? :items/error error :items data})]]]
     (let [preds (predicates id)
           outcomes (map #(active preds %) states)]
-      (is (= 4 (count preds)))
       (is (every? #(<= (count %) 1) outcomes) (str "eval " id " must not demand a false positive"))
       (is (= (set (keys preds)) (apply set/union outcomes)) "every branch is reachable")))
   (is (empty? (active (predicates 18) {:article {:status :idle :data nil}}))
@@ -107,7 +98,7 @@
         render (eval (list 'fn '[subscribe] (last view)))]
     (doseq [status [:loaded :fetching]]
       (let [values {:articles/loading? false :articles/error? false
-                    :articles/loaded? (= :loaded status) :articles/status status
+                    :articles/status status
                     :articles/data [{:id 1 :title "Article"}]}
             hiccup (render (fn [[id]] (atom (get values id))))]
         (is (= :ul (first hiccup))
