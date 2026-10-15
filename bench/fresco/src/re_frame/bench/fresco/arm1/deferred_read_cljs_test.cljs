@@ -1,67 +1,5 @@
 (ns re-frame.bench.fresco.arm1.deferred-read-cljs-test
-  "AN EXPLICITLY DEFERRED READ IS LOUD, NOT SILENT.
-
-  The last shape in the read-outside-the-render family, and the only one
-  the two other guards cannot see between them.
-
-  ## Where this sits
-
-  `runtime-cljs-test`'s
-  `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
-  settles three escapes — an author-held `delay`, a stashed lazy seq,
-  and a stored handler called later — all of which run when
-  **no** body is running, so `read-key!` finds no frame and throws.
-  `boundary-crossing-cljs-test` settles the fourth — a lazy seq handed
-  across a boundary and realised in the child's render, where a frame IS
-  bound and the guard is satisfied — by forcing it at the crossing,
-  inside the window of the body that wrote it.
-
-  Both of those repair or refuse **structure**. This file is about what
-  is left: an **explicit deferral**, handed across a boundary and forced
-  there. A `delay` is the canonical spelling, and it is the one carrier
-  the crossing walk may not repair, because repairing it means forcing
-  it, and *not now* is the entire content of what a `delay` says.
-
-  ## The fault, and why it is the worst one available
-
-      (defview child  [{:keys [d]}] [:li (str @d)])
-      (defview parent [_] [child {:d (delay (:title (sub [:todo 1])))}])
-
-  Without the refusal (the probe is `the-fault-the-refusal-replaces`
-  below), the parent's read set is
-  **empty**, the child's first render holds `[:todo 1]`, and the child's
-  second render holds **nothing** — a `Delay` caches, so the second walk
-  calls `sub` zero times, the read set collapses, React re-subscribes and
-  the edge is dropped. The parent never held an edge, so it never
-  re-renders and the delay is never rebuilt. Correct on screen, frozen
-  thereafter, attributable to nothing.
-
-  ## What the refusal does, and what it deliberately does not
-
-  `rf.bench.fresco.front.codec/realize-deep` — the one walk at the crossing — refuses
-  an **unforced** `delay` it reaches, and refuses it *inside the render
-  of the body that wrote it*, so the stack lands on the author's own call
-  site. It does not force the delay: that would change the meaning of the
-  program to protect a property the author was never told about, which is
-  a silent repair of a different kind. The right answer for a deferred
-  read is a diagnostic.
-
-  A **function** prop is not in this class and is not a defect at all —
-  the rows below verify rather than assert it — because the child calls
-  it on every render, so the read repeats, the edge is the child's, and
-  the child is the boundary whose output depends on it.
-
-  ## The declared limit, recorded rather than discovered
-
-  The walk descends into data structures. A **mutable reference** is not
-  one, and a deferral parked inside an atom — or in a module-level var
-  the codec never sees at all — is outside what any structural pass can
-  reach. Those rows are here, asserting the unrepaired behaviour, so the
-  limit is a written-down property of Surface B and not a surprise.
-
-  The adapter is UIx's, matching `boundary-crossing-cljs-test`:
-  `plain-atom` has no reactivity layer, so a subscription under it never
-  notifies and every commit assertion would pass by never firing."
+  "Crossings refuse unforced delays, preserve render props and leave mutable references opaque."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -105,9 +43,7 @@
               (map first))
         cases))
 
-;; ---------------------------------------------------------------------------
 ;; The bodies
-;; ---------------------------------------------------------------------------
 
 (defn- child-derefs-body [{:keys [d]}] [:li.deref (str @d)])
 (def ^:private child-derefs (rf.bench.fresco.arm1.runtime/mint-view! "deferred/child-derefs" child-derefs-body))
@@ -126,9 +62,7 @@
   [_]
   [child-calls {:f (fn [] (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1])))}])
 
-;; ---------------------------------------------------------------------------
 ;; 1 — the refusal, at the crossing, in the writing body's render
-;; ---------------------------------------------------------------------------
 
 (deftest an-unforced-delay-crossing-a-boundary-is-refused
   (seeded!)
@@ -165,9 +99,7 @@
                           ["inside a lazy seq"      {:d (map (fn [_] (delay 1)) (range 1))}]
                           ["inside a set"           {:d #{(delay 1)}}]])))))
 
-;; ---------------------------------------------------------------------------
 ;; 1b — the same deferral, held as a map KEY
-;; ---------------------------------------------------------------------------
 
 (defn- child-derefs-key-body
   "Forces a `delay` it finds at a KEY position. Nothing about the child is
@@ -266,9 +198,7 @@
           "the read is the parent's, because the parent forced it, and the
            child reads nothing, which is correct: it is not the reader"))))
 
-;; ---------------------------------------------------------------------------
 ;; 2 — the fault the refusal replaces, as a witness
-;; ---------------------------------------------------------------------------
 
 (deftest the-fault-the-refusal-replaces
   (seeded!)
@@ -288,9 +218,7 @@
            second calls `sub` zero times, so the read set collapses, React
            re-subscribes, and the edge is dropped"))))
 
-;; ---------------------------------------------------------------------------
 ;; 3 — the shapes that are NOT in the class, verified rather than argued
-;; ---------------------------------------------------------------------------
 
 (deftest a-function-prop-keeps-its-edge-because-the-child-re-runs-it
   (seeded!)
@@ -333,9 +261,7 @@
           skips  (render (fn [_] [:li "static"]) props)]
       (is (= [#{(key-of [:dogfood/todo 1])} #{}] [(:reads calls) (:reads skips)])))))
 
-;; ---------------------------------------------------------------------------
 ;; 4 — the declared limit
-;; ---------------------------------------------------------------------------
 
 (def ^:private !parked (atom nil))
 
