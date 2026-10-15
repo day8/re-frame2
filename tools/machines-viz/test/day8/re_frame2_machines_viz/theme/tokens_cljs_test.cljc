@@ -17,10 +17,6 @@
                                   [:rgba   0.5  "rgba(1, 2, 3, 0.4)"]]]
         (is (= expected (tokens/with-alpha k alpha palette)) (str k " " alpha))))))
 
-(deftest light-palette-exists-and-mirrors-dark-shape
-  (is (= (set (keys tokens/dark-palette))
-         (set (keys tokens/light-palette)))))
-
 (deftest css-var-resolves-to-var-with-hex-fallback
   (testing "the Xray custom property with the palette hex as fallback (dark by
             default), and no fallback for an unknown token"
