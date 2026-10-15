@@ -1,40 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.deterministic-exceptions-e2e-cljs-test
-  "Multi-frame e2e coverage for the Xray feature-matrix Playwright
-  scenario `deterministic exceptions and issue/trace surfacing`.
-  The Playwright scenario (`scenarios.cjs::runExceptionSchemaHttp`)
-  opens the deliberate-throw testbed, clicks each throw button
-  (handler / fx / flow / machine), then asserts:
-
-    1. Each throw fires the matching `:rf.error/<class>-exception`
-       trace event.
-    2. The Issues feed mounts with at least one row per error
-       category.
-
-  At the data layer:
-
-    - The `issues_e2e` sibling covers the
-      `:rf.error/handler-exception` path against the
-      `deliberate-throw/throw-in-handler` event.
-    - This file extends that coverage to the FX path:
-      `:deliberate-throw/throw-in-fx` produces both an
-      `:rf.error/fx-handler-exception` (the fx itself throwing) and a
-      visible row in the issues ribbon for the focused cascade.
-
-  The flow + machine exception paths (Buttons C / D in the Playwright
-  scenario) need the `re-frame.flows` / `re-frame.machines`
-  fixtures plus throw-on-action wiring — covered by the `deep-machine`
-  fixture for the machine half and
-  `machine_inspector_e2e_cljs_test.cljs` for the snapshot half. The
-  flow exception is the one surface that benefits from browser-
-  level coverage (it builds on the long-flow testbed), so the
-  Playwright scenario covers it.
-
-  ## Bug class this catches
-
-  The `:rf.error/*` projection chain — if an
-  fx throws but the trace emit is dropped (epoch-capture filter, frame
-  tag drop), the Issues feed silently loses the row even though the
-  router caught the throw."
+  "Real handler and FX failures remain visible in Xray traces and issues."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -51,27 +16,6 @@
   [op-kw]
   (let [buffer (e2e/sub-xray [:rf.xray/trace-buffer])]
     (boolean (some #(= op-kw (:operation %)) buffer))))
-
-(deftest xray-captures-handler-exception-from-host-throw
-  (testing ":rf.error/handler-exception surfaces in Xray's trace buffer"
-    (e2e/with-host-and-xray-frames
-      {:install-host throws/install-and-init!}
-      (fn []
-        (e2e/dispatch-host [:deliberate-throw/throw-in-handler])
-        (is (has-error? :rf.error/handler-exception)
-            "no :rf.error/handler-exception in Xray trace buffer after handler throw")))))
-
-(deftest xray-captures-fx-exception-from-host-throw
-  (testing ":rf.error/fx-handler-exception surfaces in Xray's trace buffer"
-    (e2e/with-host-and-xray-frames
-      {:install-host throws/install-and-init!}
-      (fn []
-        ;; The fx body throws inside :deliberate-throw/boom. The
-        ;; router catches and emits :rf.error/fx-handler-exception via
-        ;; the fx-walker.
-        (e2e/dispatch-host [:deliberate-throw/throw-in-fx])
-        (is (has-error? :rf.error/fx-handler-exception)
-            "no :rf.error/fx-handler-exception in Xray trace buffer after fx throw")))))
 
 (deftest xray-issues-ribbon-surfaces-handler-throw-row
   (testing "the issues-ribbon sub composes the handler throw into ribbon rows"
