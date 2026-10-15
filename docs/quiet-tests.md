@@ -79,6 +79,15 @@ This prevents future `println` creep from re-polluting the output.
 
 Treat verbose output the way JVM flags treat verbose GC: it's something you opt into when you're debugging, not the default for every run.
 
+## Opting Into Namespace Banners
+
+The JVM runner (`re-frame.test-quiet.runner`) and the CLJS node runner (`re-frame.test-quiet.shadow-node`) honour `RF2_VERBOSE_TESTS=1` by printing `Testing <ns>` once for each namespace a green run executes, so the log names what ran.
+
+```bash
+RF2_VERBOSE_TESTS=1 clojure -M:test     # from a JVM artefact's directory
+RF2_VERBOSE_TESTS=1 npm run test:cljs   # from implementation/
+```
+
 ## Opting Into Verbose Browser Diagnostics
 
 Browser / Playwright harnesses follow the same rule. A green run prints
