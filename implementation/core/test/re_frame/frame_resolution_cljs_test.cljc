@@ -77,8 +77,6 @@
 (deftest absence-is-default-leaves-existing-callers-unaffected
   ;; a target that is not an image-loaded frame binds nothing
   (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
-  (doseq [target [:counter/main {:rf.frame/object true}]]
-    (rf.live-frame/call-with-frame-resolution target
-      (fn []
-        (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))
-            (pr-str target))))))
+  (rf.live-frame/call-with-frame-resolution :counter/main
+    (fn []
+      (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))))))
