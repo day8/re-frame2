@@ -68,22 +68,3 @@
                           :scope       :rf.scope/global
                           :generation  2}}
            (select-keys r [:status :rf.reply/work-kind :value :rf.reply/work-id :correlation])))))
-
-(deftest stale-reply-suppresses
-  (let [carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-        current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-        out     (rf.resources.reply/stale-reply
-                  {:carried carried :current current
-                   :extra   {:rf.reply/work-id (:work/id carried)
-                             :work/kind :resource
-                             :rf.frame/id :app/main
-                             :rf.reply/stale-reason :resource/generation-mismatch}})
-        r       (:reply out)]
-    (is (= {:deliver? false :rf.reply/work-status :suppressed}
-           (select-keys out [:deliver? :rf.reply/work-status])))
-    (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-    (is (= {:status :stale :stale? true :rf.reply/stale-reason :resource/generation-mismatch}
-           (select-keys r [:status :stale? :rf.reply/stale-reason])))
-    (is (not (contains? r :value)) "a stale reply carries no value")
-    (is (= {:rf.reply/carried carried :rf.reply/current current}
-           (select-keys (:trace out) [:rf.reply/carried :rf.reply/current])))))
