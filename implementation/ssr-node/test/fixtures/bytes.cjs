@@ -1,21 +1,6 @@
 'use strict';
-// THE BYTE CORPUS — markup whose UTF-8 length differs from its UTF-16
-// length, plus the two escapes an SSR body most often gets wrong.
-//
-// Every non-ASCII character is written as a `\u` escape rather than a
-// literal, for the reason `bake_bytes.test.cjs` gives: a literal lets an
-// encoding-normalising editor quietly ASCII-fy this file and leave every
-// assertion downstream passing over inputs that no longer discriminate.
-//
-//   U+2014 EM DASH                 1 code unit,  3 bytes
-//   U+2026 HORIZONTAL ELLIPSIS     1 code unit,  3 bytes
-//   U+1D11E MUSICAL SYMBOL G CLEF  2 code units, 4 bytes  <- separates all
-//                                                            three accountings
-//
-// The `</script` fragment is here because a hydration payload lives in a
-// script element on the page this markup becomes, and a transport that
-// re-encoded or re-escaped on the way past would show up as a changed
-// digest here rather than as a broken page three layers later.
+// Escaped non-ASCII markup distinguishes byte counts from code-unit counts
+// without editor encoding drift. HTML escapes also expose unwanted re-escaping.
 
 const EM_DASH = '\u2014';
 const ELLIPSIS = '\u2026';
