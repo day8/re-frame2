@@ -1,18 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// NO PAGE-SIDE BYTE FIGURE IS A CODE-UNIT COUNT.
-//
-//     node src/re_frame/bench/fresco/bench_bytes.test.cjs   (from bench/fresco/)
-//
-// Runs in the lane's `npm run check`. What `rf.bench.fresco.lane/utf8-bytes`
-// computes is pinned by `lane_bytes_cljs_test.cljs`; this file holds the
-// converted sites to it, on their source text, because a lane namespace may not
-// require `fs` (every `.cljs` here rides the `:fresco-bench` BROWSER build).
-//
-// The rot it refuses is a code-unit `count` wearing a byte label — a site
-// converted back, or a new `count` added BESIDE the converted expression rather
-// than in place of it. `count` is everywhere in this lane and legitimately so,
-// so what is banned is narrow: `count` on the SAME LINE as a byte label.
+// The CLJS byte-count suite checks arithmetic; this gate keeps callers wired to it.
 
 const fs = require('node:fs');
 const path = require('node:path');
