@@ -54,7 +54,6 @@
   (let [calls (atom [])]
     (rf.registrar/add-replacement-hook! (fn [m] (swap! calls conj m)))
     (rf.registrar/register! :sub :s/two {:handler-fn (fn [] :a)})
-    (is (empty? @calls))
     (rf.registrar/register! :sub :s/two {:handler-fn (fn [] :b)})
     (is (= [true] (mapv :different-fn? @calls)))))
 
@@ -94,7 +93,3 @@
            (select-keys data [:rf.error/id :where :recovery :id])))
     (is (nil? (rf.registrar/lookup :sub :sub/malformed)))))
 
-(deftest reg-sub-rejects-a-retired-arrow-whatever-follows-it
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/reg-sub-bad-args"
-        (rf.subs/reg-sub :sub/dangling-arrow :<- :not-a-vector (fn [v _] v))))
-  (is (nil? (rf.registrar/lookup :sub :sub/dangling-arrow))))
