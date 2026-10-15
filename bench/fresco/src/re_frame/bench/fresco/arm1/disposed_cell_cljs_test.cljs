@@ -1,39 +1,5 @@
 (ns re-frame.bench.fresco.arm1.disposed-cell-cljs-test
-  "THE REGISTRY-EPOCH AND NODE-KEY AXES.
-
-  A `:sub` re-registration moves only the registry term of
-  [[re-frame.bench.fresco.arm1.runtime/commit-basis]], which a held key's
-  frozen stamp never reads (`generation_fence_coverage_cljs_test` pins
-  that), and the basis ties across a same-id frame reincarnation. Giving
-  every key a registry term would re-render every boundary on every
-  re-registration.
-
-  **The axes are not blind spots in an arithmetic, and this file is the
-  measurement.** Both events *dispose the reaction a cell holds*:
-
-  - a `:sub` re-registration evicts the query's sub-cache entry and
-    disposes its reaction (`re-frame.subs.cache/invalidate-sub-on-replace!`);
-  - a frame destruction disposes the frame's cached reactions, including
-    when a same-id successor immediately replaces it.
-
-  The spine's derived container clears its own watcher set in `-dispose`,
-  so from that instant an unrepaired cell is **deaf** — no watch, so no
-  `mark-dirty!`, so no flush, so no notification ever again — and its
-  deref answers the RETIRED computation, or the destroyed incarnation's
-  app-db, for as long as the boundary lives. That failure is the reason
-  a held key's number carries no registry term: a moved number buys one
-  extra render, and the extra render reads back through the same dead
-  cell.
-
-  What closes both axes is the substrate's own disposal event, armed once
-  per unique key at `wire-cell!` time. It costs no React hook, no
-  per-boundary object, and nothing at all in the epoch sum;
-  `staged_read_tear_cljs_test` checks the last of those, a clean mount
-  leaving the snapshot where the render put it.
-
-  Everything here runs against Arm 1's own runtime over the React spine's
-  adapter: on an unwatchable host a subscription never notifies and the
-  `notified` half of every row would pass by never firing."
+  "Held cells recover values and notifications after handler replacement or frame reincarnation."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -93,9 +59,7 @@
     (rf.bench.fresco.arm1.runtime/render-body f (reader q seen) {})
     [(- @hits before) @seen]))
 
-;; ---------------------------------------------------------------------------
 ;; The registry-epoch axis
-;; ---------------------------------------------------------------------------
 
 (deftest a-re-registered-sub-reaches-a-boundary-that-already-holds-the-key
   (testing "The `:registry-epoch` axis. A boundary is mounted and
@@ -135,9 +99,7 @@
               (release!)
               (done)))))))))
 
-;; ---------------------------------------------------------------------------
 ;; The node-key axis
-;; ---------------------------------------------------------------------------
 
 (deftest a-same-id-frame-reincarnation-reaches-a-boundary-that-holds-the-key
   (testing "The node-key axis. `frame-commit-epoch` is cleared
