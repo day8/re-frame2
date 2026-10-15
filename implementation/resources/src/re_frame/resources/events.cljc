@@ -375,10 +375,10 @@
   Returns the reg-event effects map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db}
+    time-ms :rf/time-ms, app-db :db, :as coeffects}
    {:keys [resource owner cause keep-previous? reply-to] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! gen-allocation)
+        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         ;; EP-0016 D1 — the OPTIONAL call-site
         ;; `:reply-to` read-completion continuation. It rides the durable work
@@ -948,10 +948,10 @@
   `:page-error` (`entry-page-failed`). Returns the reg-event effects map."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db}
+    time-ms :rf/time-ms, app-db :db, :as coeffects}
    {:keys [resource cause] supplied-owner :owner :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! gen-allocation)
+        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
@@ -1192,11 +1192,11 @@
   or re-loaded). Returns the reg-event effects map."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    time-ms :rf/time-ms, app-db :db}
+    time-ms :rf/time-ms, app-db :db, :as coeffects}
    {:keys [resource owner cause] page-param :rf.resource/page-param
     page-index :rf.resource/page-index :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
-        _          (rf.resources.state/check-generation-allocation! gen-allocation)
+        _          (rf.resources.state/check-generation-allocation! coeffects)
         spec       (rf.resources.registry/require-resource-spec! resource where)
         scope      (rf.resources.registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)

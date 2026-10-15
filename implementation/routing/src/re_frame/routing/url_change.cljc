@@ -543,7 +543,8 @@
   [{frame :rf.frame/id rdb :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
-    app-db :db}
+    app-db :db
+    :as coeffects}
    [_ url opts]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
         ;; cascade event (link / popstate / initial / SSR), so the cofx carries
@@ -553,8 +554,7 @@
         frame   (rf.frame/require-frame-stamp!
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})
-        _       (rf.routing.nav-counters/check-allocations!
-                  nav-allocation pending-nav-allocation)
+        _       (rf.routing.nav-counters/check-allocations! coeffects)
         opts    (or opts {})
         rdb     (or rdb {})
         ;; EP-0037 R0: the URL-driven `:rf.route/handle-url-change` door stands
@@ -608,13 +608,13 @@
   [{frame :rf.frame/id rdb :rf.db/runtime
     nav-allocation :rf.route/nav-allocation
     pending-nav-allocation :rf.route/pending-nav-allocation
-    app-db :db}
+    app-db :db
+    :as coeffects}
    [_ {:keys [url replace? bypass-leave?] :as request}]]
   (let [frame (rf.frame/require-frame-stamp!
                 frame :rf.route/url-requested
                 {:where 'rf.route/url-requested-handler})
-        _     (rf.routing.nav-counters/check-allocations!
-                nav-allocation pending-nav-allocation)
+        _     (rf.routing.nav-counters/check-allocations! coeffects)
         rdb   (or rdb {})]
     (if (rf.routing.url/external-url? url)
       (do
