@@ -118,13 +118,13 @@
   reads the page. After a door returns, the next line sees the DOM a user
   would have seen. [[hydrate!]] is the one exception and says why.
 
-  ## Time is OPT-IN, and it is a mount's own window
+  ## Time is OPT-IN, and it is page-wide
 
   A tray that retains an exiting child for 300 ms, a debounce, a
   `:dispatch-later` — anything whose next step is a `setTimeout` — cannot
   be asserted without waiting, and a witness that waits on the wall clock
-  is the flake this repo keeps out of its gates. So one mount at a time
-  may ask for a **virtual clock**:
+  is the flake this repo keeps out of its gates. So a mount may ask for
+  a **virtual clock**:
 
       (let [m (hm/mount! [tray] {:clock true})]
         (hm/dispatch-and-settle! m [:toast/dismiss 1])
@@ -135,11 +135,16 @@
   exactly as far as it is told. See that door for what advances and —
   just as load-bearing — what deliberately does not.
 
-  **It is the mount's window and nothing wider.** The clock is installed
-  by [[mount!]] and taken back down by [[unmount!]], with whatever was
-  still armed handed back to the real scheduler, so the residue reading
-  that follows is the reading it always was. Nothing outside that window
-  is affected, and no mount that did not ask gets one.
+  **It is page-wide, because what it replaces is.** The clock replaces
+  `globalThis`'s `setTimeout`, `setInterval`, `clearTimeout`,
+  `clearInterval` and `Date.now`, so while ANY mount that asked for it is
+  open, every timer on the page is virtual — a peer mount's included —
+  and [[advance-clock!]] on one handle fires every timer that falls due,
+  whichever mount armed it. Clocked mounts share one installation:
+  [[mount!]] takes a hold and [[unmount!]] lets it go, and the last
+  release puts the platform back and hands whatever is still armed to the
+  real scheduler, so the residue reading that follows is the reading it
+  always was.
 
   ## Refusals: this namespace mints none, and PROPAGATES the runtime's
 
@@ -862,12 +867,15 @@
                        is a fresh `<div>` appended to `document.body` —
                        attached, so `screen`-scoped Testing Library
                        queries and real focus both work.
-      :clock           `true` installs a virtual clock for this mount's
-                       window, so a timed transition is driven by
-                       [[advance-clock!]] instead of waited on. Installed
-                       BEFORE anything else this call does, so a timer
-                       armed by `:initial-events` or by the first render's
-                       effects is already this clock's; released by
+      :clock           `true` takes a hold on the page-wide virtual
+                       clock, installing it if no other mount holds it,
+                       so a timed transition is driven by
+                       [[advance-clock!]] instead of waited on. While it
+                       is held, every timer on the page is virtual. The
+                       hold is taken BEFORE anything else this call does,
+                       so a timer armed by `:initial-events` or by the
+                       first render's effects is already this clock's;
+                       released by
                        [[unmount!]], or by the throw that stops this call
                        ever answering a handle.
 
@@ -886,6 +894,11 @@
 
   The frame is this facade's — minted, made and destroyed here. See the
   namespace docstring on why there is no `:frame` option.
+
+  It is a LEAF mount: the form renders through [[catching-root!]] under
+  the frame [[mint-frame!]] made, so neither `h/render!` nor
+  `h/frame-root`'s ENSURE runs here. Public boot is witnessed by
+  `re-frame.fresco.public-root-lifecycle-dom-cljs-test`.
 
   ## It either mounts or it THROWS, and a throw leaves nothing behind
 
@@ -1209,8 +1222,8 @@
           (fn [_] (settle! handle)))))
 
 (defn advance-clock!
-  "Move this mount's virtual clock forward by `ms`, run everything that
-  falls due on the way, and answer the handle.
+  "Move the page-wide virtual clock forward by `ms`, run every timer on
+  the page that falls due on the way, and answer the handle.
 
       (let [m (hm/mount! [tray] {:clock true :initial-events […]})]
         (hm/dispatch-and-settle! m [:toast/dismiss :b])

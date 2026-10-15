@@ -246,7 +246,8 @@ event intents. Fresco's controlled path provides:
 - the committed value returns in the same event turn, so fast typing loses
   nothing;
 - the field shows what the handler committed;
-- caret and selection survive a rejected or rewritten edit;
+- the caret keeps its distance from the end of the committed text across a
+  rejected or rewritten edit, and a selected range comes back collapsed;
 - IME composition is not interrupted;
 - [`::h/revision`](#hrevision) resets the field explicitly.
 

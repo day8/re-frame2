@@ -466,7 +466,7 @@ hm/this-frame
 | `hm/dispatch-and-settle!` | dispatches into this mount's frame through the runtime's own synchronous dispatch, drains it, commits the echo, and returns the handle |
 | `hm/settle!` | lets everything React has already scheduled commit. The empty `flushSync`, with no work of its own — it cannot reach work that is merely enqueued |
 | `hm/settle-until!` | waits for `pred`, settles once, and returns a promise of the same handle. `opts` is core's `poll-until` options — `:timeout-ms` (default 2000), `:interval-ms`, `:label` — and a timeout rejects with `:rf.error/poll-until-timeout`. Use it for work a router has enqueued rather than scheduled |
-| `hm/advance-clock!` | moves this mount's virtual clock forward and runs what falls due. Throws `:rf.error/fresco-test-bad-option` without `{:clock true}`, because an advance with no clock under it would assert nothing |
+| `hm/advance-clock!` | moves the page-wide virtual clock forward and runs every timer on the page that falls due. Throws `:rf.error/fresco-test-bad-option` without `{:clock true}`, because an advance with no clock under it would assert nothing |
 | `hm/unmount!` | tears the root down and touches nothing the runtime holds, which is what lets `hm/assert-clean!` see what leaked. The container stays in the document, emptied |
 | `hm/residue` | a promise of the report — `:clean?`, `:leaked`, `:baseline`, `:now` and the frame — asserting nothing and resetting nothing |
 | `hm/assert-clean!` | waits for quiescence, compares against this mount's baseline, reports through `cljs.test/do-report`, and only then resets. It never throws, so the promise never rejects |

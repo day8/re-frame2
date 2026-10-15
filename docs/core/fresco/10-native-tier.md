@@ -136,7 +136,7 @@ traced to this region. Read placement, unstable props, excessive event volume an
 DOM are fixed at the Fresco level first.
 
 Keep form controls interpreted. An `<input>` inside an island loses Fresco's
-same-turn value repair, selection preservation, IME protection and
+same-turn value repair, caret restoration, IME protection and
 `::h/revision` handling, and moving it there does not make typing faster.
 
 Do not create islands for stylistic consistency. Islands throughout the

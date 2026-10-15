@@ -163,7 +163,7 @@ Keyboard maps apply only to keyboard props and must make IME composition behavio
 
 ### 4.2 Controlled fields
 
-Controlled inputs are a framework law because the defect class is too subtle and common to repeat in applications. The contract includes same-turn convergence, committed echo, rejection/normalization, caret and selection preservation, composition safety, and identity-preserving reset through an explicit revision.
+Controlled inputs are a framework law because the defect class is too subtle and common to repeat in applications. The contract includes same-turn convergence, committed echo, rejection/normalization, caret (end-relative) preservation with a selected range collapsed, composition safety, and identity-preserving reset through an explicit revision.
 
 Forwarded attributes cannot replace owned value, checked, handler, key, or revision slots. Text, textarea, checkbox, radio, select, file input, contenteditable, blur-after-unmount, and async normalization each receive an explicit support or refusal policy.
 
