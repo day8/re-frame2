@@ -152,7 +152,7 @@
   [handle]
   (js/clearTimeout handle))
 
-;; Per Spec 005 §Clock abstraction (005:1684-1690): the state-machine
+;; Per Spec 005 §Clock abstraction: the state-machine
 ;; `:after` clock surface is named `schedule-after!` / `cancel-scheduled!`
 ;; / `now-ms` in `re-frame.interop`. These are the spec-canonical names
 ;; the machines timer layer (`re-frame.machines.timer`) reaches for; the
