@@ -1475,40 +1475,6 @@
     (invalidate-subs-for-generation-change! id old-generation new-generation))
   nil)
 
-;; ---- reload-images! — a throwing stub -------------------------------------
-;;
-;; The name exists ONLY as a `^:no-doc` throwing stub (the project's
-;; actionable-removed-API pattern, like the EP-0018 `reg-event-db` / EP-0022
-;; `rf/path` stubs, and this ns's sibling `reset-frame!` retirement in
-;; `re-frame.frame`): a stale `(rf/reload-images! …)` call site resolves to a
-;; real var and fails LOUDLY with `:rf.error/reload-images-removed`, naming
-;; `make-frame` re-construction as the replacement. `^:no-doc` drops it from
-;; the API manifest generator + the CLJS publics probe. Aliased onto the
-;; `re-frame.core` facade in core.cljc.
-
-(defn ^:no-doc reload-images!
-  "REMOVED (no alias). Image hot-reload is folded into
-  re-construction — re-call `make-frame` against the SAME `:id` with a new
-  `:images` vector; it swaps the generation while preserving frame memory
-  (EP-0023 §Hot Reload). A caller that wants the reload DIFF reads
-  `frame-generation` before/after the call and diffs with `generation-diff`.
-  Calling `reload-images!` is the hard error
-  `:rf.error/reload-images-removed`, naming `make-frame` re-construction as
-  the replacement. See spec/002-Frames.md §Image resolution and composition
-  and spec/API.md §Registration."
-  [& args]
-  (rf.error/throw-error!
-    :rf.error/reload-images-removed
-    'rf/reload-images!
-    (str "`reload-images!` is REMOVED (no alias) — image "
-         "hot-reload is folded into re-construction: re-call `make-frame` "
-         "with the SAME `:id` and a new `:images` vector; it swaps the "
-         "generation while preserving frame memory. To read the reload diff, "
-         "call `frame-generation` before/after and diff with "
-         "`generation-diff`.")
-    {:recovery :re-make-frame-with-new-images
-     :extra    {:got args}}))
-
 ;; ===========================================================================
 ;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload)
 ;; ===========================================================================

@@ -15,8 +15,8 @@
   preserves the frame commit's identity-based no-op. A non-vector or malformed
   path argument is `:rf.error/path-interceptor-bad-path`.
 
-  `rf/path` and `rf/unwrap-interceptor` survive only as `^:no-doc` throwing
-  stubs that provide migration guidance. Coeffects are declared with
+  `rf/path` survives only as a `^:no-doc` throwing stub that provides
+  migration guidance. Coeffects are declared with
   `:rf.cofx/requires`, not represented as interceptors."
   (:require [re-frame.interceptor :as rf.interceptor]
             [re-frame.interceptor-registry :as rf.interceptor-registry]
@@ -25,70 +25,12 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- removed standard values ---------------------------------------------
+;; ---- removed standard value ----------------------------------------------
 ;;
-;; The two removed standard interceptor values (`path` / `unwrap-interceptor`)
-;; are described once in this table. They raise actionable hard errors but do
-;; not fan out through the always-on error channel. `:msg` and `:extra` are fns
-;; so the path row can include the supplied path in its diagnostic.
-
-(def ^:private removed-std-interceptor-values
-  "The removed standard interceptor values, one row each. A row is
-  `{:sym :error-kw :where :msg :extra}`:
-    - `:sym`      the bare var symbol exported `^:no-doc` from this ns and
-                  aliased onto the `re-frame.core` facade;
-    - `:error-kw` the exact `:rf.error/*` id the stub raises;
-    - `:where`    the `'rf/<name>` symbol the hard error attributes to;
-    - `:msg`      `(fn [args] reason-string)` — the actionable replacement
-                  guidance (woven with the call args where it matters);
-    - `:extra`    `(fn [args] map)` — the `:extra` ex-data payload (or `nil`)."
-  [{:sym      'path
-    :error-kw :rf.error/path-removed
-    :where    'rf/path
-    :msg      (fn [args]
-                (str "`rf/path` is REMOVED in EP-0022 (no public path value "
-                     "constructor). Reference the framework-standard path "
-                     "interceptor by id in the handler's `:interceptors` chain: "
-                     "`{:interceptors [[:rf.interceptor/path "
-                     (pr-str (vec args)) "]]}`."))
-    :extra    (fn [args] {:got (vec args)})}
-   {:sym      'unwrap-interceptor
-    :error-kw :rf.error/unwrap-removed
-    :where    'rf/unwrap-interceptor
-    :msg      (fn [_args]
-                (str "`rf/unwrap-interceptor` is REMOVED in EP-0022 (no "
-                     "framework-standard unwrap value). Destructure the "
-                     "`[<id> <payload-map>]` event in the handler arglist — "
-                     "`(fn [_ [_ {:keys [a b]}]] …)` — or register a project "
-                     "`:app/unwrap` interceptor with your own `:before` / "
-                     "`:after` for genuine chain-wide reshaping."))
-    :extra    (fn [_args] nil)}])
-
-(def ^:private removed-std-interceptor-by-sym
-  "`removed-std-interceptor-values` indexed by bare `:sym` for stub lookup."
-  (into {} (map (juxt :sym identity)) removed-std-interceptor-values))
-
-(defn- raise-removed-std-interceptor!
-  "Throw the EP-0022 removed-value hard error for `row` (one entry of
-  `removed-std-interceptor-values`) on a stale reference carrying `args`.
-  Resolves the row's `:msg` / `:extra` fns against the args, then throws via
-  the canonical `re-frame.error/throw-error!`. Does NOT fan out on the
-  error-emit channel (these ride no catalogued 009 category — the loud throw
-  IS the migration alarm). Every stub delegates here so the throw path + the
-  per-name facts live in ONE place (the data table)."
-  [row args]
-  (let [{:keys [error-kw where msg extra]} row
-        ex (extra args)]
-    (if (some? ex)
-      (rf.error/throw-error! error-kw where (msg args) {:extra ex})
-      (rf.error/throw-error! error-kw where (msg args)))))
-
-;; The removed standard values survive as thin `^:no-doc` facade stubs — each
-;; body is a one-line lookup into `removed-std-interceptor-values`, so the
-;; behavioural facts (error id, attributed symbol, message, ex-data) live ONCE
-;; in the table rather than in two hand-maintained bodies. Plain `defn`s (the
-;; data table, not codegen, is what makes this data-driven), each `^:no-doc`
-;; (dropped from the manifest generator + CLJS publics probe — no manifest row).
+;; `rf/path` survives as a thin `^:no-doc` facade stub (dropped from the
+;; manifest generator + CLJS publics probe, so it has no manifest row). It
+;; raises an actionable hard error but does not fan out through the always-on
+;; error channel: the loud throw IS the migration alarm.
 
 (defn ^:no-doc path-removed!
   "REMOVED in EP-0022 (no alias). The public `rf/path` VALUE constructor is
@@ -98,19 +40,15 @@
   as the replacement. See spec/API.md §Standard interceptors,
   EP-0022 §Registered interceptors, and migration/from-re-frame-v1/README.md."
   [& path-segs]
-  (raise-removed-std-interceptor! (get removed-std-interceptor-by-sym 'path) path-segs))
-
-(defn ^:no-doc unwrap-removed!
-  "REMOVED in EP-0022 (no alias). The framework ships no standard `unwrap`
-  value; the canonical spelling for the M-19 `[<id> <payload-map>]` shape is
-  handler-payload destructuring in the handler arglist, or a project-registered
-  `:app/unwrap` interceptor for genuine chain-wide reshaping. Referencing
-  `rf/unwrap-interceptor` is the hard error `:rf.error/unwrap-removed`, naming
-  those replacements. See spec/API.md §Standard interceptors,
-  EP-0022 §Registered interceptors, and migration/from-re-frame-v1/README.md."
-  [& _args]
-  (raise-removed-std-interceptor!
-    (get removed-std-interceptor-by-sym 'unwrap-interceptor) _args))
+  (rf.error/throw-error!
+    :rf.error/path-removed
+    'rf/path
+    (str "`rf/path` is REMOVED in EP-0022 (no public path value "
+         "constructor). Reference the framework-standard path "
+         "interceptor by id in the handler's `:interceptors` chain: "
+         "`{:interceptors [[:rf.interceptor/path "
+         (pr-str (vec path-segs)) "]]}`.")
+    {:extra {:got (vec path-segs)}}))
 
 ;; ---- standard :rf.interceptor/path ----------------------------------------
 ;;

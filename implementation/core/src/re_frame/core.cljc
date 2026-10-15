@@ -1066,40 +1066,11 @@
   ([opts]             (rf.live-frame/make-frame opts))
   ([opts descriptors] (rf.live-frame/make-frame opts descriptors)))
 
-;; ---- reload-images! / reset-frame! — REMOVED (throwing stubs) --------------
-;;
-;; The lifecycle
-;; vocabulary is `make-frame` + `destroy-frame!` (+ `frame-root` /
-;; `with-new-frame` sugar), not five verbs across three return types.
-;;   * There is no `reload-images!` verb — re-call `make-frame`
-;;     against the SAME `:id` with a NEW `:images` vector; it swaps the
-;;     generation while preserving frame memory. Diff the swap by reading
-;;     `frame-generation` before/after and comparing with `generation-diff`
-;;     (§Public registrar query API, below).
-;;   * There is no `reset-frame!` verb — a full replace is
-;;     composition: `(destroy-frame! id) (make-frame config)`, re-supplying
-;;     the SAME config (which carries `:id`, and `:images` for an
-;;     image-loaded frame) the caller already holds.
-;; Both names exist ONLY as `^:no-doc` throwing stubs (the removed-API
-;; pattern — like the EP-0018 `reg-event-db` / EP-0022 `rf/path` stubs): a
-;; stale call site resolves to a real var and fails LOUDLY, naming the
-;; replacement. `^:no-doc` drops them from the API manifest generator + the
-;; CLJS publics probe. See `re-frame.live-frame/reload-images!` and
-;; `re-frame.frame/reset-frame!`.
-(def ^{:no-doc true
-       :doc "REMOVED (no alias). Calling `reload-images!` raises
-  `:rf.error/reload-images-removed`, naming re-`make-frame`-ing the SAME `:id`
-  with a new `:images` vector as the replacement. See
-  `re-frame.live-frame/reload-images!` and spec/002-Frames.md."}
-  reload-images! rf.live-frame/reload-images!)
-
-(def ^{:no-doc true
-       :doc "REMOVED (no alias). Calling `reset-frame!` raises
-  `:rf.error/reset-frame-removed`, naming `(destroy-frame! id) (make-frame
-  config)` as the replacement. See `re-frame.frame/reset-frame!` and
-  spec/002-Frames.md §Resetting a frame — destroy + make-frame."}
-  reset-frame!   rf.frame/reset-frame!)
-
+;; There is no `reload-images!` or `reset-frame!` verb. Image hot-reload is
+;; re-calling `make-frame` against the SAME `:id` with a NEW `:images` vector
+;; (diff the swap by reading `frame-generation` before and after, then
+;; `generation-diff`); a full replace is `(destroy-frame! id) (make-frame
+;; config)`, re-supplying the config the caller already holds.
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Claims
   the exact incarnation and atomically cuts ordinary queued work, runs the
   user `:on-destroy` cascade on a private cleanup queue, tears down machines
@@ -2263,31 +2234,6 @@
   chain) as the replacement. See `re-frame.std-interceptors/path-removed!` and
   spec/API.md §Standard interceptors."}
   path            rf.std-interceptors/path-removed!)
-
-;; There is no public `unwrap-interceptor` VALUE
-;; (docs/EP/EP-0022-registered-interceptors.md:53-55 "no standard unwrap";
-;; :555-578 §"No standard unwrap") — the framework ships NO standard
-;; unwrap value; the canonical spelling is handler-payload destructuring (the
-;; M-19 `[<id> <payload-map>]` shape destructured in the handler arglist), or
-;; a PROJECT-registered `:app/unwrap` interceptor when chain-wide reshaping is
-;; genuinely intended. This facade name (the `rf/path` stub's twin) exists
-;; ONLY as a `^:no-doc` throwing stub (the
-;; project's actionable-removed-API pattern, like the EP-0018 `reg-event-db` /
-;; EP-0017 `inject-cofx` stubs) — a stale `(rf/unwrap-interceptor …)` resolves
-;; to a real var and fails LOUDLY with `:rf.error/unwrap-removed`, naming the
-;; replacement. `^:no-doc` drops it from the API manifest generator + the CLJS
-;; publics probe: it carries no manifest row and is not part of the documented
-;; public surface. See spec/API.md §Standard interceptors and
-;; migration/from-re-frame-v1/README.md.
-(def ^{:no-doc true
-       :doc "REMOVED in EP-0022 (no alias). Referencing `unwrap-interceptor`
-  raises the hard error `:rf.error/unwrap-removed`, naming the replacement:
-  handler-payload destructuring (the M-19 `[<id> <payload-map>]` shape
-  destructured in the handler arglist), or a project-registered `:app/unwrap`
-  interceptor for genuine chain-wide reshaping. See
-  `re-frame.std-interceptors/unwrap-removed!` and spec/API.md §Standard
-  interceptors."}
-  unwrap-interceptor rf.std-interceptors/unwrap-removed!)
 
 ;; EP-0015 §7: there is no `redact-interceptor`.
 ;; A positional "redact for the trace but not the handler"

@@ -136,8 +136,8 @@ which is what makes it a gate's job rather than a fix's.
     live `'re-frame.router/build-envelope` (a `defn-`) shape.
   * THE ORACLE IS THE PUBLIC VAR SET, NOT `spec/api-manifest.edn`, which rows
     DOCUMENTED publics only — `re-frame.core` has fewer rows than JVM
-    publics, and the `^:no-doc` façade stubs `reset-frame!` /
-    `reload-images!` carry none. The manifest is used instead as the
+    publics, and the `^:no-doc` façade stubs `path` /
+    `reg-event-db` carry none. The manifest is used instead as the
     INDEPENDENT CONTROL on the derived oracle (`oracle_problems`) — in ONE
     direction: a subset test catches the parser going blind, never the parser
     inventing a public. The exact-set assertion in the self-test owns that
@@ -967,7 +967,7 @@ class Finding(NamedTuple):
 # rows DOCUMENTED publics, so a `^:no-doc` façade export resolves perfectly and
 # carries no row: `re-frame.core` has fewer manifest rows than JVM
 # `ns-publics` (and two more publics in its `#?(:cljs …)` arms), and
-# `reset-frame!` / `reload-images!` — live `^:no-doc` façade stubs — carry zero
+# `path` / `reg-event-db` — live `^:no-doc` façade stubs — carry zero
 # rows apiece. A manifest-only oracle therefore reports non-resolving sites that
 # resolve. The manifest is used here for something it IS authoritative about:
 # see `_manifest_rows` and `oracle_problems` below, where it is the independent
