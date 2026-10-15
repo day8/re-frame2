@@ -1,14 +1,9 @@
 (ns re-frame.adapter.uix-frame-context-read-dom-cljs-test
-  "UIx: a descendant reads the ONE frame-context that both boundaries write —
-  `frame-provider` (SCOPE) and `frame-root` (ENSURE, at commit) — through
-  `use-frame`, and through a bare `(rf/capture-frame)`. The no-boundary case
-  is the shared suite's
-  `assert-use-sub-no-provider-no-dynamic-raises-no-frame-context`. The ENSURE
-  runs in `useLayoutEffect`, so this needs a real client commit."
+  "Both native boundaries provide the same frame context to use-frame and bare capture-frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
-            [uix.core :as uix :refer-macros [defui $]]
+            [uix.core :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.context :as rf.adapter.context]
@@ -19,8 +14,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter}))
 
-;; ---- side-channel atom + probe --------------------------------------------
-
 (def ^:private observed (atom []))
 
 (defui ProbeCurrentFrame []
@@ -28,10 +21,6 @@
     (swap! observed conj f)
     ($ :div (str "f=" f))))
 
-;; A bare `(rf/capture-frame)` resolves dynamic var first, React context
-;; second, then errors; the UIx adapter routes the context tier at install, so
-;; inside a render beneath a boundary it answers with the boundary's frame. The
-;; adapter README and its testbed rely on that.
 (def ^:private captured (atom []))
 
 (defui ProbeBareCaptureFrame []
@@ -47,7 +36,7 @@
   (when (exists? (.-act React)) (.-act React)))
 
 (defn- mount-and-render!
-  "Mount `element` under a fresh root inside `act`, then unmount. Returns nil."
+  "Mount under act, then unmount."
   [act-fn element]
   (let [mount-node (.createElement js/document "div")
         root       (react-dom-client/createRoot mount-node)]
@@ -100,13 +89,9 @@
       (let [act-fn (get-act)]
         (if (nil? act-fn)
           (is true "act() not reachable from this runner; skipping")
-          ;; The dynamic tier is cleared, so tier 1 cannot answer and the only
-          ;; frame available to the capture is the one the boundary scoped.
           (binding [rf.frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
 
-            ;; Negative control, outside any render: it rules out a capture
-            ;; that would have answered anyway.
             (is (thrown-with-msg? :default #":rf.error/no-frame-context"
                   (rf/capture-frame))
                 "outside any boundary, with the dynamic tier cleared, a bare
