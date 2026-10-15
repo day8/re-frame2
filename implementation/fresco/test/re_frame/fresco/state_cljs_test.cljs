@@ -1,38 +1,5 @@
 (ns re-frame.fresco.state-cljs-test
-  "`h/reg-state`, PROVED AGAINST A REAL FRAME.
-
-  The sugar's whole claim is that it mints ORDINARY core artefacts, so
-  every row here drives it the way an application would: a real frame, a
-  real `subscribe`, a real `dispatch-sync`, and the frame's real `app-db`
-  read back out. Nothing here stubs a registry or calls a private fn.
-
-  ## Why the refusals are read off the ERROR CHANNEL and not off a throw
-
-  This is the trap this file exists to not fall into. In this substrate
-  neither refusal reaches the caller as an exception:
-
-  - an **event handler**'s throw is captured by the interceptor chain
-    into `:rf/interceptor-error` and fanned as
-    `:rf.error/handler-exception` — `dispatch-sync` returns normally;
-  - a **sub body**'s throw is caught by `compute-and-cache!`, fanned, and
-    **recovered to `nil`** — so `(deref (subscribe …))` answers `nil`.
-
-  A row spelled `(is (thrown? …))` would therefore be RED over a working
-  refusal, and — far worse — a row spelled `(is (nil? …))` would be GREEN
-  over a refusal that had been deleted. So [[refusals]] registers a real
-  `error-emit` listener, unwraps the fanned exception, and every refusal
-  row asserts on the `:rf.error/id` AND on the concern being named. Each
-  one goes red when the guard it watches is deleted.
-
-  One consequence of that recovery is worth stating, because it shapes
-  how the read rows are written: the recovered `nil` is **cached**, so a
-  second read of the same bad query is served from the cache and fans
-  nothing. Every read row below therefore uses each bad key exactly once
-  and takes all of its claims off that single read.
-
-  The DOM half — two mounted instances, the hook ledger, and the memo
-  bail-out over fresh-but-equal key vectors — is the sibling
-  [[re-frame.fresco.state-dom-cljs-test]]."
+  "Per-instance state uses ordinary frame-local events and subscriptions."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.core :as rf]
