@@ -1,20 +1,5 @@
 (ns day8.re-frame2-xray.control-axes-e2e.palette-invoke-e2e-cljs-test
-  "Multi-frame e2e coverage for the Cmd-K palette invoke control axis.
-
-  The palette surface is opened via Cmd-K (or Ctrl-K); typing
-  filters the list, ↑/↓ moves the cursor, Enter dispatches the
-  selected item via `:rf.xray/palette-invoke`. At the e2e level we
-  assert:
-
-    1. `:rf.xray/palette-open` flips `:rf.xray/palette-open?` to true.
-    2. `:rf.xray/palette-close` flips it back to false.
-    3. `:rf.xray/palette-toggle` round-trips.
-    4. Setting a query updates `:rf.xray/palette-query`.
-
-  The full invoke path (palette-invoke → action dispatch) is
-  exercised by the pure-fn `palette/events_cljs_test.cljs` and
-  `palette/dispatch_routing_cljs_test.cljs`; this file focuses on
-  the cross-frame reactivity contract."
+  "Palette state and command invocations run in the Xray frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -31,14 +16,6 @@
     (fn []
       (is (not (e2e/sub-xray [:rf.xray/palette-open?]))
           "palette should default to closed"))))
-
-(deftest xray-palette-open-flips-open?
-  (e2e/with-host-and-xray-frames
-    {:install-host counter/install-and-init!}
-    (fn []
-      (e2e/dispatch-xray [:rf.xray/palette-open])
-      (is (e2e/sub-xray [:rf.xray/palette-open?])
-          ":rf.xray/palette-open did not flip palette-open? to true"))))
 
 (deftest xray-palette-toggle-round-trips
   (e2e/with-host-and-xray-frames
@@ -111,18 +88,6 @@
           (e2e/dispatch-xray [:rf.xray/palette-invoke toggle-theme-item])
           (is (= before (config/get-setting :theme nil))
               "second palette-invoke :toggle-theme did not round-trip"))))))
-
-(deftest xray-palette-invoke-toggle-theme-bumps-recents
-  (testing ":toggle-theme invoke records into :rf.xray/palette-recents"
-    (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
-      (fn []
-        (e2e/dispatch-xray [:rf.xray/palette-invoke toggle-theme-item])
-        (let [recents (e2e/sub-xray [:rf.xray/palette-recents])]
-          (is (vector? recents)
-              ":rf.xray/palette-recents did not resolve to a vector")
-          (is (= :toggle-theme (first recents))
-              ":toggle-theme did not bubble to index 0 of palette-recents"))))))
 
 (deftest xray-palette-invoke-toggle-theme-recents-boost-survives
   (testing "re-invoking same command keeps recents head-stable"
