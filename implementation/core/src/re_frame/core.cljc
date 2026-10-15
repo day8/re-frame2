@@ -1900,7 +1900,8 @@
     where-sym
     (str where-sym ": a registrar query is a MAP naming EXACTLY ONE source — "
          "{:source :store …} for the process source store, or {:frame f …} for "
-         "a read resolved through live frame f's own sealed image generation. "
+         "a read resolved through live frame f's own view (its sealed image "
+         "generation, or the live store for a frame made without :images). "
          (case reason
            :not-a-map    (str "Received " (pr-str arg) ", which is not a map. "
                               "The positional arity ((" where-sym " :event) and "
