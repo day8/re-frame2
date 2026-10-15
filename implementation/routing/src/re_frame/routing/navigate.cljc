@@ -593,12 +593,18 @@
                   ;; from DIFFERENT inputs, so the one input that matters would never
                   ;; reach it. Mutually exclusive with `:throw-reason` by
                   ;; construction (a throw pre-empts the malformed scan).
+                  ;; The URL is projected by the `:sensitive` declaration of the
+                  ;; route it resolves to (for an ambiguous route, every segment
+                  ;; its registrations capture) before the intent builder scrubs
+                  ;; its query / fragment carrier values, as the URL-driven
+                  ;; door's route-miss record is. The projection stays at this
+                  ;; call site because `resolve` requires `plan`.
                   (rf.routing.plan/emit-intents!
                     (rf.routing.plan/fallback-telemetry-intents
                       {:throw-reason  throw-reason
                        :malformed?    malformed?
                        :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
-                       :url           requested-url
+                       :url           (rf.routing.resolve/redact-declared-url requested-url)
                        :frame         frame}))
                   ;; EP-0037 R0: ONE `:rf.route/planned` trace per door commit
                   ;; branch, so the plan diagnostic projection is REACHABLE from an

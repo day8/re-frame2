@@ -42,6 +42,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.nav-fx :as rf.routing.nav-fx]
             [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.resolve :as rf.routing.resolve]
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.routing.url :as rf.routing.url]
             [re-frame.trace :as rf.trace]))
@@ -258,6 +259,18 @@
 ;; Stages 4-5 — the one decision seam every door shares.
 ;; ---------------------------------------------------------------------------
 
+(defn- guard-trace-tags
+  "`tags` for a `:rf.route/navigation-blocked` / `:rf.route/entry-denied`
+  trace, with `:requested-url` projected for egress (EP-0015) by the two steps
+  `rf.routing.resolve/plan-trace-tags` applies to a navigation's URL:
+  `rf.routing.resolve/redact-declared-url` replaces what the `:sensitive`
+  declaration of the route it resolves to names, then
+  `rf.privacy.url/redact-url-tag` scrubs every query / fragment carrier value."
+  [tags]
+  (-> tags
+      (update :requested-url rf.routing.resolve/redact-declared-url)
+      (rf.privacy.url/redact-url-tag :requested-url)))
+
 (defn decide
   "Run the CURRENT route's `:can-leave` guard (stage 4) and then the TARGET
   route's `:can-enter` guard (stage 5) for one navigation. Returns nil when
@@ -331,18 +344,17 @@
                       rejecting-guard   (assoc :rejecting-guard rejecting-guard)
                       (some? restore-url) (assoc :url-restored? true))]
         ;; Spec 012 §The leave decision step e: the trace marks the blocked
-        ;; transition for tools. EP-0015: redact the query/fragment carrier
-        ;; VALUES of `:requested-url` before egress. The `:phase` tag is the
-        ;; route-phase taxonomy Xray's routing panel reads (021 §7).
+        ;; transition for tools, its `:requested-url` projected before egress
+        ;; (`guard-trace-tags`). The `:phase` tag is the route-phase taxonomy
+        ;; Xray's routing panel reads (021 §7).
         (rf.trace/emit! :rf.event :rf.route/navigation-blocked
-                     (rf.privacy.url/redact-url-tag
+                     (guard-trace-tags
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id current)
                                 :rejecting-guard rejecting-guard
                                 :cause           cause
                                 :phase           :can-leave}
-                         frame (assoc :frame frame))
-                       :requested-url))
+                         frame (assoc :frame frame))))
         {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :pending-navigation] pending)
          :fx (cond-> [[:rf.route/commit-nav-counter
                        {:counter-key :pending-nav-counter :value pn-counter}]]
@@ -360,14 +372,13 @@
                     :requested-url requested-url
                     :guard         (guard-id target-meta :can-enter)}]
         (rf.trace/emit! :rf.event :rf.route/entry-denied
-                     (rf.privacy.url/redact-url-tag
+                     (guard-trace-tags
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id target)
                                 :rejecting-guard (guard-id target-meta :can-enter)
                                 :cause           cause
                                 :phase           :can-enter}
-                         frame (assoc :frame frame))
-                       :requested-url))
+                         frame (assoc :frame frame))))
         ;; NO `:rf.db/runtime` key — a denial commits nothing and creates no
         ;; pending value, so the runtime-db (route slice, any unrelated
         ;; pending leave, the resource-blocking bookkeeping the Spec 016
