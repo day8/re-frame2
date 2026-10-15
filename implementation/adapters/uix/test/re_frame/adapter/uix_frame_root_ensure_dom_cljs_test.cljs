@@ -1,15 +1,9 @@
 (ns re-frame.adapter.uix-frame-root-ensure-dom-cljs-test
-  "The native UIx `frame-root` ENSURE config through `$` → `glue-args`: the
-  `:id` keyword, the nested `:initial-events` and `:images` vectors and the
-  `:url-bound?` boolean must reach `frame-root-react-element` intact. ENSURE
-  behaviour itself is covered at the core level with raw `createElement`; this
-  mounts the public call shape and reads the created frame, its seeded
-  app-db, and a descendant `use-sub`. `frame-provider`'s twin is
-  `frame-provider-trailing-children-propagate-frame`."
+  "Native frame-root preserves keyword and nested configuration values through UIx $ marshalling."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
-            [uix.core :as uix :refer-macros [defui $]]
+            [uix.core :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -19,8 +13,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter}))
 
-;; ---- side-channel atom + descendant probe ---------------------------------
-
 (def ^:private ensure-observed (atom []))
 
 (defui ProbeEnsure []
@@ -28,8 +20,7 @@
     (swap! ensure-observed conj v)
     ($ :div (str "k=" v))))
 
-;; A real `rf/image` value inside a vector — the nested structure `glue-args`
-;; must round-trip; its inline `:reg-event` is what `:initial-events` runs.
+;; An inline image exercises the nested CLJS value passed through $.
 (def ^:private ensure-image
   (rf/image
     {:id :rf.uix-ensure/image
@@ -43,8 +34,6 @@
 
 (defn- get-act []
   (when (exists? (.-act React)) (.-act React)))
-
-;; ---- ENSURE `:id` + `:initial-events` + `:url-bound?` through `$` ----------
 
 (deftest ensure-id-arm-marshals-config-through-dollar
   (testing "UIx — ($ frame-root {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/glue-args"
@@ -76,8 +65,6 @@
                     "[live-frame? app-db descendant-read?]: the keyword :id, the nested :initial-events seed and the provided context all survived $/glue-args")
                 (finally
                   (try (.unmount root) (catch :default _ nil)))))))))))
-
-;; ---- ENSURE `:images` through `$` -----------------------------------------
 
 (deftest ensure-images-arm-marshals-image-vector-through-dollar
   (testing "UIx — ($ frame-root {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/glue-args"
