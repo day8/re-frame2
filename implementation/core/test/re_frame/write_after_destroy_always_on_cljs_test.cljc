@@ -33,12 +33,12 @@
     (testing "exactly one always-on record, carrying no event, frame or exception"
       (let [reports (filter #(= :rf.error/write-after-destroy (:error %)) @seen)
             r       (first reports)]
-        (is (= 1 (count reports)))
-        (is (= [nil nil nil] ((juxt :event :frame :exception) r)))
-        (is (number? (:time r)) ":time is a wall-clock millis number")))
+        (is (= [1 [nil nil nil] true]
+               [(count reports) ((juxt :event :frame :exception) r)
+                (number? (:time r))]))))
     (when rf.interop/debug-enabled?
       (testing "the dev error trace carries :recovery :ignored and a structured :reason"
         (let [errs (filter #(= :rf.error/write-after-destroy (:operation %)) @traces)]
-          (is (= 1 (count errs)))
-          (is (= :ignored (:recovery (first errs))))
-          (is (string? (get-in (first errs) [:tags :reason]))))))))
+          (is (= [1 :ignored true]
+                 [(count errs) (:recovery (first errs))
+                  (string? (get-in (first errs) [:tags :reason]))])))))))
