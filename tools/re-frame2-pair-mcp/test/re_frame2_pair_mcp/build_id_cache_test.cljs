@@ -61,8 +61,6 @@
               (done)))))))
 
 (deftest discover-app-caches-and-echoes-the-canonical-build
-  ;; `:build` echoes the canonical keyword under the input arg's name, so
-  ;; it can be copied straight back into a later call.
   (async done
     (let [conn (fresh-conn)
           _    (prime-probe-cache! conn :examples/step-deck)]
@@ -70,9 +68,10 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {:build "examples/step-deck"}))))
           (.then
             (fn [result]
-              (is (= {:build-id :examples/step-deck :build :examples/step-deck}
-                     (select-keys (tu/extract-edn result) [:build-id :build])))
-              (is (= :examples/step-deck (:resolved-build-id @conn)))
+              (is (= [{:build-id :examples/step-deck :build :examples/step-deck}
+                      :examples/step-deck]
+                     [(select-keys (tu/extract-edn result) [:build-id :build])
+                      (:resolved-build-id @conn)]))
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -106,10 +105,10 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {}))))
           (.then
             (fn [result]
-              (is (= {:ok? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck}
-                     (select-keys (tu/extract-edn result) [:ok? :build-id :auto-selected-build])))
-              (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "the auto-selected build is cached for follow-up calls")
+              (is (= [{:ok? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck}
+                      :examples/step-deck]
+                     [(select-keys (tu/extract-edn result) [:ok? :build-id :auto-selected-build])
+                      (:resolved-build-id @conn)]))
               (done)))))))
 
 (deftest discover-app-no-arg-does-not-auto-select-when-many-run
