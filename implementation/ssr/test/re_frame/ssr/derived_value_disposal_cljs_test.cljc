@@ -9,6 +9,9 @@
   dispose keeps every input at its ref-count until the frame is destroyed. A
   per-request frame bounds that; a long-lived frame accumulates it.
 
+  Destroying the adapter clears every live frame's sub-cache, because frames
+  outlive the adapter and a slot surviving a reinstall would be reused.
+
   Subs are registered INSIDE each test body: in the shared node process a
   sibling namespace's `registrar/clear-all!` wipes ns-load-time registrations."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -59,6 +62,26 @@
             (is (nil? (get @cache [::a]))
                 "and disposing it released its input, which is evicted with it"))))
       (finally (rf/destroy-frame! fid)))))
+
+(deftest destroying-the-adapter-clears-every-frames-sub-cache
+  (reg-layered-subs!)
+  (rf/reg-event ::seed (fn [_ctx [_ v]] {:db {:a v}}))
+  (let [fids       [(fresh-frame!) (fresh-frame!)]
+        slots      #(mapv (fn [fid] (set (keys @(cache-of fid)))) fids)
+        subscribe! #(mapv (fn [fid] (rf/subscribe [::ab] {:frame fid})) fids)]
+    (try
+      (doseq [[fid v] (map vector fids [1 2])] (rf/dispatch-sync [::seed v] {:frame fid}))
+      (let [before (subscribe!)]
+        (is (= [#{[::a] [::ab]} #{[::a] [::ab]}] (slots))
+            "control: both frames hold the layer-2 sub and its input")
+        (rf/destroy-adapter!)
+        (is (= [#{} #{}] (slots)) "the disposer clears every live frame's sub-cache")
+        (rf/init! rf.ssr/adapter)
+        (let [after (subscribe!)]
+          (is (= [false false] (mapv identical? before after))
+              "a re-subscribe builds a fresh derived value, not the pre-dispose one")
+          (is (= [1 2] (mapv deref after)))))
+      (finally (doseq [fid fids] (rf/destroy-frame! fid))))))
 
 (deftest destroying-and-remaking-the-frame-leaves-no-cache-entries
   (reg-layered-subs!)

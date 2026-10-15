@@ -43,6 +43,7 @@
   — see that ns for the rationale on why only the container quartet (not
   `make-derived-value`) is shared."
   (:require [re-frame.error :as rf.error]
+            [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.atom-container :as rf.substrate.atom-container]
             #?@(:clj  [[re-frame.interop :as rf.interop]]
                 :cljs [[re-frame.disposable :as rf.disposable]
@@ -143,7 +144,12 @@
   nil)
 
 (defn- dispose-adapter! []
-  ;; Watch handles are GC'd with their atoms; nothing else to clean up.
+  ;; Frames outlive the adapter, so disposal clears every frame's sub-cache
+  ;; (Spec 006 §Adapter disposal lifecycle): a slot left behind keeps its
+  ;; references on its inputs, and a subscribe after reinstall would reuse the
+  ;; pre-dispose derived value. Watch handles are GC'd with their atoms, and the
+  ;; hiccup emitter stays armed because it holds no host resource.
+  (rf.subs.cache/clear-all-frame-sub-caches!)
   nil)
 
 (def adapter

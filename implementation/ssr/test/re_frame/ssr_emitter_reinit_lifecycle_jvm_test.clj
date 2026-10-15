@@ -3,8 +3,8 @@
 
   On the JVM the SSR render path runs through the plain-atom adapter, whose
   `:render-to-string` reads plain-atom's `hiccup-emitter` atom. That atom is
-  armed once by `re-frame.ssr` ns-load and, crucially, plain-atom's `dispose-adapter!` is a NO-OP — it does
-  NOT clear the emitter. So the JVM lifecycle is repeatable by RETENTION, where
+  armed once by `re-frame.ssr` ns-load and, crucially, plain-atom's `dispose-adapter!` clears only the
+  frames' sub-caches — it does NOT clear the emitter. So the JVM lifecycle is repeatable by RETENTION, where
   the React-shaped CLJS spine is repeatable by disposal-clears + install-replay.
   This test pins that host-divergent expectation explicitly: the emitter stays
   bound across destroy → re-init on the JVM.
