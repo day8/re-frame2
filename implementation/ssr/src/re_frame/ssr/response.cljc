@@ -30,11 +30,8 @@
        :cookies  []
        :redirect nil}
 
-  Internal-only bookkeeping under `:rf.server/_status-writes` and
-  `:rf.server/_redirect-writes` records every write so the runtime can
-  emit `:rf.warning/multiple-status-set` / `:rf.warning/multiple-redirects`
-  on the second-and-later write while still preserving last-write-wins
-  semantics for the public `:status` / `:redirect` slots.
+  The `:status` and `:redirect` slots are last-write-wins: each write
+  replaces the previous one (Spec 011 §Multiple-status policy).
 
   All `reg-fx` calls live in the `re-frame.ssr` façade so a
   `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`
@@ -61,8 +58,7 @@
 (defonce
   ^{:doc "Per-frame storage for the HTTP response accumulator. Keys are
   frame-ids; values are the accumulator map (`{:status :headers :cookies
-  :redirect ...}` plus internal `:rf.server/_status-writes` /
-  `:rf.server/_redirect-writes` bookkeeping). Framework-private —
+  :redirect}`). Framework-private —
   not stored in `app-db` so the accumulator never rides the hydration
   payload to the client. Cleared per-frame by the
   `:ssr/on-frame-destroyed` hook."}
@@ -572,9 +568,6 @@
     (validate-cookie-attr! attr-key v))
   cookie)
 
-(def status-writes-key   :rf.server/_status-writes)
-(def redirect-writes-key :rf.server/_redirect-writes)
-
 (defn default-response
   "The default response accumulator. Spec 011 §Status defaults: status 200,
   default content-type text/html for HTML responses, no cookies, no redirect."
@@ -657,41 +650,16 @@
   [headers header-name header-value]
   (conj (vec headers) [(str header-name) header-value]))
 
-(defn- warn-on-multiple-writes!
-  "Emit `warning-id` (a `:rf.warning/multiple-*` trace) when more than one
-  write to the last-write-wins slot recorded under `writes-key` has landed
-  on `response`. `final-key` (`:final-status` / `:final-redirect`) names the
-  tag the consumer reads the winning write off. Shared by `set-status-fx`,
-  `redirect-fx`, and `safe-redirect-fx` — all three record every write for
-  the multi-write policy and warn on the second-and-later one while
-  preserving last-write-wins for the public slot."
-  [response writes-key warning-id final-key frame-id]
-  (let [writes (get response writes-key)]
-    (when (and response (> (count writes) 1))
-      (rf.trace/emit! :warning warning-id
-                   {:writes   writes
-                    final-key (last writes)
-                    :frame    frame-id
-                    :recovery :warned-and-replaced}))))
-
 ;; ---- handler fns for the seven :rf.server/* fxs --------------------------
 
 (defn set-status-fx
-  "Handler fn for `:rf.server/set-status`. Last-write-wins; multi-write
-  emits `:rf.warning/multiple-status-set`. Throws
+  "Handler fn for `:rf.server/set-status`. Last-write-wins. Throws
   `:rf.error/server-fx-args-invalid` — in EVERY build — unless
   the status is an integer in 100–599, so a string status never
   reaches `ssr/get-response`."
   [{:keys [frame]} status]
   (validate-status! :rf.server/set-status status)
-  (let [updated-response (swap-response!
-                           frame
-                           (fn [response]
-                             (-> response
-                                 (update status-writes-key (fnil conj []) status)
-                                 (assoc :status status))))]
-    (warn-on-multiple-writes! updated-response status-writes-key
-                              :rf.warning/multiple-status-set :final-status frame)))
+  (swap-response! frame #(assoc % :status status)))
 
 (defn set-header-fx
   "Handler fn for `:rf.server/set-header`. Replaces any existing header
@@ -822,8 +790,7 @@
 
 (defn redirect-fx
   "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if
-  absent. Multiple writes emit `:rf.warning/multiple-redirects`
-  (last-write-wins). Throws `:rf.error/redirect-invalid-location` on a
+  absent. Last-write-wins. Throws `:rf.error/redirect-invalid-location` on a
   location carrying CR/LF/NUL — a `?next=…` query-param
   redirect would otherwise let an attacker forge headers — per Spec 011
   §CRLF fail-fast. The CR/LF/NUL header-splitting gate is the ONLY gate
@@ -873,22 +840,17 @@
         ;; always-on range gate as :rf.server/set-status.
         _          (validate-status! :rf.server/redirect status)
         normalised-redirect (cond-> (assoc redirect-map :status status)
-                              location (assoc :location location))
-        updated-response (swap-response!
-                           frame
-                           (fn [response]
-                             (-> response
-                                 (update redirect-writes-key (fnil conj [])
-                                         normalised-redirect)
-                                 (assoc :redirect normalised-redirect)
-                                 ;; Spec 011 §Redirect precedence step 1: the
-                                 ;; redirect's :status flows through to the
-                                 ;; response :status so the host adapter writes
-                                 ;; the redirect status on the wire even if no
-                                 ;; explicit :rf.server/set-status fired.
-                                 (assoc :status status))))]
-    (warn-on-multiple-writes! updated-response redirect-writes-key
-                              :rf.warning/multiple-redirects :final-redirect frame)))
+                              location (assoc :location location))]
+    (swap-response!
+      frame
+      (fn [response]
+        (-> response
+            (assoc :redirect normalised-redirect)
+            ;; Spec 011 §Redirect precedence step 1: the redirect's :status
+            ;; flows through to the response :status so the host adapter
+            ;; writes the redirect status on the wire even if no explicit
+            ;; :rf.server/set-status fired.
+            (assoc :status status))))))
 
 ;; ---- :rf.server/safe-redirect ---------------------------------------------
 ;;
@@ -1334,18 +1296,12 @@
                      normalised-redirect (-> redirect-map
                                              (dissoc :allow :relative-only?)
                                              (assoc :status   final-status
-                                                    :location location))
-                     updated-response    (swap-response!
-                                           frame
-                                           (fn [response]
-                                             (-> response
-                                                 (update redirect-writes-key
-                                                         (fnil conj [])
-                                                         normalised-redirect)
-                                                 (assoc :redirect normalised-redirect)
-                                                 ;; Spec 011 §Redirect precedence
-                                                 ;; step 1: status flows through.
-                                                 (assoc :status final-status))))]
-                 (warn-on-multiple-writes! updated-response redirect-writes-key
-                                           :rf.warning/multiple-redirects
-                                           :final-redirect frame)))))))))
+                                                    :location location))]
+                 (swap-response!
+                   frame
+                   (fn [response]
+                     (-> response
+                         (assoc :redirect normalised-redirect)
+                         ;; Spec 011 §Redirect precedence
+                         ;; step 1: status flows through.
+                         (assoc :status final-status))))))))))))

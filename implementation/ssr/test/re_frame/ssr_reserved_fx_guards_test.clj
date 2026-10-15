@@ -38,8 +38,7 @@
 
 (defn- drive!
   "Dispatch `fx-vec` then `sibling-fx` on a fresh server frame. Returns the
-  pure accumulator read (`:raw`), the same read with the `_status-writes`
-  bookkeeping kept (`:bookkept`), the settled response and projected public
+  pure accumulator read (`:raw`), the settled response and projected public
   error (`:response`, `:public-error`, taken last because the settle drains)
   and every always-on error record seen."
   [fx-vec]
@@ -51,10 +50,8 @@
     (try
       (rf/dispatch-sync [::attempt fx-vec] {:frame f})
       (let [raw      (rf.ssr/peek-response f)
-            bookkept (rf.ssr.response/response-of f)
             settled  (rf.ssr/flush-response-result! f)]
         {:raw          raw
-         :bookkept     bookkept
          :response     (:response settled)
          :public-error (:public-error settled)
          :records      @seen})
@@ -175,12 +172,12 @@
             (str label "; saw: " (pr-str (mapv :error records))))))))
 
 (defn- landed?
-  "Did `fx-id` WRITE to the accumulator? `:rf.server/set-status` is read off
-  the `_status-writes` bookkeeping, since 200 is also the default status."
-  [fx-id args {:keys [raw bookkept]}]
+  "Did `fx-id` WRITE to the accumulator? `:rf.server/set-status` landed when
+  the status reads back as written, so no corpus row writes the default 200."
+  [fx-id args {:keys [raw]}]
   (case fx-id
     :rf.server/set-status
-    (boolean (seq (get bookkept rf.ssr.response/status-writes-key)))
+    (= args (:status raw))
 
     (:rf.server/set-header :rf.server/append-header)
     (boolean (some (fn [[k _]] (= (:name args) k)) (:headers raw)))

@@ -471,15 +471,12 @@
 
 (defn peek-response
   "PURE read of the resolved response accumulator for a frame — does
-  NOT drain pending error projections. The internal
-  `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
-  bookkeeping keys are stripped.
+  NOT drain pending error projections.
 
   Reading never changes what the settle (`flush-response-result!`) later
   sees, so a debug path or midpoint inspection may call this at any time."
   [frame-id]
-  (-> (rf.ssr.response/response-of frame-id)
-      (dissoc rf.ssr.response/status-writes-key rf.ssr.response/redirect-writes-key)))
+  (rf.ssr.response/response-of frame-id))
 
 (defn flush-response-result!
   "Drain any pending error projection for `frame-id` ONCE and return BOTH
@@ -520,8 +517,7 @@
 (defn get-response
   "Read the resolved response accumulator for a frame. Public surface
   for host adapters that consume the accumulator to build the wire
-  response. The internal `:rf.server/_status-writes` /
-  `:rf.server/_redirect-writes` bookkeeping keys are stripped.
+  response.
 
   A PURE read, the same as `peek-response`: it projects no buffered
   error, so reading the response never changes the later settle. Call
