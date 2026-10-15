@@ -13,6 +13,7 @@
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.error-emit :as rf.error-emit]
+   [re-frame.flows]
    [re-frame.trace.tooling :as rf.trace.tooling]
    [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
