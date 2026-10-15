@@ -28,7 +28,14 @@
    [:reason [:enum :no-such-frame :missing-frame]]])
 
 (def ^:private success-fixtures
-  {:multi-frame-ambiguous
+  {:single-frame-sole-resolution
+   {:ok?       true
+    :frames     [:rf/default]
+    :app-frames [:rf/default]
+    :selected   nil
+    :operating  :rf/default}
+
+   :multi-frame-ambiguous
    {:ok?       true
     :frames     [:rf/default :stories]
     :app-frames [:rf/default :stories]
