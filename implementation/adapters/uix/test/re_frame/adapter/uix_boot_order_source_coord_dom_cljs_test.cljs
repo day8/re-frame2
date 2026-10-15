@@ -1,15 +1,5 @@
 (ns re-frame.adapter.uix-boot-order-source-coord-dom-cljs-test
-  "The substrate WRAP under the canonical boot order
-  (`docs/core/how-to/boot-and-mount-an-app.md`: register at ns-load, then
-  `rf/init!`). `:adapter/wrap-view` is routed, so a top-level `reg-view*`
-  gets nil and stores an unwrapped composition; the head `(rf/view id)` hands
-  back after init re-derives against the installed adapter. Rendered from the
-  stored composition, the root would carry neither annotation.
-  `reg-time-composition-*` shows both
-  answers off the one registration (the stored slot is left alone, since
-  rewriting it would publish a phantom handler-replaced); `boot-order-*`
-  reads the annotations off the committed DOM node. Only the DOM row needs a
-  browser."
+  "Views registered before init acquire source annotations after the adapter is installed."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             ["react" :as React]
@@ -20,34 +10,11 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]))
 
-;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
-;; further down, and the position is load-bearing: `make-reset-runtime-fixture`
-;; snapshots the registrar AT CALL TIME as its ns-load baseline, and this
-;; file's whole premise is a registration that already exists when the fixture
-;; is built.
-
-;; ---- the render fn ---------------------------------------------------------
-;;
-;; A plain fn rather than a `defui`, for two reasons. It is invoked HEADLESS by
-;; the first row (the shape Spec 001 §`(re-frame.core/view id)` describes and
-;; the shared React suite uses), and its root is a DOM-tag React element — the
-;; ONLY root shape the annotation contract covers, so a missing attribute can
-;; only mean the wrap did not run. `& _` because the two calling conventions
-;; differ in arity: React hands the shell a props object, a headless call hands
-;; it nothing.
-
 (def ^:private probe-frame :rf.uix-boot-order-coord/frame)
 
+;; The headless call and React mount use different arities.
 (defn- probe-render [& _]
   (React/createElement "span" #js {"data-testid" "probe"} "hi"))
-
-;; ---- the canonical boot order, captured at ns-load -------------------------
-;;
-;; These forms run at NS-LOAD, so no fixture can have installed an adapter
-;; first. `adapter-at-registration` and `head-at-registration` make the premise
-;; CHECKABLE rather than assumed — without them a bundle that happened to
-;; install an adapter earlier would turn the rows below into post-init
-;; registrations while still reading as boot-order witnesses.
 
 (def ^:private boot-row-id :rf.uix-boot-order-coord/boot-row)
 
@@ -56,12 +23,10 @@
 (def ^:private adapter-at-registration (rf/current-adapter))
 (def ^:private head-at-registration    (rf/view boot-row-id))
 
-;; NOW the fixture — see the note under the ns form for why the order matters.
+;; Build the fixture after the ns-load registration so its registrar snapshot includes that view.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter}))
-
-;; ---- helpers ---------------------------------------------------------------
 
 (defn- browser? []
   (and (exists? js/document)
@@ -71,8 +36,7 @@
   (when (exists? (.-act React)) (.-act React)))
 
 (defn- with-browser-act
-  "Skip under :node-test (no DOM) and when act() is unreachable; otherwise opt
-  into React's act environment and call `(f act-fn)`."
+  "Run with React act in a browser."
   [f]
   (if-not (browser?)
     (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
@@ -83,9 +47,7 @@
             (f act-fn))))))
 
 (defn- element-attr
-  "Read `attr` off a React element's props. The reg-time row reads the
-  annotation here rather than off the DOM because the value it is reading has
-  no DOM: it is what the un-mountable reg-time composition produces."
+  "Read an attribute from a headless React element."
   [^js element attr]
   (some-> element .-props (aget attr)))
 
@@ -94,12 +56,7 @@
   nil)
 
 (defn- mount-and-read
-  "Mount `head` through `$` under the normal `frame-provider` boundary, and
-  hand back the committed root node's two annotation attributes.
-
-  `head` is passed STRAIGHT to `$` as a component type — nothing here invokes
-  it, so what the assertions describe is a real React mount and a real DOM
-  node."
+  "Mount the registry head through $ and read its DOM annotations."
   [act-fn head]
   (let [mount-node (.createElement js/document "div")
         react-root (react-dom-client/createRoot mount-node)]
@@ -118,7 +75,7 @@
             (try (.unmount react-root) (catch :default _ nil))))))))
 
 (defn- assert-annotated
-  "The shared assertion block for a mounted root; `label` names the row."
+  "Assert annotations on the committed root."
   [label view-id facts]
   (let [{:keys [view-root-present? source-coordinate
                 view-id-attribute]} facts]
@@ -131,17 +88,13 @@
         (str label ": the committed root carries the view's own <ns>:<sym> coordinate and"
              " printed id; coord " (pr-str source-coordinate)))))
 
-;; ---- the ABSENT half, on the registration itself ---------------------------
-
 (deftest reg-time-composition-is-unwrapped-while-the-lookup-is-not
   (testing "UIx — the composition registration stored, invoked directly, still
             yields an UNANNOTATED root, while the head (rf/view id) hands back
             after init! yields an annotated one"
-    ;; Premise: without it the row proves nothing about ordering.
     (is (nil? adapter-at-registration)
         (str "premise: no adapter was installed when this ns registered its"
              " view at load time; got " (pr-str adapter-at-registration)))
-    ;; Calling the stored composition throws if registration returned nothing.
     (let [registration-output (head-at-registration)]
       (is (= ["span" nil]
              [(.-type ^js registration-output)
@@ -157,8 +110,6 @@
                   (string? (element-attr lookup-output "data-rf2-source-coord"))])
               "PRESENT: the re-derived head renders the same root, stamped"))))))
 
-;; ---- the PRESENT half as a real-DOM fact -----------------------------------
-
 (deftest boot-order-registration-annotates-the-mounted-root
   (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
             adapter, carries data-rf2-source-coord and data-rf-view on its
@@ -166,7 +117,5 @@
     (with-browser-act
       (fn [act-fn]
         (seed-frame!)
-        ;; No registration here. The fixture has installed UIx; the only thing
-        ;; that has happened since ns-load is `rf/init!`.
         (assert-annotated "boot-order head" boot-row-id
                           (mount-and-read act-fn (rf/view boot-row-id)))))))
