@@ -1,53 +1,6 @@
 (ns re-frame.story.panels-e2e.chrome-fullscreen-render-e2e-cljs-test
-  "Multi-frame e2e coverage for the full-screen chrome toggle.
-
-  Per spec/014 §Chrome-visibility hotkeys pressing `f`
-  (no modifier, not editable target) toggles `:full-screen?` on the
-  shell-state-atom; the shell's reagent-render elides every chrome
-  pane (sidebar / toolbar / right-panel) when `:full-screen?` is true.
-
-  ## Pipeline under test
-
-      keydown `f` (no modifier, not editable)
-            │
-            ▼
-      keybindings/dispatch!   ← capture-phase listener
-            │
-            ▼
-      keybindings/full-screen-toggle!
-            │
-            ▼
-      [:chrome-visibility :full-screen?] = true
-            │
-            ▼
-      state/chrome-pane-visible? :sidebar / :rhs / :toolbar → false
-            │
-            ▼
-      shell/:reagent-render guards `(when show-sb? [sidebar ...])` etc
-            │
-            ▼
-      No [rf.story.ui.sidebar/sidebar] / [rf.story.ui.toolbar/toolbar-strip] / [right-panel]
-      vectors in the rendered hiccup tree; the variant canvas slot
-      still renders. The shell root carries
-      `data-rf-chrome-fullscreen=\"true\"`.
-
-  ## What the unit + state tests already cover
-
-  - `keybindings_cljs_test` — pure `dispatch-key?` predicate +
-    `bindings` shape + per-handler round-trip through shell-state.
-  - `chrome_hotkeys_e2e_cljs_test` — `dispatch!` through the full
-    discrimination pipeline (modifier-held + editable-target + Escape).
-  - `chrome_visibility_test` — `chrome-pane-visible?` precedence
-    (embed > full-screen > per-pane).
-
-  ## What this e2e adds
-
-  Drives the FULL hotkey → render seam in one process: synthetic
-  keydown for `f` → dispatch! → shell hiccup tree elides chrome.
-  Mirrors `embed_url_flag_e2e_cljs_test`'s URL → render seam pattern
-  but exercises the keydown driver instead of the URL parser.
-
-  Sub-millisecond per case; no DOM mount, no React, no Playwright."
+  "The hotkey-to-render seam: full-screen hides chrome while keeping the canvas.
+  Two keydowns restore the sidebar. Hiccup-level Node tests."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -94,23 +47,6 @@
                   (pred (first node))))
            (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)))
 
-;; ---- pipeline (1): `f` keydown → shell-state flip -----------------------
-
-(deftest f-keydown-flips-full-screen-on-shell-state
-  (testing "pressing `f` (no modifier, not editable) drives
-            `dispatch!` and lands `:full-screen? true` on the live
-            shell-state-atom. The state-mutation arm is covered by
-            chrome_hotkeys_e2e; pinned here so the render test below
-            has a known starting state."
-    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
-      {}
-      (fn []
-        (is (false? (:full-screen? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility)))
-            "default `:full-screen?` is false")
-        (dispatch! (rf.story.test-helpers.e2e-multi-frame/fake-event {:key "f"}))
-        (is (true? (:full-screen? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility)))
-            "`f` keydown flipped shell-state to full-screen")))))
-
 ;; ---- pipeline (2): full-screen → chrome elides at render ----------------
 
 (deftest full-screen-render-elides-every-chrome-pane
@@ -125,9 +61,7 @@
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
-        ;; Seed full-screen directly — the state-flip arm is covered by
-        ;; the test above so this separates the keydown-seam from the
-        ;; render-seam (a failure points at the right layer).
+        ;; chrome_hotkeys_e2e covers the dispatcher; this case isolates render.
         (swap! rf.story.ui.state/shell-state-atom
                assoc-in [:chrome-visibility :full-screen?] true)
         (let [tree            (render-shell-tree)
