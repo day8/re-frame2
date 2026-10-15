@@ -9,17 +9,15 @@
       "mirrors chart.nodes/state-node's data-testid"))
 
 (deftest anchors-place-the-card-beside-or-below-the-node
-  (testing "overlay-local coordinates (node minus container origin), the card
-            clear of the node by the 12px gap, plus the node centre for the
-            connector; a node not laid out yet gets no anchor"
-    (let [node      {:left 100 :top 100 :width 140 :height 48}
-          container {:left 20.0 :top 10.0 :width 900 :height 400}]
-      (is (= {:x 232.0 :y 90.0 :node-cx 150.0 :node-cy 114.0}
-             (anchor/anchor-right-of node container)))
-      (is (= {:x 80.0 :y 150.0 :node-cx 150.0 :node-cy 114.0}
-             (anchor/anchor-below node container)))
-      (is (nil? (anchor/anchor-right-of (assoc node :width 0) container)))
-      (is (nil? (anchor/anchor-below (assoc node :height 0) container))))))
+  (let [node      {:left 100 :top 100 :width 140 :height 48}
+        container {:left 20.0 :top 10.0 :width 900 :height 400}]
+    (is (= [{:x 232.0 :y 90.0 :node-cx 150.0 :node-cy 114.0}
+            {:x 80.0 :y 150.0 :node-cx 150.0 :node-cy 114.0}
+            nil nil]
+           [(anchor/anchor-right-of node container)
+            (anchor/anchor-below node container)
+            (anchor/anchor-right-of (assoc node :width 0) container)
+            (anchor/anchor-below (assoc node :height 0) container)]))))
 
 (deftest join-resolved-follows-the-join-rule
   (testing ":all resolves only when every child is done, :any once one child
