@@ -463,13 +463,14 @@
   "The registration coordinate of the `[kind id]` descriptor that supplied
   `frame-id`'s failing operation — the implementation that ran — or nil.
 
-  Inside `frame-id`'s own cascade the generation in scope is the one the
+  Inside `frame-id`'s own cascade the view in scope (its generation, or the
+  live-store snapshot of a frame made without `:images`) is the one the
   operation resolved through, so the lookup reads it as it stands, with no
   flush: a replacement registered while the old implementation was still
-  running belongs to the frame's next generation, and must not take the old
+  running belongs to the frame's next view, and must not take the old
   one's throw. The cascade is the router's event owner, which binds the
-  generation, not `*current-frame*`: a `with-frame` inside another frame's
-  handler rebinds the frame alone, leaving that handler's generation in scope.
+  view, not `*current-frame*`: a `with-frame` inside another frame's
+  handler rebinds the frame alone, leaving that handler's view in scope.
   Any other frame is read inside its own resolution scope
   (`:live-frame/call-with-frame-resolution`), so two frames running different
   images' implementations of one id each report their own. With no frame, or
@@ -697,7 +698,7 @@
                ;;
                ;; The event REGISTRATION's own `:sensitive` / `:large` marks
                ;; (EP-0015 — event args are registration-owned) apply FIRST,
-               ;; resolved in `frame-id`'s generation, exactly as on the dev
+               ;; resolved through `frame-id`'s own view, exactly as on the dev
                ;; trace (`project-event-tags`), the sink route and the
                ;; event-emit record, which all share
                ;; `projection/project-event-slot`; without them this record

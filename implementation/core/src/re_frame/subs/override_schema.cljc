@@ -48,8 +48,8 @@
   the subscribing frame, stamped onto the failure trace so
   `re-frame.epoch.capture/capture-event!` (which buffers only frame-tagged
   traces) attributes the failure to that frame's epoch — pass nil when
-  frameless. Callers resolve `sub-meta` through the target frame's IMAGE
-  generation (a multi-image frame validates against its own image's schema);
+  frameless. Callers resolve `sub-meta` through the target frame's own view
+  (a multi-image frame validates against its own image's schema);
   this primitive takes the already-resolved metadata."
   [value query-v sub-meta frame-id]
   ;; KEY-presence, not value truthiness: a present nil / false

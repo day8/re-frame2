@@ -127,7 +127,7 @@
   of `image-assembly/assemble` plus one registry `swap!`. An app that never
   calls `make-frame` with `:images` never reaches these fns (Closure DCE removes
   them). The resolution seam adds a single dynamic binding around the cascade
-  (the no-generation default path pays one record read then runs
+  (a target with neither a generation nor the live mark pays one record read then runs
   with zero binding cost — see [[call-with-frame-resolution]]). Reload runs on
   the development hot-reload / explicit re-`make-frame` reload path (not a
   per-event hot path, not a DEBUG-gated branch): pure re-assembly via
@@ -411,7 +411,9 @@
 ;; live dispatch / subscribe / fx / cofx / view / resource lookups must resolve
 ;; through the TARGET frame's resolved image generation, not the global/default
 ;; registrar. This is the EP-0023 frame OBJECT's resolution contract — a frame
-;; carries its generation directly under `:rf.frame/generation`.
+;; made with `:images` carries its generation directly under
+;; `:rf.frame/generation`, and a frame made without resolves the registration
+;; store live instead ([[live-view]]).
 ;;
 ;; The mechanism is a SINGLE binding seam: bind `rf.registrar/*generation*`
 ;; to the frame object's sealed generation around a thunk, and EVERY `(kind, id)`
@@ -427,9 +429,9 @@
 ;; half-dispatch.
 ;;
 ;; ABSENCE-IS-DEFAULT (the load-bearing fall-through): a nil frame object, or a
-;; frame object carrying no generation, binds NOTHING — `rf.registrar/*generation*`
-;; stays nil and resolution falls through to the registrar atom path (the
-;; single default).
+;; frame object carrying neither a generation nor the live mark, binds NOTHING —
+;; `rf.registrar/*generation*` stays nil and resolution falls through to the
+;; registrar atom path (the single default).
 ;;
 ;; DERIVED from the carried frame object, never an ambient binding (EP-0002
 ;; carried-invariant): the generation is read off the frame the caller targets,
@@ -451,9 +453,10 @@
   the generation lives on the record in the ONE registry, so
   `frame-target` may be a frame VALUE or a frame id — `frame-generation`
   normalizes either to its id and reads the `:generation` slot. A nil target, a
-  non-frame value, or a frame whose record carries no generation yields nil —
-  the absence-is-default signal that resolution falls through to the registrar
-  atom path. Pure."
+  non-frame value, or a frame whose record carries no generation yields nil;
+  resolution then goes through the live store for a frame made without
+  `:images` ([[call-with-frame-resolution]]), and through the registrar atom
+  path otherwise. Pure."
   [frame-target]
   (frame-generation frame-target))
 
@@ -476,7 +479,7 @@
   `next-tick` flush happens to run. This is stronger than the EP-0023 §Default
   Image Semantics guarantee (\"reprojected at the next macrotask boundary\"):
   \"reprojected before the next resolution\" — every frame `make-frame`
-  constructs is image-loaded, and the
+  constructs with `:images` is image-loaded, and the
   register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
   the deferred tick. Coalescing holds: a synchronous `reg-*` burst
   sets one flag and is flushed ONCE, by whichever comes first — this read or
@@ -1048,7 +1051,8 @@
   an app-facing data contract; read its id with `rf.frame/frame-value->id`). The
   frame is fully runnable: `rf/dispatch` / `rf/subscribe` / `rf/destroy-frame!` /
   `rf/app-db-value` accept the value OR its id, and the cascade resolves through
-  the frame's resolved generation (stored on the record, read by id). The public
+  the frame's own view: its resolved generation (stored on the record, read by
+  id), or the live store for a frame made without `:images`. The public
   routing address is the frame id; the value is accepted by internal
   normalization for tests/tools. Re-calling `make-frame` against the SAME `:id`
   with a new `:images` vector swaps the generation while preserving frame
@@ -1073,7 +1077,7 @@
    ;; argument cannot silently register a garbage default frame or fail by an
    ;; obscure host ClassCastException.
    (validate-opts! opts)
-   ;; A frame resolves every `(kind, id)` through the SEALED
+   ;; A frame made with `:images` resolves every `(kind, id)` through the SEALED
    ;; generation assembled below, so from this call onward the generation must
    ;; be kept in step with the registration pool. Root the freshener here —
    ;; idempotent, no debug gate — so the invariant holds on both hosts and
@@ -1118,9 +1122,9 @@
                        (some? descriptors) (rf.image-assembly/assemble-default descriptors)
                        :else               nil)
          live-store? (nil? generation)
-         ;; The frame's `:interceptors` refs resolve against that generation
-         ;; here, before any record exists, so a typo fails at the call that
-         ;; made it rather than at the first dispatch.
+         ;; The frame's `:interceptors` refs resolve against that generation, or
+         ;; a live view when it is nil, here, before any record exists, so a typo
+         ;; fails at the call that made it rather than at the first dispatch.
          _           (validate-frame-interceptors! (:interceptors opts) generation)
          ;; Everything outside the image-selection/value keys is record-config
          ;; passed verbatim to the engine (`upsert-frame!`) — `:initial-events` /
@@ -1256,9 +1260,10 @@
        ;; never observable as live, so a registration that lands while a frame
        ;; is mid-construction is never lost.
        ;;
-       ;; The generation above was SEALED before `upsert-frame!` published the
-       ;; record, and it has to be: a bad `:images` must fail loud BEFORE any
-       ;; record exists, so a conflict leaves no half-created frame. Between
+       ;; For a frame made with `:images`, the generation above was SEALED
+       ;; before `upsert-frame!` published the record, and it has to be: a bad
+       ;; `:images` must fail loud BEFORE any record exists, so a conflict
+       ;; leaves no half-created frame. Between
        ;; those two points the frame is not in `frames`, hence not in
        ;; `live-frame-ids` — and a `reg-*` racing that gap fires the registration
        ;; hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
@@ -1725,10 +1730,10 @@
 ;; gated on `rf.interop/debug-enabled?`. "In production the source registrar
 ;; stops changing after boot, so there is nothing to reproject" does not hold:
 ;; nothing orders all registrations before all frame construction,
-;; `make-frame` seals a generation UNCONDITIONALLY (EP-0026 §Default Image),
-;; and `rf.registrar/lookup` resolves through that seal — so under such a gate
-;; the ordinary `make-frame` → `reg-*` → `dispatch` sequence would resolve
-;; nothing and report `:rf.error/no-such-handler`. Keeping a frame's
+;; `make-frame` seals a generation for every frame made with `:images` (EP-0026
+;; §Default Image), and `rf.registrar/lookup` resolves through that seal — so
+;; under such a gate that frame's `make-frame` → `reg-*` → `dispatch` sequence
+;; would resolve nothing and report `:rf.error/no-such-handler`. Keeping a frame's
 ;; generation in step with the registration pool is a CORRECTNESS invariant,
 ;; not a diagnostic.
 ;;

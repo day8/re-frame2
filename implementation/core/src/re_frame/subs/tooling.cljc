@@ -145,8 +145,9 @@
 
   `rf.live-frame/call-with-frame-resolution` is the frame-resolution seam
   `subscribe` uses: it binds the target's sealed generation when the id names
-  an image-loaded frame, and binds NOTHING otherwise, so a frame with no
-  generation, a missing frame and the JVM all read the global registrar.
+  an image-loaded frame, a live view of the registration store when it names a
+  frame made without `:images`, and NOTHING otherwise, so a frame with neither,
+  a missing frame and the JVM all read the global registrar.
   `registrations` returns an eager map, so the projection is complete before the
   binding unwinds. Because the target is passed explicitly, the answer is the
   same whether the caller is inside another frame's generation binding or none
@@ -154,7 +155,7 @@
   neither can arrange to be inside the frame it is inspecting.
 
   Internal registrar semantics are the same, and there is no new query grammar:
-  this only supplies the target generation the frame-directed readers mean."
+  this only supplies the target frame's view the frame-directed readers mean."
   [frame-id]
   (rf.live-frame/call-with-frame-resolution
     frame-id

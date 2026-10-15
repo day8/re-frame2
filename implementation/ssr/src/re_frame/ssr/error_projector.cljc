@@ -338,14 +338,15 @@
         result
         (try
           ;; Resolve AND run the projector through the TARGET FRAME'S
-          ;; generation. `frame-id` already selected this frame's
+          ;; own view. `frame-id` already selected this frame's
           ;; `:ssr {:public-error-id …}` config; without this extent the id it
           ;; names would resolve against the process registrar instead, so a
           ;; projector registered from another image would answer for it — and an
           ;; error projector decides the STATUS and the public body that leave
           ;; the server, not merely a label. Resolution and invocation share
           ;; ONE extent so the fn that was found is the fn that runs. A frame
-          ;; with no sealed generation binds nothing: the plain registrar path.
+          ;; with neither a sealed generation nor the live mark binds nothing:
+          ;; the plain registrar path.
           (rf.live-frame/call-with-frame-resolution
             frame-id
             (fn []

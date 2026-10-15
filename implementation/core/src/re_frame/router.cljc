@@ -337,9 +337,10 @@
         ;; carries a keyword `:frame` for every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
         ;; the commit path, the sub-cache). The
-        ;; generation-resolution seam reads the sealed generation off the record
-        ;; by this id, so an object target and a child dispatch carrying the same
-        ;; id BOTH route the frame's image. A keyword target (and the scope/hold-resolved frame) passes
+        ;; generation-resolution seam reads the sealed generation (or the live mark
+        ;; of a frame made without `:images`) off the record by this id, so an
+        ;; object target and a child dispatch carrying the same id BOTH route the
+        ;; frame's own view. A keyword target (and the scope/hold-resolved frame) passes
         ;; through `frame-target->id` unchanged.
          frame              (when (rf.trace/continuation-live?)
                               (try
@@ -3248,12 +3249,13 @@
       thunk). The generation is DERIVED from the carried frame target
       (a direct frame VALUE and a frame-id keyword normalize to the same
       record address, so both read the same sealed generation), never an
-      ambient binding (EP-0002). A target that names no live image-loaded
-      frame yields no generation, so `call-with-frame-resolution` binds
+      ambient binding (EP-0002). A target that names neither a live
+      image-loaded frame nor a frame made without `:images` yields no
+      resolution, so `call-with-frame-resolution` binds
       NOTHING and resolution falls through to the registrar-atom path,
       byte-identical (absence-is-default). Child dispatches re-enter
       `process-event!` for their frame and re-derive the binding, so the
-      generation is preserved across the cascade automatically."
+      binding is preserved across the cascade automatically."
   [envelope frame-record owner-token allow-closing?]
   (rf.frame/call-with-event-owner-token
     (:frame envelope)
@@ -3272,9 +3274,10 @@
           ;; exact ownership around the callback and then derive generation
           ;; from the still-A record. Never let the generic bare-id resolver
           ;; redirect this already-dequeued envelope into same-id B.
-          ;; NOT gated on `rf.interop/debug-enabled?`. The generation
-          ;; this cascade resolves through is sealed unconditionally by
-          ;; `make-frame`, so a skipped flush would freeze the frame's view of
+          ;; NOT gated on `rf.interop/debug-enabled?`. For a frame made with
+          ;; `:images`, the generation this cascade resolves through is sealed
+          ;; unconditionally by `make-frame`, so a skipped flush would freeze
+          ;; the frame's view of
           ;; the registration pool in production and every later-registered
           ;; handler would dispatch as `:rf.error/no-such-handler`. The consult is by
           ;; late-bind KEYWORD and its publisher is rooted from `make-frame`,
@@ -4252,8 +4255,9 @@
         ;; The `:rf.trace/no-emit?` gate reads the TARGET handler's meta from
         ;; the registrar. Dev-only (this whole emit DCEs under `goog.DEBUG=false`).
         ;;
-        ;; Resolve the meta through the TARGET frame's image
-        ;; generation, NOT via a BARE `rf.registrar/lookup` (which runs at enqueue
+        ;; Resolve the meta through the TARGET frame's own view (its image
+        ;; generation, or the live store for a frame made without `:images`),
+        ;; NOT via a BARE `rf.registrar/lookup` (which runs at enqueue
         ;; time OUTSIDE the `call-with-frame-resolution` binding that wraps
         ;; `process-event!`). An image-loaded frame's inline `:reg-event` handler
         ;; lives ONLY in the frame's generation resolver, and its inline
@@ -4262,9 +4266,9 @@
         ;; the `:rf.event/dispatched` trace would flood the very stream the
         ;; handler is marked to stay out of. Mirror how `process-event!`
         ;; resolves handlers — one extra
-        ;; record read on the dev path; absence-is-default for a non-image
-        ;; frame binds nothing and resolves through the registrar atom exactly
-        ;; as the bare lookup did.
+        ;; record read on the dev path; absence-is-default for a frame with
+        ;; neither a generation nor the live mark binds nothing and resolves
+        ;; through the registrar atom exactly as the bare lookup did.
          handler-meta (when (and event-id (continue?))
                         (try
                           (rf.live-frame/call-with-frame-resolution

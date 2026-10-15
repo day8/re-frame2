@@ -1991,8 +1991,8 @@
             [:frame (resolve-frame-query-target (:frame arg) where-sym)])))))
 
 (defn frame-generation
-  "Return the SEALED, resolved image GENERATION a live frame is running — the
-  inert image-assembly generation value it resolves `(kind, id)` lookups through
+  "Return the SEALED, resolved image GENERATION a live frame made with `:images`
+  is running — the inert image-assembly generation value it resolves `(kind, id)` lookups through
   (EP-0023 §Frame — \"a reference to the resolved image generation it is
   running\"). The dedicated raw READ over the EP-0023 frame->generation model,
   for tools (Pair MCP `describe-image`, Xray) that EP-0023 forbids from consuming

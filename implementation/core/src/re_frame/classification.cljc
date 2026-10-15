@@ -879,9 +879,9 @@
   shipped outside a trace cannot drift from the trace's. The derivation-graph
   egress projector applies it to a live sub node's `:value`.
 
-  The sub's registration classification resolves in `frame-id`'s own generation
+  The sub's registration classification resolves through `frame-id`'s own view
   (`:live-frame/call-with-frame-resolution`), so an image-local declaration
-  answers for its frame whatever generation the caller stands in. A nil
+  answers for its frame whatever resolution the caller stands in. A nil
   `frame-id` fails closed to `:rf/redacted`."
   [v query-v frame-id]
   (let [project #(:rf.sub/value
