@@ -97,12 +97,14 @@
     ;; visible difference between :error and :submitting-retry
     ;; once the retry lands.
     ;; The classified failure map rides under :error on the
-    ;; canonical reply.
+    ;; canonical reply. The fallback differs from every seeded and
+    ;; canned message, so a reply that loses its message cannot
+    ;; pass for one that carried it.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts (fnil inc 0))
                  (assoc :error (or (:message error)
-                                   "Invalid credentials.")))})
+                                   "Sign-in failed.")))})
 
     :clear-error
     ;; Reset the error message at retry-time so the form doesn't
