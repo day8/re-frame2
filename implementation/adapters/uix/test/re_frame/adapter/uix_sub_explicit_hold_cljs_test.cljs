@@ -1,12 +1,5 @@
 (ns re-frame.adapter.uix-sub-explicit-hold-cljs-test
-  "An explicit `rf/subscribe` is a ref-counted hold on UIx, as on every
-  adapter (Spec 006 §Which lifetime governs a ratom adapter). The spine's
-  derived value never disposes itself when a watch drops, so a held
-  subscription keeps its slot until its `rf/unsubscribe`, which evicts it
-  and cascades to its inputs. The ratom adapters reach the same lifetime
-  through their on-dispose hook; their deftests are
-  `re-frame.sub-dispose-view-cljs-test` and
-  `re-frame.adapter.reagent-slim-sub-explicit-hold-cljs-test`."
+  "An explicit subscription survives watch removal until unsubscribe releases it and its inputs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -22,7 +15,7 @@
   (get @(:sub-cache (rf.frame/frame :rf/default)) query-v))
 
 (defn- dispose-counts
-  "`{sub-id n}` over the recorded `:rf.sub/dispose` events."
+  "Dispose events counted by subscription ID."
   [traces]
   (frequencies (map #(-> % :tags :rf.sub/id) traces)))
 
