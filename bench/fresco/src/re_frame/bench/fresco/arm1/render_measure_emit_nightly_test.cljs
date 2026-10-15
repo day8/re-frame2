@@ -42,12 +42,6 @@
    [title-row {}]
    [note-row {}]])
 
-(defview never-rendered-row
-  "Minted and never placed in a tree. React never invokes it, so the
-  measure stream must never mention it."
-  [_]
-  [:span.never "unreachable"])
-
 (defview throwing-row
   [_]
   (throw (ex-info "boom" {:rf.error/id ::deliberate})))
@@ -141,10 +135,6 @@
       (is (= [true 0] [(and (number? d) (>= d 0)) (rf-mark-count)])
           "the page's entry carries a duration, not a sentinel, and the
            :render bracket allocates no rf: marks"))))
-
-
-
-
 ;; 3 — the unhappy path still reports
 
 (deftest a-throwing-body-still-emits-its-measure
