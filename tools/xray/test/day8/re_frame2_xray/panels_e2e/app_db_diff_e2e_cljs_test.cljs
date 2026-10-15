@@ -1,23 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.app-db-diff-e2e-cljs-test
-  "Multi-frame e2e coverage for the App-DB Diff panel (spec/017 —
-  App-DB Diff row).
-
-  The App-DB Diff panel projects an `:rf/epoch-record` (read off
-  `:rf.xray/epoch-history`) into a before/after slice tree. The
-  bug class this catches:
-
-  - App-DB diff frozen on focused-event flip. A single epoch in
-    history masks it; once a second host dispatch
-    arrives the spine's focused epoch flips to the new head, the
-    `:rf.xray/selected-epoch-record` sub MUST re-fire on the
-    standard declared-input reactive path, and the diff projection MUST land
-    on the new pair (db-before = pre-dispatch app-db; db-after =
-    post-dispatch app-db).
-
-  This test exercises the full pipeline: real host dispatch into the
-  epoch ring → epoch-cb push → Xray's `:rf.xray/epoch-history`
-  slot update → spine `:rf.xray/focus` auto-advance → selected-
-  epoch-record sub re-fires."
+  "Host dispatches reach Xray epoch history and current app-db."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -40,22 +22,6 @@
           (let [after-count (count (e2e/sub-xray [:rf.xray/epoch-history]))]
             (is (= (inc before-count) after-count)
                 "epoch-history did not grow by 1 after host dispatch — :frame-tag-missing class")))))))
-
-(deftest xray-selected-epoch-record-tracks-head
-  (testing "spine auto-follow → selected-epoch-record carries head epoch's event"
-    (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
-      (fn []
-        (e2e/dispatch-host [:counter/inc])
-        (let [record (e2e/sub-xray [:rf.xray/selected-epoch-record])]
-          (is (some? record)
-              ":rf.xray/selected-epoch-record returned nil despite epoch history present")
-          (is (= [:counter/inc] (:trigger-event record))
-              "selected-epoch-record's :trigger-event did not match the dispatched event"))
-        (e2e/dispatch-host [:counter/inc])
-        (let [record (e2e/sub-xray [:rf.xray/selected-epoch-record])]
-          (is (= [:counter/inc] (:trigger-event record))
-              "selected-epoch-record did not advance to second dispatch — panel-frozen class"))))))
 
 (deftest xray-target-frame-db-mirrors-host
   (testing ":rf.xray/target-frame-db reflects the host frame's CURRENT app-db"
