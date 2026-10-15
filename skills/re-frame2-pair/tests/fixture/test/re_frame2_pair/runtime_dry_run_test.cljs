@@ -32,17 +32,12 @@
   (let [before (rf/frame-state-value frame-id)
         calls-before @handler-calls
         result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
-    (is (true? (:ok? result)))
-    (is (true? (:rolled-back? result)))
-    (is (= (inc calls-before) @handler-calls) "the reducer really ran")
-    (is (zero? @effect-calls) "declared effects never ran")
-    (is (= [{:fx-id :review/side-effect :args :payload}]
-           (:would-fire-effects result)))
-    (is (= (inc (get-in before [:rf.db/app :n] 0))
-           (get-in result [:db-state-after-simulation :n])))
-    (is (= before (rf/frame-state-value frame-id)) "both partitions restored")
-    (is (= :rf.epoch/db-replaced (:event-id (peek (rf/epoch-history frame-id))))
-        "rollback is an observable synthetic epoch")))
+    (is (= [true true (inc calls-before) 0
+            [{:fx-id :review/side-effect :args :payload}]
+            (inc (get-in before [:rf.db/app :n] 0)) before :rf.epoch/db-replaced]
+           [(:ok? result) (:rolled-back? result) @handler-calls @effect-calls
+            (:would-fire-effects result) (get-in result [:db-state-after-simulation :n])
+            (rf/frame-state-value frame-id) (:event-id (peek (rf/epoch-history frame-id)))]))))
 
 (deftest first-event-can-be-simulated-without-a-retained-anchor
   (with-probe-frame
@@ -55,11 +50,8 @@
     (fn [frame-id handler-calls effect-calls]
       (rf/dispatch-sync [:review/seed] {:frame frame-id})
       (is (rf/replace-frame-state! frame-id {:rf.db/runtime {:review/checkpoint {:token 7}}}))
-      (let [before (rf/frame-state-value frame-id)]
-        (assert-simulation-restores frame-id handler-calls effect-calls)
-        (assert-simulation-restores frame-id handler-calls effect-calls)
-        (is (= before (rf/frame-state-value frame-id)))
-        (is (= 2 @handler-calls))))))
+      (assert-simulation-restores frame-id handler-calls effect-calls)
+      (assert-simulation-restores frame-id handler-calls effect-calls))))
 
 (deftest one-slot-history-does-not-lose-the-rollback-state
   (let [depth (get-in (rf/current-config) [:epoch-history :depth])]
@@ -80,10 +72,7 @@
         (fn [frame-id handler-calls effect-calls]
           (let [before (rf/frame-state-value frame-id)
                 result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
-            (is (false? (:ok? result)))
-            (is (= :no-epoch-recorded (:reason result)))
-            (is (zero? @handler-calls))
-            (is (zero? @effect-calls))
-            (is (= before (rf/frame-state-value frame-id)))
-            (is (empty? (rf/epoch-history frame-id))))))
+            (is (= [false :no-epoch-recorded 0 0 before []]
+                   [(:ok? result) (:reason result) @handler-calls @effect-calls
+                    (rf/frame-state-value frame-id) (rf/epoch-history frame-id)])))))
       (finally (rf/configure! {:epoch-history {:depth depth}})))))
