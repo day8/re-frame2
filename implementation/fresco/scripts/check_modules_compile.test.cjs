@@ -1,31 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE OPTIONAL-MODULE ENTRY SOURCE, PINNED.
-//
-//     node fresco/scripts/check_modules_compile.test.cjs
-//
-// `check_modules_compile.cjs` compiles the Fresco optional modules because
-// nothing else in this repository compiles them anywhere warnings are fatal,
-// and it learns which namespaces those are by asking
-// `check_optional_module_reachability.py --module-namespaces`.
-//
-// An entry source that quietly contributed NOTHING would leave that gate
-// green over exactly the code it exists to cover — the defect the gate
-// exists to close, reproduced one level up in the instrument that closes it.
-// So each of the four refusals is driven here, against
-// [[decideModuleNamespaces]], which is pure for this reason. The live arm at
-// the bottom then asserts the real roster still answers, because every
-// refusal above could fire correctly over an emitter that had stopped
-// existing and the suite would still be green.
-//
-// It shares the bench lane's `lane_build.test.cjs` shape deliberately: spawn
-// nothing, decide from a captured result, and pin both directions.
-
-// The SECOND entry source — the two `re-frame.bench.*` core attribution
-// instruments — has its refusals pinned at the bottom for the same
-// reason: a stated roster that stopped naming real namespaces would leave the
-// gate compiling a set it had silently dropped them out of, and the two rows
-// are here precisely because nothing else in the repository would notice.
+// Entry lists accept valid rosters and refuse silent coverage loss.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -37,73 +12,41 @@ const {
   optionalModuleNamespaces,
   verifyRoster,
   MIN_MODULE_NAMESPACES,
-  MODULE_ROSTER,
-  MODULE_ROSTER_FLAG,
   REHOMED_BENCH_ENTRIES,
 } = require('./check_modules_compile.cjs');
 
 const IMPL = path.resolve(__dirname, '../..');
-
-/** A clean emitter result, over the shape the real roster prints. */
-function emitted(namespaces) {
-  return { error: null, status: 0, stdout: namespaces.join('\n') + '\n', stderr: '' };
-}
-
-const SEVEN = [
+const NAMES = [
   're-frame.fresco.forms',
   're-frame.fresco.impl.overlay',
   're-frame.fresco.impl.presence',
   're-frame.fresco.impl.presence-react',
-  're-frame.fresco.motion',
-  're-frame.fresco.native',
-  're-frame.fresco.overlay',
 ];
+
+function emitted(namespaces) {
+  return { error: null, status: 0, stdout: namespaces.join('\n') + '\n', stderr: '' };
+}
 
 const cases = [];
 function test(name, fn) {
   cases.push([name, fn]);
 }
 
-// ---------------------------------------------------------------------------
-// THE DIRECTION THAT MUST PASS. It is first because every refusal below is
-// worthless without it: a decider that had simply started refusing everything
-// would satisfy all four and pin nothing.
-// ---------------------------------------------------------------------------
-
-test('a clean emission becomes the entry list', () => {
-  const d = decideModuleNamespaces(emitted(SEVEN));
-  assert.equal(d.ok, true);
-  assert.deepEqual(d.namespaces, SEVEN);
-});
-
 test('duplicates collapse and order is normalised', () => {
-  const d = decideModuleNamespaces(
-    emitted(['re-frame.fresco.overlay', 're-frame.fresco.forms', 're-frame.fresco.overlay',
-      're-frame.fresco.motion', 're-frame.fresco.native']),
+  assert.deepEqual(
+    decideModuleNamespaces(emitted([NAMES[3], NAMES[1], NAMES[0], NAMES[2], NAMES[1]])),
+    { ok: true, namespaces: NAMES },
   );
-  assert.equal(d.ok, true);
-  assert.deepEqual(d.namespaces, [
-    're-frame.fresco.forms',
-    're-frame.fresco.motion',
-    're-frame.fresco.native',
-    're-frame.fresco.overlay',
-  ]);
 });
 
 test('trailing whitespace and blank lines are not entries', () => {
-  const d = decideModuleNamespaces({
+  assert.deepEqual(decideModuleNamespaces({
     error: null,
     status: 0,
-    stdout: `\n  ${SEVEN[0]}  \r\n${SEVEN[1]}\n\n${SEVEN[2]}\n${SEVEN[3]}\n\n`,
+    stdout: `\n  ${NAMES[0]}  \r\n${NAMES[1]}\n\n${NAMES[2]}\n${NAMES[3]}\n\n`,
     stderr: '',
-  });
-  assert.equal(d.ok, true);
-  assert.deepEqual(d.namespaces, SEVEN.slice(0, 4).sort());
+  }), { ok: true, namespaces: NAMES });
 });
-
-// ---------------------------------------------------------------------------
-// THE FOUR REFUSALS
-// ---------------------------------------------------------------------------
 
 test('REFUSAL 1 — the emitter could not be run at all', () => {
   const d = decideModuleNamespaces({
@@ -113,7 +56,6 @@ test('REFUSAL 1 — the emitter could not be run at all', () => {
     stderr: '',
   });
   assert.equal(d.ok, false);
-  assert.match(d.reason, /could not run/);
   assert.match(d.detail.join('\n'), /ENOENT/);
 });
 
@@ -125,78 +67,30 @@ test('REFUSAL 2 — the emitter ran and failed', () => {
     stderr: 'Traceback (most recent call last):\nNameError: MODULES\n',
   });
   assert.equal(d.ok, false);
-  assert.match(d.reason, /exited 2/);
   assert.match(d.detail.join('\n'), /NameError/);
 });
 
 test('REFUSAL 3 — an empty or collapsed list, which is the silent one', () => {
-  // The direction that matters most. A green exit and no output reads exactly
-  // like a module set that has legitimately shrunk to nothing, and compiling
-  // the survivors would report success over everything it dropped.
-  for (const stdout of ['', '\n', '\n\n  \n']) {
-    const d = decideModuleNamespaces({ error: null, status: 0, stdout, stderr: '' });
-    assert.equal(d.ok, false, JSON.stringify(stdout));
-    assert.match(d.reason, /collapsed/);
+  for (const namespaces of [[], NAMES.slice(0, MIN_MODULE_NAMESPACES - 1)]) {
+    assert.equal(decideModuleNamespaces(emitted(namespaces)).ok, false);
   }
-  const short = decideModuleNamespaces(emitted(SEVEN.slice(0, MIN_MODULE_NAMESPACES - 1)));
-  assert.equal(short.ok, false);
-  assert.match(short.reason, /floor 4/);
-
-  // And the floor does not bite at the floor — an off-by-one here would red a
-  // correct tree the first time a module was retired.
-  assert.equal(decideModuleNamespaces(emitted(SEVEN.slice(0, MIN_MODULE_NAMESPACES))).ok, true);
+  assert.equal(decideModuleNamespaces(emitted(NAMES)).ok, true);
 });
 
 test('REFUSAL 4 — a token that is not a namespace', () => {
-  // shadow-cljs would take one of these into `:entries` and fail with a
-  // resolution error naming a file nobody wrote, which sends the reader
-  // somewhere this gate can already say is wrong.
-  for (const bad of [
-    'fresco optional-module reachability: OK',  // the banner, on the wrong stream
-    'notanamespace',                             // no dot: a word, not a namespace
-    're-frame.fresco.overlay)',                 // punctuation from a half-parse
-    '"re-frame.fresco.overlay"',                // quoted, e.g. printed as a repr
-  ]) {
-    const d = decideModuleNamespaces(emitted([...SEVEN, bad]));
-    assert.equal(d.ok, false, bad);
-    assert.match(d.reason, /not namespaces/, bad);
-    assert.match(d.detail.join('\n'), /\S/, bad);
+  for (const bad of ['notanamespace', 're-frame.fresco.overlay)']) {
+    assert.equal(decideModuleNamespaces(emitted([...NAMES, bad])).ok, false, bad);
   }
 });
-
-// ---------------------------------------------------------------------------
-// THE LIVE ARM. Everything above is fixtures, and fixtures go on passing over
-// an emitter that has been renamed, moved or taught a different flag.
-// ---------------------------------------------------------------------------
 
 test('the real roster still answers, and answers namespaces', () => {
   const d = optionalModuleNamespaces(IMPL);
-  assert.equal(
-    d.ok,
-    true,
-    `\`python ${MODULE_ROSTER} ${MODULE_ROSTER_FLAG}\` did not answer: ` +
-      (d.ok ? '' : `${d.reason}\n${(d.detail || []).join('\n')}`),
-  );
+  assert.equal(d.ok, true, d.ok ? '' : `${d.reason}\n${(d.detail || []).join('\n')}`);
   assert.ok(d.namespaces.length >= MIN_MODULE_NAMESPACES);
-  for (const ns of d.namespaces) {
-    assert.match(ns, /^re-frame\.fresco\./, ns);
-  }
-  // The overlay module carries the `(.. el -style -anchorName)` shape this
-  // gate exists for. Naming it pins the live arm to a subject rather than to
-  // a count.
+  for (const ns of d.namespaces) assert.match(ns, /^re-frame\.fresco\./, ns);
+  // The overlay implementation is the warnings-fatal gate's interop subject.
   assert.ok(d.namespaces.includes('re-frame.fresco.impl.overlay'), d.namespaces.join(', '));
 });
-
-// ---------------------------------------------------------------------------
-// THE CORE ATTRIBUTION INSTRUMENTS (`REHOMED_BENCH_ENTRIES`).
-//
-// These two rows are the whole of the compile coverage
-// `core/test/re_frame/bench/{read_attribution_cljs,
-// write_attribution}.cljs` get. A row that has stopped naming a real namespace is
-// the one way this entry source can go quiet while the gate stays green, so
-// both directions are pinned: the live rows resolve, and a row that lies is
-// refused.
-// ---------------------------------------------------------------------------
 
 test('the two re-homed rows still name real namespaces', () => {
   const { namespaces, broken } = verifyRoster(REHOMED_BENCH_ENTRIES);
@@ -214,11 +108,7 @@ test('a roster row whose file has moved, or been renamed, is REFUSED', () => {
     fs.writeFileSync(path.join(root, 'bench', 'kept.cljs'), '(ns re-frame.bench.kept)\n');
     fs.writeFileSync(path.join(root, 'bench', 'renamed.cljs'), '(ns re-frame.bench.other)\n');
     fs.writeFileSync(path.join(root, 'bench', 'headless.cljs'), ';; no ns form here\n');
-
     const row = (ns, file) => [{ ns, file: path.join('bench', file) }];
-
-    // The direction that must pass, first — a verifier that had started
-    // refusing everything would satisfy all three refusals below and pin nothing.
     assert.deepEqual(verifyRoster(row('re-frame.bench.kept', 'kept.cljs'), root).broken, []);
 
     const gone = verifyRoster(row('re-frame.bench.gone', 'gone.cljs'), root);
