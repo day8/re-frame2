@@ -312,12 +312,6 @@
    {:key         :schemas/reg-app-schemas
     :producer-ns 're-frame.schemas
     :description "Bulk-register multiple path-scoped app-db schemas."}
-   {:key         :schemas/app-schema-meta
-    :producer-ns 're-frame.schemas
-    :description "Return the full registration-metadata map (source-coords + :path/:schema/:frame) for one path in a frame, or nil. Takes {:frame f :path p}. The source-coord introspection surface pair-tools / 10x read; project :schema for the schema value alone."}
-   {:key         :schemas/app-schemas
-    :producer-ns 're-frame.schemas
-    :description "Return a frame's whole {path → registration-metadata} map (introspection). Takes {:frame f}."}
    {:key         :schemas/app-schemas-digest
     :producer-ns 're-frame.schemas
     :description "Cheap digest of the registered-schema set (cache-key surface)."}
