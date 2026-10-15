@@ -1,17 +1,6 @@
 (ns re-frame.event-model-conformance-cljs-test
-  "Adversarial conformance for the public one-form event model.
-
-  Core's focused suites own individual `reg-event`, coeffect-policy and
-  observability behaviour. This cross-artefact suite locks the boundaries that
-  are easiest to weaken while those tests remain green: supplied recordable
-  coeffects are validated at the durable boundary; the closed effect map is
-  enforced at the final effects boundary, with no db-return convenience; and
-  the `^:no-doc` retired forms throw, register nothing, and notify the
-  always-on error channel.
-
-  The fixture supplies an ambient `:rf/default` frame and clears the always-on
-  listener registries between cases. These `.cljc` tests run on both JVM and
-  CLJS."
+  "Cross-artefact event boundaries: recordable coeffects, closed effect maps,
+  retired registration forms, and always-on event delivery."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
@@ -22,20 +11,15 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-(defn- clear-observation-state! []
-  (rf.error-emit/clear-error-listeners!)
-  (rf.event-emit/clear-event-listeners!))
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [test-fn]
-    (clear-observation-state!)
-    (test-fn)
-    (clear-observation-state!)))
+    (try (test-fn)
+         (finally
+           (rf.error-emit/clear-error-listeners!)
+           (rf.event-emit/clear-event-listeners!)))))
 
 (defn- thrown-error-id
-  "Call `thunk` and return the `:rf.error/id` of the ExceptionInfo it raises, or
-  `:no-throw` if it did not throw."
   [thunk]
   (try
     (thunk)
@@ -44,7 +28,6 @@
       (:rf.error/id (ex-data exception)))))
 
 (defn- traces-during
-  "The trace events emitted while `thunk` runs."
   [thunk]
   (let [traces (atom [])]
     (rf/register-listener! :trace :evt-conf/recorder #(swap! traces conj %))
@@ -52,7 +35,6 @@
     @traces))
 
 (defn- shape-recoveries
-  "The `:recovery` of each `:rf.error/effect-map-shape` trace naming `offending-key`."
   [traces offending-key]
   (->> traces
        (filter #(and (= :rf.error/effect-map-shape (:operation %))
@@ -90,31 +72,26 @@
   (rf.late-bind/invalidate-cache! hook-id))
 
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
-  ;; A stand-in `[:enum …]` validator exercises the schema hook without the
-  ;; schemas artefact.
-  (let [hook-ids [:schemas/validate-with-registered-fn :schemas/explain-with-registered-fn]
-        previous (mapv rf.late-bind/get-fn hook-ids)]
+  ;; Exercise the schema seam without the schemas artefact.
+  (let [hook-id :schemas/validate-with-registered-fn
+        previous (rf.late-bind/get-fn hook-id)]
     (try
-      (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
+      (rf.late-bind/set-fn! hook-id
         (fn [schema value]
           (and (vector? schema)
                (= :enum (first schema))
                (contains? (set (rest schema)) value))))
-      (rf.late-bind/set-fn! :schemas/explain-with-registered-fn
-        (fn [schema value] {:schema schema :value value :failed true}))
       (let [delivered-fact (atom ::unset)]
         (rf/reg-cofx :evt-conf/graded-fact
           {:recordable? true :provided? true :schema [:enum :allowed-a :allowed-b]})
         (rf/reg-event :evt-conf/reads-graded-fact
           {:rf.cofx/requires [:evt-conf/graded-fact]}
           (fn [{:keys [evt-conf/graded-fact]} _] (reset! delivered-fact graded-fact) {}))
-        (is (= :rf.error/cofx-value-invalid
-               (thrown-error-id #(rf/dispatch-sync [:evt-conf/reads-graded-fact]
-                                                   {:rf.cofx {:evt-conf/graded-fact :not-allowed}}))))
-        (rf/dispatch-sync [:evt-conf/reads-graded-fact] {:rf.cofx {:evt-conf/graded-fact :allowed-a}})
-        (is (= :allowed-a @delivered-fact) "a value satisfying its :schema is delivered flat"))
-      (finally
-        (run! (fn [[hook-id prior]] (restore-hook! hook-id prior)) (map vector hook-ids previous))))))
+        (let [rejected (thrown-error-id #(rf/dispatch-sync [:evt-conf/reads-graded-fact]
+                                                         {:rf.cofx {:evt-conf/graded-fact :not-allowed}}))]
+          (rf/dispatch-sync [:evt-conf/reads-graded-fact] {:rf.cofx {:evt-conf/graded-fact :allowed-a}})
+          (is (= [:rf.error/cofx-value-invalid :allowed-a] [rejected @delivered-fact]))))
+      (finally (restore-hook! hook-id previous)))))
 
 ;; There is no db-return convenience: a bare app-db-shaped map is a foreign
 ;; top-level effect key, refused before anything commits.
@@ -123,8 +100,8 @@
   (rf/reg-event :evt-conf/bare-db-return (fn [_ _] {:count 1}))
   (rf/dispatch-sync [:evt-conf/bare-seed!])
   (let [traces (traces-during #(rf/dispatch-sync [:evt-conf/bare-db-return]))]
-    (is (= :seeded (:count (rf/app-db-value :rf/default))) "the bare return was not committed")
-    (is (= [:fix-effect] (shape-recoveries traces :count)))))
+    (is (= [:seeded [:fix-effect]]
+           [(:count (rf/app-db-value :rf/default)) (shape-recoveries traces :count)]))))
 
 ;; An `:after` interceptor is the second route into the one boundary that
 ;; decides; a foreign key it injects gets the same verdict as a returned one.
@@ -135,13 +112,13 @@
     {:interceptors [:evt-conf/inject-foreign]}
     (fn [{:keys [db]} _] {:db (assoc db :committed :yes)}))
   (let [traces (traces-during #(rf/dispatch-sync [:evt-conf/handler-with-after]))]
-    (is (nil? (:committed (rf/app-db-value :rf/default))) "the handler's :db write did not commit")
-    (is (= [:fix-effect] (shape-recoveries traces :evt-conf/foreign)))))
+    (is (= [nil [:fix-effect]]
+           [(:committed (rf/app-db-value :rf/default)) (shape-recoveries traces :evt-conf/foreign)]))))
 
 (deftest retired-forms-fan-out-throw-and-register-nothing
   (let [seen-errors (atom [])]
     (rf.error-emit/register-error-listener! :evt-conf/removal-recorder
-      (fn [error-record] (swap! seen-errors conj (:error error-record))))
+      #(swap! seen-errors conj (:error %)))
     (doseq [[retired-form error-id event-id]
             [[rf/reg-event-db  :rf.error/reg-event-db-removed  :evt-conf/db-noreg]
              [rf/reg-event-fx  :rf.error/reg-event-fx-removed  :evt-conf/fx-noreg]
@@ -155,7 +132,7 @@
 (deftest handled-event-fans-out-on-the-always-on-events-channel
   (let [seen-events (atom [])]
     (rf.event-emit/register-event-listener! :evt-conf/handled-recorder
-      (fn [event-record] (swap! seen-events conj event-record)))
+      #(swap! seen-events conj %))
     (rf/make-frame {:id :evt-conf/events-main})
     (rf/reg-event :evt-conf/events-probe
       {:frame :evt-conf/events-main}
