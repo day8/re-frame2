@@ -12,6 +12,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
+            [re-frame.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
