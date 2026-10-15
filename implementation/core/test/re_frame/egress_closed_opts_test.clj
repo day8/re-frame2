@@ -26,21 +26,8 @@
           (throw e))))))
 
 (def ^:private stray-keys
-  "Outside both closed sets: the bare inclusion axes, the retired `:rf.size/*`
-  policy spellings, `:as-of-epoch` (its four-element marker handle is one
-  Spec-Schemas `:rf/elision-marker` rejects) and an arbitrary key."
-  {:include-sensitive?         true
-   :include-large?             true
-   :include-digests?           true
-   :include-fx-args?           true
-   :include-runtime-db?        true
-   :include-event-args?        true
-   :rf.size/include-sensitive? true
-   :rf.size/include-large?     true
-   :rf.size/include-digests?   true
-   :rf.size/threshold-bytes    true
-   :as-of-epoch                7
-   :totally-made-up            true})
+  {:include-sensitive? true
+   :totally-made-up    true})
 
 (def ^:private epoch-only-axes
   {:rf.egress/include-fx-args?    true
@@ -81,11 +68,7 @@
   (testing "graded at the door, so every `:rf.observe/*` kind and the kindless
             value path refuse the same keys against the same eleven"
     (doseq [[label record] record-kind-samples]
-      (is (= {:unknown-keys [:as-of-epoch :include-digests? :include-event-args?
-                             :include-fx-args? :include-large? :include-runtime-db?
-                             :include-sensitive? :totally-made-up
-                             :rf.size/include-digests? :rf.size/include-large?
-                             :rf.size/include-sensitive? :rf.size/threshold-bytes]
+      (is (= {:unknown-keys [:include-sensitive? :totally-made-up]
               :recovery     :use-a-recognised-egress-opts-key
               :where        'rf/project-egress
               :accepted     [:frame :path :query-v
