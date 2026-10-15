@@ -7,7 +7,7 @@
 
 ## Gate Policy
 
-Story has two kinds of gates:
+Story has these gates:
 
 | Gate | Cadence | Purpose |
 |---|---|---|
