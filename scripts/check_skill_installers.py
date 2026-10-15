@@ -182,18 +182,10 @@ class InstallerTests(unittest.TestCase):
                     self.assertEqual((self.source / "SKILL.md").read_text(), "current skill\n")
 
     def test_ancestor_alias_of_source_cannot_be_replaced(self):
-        # The sibling test above aliases skills/ ITSELF, which is a reparse
-        # point the installer can see. Alias an ANCESTOR instead and
-        # <alias>/skills is an ordinary directory carrying its own path, so a
-        # guard that inspects only the final directory passes, --force deletes
-        # the maintained skill, and the link step then fails with the source
-        # already gone. Both Windows entrypoints share this guard.
+        # Alias an ancestor so the source directory itself is not a reparse point.
         for index, command in enumerate(self.commands):
             with self.subTest(installer=command[0]):
-                # Put the source back first. Should a regression let the
-                # entrypoint before this one delete it, this one must still
-                # face a LIVE source - an emptied skills/ links nothing and
-                # exits 0, which reports the wrong entrypoint as the broken.
+                # Each entrypoint must face a live source after an earlier failure.
                 self.source.mkdir(parents=True, exist_ok=True)
                 (self.source / "SKILL.md").write_bytes(b"current skill\n")
                 alias = self.base / f"parent-alias-{index}"
