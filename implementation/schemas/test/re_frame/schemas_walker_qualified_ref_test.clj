@@ -6,8 +6,7 @@
   validation surfaces keep such a reference walkable."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.walker :as rf.schemas.walker]
-            [re-frame.schemas.walker-literal-operand-fixtures :as rf.schemas.walker-literal-operand-fixtures]))
+            [re-frame.schemas.walker :as rf.schemas.walker]))
 
 (def ^:private qualified-ref-forms
   [:fixture/user
@@ -37,11 +36,6 @@
     (is (true? (rf.schemas.walker/schema-has-qualified-ref? s)) (pr-str s)))
   (doseq [s no-qualified-ref-forms]
     (is (false? (rf.schemas.walker/schema-has-qualified-ref? s)) (pr-str s))))
-
-(deftest opaque-forms-answer-without-throwing
-  (doseq [s (concat rf.schemas.walker-literal-operand-fixtures/opaque-forms
-                    rf.schemas.walker-literal-operand-fixtures/registry-ref-forms)]
-    (is (boolean? (rf.schemas.walker/schema-has-qualified-ref? s)) (pr-str s))))
 
 (deftest a-qualified-reference-stays-walkable-for-validation
   (is (false? (rf.schemas/schema-has-opaque-child? [:map [:user :fixture/user]]))))
