@@ -1,22 +1,5 @@
 (ns re-frame.bench.fresco.arm1.hydrate-cljs-test
-  "THE HYDRATION DOOR'S HEADLESS HALF.
-
-  Three of the door's four moving parts are answerable without React, a
-  root or a DOM, and they are answered here so the browser file is left
-  with only the claims a browser can make:
-
-  1. **The entry reap horizon is past a bare `setTimeout 0`** — the
-     property `hydrateRoot`'s passive subscribe needs, expressed as the
-     race it has to win rather than as the integer it is implemented
-     with. `read_profile_baseline_cljs_test`'s
-     `one-bare-macrotask-lands-in-front-of-the-reap-horizon` runs that
-     race on a clock that stands still; this file holds the other half,
-     that an entry a commit claimed is never reaped at any horizon.
-  2. **A runtime reset shuts the adoption window** — so a fixture that
-     throws mid-hydration cannot leave the page permanently adopting.
-  3. **`body-runs` counts real body runs**, is monotone, and survives
-     `reset-runtime!` — HD-028's rider stated where it can be stated
-     exactly."
+  "Claimed entries survive reaping, reset closes adoption and body counters record every run."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -45,9 +28,7 @@
   (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]) {})
   (rf.bench.fresco.arm1.runtime/last-reads))
 
-;; ---------------------------------------------------------------------------
 ;; 1 — the reap horizon evicts the cache and never a claimed entry
-;; ---------------------------------------------------------------------------
 
 (deftest a-claimed-entry-is-never-reaped-at-any-horizon
   (async done
@@ -63,9 +44,7 @@
             (done))
           8)))))
 
-;; ---------------------------------------------------------------------------
 ;; 2 — the adoption window
-;; ---------------------------------------------------------------------------
 
 (deftest a-runtime-reset-shuts-an-open-adoption-window
   (seeded!)
@@ -76,9 +55,7 @@
     (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (is (false? (rf.bench.fresco.arm1.runtime/adopting?)) "and shut by a runtime reset, whatever threw")))
 
-;; ---------------------------------------------------------------------------
 ;; 3 — the body-run counter (HD-028's rider)
-;; ---------------------------------------------------------------------------
 
 (deftest body-runs-counts-bodies-that-ran-and-is-not-cleared-by-a-reset
   (seeded!)
