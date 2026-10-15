@@ -34,6 +34,6 @@
         (swap! rf.ssr.install/installed-payloads
                assoc fid (rf.ssr.install/claim-record "digest-iso" :rf.test/root)))
       (rf.ssr.request/on-frame-destroyed! fid-a)
-      (is (= [false false false false] (held-slots fid-a)))
-      (is (= [true true true true] (held-slots fid-b)))
-      (is (nil? (rf.ssr.request/on-frame-destroyed! fid-a))))))
+      (is (= [[false false false false] [true true true true]]
+             [(held-slots fid-a) (held-slots fid-b)]))
+      (rf.ssr.request/on-frame-destroyed! fid-a))))
