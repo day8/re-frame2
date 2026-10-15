@@ -74,7 +74,6 @@ test('classifyReleaseBundle ignores stale cljs-runtime dev sources when deciding
 test('countSubstring treats regex metacharacters in the needle literally', () => {
   const blob = 'reagent.dom reagentXdom reagent.dom';
   assert.equal(countSubstring(blob, 'reagent.dom'), 2);
-
 });
 
 // ----- runner ----------------------------------------------------------------
