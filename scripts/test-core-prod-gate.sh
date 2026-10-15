@@ -33,16 +33,18 @@
 # posture, so the lane would go GREEN on the wrong posture — the exact class of
 # false green this whole file exists to close.
 #
-# WHY A ROSTER AND NOT THE WHOLE SUITE.  Run whole under the real gate, the
-# core suite is RED.  A test asserting DEV INSTRUMENTATION — a trace fired, an
-# `:errors` sink received, `:doc` metadata retained, source coords recorded —
-# inline with the semantics it is really about fails there, because under
+# WHY THE BARE SUITE DOES NOT RUN HERE.  Run whole under the real gate, with
+# nothing skipped, the core suite is RED.  A test asserting DEV
+# INSTRUMENTATION — a trace fired, an `:errors` sink received, `:doc` metadata
+# retained, source coords recorded — inline with the semantics it is really
+# about fails there, because under
 # `-Dre-frame.debug=false` the framework does not emit any of that, by design.
 # Those are legitimate dev-posture tests rather than defects, and "make the
 # whole suite green under the gate" is not a fix, it is a rewrite of how those
-# assertions are spelled.  Such a namespace is SPLIT or TAGGED (below) so that
-# it joins the lane carrying its real claims; what still fails is on the
-# known-red roster, grouped by why.
+# assertions are spelled.  Such assertions are TAGGED out at deftest grain, or
+# SPLIT from the claim they sit beside (see the roster block), so that their
+# namespace joins the lane carrying its real claims; a namespace that still
+# fails goes on the known-red roster, grouped by why.
 #
 # What the lane runs IS green, and it is not a rump: every namespace outside
 # that roster.  A fully tagged namespace contributes no test here BY DESIGN —
@@ -82,19 +84,18 @@
 # deftest added to a tagged namespace is UNTAGGED, so it joins the lane by
 # default and has to be excluded deliberately, exactly as a new FILE does.
 #
-# WHAT REMAINS EXCLUDED, and why it is not more of the same work: the subset
-# artefact `features-cljs-test` (see the roster).  A namespace that fails here
-# on an assertion about STATE, RESOLUTION or LIFECYCLE rather than
-# instrumentation is a production-defect candidate: it joins the roster only
-# beside a comment naming the bug bead that tracks the defect.
+# WHAT THE ROSTER IS FOR.  A namespace that fails here on an assertion about
+# STATE, RESOLUTION or LIFECYCLE rather than instrumentation is a
+# production-defect candidate: it joins the roster only beside a comment
+# naming the bug bead that tracks the defect.
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
 # BY DEFAULT and has to be excluded deliberately, so a new suite that breaks
 # under the production gate reddens this job the day it lands.  An allowlist
 # would have the opposite failure mode — silently not covering the new thing.
-# The list shrinks as its entries are resolved; when it reaches zero, this
-# script is one line and the `-n` machinery goes away.
+# An entry leaves the list once its bug bead lands; an empty list means every
+# core test namespace runs here.
 
 set -euo pipefail
 
@@ -118,29 +119,21 @@ test_root="$core/test"
 # a rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
 known_red=(
-  # ── NOT a gate failure — a SUBSET artefact, and the only one.  This suite
-  #    asserts that every optional per-feature artefact is loaded on the test
-  #    classpath (`(get-in (features) [:http :loaded?])` and friends).  Those probe keys
-  #    are populated by whichever namespace `require`s the artefact, and
-  #    cognitect-test-runner requires only the namespaces a `-n` filter keeps —
-  #    so excluding `conformance-test` / `examples-test` for gate reasons takes
-  #    the loads with them.  Green under the gate when the WHOLE suite runs;
-  #    red only because this lane runs a slice.  It comes back on its own when
-  #    the roster below empties.
-  re-frame.features-cljs-test
-
-  # ── HOW A DEV-INSTRUMENTATION NAMESPACE STAYS OFF THIS ROSTER. A test
-  #    that asserts dev instrumentation inline with the semantics it sits
-  #    next to — "exactly one <...> trace fired", "the :errors sink
-  #    received", ":doc retained for tooling", "handler-meta carries :ns" —
-  #    fails under -Dre-frame.debug=false, by design, and would drag its
-  #    semantic neighbours out of this lane with it. So such a namespace is
-  #    SPLIT: instrumentation assertions kept VERBATIM inside a
-  #    `(when interop/debug-enabled? …)` dev-instrumentation arm, everything
-  #    outside such an arm posture-independent — documented in each split
-  #    namespace's docstring under "## Posture split". A namespace about the
-  #    trace machinery itself is TAGGED instead — see "THE TRACE SUITES ARE
-  #    TAGGED, NOT ROSTERED" in the header.
+  # ── HOW A DEV-INSTRUMENTATION CLAIM STAYS OFF THIS ROSTER. The grain is
+  #    the DEFTEST, and the rule is the var-level `^:requires-debug` tag. A
+  #    deftest whose claims are all dev instrumentation — "exactly one <...>
+  #    trace fired", "the :errors sink received", ":doc retained for
+  #    tooling", "handler-meta carries :ns" — fails under
+  #    -Dre-frame.debug=false, by design, so it carries the tag: the
+  #    `:prod-gate` alias skips it, and its untagged neighbours stay in this
+  #    lane. Never wrap such a deftest's body in
+  #    `(when interop/debug-enabled? …)` instead: under the gate it runs no
+  #    assertion and reports a pass, the false green the header's "THE TAG
+  #    IS HONEST WHERE A GUARD WOULD LIE" describes. That arm is a SPLIT, and
+  #    a split belongs only INSIDE a deftest that also asserts a
+  #    posture-independent claim, which runs in both postures so the deftest
+  #    is never an empty pass; the namespace docstring says which assertions
+  #    sit in the arm.
   #
   #    THE SPLIT IS NOT ALWAYS A GUARD, AND REACHING FOR ONE FIRST COSTS
   #    COVERAGE. Four `:rf.error/*` categories in the fx subsystem
@@ -385,7 +378,7 @@ fi
 # lane in the repo rather than this one, and it fires before a single test
 # runs.  `verify_roster` above cannot see this class on its own — see its
 # guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1040}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1047}"
 
 args=()
 for ns in $runnable; do
