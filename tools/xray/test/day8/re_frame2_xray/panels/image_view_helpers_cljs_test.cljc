@@ -147,11 +147,11 @@
                                           [:sub   :counter/value] value-desc}
                  :rf.frame/ambiguous     [{:kind :fx :id :app/z :namespaces ["a" "b"]}
                                           {:kind :event :id :app/save :namespaces ["a" "b"]}]})]
-      (is (true? (:live-store? row)))
-      (is (= {:images [] :kinds [:event :sub] :descriptor-count 2}
-             (select-keys (:image row) [:images :kinds :descriptor-count])))
-      (is (= [[:event :app/save] [:fx :app/z]]
-             (mapv (juxt :kind :id) (:ambiguous (:image row))))))))
+      (is (= [true {:images [] :kinds [:event :sub] :descriptor-count 2}
+              [[:event :app/save] [:fx :app/z]]]
+             [(:live-store? row)
+              (select-keys (:image row) [:images :kinds :descriptor-count])
+              (mapv (juxt :kind :id) (:ambiguous (:image row)))])))))
 
 (deftest project-image-view-live-store-frame-is-shown
   (testing "a frame resolving the live store flips :images? even with nothing
