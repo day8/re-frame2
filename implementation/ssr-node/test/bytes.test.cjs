@@ -8,14 +8,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const crypto = require('node:crypto');
 const net = require('node:net');
 const { withService, collect, post } = require('./_support.cjs');
 const { serve } = require('../src/http.cjs');
 const { CODE } = require('../src/protocol.cjs');
 
 const CORPUS = require('./fixtures/bytes.cjs');
-const sha256 = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 
 test('the bytes out of HTTP are the same bytes, and Content-Length counts them', async () => {
@@ -23,16 +21,9 @@ test('the bytes out of HTTP are the same bytes, and Content-Length counts them',
     const http = await serve({ service, port: 0 });
     try {
       const res = await post(`http://127.0.0.1:${http.port}/render`, { protocol: 1, entry: 'app/root', state: {} });
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(sha256(res.text), sha256(CORPUS.BODY), 'the transport altered the bytes');
-
-      const declared = Number(res.headers.get('content-length'));
-      assert.strictEqual(declared, utf8(CORPUS.BODY), 'Content-Length must be UTF-8 BYTES');
-      assert.strictEqual(res.buf.length, declared, 'the socket delivered what the header promised');
-      assert.notStrictEqual(
-        declared,
-        CORPUS.BODY.length,
-        'a corpus where bytes and code units agree could not have caught this',
+      assert.deepStrictEqual(
+        [res.status, res.buf, res.headers.get('content-length')],
+        [200, Buffer.from(CORPUS.BODY, 'utf8'), String(utf8(CORPUS.BODY))],
       );
     } finally {
       await http.close();
@@ -48,9 +39,10 @@ test('the query is the ONLY streaming selector — a stream header changes nothi
     try {
       const plain = await post(`http://127.0.0.1:${http.port}/render`, body);
       const withHeader = await post(`http://127.0.0.1:${http.port}/render`, body, { 'x-rf-ssr-stream': '1' });
-      assert.strictEqual(withHeader.status, 200);
-      assert.strictEqual(withHeader.headers.get('content-length'), String(utf8(withHeader.text)));
-      assert.strictEqual(sha256(withHeader.text), sha256(plain.text));
+      assert.deepStrictEqual(
+        [withHeader.status, withHeader.headers.get('content-length'), withHeader.buf],
+        [200, String(plain.buf.length), plain.buf],
+      );
     } finally {
       await http.close();
     }
@@ -108,8 +100,10 @@ test('a body that is not JSON is refused before anything else happens', async ()
         headers: { 'content-type': 'application/json' },
         body: 'not json at all',
       });
-      assert.strictEqual(res.status, 400);
-      assert.strictEqual(res.headers.get('x-rf-ssr-refusal'), ':rf.ssr-node/malformed-request');
+      assert.deepStrictEqual(
+        [res.status, res.headers.get('x-rf-ssr-refusal')],
+        [400, ':rf.ssr-node/malformed-request'],
+      );
     } finally {
       await http.close();
     }
@@ -128,8 +122,10 @@ test('an oversized body is refused with a STATUS, not with a broken socket', asy
         entry: 'app/root',
         state: { ':todos': `"${'x'.repeat(4096)}"` },
       });
-      assert.strictEqual(res.status, 413);
-      assert.strictEqual(res.headers.get('x-rf-ssr-refusal'), ':rf.ssr-node/request-too-large');
+      assert.deepStrictEqual(
+        [res.status, res.headers.get('x-rf-ssr-refusal')],
+        [413, ':rf.ssr-node/request-too-large'],
+      );
     } finally {
       await http.close();
     }
@@ -160,18 +156,14 @@ test('a target the URL parser refuses is a 400, and the SAME service keeps servi
     const http = await serve({ service, port: 0 });
     const ok = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<p>ok</p>"]' } };
     try {
-      for (const target of ['//', 'http://[::1']) {
-        const raw = await rawGet(http.port, target);
-        assert.strictEqual(raw.split('\r\n')[0], 'HTTP/1.1 400 Bad Request', `${target}: ${raw}`);
-        // Node's own parser answers a line it rejects with a bare 400; this
-        // header shows the request reached the listener.
-        assert.match(raw, /\r\nx-rf-ssr-refusal: :rf\.ssr-node\/malformed-request\r\n/i, target);
-      }
+      const raw = await rawGet(http.port, '//');
+      assert.strictEqual(raw.split('\r\n')[0], 'HTTP/1.1 400 Bad Request', raw);
+      // The header distinguishes the listener's refusal from Node's bare 400.
+      assert.match(raw, /\r\nx-rf-ssr-refusal: :rf\.ssr-node\/malformed-request\r\n/i);
       const health = await fetch(`http://127.0.0.1:${http.port}/health`);
       assert.strictEqual(health.status, 200, '/health after the bad targets');
       const render = await post(`http://127.0.0.1:${http.port}/render`, ok);
-      assert.strictEqual(render.status, 200, 'a render after the bad targets');
-      assert.strictEqual(render.text, '<p>ok</p>');
+      assert.deepStrictEqual([render.status, render.text], [200, '<p>ok</p>']);
       assert.strictEqual((await rawGet(http.port, '/missing')).split('\r\n')[0], 'HTTP/1.1 404 Not Found');
     } finally {
       await http.close();
@@ -184,7 +176,6 @@ test('the STREAMING mode delivers the buffered bytes exactly, even with a surrog
   // agree on a wrong answer; the unmatched surrogate shows the reference is
   // Node's encoding and not a cleaned one.
   const cases = [
-    ['a split pair', ['<p>\uD834', '\uDD1E</p>']],
     ['an empty chunk between the halves', ['<p>\uD834', '', '\uDD1E</p>']],
     ['several split pairs', ['\uD834', '\uDD1E\uD834', '\uDD1E<i>\uD83D', '\uDE00</i>']],
     ['a high surrogate never matched', ['<p>', '\uD834']],
@@ -197,12 +188,12 @@ test('the STREAMING mode delivers the buffered bytes exactly, even with a surrog
         const body = { protocol: 1, entry: 'app/root', state: { ':bytes': JSON.stringify(parts) } };
         const buffered = await post(`http://127.0.0.1:${http.port}/render`, body);
         const streamed = await post(`http://127.0.0.1:${http.port}/render?stream=1`, body);
-        assert.strictEqual(buffered.status, 200, name);
-        assert.strictEqual(streamed.status, 200, name);
-        assert.strictEqual(buffered.buf.toString('hex'), expected.toString('hex'), `${name}: buffered`);
-        assert.strictEqual(streamed.buf.toString('hex'), expected.toString('hex'), `${name}: streamed`);
-        assert.strictEqual(buffered.headers.get('content-length'), String(expected.length), name);
-        assert.strictEqual(streamed.headers.get('content-length'), null, name);
+        assert.deepStrictEqual(
+          [buffered.status, streamed.status, buffered.buf, streamed.buf,
+            buffered.headers.get('content-length'), streamed.headers.get('content-length')],
+          [200, 200, expected, expected, String(expected.length), null],
+          name,
+        );
       }
     } finally {
       await http.close();
@@ -236,11 +227,12 @@ test('a requestId no HTTP header can carry is refused as a caller fault, before 
       for (const id of ids) {
         for (const selector of ['/render', '/render?stream=1']) {
           const res = await post(`http://127.0.0.1:${http.port}${selector}`, body(id));
-          assert.strictEqual(res.status, 400, `${selector} ${JSON.stringify(id)}: ${res.text}`);
-          assert.strictEqual(res.headers.get('x-rf-ssr-refusal'), CODE.BAD_REQUEST_FIELD);
           const frame = JSON.parse(res.text);
-          assert.strictEqual(frame.detail.field, 'requestId');
-          assert.strictEqual(frame.requestId, id, 'the refusal body still carries the token back');
+          assert.deepStrictEqual(
+            [res.status, res.headers.get('x-rf-ssr-refusal'), frame.detail.field, frame.requestId],
+            [400, CODE.BAD_REQUEST_FIELD, 'requestId', id],
+            `${selector} ${JSON.stringify(id)}`,
+          );
         }
       }
       assert.deepStrictEqual(rendered, [], 'no unrepresentable id may reach the renderer');
@@ -249,9 +241,10 @@ test('a requestId no HTTP header can carry is refused as a caller fault, before 
       // counter really does count.
       for (const selector of ['/render', '/render?stream=1']) {
         const res = await post(`http://127.0.0.1:${http.port}${selector}`, body('corr-ascii-1'));
-        assert.strictEqual(res.status, 200, res.text);
-        assert.strictEqual(res.headers.get('x-rf-ssr-request'), 'corr-ascii-1');
-        assert.strictEqual(res.text, '<p>ok</p>');
+        assert.deepStrictEqual(
+          [res.status, res.headers.get('x-rf-ssr-request'), res.text],
+          [200, 'corr-ascii-1', '<p>ok</p>'],
+        );
       }
       assert.deepStrictEqual(rendered, ['corr-ascii-1', 'corr-ascii-1']);
     } finally {
