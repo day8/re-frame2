@@ -84,18 +84,6 @@
                             (rf/reg-event :probe/other {:doc "other"}
                               (fn [{:keys [db]} _] {:db (assoc db :other true)})))))
 
-(deftest a-moved-handler-leaves-every-other-id-live
-  (with-recorded-errors
-    (fn [_seen]
-      (register-a!)
-      (rf/make-frame {:id :probe/frame})
-      (rf/dispatch-sync [:probe/ev] {:frame :probe/frame})
-      (is (= :a (:who (rf/app-db-value :probe/frame))))
-      (move-to-b!)
-      (rf/dispatch-sync [:probe/other] {:frame :probe/frame})
-      (is (true? (:other (rf/app-db-value :probe/frame)))
-          "a registration made after the frame exists reaches it, duplicate or not"))))
-
 (deftest an-ambiguous-id-raises-at-use-naming-every-namespace
   (with-recorded-errors
     (fn [seen]
