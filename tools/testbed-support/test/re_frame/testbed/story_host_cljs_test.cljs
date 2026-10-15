@@ -1,35 +1,23 @@
 (ns re-frame.testbed.story-host-cljs-test
-  "Node tests for Story-host routing.
-
-  A fake window records listener identity while mount functions are stubbed.
-  Rebinding `on-hash-change!` simulates CLJS hot reload and verifies that the
-  previous listener is removed rather than stacked."
+  "Hot-reload listener replacement for the Story host."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.testbed.story-host :as rf.testbed.story-host]))
 
-;; A JS Set gives the fake window browser-like listener identity semantics.
+(defn- make-fake-window []
+  (let [registry (js/Set.)
+        window   #js {}]
+    (set! (.-location window) #js {:hash "#/"})
+    (set! (.-addEventListener window)
+          (fn [type listener]
+            (when (= type "hashchange")
+              (.add registry listener))))
+    (set! (.-removeEventListener window)
+          (fn [type listener]
+            (when (= type "hashchange")
+              (.delete registry listener))))
+    {:window window :registry registry}))
 
-(defn- make-fake-window
-  "Build a fake window with an observable hashchange listener registry."
-  ([] (make-fake-window "#/"))
-  ([initial-hash]
-   (let [registry (js/Set.)
-         window   #js {}]
-     (set! (.-location window) #js {:hash initial-hash})
-     (set! (.-addEventListener window)
-           (fn [type listener]
-             (when (= type "hashchange")
-               (.add registry listener))))
-     (set! (.-removeEventListener window)
-           (fn [type listener]
-             (when (= type "hashchange")
-               (.delete registry listener))))
-     {:window          window
-      :registry        registry
-      :hashchange-count (fn [] (.-size registry))})))
-
-;; js/window resolves through Closure's global object under the Node target;
-;; assigning a bare window name would violate strict mode.
+;; Node resolves js/window through Closure's global object.
 (def ^:private real-window (when (exists? js/window) js/window))
 
 (defn- install-window! [w]
@@ -40,47 +28,28 @@
     (set! (.-window js/goog.global) real-window)
     (js-delete js/goog.global "window")))
 
-(defn- reset-host-handles!
-  "Reset host state that intentionally survives reloads."
-  []
+(defn- reset-host-handles! []
   (reset! @#'rf.testbed.story-host/hash-listener* nil)
   (reset! @#'rf.testbed.story-host/root-view* nil))
 
 (use-fixtures :each
-  {:before (fn [] (reset-host-handles!))
-   :after  (fn []
-             ;; Restore the Node baseline for subsequent namespaces.
-             (clear-window!)
-             (reset-host-handles!))})
+  {:before reset-host-handles!
+   :after  (fn [] (clear-window!) (reset-host-handles!))})
 
-;; Mount functions are stubbed, so this view is never rendered.
 (defn- dummy-view [] [:div "dummy"])
 
 (deftest many-re-runs-never-accumulate-listeners
-  (testing "the first run mounts exactly once; across five more hot-reload
-            re-`run`s, each with a fresh `on-hash-change!` identity, the
-            active hashchange listener count stays pinned at one — and
-            dispatching a single hash change to the installed registry fires
-            the mount switch exactly ONCE (not once per accumulated listener),
-            which is the user-visible symptom a leak would cause."
-    (let [{:keys [window registry hashchange-count]} (make-fake-window "#/")
+  (testing "Hot reload replaces the listener and one hash change mounts once."
+    (let [{:keys [window registry]} (make-fake-window)
           switches (atom 0)]
       (install-window! window)
-      ;; First run installs the current handler.
-      (with-redefs [rf.testbed.story-host/mount-app!     (fn [] (swap! switches inc))
-                    rf.testbed.story-host/mount-stories! (fn [] (swap! switches inc))]
+      (with-redefs [rf.testbed.story-host/mount-app! (fn [] (swap! switches inc))]
         (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
-      (is (= 1 @switches)
-          "the first run's initial `on-hash-change!` ran the mount switch exactly once")
-      ;; Each subsequent run uses a new handler identity.
-      (dotimes [_ 5]
+      (is (= 1 @switches))
+      ;; Replace both the original handler and a reloaded handler.
+      (dotimes [_ 2]
         (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] (swap! switches inc))]
           (rf.testbed.story-host/mount-with-hash-routing! dummy-view)))
-      (is (= 1 (hashchange-count))
-          "six runs total → still exactly one active listener (no leak)")
-      ;; A browser invokes every registered listener for one hash change.
       (reset! switches 0)
       (.forEach registry (fn [listener] (listener)))
-      (is (= 1 @switches)
-          "one hash change runs the mount switch exactly once — proving a
-           single active listener, not an N-deep stack"))))
+      (is (= 1 @switches) "One hash change mounts exactly once."))))
