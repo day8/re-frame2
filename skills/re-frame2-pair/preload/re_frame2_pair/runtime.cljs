@@ -633,6 +633,19 @@
   ([id known] (pure/nearest-ids id known))
   ([id known n] (pure/nearest-ids id known n)))
 
+(defn- ambiguous-namespaces
+  "The namespaces registering `[kind id]` when frame `frame-id` refuses the id
+   as ambiguous, read off the `:rf.error/ambiguous-registration` that
+   `rf/handler-meta` raises for it; nil when the frame resolves the id."
+  [frame-id kind id]
+  (try
+    (rf/handler-meta {:frame frame-id :kind kind :id id})
+    nil
+    (catch :default e
+      (let [data (ex-data e)]
+        (when (= :rf.error/ambiguous-registration (:rf.error/id data))
+          (mapv str (:namespaces data)))))))
+
 (defn validate-registered
   "Validate that `id` is registered under registrar `kind` AS FRAME
    `frame-id` RESOLVES IT. Returns:
@@ -640,12 +653,20 @@
      {:ok? true  :kind kind :id id :frame f}                — registered
      {:ok? false :reason :unknown-id :kind kind :id id :frame f
       :nearest [...] :known-count N :hint \"...\"}            — not found
+     {:ok? false :reason :ambiguous-id :kind kind :id id :frame f
+      :namespaces [...] :hint \"...\"}                        — ambiguous
 
    The `:nearest` vector carries up to three closest registered ids by
    edit distance so the agent gets 'unknown :rf/xrayy; did you mean
    :rf/xray?' instead of a silent no-op — drawn from THAT FRAME's
    candidate set, so a suggestion is always an id the caller can
    actually use here.
+
+   A frame made without `:images` refuses an id more than one namespace
+   registers, so the frame's candidate set leaves it out although the id
+   exists. That id is reported as `:ambiguous-id` with the `:namespaces`
+   `rf/handler-meta {:frame f}` names, and the recovery, rather than as
+   unknown with suggestions for an id the caller spelled correctly.
 
    ## Why the frame, and not the process store
 
@@ -676,8 +697,22 @@
    'nothing is registered under :sub', which is a statement about the
    registrar rather than about the frame that was wrong."
   [kind id frame-id]
-  (let [known (vec (keys (rf/registrations {:frame frame-id :kind kind})))]
-    (assoc (pure/validate-against-known kind id known) :frame frame-id)))
+  (let [known      (vec (keys (rf/registrations {:frame frame-id :kind kind})))
+        result     (pure/validate-against-known kind id known)
+        namespaces (when-not (:ok? result) (ambiguous-namespaces frame-id kind id))]
+    (assoc (if namespaces
+             {:ok?        false
+              :reason     :ambiguous-id
+              :kind       kind
+              :id         id
+              :namespaces namespaces
+              :hint       (str "ambiguous " kind " " (pr-str id) ": registered by "
+                               (str/join ", " namespaces) ", so frame "
+                               (pr-str frame-id) " runs none of them. Recover with "
+                               "(rf/clear " kind " " (pr-str id) "), then re-evaluate "
+                               "the namespace that should own the id.")}
+             result)
+           :frame frame-id)))
 
 (defn validate-event-id
   "Validate the head of an event vector against frame `frame-id`'s
@@ -915,19 +950,6 @@
    closed registrar set less `:frame` and `:flow`, the two reserved-but-empty
    slots the query refuses."
   (vec (remove #{:frame :flow} pure/orient-registrar-kinds)))
-
-(defn- ambiguous-namespaces
-  "The namespaces registering `[kind id]` when frame `frame-id` refuses the id
-   as ambiguous, read off the `:rf.error/ambiguous-registration` that
-   `rf/handler-meta` raises for it; nil when the frame resolves the id."
-  [frame-id kind id]
-  (try
-    (rf/handler-meta {:frame frame-id :kind kind :id id})
-    nil
-    (catch :default e
-      (let [data (ex-data e)]
-        (when (= :rf.error/ambiguous-registration (:rf.error/id data))
-          (mapv str (:namespaces data)))))))
 
 (defn- describe-live-store-frame
   "`describe-image` for frame `frame-id` when it was made without `:images`: it
