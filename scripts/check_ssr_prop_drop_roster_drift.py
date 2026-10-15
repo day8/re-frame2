@@ -508,10 +508,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("boundary: 'monkey' does NOT answer for `key`",
            missing_from_page("monkey", ["key"]) == ["key"])
 
-    # ---- LIMIT 2, pinned: contamination reads as PRESENT ------------------
-    # The gate UNDER-REPORTING, the direction that never cries wolf: real
-    # 011 text using `:children` as a key reads as the roster name.
-
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
