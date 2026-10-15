@@ -412,7 +412,7 @@
   ;; is the only thing keeping render-to-string armed across a dispose/reinstall
   ;; cycle. Nilling it here would make render-to-string throw
   ;; :rf.error/no-hiccup-emitter-bound in that case. Matches plain-atom's
-  ;; dispose-adapter! (a no-op that leaves the emitter alone).
+  ;; dispose-adapter!, which also leaves the emitter alone.
   ;;
   ;; Derived values have no CLJS disposal protocol, but their cache entries and
   ;; ref-counts live on frames. Clear every frame cache so reinstalling the

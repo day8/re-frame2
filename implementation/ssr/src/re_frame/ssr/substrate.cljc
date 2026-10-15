@@ -21,6 +21,7 @@
   parent-var name clash."
   (:require [re-frame.error :as rf.error]
             [re-frame.ssr.emit :as rf.ssr.emit]
+            [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- ssr-make-state-container [initial-value]
@@ -55,7 +56,11 @@
   nil)
 
 (defn- ssr-dispose-adapter! []
-  ;; Watch handles are GC'd with their atoms; nothing else to clean up.
+  ;; Frames outlive the adapter, so disposal clears every frame's sub-cache
+  ;; (Spec 006 §Adapter disposal lifecycle): a slot left behind keeps its
+  ;; references on its inputs, and a subscribe after reinstall would reuse the
+  ;; pre-dispose derived value. Watch handles are GC'd with their atoms.
+  (rf.subs.cache/clear-all-frame-sub-caches!)
   nil)
 
 (def adapter
