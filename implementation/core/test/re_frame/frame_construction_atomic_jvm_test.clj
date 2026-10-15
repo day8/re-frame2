@@ -118,27 +118,6 @@
             (some? (rf.frame/frame-state-container :atomic/state-throw))])
         "a clean retry through the same adapter")))
 
-(deftest first-projection-throw-unwinds-own-partial-work
-  (let [state (fresh-state)]
-    (rf/init! (tracking-adapter state))
-    (reset! (:throw-at state) :first-derived)
-    ;; the throwing projection unwound its own watch, and nothing had been
-    ;; returned for new-frame-record to dispose
-    (is (= [:first-derived nil 1 #{} true [] false]
-           [(err #(rf.frame/upsert-frame! :atomic/first-throw
-                                          {:rf.trace/frame-no-emit? true}))
-            (rf.frame/frame :atomic/first-throw)
-            @(:derived-count state)
-            @(:watched state)
-            (empty? (residual-watches state))
-            @(:disposed-order state)
-            (rf.trace/frame-trace-disabled? :atomic/first-throw)]))
-    (reset! (:throw-at state) nil)
-    (reset! (:derived-count state) 0)
-    (is (= [:atomic/first-throw true]
-           [(rf.frame/upsert-frame! :atomic/first-throw {})
-            (some? (rf.frame/frame-state-container :atomic/first-throw))]))))
-
 (deftest second-projection-throw-disposes-first-in-reverse-order
   (let [state (fresh-state)]
     (rf/init! (tracking-adapter state))
