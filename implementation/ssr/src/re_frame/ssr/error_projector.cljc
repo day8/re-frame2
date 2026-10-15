@@ -9,8 +9,9 @@
   different audiences and different security profiles. The projector is
   the boundary.
 
-  A projector is a fn `(trace-event) → public-error-map`. The public
-  shape is locked to four keys:
+  A projector is a fn `(trace-event) → public-error-map`, or nil to hand
+  the event to `default-error-projector-fn`. The public shape is locked
+  to four keys:
 
       {:status     500             ;; HTTP status integer
        :code       :internal-error ;; stable category keyword
@@ -36,7 +37,7 @@
 ;; ---- always-on error emission ---------------------------------------------
 ;;
 ;; `:rf.error/sanitised-on-projection` fires when the active projector
-;; itself throws or returns a non-conforming shape and the runtime falls
+;; itself throws or returns a non-nil non-conforming value and the runtime falls
 ;; back to the locked generic-500. It rides the always-on error-emit axis
 ;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!` so off-box
 ;; shippers see when the public boundary fell back — keeping the Spec
@@ -107,7 +108,7 @@
 (def fallback-public-error
   "The locked generic-500 shape per Spec 011 §Default projector. The
   runtime falls back to this whenever the active projector throws or
-  returns a non-conforming shape."
+  returns a non-nil non-conforming value."
   {:status     500
    :code       :internal-error
    :message    "Something went wrong"
@@ -185,7 +186,8 @@
   Pure: takes a trace event, returns a public-error map. No I/O, no
   config. Custom projectors may inject auth-specific 401/403 codes
   and override the message strings; the runtime's default is the
-  prod-safe baseline."
+  prod-safe baseline, and it answers every event a custom projector
+  returns nil for."
   [trace-event]
   (case (:operation trace-event)
     :rf.error/no-such-handler
@@ -237,35 +239,16 @@
 
 (defn reg-error-projector
   "Register a projector under :error-projector kind. The fn maps an
-  internal trace event to the public-error shape:
+  internal trace event to the public-error shape, or returns nil to hand
+  the event to `default-error-projector-fn`:
 
     (rf/reg-error-projector :myapp/public-error
       {:doc \"Project internal error trace events to public response shapes.\"}
       (fn [trace-event]
-        (case (:operation trace-event)
-          ;; GATE the 404 on `:kind :route`: only a URL that matched no
-          ;; route is a missing PAGE. `:kind :event` (an unregistered event
-          ;; id) and `:kind :frame` are SERVER defects and take the 500,
-          ;; exactly as `default-error-projector-fn` does.
-          :rf.error/no-such-handler
-          (if (= :route (get-in trace-event [:tags :kind]))
-            {:status 404 :code :not-found
-             :message \"Not found\" :retryable? false}
-            {:status 500 :code :internal-error
-             :message \"Something went wrong\" :retryable? false})
-
-          ;; GATE the 400 on `:where :event` — a client-supplied event
-          ;; payload. `:where :fx-args` is a SERVER defect, not bad input.
-          :rf.error/schema-validation-failure
-          (if (= :event (get-in trace-event [:tags :where]))
-            {:status 400 :code :bad-request
-             :message \"Invalid input\" :retryable? false}
-            {:status 500 :code :internal-error
-             :message \"Something went wrong\" :retryable? false})
-
-          ;; ...
-          {:status 500 :code :internal-error
-           :message \"Something went wrong\" :retryable? false})))
+        ;; One app case; nil for the rest keeps the default's 404 / 400 arms.
+        (when (= :unauthorised (some-> trace-event :tags :exception ex-data :app/error))
+          {:status 401 :code :unauthorised
+           :message \"Please sign in.\" :retryable? false})))
 
   Frames opt into a projector by name in their :ssr config:
 
@@ -311,9 +294,12 @@
 
 (defn project-error
   "Resolve the active projector for the given frame and apply it to
-  trace-event. Returns a :rf/public-error map. If the projector throws
-  or returns a non-conforming shape, emits :rf.error/sanitised-on-projection
-  and returns the locked generic-500 fallback. Per Spec 011
+  trace-event. Returns a :rf/public-error map. A projector that returns
+  nil defers: `default-error-projector-fn` answers the same trace event and
+  nothing is recorded, so an app projector handles only its own cases. If
+  the projector throws or returns a non-nil non-conforming value, emits
+  :rf.error/sanitised-on-projection and returns the locked generic-500
+  fallback. Per Spec 011
   §Server error projection — \"the fallback ensures the boundary
   cannot be bypassed by a bug in the projector.\"
 
@@ -329,11 +315,13 @@
   (let [configured-id (frame-configured-projector-id frame-id)
         projector-id  (frame-projector-id frame-id)
         dev-detail?   (frame-dev-error-detail? frame-id)
-        ;; Two failure modes for the projector:
-        ;;   :threw      — the catch path returns this in `result`
-        ;;   conforming  — usable
-        ;;   anything else (nil from no-projector, wrong-shape map, etc.)
-        ;; Both failure modes fall back to the locked-500 shape; the
+        ;; The projector's `result` is one of:
+        ;;   conforming     — usable
+        ;;   nil            — deferred: the default projector answers
+        ;;   ::threw        — the catch path returns this
+        ;;   ::no-projector — nothing registered under the resolved id
+        ;;   anything else  — a non-conforming value
+        ;; The last three fall back to the locked-500 shape; the
         ;; sanitisation trace fires AT MOST ONCE per call.
         result
         (try
@@ -380,6 +368,12 @@
         (cond
           (public-error-shape? result)
           result
+
+          ;; The projector deferred. Not a failure, so no sanitisation
+          ;; record: the default's gated 404 / 400 arms answer for every
+          ;; case an app projector leaves alone.
+          (nil? result)
+          (default-error-projector-fn trace-event)
 
           ;; The projector threw — the catch arm above already fired the
           ;; sanitisation trace + always-on record; just fall back here.
