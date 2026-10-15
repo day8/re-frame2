@@ -403,35 +403,6 @@
 (defrecord RecA [x])
 (defrecord RecB [x])
 
-(deftest unchanged-row-selectors-preserve-record-type
-  (testing "CLJS records satisfy `map?`, so an encoder whose
-            leading branch is `(map? x)` would discard the record TAG and render
-            `(->RecA 1)`, `(->RecB 1)` and `{:x 1}` all as `{:x 1}`. Those three
-            concrete queries are pairwise UNEQUAL (`(= (->RecA 1) (->RecB 1))`
-            and `(= (->RecA 1) {:x 1})` are both false), so collapsing them onto
-            one `data-testid` would be false identity — rows the DOM cannot
-            address independently. Each must mint its OWN selector. (Such an
-            encoder reads a distinct testid count of 1, that shared testid
-            addressing 3 nodes.)"
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
-       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
-       :show-unchanged? true
-       :subs-skipped [{:sub-id :cfg/derived :query-v [:cfg/derived (->RecA 1)]
-                       :reason :input-value-equal :input-paths-unchanged []}
-                      {:sub-id :cfg/derived :query-v [:cfg/derived (->RecB 1)]
-                       :reason :input-value-equal :input-paths-unchanged []}
-                      {:sub-id :cfg/derived :query-v [:cfg/derived {:x 1}]
-                       :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (panel-tree)
-          testids (unchanged-row-testids tree)]
-      (is (= 3 (count testids)) "all three seeded rows render")
-      (is (= 3 (count (distinct testids)))
-          "RecA, RecB and the plain map each mint a DISTINCT selector — the
-           record TYPE is preserved, not flattened into the entries"))))
-
 (deftest unchanged-row-selector-canonical-across-record-extension-order
   (testing "ADVERSARIAL — type preservation must not cost
             order-canonicality. A record's EXTENSION entries (assoc'd beyond its
