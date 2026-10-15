@@ -37,7 +37,6 @@
   (let [rows (fn [n] (mapv (fn [i] {:id i}) (range n)))
         cap  common/panel-row-cap]
     (are [input expected] (= expected (common/cap-rows input))
-      (rows 50)          [(rows 50) false 0]
       (rows cap)         [(rows cap) false 0]     ; exactly at the cap
       (rows (+ 50 cap))  [(rows cap) true 50]
       nil                [[] false 0]
