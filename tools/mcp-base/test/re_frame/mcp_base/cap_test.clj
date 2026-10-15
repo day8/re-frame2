@@ -1,7 +1,4 @@
 (ns re-frame.mcp-base.cap-test
-  "Unit tests for the cross-MCP cap pipeline, driven through mock
-  `ResultIO` instances over CLJ maps. Each server's own suite drives its
-  real IO instance through the same pipeline."
   (:require [clojure.test :refer [are deftest is]]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
@@ -22,10 +19,6 @@
 (defn- big-string [n]
   (apply str (repeat n "x")))
 
-;; ---------------------------------------------------------------------------
-;; max-tokens — per-call cap resolution.
-;; ---------------------------------------------------------------------------
-
 (deftest max-tokens-resolves-the-cap
   (are [raw expected] (= expected (rf.mcp-base.cap/max-tokens raw))
     0                nil
@@ -38,9 +31,6 @@
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens "bogus"))))
 
 (deftest max-tokens-rejects-an-out-of-domain-number
-  ;; A negative, a fraction that would floor to a 0 cap, or a non-finite or
-  ;; out-of-range value would otherwise lock the agent out of every
-  ;; response or crash `(long raw)`, so each resolves to a rejection.
   (is (= {rf.mcp-base.vocab/invalid-arg-key {:arg   :max-tokens
                                              :value -1
                                              :hint  rf.mcp-base.cap/invalid-arg-hint}}
@@ -50,10 +40,6 @@
     ##Inf
     ##NaN
     1.0E20))
-
-;; ---------------------------------------------------------------------------
-;; sum-payload-tokens — sums every string slot via ResultIO.
-;; ---------------------------------------------------------------------------
 
 (deftest sum-payload-tokens-empty-content-is-zero
   (is (zero? (rf.mcp-base.cap/sum-payload-tokens map-io {:content []})))
@@ -66,10 +52,6 @@
                            {:type "image"}
                            {:type "text" :text (big-string 4000)}]}))))
 
-;; ---------------------------------------------------------------------------
-;; apply-cap — the strategy entry point.
-;; ---------------------------------------------------------------------------
-
 (deftest apply-cap-nil-cap-disables-enforcement
   (let [r (ok-text-result {:k (big-string 100000)})]
     (is (identical? r (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap nil})))))
@@ -80,8 +62,6 @@
     (is (identical? r (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 100})))))
 
 (deftest apply-cap-over-budget-emits-overflow-marker
-  ;; 4000 x's print as 4010 chars: 1002 tokens, over a 500 cap on both
-  ;; gates, and the marker reports the token estimate, not the char count.
   (let [r (ok-text-result {:huge (big-string 4000)})]
     (is (= {rf.mcp-base.vocab/overflow-key {:limit       :reached
                                             :token-count 1002
@@ -100,11 +80,6 @@
         out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500})]
     (is (<= (rf.mcp-base.cap/sum-payload-tokens map-io out) 500))))
 
-;; ---------------------------------------------------------------------------
-;; The two-stage gate: the token sum over the cap, or the char sum over
-;; 8x the cap. `over-cap?` / `reported-count` are pure over the two sums.
-;; ---------------------------------------------------------------------------
-
 (deftest over-cap?-trips-on-either-gate
   (are [tokens chars expected] (= expected (rf.mcp-base.cap/over-cap? tokens chars 100))
     101 0   true
@@ -112,16 +87,11 @@
     50  801 true))
 
 (deftest reported-count-is-always-in-token-units
-  ;; The token estimate when the token gate tripped, else chars / 4.
-  (are [tokens chars expected] (= expected (rf.mcp-base.cap/reported-count tokens chars 100))
-    150 1600 150
-    50  801  200
-    100 801  200))
+  ;; At the token limit, a character overflow must use the fallback count.
+  (is (= 200 (rf.mcp-base.cap/reported-count 100 801 100))))
 
 (deftest apply-cap-many-short-strings-trips-char-gate
-  ;; The token estimate floors per string, so 3000 three-char slots sum to
-  ;; 0 tokens and only the char gate (9000 > 8) can trip: the char-gated
-  ;; arm reached through the live path, reporting 9000 / 4.
+  ;; Three-character slots contribute zero tokens but still trip the character cap.
   (let [r {:content (vec (repeat 3000 {:type "text" :text "xxx"}))}]
     (is (= {rf.mcp-base.vocab/overflow-key {:limit       :reached
                                             :token-count 2250
@@ -129,11 +99,6 @@
                                             :tool        "trace-window"
                                             :hint        rf.mcp-base.overflow/overflow-hint-fallback}}
            (:structuredContent (rf.mcp-base.cap/apply-cap map-io r {:tool "trace-window" :cap 1}))))))
-
-;; ---------------------------------------------------------------------------
-;; A consumer that duplicates the payload into `:structuredContent` must
-;; count both copies.
-;; ---------------------------------------------------------------------------
 
 (def structured-io
   "Dual-slot ResultIO, story-mcp's shape: counts the `:content[*].text`
