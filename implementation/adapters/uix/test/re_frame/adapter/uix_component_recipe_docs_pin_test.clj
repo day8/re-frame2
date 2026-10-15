@@ -1,10 +1,5 @@
 (ns re-frame.adapter.uix-component-recipe-docs-pin-test
-  "The UIx component-test recipe is shown VERBATIM in
-   `docs/core/testing/views.md` §4, so what a reader copies is what the
-   `:browser-test` lane runs. This pins the two to each other: the page's
-   fenced `clojure` block that opens with the recipe's `ns` form must equal
-   `uix_component_recipe_dom_cljs_test.cljs`, byte for byte (line endings
-   normalised). Edit either side and this goes red until the other follows."
+  "The copyable views.md recipe must equal its browser test, with line endings normalized."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -19,7 +14,7 @@
   "(ns re-frame.adapter.uix-component-recipe-dom-cljs-test")
 
 (defn- repo-root
-  "The nearest ancestor of the working directory carrying `mkdocs.yml`."
+  "Find the nearest ancestor carrying mkdocs.yml."
   []
   (loop [dir (.getAbsoluteFile (io/file (System/getProperty "user.dir")))]
     (cond
@@ -34,8 +29,7 @@
   (str/trim-newline (str/replace s "\r\n" "\n")))
 
 (defn- fenced-clojure-block-opening-with
-  "The body of the first ```clojure fence in `md` whose first line is `line`,
-   or nil when the page carries none."
+  "Find the clojure fence whose body starts with the recipe namespace."
   [md line]
   (->> (re-seq #"(?s)```clojure\n(.*?)\n```" md)
        (map second)
