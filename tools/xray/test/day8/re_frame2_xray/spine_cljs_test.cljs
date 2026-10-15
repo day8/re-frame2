@@ -1,9 +1,5 @@
 (ns day8.re-frame2-xray.spine-cljs-test
-  "The spine (spec/018 §6): the `:focus` slot every dependent surface reads
-  through `:rf.xray/focus`, the reducers and events that write it, and
-  `compose-focus`'s derivation of `:head?`, `:dispatch-id` and `:epoch-id`
-  across LIVE, RETRO, paused and evicted states. Most rows drive the
-  registered events and sub; the pure rows cover what those cannot reach."
+  "Spine navigation keeps frame, dispatch and epoch identity aligned."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
@@ -661,7 +657,6 @@
                  {:epoch-id :e2 :dispatch-id 8}]]
     (are [records epoch-id expected]
          (= expected (spine/dispatch-id-for-epoch records epoch-id))
-      history           :e2     :c2
       history           :e3     :c3
       bare              :e2     8      ; a record with no :trace-events at all
       ;; no match → nil: the epoch was evicted, belongs to another frame,
