@@ -1,13 +1,5 @@
 (ns re-frame.bench.fresco.arm1.runtime-cljs-test
-  "ARM 1's RUNTIME, proved without a browser: the read surfaces, HD-002's
-  ownership state machine and allowed edge-diff operation, the commit
-  window, the generation fence's ceiling, and the zero-residue claim. The
-  `-dom` suites prove React drives this seam; the six index laws are
-  `arm1/cell_table_laws_cljs_test`.
-
-  The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
-  plain-atom has no reactivity layer, so a subscription under it never
-  notifies and every commit assertion below would pass vacuously."
+  "Exercise collector ownership, subscribe identities, commits, fencing and reaping over a reactive adapter."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -49,9 +41,7 @@
     (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn [] (vswap! hits inc)))
     {:entry entry :hits hits}))
 
-;; ---------------------------------------------------------------------------
 ;; The two read surfaces (HD-002)
-;; ---------------------------------------------------------------------------
 
 (deftest a-read-outside-a-render-is-a-loud-error
   (seeded!)
@@ -112,9 +102,7 @@
       (is (= {:todo {:id 1 :title "todo 1" :done? false} :remaining 3} @snapshot))
       (is (= #{(key-of [:dogfood/todo 1]) (key-of [:dogfood/remaining])} (reads-of entry))))))
 
-;; ---------------------------------------------------------------------------
 ;; HD-002 clause (a) — the ownership state machine
-;; ---------------------------------------------------------------------------
 ;;
 ;; Its invariant — no render-phase code mutates the cell table or a reference
 ;; — is `a-render-that-never-commits-leaves-nothing-behind` below and
@@ -140,9 +128,7 @@
       (is (= #{(key-of [:dogfood/remaining])}
              (reads-of (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))))))))
 
-;; ---------------------------------------------------------------------------
 ;; HD-002 clause (b) — the allowed edge-diff operation, and its cost law
-;; ---------------------------------------------------------------------------
 
 (deftest an-unchanged-read-set-is-detected-without-building-anything
   (seeded!)
@@ -224,9 +210,7 @@
                        (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo i]))])))
     (is (= {:buckets 64 :max-bucket 1} (rf.bench.fresco.arm1.runtime/entry-buckets)))))
 
-;; ---------------------------------------------------------------------------
 ;; The commit window
-;; ---------------------------------------------------------------------------
 ;;
 ;; Who a write notifies, and that one commit is one notification, is laws
 ;; 3, 5 and 6 in `cell_table_laws_cljs_test` (law 1 inside law 5).
@@ -240,9 +224,7 @@
       (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
       (is (= before (:cell-refs (rf.bench.fresco.arm1.runtime/stats)))))))
 
-;; ---------------------------------------------------------------------------
 ;; The generation fence
-;; ---------------------------------------------------------------------------
 ;;
 ;; The re-run itself is `hydrate_cljs_test`'s
 ;; `a-fenced-re-run-is-two-body-runs-because-two-bodies-ran` and
@@ -258,9 +240,7 @@
                     (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
                     [:li]))))))
 
-;; ---------------------------------------------------------------------------
 ;; Heads
-;; ---------------------------------------------------------------------------
 
 (deftest a-minted-view-is-a-legal-hiccup-head
   (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/probe" (fn [_] [:li]))]
@@ -269,9 +249,7 @@
         "and it carries its memo wrapper (HD-006), attached to the head
          rather than returned in its place")))
 
-;; ---------------------------------------------------------------------------
 ;; Residue
-;; ---------------------------------------------------------------------------
 
 (deftest a-render-that-never-commits-leaves-nothing-behind
   (async done
