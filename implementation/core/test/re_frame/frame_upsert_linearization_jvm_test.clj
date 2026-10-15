@@ -8,9 +8,9 @@
   `:rf.error/frame-id-taken` on a live id.
 
   A re-registering live frame stays visible to every actor with its staged
-  config. These tests read the dev-only trace retention ring, so the prod gate
-  skips this namespace; `frame-upsert-linearization-production-test` re-proves
-  the contention invariants through production state. Windows open on the
+  config. The deftests that read the dev-only trace retention ring carry
+  `^:requires-debug`; `frame-upsert-linearization-production-test` re-proves
+  their contention invariants through production state. Windows open on the
   `rf.frame/*upsert-decide-probe*` and `*upsert-policy-probe*` seams."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -79,7 +79,7 @@
             (identical? container (rf.frame/frame-state-container :mc/taken))])
         "the live frame is neither adopted nor refreshed")))
 
-(deftest reregister-owner-rejects-newer-policy-contender
+(deftest ^:requires-debug reregister-owner-rejects-newer-policy-contender
   ;; A pauses after staging, before policy publication; B cannot become a newer winner
   (rf.frame/upsert-frame! :tp/successful
                        {:tags #{:initial}
@@ -108,7 +108,7 @@
             (rf.trace/frame-trace-disabled? :tp/successful)
             (retained-cap :tp/successful)]))))
 
-(deftest failed-reregistration-rollback-preserves-prestage-generation
+(deftest ^:requires-debug failed-reregistration-rollback-preserves-prestage-generation
   ;; A reads the final frame and pauses just before its staging swap-vals!; a
   ;; reprojection updates the generation in that window. The hook failure must
   ;; roll back to the value the swap actually replaced, not the record A read.
@@ -309,7 +309,7 @@
           (.countDown release)))
       (is (= [id false] [@owner @drain-lock]) "the cold section released the lock"))))
 
-(deftest failed-reregistration-window-keeps-foreign-work-and-restores-config
+(deftest ^:requires-debug failed-reregistration-window-keeps-foreign-work-and-restores-config
   (let [id            :rereg/failed
         hook-key      :routing/on-frame-registered!
         original-hook (rf.late-bind/get-fn hook-key)
@@ -358,7 +358,7 @@
           (.countDown release)
           (rf.late-bind/set-fn! hook-key original-hook))))))
 
-(deftest omitting-retention-on-reregistration-clears-frame-override
+(deftest ^:requires-debug omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
   (rf.frame/upsert-frame! :tp/inherit {:rf.trace/events-retained 99})
   (let [installed (retained-cap :tp/inherit)]

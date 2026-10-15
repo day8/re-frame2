@@ -17,7 +17,8 @@
   `:rf/machine-id`, `:rf.handler/source`, `:handler-fn`, and the coords from
   the per-element walker. The derivation is gated on
   `re-frame.interop/debug-enabled?`; a production bundle's macro emits no
-  `:source-code` slot at all."
+  `:source-code` slot at all. So every deftest that reads a derived meta
+  carries `^:requires-debug`, and the elision deftest runs in both postures."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -46,7 +47,7 @@
 
 ;; ---- the macro captures every guard and action ------------------------------
 
-(deftest reg-machine-captures-every-guard-and-action
+(deftest ^:requires-debug reg-machine-captures-every-guard-and-action
   ;; every :guards / :actions entry gets its own derived meta; one entry of
   ;; each carries the whole shape
   (rf/reg-machine :rf2-ypu5i/many
@@ -71,7 +72,7 @@
             ((juxt :rf/machine-id (comp fn? :handler-fn)) (last actions))])
         "the scoping machine, the actual fn, and the walker's coords")))
 
-(deftest guards-and-actions-enumerable-via-event-registration-spec
+(deftest ^:requires-debug guards-and-actions-enumerable-via-event-registration-spec
   ;; tools enumerate the source from the machine's :event registration spec,
   ;; not from a (rf/registrations …) side-table — there is none
   (rf/reg-machine :rf2-ftrcv/enum
@@ -86,7 +87,7 @@
             (string? (get-in spec [:guards  :ok? :source-code]))
             (string? (get-in spec [:actions :go! :source-code]))]))))
 
-(deftest re-registration-clears-stale-handler-metas
+(deftest ^:requires-debug re-registration-clears-stale-handler-metas
   ;; re-registering with a renamed guard drops the old slot (hot-reload hygiene)
   (rf/reg-machine :rf2-ypu5i/reload
     {:initial :idle
@@ -99,7 +100,7 @@
      :states  {:idle {:on {:e {:target :idle :guard :new?}}}}})
   (is (= [nil true] [(guard-meta :rf2-ypu5i/reload :old?) (some? (guard-meta :rf2-ypu5i/reload :new?))])))
 
-(deftest reg-machine-plain-fn-surface-skips-form-source
+(deftest ^:requires-debug reg-machine-plain-fn-surface-skips-form-source
   ;; `reg-machine*` carries opaque spec data the macro walker never saw, so it
   ;; registers no source; tools fall back to the top-level call-site coords
   ;; (Spec 005 §reg-machine vs reg-machine*)
