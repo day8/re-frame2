@@ -1,22 +1,5 @@
 (ns re-frame.routing-nav-counters-test
-  "Host-side nav-token / pending-nav counters.
-
-  The two monotonic routing allocators (`:nav-token-counter` /
-  `:pending-nav-counter`) live OUTSIDE the `[:rf.runtime/routing ...]`
-  runtime-db partition, in a host-side per-frame cache
-  (`re-frame.routing.nav-counters`). An epoch restore replaces the runtime-db
-  partition wholesale, so a counter held there would rewind and recycle a
-  token an in-flight continuation might still carry; held host-side it is a
-  high-water mark restore cannot touch.
-
-  This namespace pins:
-    - restore-then-navigate: after an epoch restore rewinds the route slice,
-      the next navigation mints a token past every pre-restore one;
-    - the SSR durable-routing allowlist equals the routing classification's
-      durable tier;
-    - a frame destroyed and re-made under the same id mints past every token
-      its predecessor issued;
-    - allocator storage stays constant however many frames come and go."
+  "Routing allocations never rewind on restore or frame replacement and use bounded storage. SSR retains only the durable tier."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
