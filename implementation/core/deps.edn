@@ -25,12 +25,12 @@
 ;; (implementation/adapters/reagent), the only artefact that requires it.
 ;;
 ;; metosin/malli is intentionally NOT a dep of this artefact: the schemas
-;; artefact owns the Malli relationship. The runtime resolves of
-;; `malli.core/validate` in `re-frame.epoch` and `re-frame.http.managed`
-;; are intentional best-effort `(resolve ...)` calls that no-op when Malli
-;; is absent — apps that opt into managed HTTP decode-schemas or
-;; epoch-restore schema validation pull in the schemas artefact (which
-;; carries Malli) alongside core.
+;; artefact owns the Malli relationship. Core resolves no Malli var; it
+;; validates through the `:schemas/*` late-bind hooks `re-frame.schemas`
+;; publishes, with `re-frame.schemas.malli` installing Malli as the default
+;; validator. Managed HTTP's schema `:decode` resolves Malli at runtime in
+;; `re-frame.http.decode` and refuses the request when it is absent, so
+;; apps that use schemas add the schemas artefact (which carries Malli).
 ;;
 ;; `resources` is on :paths, and on `:clein/build`'s `:src-dirs`, for ONE
 ;; reason: the clj-kondo export (`resources/clj-kondo.exports/day8/re-frame2/`)

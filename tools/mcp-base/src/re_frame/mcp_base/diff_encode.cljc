@@ -203,10 +203,9 @@
 
 (defn- resolve-malli-validate
   "Resolve `malli.core/validate` if Malli is on the classpath; return
-  `nil` otherwise. Mirrors `re-frame.epoch/resolve-malli-validate`
-  and `re-frame.http.encoding`'s resolve-pattern — keep mcp-base
-  Malli-free at its own dep boundary; downstream consumers provide
-  Malli on the runtime classpath."
+  `nil` otherwise. Mirrors `re-frame.http.decode`'s resolve pattern —
+  keep mcp-base Malli-free at its own dep boundary; downstream consumers
+  provide Malli on the runtime classpath."
   []
   #?(:clj  (try (requiring-resolve 'malli.core/validate)
                 (catch Throwable _ nil))
