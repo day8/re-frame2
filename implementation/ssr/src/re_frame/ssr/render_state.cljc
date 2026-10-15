@@ -27,10 +27,10 @@
 
   A fail-closed allowlist per partition — top-level app-db keys, and
   top-level runtime-db keys (the route slice, the machine snapshots).
-  Either partition's list may be absent (that partition then projects to
-  `{}`); a policy naming NEITHER is no policy. Absence of the opt is a
-  construction-time error — `:rf.error/ssr-missing-payload-policy`, the
-  payload family's id reused with `:opt :render-state` in its ex-data —
+  Either partition's list may be empty or absent (that partition then
+  projects to `{}`); a policy naming NEITHER is no policy. Absence of the
+  opt is a construction-time error — `:rf.error/ssr-missing-payload-policy`,
+  the payload family's id reused with `:opt :render-state` in its ex-data —
   because a renderer that read the whole frame by default would be the
   whole-app-db-by-accident egress the payload policy exists to
   prevent, one wire over.
@@ -143,18 +143,14 @@
 ;; ---- policy ---------------------------------------------------------------
 
 (defn- allowlist-shape-problem
-  "-> a reason string when `xs` is not a non-empty sequential of keywords,
-  else nil. The same shape `:payload` takes (a vector is canonical; a list
-  or lazy-seq is admitted; a set is not — the allowlist is an ORDERED key
-  selection)."
+  "-> a reason string when `xs` is not a sequential of keywords, else nil.
+  The same shape `:payload` takes (a vector is canonical; a list or
+  lazy-seq is admitted; a set is not — the allowlist is an ORDERED key
+  selection). An empty one is valid and projects its partition to `{}`."
   [slot xs]
   (cond
     (not (sequential? xs))
     (str slot " must be a vector of keyword top-level keys; got " (pr-str xs))
-
-    (empty? xs)
-    (str slot " is empty — an allowlist that names nothing is no allowlist "
-         "(drop the slot to project that partition as {})")
 
     (not (every? keyword? xs))
     (str slot " carries non-keyword entries " (pr-str (vec (remove keyword? xs)))
@@ -184,10 +180,10 @@
   deployment fails at boot, not at first request.
 
     - `:render-state {:app-db [<kws>] :runtime-db [<kws>]}` — either slot
-      may be absent; each present slot is a non-empty sequential of
-      keywords → OK (allowlists)
+      may be absent; each present slot is a sequential of keywords, and
+      an empty one projects its partition to `{}` → OK (allowlists)
     - `:render-state (fn [frame-id] -> partition-map)` → OK (escape hatch)
-    - a map with an unknown slot, an empty / non-keyword allowlist, or
+    - a map with an unknown slot, a non-sequential / non-keyword allowlist, or
       `:rf.runtime/elision` in the runtime-db list
       → `:rf.error/ssr-malformed-payload-allowlist` (the payload family's
       id, reused — ex-data `:opt :render-state` says which policy)

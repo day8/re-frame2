@@ -52,9 +52,9 @@
            sample-app-db {:payload :rf.ssr.payload/whole-app-db}))))
 
 (deftest apply-policy-fails-closed-without-a-usable-policy
-  ;; Absent, empty (zero keys is a slip, not intent) and a set (not an ordered
-  ;; key selection) all throw rather than ship anything.
-  (doseq [opts [{} {:payload []} {:payload #{:public/articles}}]]
+  ;; Absent and a set (not an ordered key selection) both throw rather than
+  ;; ship anything. An empty allowlist is a policy that ships nothing.
+  (doseq [opts [{} {:payload #{:public/articles}}]]
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"

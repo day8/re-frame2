@@ -26,11 +26,11 @@
   A single handler opt, `:payload`, carries one of two policy shapes:
 
     `:payload [<kw> <kw> ...]`
-      An **allowlist** of top-level `app-db` keys to ship (a non-empty
-      **sequential** of KEYWORDS — a vector is the canonical spelling, and
-      a list or lazy seq is accepted too). Other keys are dropped —
-      including any keys added later as the app evolves. The recommended
-      primary mechanism. A non-empty sequential carrying a non-keyword
+      An **allowlist** of top-level `app-db` keys to ship (a **sequential**
+      of KEYWORDS — a vector is the canonical spelling, and a list or lazy
+      seq is accepted too). Other keys are dropped — including any keys
+      added later as the app evolves. The recommended primary mechanism.
+      An empty allowlist ships nothing. A sequential carrying a non-keyword
       element (a string typo, a stray `nil`, a nested coll) fails loud at
       boot with `:rf.error/ssr-malformed-payload-allowlist` rather than
       silently shipping a wrong or empty slice. The collection-vs-keyword
@@ -52,12 +52,11 @@
 
   One opt can hold exactly one value, so there is nothing to arbitrate: the
   allowlist-vs-whole-app-db choice is the value's shape
-  (collection vs keyword), not a contest between two opts. Empty `:payload`
-  (`[]`) is treated as **no allowlist supplied**, since shipping zero
-  keys is almost certainly a programmer error rather than an intent.
-  Callers that genuinely want to ship an empty `:rf/app-db` use
-  `:payload :rf.ssr.payload/whole-app-db` against an empty `app-db`
-  (i.e. don't populate it server-side).
+  (collection vs keyword), not a contest between two opts. An empty
+  `:payload []` is the explicit way to ship nothing: `:rf/app-db` arrives
+  as `{}` however full the server's `app-db` is. That is the policy for a
+  page whose state rides elsewhere (a resource in `:rf/runtime-db`), and
+  what an allowlist computed to nothing means.
 
   ---- Where this is consumed ----
 
@@ -108,21 +107,20 @@
 ;; ---- policy resolution ---------------------------------------------------
 
 (defn- valid-allowlist?
-  "An allowlist is a non-empty **sequential** of top-level app-db keys —
+  "An allowlist is a **sequential** of top-level app-db keys —
   the collection shape of the `:payload` opt. Per Spec 011 §`:rf/app-db`
   projection the elements are *top-level app-db keys*, which in re-frame2
   are keywords; this validator therefore requires EVERY element to be a
   keyword.
 
-  A check of
-  `(and (sequential? x) (seq x))` alone verifies only the OUTER shape, so a
+  A check of `(sequential? x)` alone verifies only the OUTER shape, so a
   malformed allowlist — a string typo for a keyword (`[\"public/articles\"]`),
   a stray `nil` (`[:a nil]`), or a nested coll (`[[:a :b]]`) — would pass
   construction-time validation and be caught only later by `select-keys`,
   silently shipping an empty or wrong hydration slice instead of failing
   closed at boot. Validating each element to a keyword closes that gap.
 
-  Outer shape — a non-empty SEQUENTIAL of keywords: a vector (the
+  Outer shape — a SEQUENTIAL of keywords: a vector (the
   documented canonical spelling) OR a list / lazy-seq (`'(:a :b)`, or a
   computed `(mapv ...)` / `(keep ...)` / `(filterv ...)` result). The real
   policy selector is COLLECTION-vs-KEYWORD, not vector-vs-keyword — a
@@ -130,16 +128,15 @@
   opt-in (`:rf.ssr.payload/whole-app-db`), so admitting any sequential
   spelling does not weaken the shape-selected fail-closed boundary. A SET is
   NOT sequential, so it still falls into the missing-policy bucket — the
-  allowlist is an ORDERED key selection. (An empty `[]` / `'()` still fails
-  closed via `(seq x)`; the `(every? keyword?)` element guard still catches a
-  `\"public/articles\"` string typo as a malformed allowlist.)"
+  allowlist is an ORDERED key selection. An empty `[]` / `'()` names no keys
+  and projects `{}`; the `(every? keyword?)` element guard still catches a
+  `\"public/articles\"` string typo as a malformed allowlist."
   [x]
   (and (sequential? x)
-       (seq x)
        (every? keyword? x)))
 
 (defn- malformed-allowlist?
-  "A `:payload` that LOOKS like an allowlist attempt — a non-empty
+  "A `:payload` that LOOKS like an allowlist attempt — a
   **sequential** — but carries a non-keyword element (a string typo, a stray
   `nil`, a nested coll, …). Distinguished from `valid-allowlist?` so the
   construction-time validator can surface a diagnostic
@@ -147,8 +144,8 @@
   rather than dumping the caller into the generic missing-policy bucket
   — the developer clearly INTENDED an allowlist; telling them which entry
   is wrong is the fail-loud, masterpiece outcome.
-  An empty `[]` / `'()` is NOT malformed — it is the documented `no-allowlist`
-  shape that falls into the missing-policy bucket per Spec 011.
+  An empty `[]` / `'()` is NOT malformed — it is a valid allowlist naming no
+  keys.
 
   Gated on `sequential?` to match `valid-allowlist?`'s outer shape: a
   list / lazy-seq with a bad element is an allowlist ATTEMPT and earns the
@@ -156,7 +153,6 @@
   list typo fails loud, not silent)."
   [x]
   (and (sequential? x)
-       (seq x)
        (not (every? keyword? x))))
 
 (defn- valid-policy-keyword?
@@ -211,10 +207,11 @@
   malformed. Called at handler-construction time by the Ring host adapter
   so misconfigured deployments fail at boot, not at first request.
 
-    - `:payload [<kws>]` (non-empty SEQUENTIAL of keywords — a vector, the
-      canonical spelling, or a list / lazy-seq) → OK (allowlist)
+    - `:payload [<kws>]` (a SEQUENTIAL of keywords — a vector, the
+      canonical spelling, or a list / lazy-seq) → OK (allowlist); an
+      empty one is OK too and ships nothing
     - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
-    - `:payload [<… non-keyword element …>]` (non-empty SEQUENTIAL with a
+    - `:payload [<… non-keyword element …>]` (a SEQUENTIAL with a
       string/nil/nested entry) → `:rf.error/ssr-malformed-payload-allowlist`
       (a clear allowlist attempt with a bad element, surfaced
       distinctly with the offending entries so a `\"public/articles\"`
@@ -223,7 +220,7 @@
     - `:payload <other keyword>`  → `:rf.error/ssr-unknown-payload-policy`
       (a typo'd policy keyword, e.g. `:rf.ssr.payload/whole-db`, surfaced
       distinctly so it doesn't silently land in the missing bucket)
-    - `:payload` absent / empty `[]` / `'()` / nil / a set / any other
+    - `:payload` absent / nil / a set / any other
       non-sequential non-keyword → `:rf.error/ssr-missing-payload-policy`
       (fail-closed; the selector is collection-vs-keyword, so a SET is
       rejected — the allowlist is an ORDERED key selection)
@@ -243,7 +240,7 @@
     (valid-policy-keyword? payload)
     (do (check-include-sensitive! payload-include-sensitive) opts)
 
-    ;; Caller passed a non-empty sequential coll that ISN'T an all-keyword
+    ;; Caller passed a sequential coll that ISN'T an all-keyword
     ;; allowlist — a clear allowlist attempt with a malformed element
     ;; (string typo, stray nil, nested coll). Surface the offending entries
     ;; so the fix is obvious; do NOT let it slide into the generic
@@ -254,7 +251,7 @@
       :rf.error/ssr-malformed-payload-allowlist
       're-frame.ssr.payload-policy
       (str "ssr-handler :payload allowlist must be a "
-           "non-empty sequential (a vector, list or seq) of KEYWORD "
+           "sequential (a vector, list or seq) of KEYWORD "
            "top-level app-db keys; got "
            (pr-str payload)
            " — these entries are not keywords: "
@@ -301,8 +298,8 @@
 
   Per the contract:
 
-    - `:payload [<kws>]` (allowlist, non-empty SEQUENTIAL of keywords —
-      vector / list / lazy-seq) → `select-keys`.
+    - `:payload [<kws>]` (allowlist, a SEQUENTIAL of keywords —
+      vector / list / lazy-seq) → `select-keys`; an empty one → `{}`.
     - `:payload :rf.ssr.payload/whole-app-db` → ships `app-db` verbatim.
     - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`,
       `:rf.error/ssr-malformed-payload-allowlist`, or
