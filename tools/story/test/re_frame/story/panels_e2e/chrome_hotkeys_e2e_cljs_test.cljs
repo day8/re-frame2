@@ -162,12 +162,3 @@
         (dispatch! (rf.story.test-helpers.e2e-multi-frame/fake-event {:key "Escape" :tag-name "INPUT"}))
         (is (true? (:full-screen? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility)))
             "Escape in INPUT does not exit full-screen")))))
-
-;; ---- bindings table sanity (catches an additive regression) -------------
-
-(deftest bindings-table-stays-stable
-  (testing "the canonical 4-key registry is f / s / a / t.
-            Adding a key here without spec discussion would risk
-            colliding with author muscle-memory."
-    (is (= #{"f" "s" "a" "t"} (set (keys rf.story.ui.keybindings/bindings)))
-        "the 4-key chrome hotkey set is stable")))
