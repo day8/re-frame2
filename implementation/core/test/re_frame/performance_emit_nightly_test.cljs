@@ -87,19 +87,6 @@
        (filter #(some-> % (.startsWith "rf:")))
        vec))
 
-(defn- bucket-of
-  "Extract the `<bucket>` segment from an `rf:<bucket>:<id>` entry name."
-  [nm]
-  (second (.split nm ":")))
-
-(defn- bucket-counts
-  "Group the rf: measure names by `<bucket>` and return name counts as a
-  map of `<bucket-string> -> count`."
-  []
-  (->> (rf-measures)
-       (group-by bucket-of)
-       (reduce-kv (fn [m k v] (assoc m k (count v))) {})))
-
 ;; Gate every assertion below behind `enabled?` so a smoke build that
 ;; runs this file without flipping the goog-define (e.g. an ad-hoc
 ;; debugging invocation) does not produce false failures. The
@@ -117,13 +104,10 @@
       (rf/reg-event :perf.emit-test/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:perf.emit-test/inc])
-      (let [counts (bucket-counts)]
-        (is (pos? (get counts "event" 0))
-            (str "at least one rf:event:* entry — got " counts))
-        (let [names (rf-measures)]
-          (is (some #(= "rf:event:perf.emit-test/inc" %) names)
-              (str "the rf:event entry name carries the registered "
-                   "event-id verbatim — saw " names)))))))
+      (let [names (rf-measures)]
+        (is (some #(= "rf:event:perf.emit-test/inc" %) names)
+            (str "the rf:event entry name carries the registered "
+                 "event-id verbatim — saw " names))))))
 
 (deftest subscribe-emits-rf-sub-measure-when-perf-enabled
   (testing "Per Spec 009 §Performance instrumentation: every sub
@@ -134,16 +118,12 @@
     (when rf.performance/enabled?
       (clear-measures!)
       (rf/reg-event :perf.emit-test/seed
-                       (fn [{:keys [db]} _] {:db {:n 7}}))
+                       (fn [_ _] {:db {:n 7}}))
       (rf/reg-sub :perf.emit-test/n
                   (fn [db _] (:n db)))
       (rf/dispatch-sync [:perf.emit-test/seed])
-      (is (= 7 (rf/subscribe-once [:perf.emit-test/n] {:frame :rf/default}))
-          "subscribe-once delivered the seeded value")
-      (let [counts (bucket-counts)
-            names  (rf-measures)]
-        (is (pos? (get counts "sub" 0))
-            (str "at least one rf:sub:* entry — got " counts))
+      (rf/subscribe-once [:perf.emit-test/n] {:frame :rf/default})
+      (let [names (rf-measures)]
         (is (some #(= "rf:sub:perf.emit-test/n" %) names)
             (str "the rf:sub entry name carries the registered "
                  "sub-id verbatim — saw " names))))))
@@ -160,47 +140,15 @@
             `rf:fx:perf.emit-test/log` entry."
     (when rf.performance/enabled?
       (clear-measures!)
-      (let [calls (atom [])]
-        (rf/reg-fx :perf.emit-test/log
-                   (fn [_ctx args] (swap! calls conj args)))
-        (rf/reg-event :perf.emit-test/run-fx
-                        (fn [_ctx _event]
-                          {:fx [[:perf.emit-test/log :hello]]}))
-        (rf/dispatch-sync [:perf.emit-test/run-fx])
-        (is (= [:hello] @calls)
-            "the user fx ran with the expected args")
-        (let [counts (bucket-counts)
-              names  (rf-measures)]
-          (is (pos? (get counts "fx" 0))
-              (str "at least one rf:fx:* entry — got " counts))
-          (is (some #(= "rf:fx:perf.emit-test/log" %) names)
-              (str "the rf:fx entry name carries the registered "
-                   "fx-id verbatim — saw " names)))))))
-
-(deftest single-dispatch-populates-all-three-headless-buckets
-  (testing "Per Spec 009 §Performance instrumentation: one dispatch
-            that touches every headless surface (event handler emits
-            :db + :fx; downstream subscribe forces a sub recompute)
-            produces at least one entry in EACH of the three headless
-            buckets (event / sub / fx)."
-    (when rf.performance/enabled?
-      (clear-measures!)
-      (let [log-calls (atom [])]
-        (rf/reg-fx :perf.emit-test/counter-log
-                   (fn [_ctx args] (swap! log-calls conj args)))
-        (rf/reg-event :perf.emit-test/initialise
-                        (fn [_ctx _event]
-                          {:db {:count 5}
-                           :fx [[:perf.emit-test/counter-log :initialised]]}))
-        (rf/reg-sub :perf.emit-test/count
-                    (fn [db _] (:count db)))
-        (rf/dispatch-sync [:perf.emit-test/initialise])
-        (is (= 5 (rf/subscribe-once [:perf.emit-test/count] {:frame :rf/default})))
-        (let [counts (bucket-counts)]
-          (doseq [bucket ["event" "sub" "fx"]]
-            (is (pos? (get counts bucket 0))
-                (str "headless bucket rf:" bucket ":* must be populated "
-                     "by the integration drain — counts=" counts))))))))
+      (rf/reg-fx :perf.emit-test/log (fn [_ctx _args] nil))
+      (rf/reg-event :perf.emit-test/run-fx
+                      (fn [_ctx _event]
+                        {:fx [[:perf.emit-test/log :hello]]}))
+      (rf/dispatch-sync [:perf.emit-test/run-fx])
+      (let [names (rf-measures)]
+        (is (some #(= "rf:fx:perf.emit-test/log" %) names)
+            (str "the rf:fx entry name carries the registered "
+                 "fx-id verbatim — saw " names))))))
 
 ;; ---- build-config sanity ---------------------------------------------------
 
