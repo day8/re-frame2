@@ -1,60 +1,27 @@
 (ns re-frame.adapter.uix-evicted-shared-child-dom-cljs-test
-  "TWO MOUNTED UIx parents over ONE shared child survive a framework-owned
-  cache eviction still sharing that child.
-
-  ## What this pins that the unit lane cannot
-
-  `re-frame.subs-evicted-input-release-cljs-test` (core, `.cljc`) drives the
-  same seam with a hand-rolled eager-reacquisition holder and asserts the
-  sub-cache ref-count directly. This is the MOUNTED counterpart: two real
-  `use-sub` consumers under the real React-hook spine, so
-  the reacquisition under test is the spine's own `on-committed-disposed`
-  callback rather than a stand-in, and the consequence is read off COMMITTED
-  DOM rather than off a ref-count alone.
-
-  ## The defect
-
-  Both eviction primitives (`rf.subs.cache/invalidate-frame-subs!` and
-  `clear-sub-cache!`) remove the whole condemned batch from the cache atom
-  BEFORE disposing any member of it, and a mounted hook whose reaction is
-  disposed REACQUIRES from inside that walk. So a later member's teardown
-  runs against a cache an earlier member has already repopulated. An
-  address-only input release in `re-frame.subs` would then hit the
-  SUCCESSOR: two parents P1/P2 over one child C would go
-  `{C 2, P1 1, P2 1}` → `{C 1, P1 1, P2 1}`, with P1 left holding the
-  intermediate child that P2's release had disposed, and a third C built for
-  P2.
-
-  So the release goes through `re-frame.subs/unsubscribe-if-reaction`,
-  carrying the reaction the build actually acquired."
+  "Two mounted parents retain their shared input across cache eviction and release it on unmount."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
-            [uix.core :as uix :refer-macros [defui $]]
+            [uix.core :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]))
 
-;; `:async? true`: the assertions cross the spine's provisional horizon.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter :async? true}))
 
 (def ^:private ec-frame :rf.uix-evicted-shared-child/frame)
 
-(def ^:private observed-a (atom []))
-(def ^:private observed-b (atom []))
-
 (defui ParentA []
   (let [v (rf.adapter.uix/use-sub [::p1] {:frame ec-frame})]
-    (swap! observed-a conj v)
     ($ :div {:id "ec-a"} (str "a=" v))))
 
 (defui ParentB []
   (let [v (rf.adapter.uix/use-sub [::p2] {:frame ec-frame})]
-    (swap! observed-b conj v)
     ($ :div {:id "ec-b"} (str "b=" v))))
 
 (defui BothParents []
@@ -70,10 +37,7 @@
   (when (exists? (.-act React)) (.-act React)))
 
 (def ^:private horizon-settle-ms
-  "Comfortably past the spine's provisional reap horizon
-  (`rf.substrate.spine/provisional-horizon-ms`, 4 ms): these
-  assertions read the state the reaper LEFT, so a settle that races it proves
-  nothing."
+  "Wait past the provisional reap horizon before reading the resulting references."
   24)
 
 (defn- settle! [k] (js/setTimeout k horizon-settle-ms))
@@ -92,8 +56,6 @@
           (is true "act() not reachable from this runner; skipping")
           (async done
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (reset! observed-a [])
-            (reset! observed-b [])
             (rf/make-frame {:id  ec-frame
                             :doc "two-parent / shared-child probe frame"})
             (rf/reg-event ::seed (fn [_ctx _e] {:db {:n 1}}))
@@ -111,10 +73,6 @@
                   (is (= [2 "a=10b=100"] [(ref-count-of [::child]) (.-textContent mount-node)])
                       "baseline: both parents committed, and the shared child carries one ref per parent")
 
-                  ;; THE FRAMEWORK-OWNED EVICTION. Every slot leaves the cache
-                  ;; before any of them is disposed, so the second parent's
-                  ;; teardown runs against a cache the first parent's eager
-                  ;; reacquisition has already repopulated.
                   (act-fn (fn [] (rf.subs.cache/clear-sub-cache! ec-frame)))
 
                   (settle!
@@ -122,8 +80,6 @@
                       (is (= [2 1 1] (mapv ref-count-of [[::child] [::p1] [::p2]]))
                           "[child p1 p2] ref-counts: the shared child keeps both refs across the eviction (an address-only release reads 1, having disposed the successor), and each parent holds its rebuilt reaction once")
 
-                      ;; The point of the ref-count: a parent left holding the
-                      ;; disposed intermediate child stops re-committing.
                       (act-fn (fn [] (rf/dispatch-sync [::inc] {:frame ec-frame})))
                       (settle!
                         (fn []
