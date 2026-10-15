@@ -40,10 +40,11 @@
                                      :facade? true))))))))
 
 (deftest build-manifest-throws-on-implementation-facade-row
-  (is (= [capture-frame]
-         (:implementation-facade
-           (refusal (assoc-in (rf.api-manifest.gen/read-sidecar)
-                              [:classification capture-frame :tier] :implementation))))))
+  (let [sidecar (-> (rf.api-manifest.gen/read-sidecar)
+                    (assoc-in [:classification capture-frame :tier] :implementation)
+                    (assoc-in [:classification ["re-frame.core" "dispatch"] :tier] :internal-public))]
+    (is (= [capture-frame]
+           (:implementation-facade (refusal sidecar))))))
 
 (deftest unjustified-facade-rows-treats-blank-as-missing
   (is (= [["re-frame.core" "blank"] ["re-frame.core" "not-a-string"]]
