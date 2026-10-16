@@ -81,6 +81,29 @@
                         [:actor-id :output :error? :rf.reply/status :rf.reply/work-status
                          :rf.reply/work-kind :rf.reply/work-id :rf.reply/completed-at])))))
 
+(deftest fixed-id-spawn-mints-one-work-id-per-attempt
+  ;; A `:fixed-actor-id` names the same address on every attempt, so the
+  ;; spawn's attempt is the generation that keeps two attempts' work ids apart.
+  (rf/reg-machine :rl/uploader
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/uparent
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:spawn {:machine-id     :rl/uploader
+                                 :fixed-actor-id :rl/the-uploader
+                                 :on-done        :idle}}}})
+  (dotimes [_ 2]
+    (rf/dispatch-sync [:rl/uparent [:go]])
+    (rf/dispatch-sync [:rl/the-uploader [:finish]]))
+  (is (= :idle (:state (snapshot :rl/uparent))) "each attempt completed back to :idle")
+  (is (= [[:rf.work/machine :rl/the-uploader [:loading] 1]
+          [:rf.work/machine :rl/the-uploader [:loading] 2]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))
+      "two attempts at one fixed address carry two work ids"))
+
 (deftest spawned-error-drives-on-error-transition
   (rf/reg-machine :rl/echild
     {:initial :running
