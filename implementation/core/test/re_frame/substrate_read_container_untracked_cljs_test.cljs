@@ -24,9 +24,9 @@
 
   Also pinned: a declared input still re-runs the reader; outside any
   reactive context the read is plain, leaving a never-run Reaction watching
-  nothing exactly as `read-container` does; and under a non-capturing adapter
-  the reader answers `read-container`'s value through the routed hook's
-  no-opinion sentinel.
+  nothing exactly as `read-container` does; and under a non-capturing adapter,
+  whose map carries no `:read-container-untracked`, the reader answers
+  `read-container`'s value.
 
   The container throughout is a non-auto-run Reaction kept live by a watch —
   the shape of a frame's runtime-db projection.
@@ -60,8 +60,9 @@
 
 (defn- with-adapter
   "Cold-start `adapter`, run `body-fn`, then tear the lifecycle back down so
-  the next scenario starts from a never-installed state. The routed hook
-  answers for the INSTALLED adapter, so every scenario needs one seated."
+  the next scenario starts from a never-installed state. The
+  `:adapter/read-container-untracked` slot holds the INSTALLED adapter's
+  capability, so every scenario needs one seated."
   [adapter body-fn]
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (reset! rf.frame/frames {})
@@ -274,8 +275,8 @@
 ;; ---- a non-capturing adapter ----------------------------------------------
 
 (deftest non-capturing-adapter-reads-through-read-container
-  ;; Under plain-atom the routed hook has no opinion, and the reader answers
-  ;; read-container's value for base and derived containers.
+  ;; Plain-atom's map carries no `:read-container-untracked`, so the reader
+  ;; answers read-container's value for base and derived containers.
   (with-adapter rf.substrate.plain-atom/adapter
     (fn []
       (let [base    (rf.substrate.adapter/make-state-container {:n 1})

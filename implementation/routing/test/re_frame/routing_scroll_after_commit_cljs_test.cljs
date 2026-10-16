@@ -96,12 +96,11 @@
               "#install was scrolled into view once, and the page never fell back to the top"))))))
 
 (deftest with-no-adapter-installed-the-page-moves-at-once
-  (testing "loading an adapter publishes its ROUTED hook, which
-            with no adapter installed falls back to a no-op that never calls
-            the callback. That is a hookless host, so the scroll runs at once
-            rather than being dropped"
+  (testing "destroying the adapter clears its `:adapter/after-render`
+            hook. That is a hookless host, so the scroll runs at once rather
+            than being dropped"
     (is (some? (rf.late-bind/get-fn :adapter/after-render))
-        "precondition: the routed hook is published")
+        "precondition: the installed adapter's hook is published")
     (rf.substrate.adapter/dispose-adapter!)
     (let [calls (count-dom-calls!)]
       (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}

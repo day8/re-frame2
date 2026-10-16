@@ -150,12 +150,9 @@
             [re-frame.core-call-site-macros  :as rf.core-call-site-macros]
             [re-frame.core-reg-view-macro    :as rf.core-reg-view-macro]
             ;; NOTE: re-frame.substrate.plain-atom is deliberately NOT
-            ;; required here. It carries no ns-load side-effect that core
-            ;; needs — its only load-time effect is the CLJS
-            ;; `:adapter/add-on-dispose!` / `:adapter/dispose!` route-hook!
-            ;; block, which is keyed on the adapter being the
-            ;; `(rf/init! ...)`-installed one and so is inert unless a
-            ;; consumer installs plain-atom. `rf/init!` takes the adapter
+            ;; required here. It has no ns-load side-effect — its
+            ;; capabilities are published only when a consumer installs
+            ;; its map. `rf/init!` takes the adapter
             ;; map directly (no default-adapter registry), so consumers
             ;; that want the plain-atom path require the ns themselves and
             ;; pass `plain-atom/adapter` — eagerly pulling it into the
@@ -2955,7 +2952,7 @@
   §Adapter selection at boot.
 
   IDEMPOTENT FOR THE SEATED ADAPTER, NOT FOR ANY ADAPTER. Re-calling
-  `init!` with the adapter already seated is a no-op.
+  `init!` with the adapter already seated does not reinstall it.
   Calling it with a DIFFERENT adapter raises
   `:rf.error/adapter-already-installed` and leaves the seated adapter
   untouched — swapping substrates means `(rf/destroy-adapter!)` first.
@@ -2966,7 +2963,9 @@
   plain `def`, so a reload re-evaluates the map with fresh fn identities
   and a `^:dev/after-load` boot re-calls `init!` with a structurally
   fresh map — but a canonical `:rf.adapter/*` kind is a stable token that
-  survives the re-evaluation, so the re-call stays the no-op it was. A
+  survives the re-evaluation, so the re-call keeps the seated generation and
+  publishes the fresh map's capabilities over it (`refresh-capabilities!`):
+  the reloaded hooks answer, the live containers and roots stay put. A
   CUSTOM adapter with no canonical kind falls back to object identity,
   so re-evaluating its Var on reload and re-calling `init!` DOES raise:
   hold such an adapter in a `defonce`, or call `destroy-adapter!` in the
@@ -2991,22 +2990,24 @@
       ;; `(rf/init! reagent/adapter)` followed by `(rf/init! uix/adapter)`
       ;; return nil, leave Reagent seated and say nothing, the shape
       ;; Conventions §No silent swallow forbids: a recognised input the
-      ;; runtime cannot honour MUST signal. It asks with `same-adapter?` —
-      ;; the same stable-token predicate hook routing uses. Nothing seated →
-      ;; install. Seated and the same → the idempotent no-op. Seated and
-      ;; DIFFERENT → `install-adapter!` throws
-      ;; `:rf.error/adapter-already-installed`, and the throw stays in the
-      ;; owning ns rather than being duplicated here.
+      ;; runtime cannot honour MUST signal. It asks with `same-adapter?`, the
+      ;; stable-token predicate. Nothing seated → install. Seated and DIFFERENT
+      ;; → `install-adapter!` throws `:rf.error/adapter-already-installed`,
+      ;; and the throw stays in the owning ns rather than being duplicated
+      ;; here. Seated and the same → no reinstall.
       ;;
       ;; `same-adapter?` rather than `=` / `identical?` is what keeps hot
       ;; reload working: every adapter Var is a plain `def`, so a reload
       ;; re-evaluates the map with fresh fn identities, and `init!` call
       ;; sites commonly fire from a `^:dev/after-load` fn. A
       ;; canonical `:rf.adapter/*` kind survives that re-evaluation as a
-      ;; stable token, so the re-call stays a no-op.
-      (when-not (rf.substrate.adapter/same-adapter?
-                  adapter-map
-                  (rf.substrate.adapter/current-adapter))
+      ;; stable token, so the re-call does not reinstall — and
+      ;; `refresh-capabilities!` publishes the re-evaluated map's
+      ;; capabilities, so the reloaded code is what answers next.
+      (if (rf.substrate.adapter/same-adapter?
+            adapter-map
+            (rf.substrate.adapter/current-adapter))
+        (rf.substrate.adapter/refresh-capabilities! adapter-map)
         (rf.substrate.adapter/install-adapter! adapter-map))
       ;; EP-0022: re-seed the framework-standard interceptors
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's

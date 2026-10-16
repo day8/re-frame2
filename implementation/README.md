@@ -74,7 +74,7 @@ implementation/
         context.cljs         The shared React frame Context object every React-shaped
                              adapter consumes (rf2-3yij Decision 2).
       substrate/
-        adapter.cljc         The ten-fn adapter contract (6 required + 3 optional + 1 lifecycle).
+        adapter.cljc         The adapter contract: delegation, install/teardown, capability publication.
         plain_atom.cljc      Plain-atom adapter (JVM, SSR, headless).
       core.cljc              Public API surface (re-frame.core).
     test/re_frame/           JVM tests + the substrate-agnostic CLJS tests

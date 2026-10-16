@@ -10,8 +10,9 @@
   `:view` slot this ns did not build is handed back untouched, even over a
   stale cache entry for the same id.
 
-  The adapters are inert `:custom` maps whose `:adapter/componentize-view`
-  impls are routed through the real `route-hook!`; nothing mounts."
+  The adapters are inert `:custom` maps carrying their own
+  `:componentize-view` capability, published by the real `install-adapter!`;
+  nothing mounts."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
@@ -19,10 +20,6 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views :as rf.views]))
-
-;; `:kind :custom` routes by object identity, so these are two substrates.
-(def ^:private adapter-a1 {:kind :custom :rf.test/substrate :a1})
-(def ^:private adapter-a2 {:kind :custom :rf.test/substrate :a2})
 
 (def ^:private marker-prop "rf2Oz7wrShellMarker")
 
@@ -32,22 +29,19 @@
   (when (some? x) (gobj/get x marker-prop)))
 
 (defn- make-componentize-view
-  "A forwarding-shell `:adapter/componentize-view` impl, stamped with
-  `marker` so a returned head names the substrate that produced it."
+  "A forwarding-shell `:componentize-view` capability, stamped with `marker`
+  so a returned head names the substrate that produced it."
   [marker]
   (fn componentize-view [_id _metadata wrapped]
     (let [shell (fn view-component [& args] (apply wrapped args))]
       (gobj/set shell marker-prop marker)
       shell)))
 
-;; Routed rather than `set-fn!`'d: each impl fires only while its own map is
-;; the installed adapter, so it stays inert for the rest of the node bundle.
-(defonce ^:private routed-componentize-hooks
-  (do (rf.substrate.adapter/route-hook! adapter-a1 :adapter/componentize-view
-                           (make-componentize-view :a1))
-      (rf.substrate.adapter/route-hook! adapter-a2 :adapter/componentize-view
-                           (make-componentize-view :a2))
-      true))
+;; `:kind :custom` matches by object identity, so these are two substrates.
+(def ^:private adapter-a1
+  {:kind :custom :rf.test/substrate :a1 :componentize-view (make-componentize-view :a1)})
+(def ^:private adapter-a2
+  {:kind :custom :rf.test/substrate :a2 :componentize-view (make-componentize-view :a2)})
 
 (defn- render-fn [& _args] [:div "row"])
 

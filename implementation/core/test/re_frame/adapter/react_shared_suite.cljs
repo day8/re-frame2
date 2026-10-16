@@ -35,7 +35,7 @@
   (`:render-element`, the probe vars, observation atoms, frame keywords),
   while the orchestration + every assertion lives here as one source:
 
-    - after-render: ns-load smoke (node-safe) + mount/schedule/drain
+    - after-render: install smoke (node-safe) + mount/schedule/drain
       act-driven behaviour
     - use-sub: useSyncExternalStore post-dispatch values,
       frame-provider 1-arg resolution, 2-arg explicit-frame
@@ -138,11 +138,12 @@
           "the emitter slot was cleared by dispose-adapter!"))))
 
 (defn assert-dispose-walk-best-effort
-  "MUST (1) best-effort: a throwing per-entry dispose does NOT abort the
-  rest of the walk. The behaviour is spine-shared, so it is pinned on the
-  React adapters as well as on Reagent: a spine refactor that drops the
-  per-entry try/catch is caught on every substrate."
-  [{:keys [adapter substrate-kw name]}]
+  "Teardown's sub-cache walk is best-effort: a throwing per-entry dispose
+  does NOT abort the rest of the walk. The walk is core's teardown step and
+  disposes through the departing map's `:dispose!`, so it is pinned on the
+  React adapters as well as on Reagent: a refactor that drops the per-entry
+  try/catch is caught on every substrate."
+  [{:keys [substrate-kw name]}]
   (testing (str name " — MUST (1) best-effort: a throwing entry does not abort the walk")
     (let [fid-a (mint-kw substrate-kw "best-effort-a")
           fid-b (mint-kw substrate-kw "best-effort-b")]
@@ -159,7 +160,7 @@
         ;; Inject a poison entry into fid-a's sub-cache whose dispose
         ;; throws (a bare object with no IDisposable impl). The walk's
         ;; per-entry try must CAPTURE the throw and still drain the rest
-        ;; of fid-a AND fid-b — then rethrow it once the drain is done
+        ;; of fid-a AND fid-b — then rethrow it once teardown is done
         ;; (Spec 006 §Adapter disposal lifecycle).
         (let [cache-a      (:sub-cache (rf.frame/frame fid-a))
               poison-entry {:reaction (js-obj "not" "a reaction")}]
@@ -168,7 +169,7 @@
                 disposed  (atom #{})]
             (doseq [r reactions]
               (rf.disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
-            (let [thrown (try ((:dispose-adapter! adapter))
+            (let [thrown (try (rf/destroy-adapter!)
                               ::returned-normally
                               (catch :default e e))]
               (is (not= ::returned-normally thrown)
@@ -371,7 +372,7 @@
   "Corruption-detection + recovery for a non-keyword `_currentValue` on
   the shared frame-context. The corruption path lives
   in `re-frame.adapter.context/function-component-current-frame`, which
-  both React adapters wire into their `:adapter/current-frame` slot.
+  both React adapters carry as their `:current-frame` capability.
 
   The corruption recovery is `:no-frame-context` (EP-0002)
   — `function-component-current-frame` returns **nil** (NOT a synthesised
@@ -418,20 +419,19 @@
             (is (= 1 (count errs)) "one error trace per corrupted read")
             (is (= :number (-> errs first :tags :type)))
             (is (= 42 (-> errs first :tags :received)) ":tags :received echoes the offending value")))
-        (testing "routed read via rf/current-frame-id raises no-frame-context"
+        (testing "ambient read via rf/current-frame-id raises no-frame-context"
           (reset! traces [])
           (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
-          ;; The adapter-routed reader resolves to nil; the public
+          ;; The installed adapter's reader resolves to nil; the public
           ;; `current-frame-id` REQUIRES a frame, so it raises
           ;; :rf.error/no-frame-context rather than synthesising a default.
           (is (thrown-with-msg? :default #":rf.error/no-frame-context"
                 (rf/current-frame-id))
-              "adapter-routed public read raises no-frame-context on a corrupted boundary")
+              "the public read raises no-frame-context on a corrupted boundary")
           (let [errs (corruption-traces traces)]
             ;; The public `current-frame-id` resolves
-            ;; through the `:adapter/current-frame` routed-hook chain. In the
-            ;; multi-adapter node-test build (Reagent + UIx all loaded)
-            ;; that ambient resolution can read `_currentValue` more than once,
+            ;; through the `:adapter/current-frame` slot, and that ambient
+            ;; resolution can read `_currentValue` more than once,
             ;; so a corrupted boundary fires the structured diagnostic at least
             ;; once (not exactly once — that exact-count contract holds only
             ;; for the DIRECT `function-component-current-frame` calls above).
@@ -439,7 +439,7 @@
             ;; (distinctly from ordinary 'no scope') AND the public read fails
             ;; closed with `:rf.error/no-frame-context` (asserted above).
             (is (pos? (count errs))
-                "frame-context-corrupted error fired through the adapter-routed path")
+                "frame-context-corrupted error fired through the public read")
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type distinguishes empty-string from a populated string")))
         (finally
@@ -617,31 +617,27 @@
           (hook-fn nil))))))
 
 ;; ===========================================================================
-;; copied / wrapped adapter map routes to LIVE hooks
+;; copied / wrapped adapter map drives LIVE hooks
 ;;
-;; `route-hook!` must dispatch each adapter's late-bind hook by STABLE TOKEN
-;; (the canonical `:rf.adapter/*` `:kind`), NOT raw object identity — so a
-;; user (or the adapter-swap pattern) that copies / wraps a
-;; canonical adapter map for instrumentation or local overrides STILL drives
-;; the live routed hooks. An identity guard would serve stale (inert)
-;; hooks for a copied map: `(rf/view id)` under a copied UIx map would
-;; lose its `:adapter/wrap-view` source-coord/view-id stamping (the hook would
-;; fall through to the `(constantly nil)` chain bottom, and the inline hiccup
-;; walk cannot annotate a React element). This pins the substrate-observable
+;; `install-adapter!` publishes the capabilities the installed map carries,
+;; so a user (or the adapter-swap pattern) that copies / wraps a canonical
+;; adapter map for instrumentation or local overrides STILL drives the live
+;; hooks. Were they lost, `(rf/view id)` under a copied UIx map would lose its
+;; `:adapter/wrap-view` source-coord/view-id stamping (the inline hiccup walk
+;; cannot annotate a React element). This pins the substrate-observable
 ;; behaviour.
 ;; ===========================================================================
 
-(defn assert-copied-adapter-map-routes-to-live-hooks
+(defn assert-copied-adapter-map-drives-live-hooks
   "Dispose the installed canonical adapter, install a COPY of it
   (an `assoc`'d instrumentation wrapper — distinct identity, same canonical
-  `:kind`), and prove the routed `:adapter/wrap-view` hook STILL fires its
+  `:kind`), and prove the `:adapter/wrap-view` hook STILL fires its
   live impl: `((rf/view id))` on a DOM-tag root stamps both
-  `data-rf2-source-coord` and `data-rf-view`. An object-identity guard
-  would reject the copy, the hook would return nil, and the React-element
-  root would carry NEITHER attribute. Restores the original
+  `data-rf2-source-coord` and `data-rf-view`. Without the hook the
+  React-element root would carry NEITHER attribute. Restores the original
   adapter so the fixture teardown lands clean."
   [{:keys [adapter substrate-kw name]}]
-  (testing (str name " — copied adapter map still routes to live :adapter/wrap-view")
+  (testing (str name " — copied adapter map still drives the live :adapter/wrap-view")
     (let [original (rf.substrate.adapter/current-adapter)
           ;; The copy carries an instrumentation marker — exactly the
           ;; "wrap a canonical adapter map" shape — with a DIFFERENT object
@@ -651,11 +647,9 @@
         (rf.substrate.adapter/dispose-adapter!)
         (rf.substrate.adapter/install-adapter! copied)
         (is (false? (identical? adapter (rf.substrate.adapter/current-adapter)))
-            "precondition: the installed copy is NOT identical to the routed canonical map")
+            "precondition: the installed copy is NOT identical to the canonical map")
         (is (= (:kind adapter) (:kind (rf.substrate.adapter/current-adapter)))
             "precondition: the copy preserves the canonical :kind token")
-        ;; The routed late-bind hook itself reports the copy as the active
-        ;; adapter (the closure consults same-adapter?, not identity).
         (let [id      (mint-kw substrate-kw "copied-map-wrap-view")
               user-fn (fn [] (React/createElement "span" #js {} "hi"))]
           (rf/reg-view* id user-fn)
@@ -663,7 +657,7 @@
             (is (= "span" (.-type out)) "root element type preserved")
             (is (string? (source-coord out))
                 (str "data-rf2-source-coord STILL stamped under the copied " name
-                     " adapter map — the routed :adapter/wrap-view hook fired its"
+                     " adapter map — the published :adapter/wrap-view hook fired its"
                      " live impl despite the copy's distinct identity"))
             (is (= (str id) (view-attr out))
                 "data-rf-view STILL stamped under the copied adapter map")))
@@ -674,7 +668,7 @@
           (rf.substrate.adapter/install-adapter! original))))))
 
 ;; ===========================================================================
-;; with-frame through the spine-routed current-frame read
+;; with-frame through the spine's current-frame read
 ;; ===========================================================================
 
 (defn assert-with-frame-binds-current-frame
@@ -1360,12 +1354,11 @@
 
 (defn assert-adapter-map-satisfies-nine-fn-contract
   "The adapter map carries the substrate's :kind discriminator
-  (`:rf.adapter/<substrate-kw>`, e.g. :rf.adapter/uix — mixed-substrate
-  routing keys off this) and the nine map-shape fns enumerated below —
+  (`:rf.adapter/<substrate-kw>`, e.g. :rf.adapter/uix — `same-adapter?`
+  keys off this) and the nine map-shape fns enumerated below —
   the six required plus subscribe-container / register-context-provider /
-  dispose-adapter! (Spec 006 §CLJS reference). flush-render!, the tenth
-  entry of the closed ten-fn contract, is the optional fn this map-shape
-  check omits. make-react-adapter assembles this; dropping one of these
+  dispose-adapter! (Spec 006 §CLJS reference). flush-render!, an optional
+  contract fn, is the one this map-shape check omits. make-react-adapter assembles this; dropping one of these
   fns or mis-tagging :kind trips here. The expected kind is derived from
   the cfg `:substrate-kw` so each adapter's exact discriminator is pinned,
   not merely its shape."
@@ -1374,7 +1367,7 @@
     (is (map? adapter) "adapter is a map")
     (is (= (keyword "rf.adapter" (clojure.core/name substrate-kw)) (:kind adapter))
         (str "kind discriminator is :rf.adapter/" (clojure.core/name substrate-kw)
-             " (mixed-substrate routing keys off this)"))
+             " (same-adapter? keys off this)"))
     (doseq [k [:make-state-container :read-container :replace-container!
                :subscribe-container :make-derived-value :render
                :render-to-string :register-context-provider :dispose-adapter!]]
@@ -1557,7 +1550,7 @@
 ;; gap on one substrate is a gap on all by construction.
 ;;
 ;; These functions self-gate on `(browser?)`; under :node-test they no-op
-;; cleanly (the entry files still load — the after-render ns-load smoke
+;; cleanly (the entry files still load — the after-render install smoke
 ;; runs there). The real assertions run under :browser-test.
 ;; ===========================================================================
 
@@ -1668,15 +1661,15 @@
 
 (defn assert-after-render-hook-wired
   "`rf.interop/after-render` does not silent-no-op under the
-  React adapter — the hook is wired at ns-load and returns nil (the
+  React adapter — the hook is published at install and returns nil (the
   documented swallow shape) rather than falling through to nil because no
   adapter published it. Node-safe (no DOM): runs under :node-test too."
   [{:keys [name]}]
-  (testing (str name " — after-render hook wired at ns-load")
+  (testing (str name " — after-render hook published at install")
     (is (nil? (rf.interop/after-render (fn [] :ok)))
         "rf.interop/after-render under the adapter returns nil — the
-         spine-built hook is wired through :adapter/after-render via
-         rf.substrate.adapter/route-hook!")))
+         spine-built hook is the installed map's :after-render, published
+         into :adapter/after-render by install-adapter!")))
 
 (defn assert-after-render-runs-after-commit
   "`(rf.interop/after-render f)` schedules `f` to run after the

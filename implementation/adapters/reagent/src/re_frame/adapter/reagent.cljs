@@ -32,15 +32,15 @@
 ;; callback can register, so on the first disposal — whichever side
 ;; initiates it, the adapter's disposers or a stock-internal auto-dispose —
 ;; the marker runs before every later callback: it stamps the terminal
-;; disposed marker (so a re-entry through the routed `dispose!` mid-firing
+;; disposed marker (so a re-entry through the published `dispose!` mid-firing
 ;; sees it) and nils both callback holders. Stock `dispose!` captures
 ;; `on-dispose-arr` into a local before iterating, so the first firing
 ;; still completes in registration order; any LATER `dispose!` — including
 ;; a stock-internal auto-dispose the adapter never sees — finds empty
 ;; holders and re-fires nothing. `dispose-once!` is the single disposal
-;; boundary both the claimed-generation disposer (`make-ratom-spine`'s
-;; `:dispose!`) and the routed `:adapter/dispose!` hook delegate through:
-;; it consults the same marker and no-ops outright on a marked Reaction.
+;; boundary the map's `:dispose!` capability delegates through — the one
+;; `re-frame.interop/dispose!` reaches, during core's teardown as at any other
+;; time: it consults the same marker and no-ops outright on a marked Reaction.
 ;;
 ;; A registration made AFTER disposal revives the Reaction:
 ;; `add-on-dispose-reviving!` clears the marker and arms the guard again
@@ -88,8 +88,8 @@
 (defn- make-guarded-reaction
   "Stock `ratom/make-reaction` plus the exactly-once disposal guard. The
   construction path for every adapter-created Reaction: the spine's
-  `make-derived-value` (sub-cache reactions) and the routed
-  `:adapter/make-reaction` hook (`re-frame.interop/make-reaction`)."
+  `make-derived-value` (sub-cache reactions) and the map's `:make-reaction`
+  capability (`re-frame.interop/make-reaction`)."
   [thunk]
   (install-dispose-guard! (ratom/make-reaction thunk)))
 
@@ -138,19 +138,15 @@
      ;; Var value at load time would freeze the original impls past any
      ;; `with-redefs` rebind). Runtime behaviour is identical.
      :r-atom        (fn [v] (r/atom v))
-     ;; Guarded ctor/disposer pair: every Reaction this spine
-     ;; creates carries the exactly-once disposal marker, and this
-     ;; generation's claimed disposer consults it — see the section above.
+     ;; Guarded ctor: every Reaction this spine creates carries the
+     ;; exactly-once disposal marker the map's `:dispose!` consults — see the
+     ;; section above.
      :make-reaction (fn [thunk] (make-guarded-reaction thunk))
      :create-root   (fn [mount-point] (rdc/create-root mount-point))
      :render-root   (fn [root tree] (rdc/render root tree))
      :hydrate-root  (fn [mount-point tree root-options]
                       (hydrate-root mount-point tree root-options))
      :unmount-root  (fn [root] (rdc/unmount root))
-     ;; Cleanup owns this exact substrate dispatch even after the process
-     ;; lifecycle's terminal claim closes every public routed hook.
-     :disposable?   (fn [a] (satisfies? ratom/IDisposable a))
-     :dispose!      (fn [reaction] (dispose-once! reaction))
      ;; Drain Reagent synchronously after `f`; unlike its normal next-tick path,
      ;; this works in backgrounded and headless tabs.
      :flush-render! (fn [f] (f) (r/flush))}))
@@ -252,10 +248,10 @@
      :current-component r/current-component
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
-     ;; Guarded ctor/disposer pair: the routed
-     ;; `:adapter/make-reaction` / `:adapter/dispose!` hooks share the
-     ;; exactly-once disposal marker with the claimed-generation disposer
-     ;; above — one coherent disposal owner per adapter generation.
+     ;; Guarded ctor/disposer pair: the `:make-reaction` / `:dispose!`
+     ;; capabilities share the exactly-once disposal marker with the
+     ;; spine's `make-derived-value` above — one coherent disposal owner per
+     ;; adapter generation.
      :make-reaction     make-guarded-reaction
      ;; The `deref-capture` run a stock `Reaction` needs. It learns
      ;; its sources ONLY by being run through `deref-capture`; `ratom/run`

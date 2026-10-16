@@ -78,11 +78,11 @@
    {:test 'render-rejects-cljs-data-render-tree
     :fn   'assert-render-rejects-cljs-data-render-tree}
 
-   {:section "copied / wrapped adapter map routes to live hooks"}
-   {:test 'copied-adapter-map-routes-to-live-hooks
-    :fn   'assert-copied-adapter-map-routes-to-live-hooks}
+   {:section "copied / wrapped adapter map drives live hooks"}
+   {:test 'copied-adapter-map-drives-live-hooks
+    :fn   'assert-copied-adapter-map-drives-live-hooks}
 
-   {:section "with-frame through the spine-routed current-frame read"}
+   {:section "with-frame through the spine's current-frame read"}
    {:test 'runtime-with-frame
     :fn   'assert-with-frame-binds-current-frame}
 
