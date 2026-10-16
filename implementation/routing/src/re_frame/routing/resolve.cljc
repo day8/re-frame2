@@ -36,7 +36,7 @@
       `:url`, and the URL argument of the `:rf.route/handle-url-change` event.
     - `project-nav-event-arg` — the first argument of a routing navigation
       event projected the same way: that URL, or the request map of
-      `:rf.route/navigate` / `:rf.route/url-requested`.
+      `:rf.route/navigate`.
 
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
@@ -56,8 +56,9 @@
 
 (def causes
   "The closed set of navigation CAUSES a route plan may carry (Spec 012
-  §Resolved target and the plan diagnostic projection): a `route-link` click
-  (`:link`), programmatic `:rf.route/navigate` (`:navigate`), Back / Forward
+  §Resolved target and the plan diagnostic projection): a link click whose URL
+  a host pushed before dispatching (`:link`), `:rf.route/navigate`, which a
+  `route-link` click dispatches too (`:navigate`), Back / Forward
   (`:popstate`), initial load (`:initial`), and SSR (`:ssr`). Doors differ in
   cause and history / scroll policy, not in target / entry / resource
   semantics."
@@ -508,10 +509,9 @@
 
 ;; ---- a navigation request, projected by its route's declaration -----------
 ;;
-;; `[:rf.route/navigate {request}]` and `[:rf.route/url-requested {request}]`
-;; carry the same values in a request map: a `:url` string, or the `:params` /
-;; `:query` / `:fragment` of a destination request, keyed as the `:to` route's
-;; declaration names them. The `:url` is projected by `redact-declared-url`;
+;; `[:rf.route/navigate {request}]` carries the route's values in a request
+;; map: a `:url` string, or the `:params` / `:query` / `:fragment` of a
+;; destination request, keyed as the `:to` route's declaration names them. The `:url` is projected by `redact-declared-url`;
 ;; each declared param, query value and fragment of a `:to` request is replaced
 ;; by the `:rf/redacted` sentinel, read off the same declaration. `:to`, the
 ;; policy keys and everything the route does not declare ride as they are. An
@@ -552,8 +552,8 @@
   "Project the first argument of a routing navigation event for egress by the
   `:sensitive` declaration of the route it names: the URL of
   `[:rf.route/handle-url-change url …]` (`redact-declared-url`), and the
-  request map of `[:rf.route/navigate {request}]` /
-  `[:rf.route/url-requested {request}]` (see the section comment above).
+  request map of `[:rf.route/navigate {request}]` (see the section comment
+  above).
   Anything else rides unchanged, and so does an argument nothing in which is
   declared — the same object. Published as the
   `:routing/project-url-change-event-args` hook."

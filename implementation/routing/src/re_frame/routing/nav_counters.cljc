@@ -84,8 +84,8 @@
 
   Navigation arrives
   through many internal re-dispatch paths (popstate → `handle-url-change`,
-  link-click → `:rf.route/url-requested` → `:rf.route/handle-url-change`, the resume
-  chain `:rf.route/continue` → `:rf.route/url-requested`), each a fresh causal
+  link-click → `:rf.route/navigate`, the resume chain `:rf.route/continue` →
+  `:rf.route/navigate`), each a fresh causal
   token whose `:rf.cofx` is not inherited. Which candidate is published also
   depends on the guard result computed inside the handler. A provided fact
   would have to be stamped at every entry point before that branch is known.
