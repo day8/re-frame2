@@ -2074,68 +2074,20 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
-;; There is no head-mismatch `*Tags` schema and no `:rf.warning/head-mismatch`
-;; category. A head mismatch rides `:rf.ssr/hydration-mismatch`, discriminated
-;; by `:failing-id` `:rf.ssr/head-mismatch` — a VALUE on that row, not a
-;; category of its own.
-;;
-;; A head mismatch reaches the trace through `verify-hydration!` —
-;; host-attributed, with runtime attribution a post-v1 follow-on, per
-;; [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) — so its
-;; `:tags` are the hiccup arm of `HydrationMismatchTags` below, and no `:head-id`
-;; reaches either path: `verify-hydration!` accepts only
-;; `:first-diff-path` / `:failing-id` / `:server-hash`. The head's own shipped
-;; channel, `:rf/head-hash` (plus the `data-rf-head-hash` wire attribute), is a
-;; HYDRATION-PAYLOAD channel, not a trace one — it never rides `:tags`, so it
-;; needs no `*Tags` schema at all.
-
 (def HydrationMismatchTags
-  ;; TWO DISJOINT ARMS UNDER ONE CATEGORY. `:rf.ssr/hydration-mismatch` is the
-  ;; one row in the catalogue whose two-tier split runs INSIDE the category
-  ;; rather than between rows (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue),
-  ;; the `:op-type` note), and the two tiers share no payload key but `:where`.
-  ;; A single `[:map …]` cannot model that: declaring the hashes required makes
-  ;; every real adoption-tier event invalid, and declaring them optional would
-  ;; admit a tagless map that neither tier ever emits. So the schema is a
-  ;; two-arm `:or`, and no emitted event satisfies both arms.
-  ;;
-  ;; HICCUP TIER — `re-frame.ssr.hydrate/verify-hydration!` emits through
-  ;; `trace/emit-error!`, so the envelope's own `:op-type` is `:error` and
-  ;; `build-event` merges `{:category :rf.ssr/hydration-mismatch}` into `:tags`.
-  ;; That emit reuses ONE payload with the `:on-mismatch :hard-error` throw,
-  ;; which is why the thrown-shape slot `:rf.error/id` rides `:tags` here too
-  ;; (the same standalone reading `AppSchemaRuntimePathTags` records). The head
-  ;; sub-arm is the SAME shape: it is discriminated by `:failing-id`
-  ;; `:rf.ssr/head-mismatch` and nothing else — `verify-hydration!` accepts only
-  ;; `:first-diff-path` / `:failing-id` / `:server-hash` opts, so no `:head-id`
-  ;; can reach this category's tags (the note directly above).
-  ;;
-  ;; ADOPTION TIER — `re-frame.substrate.spine/native-hydration-reporter` and
+  ;; ONE ARM: the hydrating root's adoption reporter.
+  ;; `re-frame.substrate.spine/native-hydration-reporter` and
   ;; `re-frame.fresco.impl.mount/hydration-reporter` emit through plain
-  ;; `trace/emit!` with a `:warning` envelope. There is therefore NO
-  ;; `[:tags :category]` at all (the category rides the top-level `:operation`),
-  ;; no hash — a React-element root has no structural render-tree to hash — and
-  ;; no `:root-id`, because a React-element root has none. `:error` carries the
-  ;; recoverable error's `.message`, which is `nil` when the error carries none.
-  ;;
-  ;; `:recovery` is stripped and hoisted to the envelope top level on BOTH arms,
-  ;; so neither declares it.
-  [:or
-   ;; hiccup tier — the `:error` envelope
-   [:map
-    [:category        [:= :rf.ssr/hydration-mismatch]]
-    [:rf.error/id     [:= :rf.ssr/hydration-mismatch]]
-    [:where           :symbol]
-    [:server-hash     :any]
-    [:client-hash     :any]
-    [:frame           :keyword]
-    [:failing-id      :keyword]
-    [:reason          :string]
-    [:first-diff-path {:optional true} [:vector :any]]]
-   ;; adoption tier — the `:warning` envelope
-   [:map
-    [:error           [:maybe :string]]
-    [:where           :symbol]]])
+  ;; `trace/emit!` with a `:warning` envelope, so there is NO
+  ;; `[:tags :category]` (the category rides the top-level `:operation`), no
+  ;; hash, and no `:root-id` — a React-element root has none. `:error` carries
+  ;; the recoverable error's `.message`, which is `nil` when the error carries
+  ;; none. `:recovery` is stripped and hoisted to the envelope top level, so
+  ;; the schema does not declare it. There is no head-mismatch category and no
+  ;; head `*Tags` schema: the hydrating root covers the body only.
+  [:map
+   [:error [:maybe :string]]
+   [:where :symbol]])
 
 (def InterceptorsInMetadataMapTags
   [:map
@@ -2874,13 +2826,11 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
 
 (def HydrationMetadata
-  ;; Server-supplied hydration metadata stashed by the :rf/hydrate handler.
-  ;; :server-hash is the carrier `verify-hydration!` reads after first client
-  ;; render to drive :rf.ssr/hydration-mismatch; :version is the runtime version
-  ;; consumed by the :rf.ssr/check-version fx.
+  ;; Server-supplied hydration metadata recorded by the :rf/hydrate handler.
+  ;; :version is the payload's pattern-protocol version, consumed by the
+  ;; :rf.ssr/check-version fx.
   [:map
-   [:server-hash {:optional true} :string]
-   [:version     {:optional true} :int]])
+   [:version {:optional true} :int]])
 
 (def Ssr
   ;; The SSR runtime's hydration metadata sub-container. Allocated lazily —
@@ -2914,7 +2864,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 - **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here); the durable oldest-to-newest creation order over the frame's live spawned actors lives at `[:rf.runtime/machines :spawn-order]` — the sole authority for reverse-creation disposal on frame destroy, since the per-id-prefix `#<n>` suffix cannot order actors of different machine types and is absent on a `:fixed-actor-id`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:route-id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token ([012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the blocking route resources keeping the transition `:loading` per nav-token — keyed on the CEDN-1 byte `key-id` the resource cache is keyed on, so two `=`-equal but byte-distinct identities are two wait points, with **no** promised order) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan and pruned by that artefact's readiness projection as each requirement settles. Routing has **no** settle handler and consults **no** blocking predicate: per [012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection) it seeds `:transition` / `:error` at commit and the Resources artefact reconciles them thereafter. The slot is absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). Its sibling `[:rf.runtime/routing :resource-plan]` (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the **full** set of scoped resource identities the plan for that nav-token owns — blocking and non-blocking alike, byte-keyed and unordered exactly as the blocking slot is) is written by the same plan and read on the *next* full activation to compute the kept/added/removed plan diff for attach-before-release owner handoff (EP-0037 R2, [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans)); a superseded nav-token's slot is cleared when its route owner is released, exactly like the blocking slot. The saved scroll-position LRU is **not** here — it is a host-side transient cache ([012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced (EP-0025) from the **four commit-plane data-classification effects** (durable app-db, `:source :effect`), **subsystem projection-relative declarations** (`reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, lowered per instance), and **flow outputs** (`:source :flow`) — the sources union at egress lookup. They are **not** sourced from a frame `:sensitive {:app-db …}` annotation, an imperative `add-marks` / `set-marks` API, or app-db schema slot props (EP-0025: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
-- **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
+- **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:version`, consumed by `:rf.ssr/check-version`).
 
 **Per-frame isolation** is automatic — each frame owns its own runtime-db; the same machine id, route id, or elision path can exist in multiple frames without collision.
 
@@ -3776,8 +3726,6 @@ Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canon
    [:rf/app-db        :any]                                                ;; serialised app-db PARTITION (authoritative)
    [:rf/runtime-db    {:optional true} :rf/runtime-db]                     ;; serialised SERIALIZABLE runtime-db projection — machine snapshots, route slice, SSR metadata (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event)); the per-frame elision-declaration registry is omitted, and the client rebuilds its own. Carries ONLY durable facts; transient side channels (request/response accumulators, head snapshots, host handles) are excluded. Together with :rf/app-db the two slices install a coherent FRAME-STATE. Absent on a frame that hydrates no framework runtime state.
    [:rf/ssr-rendered-at {:optional true} :int]                             ;; ms-since-epoch the server completed render
-   [:rf/render-hash   {:optional true} :string]                            ;; structural hash of the server-rendered BODY render-tree (body-only), for mismatch detection. The `:rf/hydrate` handler stashes it at `[:rf.runtime/ssr :hydration :server-hash]` for `verify-hydration!` (per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)). Head divergence rides the SEPARATE `:rf/head-hash` channel below.
-   [:rf/head-hash     {:optional true} :string]                            ;; structural hash of the server-rendered CANONICAL HEAD MODEL (the EDN `head-model` returns, NOT emitted `<head>` HTML) — a SEPARATE channel from `:rf/render-hash`. Client-reconstructible via `head-model` against the hydrated state (per [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head)). OMITTED for explicit-`:head`-STRING requests (no reconstructible model — graceful degrade). A host attributes a head-only mismatch as `:rf.ssr/head-mismatch` through the `:failing-id` seam; runtime-side attribution is a post-v1 follow-on.
    [:rf/schema-digest {:optional true} :string]                            ;; hash of the server's registered app-schema set (per [010-Schemas.md](010-Schemas.md))
    ])
 ```

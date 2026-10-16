@@ -973,7 +973,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 (def handler                                          ;; a Ring handler: one frame per request, then torn down
   (ssr-ring/ssr-handler                               ;; re-frame.ssr.ring
     {:initial-events [[:app/server-init]]             ;; the per-request setup, drained before the render
-     :root-view      (fn [] ((rf/view :app/root)))    ;; the resolving form, so :rf/render-hash ships
+     :root-view      (fn [] ((rf/view :app/root)))    ;; resolved per request, after the drain
      :payload        [:auth/user]}))                  ;; allowlist: the only app-db keys the browser sees
 ```
 
@@ -1004,14 +1004,13 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 (defn ^:export run []                                  ;; the client build's :init-fn
   (rf/init! reagent-adapter/adapter)
   (rf/make-frame {:id :rf/default :platform :client})  ;; the client names its own frame; the payload names none
-  (let [payload (ssr/hydrate!                          ;; read __rf_payload, install it, verify the render hash
-                  {:frame :rf/default :render-tree-fn (fn [] ((rf/view :app/root)))})]
+  (let [payload (ssr/hydrate! {:frame :rf/default})]  ;; read __rf_payload, install it before the first render
     (when-not payload                                  ;; nil: nobody server-rendered this page
       (rf/dispatch-sync [:client/bootstrap] {:frame :rf/default}))
     (reagent-adapter/render! app-root
       [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]
       (js/document.getElementById "app")               ;; the shell's app element
-      {:hydrate? (some? payload)})))                   ;; adopt the server's DOM, or mount fresh
+      {:hydrate? (some? payload)})))                   ;; adopt the server's DOM (reporting recoveries), or mount fresh
 ```
 
 **Pattern-level discipline (per [011](011-SSR.md)):**
@@ -1020,7 +1019,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 - The root view is registered (`reg-view`), pure, returns a serialisable render-tree.
 - The render-tree → string emitter is JVM-runnable; no React on the server.
 - The hydration payload is open-map-shaped and conforms to `:rf/hydration-payload`.
-- Mismatch detection runs on first client render; the runtime emits `:rf.ssr/hydration-mismatch` traces on divergence.
+- The hydrating root reports each divergence React recovers from as `:rf.ssr/hydration-mismatch`; an attribute-only divergence shows only as React's development `console.error`.
 
 **AI-first checklist:**
 
@@ -1028,9 +1027,9 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 - `:platforms` gates effects and coeffects, not events: a setup event stays server-only by being dispatched only from `:initial-events`, and each effect or coeffect it reaches includes `:server` in its `:platforms` or omits the key (runs everywhere).
 - The request is read through the `:rf.server/request` coeffect and never stored in app-db; a fact the app keeps, such as the session's user, rides an event's payload.
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
-- Hydration payload is built by `ssr-handler`: integer `:rf/version`, `:rf/app-db` holding only the `:payload` allowlist's keys, `:rf/runtime-db` (route and machine snapshots, when present), `:rf/render-hash` from the resolving `:root-view`, and no `:rf/frame-id` unless `:client-frame-id` names a stable one.
-- The client boots through `ssr/hydrate!`, which reads `__rf_payload`, installs it before the first render and verifies the render hash; the adapter's `render!` with `{:hydrate? true}` then adopts the server's DOM rather than replacing it.
-- First-client-render hash matches server hash (test in dev with mismatch detection on).
+- Hydration payload is built by `ssr-handler`: integer `:rf/version`, `:rf/app-db` holding only the `:payload` allowlist's keys, `:rf/runtime-db` (route and machine snapshots, when present), and no `:rf/frame-id` unless `:client-frame-id` names a stable one.
+- The client boots through `ssr/hydrate!`, which reads `__rf_payload` and installs it before the first render; the adapter's `render!` with `{:hydrate? true}` then adopts the server's DOM rather than replacing it, and reports each recovery React makes as `:rf.ssr/hydration-mismatch`.
+- Hydration reports no recovery: a test mounts with `{:hydrate? true :on-recoverable-error …}` and fails on any call, and in development also watches `console.error` for React's attribute warning.
 - The shell writes the payload, escaped, into `<script id="__rf_payload">`; a custom `:html-shell` keeps that id and `default-html-shell`'s escaping.
 - All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 

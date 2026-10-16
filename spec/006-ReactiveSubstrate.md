@@ -267,7 +267,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 (render render-tree mount-point opts)                   ;; → unmount-fn
 ;; render-tree: a serialisable nested data structure (per Spec 000 §The pattern)
 ;; mount-point: implementation-specific (DOM element passed to react-dom/client.createRoot)
-;; opts: open map; standard keys: :on-mismatch (per Spec 011), :hydrate? (boolean)
+;; opts: open map; standard keys: :hydrate? (boolean)
 ;; unmount-fn signature: (fn [] nil) — idempotent; releases all resources
 ```
 
