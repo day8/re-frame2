@@ -1485,5 +1485,4 @@
 ;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — the
 ;; commit-plane classification effects own the app-db egress registry;
 ;; schemas describe shape only.
-(rf.late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
 (rf.late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)
