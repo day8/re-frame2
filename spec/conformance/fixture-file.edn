@@ -1,0 +1,965 @@
+;; The conformance fixture grammar.
+;;
+;; Every file in `spec/conformance/fixtures/` is one EDN map that conforms to
+;; `:root` below. The grammar is CLOSED over what the fixture format owns: the
+;; top-level envelope, the `:fixture/expect` key set, the `:fixture/calls`
+;; records, the handler-body DSL and the dispatch-entry shapes. A key, op or
+;; capability tag absent from this file is an error, and a new one lands here
+;; before any fixture carries it.
+;;
+;; Embedded runtime INPUTS stay raw — frame configs, registry metadata, machine
+;; definitions, event payloads, dispatch opts. Negative fixtures feed the
+;; runtime invalid data on purpose (`construction-shape-validation.edn` builds a
+;; frame from `:initial-events [42]`), so validating them against the runtime's
+;; own schemas would reject the fixtures that test those schemas. Partial
+;; EXPECTED runtime values stay open too: an expected app-db or trace row is
+;; compared by a law, not shape-checked.
+;;
+;; Reading this file. `:registry` is a Malli registry written as plain EDN, and
+;; `:root` names the fixture schema in it; a JVM or CLJS host validates with
+;; `[:schema {:registry <registry>} <root>]`. A port without Malli reads the
+;; same data as a grammar: `[:map {:closed true} …]` is a map admitting only the
+;; listed keys, `[:multi {:dispatch :call} …]` picks the record shape by the
+;; value at `:call`, `[:cat …]` / `[:* …]` / `[:? …]` describe a vector
+;; element by element, `[:ref k]` names another registry entry, and
+;; `[:schema x]` is x boxed so an enclosing `[:cat …]` reads it as one element.
+;;
+;; Every expectation carries `:observe` (what the runner reads from the run) and
+;; `:law` (how that observation is compared with the expected value). Each law
+;; is defined once, in `:laws`. `:element-law` names the law an element-wise
+;; law applies to each element. The reference runners keep one matcher per key;
+;; these annotations describe what those matchers do, so a port can build its
+;; own without reading them.
+;;
+;; `:fixture/spec-version` is declared, optional, and unchanged.
+{:root :conformance/fixture-file
+
+ :laws
+ {:equal
+  "The observation equals the expected value under EDN value equality: maps and sets compare without order, vectors and lists element by element in order, scalars by value."
+
+  :submap
+  "The expected value is a partial map. Each key it declares must match in the observation: an expected map matches an observed map recursively by this same law, and any other expected value must equal the observed value at that key. Keys the expectation omits are not compared. The observed value is read with `get`, so an expected nil matches a nil value OR an absent key. A non-map expected value is compared by :equal."
+
+  :shallow-submap
+  "The expected value is a partial map. Each key it declares must equal, by :equal and without recursion, the observed map's value at that key. Keys the expectation omits are not compared."
+
+  :ordered-subset
+  "The expected value is a vector, and the observation a sequence in emission order. Each expected element must match an observed element by the key's :element-law, in declaration order: matching for the next expected element resumes after the previous match. Observed elements between or after matches are tolerated; an expected element left unmatched fails."
+
+  :positional
+  "The n-th expected element is compared, by the key's :element-law, with the n-th observed element; a missing n-th observed element fails. Observed elements past the last expected one are not compared."
+
+  :none-match
+  "No observed element may match any expected element by :submap. An expected element is a shape that must never have been observed."
+
+  :absent-paths
+  "The expected value is a vector of `get-in` paths. For each, the observed map holds no value at that path: the path's last key is absent. A key present with a nil value counts as present."
+
+  :thrown-error-id
+  "The operation must throw, and the thrown error's ex-data `:rf.error/id` must equal the expected keyword; a throw without an `:rf.error/id`, or no throw at all, fails. Where the key is optional and omitted, the record asserts instead that the operation does not throw."
+
+  :substring
+  "Each expected string must occur as a substring of the observed string."
+
+  :member
+  "Each expected element must be a member of the observed collection."
+
+  :non-member
+  "No expected element may be a member of the observed collection."
+
+  :holds
+  "The observation is a claim about the record's own inputs, stated in its :observe; the record passes when the claim holds. The record carries no expected value."}
+
+ :registry
+ {;; ---------------------------------------------------------------------------
+  ;; The fixture envelope.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/fixture-file
+  [:map {:closed true}
+   [:fixture/id :keyword]
+   [:fixture/spec-version {:optional true} :string]
+   [:fixture/doc :string]
+   [:fixture/capabilities [:set :conformance/capability]]
+   [:fixture/dynamic-host-only? {:optional true} :boolean]
+   [:fixture/registry {:optional true} :conformance/registry]
+   [:fixture/handlers {:optional true} :conformance/handlers]
+   [:fixture/frame-config {:optional true} :map]
+   [:fixture/frames {:optional true} [:vector [:map [:id :keyword]]]]
+   [:fixture/runtime {:optional true}
+    [:map {:closed true} [:platform {:optional true} [:enum :client :server]]]]
+   [:fixture/flow-bodies {:optional true} [:map-of :keyword :conformance/flow-body]]
+   [:fixture/classification-effects {:optional true} [:vector :conformance/classification-op]]
+   [:fixture/dispatches {:optional true} [:vector :conformance/dispatch-entry]]
+   [:fixture/clock {:optional true} [:vector :conformance/clock-step]]
+   [:fixture/calls {:optional true} [:vector :conformance/call]]
+   [:fixture/compute-subs
+    {:optional true
+     :observe  "whether each query vector names a registered sub; each is then subscribed once against :rf/default before grading, so a sub that throws surfaces in the trace stream rather than as an absent value"
+     :law      :holds}
+    [:vector [:vector :any]]]
+   [:fixture/render-after-hydrate {:optional true} :conformance/render-after-hydrate]
+   [:fixture/expect {:optional true} :conformance/expect]]
+
+  ;; The capability tags a fixture may claim. A port runs a fixture only when
+  ;; its tags are a subset of the port's claim.
+  :conformance/capability
+  [:enum
+   :actor/declarative-spawn :actor/spawn-and-join :actor/spawn-destroy
+   :core/error :core/event-handler :core/frame :core/fx :core/image :core/sub :core/trace
+   :data-classification/classification-effects
+   :derivation/algebra-graph :derivation/algebra-graph-subs-machines
+   :flow/basic :flow/dirty-check :flow/frame-scoped :flow/hot-reload :flow/toggle :flow/topo :flow/trace
+   :fsm/choice :fsm/delayed-after :fsm/eventless-always :fsm/final-states :fsm/flat :fsm/hierarchical
+   :fsm/history :fsm/internal-events :fsm/parallel-regions :fsm/registration-validation :fsm/tags
+   :fsm/timeout
+   :identity/cedn1
+   :resources/dedupe :resources/ensure :resources/keep-previous :resources/owner-gc
+   :resources/scope-fail-closed :resources/stale-suppression
+   :rf.http/managed
+   :routing/blocking :routing/fragment :routing/match-url :routing/nav-token
+   :routing/pattern-validation :routing/ranking
+   :schemas/cofx :schemas/event-payload :schemas/runtime :schemas/sub-return
+   :ssr/error-projection :ssr/head-contract :ssr/hydration :ssr/render-to-string
+   :ssr/render-tree-hash :ssr/response-contract]
+
+  ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas` is
+  ;; not a registrar kind; it maps an app-db path to the schema the runner
+  ;; registers there with `reg-app-schema`.
+  :conformance/registry
+  [:map {:closed true}
+   [:event           {:optional true} [:map-of :keyword :map]]
+   [:sub             {:optional true} [:map-of :keyword :map]]
+   [:fx              {:optional true} [:map-of :keyword :map]]
+   [:cofx            {:optional true} [:map-of :keyword :map]]
+   [:view            {:optional true} [:map-of :keyword :map]]
+   [:route           {:optional true} [:map-of :keyword :map]]
+   [:machine         {:optional true} [:map-of :keyword :map]]
+   [:machine-action  {:optional true} [:map-of :keyword :map]]
+   [:machine-guard   {:optional true} [:map-of :keyword :map]]
+   [:flow            {:optional true} [:map-of :keyword :map]]
+   [:resource        {:optional true} [:map-of :keyword :map]]
+   [:error-projector {:optional true} [:map-of :keyword :map]]
+   [:head            {:optional true} [:map-of :keyword :map]]
+   [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]]
+
+  ;; `:fixture/runtime`-free simulation of the client's first render after
+  ;; `:rf/hydrate`: the runner hands the simulated client hash to the
+  ;; hydration-mismatch check, against the server hash in the hydrate payload.
+  :conformance/render-after-hydrate
+  [:map {:closed true}
+   [:simulated-client-render-hash :string]
+   [:first-diff-path {:optional true} [:vector :any]]]
+
+  ;; One commit-plane classification, applied in order after the frame exists.
+  ;; Each op carries EXACTLY ONE of the four effect keys: the harness applies
+  ;; an op through a priority-ordered choice, so an op naming two axes would
+  ;; silently apply one and an empty op none. The value is a vector of
+  ;; `get-in` paths. `classification-op-map-guard` in the core conformance
+  ;; tests, and its CLJS mirror, feed the runner each malformed op and assert
+  ;; it fails.
+  :conformance/classification-op
+  [:or
+   [:map {:closed true} [:sensitive       [:vector [:vector :any]]]]
+   [:map {:closed true} [:large           [:vector [:vector :any]]]]
+   [:map {:closed true} [:clear-sensitive [:vector [:vector :any]]]]
+   [:map {:closed true} [:clear-large     [:vector [:vector :any]]]]]
+
+  ;; ---------------------------------------------------------------------------
+  ;; Dispatch entries. An event vector is dispatched with `dispatch-sync`; the
+  ;; map forms drive a registrar-level operation or carry dispatch opts.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/dispatch-entry
+  [:or
+   ;; An event vector — runtime input.
+   [:vector :any]
+   ;; Destroy the named frame.
+   [:map {:closed true} [:destroy-frame :keyword]]
+   ;; Re-register a sub with a new body.
+   [:map {:closed true} [:reg-sub :keyword] [:body :conformance/sub-body]]
+   ;; Queue each event with async `dispatch` behind a held drain, then run
+   ;; that drain once.
+   [:map {:closed true} [:queue [:vector [:vector :any]]]]
+   ;; Dispatch `:event` with the remaining keys as `dispatch-sync` opts (raw
+   ;; runtime input), optionally asserting it throws.
+   [:map
+    [:event [:vector :any]]
+    [:expect-error
+     {:optional true
+      :observe  "the error dispatch-sync throws for :event"
+      :law      :thrown-error-id}
+     :keyword]]]
+
+  ;; ---------------------------------------------------------------------------
+  ;; The controlled host clock: steps run in order after the dispatches.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/clock-step
+  [:multi {:dispatch :step}
+   [:assert-timers
+    [:map {:closed true}
+     [:step [:= :assert-timers]]
+     [:live
+      {:optional true
+       :observe  "how many host-clock timers the host armed through schedule-after! and has not cancelled"
+       :law      :equal}
+      :int]
+     [:delays
+      {:optional true
+       :observe  "the delays of those live timers, in arm order"
+       :law      :equal}
+      [:vector :int]]]]
+   [:assert-runtime-db
+    [:map {:closed true}
+     [:step [:= :assert-runtime-db]]
+     [:frame {:optional true} :keyword]
+     [:expect
+      {:observe "the runtime-db of :frame (default :rf/default) at this point of the run"
+       :law     :submap}
+      :map]]]
+   [:fire
+    [:map {:closed true}
+     [:step [:= :fire]]
+     [:index {:optional true} :int]]]]
+
+  ;; ---------------------------------------------------------------------------
+  ;; The post-run expectation block.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/expect
+  [:map {:closed true}
+   [:final-app-db
+    {:optional true
+     :observe  "the :rf/default frame's app-db after the run"
+     :law      :submap}
+    :map]
+   [:final-app-dbs
+    {:optional true
+     :observe  "the map from each frame id the expectation names to that frame's app-db after the run"
+     :law      :submap}
+    [:map-of :keyword :map]]
+   [:final-app-db-absent
+    {:optional true
+     :observe  "the :rf/default frame's app-db after the run"
+     :law      :absent-paths}
+    [:vector [:vector :any]]]
+   [:final-runtime-db
+    {:optional true
+     :observe  "the :rf/default frame's runtime-db partition after the run"
+     :law      :submap}
+    :map]
+   [:final-runtime-dbs
+    {:optional true
+     :observe  "the map from each frame id the expectation names to that frame's runtime-db partition after the run"
+     :law      :submap}
+    [:map-of :keyword :map]]
+   [:sub-values
+    {:optional true
+     :observe  "the map from each declared query to the value of subscribing to it once after the run; a query is [query-v] against :rf/default, or [frame-id [query-v]] against that frame"
+     :law      :equal}
+    [:map-of [:vector :any] :any]]
+   [:trace-emissions
+    {:optional true
+     :observe     "the trace events the run emitted, in emission order"
+     :law         :ordered-subset
+     :element-law :submap}
+    [:vector :map]]
+   [:trace-not-emitted
+    {:optional true
+     :observe  "the trace events the run emitted"
+     :law      :none-match}
+    [:vector :map]]
+   [:effects-routed
+    {:optional true
+     :observe     "the fx the run routed, in order: from each :rf.fx/handled or :rf.error/fx-handler-exception trace, its post-override fx id and its args"
+     :law         :ordered-subset
+     :element-law :equal}
+    [:vector :conformance/routed-effect]]
+   [:error-emit-records
+    {:optional true
+     :observe     "the always-on error-emit records the run fanned out, in firing order"
+     :law         :ordered-subset
+     :element-law :submap}
+    [:vector :map]]
+   [:epoch-records
+    {:optional true
+     :observe     "per frame (an entry's :frame, default :rf/default), that frame's epoch history oldest-first; the frame's n-th entry here is compared, by its :record, with the n-th history record"
+     :law         :positional
+     :element-law :submap}
+    [:vector [:map {:closed true} [:frame {:optional true} :keyword] [:record :map]]]]
+   [:on-destroy-emissions
+    {:optional true
+     :observe     "the trace events emitted while the runner destroys the fixture's frame, which it does after every other expectation has been graded"
+     :law         :ordered-subset
+     :element-law :submap}
+    [:vector :map]]
+   [:on-destroy-effects
+    {:optional true
+     :observe     "the fx routed while the runner destroys the fixture's frame, read as :effects-routed reads them"
+     :law         :ordered-subset
+     :element-law :equal}
+    [:vector :conformance/routed-effect]]
+   [:ssr/public-error
+    {:optional true
+     :observe  "the public error the active error projector maps the run's last error to"
+     :law      :equal}
+    :map]
+   [:ssr/request-result
+    {:optional true
+     :observe  "{:response r}, where r is the :rf/default frame's resolved per-request response accumulator"
+     :law      :submap}
+    [:map {:closed true} [:response :map]]]
+   [:ssr/active-head
+    {:optional true
+     :observe  "the head model the :rf/default frame's active route resolves to"
+     :law      :equal}
+    :map]
+   [:ssr/rendered-head-contains
+    {:optional true
+     :observe  "the HTML fragment the active head model renders to"
+     :law      :substring}
+    [:vector :string]]
+   [:expect-trace-stream
+    {:optional true
+     :observe     "the run's trace events whose :op-type is :flow, in emission order"
+     :law         :ordered-subset
+     :element-law :submap}
+    [:vector :map]]
+   [:trace-absent
+    {:optional true
+     :observe  "the trace events the run emitted"
+     :law      :none-match}
+    [:vector :map]]
+   [:flow-recompute-counts
+    {:optional true
+     :observe  "the number of :rf.flow/computed trace events per flow id across the run; a flow that never recomputed is absent"
+     :law      :equal}
+    [:map-of :keyword :int]]
+   [:flow-graph-topology
+    {:optional true
+     :observe  "for each flow id the expectation names, the set of :rf/default flow ids it depends on"
+     :law      :equal}
+    [:map-of :keyword [:set :keyword]]]
+   [:flow-registry-after
+    {:optional true
+     :observe  "the set of flow ids registered on :rf/default when the expected value is a set; the set registered on each named frame when it is a map"
+     :law      :equal}
+    [:or [:set :keyword] [:map-of :keyword [:set :keyword]]]]
+   [:flow-last-inputs-after
+    {:optional true
+     :observe  "for each flow id the expectation names, the set of frames holding last inputs for it"
+     :law      :equal}
+    [:map-of :keyword [:set :keyword]]]
+   [:registrar-flow-slots-after
+    {:optional true
+     :observe  "the ids in the registrar's :flow slot"
+     :law      :equal}
+    [:set :keyword]]]
+
+  ;; A routed fx: `{:fx-id id :args args}`, or the pair `[id args]`.
+  :conformance/routed-effect
+  [:or
+   [:map {:closed true} [:fx-id :keyword] [:args :any]]
+   [:tuple :keyword :any]]
+
+  ;; ---------------------------------------------------------------------------
+  ;; Mode B: direct calls to pure primitives, one record per `:call` op. Each
+  ;; record carries its own expectation.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/call
+  [:multi {:dispatch :call}
+   [:machine-transition
+    [:map {:closed true}
+     [:call [:= :machine-transition]]
+     [:definition :map]
+     [:snapshot :map]
+     [:event [:vector :any]]
+     [:expect-next-snapshot
+      {:observe "the snapshot machine-transition returns for :definition, :snapshot and :event, with the fixture's :machine-action and :machine-guard bodies merged into the definition; on a bounded-depth abort, the input snapshot"
+       :law     :equal}
+      :map]
+     [:expect-effects
+      {:observe "the :fx vector that transition returns; on a bounded-depth abort, []"
+       :law     :equal}
+      [:vector :any]]]]
+
+   [:reg-machine
+    [:map {:closed true}
+     [:call [:= :reg-machine]]
+     [:definition :map]
+     [:expect-error
+      {:optional true
+       :observe  "the error registration-time machine validation throws for :definition"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:make-frame
+    [:map {:closed true}
+     [:call [:= :make-frame]]
+     [:frame-id {:optional true} :keyword]
+     [:config :map]
+     [:expect-error
+      {:optional true
+       :observe  "the error make-frame throws for :config under :frame-id"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:assemble-image
+    [:map {:closed true}
+     [:call [:= :assemble-image]]
+     [:pool {:optional true} [:vector :map]]
+     [:standards {:optional true} [:vector [:tuple :keyword :keyword]]]
+     [:images {:optional true} [:vector :map]]
+     [:images-literal {:optional true} :any]
+     [:default? {:optional true} :boolean]
+     [:expect-error
+      {:optional true
+       :observe  "the error image construction or assembly throws; with :images-literal, the error make-frame throws for those :images"
+       :law      :thrown-error-id}
+      :keyword]
+     [:expect-resolves
+      {:optional true
+       :observe  "for each entry, the descriptor coordinate of the descriptor the sealed resolver resolves [:kind :id] to; an entry whose [kind id] does not resolve fails"
+       :law      :equal}
+      [:vector [:map {:closed true} [:kind :keyword] [:id :keyword] [:coordinate :map]]]]
+     [:expect-present
+      {:optional true
+       :observe  "the sealed generation's resolver keys"
+       :law      :member}
+      [:vector [:tuple :keyword :keyword]]]
+     [:expect-absent
+      {:optional true
+       :observe  "the sealed generation's resolver keys"
+       :law      :non-member}
+      [:vector [:tuple :keyword :keyword]]]
+     [:expect-kinds
+      {:optional true
+       :observe  "the sealed generation's :rf.gen/kinds"
+       :law      :equal}
+      [:set :keyword]]
+     [:expect-gen-absent
+      {:optional true
+       :observe  "the sealed generation's top-level keys"
+       :law      :non-member}
+      [:vector :keyword]]
+     [:expect-shadows
+      {:optional true
+       :observe  "the sealed generation's :rf.gen/shadows report"
+       :law      :equal}
+      [:vector :map]]]]
+
+   [:match-url
+    [:map {:closed true}
+     [:call [:= :match-url]]
+     [:url :string]
+     [:expect
+      {:observe "match-url's result for :url without its :validation-error explanation; nil when no route matches"
+       :law     :equal}
+      [:maybe :map]]]]
+
+   [:route-url
+    [:map {:closed true}
+     [:call [:= :route-url]]
+     [:route-id :keyword]
+     [:params :map]
+     [:query {:optional true} :map]
+     [:fragment {:optional true} [:maybe :string]]
+     [:expect
+      {:observe "the URL route-url builds from :route-id, :params and, when present, :query and :fragment"
+       :law     :equal}
+      :string]]]
+
+   [:round-trip
+    [:map {:closed true
+           :observe "that route-url, applied to match-url's result for :url, rebuilds :url exactly"
+           :law     :holds}
+     [:call [:= :round-trip]]
+     [:url :string]]]
+
+   [:assert-rank-greater
+    [:map {:closed true
+           :observe "that the :winner route's :rf.route/rank tuple compares greater than the :loser route's, lexicographically"
+           :law     :holds}
+     [:call [:= :assert-rank-greater]]
+     [:winner :keyword]
+     [:loser :keyword]]]
+
+   [:reg-route
+    [:map {:closed true}
+     [:call [:= :reg-route]]
+     [:pattern :string]
+     [:expect-error
+      {:optional true
+       :observe  "the error route-pattern validation throws for :pattern"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:render-to-string
+    [:map {:closed true}
+     [:call [:= :render-to-string]]
+     [:input :conformance/value]
+     [:opts {:optional true} :map]
+     [:expect
+      {:observe "the HTML render-to-string emits for :input under :opts"
+       :law     :equal}
+      :string]]]
+
+   [:render-tree-hash
+    [:map {:closed true}
+     [:call [:= :render-tree-hash]]
+     [:input :conformance/value]
+     [:expect
+      {:observe "the render-tree hash of :input, as 8 lowercase hex digits"
+       :law     :equal}
+      :string]]]
+
+   [:reg-resource
+    [:map {:closed true}
+     [:call [:= :reg-resource]]
+     [:resource-id :keyword]
+     [:spec :map]
+     [:expect-error
+      {:optional true
+       :observe  "the error reg-resource throws for :spec under :resource-id"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:resolve-scope
+    [:map {:closed true}
+     [:call [:= :resolve-scope]]
+     [:resource-id :keyword]
+     [:side {:optional true} [:enum :event :sub]]
+     [:payload-scope {:optional true} [:maybe :map]]
+     [:params {:optional true} :map]
+     [:expect
+      {:optional true
+       :observe  "the canonical scope the :side resolver (default :event) returns for :resource-id, :params and :payload-scope"
+       :law      :equal}
+      :any]
+     [:expect-error
+      {:optional true
+       :observe  "the error that resolver throws"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:canonical-bytes
+    [:map {:closed true}
+     [:call [:= :canonical-bytes]]
+     [:value :any]
+     [:expect
+      {:observe "the CEDN-1 canonical byte token of :value"
+       :law     :equal}
+      :string]]]
+
+   [:canonical-value
+    [:map {:closed true}
+     [:call [:= :canonical-value]]
+     [:value :any]
+     [:expect
+      {:observe "the normalized value canonical returns for :value"
+       :law     :equal}
+      :any]]]
+
+   [:canonical-identical
+    [:map {:closed true
+           :observe "that :a and :b have the same CEDN-1 canonical identity"
+           :law     :holds}
+     [:call [:= :canonical-identical]]
+     [:a :any]
+     [:b :any]]]
+
+   [:canonical-distinct
+    [:map {:closed true
+           :observe "that :a and :b have different CEDN-1 canonical identities"
+           :law     :holds}
+     [:call [:= :canonical-distinct]]
+     [:a :any]
+     [:b :any]]]
+
+   [:path-instantiate
+    [:map {:closed true}
+     [:call [:= :path-instantiate]]
+     [:path [:vector :any]]
+     [:bindings :map]
+     [:expect
+      {:optional true
+       :observe  "the concrete path instantiate builds from :path and :bindings"
+       :law      :equal}
+      [:vector :any]]
+     [:expect-error
+      {:optional true
+       :observe  "the error instantiate throws for :path and :bindings"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:path-get
+    [:map {:closed true}
+     [:call [:= :path-get]]
+     [:value :any]
+     [:path [:vector :any]]
+     [:not-found {:optional true} :any]
+     [:expect
+      {:observe "the :rf/path get of :path in :value, with :not-found as the default when present"
+       :law     :equal}
+      :any]]]
+
+   [:path-lookup
+    [:map {:closed true}
+     [:call [:= :path-lookup]]
+     [:value :any]
+     [:path [:vector :any]]
+     [:expect
+      {:observe "the :rf/path lookup of :path in :value"
+       :law     :equal}
+      :any]]]
+
+   [:path-put
+    [:map {:closed true}
+     [:call [:= :path-put]]
+     [:value :any]
+     [:path [:vector :any]]
+     [:x :any]
+     [:expect
+      {:observe "the :rf/path put of :x at :path in :value"
+       :law     :equal}
+      :any]]]
+
+   [:path-over
+    [:map {:closed true}
+     [:call [:= :path-over]]
+     [:value :any]
+     [:path [:vector :any]]
+     ;; A named transform, so the record stays data: `:inc` increments with
+     ;; nil read as 0, and `:wrap-vec` turns v into [:wrapped v].
+     [:fn [:enum :inc :wrap-vec]]
+     [:expect
+      {:observe "the :rf/path over of :path in :value with the :fn transform"
+       :law     :equal}
+      :any]]]
+
+   [:path-compose
+    [:map {:closed true}
+     [:call [:= :path-compose]]
+     [:p [:vector :any]]
+     [:q [:vector :any]]
+     [:expect
+      {:observe "the :rf/path compose of :p and :q"
+       :law     :equal}
+      [:vector :any]]]]
+
+   [:path-prefix
+    [:map {:closed true}
+     [:call [:= :path-prefix]]
+     [:p [:vector :any]]
+     [:q [:vector :any]]
+     [:expect
+      {:observe "whether :p is an :rf/path prefix of :q"
+       :law     :equal}
+      :boolean]]]
+
+   [:path-overlap
+    [:map {:closed true}
+     [:call [:= :path-overlap]]
+     [:p [:vector :any]]
+     [:q [:vector :any]]
+     [:expect
+      {:observe "whether the :rf/paths :p and :q overlap"
+       :law     :equal}
+      :boolean]]]
+
+   [:project-egress
+    [:map {:closed true}
+     [:call [:= :project-egress]]
+     [:value :any]
+     [:rf.egress/profile :keyword]
+     ;; Read by KEY PRESENCE: an explicit nil is a frame argument, and an
+     ;; omitted key projects with no frame at all.
+     [:frame {:optional true} [:maybe :keyword]]
+     [:expect
+      {:observe "project-egress of :value under :rf.egress/profile, against :frame when the key is present and with no frame when it is omitted"
+       :law     :equal}
+      :any]]]
+
+   [:redact-headers
+    [:map {:closed true}
+     [:call [:= :redact-headers]]
+     [:headers :map]
+     [:frame-extras {:optional true} [:set :string]]
+     [:expect
+      {:observe "the headers redact-headers returns for :headers with the frame's :frame-extras carrier set"
+       :law     :equal}
+      :map]]]
+
+   [:ssr-apply-policy
+    [:map {:closed true}
+     [:call [:= :ssr-apply-policy]]
+     [:app-db :map]
+     [:opts :map]
+     [:expect
+      {:optional true
+       :observe  "the hydration payload apply-policy projects from :app-db under :opts"
+       :law      :equal}
+      :any]
+     [:expect-error
+      {:optional true
+       :observe  "the error apply-policy throws for :opts"
+       :law      :thrown-error-id}
+      :keyword]]]
+
+   [:derivation-graph
+    [:map {:closed true}
+     [:call [:= :derivation-graph]]
+     [:mode {:optional true} [:enum :static :live]]
+     [:expect-graph
+      {:optional true
+       :observe  "the derivation/process graph composed in :mode (default :static)"
+       :law      :shallow-submap}
+      :map]
+     [:expect-nodes
+      {:observe "for each entry, the composed graph's node at the entry's :id; the :id itself is not compared"
+       :law     :shallow-submap}
+      [:vector [:map [:id :any]]]]
+     [:expect-edges
+      {:optional true
+       :observe  "the composed graph's edge set"
+       :law      :member}
+      [:vector :map]]
+     [:expect-absent-edges
+      {:optional true
+       :observe  "the composed graph's edge set"
+       :law      :non-member}
+      [:vector :map]]]]]
+
+  ;; ---------------------------------------------------------------------------
+  ;; The handler-body DSL. A body is a vector of steps run in order; each kind
+  ;; has its own interpreter, so each admits its own steps.
+  ;; ---------------------------------------------------------------------------
+
+  :conformance/handlers
+  [:map {:closed true}
+   [:event          {:optional true} [:map-of :keyword :conformance/event-body]]
+   [:fx             {:optional true} [:map-of :keyword :conformance/fx-body]]
+   [:cofx           {:optional true} [:map-of :keyword :conformance/cofx-body]]
+   [:sub            {:optional true} [:map-of :keyword :conformance/sub-body]]
+   [:view           {:optional true} [:map-of :keyword :conformance/view-body]]
+   [:head           {:optional true} [:map-of :keyword :conformance/head-body]]
+   [:machine-action {:optional true} [:map-of :keyword :conformance/machine-action-body]]
+   [:machine-guard  {:optional true} [:map-of :keyword :conformance/machine-guard-body]]]
+
+  ;; An event handler returns the effect map its steps build. A body whose
+  ;; steps emit fx, write the runtime-db, return raw or read a coeffect is
+  ;; realised as cofx-in / effects-out; any other body reads and writes app-db.
+  :conformance/event-body
+  [:vector
+   [:or
+    :conformance.step/set
+    :conformance.step/set-runtime
+    :conformance.step/update
+    :conformance.step/merge-into-db
+    :conformance.step/fx
+    :conformance.step/throw
+    :conformance.step/return-raw]]
+
+  ;; An fx handler receives its args as `[:event-arg 1]` of the synthetic
+  ;; event [fx-id args]; it writes the frame's app-db directly, and its
+  ;; dispatch steps run as it returns.
+  :conformance/fx-body
+  [:vector
+   [:or
+    :conformance.step/set
+    :conformance.step/update
+    :conformance.step/dispatch
+    :conformance.step/dispatch-sync
+    :conformance.step/make-frame-capture
+    :conformance.step/throw
+    :conformance.step/noop]]
+
+  ;; A cofx supplier returns the value of its last `:set`; the path is unused.
+  :conformance/cofx-body
+  [:vector :conformance.step/set]
+
+  ;; A sub is either a layer-1 pipeline — `:get` reads the frame's app-db (or
+  ;; its runtime-db, when the first path key is in the `rf.runtime` namespace)
+  ;; and each `:fn` step applies a builtin to the running value — or a single
+  ;; layer-2 `:reduce-input` over another sub.
+  :conformance/sub-body
+  [:or
+   [:tuple :conformance.step/reduce-input]
+   [:vector [:or :conformance.step/get :conformance.form/fn]]]
+
+  ;; A view body is its hiccup, with value forms resolved at render time;
+  ;; `[:event-arg n]` indexes the view's args.
+  :conformance/view-body
+  [:tuple :conformance.step/hiccup]
+
+  ;; A head body returns its literal head model.
+  :conformance/head-body
+  [:tuple :conformance.step/return-head]
+
+  ;; A machine action folds its steps over the snapshot's `:data`, evaluating
+  ;; `[:fn …]` eagerly: `[:fn :conj [:get [:log]] :go]` is (conj log :go).
+  :conformance/machine-action-body
+  [:vector
+   [:or
+    :conformance.step/set
+    :conformance.step/fx-single
+    :conformance.step/throw]]
+
+  ;; A machine guard is one eagerly evaluated `[:fn …]` over the snapshot's
+  ;; `:data`; its truthiness is the guard's answer.
+  :conformance/machine-guard-body
+  [:tuple :conformance.form/fn]
+
+  ;; A flow body is one `[:fn …]`, applied eagerly; `[:event-arg n]` is the
+  ;; flow's n-th input.
+  :conformance/flow-body
+  [:tuple :conformance.form/fn]
+
+  ;; --- steps -----------------------------------------------------------------
+
+  ;; assoc-in the resolved value at the path; an empty path replaces the whole
+  ;; db.
+  :conformance.step/set
+  [:tuple [:= :set] :conformance/path :conformance/value]
+
+  ;; assoc-in into the frame's runtime-db partition.
+  :conformance.step/set-runtime
+  [:tuple [:= :set-runtime] :conformance/path :conformance/value]
+
+  ;; update-in with the fn, passing any further resolved args after the slot
+  ;; value: `[:update [:log] [:fn :conj] :a]` conjoins :a.
+  :conformance.step/update
+  [:cat [:= :update] :conformance/path [:schema :conformance.form/fn] [:* :conformance/value]]
+
+  ;; merge the resolved map into db.
+  :conformance.step/merge-into-db
+  [:tuple [:= :merge-into-db] :conformance/value]
+
+  ;; Emit one fx `[:fx fx-id args]`, or several in order `[:fx [[fx-id args] …]]`.
+  :conformance.step/fx
+  [:or
+   :conformance.step/fx-single
+   [:tuple [:= :fx] [:vector [:tuple :keyword :conformance/value]]]]
+
+  :conformance.step/fx-single
+  [:tuple [:= :fx] :keyword :conformance/value]
+
+  ;; Dispatch the resolved event vector asynchronously.
+  :conformance.step/dispatch
+  [:tuple [:= :dispatch] :conformance/value]
+
+  ;; Call dispatch-sync with the resolved event vector from inside the running
+  ;; handler; the router refuses it.
+  :conformance.step/dispatch-sync
+  [:tuple [:= :dispatch-sync] :conformance/value]
+
+  ;; Call make-frame for frame-id with the config while the handler cascade is
+  ;; running, and write the thrown `:rf.error/id` (or `:rf/no-error`) into the
+  ;; frame's app-db at the path.
+  :conformance.step/make-frame-capture
+  [:tuple [:= :make-frame-capture] :conformance/path :keyword :map]
+
+  ;; Throw a host exception with this message.
+  :conformance.step/throw
+  [:tuple [:= :throw] :string]
+
+  ;; Return the resolved value verbatim as the effect map, bypassing the
+  ;; well-shaped builder; the one way to author a malformed effect map.
+  :conformance.step/return-raw
+  [:tuple [:= :return-raw] :conformance/value]
+
+  :conformance.step/noop
+  [:tuple [:= :noop]]
+
+  :conformance.step/get
+  [:tuple [:= :get] :conformance/path]
+
+  ;; Fold the input sub's value: (reduce reducer (map mapper input)), the
+  ;; mapper optional.
+  :conformance.step/reduce-input
+  [:cat [:= :reduce-input] :keyword [:schema :conformance.form/fn] [:? [:schema :conformance.form/fn]]]
+
+  :conformance.step/hiccup
+  [:tuple [:= :hiccup] :conformance/value]
+
+  :conformance.step/return-head
+  [:tuple [:= :return-head] :map]
+
+  ;; --- values ----------------------------------------------------------------
+
+  ;; A `get-in` path.
+  :conformance/path
+  [:vector :any]
+
+  ;; A value inside a handler body or a render input. A vector headed by a
+  ;; reserved head is a value form and must match that form; any other vector
+  ;; or map is a literal, walked so the forms nested in it resolve; anything
+  ;; else is a literal as written.
+  :conformance/value
+  [:or
+   :conformance.form/event-arg
+   :conformance.form/get-event-arg
+   :conformance.form/db-get
+   :conformance.form/get
+   :conformance.form/fn
+   :conformance.form/cofx-key
+   :conformance.form/cofx-without
+   :conformance.form/view-ref
+   [:map-of :any [:schema [:ref :conformance/value]]]
+   [:and [:vector :any]
+    [:or [:= []]
+     [:cat [:not :conformance/value-head] [:* [:schema [:ref :conformance/value]]]]]]
+   [:not [:or :map [:vector :any]]]]
+
+  :conformance/value-head
+  [:enum :event-arg :get-event-arg :db-get :get :fn :cofx-key :cofx-without :view-ref]
+
+  ;; The n-th element of the event vector; the optional third element is
+  ;; returned when that element is nil.
+  :conformance.form/event-arg
+  [:cat [:= :event-arg] :int [:? [:schema [:ref :conformance/value]]]]
+
+  ;; Key access into the n-th event element, which is a map; the optional
+  ;; fourth element is returned when the key is missing or nil.
+  :conformance.form/get-event-arg
+  [:cat [:= :get-event-arg] :int :keyword [:? [:schema [:ref :conformance/value]]]]
+
+  ;; get-in the db at the path, with an optional default for nil.
+  :conformance.form/db-get
+  [:cat [:= :db-get] :conformance/path [:? [:schema [:ref :conformance/value]]]]
+
+  ;; get-in the db at the path — in a machine body, the snapshot's `:data`;
+  ;; in an event body, the runtime-db when the first path key is in the
+  ;; `rf.runtime` namespace.
+  :conformance.form/get
+  [:tuple [:= :get] :conformance/path]
+
+  ;; A builtin by name. Inside event, fx and sub bodies, extra args make a
+  ;; partial applied after the runtime's one arg: `[:fn :conj :x]` is
+  ;; #(conj % :x). Machine and flow bodies apply it to the args directly.
+  :conformance.form/fn
+  [:cat [:= :fn] :conformance/builtin [:* [:schema [:ref :conformance/value]]]]
+
+  ;; The named coeffect's value; reading one routes the event body through
+  ;; the coeffect map and declares the coeffect as required.
+  :conformance.form/cofx-key
+  [:tuple [:= :cofx-key] :keyword]
+
+  ;; The whole coeffect map without the named keys.
+  :conformance.form/cofx-without
+  [:cat [:= :cofx-without] [:+ :keyword]]
+
+  ;; A registered view and its args: the portable spelling of a callable
+  ;; hiccup head, since a keyword head is a DOM element on every host.
+  :conformance.form/view-ref
+  [:cat [:= :view-ref] :keyword [:* [:schema [:ref :conformance/value]]]]
+
+  ;; The builtins `[:fn …]` names. `:inc` and `:dec` start a nil slot at 0;
+  ;; `:count` throws on a string, a char or nil; `:item-amount` is
+  ;; (* (:qty item) (:price item)).
+  :conformance/builtin
+  [:enum :inc :dec :+ :- :* :/ :>= :<= :> :< := :not= :and :or :not
+   :identity :conj :assoc :dissoc :count :item-amount]}}

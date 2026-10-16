@@ -62,9 +62,7 @@ Every top-level key the corpus uses. A harness that meets a key it does not impl
 | `:fixture/compute-subs` | expectation | Sub query-vectors the harness invokes against the post-dispatch state, so a sub that *throws* is observed as a sub failure rather than as an absent value. |
 | `:fixture/render-after-hydrate` | expectation | Simulates the client's first render after `:rf/hydrate` so hydration-mismatch detection can be exercised: `:simulated-client-render-hash` and optional `:first-diff-path` are compared against the server hash carried in the hydrate payload. |
 
-**This table is the roster, not the counts.** Re-derive the live set at your pin from the fixtures themselves rather than trusting any prose list — including this one. Take the key set from the **parsed top-level map** of each fixture; a text search for `:fixture/…` cannot tell a map key from a value and will report event ids in the `:fixture/` namespace (`:fixture/interceptor-fired`, `:fixture/clear-interceptor` — both ordinary event ids registered under `:fixture/registry :event`) as though they were top-level keys. A harness built on that mistake **rejects a conforming fixture**.
-
-The format is open by convention: fixtures may carry additional `:fixture/`-namespaced keys, and new setup or expectation keys land here ahead of any port implementing them — which is exactly why the unknown-key failure above is loud.
+The fixture grammar, [`fixture-file.edn`](fixture-file.edn), is the closed definition of this table: it declares every top-level key, every `:fixture/expect` key, every `:fixture/calls` record and every handler-body step, and annotates each expectation with what it observes and the law it is compared by. A new setup or expectation key lands in the grammar first, and the reference's core test suite fails any fixture carrying a key the grammar does not declare. The grammar says what a fixture may carry; the unknown-key failure above still binds every harness that meets a key it does not implement.
 
 ### Mode A — dispatch-driven
 
@@ -307,7 +305,7 @@ Inline `:registrations` bodies cannot be host fns in pure EDN, so the runner rea
 
 Per [Goal 6 — Hierarchical FSM substrate with implementor-chosen capabilities](../000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) and [005 §Capability matrix](../005-StateMachines.md#capability-matrix), conformance is graded against each port's claimed capability list rather than all-or-nothing. Every fixture self-declares which capabilities it exercises via `:fixture/capabilities`. The harness only runs fixtures whose capability set is a subset of the port's claimed list; un-runnable fixtures are reported as "not exercised" rather than "failed."
 
-Capability tag conventions:
+Capability tag conventions (the closed list of tags a fixture may carry is the `:conformance/capability` enum in [`fixture-file.edn`](fixture-file.edn)):
 
 - `:core/*` — pattern-required basics every conformant port supports (event handler, frame, dispatch envelope, sub, trace, fx, error). `:core/image` is the image-API surface (`:select-ns` selection, image-order layering, the shadow report, the collision / retired-key / inline-grammar fail-loud taxonomy, the default-image projection) exercised by the `image-*.edn` fixtures via the `:assemble-image` call op.
 - `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
@@ -360,13 +358,13 @@ The convention:
  :counter/inc        [[:update [:count] [:fn :inc]]]}         ;; updates db's :count via :inc
 ```
 
-The harness in each host implements a small interpreter for this DSL — `[:set path value]`, `[:update path fn]`, `[:dispatch event]` and so on. A complete interpreter is ~50 lines per host. The DSL is itself versioned and described by `:rf/fixture-handler-body` in [Spec-Schemas](../Spec-Schemas.md#rffixture-file).
+The harness in each host implements a small interpreter for this DSL — `[:set path value]`, `[:update path fn]`, `[:dispatch event]` and so on. A complete interpreter is ~50 lines per host. Its grammar — the steps each handler kind's body admits, the value forms and the builtins — is in [`fixture-file.edn`](fixture-file.edn).
 
 This keeps the corpus pure data; no host-specific code ships in the fixtures.
 
 ### Handler-body DSL ops
 
-The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-handler-body`](../Spec-Schemas.md#rffixture-file); below is the operator reference.
+The operator reference. The closed definition — including which steps each handler kind's body admits — is the grammar in [`fixture-file.edn`](fixture-file.edn).
 
 Data ops (mutate or read `db`):
 
@@ -649,6 +647,7 @@ If a port needs corpus-graded conformance for managed HTTP, this README will gro
 ## Cross-references
 
 - [Implementor-Checklist.md](../Implementor-Checklist.md) — decision-ordered companion to [000 §Host-profile matrix](../000-Vision.md#host-profile-matrix); Part 1 capability declarations and Part 3 (Conformance) tell the implementor which fixtures will run.
+- [fixture-file.edn](fixture-file.edn) — the closed fixture grammar every fixture validates against.
 - [Spec-Schemas.md §Conformance](../Spec-Schemas.md#conformance) — the conformance test corpus question.
 - [Spec-Schemas.md](../Spec-Schemas.md) — the shapes implementations validate / match against.
 - [009 §Error contract](../009-Instrumentation.md) — error-event shape that error fixtures expect.
