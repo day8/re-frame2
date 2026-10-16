@@ -1,4 +1,4 @@
-(ns re-frame.epoch-mcp-egress-conformance-test
+(ns ^:requires-debug re-frame.epoch-mcp-egress-conformance-test
   "MCP-style egress conformance for `project-egress`, from the forwarder's side:
   an off-box forwarder (an MCP `watch-epochs` snapshot, a `register-listener!
   :epoch` ship!) maps `project-egress` over raw epoch records, and what it ships
@@ -11,7 +11,17 @@
   whole-output `:large?` sub (a registration stamp, not an app-db path), a
   `:halted-depth` record, fx args on every trace-tag carrier, and the
   resource/mutation trace family, whose owner-local scoped keys are classified
-  by the resource OWNER rather than by any app-db path."
+  by the resource OWNER rather than by any app-db path.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]

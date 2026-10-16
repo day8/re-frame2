@@ -1,4 +1,4 @@
-(ns re-frame.epoch-drain-serialization-test
+(ns ^:requires-debug re-frame.epoch-drain-serialization-test
   "Tool-Pair state writes (`restore-epoch!` / `replace-frame-state!`) serialize
   against the frame's event drain on the core `:drain-lock` (Spec 002 §Single
   drainer per frame), so a tool write holds ONE serial position relative to any
@@ -8,7 +8,17 @@
   preconditions with no drain in flight, THEN a concurrent `dispatch-sync`
   reads db and blocks mid-transition holding `:drain-lock`, THEN the write is
   released. An unserialized write would splice into the transition and be
-  overwritten while still returning `true`. JVM-only — CLJS cannot preempt."
+  overwritten while still returning `true`. JVM-only — CLJS cannot preempt.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.

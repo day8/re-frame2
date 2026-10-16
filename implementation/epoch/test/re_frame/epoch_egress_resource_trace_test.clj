@@ -1,4 +1,4 @@
-(ns re-frame.epoch-egress-resource-trace-test
+(ns ^:requires-debug re-frame.epoch-egress-resource-trace-test
   "Off-box egress of the resource / mutation trace family through an epoch
   record (EP-0015): the family-row projector the epoch tool-pair reaches through
   the late-bound `:resources/project-resource-trace-egress` hook, and the
@@ -9,7 +9,17 @@
   drives that produce those records.
 
   resources is a TEST-ONLY dep: production epoch finds the hooks nil and passes
-  the rows through."
+  the rows through.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]

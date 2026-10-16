@@ -1,9 +1,19 @@
-(ns re-frame.epoch-privacy-test
+(ns ^:requires-debug re-frame.epoch-privacy-test
   "Epoch privacy surfaces outside the per-slot egress matrix
   (`re-frame.epoch-egress-redaction-cljs-test`): the record-level
   `:rf.epoch/sensitive?` rollup, `:effects` args failing closed off-box, a depth
   halt carrying no raw event args, listener fan-out delivering the RAW record,
-  and the `:rf.epoch/redacted-modified-paths-count` counter."
+  and the `:rf.epoch/redacted-modified-paths-count` counter.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
