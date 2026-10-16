@@ -11,6 +11,22 @@ Type: standards-track
 > where their meaning is authored* — but recast as a **lightweight hygiene helper**,
 > not a transactional contract.
 
+> **Superseded in part — 2026-10-16.** [EP-0039 (Static Data Classification)](EP-0039-static-data-classification.md)
+> replaces this EP's durable-state design. Durable app-db is classified by a
+> `reg-classification` image registration, subsystem declarations apply at
+> egress, and a retained value keeps the redactions it was recorded under.
+> The superseded parts are, under §How it works: *Durable state — two
+> authoring tiers*, *Same-event ordering*, the *Subsystem matrix*, *The
+> surface — four effects + subsystem declarations*, *Lifecycle*, *Storage &
+> SSR*, *Construction & `:initial-db`*, the per-frame registry as the durable
+> source in *How consumers apply it*, and the handler-effect and
+> subsystem-lowering bullets of *Vocabulary & lowering*. With them go the
+> durable-state halves of Goals / Non-Goals, Examples, Rationale and
+> Recommendation, and Bead Plan stages 3 and 6. This EP's §Scope (the north
+> star), failure posture, transient-payload classification and egress rules
+> stand. Per EP-0009 this EP keeps its `final` status, and the text below is
+> unchanged.
+
 ## Scope (the north star)
 
 **This feature is about hygiene and convenience, NOT security.** Its single job is a
