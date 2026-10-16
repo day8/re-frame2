@@ -78,6 +78,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
+            [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
             [day8.re-frame2-xray.static.machines.definition-detail
@@ -264,9 +265,7 @@
       (into {}
             (keep (fn [id]
                     (when-some [coord (h/lift-source-coord
-                                        (rf/handler-meta {:source :store
-                                                          :kind   :event
-                                                          :id     id}))]
+                                        (host-registrar/store-meta :event id))]
                       [id coord])))
             (or machines []))))
 

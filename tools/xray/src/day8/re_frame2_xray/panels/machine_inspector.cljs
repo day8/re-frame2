@@ -73,6 +73,7 @@
             [day8.re-frame2-xray.panels.epoch.view :as epoch-view]
             [day8.re-frame2-xray.panels.epoch.projection :as epoch-proj]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
+            [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
             ;; The declared-over-inferred static
             ;; Context-shape projection (EP-0005). The focused-event chart surfaces
@@ -989,8 +990,9 @@
   `:event` registrar's `:rf/machine` slot (the same value
   the `:rf/machine` registrar projection returns).
 
-  Resolved via `(rf/handler-meta {:source :store :kind :event :id id})` — the
-  SOURCE-STORE read, which never consults a bound image generation. The
+  Resolved via `host-registrar/store-meta` — the SOURCE-STORE read, which
+  never consults a bound image generation, and which reads an id more than one
+  namespace registers as having no definition. The
   `{:source :store}` selector is load-bearing here: `registrar/lookup :event id`
   (what the artefact's own `resolver/spec-from-registry` uses) is
   generation-scoped.
@@ -1001,7 +1003,7 @@
   [machines]
   (into {}
         (keep (fn [id]
-                (let [m (rf/handler-meta {:source :store :kind :event :id id})]
+                (let [m (host-registrar/store-meta :event id)]
                   (when (:rf/machine? m) [id (:rf/machine m)]))))
         (or machines [])))
 

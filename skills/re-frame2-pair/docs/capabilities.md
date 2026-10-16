@@ -60,7 +60,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:rf.event/run-end` carries the whole chain's `:rf.event/elapsed-ms` (there is no per-interceptor timing) |
 | Hot reload leaves stale registrations behind | *done* | Probe-based `tail-build` against `(rf/handler-meta ...)`; `:rf.registry/handler-replaced` trace fires on every replace |
 | Wrong frame routing | *done* | `frame: ":foo"` on dispatch + `watch-epochs {frame}`; `:ambiguous-frame` refuses unsafe ops |
-| Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:restore-rejected` and the error trace carries `:rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
+| Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:reason :rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
 | Form bug mixes edit / validation / saved state | *not yet* | General re-frame pattern; not a specific recipe |
 
 ---
@@ -69,9 +69,9 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Capability | Status | Notes |
 |---|---|---|
-| List recorded epochs per frame | *done* | `trace-window` / `snapshot` (`:epochs` slice) over `rf/epoch-history` |
-| Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf/restore-epoch!` |
-| Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `(rf/replace-frame-state! frame-id {:rf.db/app v})` — the JSON-loaded-bug-repro case |
+| List recorded epochs per frame | *done* | `trace-window` / `snapshot` (`:epochs` slice) over `rf.epoch/epoch-history` |
+| Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf.epoch/restore-epoch!` |
+| Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `(rf.epoch/replace-frame-state! frame-id {:rf.db/app v})` — the JSON-loaded-bug-repro case |
 | Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` carries the structured tags. Frame-id comes **first** — an opts map as the sole arg silently returns `[]` — and `:op-type` is a `:flat-only` filter, so `:flat true` is required. `rf/trace-buffer` names the same fn on both platforms; an `eval-cljs` form spells whichever home fully qualified |
 | Configure ring depth | *done* | `(rf/configure! {:epoch-history {:depth N}})` |
 | Reverse side effects | *guardrail* | Restore rewinds durable **frame-state** (both partitions); it does NOT reverse side effects or transient host state. `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
@@ -82,7 +82,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Guardrail | Status | Notes |
 |---|---|---|
-| `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
+| `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf.epoch/replace-frame-state!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
 | `snapshot` `:machines` slice is runtime-db state, redacted off-box by default | *done* | The `:machines` slice is runtime-db-partition state; per Spec 011 ruling #14 it egresses as `:rf/redacted` unless the operator opted in. The opt-in is **folded onto the existing sensitive axis** (`redact-runtime-db? = (not incl?)`, `incl?` = `--allow-sensitive-reads` gate + `:include-sensitive`) — there is **no separate `:rf.egress/include-runtime-db?` arg** (deliberately asymmetric with Xray's dedicated `:rf.egress/include-runtime-db?` axis; both fail closed, both satisfy ruling #14). See SKILL.md §privacy posture and `skills/re-frame2/references/cross-cutting/privacy-and-elision.md`. |
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |

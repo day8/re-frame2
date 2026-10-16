@@ -3,12 +3,12 @@
   §Play step-debugger).
 
   The substantive runtime calls (`rf.story.runtime/prepare-variant`,
-  `rf.story.play/begin-stepper!`, `rf/restore-epoch!`) are exercised by the
+  `rf.story.play/begin-stepper!`, `rf.story.runtime/restore-epoch!`) are exercised by the
   feature-load browser gate. These unit tests pin the mutator semantics
   by redef-ing the substrate calls so the slot transitions can be
   observed deterministically without booting the runtime."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
+            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.play :as rf.story.play]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.ui.test-mode.stepper-state :as rf.story.ui.test-mode.stepper-state]))
@@ -51,8 +51,8 @@
       (seed-slot! vid events)
       (with-redefs [rf.story.play/step-once!    (fn [v]
                                          (swap! dispatched conj v))
-                    rf/epoch-history (fn [_]
-                                          [{:epoch-id :epoch/before-a}])]
+                    rf.story.assertions/epoch-history (fn [_]
+                                                        [{:epoch-id :epoch/before-a}])]
         (rf.story.ui.test-mode.stepper-state/step! vid)
         (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
           (is (= [vid] @dispatched) "rf.story.play/step-once! is called with the variant id")
@@ -67,7 +67,7 @@
       (seed-slot! vid [[:e/a]])
       (swap! rf.story.ui.test-mode.stepper-state/results-atom assoc-in [vid :cursor] 1)
       (with-redefs [rf.story.play/step-once!    (fn [v] (swap! dispatched conj v))
-                    rf/epoch-history (fn [_] [{:epoch-id :x}])]
+                    rf.story.assertions/epoch-history (fn [_] [{:epoch-id :x}])]
         (rf.story.ui.test-mode.stepper-state/step! vid)
         (is (empty? @dispatched) "rf.story.play/step-once! is NOT called")
         (is (= 1 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid)))
@@ -86,8 +86,8 @@
       (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
       (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
              assoc :cursor 3 :epoch-stack [:epoch/s0 :epoch/s0 :epoch/s1 :epoch/s2])
-      (with-redefs [rf/restore-epoch! (fn [v eid]
-                                       (swap! restored conj [v eid]))]
+      (with-redefs [rf.story.runtime/restore-epoch! (fn [v eid]
+                                                    (swap! restored conj [v eid]))]
         (rf.story.ui.test-mode.stepper-state/step-back! vid)
         (is (= [[vid :epoch/s2]] @restored))
         (is (= 2 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
@@ -101,8 +101,8 @@
     (let [vid      :story.unit/back-start
           restored (atom [])]
       (seed-slot! vid [[:e/a]])
-      (with-redefs [rf/restore-epoch! (fn [v eid]
-                                       (swap! restored conj [v eid]))]
+      (with-redefs [rf.story.runtime/restore-epoch! (fn [v eid]
+                                                    (swap! restored conj [v eid]))]
         (rf.story.ui.test-mode.stepper-state/step-back! vid)
         (is (empty? @restored))
         (is (= 0 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))))
@@ -118,8 +118,8 @@
     (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
            assoc :cursor 2 :epoch-stack [:epoch/seed :epoch/before-a :epoch/before-b]
                  :auto-playing? true :interval-id 999)
-    (with-redefs [rf/restore-epoch! (fn [v eid]
-                                     (swap! restored conj [v eid]))
+    (with-redefs [rf.story.runtime/restore-epoch! (fn [v eid]
+                                                  (swap! restored conj [v eid]))
                   js/clearInterval  (fn [_] nil)]
       (rf.story.ui.test-mode.stepper-state/rewind! vid)
       (is (= [[vid :epoch/seed]] @restored))

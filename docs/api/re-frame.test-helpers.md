@@ -223,7 +223,7 @@ The same three searches, keyed on `:data-testid`.
 - **Description**: Expands every component in a hiccup tree by calling it with its args, as Reagent's renderer would: function components, Form-2 components (a function returning the render function) and Form-3 class components. Afterwards, every vector starts with a keyword tag or a non-component value.
     - The `find-*` functions and `text-content` already expand as they walk. Call `expand-tree` yourself only to re-expand a sub-tree mid-walk.
     - A Form-3 class expands by calling its stashed `:reagent-render` function directly. No React component is created and no lifecycle methods run.
-    - Form-3 detection looks for the tag that reagent-slim's `create-class` sets, so a class from stock Reagent's `create-class` is not recognised. On the JVM there are no classes to detect.
+    - Form-3 detection reads the `reagentRender` fn that Reagent's `create-class` sets on the class prototype, so a class built from `:reagent-render` expands and one built from the legacy `:render` key does not. On the JVM there are no classes to detect.
 - **Example**:
   ```clojure
   (th/expand-tree [parent-view {:n 5}])  ; => hiccup whose vectors all start

@@ -25,7 +25,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             ;; `fx/reg-fx`, the plain fn, NOT the `rf/reg-fx` macro: see
             ;; `install-resource-family!`.
@@ -108,7 +108,7 @@
   (rf/dispatch-sync [:halt/loop {:token secret-password}] {:frame frame-id})
   (rf/dispatch-sync [:inc]       {:frame frame-id})
   (rf/dispatch-sync [:read-subs] {:frame frame-id})
-  (rf/epoch-history frame-id))
+  (rf.epoch/epoch-history frame-id))
 
 (defn- sub-run-row
   "The structured `:sub-runs` row for `sub-id` in `record`."
@@ -269,7 +269,7 @@
             nil
             [:fxp/notify {:level "not-a-keyword" :password pw}]]}))
   (rf/dispatch-sync [:do-login secret-password] {:frame frame-id})
-  (last (rf/epoch-history frame-id)))
+  (last (rf.epoch/epoch-history frame-id)))
 
 (defn- fx-carriers
   "Each fx-args carrier the `drive-fx-carriers!` cascade reaches, by slot."
@@ -480,7 +480,7 @@
     (install-mcp-style-schemas! :test/mcp)
     (install-resource-family! :test/mcp)
     (drive-resource-family! :test/mcp)
-    (let [raw-hist     (rf/epoch-history :test/mcp)
+    (let [raw-hist     (rf.epoch/epoch-history :test/mcp)
           proj-hist    (mapv rf/project-egress raw-hist)
           ;; Off-box the fx-args carriers fail closed whole, so the owner
           ;; discrimination INSIDE them is read at the trusted-local posture

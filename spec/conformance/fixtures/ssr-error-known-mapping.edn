@@ -12,7 +12,7 @@
  :fixture/doc          "A request URL has no matching route. The runtime emits :rf.error/no-such-handler in the routing context. The default error projector maps it to {:status 404 :code :not-found :message \"Page not found\" :retryable? false} and writes :status 404 to the per-request response accumulator. Asserts the projector's output, not a user-stub-rolled fx."
 
  :fixture/registry
- {:event {:rf/server-init {:platforms #{:server}}}
+ {:event {:app/server-init {:platforms #{:server}}}
   :route {:route/home {:doc "Home page only." :path "/"}}
   ;; :rf.ssr/default-error-projector ships with the runtime
   ;; (re-frame.ssr/reg-error-projector at ns-load); declared here so
@@ -24,9 +24,9 @@
          {:doc "Built-in default projector."}}}
 
  :fixture/handlers
- {:event {:rf/server-init []}}
+ {:event {:app/server-init []}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]]
+ :fixture/frame-config {:initial-events [[:app/server-init]]
                         :platform :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}
@@ -47,7 +47,7 @@
 
   ;; The internal trace records :rf.error/no-such-handler.
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}
    {:operation :rf.error/no-such-handler
     :op-type   :error

@@ -101,6 +101,7 @@
   focus channel — also the Story→Xray focus surface). Nothing under
   `implementation/` requires this; it is a dev testbed surface."
   (:require [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [day8.re-frame2-xray.focus :as xray-focus])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -172,7 +173,7 @@
   listener would not have registered at all; the `some?` arm keeps the
   predicate honest rather than silently disabling focus-pinning."
   [host-frame epoch-id]
-  (let [latest (:epoch-id (peek (rf/epoch-history host-frame)))]
+  (let [latest (:epoch-id (peek (rf.epoch/epoch-history host-frame)))]
     (or (nil? latest) (= epoch-id latest))))
 
 (defn register-focus-listener!

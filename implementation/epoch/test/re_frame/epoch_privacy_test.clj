@@ -17,7 +17,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -29,7 +29,7 @@
     {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- last-record [frame-id]
-  (last (rf/epoch-history frame-id)))
+  (last (rf.epoch/epoch-history frame-id)))
 
 (defn- install-sensitive-paths!
   "Declare `paths` sensitive against `frame-id` — the registry write a
@@ -62,7 +62,7 @@
     (doseq [event-id [:unrelated :seed :clear-pw]]
       (rf/dispatch-sync [event-id] {:frame :test/main}))
     (is (= [false true true]
-           (mapv :rf.epoch/sensitive? (rf/epoch-history :test/main))))))
+           (mapv :rf.epoch/sensitive? (rf.epoch/epoch-history :test/main))))))
 
 ;; The structured :effects rows carry :args — the RAW fx-handler argument, not
 ;; rooted at the frame's app-db, so no classification can prove it safe.
@@ -102,7 +102,7 @@
       (rf/register-listener! :trace ::halt-traces (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:halt/settled {:token halt-secret :visible "settled"}]
                         {:frame :test/halt})
-      (let [ring     (rf/epoch-history :test/halt)
+      (let [ring     (rf.epoch/epoch-history :test/halt)
             halt     (last ring)
             depth-ev (some #(when (= :rf.error/drain-depth-exceeded (:operation %)) %)
                            @traces)]
@@ -144,4 +144,4 @@
     (is (= [[0] [2 1 2]]
            (for [frame-id [:test/plain :test/main]]
              (mapv #(:rf.epoch/redacted-modified-paths-count (rf/project-egress %))
-                   (rf/epoch-history frame-id)))))))
+                   (rf.epoch/epoch-history frame-id)))))))

@@ -9,7 +9,7 @@ Resources ship in the optional `day8/re-frame2-resources` artefact and use manag
 ```clojure
 (:require [re-frame.core :as rf]
           [re-frame.http.managed]   ;; registers the :rf.http/managed transport
-          [re-frame.resources])     ;; registers the resource events, subs and runtime
+          [re-frame.resources :as rf.resources])  ;; registers the resource events, subs and runtime
 ```
 
 ```clojure
@@ -58,7 +58,7 @@ Three terms recur on this page:
 
 Each fetch of a scoped key starts a new *generation*, and each request attempt has a *work id*. A reply is written only while both still match the entry, so a late reply from a superseded, cancelled or removed request is discarded. This page calls that stale-reply suppression.
 
-`reg-resource`, `reg-mutation`, `reg-resource-scope`, `resolve-resource-scope`, `resource-state` and `mutation-state` are called through the `re-frame.core` facade as `rf/…` (the three `reg-*` forms are macros there), and registrations are removed with `rf/clear`. Everything else is a keyword-addressed event or subscription.
+`reg-resource`, `reg-mutation`, `reg-resource-scope` and `resolve-resource-scope` are called through the `re-frame.core` facade as `rf/…` (the three `reg-*` forms are macros there), and registrations are removed with `rf/clear`. The inspection reads `resource-state` and `mutation-state` are called here, as `rf.resources/…`. Everything else is a keyword-addressed event or subscription.
 
 [The model](../resources/concepts.md) teaches owners, causes, scope and invalidation.
 
@@ -509,7 +509,7 @@ The cell below prints the whole view-model for two keys, before and after an `en
 ```cljs-rf2
 (require '[re-frame.core :as rf]
          '[re-frame.http.managed]
-         '[re-frame.resources]
+         '[re-frame.resources :as rf.resources]
          '[re-frame.http.test-support :as http-test-support])
 
 ;; Canned replies: "hello" loads, and "draft" fails with a 503.
@@ -823,7 +823,7 @@ The reads here return one-shot, non-reactive snapshots for Xray, unit tests and 
 - **Example**:
   ```clojure
   ;; the live durable entry for one scoped key, at an explicit frame
-  (rf/resource-state {:resource :article/by-slug
+  (rf.resources/resource-state {:resource :article/by-slug
                       :scope    :rf.scope/global
                       :params   {:slug "welcome"}
                       :frame    :rf/default})
@@ -843,7 +843,7 @@ The reads here return one-shot, non-reactive snapshots for Xray, unit tests and 
 - **Example**:
   ```clojure
   ;; one mutation instance's runtime row, at an explicit frame
-  (rf/mutation-state {:instance :form/save-1 :frame :rf/default})
+  (rf.resources/mutation-state {:instance :form/save-1 :frame :rf/default})
   ;; => {:status … :result … :error …}, or nil
   ```
 
@@ -868,9 +868,9 @@ The registry, the whole live table and one entry are three different reads. The 
 ;;     …}
 
 ;; 3. ONE ENTRY / ONE INSTANCE — the narrowed reads documented above.
-(rf/resource-state {:resource :article/by-slug :scope :rf.scope/global
+(rf.resources/resource-state {:resource :article/by-slug :scope :rf.scope/global
                     :params {:slug "welcome"} :frame :app/main})
-(rf/mutation-state {:instance :form/save-1 :frame :app/main})
+(rf.resources/mutation-state {:instance :form/save-1 :frame :app/main})
 ```
 
 Read each table by its own keys. `:entries` is keyed by each entry's `key-id`, a string encoding of the key in canonical EDN (CEDN-1) that keeps a list and a vector of the same values distinct; the readable `[scope resource-id params]` tuple is on the row as `:resource/key`, and re-keying the table by it can collapse distinct entries. `:rf.runtime/mutations` is keyed by the CEDN-1 byte `key-id` of each mutation instance id (the row carries its own `:instance/id`), never by mutation id, so concurrent submissions of the same mutation stay distinct; re-keying by `:mutation/id` collapses them.

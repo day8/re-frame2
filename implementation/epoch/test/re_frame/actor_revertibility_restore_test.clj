@@ -39,7 +39,7 @@
           [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- last-epoch-id []
-  (:epoch-id (last (rf/epoch-history :test/main))))
+  (:epoch-id (last (rf.epoch/epoch-history :test/main))))
 
 (defn- traces-of
   "Run `f` and return the trace events it emitted."
@@ -89,7 +89,7 @@
   (let [pre-spawn-epoch (last-epoch-id)]
     (spawn-child! :rev/child)
     (is (some? (snapshot :rev/child#1)) "precondition: the actor is alive")
-    (is (true? (rf/restore-epoch! :test/main pre-spawn-epoch)))
+    (is (:ok? (rf.epoch/restore-epoch! :test/main pre-spawn-epoch)))
     (is (nil? (snapshot :rev/child#1)) "the actor's snapshot is gone")
     (is (op :rf.error/no-such-handler
             (traces-of #(rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})))
@@ -102,7 +102,7 @@
     (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
     (rf/dispatch-sync [:rev/parent [:drop]] {:frame :test/main})
     (is (nil? (snapshot :rev/child#1)) "precondition: the actor is destroyed")
-    (is (true? (rf/restore-epoch! :test/main alive-epoch)))
+    (is (:ok? (rf.epoch/restore-epoch! :test/main alive-epoch)))
     (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
     (is (= 1 (:n (:data (snapshot :rev/child#1))))
         "the restored snapshot (:n 0) resolves lazily and transitions")))
@@ -113,8 +113,9 @@
   (let [alive-epoch (spawn-child! :rev/child)]
     (rf.registrar/unregister! :event :rev/child)
     (let [ok?    (atom nil)
-          traces (traces-of #(reset! ok? (rf/restore-epoch! :test/main alive-epoch)))]
-      (is (false? @ok?) "restore refused: the actor's TYPE is gone")
+          traces (traces-of #(reset! ok? (rf.epoch/restore-epoch! :test/main alive-epoch)))]
+      (is (= :rf.epoch/restore-missing-handler (:reason @ok?))
+          "restore refused: the actor's TYPE is gone")
       (is (some #(= :rev/child#1 (:id %))
                 (-> (op :rf.epoch/restore-missing-handler traces) :tags :missing))
           "the unresolvable spawned actor surfaces in :missing"))))
@@ -123,12 +124,13 @@
   (rf/make-frame {:id :test/main})
   (rf/reg-machine :rev/child (child 1))
   (let [alive-epoch (spawn-child! :rev/child)]
-    (is (true? (rf/restore-epoch! :test/main alive-epoch))
+    (is (:ok? (rf.epoch/restore-epoch! :test/main alive-epoch))
         "control: an unchanged TYPE version restores")
     (rf/reg-machine :rev/child (child 2))
     (let [ok?    (atom nil)
-          traces (traces-of #(reset! ok? (rf/restore-epoch! :test/main alive-epoch)))]
-      (is (false? @ok?) "a hot-reloaded TYPE version refuses the restore")
+          traces (traces-of #(reset! ok? (rf.epoch/restore-epoch! :test/main alive-epoch)))]
+      (is (= :rf.epoch/restore-version-mismatch (:reason @ok?))
+          "a hot-reloaded TYPE version refuses the restore")
       (is (= {:machine-id :rev/child#1 :machine-type :rev/child
               :version-recorded 1 :version-current 2}
              (-> (op :rf.epoch/restore-version-mismatch traces)

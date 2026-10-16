@@ -515,7 +515,7 @@
     replay runner cannot prove refuses.
   - Reapply the fx decisions / overrides — the artifact's `:fx-decisions`
     ride the per-call `:fx-overrides` on every replayed dispatch.
-  - Capture a NEW epoch tape — read from `re-frame.core/epoch-history`
+  - Capture a NEW epoch tape — read from `rf.story.assertions/epoch-history`
     after the program settles, NOT the artifact's captured tape.
   - Project that tape through the evidence boundary and return
     the shared run-result shape — stable + canonicalizable, so the
@@ -575,7 +575,7 @@
        (with-network-stubs! artifact
          (fn []
            (let [outcomes (replay-into-frame! frame-id artifact hooks)
-                 tape     (vec (rf/epoch-history frame-id))
+                 tape     (vec (rf.story.assertions/epoch-history frame-id))
                  app-db   (rf/app-db-value frame-id)]
              (replay-result {:epoch-tape tape
                              :artifact   artifact

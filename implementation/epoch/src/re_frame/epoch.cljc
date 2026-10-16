@@ -58,21 +58,22 @@
 
 ;; ---- ONE GRAMMAR FOR THE EPOCH RING ----------------------------------------
 ;;
-;; Every var below is an IMPLEMENTATION SEAM — a late-bind hook target the
-;; `re-frame.core` facade reaches through `re-frame.core-epoch`'s defwrappers
-;; (see the publication block at the foot of this file). None of them is a
-;; second public spelling, and the manifest says so in one of two ways:
+;; The epoch surface is inspection, history and tooling, so it lives HERE, its
+;; feature namespace, not on the `re-frame.core` facade (spec/API.md
+;; §Conventions, the role rule):
 ;;
-;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
-;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
-;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
-;;     carve-outs). The `re-frame.core` row carries the classification alone,
-;;     so one public name has exactly one row.
-;;   * The vars with no same-named facade twin — `configure!`,
-;;     `clear-history!`, `register-epoch-listener!`,
-;;     `unregister-epoch-listener!`, `clear-epoch-listeners!` — keep a row,
-;;     tiered `:implementation`, because that row is the only record of them.
-;;     They follow `settle!` rather than `^:no-doc`: the generator drops a
+;;   * `epoch-history`, `restore-epoch!`, `replay-epoch!` and
+;;     `replace-frame-state!` are this namespace's public surface, tiered
+;;     `:tooling`. Each is also published under its `:epoch/*` late-bind hook
+;;     (the block at the foot of this file), which `re-frame.core`'s
+;;     `epoch-history` forwards through and which tools that treat the
+;;     artefact as optional call instead of requiring this namespace.
+;;   * `configure!`, `clear-history!`, `register-epoch-listener!`,
+;;     `unregister-epoch-listener!` and `clear-epoch-listeners!` are
+;;     IMPLEMENTATION SEAMS — hook targets for core's doors
+;;     (`rf/configure!`, the `:epoch` stream of `rf/register-listener!`, the
+;;     test-support reset table). They keep a row tiered `:implementation`,
+;;     following `settle!` rather than `^:no-doc`: the generator drops a
 ;;     `^:no-doc` var from the manifest entirely, and this repo tiers a seam
 ;;     honestly rather than quieting it.
 ;;
@@ -130,7 +131,7 @@
 ;; to the back; the front evicts when the buffer exceeds the configured
 ;; depth. The atom + ring-buffer mutators live in `re-frame.epoch.state`.
 
-(defn ^:no-doc epoch-history
+(defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
   depth is 0, which disables recording — including records retained
@@ -370,7 +371,7 @@
 
 ;; ---- restore --------------------------------------------------------------
 ;;
-(defn ^:no-doc restore-epoch!
+(defn restore-epoch!
   "Rewind the frame to one of the named epoch's canonical frame-state
   snapshots — its `:frame-state-after` by default, or its
   `:frame-state-before` with `opts` `{:to :before}` — the WHOLE
@@ -415,7 +416,15 @@
 
   `frame-id` is the frame's id or the frame value `rf/make-frame` returns.
 
-  Returns `true` on success, `false` on any failure."
+  Returns a structured envelope, the shape `replay-epoch!` returns:
+
+    {:ok? true  :frame <id> :epoch-id <the restored epoch> :to :after|:before}
+    {:ok? false :reason <the failure trace's op> :frame <id> …that trace's tags}
+
+  A refusal's tags ride with `:rf.epoch/id` spelled `:epoch-id`, so
+  `(:reason r)` answers why without a read of the trace buffer; the trace
+  still fires for observers. Returns `false` when the epoch surface is elided
+  (`interop/debug-enabled?` false)."
   ([frame-id epoch-id] (restore-epoch! frame-id epoch-id nil))
   ([frame-id epoch-id opts]
    (if-not rf.interop/debug-enabled?
@@ -429,12 +438,11 @@
          ;; to the write boundary, so a same-id successor seated in between never
          ;; receives this epoch's state.
          :ok   (rf.epoch.tool-pair/perform-restore! frame-id incarnation-token epoch to)
-         :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
-                   false))))))
+         :fail (rf.epoch.tool-pair/refuse! op tags))))))
 
 ;; ---- replay (Tool-Pair §Replay) --------------------------------------------
 ;;
-(defn ^:no-doc replay-epoch!
+(defn replay-epoch!
   "Re-drive the named retained epoch's recorded event through `frame-id`'s
   own handlers, in ONE call, as a faithful-or-fail-loud strict replay
   (Tool-Pair §Replay). The record is resolved in-process and its replay
@@ -497,7 +505,8 @@
   dispatch does — `replay-epoch!` neither catches it nor mints.
 
   Returns `false` when the epoch surface is elided (`interop/debug-enabled?`
-  false) — the same inert value `restore-epoch!` returns."
+  false) — the same inert value `restore-epoch!` and `replace-frame-state!`
+  return."
   ([frame-id epoch-id] (replay-epoch! frame-id epoch-id nil))
   ([frame-id epoch-id opts]
    (if-not rf.interop/debug-enabled?
@@ -580,10 +589,12 @@
   the write landed (destroyed, or reseated), while any non-nil changed-key
   set, including empty, is a successful live-incarnation write. Failure is
   reported before telemetry, listener fan-out, or a synthetic epoch can claim
-  success. Once the exact-incarnation write HAS linearized, the public result
-  stays `true`; the synthetic bookkeeping that follows is itself
-  token-fenced (`record-synthetic-replace-epoch!`), so post-write owner loss
-  STOPS the tail rather than retargeting it onto a successor.
+  success. Once the exact-incarnation write HAS linearized, the result is
+  `{:ok? true :frame <id> :epoch-id <id>}`; the synthetic bookkeeping that
+  follows is itself token-fenced (`record-synthetic-replace-epoch!`), so
+  post-write owner loss STOPS the tail rather than retargeting it onto a
+  successor, and `:epoch-id` is then nil. It names the synthetic record that
+  bookkeeping actually published, never whichever record heads the history.
 
   The coherent read (`frame-state-before`), the physical write, and the synthetic-epoch
   bookkeeping run under the frame's `:drain-lock` (`serialize-tool-write!`), so
@@ -606,9 +617,8 @@
         ;; the SAME canonical no-such-handler failure a destroyed-frame write
         ;; race uses. The successor stays byte-for-byte untouched;
         ;; no success telemetry fires.
-        (do (rf.epoch.tool-pair/emit-precondition-failure! :rf.error/no-such-handler
-                                                  {:kind :frame :frame frame-id})
-            false)
+        (rf.epoch.tool-pair/refuse! :rf.error/no-such-handler
+                                    {:kind :frame :frame frame-id})
         (let [;; Record the same coherent whole-frame value the write installs.
               ;; Read under the drain lock so the write's own re-read (which
               ;; preserves omitted partitions) sees this same state — frame-state-after
@@ -621,13 +631,15 @@
               frame-state-after  (build-frame-state-after frame-state-before)
               changed-keys       (write-frame-state!)]
           (if (nil? changed-keys)
-            (do (rf.epoch.tool-pair/emit-precondition-failure! :rf.error/no-such-handler
-                                                      {:kind :frame :frame frame-id})
-                false)
+            (rf.epoch.tool-pair/refuse! :rf.error/no-such-handler
+                                        {:kind :frame :frame frame-id})
             (do (rf.epoch.tool-pair/reset-flows-dirty-check! frame-id incarnation-token)
-                (record-synthetic-replace-epoch! frame-id incarnation-token
-                                                 frame-state-before frame-state-after)
-                true)))))))
+                (let [record (record-synthetic-replace-epoch!
+                               frame-id incarnation-token
+                               frame-state-before frame-state-after)]
+                  {:ok?      true
+                   :frame    frame-id
+                   :epoch-id (:epoch-id record)}))))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the partial frame-state patch once preconditions have passed.
@@ -649,7 +661,7 @@
                       (merge frame-state-before new-frame-state))
                     #(rf.frame/replace-frame-state! frame-id incarnation-token new-frame-state)))
 
-(defn ^:no-doc replace-frame-state!
+(defn replace-frame-state!
   "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
   subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
   frame-state, bypassing the dispatch loop: a present key replaces that
@@ -663,8 +675,8 @@
   previous state — restoring that record `{:to :before}` undoes the
   injection; emits `:rf.epoch/db-replaced` on success.
 
-  Failure modes (each is a no-op on the frame-state and returns `false`,
-  emitting a structured error trace):
+  Failure modes (each is a no-op on the frame-state, emits a structured
+  error trace, and returns that trace's refusal envelope):
 
     :rf.error/replace-frame-state-bad-keys — `new-frame-state` carries no
                                                    recognized partition key
@@ -689,7 +701,14 @@
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
-  Returns `true` on success, `false` on any failure."
+  Returns a structured envelope, the shape `replay-epoch!` returns:
+
+    {:ok? true  :frame <id> :epoch-id <the synthetic record published, or nil>}
+    {:ok? false :reason <the failure trace's op> :frame <id> …that trace's tags}
+
+  The bad-keys refusal's own diagnostic (`:unknown-keys` /
+  `:no-recognized-keys`) rides as `:cause` beside its `:keys`. Returns
+  `false` when the epoch surface is elided."
   [frame-id new-frame-state]
   (if-not rf.interop/debug-enabled?
     false
@@ -701,8 +720,7 @@
         ;; to the write boundary, so a same-id successor seated in between never
         ;; receives this injection or its synthetic bookkeeping.
         :ok   (perform-replace-frame-state! frame-id incarnation-token new-frame-state)
-        :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
-                  false)))))
+        :fail (rf.epoch.tool-pair/refuse! op tags)))))
 
 ;; ---- projected egress -----------------------------------------------------
 
@@ -829,6 +847,8 @@
    :epoch/on-frame-destroyed  rf.epoch.listeners/on-frame-destroyed!
 
    ;; ---- introspection + Tool-Pair write surface --------------------
+   ;; Read by `re-frame.core/epoch-history` and by tools that treat this
+   ;; artefact as optional, which call the hook rather than require this ns.
    :epoch/epoch-history       epoch-history
    :epoch/restore-epoch!      restore-epoch!
    :epoch/replay-epoch!       replay-epoch!

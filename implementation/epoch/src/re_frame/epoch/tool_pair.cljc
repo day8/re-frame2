@@ -327,10 +327,20 @@
   (some (fn [record] (when (= epoch-id (:epoch-id record)) record))
         history))
 
-(defn emit-precondition-failure!
+(defn refuse!
+  "Refuse a restore or replace: emit `operation`'s error trace with `tags`,
+  then return the refusal envelope the write surface hands its caller —
+  `{:ok? false :reason operation ...tags}`, the shape `replay-epoch!`
+  returns. `:rf.epoch/id` is spelled `:epoch-id` (Tool-Pair §Identity
+  spelling), and a tag-level `:reason` — the bad-keys diagnostic — rides
+  as `:cause`, so it never overwrites the operation."
   [operation tags]
   (rf.trace/emit-error! operation
-                     (assoc tags :recovery :no-recovery)))
+                     (assoc tags :recovery :no-recovery))
+  (-> (cond-> (dissoc tags :rf.epoch/id :reason)
+        (contains? tags :rf.epoch/id) (assoc :epoch-id (:rf.epoch/id tags))
+        (contains? tags :reason)      (assoc :cause (:reason tags)))
+      (assoc :ok? false :reason operation)))
 
 (defn- drain-in-flight?
   "True when `frame-record`'s router is mid-drain (sync or async).
@@ -795,8 +805,9 @@
 ;; the owning component's teardown). Per Tool-Pair §Surface behaviour against
 ;; destroyed frames the mutating surfaces must report this as the SAME
 ;; structural failure a frame-miss caught at validate-time produces
-;; (`:rf.error/no-such-handler`, kind `:frame`, returns `false`) — NOT a
-;; synthetic success, and NEVER a write into a same-id successor. Both write
+;; (`:rf.error/no-such-handler`, kind `:frame`, returned as its `{:ok? false}`
+;; envelope) — NOT a synthetic success, and NEVER a write into a same-id
+;; successor. Both write
 ;; paths (`perform-restore!` here, `perform-replace!` in `epoch.cljc`)
 ;; therefore gate on `frame/event-continuation-live?` with the EXACT
 ;; incarnation token their preconditions resolved and
@@ -814,7 +825,7 @@
 ;; TOCTOU pair: a drain that STARTS on another thread after validation and
 ;; before the write can interleave between a handler's `db` read and its
 ;; commit. The tool write then splices into the middle of an event transition —
-;; a non-linearizable result — while still returning `true` and emitting
+;; a non-linearizable result — while still reporting success and emitting
 ;; success telemetry. For a partial `replace-frame-state!` the
 ;; same window also lets the recorded synthetic `:frame-state-before` /
 ;; `:frame-state-after` (computed from a pre-interleave read) diverge from the
@@ -835,7 +846,8 @@
 ;; non-linearizable write into the in-flight transition (`call-serialized-with-
 ;; drain!`'s reentrant branch runs the thunk DIRECTLY — correct for the flows
 ;; ops, wrong for a tool write). So we refuse the reentrant case up front with
-;; the documented during-drain op, returning `false` and recording nothing.
+;; the documented during-drain op, returning its refusal envelope and recording
+;; nothing.
 ;; `frame/in-drain?` is the same `:in-drain?` thread marker the pre-lock
 ;; precondition `drain-in-flight?` reads, so this also closes the gap between
 ;; the (separate) precondition call and this write. On CLJS — single-threaded —
@@ -849,18 +861,18 @@
   (`frame/call-serialized-with-drain!`), so the whole operation is mutually
   exclusive with any event transition (no validate-then-write TOCTOU).
 
-  `op` is `(fn [] <boolean>)` returning the operation's own result (it still
-  owns the destroyed-frame liveness recheck and its `false` returns).
+  `op` is `(fn [] <envelope>)` returning the operation's own `{:ok? …}`
+  result (it still owns the destroyed-frame liveness recheck and its
+  refusals).
 
   A call from the frame's ACTIVE drainer (a reentrant mid-cascade tool write)
   is REFUSED here — `during-drain-op` is emitted with `during-drain-tags` and
-  `false` is returned, `op` never runs — mirroring the pre-lock
+  its refusal envelope is returned, `op` never runs — mirroring the pre-lock
   `drain-in-flight?` precondition and avoiding both self-deadlock and a
   non-linearizable mid-transition splice."
   [frame-id during-drain-op during-drain-tags op]
   (if (rf.frame/in-drain? frame-id)
-    (do (emit-precondition-failure! during-drain-op during-drain-tags)
-        false)
+    (refuse! during-drain-op during-drain-tags)
     (rf.frame/call-serialized-with-drain! frame-id op)))
 
 ;; ---- flows dirty-check reset after a tool write ----------------------------
@@ -1125,8 +1137,10 @@
   `:rf.error/no-such-handler` (kind `:frame`), the same shape a destroyed-frame
   write race produces — and leaves any successor frame byte-for-byte untouched
   with no success telemetry. The write's non-nil return (a changed-key set,
-  possibly empty) is success; the public result then stays TRUE even if a tail
-  callback churns the incarnation. Only the success branch emits restore
+  possibly empty) is success; the result is then
+  `{:ok? true :frame <id> :epoch-id <restored epoch> :to <to>}` even if a tail
+  callback churns the incarnation. A refusal returns `refuse!`'s
+  `{:ok? false :reason <op> …}` envelope. Only the success branch emits restore
   telemetry, re-anchors post-settle attribution, commits deferred subsystem
   traces, and cancels host-transient work from the abandoned timeline.
 
@@ -1152,9 +1166,7 @@
          ;; incarnation, and route to the SAME canonical no-such-handler failure a
          ;; destroyed-frame write race uses. The successor stays
          ;; byte-for-byte untouched; no success telemetry fires.
-         (do (emit-precondition-failure! :rf.error/no-such-handler
-                                         {:kind :frame :frame frame-id})
-             false)
+         (refuse! :rf.error/no-such-handler {:kind :frame :frame frame-id})
          (let [;; The whole snapshot in direction `to` is the restore source.
                recorded-frame-state (get epoch (restore-source to))
                ;; Reconcile runtime subsystems before the atomic install,
@@ -1189,9 +1201,7 @@
                (rf.frame/replace-frame-state! frame-id incarnation-token
                                            reconciled-frame-state)]
            (if (nil? changed-keys)
-             (do (emit-precondition-failure! :rf.error/no-such-handler
-                                             {:kind :frame :frame frame-id})
-                 false)
+             (refuse! :rf.error/no-such-handler {:kind :frame :frame frame-id})
              (do ;; Before the first callback boundary, so no callback sees the
                  ;; installed state beside a stale cache.
                  (reset-flows-dirty-check! frame-id incarnation-token)
@@ -1199,7 +1209,7 @@
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
                  ;; The exact-incarnation install committed, so the public result
-                 ;; is TRUE and stays truthful regardless of what follows. But the
+                 ;; is success and stays truthful regardless of what follows. But the
                  ;; `:rf.epoch/restored` emit above is a synchronous callback
                  ;; boundary: a trace listener can destroy A and seat a same-id
                  ;; successor B. Every framework-owned tail op below addresses the
@@ -1229,7 +1239,10 @@
                    ;; Host timers and HTTP handles are not frame state; cancel the
                    ;; abandoned timeline only after the new state is installed.
                    (quiesce-orphaned-async-host-work! frame-id incarnation-token))
-                 true))))))))
+                 {:ok?      true
+                  :frame    frame-id
+                  :epoch-id (:epoch-id epoch)
+                  :to       to}))))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------
 ;;
@@ -1267,7 +1280,7 @@
   `replace-frame-state!` is a PARTIAL-PATCH surface: a present key
   replaces that partition, an absent key is preserved. Without this
   check a caller's typo'd or empty map would silently no-op the whole
-  call while still returning `true` and recording a synthetic no-op undo
+  call while still reporting success and recording a synthetic no-op undo
   epoch — a false success against the caller's undo invariant. So a
   bad-shaped map is rejected loudly rather than treated as an empty
   partial patch."
@@ -1334,7 +1347,7 @@
   about the undo invariant exactly as a silent no-op would on the
   artefact-missing path. So a depth-0 injection is REJECTED loudly via the
   in-artefact failure channel (a structured `:rf.epoch/replace-history-disabled`
-  trace + `false` return), mirroring the artefact-missing throw's intent."
+  trace + its refusal envelope), mirroring the artefact-missing throw's intent."
   [frame-id frame-state]
   (if-let [{:keys [reason keys]} (replace-frame-state-bad-keys frame-state)]
     ;; (0) Bad keys? Independent of frame resolution — a malformed call is

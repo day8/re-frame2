@@ -231,7 +231,7 @@ nav:
       - Keep secrets out of traces: core/how-to/keep-secrets-out-of-traces.md
       - Report errors in production: core/how-to/report-errors-in-production.md
       - Configure dev and prod: core/how-to/configure-dev-and-prod.md
-      - Use UIx or slim: core/how-to/use-uix-or-slim.md
+      - Use UIx: core/how-to/use-uix-or-slim.md
     - 'Fresco: the view layer':
       - core/fresco/index.md
       - Installation: core/fresco/00-installation.md

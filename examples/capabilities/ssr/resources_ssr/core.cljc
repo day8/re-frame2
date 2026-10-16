@@ -51,7 +51,7 @@
    There is no non-route blocking-drain surface to reach for instead (Spec
    016 §SSR and hydration ties blocking to the route resource plan), so this
    example polls the one resource it cares about directly via the public
-   `rf/resource-state` introspection read — see `await-resource-loaded!`
+   `rf.resources/resource-state` introspection read — see `await-resource-loaded!`
    below.
 
    For the full picture see [Resources: SSR and hydration](../../../../docs/resources/concepts.md#ssr-and-hydration)
@@ -66,8 +66,10 @@
             ;; Managed HTTP — how the resource actually fetches.
             [re-frame.http.managed]
             ;; The resources artefact. Loading it boots the registrations and
-            ;; the SSR projection hook the ssr artefact reaches for.
-            [re-frame.resources]
+            ;; the SSR projection hook the ssr artefact reaches for; the server
+            ;; also reads `resource-state` from it.
+            #?(:clj  [re-frame.resources :as rf.resources]
+               :cljs [re-frame.resources])
             ;; SSR: render-to-string, the `:rf/hydrate` event, and the
             ;; per-request server effects.
             [re-frame.ssr :as rf.ssr]
@@ -135,7 +137,7 @@
 ;; SERVER-SIDE PRELOAD EVENT
 ;; ============================================================================
 ;;
-;; `:rf/server-init` runs when the per-request frame is born. Its one job is to
+;; `:app/server-init` runs when the per-request frame is born. Its one job is to
 ;; ensure the page resource — fetch it if the cache is cold — so that by render
 ;; time the data is already warm. The renderer then waits for it to settle
 ;; before walking the tree.
@@ -146,7 +148,7 @@
 ;; cause `:ssr-preload` is the story for the trace: why this fetch happened.
 ;; Owner = how long; cause = why. See docs/resources/glossary.md#owner--cause.
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc       "Per-request server init — preload the page resource."
    :platforms #{:server}}
   (fn [{:keys [db]} _]
@@ -246,7 +248,7 @@
 ;; The view does the simplest possible thing: it reads the resource through a
 ;; subscription and renders whatever's there. Reading never kicks off a fetch —
 ;; that is the contract, not an accident of this page. What warmed the cache is
-;; a command on each side: the server's `:rf/server-init` preload, and the
+;; a command on each side: the server's `:app/server-init` preload, and the
 ;; client's `:resources-ssr.app/page-opened` acquisition below. `:rf/resource`
 ;; is the runtime's own subscription; it turns a cache entry into a tidy
 ;; view-model — a status flag and the data. On the documented run the data is
@@ -292,7 +294,7 @@
 ;; for the CURRENT nav-token (`[:rf.runtime/routing :resource-blocking
 ;; <nav-token>]`, written by the routing artefact). This page has no route
 ;; table at all — see the ns docstring — so the `[:ssr request-id nav-token]`
-;; owner `:rf/server-init` ensures under never registers there, and
+;; owner `:app/server-init` ensures under never registers there, and
 ;; `drain-blocking-resources!` would return `{:settled? true}` immediately,
 ;; whether or not `:articles/list` had actually resolved — a route-free page
 ;; leaning on it reports itself settled even when the resource has not.
@@ -300,7 +302,7 @@
 ;; For a route-free SSR page there is no non-route blocking-drain surface to
 ;; reach for instead (Spec 016 §SSR and hydration ties blocking to the route
 ;; resource plan). So `await-resource-loaded!` polls the ONE resource this
-;; page cares about directly, via the public `rf/resource-state`
+;; page cares about directly, via the public `rf.resources/resource-state`
 ;; introspection read — the same bounded-yield-then-recheck shape the
 ;; framework's own drain loop uses internally (`re-frame.ssr`'s
 ;; `default-blocking-pump!`), just keyed on a single scoped resource instead
@@ -318,7 +320,7 @@
 
 #?(:clj
    (defn- await-resource-loaded!
-     "Poll a resource's runtime entry (`rf/resource-state`) until its
+     "Poll a resource's runtime entry (`rf.resources/resource-state`) until its
       `:status` reaches a terminal `:loaded` / `:error`, or
       `preload-deadline-ms` elapses. Yields the JVM thread between checks
       (`Thread/sleep`) so the managed-HTTP transport's async reply lands and
@@ -326,12 +328,12 @@
       `HttpClient/sendAsync`, so nothing settles the entry synchronously
       inside the `:rf.resource/ensure` dispatch itself.
 
-      `:frame` is the frame ID — `rf/resource-state`'s introspection target
+      `:frame` is the frame ID — `rf.resources/resource-state`'s introspection target
       keys the frame registry directly. See the call site."
      [{:keys [resource scope params frame]}]
      (let [deadline (+ (System/currentTimeMillis) preload-deadline-ms)]
        (loop []
-         (let [entry (rf/resource-state {:resource resource :scope scope
+         (let [entry (rf.resources/resource-state {:resource resource :scope scope
                                           :params params :frame frame})]
            (if (or (contains? #{:loaded :error} (:status entry))
                    (>= (System/currentTimeMillis) deadline))
@@ -344,7 +346,7 @@
 ;; ============================================================================
 ;;
 ;; This is one request, start to finish: mint a per-request frame whose
-;; `:initial-events` fire `:rf/server-init`, block on the preloaded page
+;; `:initial-events` fire `:app/server-init`, block on the preloaded page
 ;; resource, render to a string, and build a hydration payload carrying the
 ;; allowed resource projection under `:rf/runtime-db`. The frame is torn
 ;; down in a `finally` on every exit path — success or throw — so a request
@@ -374,17 +376,17 @@
            _   (rf.ssr/set-request! fid request)
            f   (rf/make-frame {:id fid :doc       "resources-ssr per-request frame"
                                :platform  :server
-                               :initial-events [[:rf/server-init]]})]
+                               :initial-events [[:app/server-init]]})]
        (try
          (rf/with-frame f
            ;; (1) Settle the blocking page resource before we render a thing.
-           ;; The `[:ssr …]`-owned ensure that `:rf/server-init` kicked off has
+           ;; The `[:ssr …]`-owned ensure that `:app/server-init` kicked off has
            ;; to land on :loaded before the render walk works with real data.
            ;; Failure and timeout respond without rendering the page.
            ;;
            ;; `:frame fid`, not `:frame f`. Most of the public surface takes a
            ;; frame VALUE or a frame-id keyword interchangeably — `app-db-value`
-           ;; just below is handed `f` — but `rf/resource-state`'s introspection
+           ;; just below is handed `f` — but `rf.resources/resource-state`'s introspection
            ;; target is the frame ID, which is what the runtime-db read keys the
            ;; registry by. Hand it the value and every poll reads nil: no entry
            ;; under that key, no terminal status, and the loop burns the whole

@@ -51,10 +51,9 @@
             ;; write boundary (`rf.frame/replace-frame-state!`) directly so an
             ;; in-place fresh-run reset preserves frame IDENTITY + sub-cache
             ;; + the app-db/runtime-db projection reactions. The epoch-backed
-            ;; facade surface (`rf/replace-frame-state!`) is the WRONG seam
-            ;; here: it throws `:rf.error/epoch-artefact-missing` when the
-            ;; epoch artefact is absent (a published Story jar carries no
-            ;; epoch dep), whereas the raw boundary is a pure container write
+            ;; surface (`re-frame.epoch/replace-frame-state!`) is the WRONG
+            ;; seam here: it lives in the epoch artefact, which a published
+            ;; Story jar does not depend on, whereas the raw boundary is a pure container write
             ;; with no epoch coupling — exactly what the epoch surface itself
             ;; calls under the hood. Story's `test_support` already reaches
             ;; `re-frame.frame` directly; this is the same boundary.

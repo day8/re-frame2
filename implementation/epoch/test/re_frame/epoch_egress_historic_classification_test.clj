@@ -9,7 +9,7 @@
   `-Dre-frame.debug=false` the ring records none."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.flows]
             [re-frame.machines]
             [re-frame.elision :as rf.elision]
@@ -38,7 +38,7 @@
   "The ring's record for `event-id`, selected by id because a destroy is
   followed by other artefacts' own events."
   [event-id]
-  (some #(when (= event-id (:event-id %)) %) (rf/epoch-history :rf/default)))
+  (some #(when (= event-id (:event-id %)) %) (rf.epoch/epoch-history :rf/default)))
 
 (defn- actor-claims
   "The frame's live declarations rooted at the actor's snapshot, both axes."

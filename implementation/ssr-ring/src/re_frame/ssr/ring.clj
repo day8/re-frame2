@@ -284,7 +284,7 @@
     ;; in-repo example boot follows.
     (rf/init! ssr/adapter)
     (def handler
-      (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
+      (ssr-ring/ssr-handler {:initial-events [[:app/server-init]]
                              :root-view      [(rf/view :app/root)]
                              ;; A vector allowlists top-level app-db keys;
                              ;; `:rf.ssr.payload/whole-app-db` opts into
@@ -374,7 +374,7 @@
     (def app
       (-> default-handler
           ((ssr-ring/ssr-middleware
-             {:initial-events [[:rf/server-init]]
+             {:initial-events [[:app/server-init]]
               :root-view      [(rf/view :app/root)]
               :payload        [:articles :session-user]
               :match?         (fn [req] (= :get (:request-method req)))}))

@@ -32,6 +32,7 @@
   resolves declared `:inputs` lazily at subscribe time, not register time."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [day8.re-frame2-xray.config :as config]
             ;; The first-class edn-inspector widget. Owns the
             ;; `:rf.xray.edn-inspector/*` events/subs and is the SINGLE
@@ -888,7 +889,7 @@
     ;; frame, so selecting a dispatch-id in a NON-head frame would
     ;; otherwise resolve its epoch against the wrong frame's ring →
     ;; epoch-id nil → the epoch-keyed panels strand on an empty/stale
-    ;; state. The cross-frame ring is resolved via `rf/epoch-history` at
+    ;; state. The cross-frame ring is resolved via `rf.epoch/epoch-history` at
     ;; dispatch time; the re-seed is a no-op when the frame is unchanged.
     ;;
     ;; The head-id computation threads `show-ungrouped?`
@@ -902,7 +903,7 @@
     (rf/reg-event :rf.xray/select-dispatch-id
       (fn [{:keys [db]} [_ dispatch-id frame-id]]
         {:db (let [db              (spine/reseed-epoch-history-for-frame
-                                 db frame-id (rf/epoch-history frame-id))
+                                 db frame-id (rf.epoch/epoch-history frame-id))
               history         (get db :epoch-history [])
               epoch-id        (spine/epoch-id-for-event-bundle history dispatch-id)
               show-ungrouped? (spine/db->show-ungrouped? db)

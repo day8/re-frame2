@@ -48,7 +48,7 @@ The MCP server (`@day8/re-frame2-pair-mcp`) does NOT ship `preload/`, so wiring 
 
 **`day8/re-frame2-schemas` alongside core, in the app's dev dependencies.** The preload directly requires `re-frame.schemas`; core does not bring that artefact. Use the same revision as the app's core dependency (or this clone's `implementation/schemas` as a `:local/root`). Without it compilation fails with a missing `re-frame.schemas` namespace before discovery can run. Add dependencies through the classpath owner above; the MCP server's dependencies do not enter the app's classpath.
 
-**`day8/re-frame2-epoch` for every epoch surface**, with `re-frame.epoch` required at boot. Neither the preload nor the MCP server brings it and `discover-app` does not check for it, so a core-only app passes `discover-app`, then every epoch read (`watch-epochs`, `trace-window`, `(rf/epoch-history …)`) comes back `[]`, `dispatch-dry-run` refuses, and `restore-epoch` / `replay-epoch` refuse — see [errors.md §Tool-envelope refusals](errors.md#tool-envelope-refusals) for its one loud symptom, `:rf.error/epoch-artefact-missing`.
+**`day8/re-frame2-epoch` for every epoch surface**, with `re-frame.epoch` required at boot. Neither the preload nor the MCP server brings it and `discover-app` does not check for it, so a core-only app passes `discover-app`, then every epoch read (`watch-epochs`, `trace-window`, `(rf.epoch/epoch-history …)`) comes back `[]`, `dispatch-dry-run` refuses, and `restore-epoch` / `replay-epoch` refuse — see [errors.md §Tool-envelope refusals](errors.md#tool-envelope-refusals) for its one loud symptom, `:rf.error/epoch-artefact-missing`.
 
 ## Verify
 

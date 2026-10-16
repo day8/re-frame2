@@ -9,7 +9,7 @@
             [re-frame.routing]
             [re-frame.flows]
             [re-frame.ssr]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views])
@@ -399,10 +399,10 @@
     (let [a-r       (rf/subscribe [:n] {:frame :restore/a})
           b-r       (rf/subscribe [:n] {:frame :restore/b})
           _         (is (= [2 101] [@a-r @b-r]))
-          a-history (rf/epoch-history :restore/a)
+          a-history (rf.epoch/epoch-history :restore/a)
           a-target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
                           a-history)]
       (is (= [true 1 101]
-             [(true? (rf/restore-epoch! :restore/a (:epoch-id a-target))) @a-r @b-r]))
+             [(true? (:ok? (rf.epoch/restore-epoch! :restore/a (:epoch-id a-target)))) @a-r @b-r]))
       (rf/unsubscribe a-r)
       (rf/unsubscribe b-r))))

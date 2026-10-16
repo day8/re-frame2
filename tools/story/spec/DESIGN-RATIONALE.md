@@ -37,13 +37,6 @@ tools per the Storybook MCP Dev / Docs / Testing toolset split. See
 (subset, default = the host frame's adapter); when Story
 renders the variant against multiple substrates the failure for each
 is rendered **inline** with the variant pane — not auto-skipped.
-`:reagent-slim` is reserved for addition at reagent-slim GA / first
-published artefact — the same gate as Story's UI-shell migration (see
-[`Principles.md`](Principles.md) §Reagent for the v1 UI shell) and the
-template's fourth substrate choice (see
-[`tools/template/spec/001-Substrate-Variants.md`](../../template/spec/001-Substrate-Variants.md)
-§Future variants); until then it is not on the canonical substrate
-enum.
 
 **Rationale.** Substrate-portability gaps are the entire point of
 multi-substrate rendering. Hiding failures hides the bugs Story
@@ -289,14 +282,8 @@ instruction.
 
 The Story tool's own chrome (sidebar, control panel, trace ribbon,
 etc.) is rendered using Reagent
-(`implementation/adapters/reagent/`). reagent-slim is still landing
-(rf2-5djt); Story should not block on it. Stage 8 may revisit and
-migrate once reagent-slim is GA. See
+(`implementation/adapters/reagent/`). See
 [`003-Render-Shell.md`](003-Render-Shell.md) §UI shell substrate.
-
-The tension is that Story is *for* re-frame2 apps and most of those
-will eventually move to reagent-slim. Stage 8 re-opens this
-decision once reagent-slim hits GA; until then Reagent.
 
 ### §public-ns-root — `re-frame.story` for user-facing API
 

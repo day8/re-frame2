@@ -113,7 +113,7 @@ beneath it. A ported screen needs no `h/client-root`, second frame, or second
 React root.
 
 **Keep the adapter you have.** `(rf/init! reagent-adapter/adapter)` stays as it
-is; a Reagent, reagent-slim or UIx adapter can sit under a Fresco tree.
+is; a Reagent or UIx adapter can sit under a Fresco tree.
 `re-frame.fresco.substrate/adapter` is only needed once the application is
 finished and you want to drop the view-library dependency.
 
@@ -193,7 +193,7 @@ nothing, and a bare `rf/subscribe` in a Fresco body throws. Translate every
 read and dispatch in a body you move, not only the ones the compiler flags.
 
 The two cells below render the same list. The first is the `rf/reg-view`
-original on the reagent2 adapter, and it registers the model. The second is
+original on the Reagent adapter, and it registers the model. The second is
 the Fresco port, which reuses that model. Every difference between them is in
 the tables above: `rf/reg-view` becomes `h/defview`, `@(subscribe ...)` becomes
 `h/sub`, the dispatch closure becomes the event vector, `^{:key id}` moves into
@@ -529,8 +529,7 @@ rest. The two halves measure different things, and neither is a denominator
 for the other.
 
 The census reads two lists of namespaces. The first is Reagent's: stock
-Reagent's namespaces and the `reagent2.*` ones the reagent-slim adapter
-ships. The second is re-frame2's own adapters, every namespace starting with
+Reagent's own namespaces. The second is re-frame2's own adapters, every namespace starting with
 `re-frame.adapter.`, which catches code on the Reagent adapter that calls no
 Reagent API itself.
 

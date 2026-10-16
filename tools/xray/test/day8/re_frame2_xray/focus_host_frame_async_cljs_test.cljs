@@ -25,6 +25,7 @@
   epoch, and a host frame Xray already observes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.focus :as focus]
@@ -57,7 +58,7 @@
   (e2e/dispatch-host machine-event)
   (e2e/dispatch-host [:counter/inc])
   (let [record (some #(when (= machine-event (:trigger-event %)) %)
-                     (rf/epoch-history host-frame))]
+                     (rf.epoch/epoch-history host-frame))]
     {:epoch-id (:epoch-id record) :dispatch-id (:dispatch-id record)}))
 
 (defn- after-drain

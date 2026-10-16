@@ -972,20 +972,20 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 
 (def handler                                          ;; a Ring handler: one frame per request, then torn down
   (ssr-ring/ssr-handler                               ;; re-frame.ssr.ring
-    {:initial-events [[:rf/server-init]]              ;; the per-request setup, drained before the render
+    {:initial-events [[:app/server-init]]             ;; the per-request setup, drained before the render
      :root-view      (fn [] ((rf/view :app/root)))    ;; the resolving form, so :rf/render-hash ships
      :payload        [:auth/user]}))                  ;; allowlist: the only app-db keys the browser sees
 ```
 
-**Server-side `:rf/server-init` handler:**
+**Server-side `:app/server-init` handler:**
 
 ```clojure
 ;; Server-only because only the server dispatches it (from `:initial-events`);
 ;; `:platforms` gates effects and coeffects, not events.
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc              "Server-side per-request init. Runs setup events from the request context."
    :rf.cofx/requires [:rf.server/request]}                         ;; the Ring request, read here and never stored
-  (fn handler-rf-server-init [{:keys [rf.server/request]} _]
+  (fn handler-app-server-init [{:keys [rf.server/request]} _]
     (let [{:keys [uri query-string session]} request
           url (cond-> uri query-string (str "?" query-string))]   ;; Ring keeps the query out of :uri
       {:fx [[:dispatch [:auth/load-session (:user session)]]      ;; a projection rides the event; the session stays out of app-db

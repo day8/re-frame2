@@ -10,7 +10,7 @@
  :fixture/doc          "An :initial-events event emits :rf.server/redirect with status 302 and Location /login. The response accumulator has the redirect populated and :status 302."
 
  :fixture/registry
- {:event {:rf/server-init     {:doc       "Per-request server-side init."
+ {:event {:app/server-init    {:doc       "Per-request server-side init."
                                :platforms #{:server}}
           :auth/check-session {:doc       "Authentication gate."
                                :platforms #{:server}}}
@@ -20,10 +20,10 @@
   }
 
  :fixture/handlers
- {:event {:rf/server-init     [[:fx [[:dispatch [:auth/check-session]]]]]
+ {:event {:app/server-init    [[:fx [[:dispatch [:auth/check-session]]]]]
           :auth/check-session [[:fx [[:rf.server/redirect {:status 302 :location "/login"}]]]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
+ :fixture/frame-config {:initial-events [[:app/server-init]] :platform :server}
 
  :fixture/dispatches []                                              ;; the :initial-events cascade is sufficient
 
@@ -40,5 +40,5 @@
               :redirect {:status 302 :location "/login"}}}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/check-session}}]}}

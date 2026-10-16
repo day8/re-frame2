@@ -152,7 +152,7 @@
   event's run-to-completion, not per drain-settle). The cb notes the
   record's frame and requests a task-coalesced drain, which dispatches
   `:rf.xray/epoch-recorded` into the `:rf/xray` frame so the registry's
-  event handler re-reads `rf/epoch-history` and pumps the fresh snapshot
+  event handler re-reads `rf.epoch/epoch-history` and pumps the fresh snapshot
   into Xray's app-db. The scrubber's `:rf.xray/epoch-history` sub then
   re-fires off the standard app-db-write reactive path.
 

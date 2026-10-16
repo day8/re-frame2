@@ -29,7 +29,7 @@ Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
 2. **The trace stream** — `(rf/register-listener! :trace id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (Listeners attach through the stream-parameterized facade verb; the 2-arg `re-frame.trace.tooling` fn behind it is an implementation seam. `trace-buffer` IS a same-signature `rf/` re-export and exists on both platforms; an `eval-cljs` form spells whichever home fully qualified — frame-id first, `(trace-buffer frame-id opts)` for filters.)
-3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-listener! :epoch id cb)`, and `(rf/restore-epoch! ...)`.
+3. **The epoch history** — `(rf.epoch/epoch-history frame-id)`, `(rf/register-listener! :epoch id cb)`, and `(rf.epoch/restore-epoch! ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
 
@@ -39,7 +39,7 @@ Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s n
 
 ### L3 — MCP is the only skill-facing transport
 
-- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **30** tools and **all 30 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
+- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **30** tools and **all 30 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf.epoch/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
 - **No shell transport.** The MCP server is the one implementation of every operation and `allowed-tools:` carries no shell tool; a re-authoring pass MUST NOT reintroduce bash shims.
 - **One MCP server, because there is one runtime.** `allowed-tools:` carries `mcp__re-frame2-pair__*` and the editor tools, and nothing else. A second MCP server means a second process with its own registry and its own `app-db`, so a keyword present in both names two different objects and cross-process composition produces confident nonsense. Story variants need no exception: a variant is an ordinary frame in the attached heap, reached through `eval-cljs` over `re-frame.story/*` (`references/stories.md`). Explicitly headless Story work is a *different task* that routes out to `tools/story-mcp/` and the authoring skill; it is never composed into a live pair session, because the two hosts cannot see each other's frames. `scripts/check_skill_mcp_drift.py`'s single-host axis enforces the prefix boundary.
 
@@ -82,7 +82,7 @@ When the user mentions a button / view / panel / "the thing I clicked", the AI r
 
 ### L12 — Surface restore limits
 
-Before any time-travel experiment, the AI walks the cascade's effects and tells the user which effects already fired and cannot be reversed. `rf/restore-epoch!` (the MCP tool exposes it as `restore-epoch`) is first-class but it rewinds the frame's WHOLE frame-state — both app-db AND runtime-db, from `:frame-state-after` via `replace-frame-state!` — not external side effects (HTTP requests already dispatched, navigation that already happened, etc.).
+Before any time-travel experiment, the AI walks the cascade's effects and tells the user which effects already fired and cannot be reversed. `rf.epoch/restore-epoch!` (the MCP tool exposes it as `restore-epoch`) is first-class but it rewinds the frame's WHOLE frame-state — both app-db AND runtime-db, from `:frame-state-after` via `replace-frame-state!` — not external side effects (HTTP requests already dispatched, navigation that already happened, etc.).
 
 ## 4. Audience and scope
 

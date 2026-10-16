@@ -20,7 +20,7 @@
   debug builds."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -287,7 +287,7 @@
              (mapv #(select-keys % [:depth :queue-size :dropped-event-ids]) @records))
           "one halt, discarding only the family's own pending event")
       (when rf.interop/debug-enabled?
-        (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history fid))
+        (is (some #(= :halted-depth (:outcome %)) (rf.epoch/epoch-history fid))
             "the halt commits its :halted-depth record"))
       (finally (rf.error-emit/unregister-error-listener! ::runaway)))))
 

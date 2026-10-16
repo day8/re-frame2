@@ -17,7 +17,7 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.frame :as rf.frame]
             [re-frame.interceptor :as rf.interceptor]
@@ -138,14 +138,14 @@
             ;; B's cleanup legitimately clears epoch state before the pause, so
             ;; B's fixtures go in after it; A's stale post-dissoc cleanup may
             ;; alter none of these three id-keyed stores.
-            (let [b-epoch-id (:epoch-id (last (rf/epoch-history id)))]
+            (let [b-epoch-id (:epoch-id (last (rf.epoch/epoch-history id)))]
               (rf.epoch.state/buffer-event! id b-buffer-event)
               (rf.epoch.state/record-render-deps! id b-render-key b-sub-id)
 
               (.countDown release-a)
               (is (= [nil b-epoch-id [b-buffer-event] #{b-sub-id}]
                      [(deref destroy-a 5000 ::timeout)
-                      (:epoch-id (last (rf/epoch-history id)))
+                      (:epoch-id (last (rf.epoch/epoch-history id)))
                       (rf.epoch.state/buffer-for id)
                       (rf.epoch.state/render-deps-for id b-render-key)])
                   "A finishes under B's claim, leaving B's history, buffer and render deps"))
@@ -216,7 +216,7 @@
         ;; entering B's epoch capture buffer.
         (rf/make-frame {:id id :rf.trace/frame-no-emit? true})
         (let [token-b   (rf.frame/frame-incarnation-token id)
-              history-b (rf/epoch-history id)]
+              history-b (rf.epoch/epoch-history id)]
           (.countDown release-a)
           (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
               "A's already-dequeued handler is allowed to return")
@@ -231,7 +231,7 @@
             (let [by-op    (group-by :operation @traces)
                   outcomes #(mapv (fn [ev] (get-in ev [:tags :outcome])) (get by-op %))]
               (is (= [history-b true 1 [:halted-destroy] [:blocked]]
-                     [(rf/epoch-history id)
+                     [(rf.epoch/epoch-history id)
                       (empty? (rf.epoch.state/buffer-for id))
                       (count (get by-op :rf.frame/drain-interrupted))
                       (outcomes :rf.epoch/snapshotted)
@@ -295,7 +295,7 @@
         (rf/make-frame {:id id})
         (rf/dispatch-sync [:destroy/halted-b-settle] {:frame id})
         (let [token-b      (rf.frame/frame-incarnation-token id)
-              b-history    (rf/epoch-history id)
+              b-history    (rf.epoch/epoch-history id)
               b-buffer     (rf.epoch.state/buffer-for id)
               b-last-epoch (rf.epoch.state/last-settled-epoch-id id)
               b-db         (rf.frame/frame-app-db-value id)]
@@ -326,14 +326,14 @@
                      [(mapv :event-id @a-records)
                       (n-outcome :rf.epoch/snapshotted :halted-destroy)
                       (n-outcome :rf.epoch/outcome :blocked)
-                      (rf/epoch-history id)
+                      (rf.epoch/epoch-history id)
                       (rf.epoch.state/buffer-for id)
                       (rf.epoch.state/last-settled-epoch-id id)]))))
           (rf/dispatch-sync [:destroy/halted-b-settle] {:frame id})
           (is (= {:owner :b} (rf.frame/frame-app-db-value id))
               "B keeps committing its own events after A resumes")
           (when rf.interop/debug-enabled?
-            (is (= 2 (count (rf/epoch-history id)))))))
+            (is (= 2 (count (rf.epoch/epoch-history id)))))))
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :epoch ::a-epoch-watch)
@@ -394,7 +394,7 @@
            :thrower      thrower
            :b-token-ok?  (identical? token-b (rf.frame/frame-incarnation-token id))
            :b-buffer     (rf.epoch.state/buffer-for id)
-           :b-history    (rf/epoch-history id)}))
+           :b-history    (rf.epoch/epoch-history id)}))
       (finally
         (.countDown release-a)
         (rf/unregister-listener! :epoch thrower)
@@ -802,7 +802,7 @@
       (when rf.interop/debug-enabled?
         (is (= [true 1 {:c :ran} true true]
                [@fired?
-                (count (rf/epoch-history c-id))
+                (count (rf.epoch/epoch-history c-id))
                 (rf.frame/frame-app-db-value c-id)
                 (boolean (seq (rf/trace-buffer c-id {:flat true})))
                 (boolean (seq @c-live))])
@@ -1105,7 +1105,7 @@
                    [(not= ::timeout (deref dispatch-a 5000 ::timeout))
                     (identical? token-b (rf.frame/frame-incarnation-token id))
                     (rf.frame/frame-app-db-value id)
-                    (vec (rf/epoch-history id))
+                    (vec (rf.epoch/epoch-history id))
                     (rf.epoch.state/last-settled-epoch-id id)
                     @b-listener-runs])
                 "the digest throw is inert: no A record, anchor or listener reaches B"))))
@@ -1204,7 +1204,7 @@
               (is (= [[:halted-destroy] [:blocked] true true]
                      [(outcomes :rf.epoch/snapshotted)
                       (outcomes :rf.epoch/outcome)
-                      (empty? (rf/epoch-history id))
+                      (empty? (rf.epoch/epoch-history id))
                       (empty? (rf.epoch.state/buffer-for id))]))))
           (let [duplicate-b (future (rf.frame/destroy-frame! id token-b))]
             (is (nil? (deref duplicate-b 2000 ::timeout))
@@ -1417,7 +1417,7 @@
               @frame-routes
               (identical? @b-token (rf.frame/frame-incarnation-token id))
               (rf.frame/frame-app-db-value id)
-              (empty? (rf/epoch-history id))
+              (empty? (rf.epoch/epoch-history id))
               (rf.epoch.state/last-settled-epoch-id id)
               (rf.epoch.state/buffer-for id)])
           "the first listener's record stands once, and nothing after it touches B")
@@ -1451,7 +1451,7 @@
       (is (= [[id] 1] [(mapv :frame @depth-records) @sibling-runs])
           "every corpus error listener receives the depth record naming A")
       (when rf.interop/debug-enabled?
-        (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history id))
+        (is (some #(= :halted-depth (:outcome %)) (rf.epoch/epoch-history id))
             "A's terminal halted-depth record is committed into A's own history"))
       (finally
         (rf.error-emit/unregister-error-listener! ::live-a)

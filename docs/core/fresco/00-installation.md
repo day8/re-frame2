@@ -376,8 +376,8 @@ frame of the root that renders it.
 
 Every React-based adapter provides the same frame context, so a page that also
 renders Reagent or UIx components can install that library's adapter in place
-of `substrate/adapter` and keep writing Fresco views; [Use UIx or
-reagent-slim](../how-to/use-uix-or-slim.md) has their coordinates. Do not use
+of `substrate/adapter` and keep writing Fresco views; [Use
+UIx](../how-to/use-uix-or-slim.md) has their coordinates. Do not use
 the headless plain-atom adapter in a browser: its subscriptions never notify,
 so views never re-render.
 

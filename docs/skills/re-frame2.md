@@ -18,7 +18,7 @@ The `re-frame2` skill maps ideas you already know — events, state machines, HT
 
 A few rules shape the code it writes. It reads and changes state through `dispatch` and `subscribe`, never through frame internals. It uses the `reg-*` macros, which record source locations for tools, rather than their runtime-function forms. And it gives application keywords a feature prefix such as `:cart/…`, because `:rf/*` is reserved.
 
-Its views are written for the Reagent, reagent-slim and UIx adapters. For Fresco, re-frame2's own view layer, it carries a short note on what changes and where Fresco's contract lives; everything upstream of the view is the same either way.
+Its views are written for the Reagent and UIx adapters. For Fresco, re-frame2's own view layer, it carries a short note on what changes and where Fresco's contract lives; everything upstream of the view is the same either way.
 
 For Story work it can also drive the optional `re-frame2-story-mcp` server's tools for listing, previewing and registering variants; running variants against a live app is a [re-frame2-pair](re-frame2-pair.md) job. The server and its setup are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md); the skill's side is [`references/tooling/story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md).
 

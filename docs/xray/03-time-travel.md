@@ -48,7 +48,8 @@ that has already been evicted.
 | --- | --- | --- |
 | “The selected epoch was evicted from the history buffer” | The old snapshot is gone | Select a recent row, or reproduce with a larger history |
 | “The selected event settled no epoch” | The selected bundle has no settled snapshot | Inspect the newest completed event; for outside-event errors, enable the ungrouped row |
-| “Reset failed — epoch unavailable (see Trace)” | The runtime rejected the restore | Inspect the failure trace; choose a retained successful epoch in a live frame |
+| “Reset failed — :rf.epoch/restore-…” | The runtime rejected the restore for the named reason | Choose a retained successful epoch in a live frame; the failure trace carries the details |
+| “Reset failed — epoch surface unavailable” | The build has no epoch surface (elided) | Use a development build |
 | The state restored but an external result remains | That result lives outside the frame snapshot | Recreate the scenario with stubbed effects |
 
 The runtime also rejects incompatible snapshots, such as a machine snapshot

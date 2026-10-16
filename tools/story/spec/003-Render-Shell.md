@@ -34,12 +34,6 @@ dispatch console, etc.) renders using **Reagent** at v1, sourced from
   exercises the same re-frame primitives Story stories exercise; using
   a substrate the rest of the codebase already validates avoids a
   self-hosting bias.
-- **reagent-slim ships (`day8/reagent-slim`), and the shell stays on
-  stock Reagent by decision.** Story does not block on the slim
-  adapter; migrating the shell onto it is a Stage 8 option, not a
-  trigger — the same posture as the substrate-enum addition (see
-  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures)
-  and the template's fourth substrate choice.
 - **The UI shell is itself one app's worth of views; substrate
   switches are cheap if done early.** Reagent's API surface is the
   most well-trodden; reducing risk during the initial Stage 4

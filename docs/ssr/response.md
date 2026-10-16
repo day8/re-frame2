@@ -11,20 +11,19 @@ and every other request renders the article list with a cache header and a cooki
 remembers the page size:
 
 ```clojure
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
-  (fn [{:keys [db rf.server/request]} _]
+  (fn [{:keys [db rf.server/request]} [_ {:keys [limit]}]]
     (if (= "/posts" (:uri request))
       {:fx [[:rf.server/redirect {:status 301 :location "/articles"}]]}
-      (let [limit (or (some-> (get-in request [:query-params "limit"]) parse-long) 10)]
-        {:db (assoc db :articles/limit limit)
-         :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]
-              [:rf.server/set-header {:name "Cache-Control" :value "public, max-age=60"}]
-              [:rf.server/set-cookie {:name    "limit"
-                                      :value   (str limit)
-                                      :max-age 86400
-                                      :path    "/"}]]}))))
+      {:db (assoc db :articles/limit limit)
+       :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]
+            [:rf.server/set-header {:name "Cache-Control" :value "public, max-age=60"}]
+            [:rf.server/set-cookie {:name    "limit"
+                                    :value   (str limit)
+                                    :max-age 86400
+                                    :path    "/"}]]})))
 ```
 
 `curl -i localhost:3000/posts` returns a `301` with `Location: /articles` and no body.
@@ -76,7 +75,7 @@ browser session.
 
 ## Redirects
 
-A redirect from anywhere in the drain (`:rf/server-init`, a route handler, any event
+A redirect from anywhere in the drain (`:app/server-init`, a route handler, any event
 they dispatch) replaces the page. The handler renders no HTML and ships no hydration
 payload; the response is the status and `Location` header with an empty body.
 

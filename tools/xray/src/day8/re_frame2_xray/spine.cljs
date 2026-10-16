@@ -40,6 +40,7 @@
   from the spine. Panels must not introduce mirror selection slots or
   dual-write focus state."
   (:require [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
@@ -893,7 +894,7 @@
   frame sub re-fires off the standard app-db-write reactive path with
   the correct frame's epochs. The pure 2-arg arity takes the resolved
   history as a parameter; the event handler in `install!` resolves it
-  via `rf/epoch-history` at dispatch time.
+  via `rf.epoch/epoch-history` at dispatch time.
 
   ## The re-seed passes the privacy gate
 
@@ -969,7 +970,7 @@
   focus path) is a no-op: there is no frame to re-key onto, and
   clobbering `:target-frame` to nil would orphan every per-frame sub.
   The event handlers resolve `epoch-history-for-frame` via
-  `rf/epoch-history` at dispatch time, exactly as the picker path does.
+  `rf.epoch/epoch-history` at dispatch time, exactly as the picker path does.
 
   EP-0002 — when the target is UNSELECTED (`:target-frame`
   absent, so nil) and a
@@ -1174,7 +1175,7 @@
       ;; row's epoch lives outside the boot-frame slot; resolving against
       ;; the stale slot yields nil. No-op when the frame is unchanged.
       {:db (let [db             (reseed-epoch-history-for-frame
-                             db frame-id (rf/epoch-history frame-id))
+                             db frame-id (rf.epoch/epoch-history frame-id))
             event-bundles       (db->event-bundles db)
             show-ungrouped? (db->show-ungrouped? db)
             head-id        (focusable-head-id event-bundles show-ungrouped?)
@@ -1193,7 +1194,7 @@
             show-ungrouped? (db->show-ungrouped? db)
             target-frame    (step-target-frame db event-bundles -1 show-ungrouped?)
             db              (reseed-epoch-history-for-frame
-                              db target-frame (rf/epoch-history target-frame))]
+                              db target-frame (rf.epoch/epoch-history target-frame))]
         {:db (focus-step-reducer db event-bundles (db->epoch-history db) -1
                             show-ungrouped?)})))
 
@@ -1203,7 +1204,7 @@
             show-ungrouped? (db->show-ungrouped? db)
             target-frame    (step-target-frame db event-bundles +1 show-ungrouped?)
             db              (reseed-epoch-history-for-frame
-                              db target-frame (rf/epoch-history target-frame))]
+                              db target-frame (rf.epoch/epoch-history target-frame))]
         {:db (focus-step-reducer db event-bundles (db->epoch-history db) +1
                             show-ungrouped?)})))
 
@@ -1228,7 +1229,7 @@
       {:db (let [record-frame    (:frame (some #(when (= epoch-id (:epoch-id %)) %)
                                           (db->epoch-history db)))
             db              (reseed-epoch-history-for-frame
-                             db record-frame (rf/epoch-history record-frame))
+                             db record-frame (rf.epoch/epoch-history record-frame))
             epoch-history   (db->epoch-history db)
             dispatch-id     (dispatch-id-for-epoch epoch-history epoch-id)
             event-bundles        (db->event-bundles db)
@@ -1285,7 +1286,7 @@
       ;; per-frame composite (App-DB Diff, Views, machine-inspector)
       ;; reads the picked frame's epochs immediately. See the reducer
       ;; docstring for the shared root cause.
-      {:db (set-frame-reducer db frame-id (rf/epoch-history frame-id))}))
+      {:db (set-frame-reducer db frame-id (rf.epoch/epoch-history frame-id))}))
 
   (rf/reg-event :rf.xray/preview-event
     (fn [{:keys [db]} [_ dispatch-id frame-hint]]
@@ -1326,7 +1327,7 @@
       ;; like every write to the slot, so a preview can never pin the
       ;; epoch-id of a record the ingest gate keeps out of `:epoch-history`.
       {:db (let [frame-id      (:frame (event-bundle-by-id (db->event-bundles db) dispatch-id frame-hint))
-            frame-history (when frame-id (epoch/redact-history (rf/epoch-history frame-id)))
+            frame-history (when frame-id (epoch/redact-history (rf.epoch/epoch-history frame-id)))
             epoch-id      (epoch-id-for-event-bundle frame-history dispatch-id)]
         (preview-event-reducer db dispatch-id epoch-id))}))
 

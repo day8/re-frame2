@@ -10,7 +10,7 @@ hydration, and the error projector.
 
 The tests below exercise the tutorial's app: `app.core` as it stands at the end of
 the [tutorial](tutorial.md), with `:articles/seed`, the `:articles/slice`
-subscription, the `:app/root` view and a `:rf/server-init` that seeds
+subscription, the `:app/root` view and an `:app/server-init` that seeds
 `sample-articles` up to the request's `limit` and sets a `Cache-Control` header.
 
 ## Render a view to a string
@@ -56,8 +56,11 @@ with the tutorial's `app.server` options and calls it with a request map, with n
 Jetty and no port:
 
 ```clojure
+(defn boot-events [request]                        ;; app.server's :initial-events fn
+  [[:app/server-init {:limit (app.core/request-limit request)}]])
+
 (def handler
-  (ssr.ring/ssr-handler {:initial-events [[:rf/server-init]]
+  (ssr.ring/ssr-handler {:initial-events boot-events
                          :root-view      (fn [] ((rf/view :app/root)))
                          :payload        [:articles]}))
 
@@ -71,7 +74,7 @@ Jetty and no port:
     (is (not (str/includes? (:body response) "Hydration, verified")))))   ;; limit 1
 ```
 
-The request map reaches `:rf/server-init` as given. In production `wrap-params`
+The request map reaches `boot-events` as given. In production `wrap-params`
 supplies `:query-params`; here the test writes it directly.
 
 ### Read the payload
@@ -132,7 +135,7 @@ the test sees each request the render fires, without sending it:
 (deftest the-server-render-sends-no-requests
   (let [sent    (atom [])
         handler (ssr.ring/ssr-handler
-                  {:initial-events [[:rf/server-init]]
+                  {:initial-events boot-events
                    :root-view      (fn [] ((rf/view :app/root)))
                    :payload        [:articles]
                    :fx-overrides   {:rf.http/managed (fn [_frame-ctx args] (swap! sent conj args))}})]
@@ -180,7 +183,7 @@ first request. Thrown framework errors carry their id in `ex-data`, so
 ```clojure
 (deftest payload-policy-is-mandatory
   (is (= :rf.error/ssr-missing-payload-policy
-         (try (ssr.ring/ssr-handler {:initial-events [[:rf/server-init]]   ;; every required opt but :payload
+         (try (ssr.ring/ssr-handler {:initial-events [[:app/server-init]]  ;; every required opt but :payload
                                      :root-view      (fn [] ((rf/view :app/root)))})
               (catch Exception e (:rf.error/id (ex-data e)))))))
 ```

@@ -97,7 +97,7 @@ Wire the Ring adapter once. It runs the whole lifecycle above — frame create, 
 
 (def handler
   (ssr-ring/ssr-handler
-    {:initial-events [[:rf/server-init]]
+    {:initial-events [[:app/server-init]]
      :root-view      (fn [] ((rf/view :app/root)))
      :payload        [:articles :session-user]}))   ;; allowlist of app-db keys to ship
 
@@ -130,7 +130,7 @@ A real server also serves static files, an API and form posts. `ssr-middleware` 
 (def app
   (-> api-handler                                  ;; your own Ring handler for /api/…
       ((ssr-ring/ssr-middleware
-         {:initial-events [[:rf/server-init]]
+         {:initial-events [[:app/server-init]]
           :root-view      (fn [] ((rf/view :app/root)))
           :payload        [:articles :session-user]
           :match?         (fn [req] (and (#{:get :post} (:request-method req))
@@ -151,7 +151,7 @@ Handlers read the request through a declared [coeffect](../core/glossary.md#coef
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr/core.cljc
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
@@ -161,8 +161,6 @@ Handlers read the request through a declared [coeffect](../core/glossary.md#coef
 ```
 
 Declare `:rf.cofx/requires [:rf.server/request]` and the request map arrives under `:rf.server/request`: `:uri`, `:query-string`, `:request-method`, `:headers`, and `:query-params`, `:form-params`, `:session` and `:cookies` as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL, query included, to the same [routing](../routing/concepts.md) code the client uses. The page's data then comes from the route, as [blocking resources](#data-the-first-render-needs).
-
-`:rf/server-init` is a name the framework reserves and you supply the body for. It does not license registering your own events under the `:rf/*` root.
 
 Use the request for decisions. When a request-derived fact must live in app-db, put it on an event's payload instead of copying it from the request. The handler above does that: the URL it builds lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The shortcut to avoid is `(assoc db :session-user (-> request :session :user))`, for the reason below.
 
@@ -218,7 +216,7 @@ The server renders once, so the data a page needs must be loaded before that ren
 
 The fetch runs on the server too, and the JVM has no page to resolve a relative URL against: a bare `"/api/articles/42"` fails as `:rf.http/transport` before any request goes out ([Running on the JVM](../async/http.md#running-on-the-jvm)). So the server reads its API origin from configuration, here `API_ORIGIN`, while the browser keeps the page-relative path.
 
-`:rf/server-init` hands the URL to routing, entering the route starts the resource, and the handler waits for it. Several blocking entries load in parallel, so the wait is the slowest fetch rather than the sum, and the same declaration drives the fetch on client navigation. This is the route's [loader](../routing/glossary.md#loader). Non-blocking route resources don't hold up the render: whatever has settled by render time is serialised, and anything still in flight refetches on the client.
+`:app/server-init` hands the URL to routing, entering the route starts the resource, and the handler waits for it. Several blocking entries load in parallel, so the wait is the slowest fetch rather than the sum, and the same declaration drives the fetch on client navigation. This is the route's [loader](../routing/glossary.md#loader). Non-blocking route resources don't hold up the render: whatever has settled by render time is serialised, and anything still in flight refetches on the client.
 
 Only blocking route resources are waited for. The drain after `:initial-events` covers synchronous work. A fetch those events start — an `:rf.http/managed` request, or one a route's `:on-match` events fire — is usually still in flight when the render begins, so the page renders without its data. For the same reason, don't build a loader as a [machine](../machines/glossary.md#machine) that fans out HTTP requests: the render would catch the machine still loading.
 
@@ -286,7 +284,7 @@ The client has to start in the state the server finished in, without redoing the
 | `hydrate!` option | What it's for |
 |---|---|
 | `:frame` | Required. The frame to hydrate — the same one the root `frame-provider` names. |
-| `:render-tree-fn` | A 0-arity fn returning the client's tree, called under `:frame` for the verify step. Pass it for Reagent and reagent-slim roots; omit it for UIx and Fresco roots, which report mismatches through React's own hydration. |
+| `:render-tree-fn` | A 0-arity fn returning the client's tree, called under `:frame` for the verify step. Pass it for Reagent roots; omit it for UIx and Fresco roots, which report mismatches through React's own hydration. |
 | `:payload` | The payload map, when you already have it. Omit it in the browser and `hydrate!` reads `__rf_payload` from the DOM. |
 | `:element-id` | Read the payload from a script with a different id (default `"__rf_payload"`). |
 
@@ -377,7 +375,7 @@ The hash needs a render tree made of data, so how a mismatch is caught depends o
 
 | Substrate | Mismatch detection | On the client |
 |---|---|---|
-| Reagent, reagent-slim | Render-tree hash: the server stamps it, `hydrate!` compares. React's own hydration (adoption) also reports what the hash cannot see below a component head | Pass `:render-tree-fn`, calling the root view |
+| Reagent | Render-tree hash: the server stamps it, `hydrate!` compares. React's own hydration (adoption) also reports what the hash cannot see below a component head | Pass `:render-tree-fn`, calling the root view |
 | Native UIx, Fresco | React's own hydration (adoption) alone; no hash on either side | Omit `:render-tree-fn` |
 
 A React-family root must hydrate through its adapter — the first `render!` through a client root with `{:hydrate? true}`, or `(re-frame.substrate.adapter/render tree el {:hydrate? true})` — not `uix.dom/hydrate-root`, `reagent.dom.client/hydrate-root` or `hydrateRoot` directly: only the adapter's mount reports a recoverable React mismatch as the same `:rf.ssr/hydration-mismatch` trace. Adoption also misses an attribute-only mismatch (a stale `class`, `style` or ARIA value on an element whose tag and text match), which React does not report. The tutorial's [Native UIx](tutorial.md#native-uix--adopt-through-the-shared-render-path) section has the details, and [Fresco → SSR and hydration](../core/fresco/18-ssr-and-hydration.md) covers Fresco.
@@ -403,7 +401,7 @@ The default is both (`#{:server :client}`). When a server-side drain reaches a `
 
 Coeffects work the same way. `:rf.server/request` is `#{:server}`, so on the client a handler that requires it is not given it (`:rf.cofx/skipped-on-platform`), and a setup handler that reads the request on the server doesn't break on the client.
 
-Events are not gated: an event registration stores `:platforms`, but the router never reads it. `:rf/server-init` stays on the server because only the per-request frame's `:initial-events` dispatch it, and the server-only reads and writes inside it are gated through their coeffects and effects.
+Events are not gated: an event registration stores `:platforms`, but the router never reads it. `:app/server-init` stays on the server because only the per-request frame's `:initial-events` dispatch it, and the server-only reads and writes inside it are gated through their coeffects and effects.
 
 ## When the server throws
 
@@ -442,7 +440,7 @@ The Ring handler has two error options, for two different failures. `:error-view
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events [[:rf/server-init]]
+  {:initial-events [[:app/server-init]]
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
    :ssr            {:public-error-id :myapp/public-error}
@@ -468,11 +466,11 @@ Two combinations of the pieces above are common enough to name:
 - **The SSR loader** — the data a page needs before it renders. It is the route's blocking resources, described in [Data the first render needs](#data-the-first-render-needs).
 - **The form action** — a form that posts before JavaScript loads. It is a real `method="POST"` form with an `action`; the server routes the POST to the *same* event the client's `:on-submit` dispatches. Success usually answers with a `303` redirect ([Control the response](response.md)).
 
-The form action needs `wrap-params` in front of the handler and a `:match?` that admits POST ([Mounting in a Ring app](#mounting-in-a-ring-app)). Then `:rf/server-init` turns the POST into the domain event:
+The form action needs `wrap-params` in front of the handler and a `:match?` that admits POST ([Mounting in a Ring app](#mounting-in-a-ring-app)). Then `:app/server-init` turns the POST into the domain event:
 
 ```clojure
 ;; requires [clojure.string :as str]
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
@@ -539,7 +537,7 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
                 :blocking? true}]}                   ;; the server waits for it
   "/")
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
@@ -570,7 +568,7 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
      (rf/init! ssr/adapter)
      (def handler
        (ssr-ring/ssr-handler
-         {:initial-events [[:rf/server-init]]
+         {:initial-events [[:app/server-init]]
           :root-view      (fn [] ((rf/view :app/root)))   ;; the fn form carries the hash
           :payload        [:session-user]}))              ;; required allowlist
      (defn -main []
@@ -646,7 +644,7 @@ The handler wraps your rendered body in a small HTML document, `default-html-she
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events [[:rf/server-init]]
+  {:initial-events [[:app/server-init]]
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
    :script-src     "/js/main.js"       ;; where your client bundle is served
@@ -672,7 +670,7 @@ Sometimes the user's own browser needs a classified value: a CSRF token the page
 
 ```clojure
 (ssr-ring/ssr-handler
-  {:initial-events            [[:rf/server-init]]
+  {:initial-events            [[:app/server-init]]
    :root-view                 (fn [] ((rf/view :app/root)))
    :payload                   [:session :articles]
    :payload-include-sensitive [[:session :csrf]]})   ;; app-db PATHS, not keys
@@ -701,7 +699,7 @@ The version stamp is automatic. The schema digest is opt-in: compute it once at 
 ```clojure
 ;; requires [re-frame.schemas :as schemas]
 (ssr-ring/ssr-handler
-  {:initial-events [[:rf/server-init]]
+  {:initial-events [[:app/server-init]]
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
    :schema-digest  (schemas/app-schemas-digest {:frame :app})})

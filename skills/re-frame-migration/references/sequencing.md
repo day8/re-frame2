@@ -145,7 +145,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. |
 | 29b | **M-71** | v1 signal-function `reg-sub` form → v2 `input-fn`. Sits with the other sub rewrites (M-18). Classified per site: a Type A site rides this sweep, a Type B one joins the batch. Pair every site with M-75's move into `:inputs`. Recipe: [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). |
 | 29c | **M-75** | Every `:<-` chain → `{:inputs [...]}` in the metadata map; bracket one-input bodies. Type A, loud-at-load (`:rf.error/reg-sub-bad-args` aborts the namespace), so swept by the up-front grep, not march-the-wall. Detail in [`auto-call-site-rewrites.md` §M-75](auto-call-site-rewrites.md#m-75--subscription-inputs-move-into-inputs). |
-| 30 | **M-42** | React-19-removed Reagent surfaces, on the bridge and on slim. A/B split (mount-path Type A; `dom-node` / `force-update-all` Type B). Recipe: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). |
+| 30 | **M-42** | React-19-removed Reagent surfaces. A/B split (mount-path Type A; `dom-node` / `force-update-all` Type B). Recipe: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces). |
 
 ### Group 8 — Per-feature artefact splits (dep-only adds; pair with the feature-trigger rules)
 
