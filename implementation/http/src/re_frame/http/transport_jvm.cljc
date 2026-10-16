@@ -130,7 +130,7 @@
      throws its own `IllegalArgumentException: URI with undefined scheme`
      — a correct but unhelpful message that names neither the offending
      url nor the fix. This throw is uncaught HERE by design: the caller
-     (`jvm-fetch`, called from `run-attempt!`'s try/catch) classifies any
+     (`jvm-fetch`, called from `send!`'s try/catch) classifies any
      escaping `Throwable` via `classify-jvm-error`, which routes an
      `ex-info` like this one to the `:rf.http/transport` catch-all — it
      has no failure category or `:rf.error/*` id of its own. Per
@@ -340,13 +340,13 @@
      correct catch-all for unknown JDK failures.
 
      The optional `timeout-ms` (the configured per-attempt
-     limit, in scope at the `run-attempt!` call sites) fills the
+     limit, in scope at the `send!` call sites) fills the
      `:limit-ms` tag on a timeout failure so the JVM shape matches the
      CLJS path (Spec 014 §Failure categories types `:rf.http/timeout` as
      `:elapsed-ms` / `:limit-ms`).
 
      `:elapsed-ms` is populated on the JVM. Neither timeout exception
-     surfaces the elapsed wall clock, so `run-attempt!` captures a monotonic start mark
+     surfaces the elapsed wall clock, so `send!` captures a monotonic start mark
      (`System/nanoTime`) before issuing the request and passes the
      measured wall-clock delta here. This matches the CLJS
      path's VALUE semantics, not just its shape: `cljs-fetch` likewise
@@ -356,7 +356,7 @@
      scheduling margin — a consumer can compute overshoot
      (`- :elapsed-ms :limit-ms`) portably.
 
-     Single 3-arity. The production caller (`run-attempt!`)
+     Single 3-arity. The production caller (`send!`)
      always threads the configured `timeout-ms` and the measured
      `elapsed-ms`, so there is no 1- or 2-arity fallback. Pass `nil`
      explicitly for either when no value is in

@@ -3,28 +3,21 @@
 
   ## The problem
 
-  Managed-HTTP cancellation is frame-scoped: the in-flight and
-  actor-in-flight indexes key on `(frame-id, id)` rather than the raw id,
-  read off the `:frame` stamp the live transport puts on every handle it
-  records. The frame-less arities remain, as documented ANY-FRAME seams.
+  Managed-HTTP cancellation is frame-scoped: the registry files every
+  request under its issuing frame, read off the `:frame` stamp the live
+  transport puts on every record it publishes, and looks requests up within
+  a frame. The frame-less arities remain, as documented ANY-FRAME seams.
 
   That combination has a sharp edge. A handle recorded without a `:frame`
-  keys under `nil` — a scope no frame-scoped abort can reach — and nothing
-  errors. `tools/xray/testbeds/managed_http/core.cljs` seeds its handles by
-  hand (a real Fetch against a dev-http static server resolves instantly,
-  leaving nothing observably in-flight), so it is exactly such a site, and
-  its step 5 dispatches the live `:rf.http/managed-abort` fx at the handle
-  step 1 seeded. A handle seeded without `:frame` reads, under a JVM
-  registry probe:
-
-      {:keyed-under ([nil :xray/in-flight]),
-       :any-frame-finds? true,
-       :real-frame-finds? false,
-       :managed-abort-hits? false}
-
-  — the abort step resolves NOTHING, and silently. An any-frame sweep
-  still \"works\" in a single-frame testbed, so only a frame-scope law
-  catches it.
+  is filed under `nil` — a scope no frame-scoped abort can reach — and
+  nothing errors. `tools/xray/testbeds/managed_http/core.cljs` seeds its
+  handles by hand (a real Fetch against a dev-http static server resolves
+  instantly, leaving nothing observably in-flight), so it is exactly such a
+  site, and its step 5 dispatches the live `:rf.http/managed-abort` fx at the
+  handle step 1 seeded. Seeded without `:frame`, that handle is still found
+  by an any-frame lookup but not by its real frame's, so the abort step
+  resolves NOTHING, and silently. An any-frame sweep still \"works\" in a
+  single-frame testbed, so only a frame-scope law catches it.
 
   ## Why this guard is source-text rather than a live registry probe
 
@@ -38,26 +31,21 @@
 
   ## What this guard enforces
 
-  Three specific laws, stated over EVERY `record-in-flight!` call in the
-  testbed rather than over three hand-named functions, so a NEW seeding fx
-  inherits them:
+  Two laws, the first stated over EVERY `record-in-flight!` call in the
+  testbed rather than over hand-named functions, so a NEW seeding fx
+  inherits it:
 
     1. An fx that records a registry handle must not discard its fx
        context (`_frame-ctx`), and every `record-in-flight!` call must
        stamp `:frame`.
-    2. Cleanup and actor-destroy must use the FRAME-EXACT forms, never the
-       any-frame seam (`abort-on-actor-destroy`'s 1-arity), and a deferred
+    2. Actor destroy must use the FRAME-SCOPED form, never the any-frame
+       seam (`abort-on-actor-destroy`'s 1-arity), and a deferred
        `rf/dispatch` from inside an `:abort-fn` must carry `{:frame frame}`
        — by then there is no ambient frame, and in re-frame2 frame identity
        is carried, not found.
-    3. Every recorded handle's `:abort-fn` must actually retire its OWN
-       request-id from the issuing frame. `abort-on-actor-destroy` clears
-       the ACTOR slot eagerly and then delegates the request-index half to
-       each handle's closure (registry.cljc: \"the per-handle request-id
-       cleanup is owned by `clear-in-flight!` ... called inside the
-       `abort-fn` closure\"), so a no-op closure leaves a GHOST — an
-       actor-destroy that empties the actor index while the request index
-       keeps entries for an actor that no longer exists."
+
+  A seeded `:abort-fn` owes no cleanup: the registry drops every record it
+  aborts."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -137,25 +125,16 @@
           (recur (+ idx 11) acc))
         acc))))
 
-;; A `record-in-flight!` call site is the thing these laws bind. Matching on
-;; the CALL rather than on a function name is what makes a newly added
-;; seeding fx inherit the guard instead of escaping it.
+;; A `record-in-flight!` call site is the thing law 1 binds. Matching on the
+;; CALL rather than on a function name is what makes a newly added seeding fx
+;; inherit the guard instead of escaping it.
 (defn- records-handle? [form] (str/includes? form "record-in-flight!"))
-
-(defn- abort-fn-form
-  "The text of the closure a form hands `record-in-flight!` under
-  `:abort-fn` — the substring from the first `(` after the key to its
-  matching `)`. Returns nil when the key is absent or unbalanced."
-  [form]
-  (when-let [k (str/index-of form ":abort-fn")]
-    (when-let [open (str/index-of form "(" k)]
-      (balanced-form form open))))
 
 ;; ---- vacuity control ------------------------------------------------------
 
 (deftest testbed-source-is-readable
-  ;; Laws 1 and 3 iterate the recording forms, so an empty extraction would
-  ;; pass them by vacuity.
+  ;; Law 1 iterates the recording forms, so an empty extraction would pass it
+  ;; by vacuity.
   (is (>= (count (filter records-handle? (fx-forms))) 2)
       "both seeding fxs record a registry handle"))
 
@@ -174,21 +153,14 @@
                "scope no frame-scoped abort can reach. Offending form:\n"
                form)))))
 
-;; ---- law 2: cleanup and destroy use the frame-exact forms ---------------
+;; ---- law 2: destroy and deferred dispatch stay frame-scoped --------------
 
 (deftest cleanup-paths-are-frame-exact
-  (testing "the seeded handle's abort-fn clears frame-exactly"
-    ;; That it calls `clear-in-flight-in-frame!` at all is law 3's, over every
-    ;; handle-recording form.
+  (testing "the seeded handle's deferred dispatch carries the frame"
+    ;; The abort-fn runs later, with no ambient frame around it; a bare
+    ;; `rf/dispatch` in there raises :rf.error/no-frame-context.
     (let [form (fx-form ":managed-http/seed-in-flight")]
-      (is (not (re-find #"clear-in-flight!\s+request-id" form))
-          "the 2-arg `clear-in-flight!` clears by handle identity, and this
-           closure holds no handle: with a nil one it is a no-op that leaves
-           the request-id registered")
-      (testing "and its deferred dispatch carries the frame"
-        ;; The abort-fn runs later, with no ambient frame around it; a bare
-        ;; `rf/dispatch` in there raises :rf.error/no-frame-context.
-        (is (re-find #"\{:frame\s+frame\}" form)))))
+      (is (re-find #"\{:frame\s+frame\}" form))))
 
   (testing "actor destroy uses the frame-scoped 2-arity"
     (let [form (fx-form ":managed-http/destroy-actor")]
@@ -197,26 +169,3 @@
           "the 1-arity is the documented ANY-FRAME seam; it sweeps the
            actor-id in EVERY frame, which is the reach the frame-scoped
            keys deny the abort half"))))
-
-;; ---- law 3: every handle's abort-fn retires its own request-id ----------
-;;
-;; `abort-on-actor-destroy` dissocs the ACTOR slot eagerly and then walks the
-;; handles calling `(:abort-fn handle)`. The request-index half of the
-;; cleanup is owned by that closure and by nothing else, so a handle whose
-;; abort-fn does nothing survives its own actor's destruction: the actor
-;; index empties, the request index does not, and the deck's registry strip
-;; shows request-ids belonging to an actor that is gone.
-;;
-;; Stated over EVERY recording form for the same reason laws 1 and 2 are: a
-;; new seeding fx must inherit the obligation rather than escape it.
-
-(deftest recorded-handles-retire-their-own-request-id
-  (doseq [form (filter records-handle? (fx-forms))]
-    (let [abort (abort-fn-form form)]
-      (is (and (some? abort)
-               (str/includes? abort "clear-in-flight-in-frame!"))
-          (str "`abort-on-actor-destroy` clears the ACTOR slot itself and "
-               "delegates the REQUEST-id half to this handle's `:abort-fn`, "
-               "so a missing or no-op closure leaves a ghost handle in the "
-               "request index after its actor is destroyed. Offending form:\n"
-               form)))))

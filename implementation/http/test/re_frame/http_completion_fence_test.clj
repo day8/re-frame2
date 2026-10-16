@@ -1,15 +1,15 @@
 (ns re-frame.http-completion-fence-test
   "The completion fence, JVM half. `dispatch-reply!`'s reply-tail fence
   covers the `:after` chain and the reply dispatch; the completion fence covers
-  everything above it (status cascade, body classification, retry decision,
-  finalise and teardown). Unfenced on the JVM, a throw there escapes into the
+  everything above it (status cascade, body classification, retry decision
+  and the commit). Unfenced on the JVM, a throw there escapes into the
   `whenComplete` stage nobody holds: no reply, no registry clear, a request in
   flight for ever. The CLJS double-send half is
   `re-frame.http-completion-fence-cljs-test`.
 
   Nothing user-facing throws above the reply tail (a `:decode` or `:accept`
   throw is classified by design), so `classify-decoded` is redefined to throw,
-  landing the throw at the 2xx accept phase, above `finalise-success!`."
+  landing the throw at the 2xx accept phase, before the outcome commits."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.privacy-body :as rf.http.privacy-body]

@@ -26,7 +26,7 @@
                                   before any reply lands (reply
                                   `:status :cancelled`, `:rf.http/aborted`).
     6. Concurrent by same actor — TWO requests issued under the SAME
-                                  actor-id; the actor-in-flight index
+                                  actor-id; the actor-in-flight snapshot
                                   carries both (Spec 014 §Abort on actor
                                   destroy).
     7. Outlives a frame teardown — an in-flight request whose actor is
@@ -53,9 +53,8 @@
   the framework-shipped canned-stub fx (`:rf.http/managed-canned-failure`)
   wrapped to replay the live error trace, so the lifecycle is
   deterministic across CI environments — no flaky outbound network. The
-  in-flight + actor-in-flight registries are seeded with genuine handles
-  in the framework registry (the same atoms the real transport's
-  `run-attempt!` records into) so the pending slots render
+  in-flight registry is seeded with genuine records (the same registry the
+  real transport publishes into) so the pending slots render
   DETERMINISTICALLY — a real Fetch against a dev-http static server
   resolves instantly, leaving nothing observably in-flight across a
   settle window. The abort path resolves a seeded handle through the LIVE
@@ -76,12 +75,12 @@
             ;; boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`).
             [re-frame.http.managed :as rf.http.managed]
-            ;; The actor-in-flight INDEX-WRITE seam (`record-in-flight!`)
-            ;; is not re-exported from re-frame.http.managed (only the
-            ;; read-side snapshots + clear/abort are). The testbed reaches
-            ;; the registry ns directly to seed the actor-in-flight index
-            ;; for the concurrent-by-actor + outlives-teardown steps — the
-            ;; same atom the real transport's run-attempt! records into.
+            ;; The registry's write seam (`record-in-flight!`) is not
+            ;; re-exported from re-frame.http.managed (only the read-side
+            ;; snapshots + clear/abort are). The testbed reaches the
+            ;; registry ns directly to seed records for the in-flight,
+            ;; concurrent-by-actor and outlives-teardown steps — the same
+            ;; registry the real transport publishes into.
             [re-frame.http.registry :as rf.http.registry]
             ;; The canned-stub fx ids (`:rf.http/managed-canned-failure`)
             ;; register from re-frame.http.test-support. A testbed IS a
@@ -207,10 +206,10 @@
 ;; reply, so the later abort step (5) resolves THIS slot through the LIVE
 ;; :rf.http/managed-abort path.
 (rf/reg-fx :managed-http/seed-in-flight
-  {:doc       "Testbed-only fx: seed a request-id-keyed in-flight handle
+  {:doc       "Testbed-only fx: seed a request-id-keyed in-flight record
                in the framework registry whose abort-fn dispatches a
-               :rf.http/aborted reply + clears the slot — so the LIVE
-               :rf.http/managed-abort fx resolves it end-to-end."
+               :rf.http/aborted reply — so the LIVE :rf.http/managed-abort
+               fx resolves it end-to-end, and the registry drops it."
    :platforms #{:client}}
   (fn fx-seed-in-flight [frame-ctx {:keys [request-id]}]
     ;; The ISSUING FRAME, read off this fx's context. A `:request-id` is
@@ -229,12 +228,9 @@
          ;; abort step (5) below silently resolving nothing.
          :frame    frame
          :abort-fn (fn [reason]
-                     ;; Frame-EXACT cleanup, for the same reason lookup is
-                     ;; frame-scoped. This closure is built alongside the
-                     ;; handle it cancels, so it holds a frame but no handle,
-                     ;; and clearing by (frame, id) leaves a sibling mount's
-                     ;; live slot under the same id untouched.
-                     (rf.http.registry/clear-in-flight-in-frame! frame request-id)
+                     ;; No cleanup here: the registry drops every record it
+                     ;; aborts.
+                     ;;
                      ;; The canonical abort reply: :status :cancelled
                      ;; with the :rf.http/aborted map under :error.
                      (rf/dispatch [::reply {:status                 :cancelled
@@ -296,14 +292,14 @@
 ;; (5) Abort the STEP-1 in-flight request via the LIVE :rf.http/managed-
 ;; abort fx. Step 1's seeded slot persisted untouched through the success /
 ;; 4xx / 5xx steps (those carry their own request-ids); this resolves it
-;; and fires its abort-fn, which dispatches the :rf.http/aborted reply and
-;; clears the registry slot. No separate abortable slot — the one seeded
+;; and fires its abort-fn, which dispatches the :rf.http/aborted reply; the
+;; registry drops the slot. No separate abortable slot — the one seeded
 ;; request is the one aborted.
 (rf/reg-event ::abort
   {:doc "Abort the step-1 in-flight request (:request-id ::in-flight) via
-         the live :rf.http/managed-abort fx. The handle's abort-fn
-         dispatches the :rf.http/aborted reply and clears the registry
-         slot."}
+         the live :rf.http/managed-abort fx. The record's abort-fn
+         dispatches the :rf.http/aborted reply, and the registry drops
+         the slot."}
   (fn [{:keys [db]} _ev]
     {:db (log-line db "→ abort")
      :fx [[:rf.http/managed-abort in-flight-id]]}))
@@ -319,29 +315,18 @@
                without spawning a real machine actor."
    :platforms #{:client}}
   (fn fx-issue-as-actor [frame-ctx {:keys [actor-id request-id]}]
-    ;; Same carried frame as the seed fx above, and for the same reason: the
-    ;; ACTOR index is keyed (frame, actor-id) too, so an unstamped handle
-    ;; lands in the `nil` scope while every other slot in this testbed sits
-    ;; under the host frame. Actor addresses are frame-LOCAL, exactly as
+    ;; Same carried frame as the seed fx above, and for the same reason:
+    ;; actor lookups are frame-scoped too, so an unstamped handle lands in the
+    ;; `nil` scope while every other slot in this testbed sits under the host
+    ;; frame. Actor addresses are frame-LOCAL, exactly as
     ;; request-ids are.
     (let [frame (:frame frame-ctx)]
       (rf.http.registry/record-in-flight!
         request-id actor-id
-        {;; NOT a no-op. `abort-on-actor-destroy` dissocs the ACTOR slot
-         ;; itself and then delegates the REQUEST-id half of the cleanup to
-         ;; each handle's own closure — registry.cljc states the ownership:
-         ;; "the per-handle request-id cleanup is owned by `clear-in-flight!`
-         ;; (called inside the abort-fn closure)". So a closure that returns
-         ;; nil leaves this id live in the request index after step 7
-         ;; destroys its actor: the actor index empties while the request
-         ;; index keeps ghosts for an actor that no longer exists, and the
-         ;; registry strip below shows them.
-         ;;
-         ;; Frame-EXACT for the same reason the seed fx's closure is: it
-         ;; holds a frame but not its own handle, and clearing by (frame, id)
-         ;; cannot drop a sibling mount's live slot under the same id.
-         :abort-fn (fn [_reason]
-                     (rf.http.registry/clear-in-flight-in-frame! frame request-id))
+        {;; Nothing to do: `abort-on-actor-destroy` takes the actor's
+         ;; records out of the one registry itself, so step 7 empties both
+         ;; strips at once.
+         :abort-fn (fn [_reason] nil)
          :frame    frame
          :url      pending-url}))
     nil))
@@ -388,8 +373,8 @@
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-fx :managed-http/clear-registry
-  {:doc       "Testbed-only fx: drop both in-flight registries (request-id
-               and actor-id keyed) so a fresh run starts clean."
+  {:doc       "Testbed-only fx: abort and drop every in-flight request so
+               a fresh run starts clean."
    :platforms #{:client}}
   (fn fx-clear-registry [_frame-ctx _]
     (rf.http.managed/clear-all-in-flight!)
@@ -397,7 +382,7 @@
 
 (rf/reg-event ::reset
   {:doc "Re-seed app-db (no step, idle, no reply, empty log) and clear the
-         in-flight registries. Start clean."}
+         in-flight registry. Start clean."}
   (fn [_ctx _ev]
     {:db {:step nil :status :idle :reply nil :log []}
      :fx [[:managed-http/clear-registry]]}))
@@ -439,13 +424,13 @@
     :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :error :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
    {:label "Abort the in-flight request"
     :event [::abort]
-    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :status :cancelled (:error :kind :rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
+    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply and the registry drops the slot. App-db: :status :error, reply :status :cancelled (:error :kind :rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
    {:label "Concurrent requests by same actor"
     :event [::concurrent-by-actor]
     :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
    {:label "Request outlives a frame teardown"
     :event [::actor-teardown]
-    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains. Request-id strip: BOTH actor-a ids are gone too and ::actor-b-1 remains — the actor slot is dropped by abort-on-actor-destroy itself, the request-ids by each handle's own abort-fn, so watch both strips to see the whole teardown."}])
+    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains. Request-id strip: BOTH actor-a ids are gone too and ::actor-b-1 remains — abort-on-actor-destroy takes actor-a's requests out of the one registry, so both strips lose them together."}])
 
 ;; ============================================================================
 ;; RUNNER WIRING — register the deck's run-step event
@@ -460,10 +445,10 @@
 ;; ============================================================================
 
 (reg-view in-flight-strip
-  "A live read-out of the managed-HTTP in-flight registries (request-id-
-  keyed + actor-id-keyed). Pure snapshot reads of the framework atoms —
+  "A live read-out of the managed-HTTP in-flight registry, keyed by
+  request-id and by actor-id. Pure snapshot reads of the framework registry —
   the Xray panels are the primary surface; this keeps the deck legible
-  standalone. Re-derefs the atoms on every render via the :log sub —
+  standalone. Re-reads the registry on every render via the :log sub —
   every lifecycle event appends a log line, so the strip re-renders and
   re-reads the registry even when :status is unchanged (the
   concurrent-by-actor step only touches :log)."

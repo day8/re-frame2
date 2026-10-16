@@ -11,13 +11,12 @@
                               request through the per-frame interceptor
                               chain, normalises args, supersedes any
                               prior in-flight request with the same
-                              `:request-id`, then dispatches to the
-                              shared attempt-and-retry loop in
-                              `http-transport`.
+                              `:request-id`, then issues it through
+                              `http-transport/issue!`.
   - `managed-abort-handler` — `:rf.http/managed-abort` body. Resolves
-                              the abort-fn through the in-flight
-                              registry and fires it; the abort closure owns
-                              transport cancellation and registry cleanup."
+                              the request in the in-flight registry and
+                              aborts it; the request's abort owns
+                              transport cancellation and retirement."
   (:require [clojure.string]
             [re-frame.error          :as rf.error]
             [re-frame.frame          :as rf.frame]
@@ -400,10 +399,9 @@
   ;; exclusive. Both attach cancellation sources to the one managed
   ;; request; the CLJS transport forwards an external `:abort-signal`
   ;; into the SAME framework-owned internal controller the `:request-id`
-  ;; supersede/managed-abort path drives, and the once-only `:finalised?`
-  ;; CAS guarantees exactly ONE terminal reply regardless of
-  ;; which cancellation source finalises first, so no guard rejects the
-  ;; combination. Per Spec 014 §`:abort-signal`
+  ;; supersede/managed-abort path drives, and the request's one record
+  ;; finishes once, so exactly ONE terminal reply goes out whichever
+  ;; cancellation source acts first — no guard rejects the combination. Per Spec 014 §`:abort-signal`
   ;; (external).
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
@@ -512,7 +510,7 @@
         issuance     (rf.http.registry/next-issuance! frame-id request-id origin-event)
         normalised   (assoc normalised0 :issuance issuance)]
     ;; The issuance row, emitted BEFORE `supersede!` and
-    ;; `run-attempt!` so it precedes every row this issuance causes (the stale
+    ;; `issue!` so it precedes every row this issuance causes (the stale
     ;; suppression of a superseded predecessor, a synchronous body-prep
     ;; failure, the fx's own `:rf.fx/handled`).
     (when rf.interop/debug-enabled?
@@ -520,10 +518,10 @@
     ;; Supersession emits the SUPERSEDED attempt's canonical
     ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope trace
     ;; (Managed-Effects §Stale suppression) carrying carried/current work-id
-    ;; correlation, with NO app dispatch. `supersede!` returns the old handle
+    ;; correlation, with NO app dispatch. `supersede!` returns the old record
     ;; (carrying its identity facts); we hand it plus the NEW attempt's
     ;; work-id (the live `:work/id` now taking over the request-id) to the
-    ;; stale-trace emitter. The old handle's own abort path also fires
+    ;; stale-trace emitter. The old request's own abort path also fires
     ;; (`:reason :request-id-superseded`) — that suppresses its app reply; this
     ;; adds the canonical stale reply-envelope row the `:rf.http/aborted`
     ;; trace alone does not record.
@@ -541,14 +539,14 @@
                                :origin-event origin-event
                                :issuance     issuance
                                :attempt      1}))))
-    (rf.http.transport/run-attempt! normalised)
+    (rf.http.transport/issue! normalised)
     nil))
 
 (defn managed-abort-handler
   "Public `:rf.http/managed-abort` fx. Args is the request-id (any value).
 
-  The in-flight cleanup is owned by the abort-fn closure (it clears the
-  registry itself), so this handler only fires the abort-fn.
+  The request's abort owns cancellation and its retirement from the
+  registry, so this handler only resolves the request and aborts it.
 
   Routes through `registry/abort-in-flight-in-frame!`,
   the FRAME-SCOPED sibling of the `registry/abort-in-flight!` seam the

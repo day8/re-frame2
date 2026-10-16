@@ -6,12 +6,10 @@
   let the attempt call `sendAsync` would issue a side-effecting request after
   telling the app it was cancelled (Spec 014 §Abort precedence, §Aborts).
 
-  The guard is a one-cell issuance CAS shared by the abort closure and the
-  host-entry region, whose commit is the host call itself: abort-before-entry
-  wins the cell and the transport is never entered; entry-before-abort wins it
-  and publishes the cancellable future. On the JVM the commit, `sendAsync` and
-  the publication share a per-attempt monitor that the abort's cancel step
-  also takes, so an abort racing an in-flight host call waits and then
+  The guard is the request record's own: `send!` checks the phase, makes the
+  host call and publishes its cancel as one step under the record's monitor,
+  and an abort commits under the same monitor. An abort that commits first
+  leaves nothing to send; one that arrives during the host call waits, then
   cancels the published future.
 
   `transport-jvm/jvm-fetch` is stubbed (the seam such a request would escape
@@ -130,7 +128,7 @@
 
 (deftest concurrent-abort-cannot-complete-while-host-call-is-in-flight
   ;; The opposite ordering: an abort fired from inside the host call blocks on
-  ;; the issuance monitor, so it can neither clear the registry nor reply until
+  ;; the record's monitor, so it can neither clear the registry nor reply until
   ;; the future is published, which it then cancels. Issuance won, so one host
   ;; call is correct.
   (let [fetch-calls        (atom 0)

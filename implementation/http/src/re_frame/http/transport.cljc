@@ -1,30 +1,26 @@
 (ns re-frame.http.transport
-  "Shared (platform-neutral) attempt-and-retry lifecycle for
-  `:rf.http/managed`.
+  "Shared (platform-neutral) request lifecycle for `:rf.http/managed`.
 
   Platform transports live in sibling adapters: `re-frame.http.transport-cljs` owns the Fetch
   path (`cljs-fetch` + `classify-cljs-error`); `re-frame.http.transport-jvm`
   owns the `java.net.http.HttpClient` path (`jvm-fetch` +
   `classify-jvm-error`) and the per-row CLJS-only-key degradation tracing
-  (`check-cljs-only-keys!`). This namespace owns everything else —
-  `dispatch-reply!`, `finalise-success!`, `finalise-failure!`,
-  `maybe-retry!`, the 4xx/5xx/2xx/else response cascade, the in-flight
-  registry interaction, retry tracing, privacy redaction, and supersession
-  suppression as platform-neutral
-  Clojure. `run-attempt!` is the one site that selects the platform
-  adapter under a reader conditional; the rest of the lifecycle carries
-  no platform interop.
+  (`check-cljs-only-keys!`). This namespace owns everything else — the
+  request record's four transitions, the 4xx/5xx/2xx/else response cascade,
+  the retry decision (`maybe-retry!`), reply dispatch, retry tracing, privacy
+  redaction, and supersession suppression — as platform-neutral Clojure.
+  `send!` is the one site that selects the platform adapter under a reader
+  conditional.
 
   Per-row CLJS-only request keys (`:abort-signal`, `:mode`, `:cache`,
   `:referrer`, `:integrity`) are no-ops on JVM with a one-line trace
   per occurrence via `transport-jvm/check-cljs-only-keys!`.
 
-  Per Spec 014 §Failure categories the attempt loop classifies status
+  Per Spec 014 §Failure categories the response cascade classifies status
   codes BEFORE decode (4xx/5xx route to `:rf.http/http-4xx` /
   `:rf.http/http-5xx` with the raw body-text). Per Spec 014 §Retry and
-  backoff `maybe-retry!` decides between retry, immediate-final-failure,
-  and successful completion based on the failing attempt's failure
-  category and the request's `:retry` config."
+  backoff `maybe-retry!` decides between retry and final failure from the
+  failing attempt's failure category and the request's `:retry` config."
   (:require [re-frame.error             :as rf.error]
             [re-frame.http.decode       :as rf.http.decode]
             [re-frame.http.encoding     :as rf.http.encoding]
@@ -40,23 +36,20 @@
             [re-frame.trace             :as rf.trace])
   #?(:clj (:import [java.util.concurrent CompletableFuture])))
 
-;; ---- shared attempt-and-retry loop ----------------------------------------
-
-(declare run-attempt!)
-(declare finalise-failure!)
-(declare schedule-backoff-handle!)
-
 ;; ---- test-only interleaving seam -------------------------------------------
 ;;
-;; The abort-vs-retry race lives in the TRANSITIONAL window between
-;; `maybe-retry!`'s abort-snapshot and the backoff handle taking over the
-;; request-id slot. On the JVM the completion runs on a ForkJoinPool thread and
-;; the abort dispatch on the event thread, so the window is only reachable by
-;; wall-clock timing — non-deterministic. This seam lets a JVM concurrency test
-;; DETERMINISTICALLY inject an abort at a named point in that window (a
-;; deterministic repro needs interleaving injection, not timing). It is a
-;; single atom-holder deref at each call site; nil in production (never set),
-;; so the cost is one volatile read on the retry path and nothing else.
+;; On the JVM a completion runs on an HttpClient thread, a retry on the backoff
+;; scheduler's thread, and an abort on the event thread, so the orderings
+;; between them are reachable only by wall-clock timing. This seam lets a
+;; concurrency test inject an abort (or a same-id successor) DETERMINISTICALLY
+;; at a transition boundary, just before that transition takes the record's
+;; guard:
+;;
+;;   :issue/before-send        `send!`, once the body is prepared
+;;   :completed/before-commit  `completed!`, once the attempt's outcome is decided
+;;   :retry/before-attempt     `fire!`, when the backoff timer fires
+;;
+;; A single atom deref at each point; nil in production (never set).
 
 (defonce ^:private test-interleave-hook
   ;; A fn `(fn [point ctx])` invoked at named lifecycle points, or nil.
@@ -110,19 +103,6 @@
   [reason]
   (contains? reply-suppressing-abort-reasons reason))
 
-(defn- detach-external-abort!
-  "Detach the request's external `:abort-signal` listener.
-  CLJS-only — the binding exists only when the caller supplied an
-  `:abort-signal` on a browser/Node host (the `:external-abort` slot the
-  shared lifecycle threads through ctx). Idempotent and a no-op on the JVM /
-  when absent. Called at EVERY terminal completion (natural success/failure
-  and every abort path) so a shared / parent `AbortController` never retains
-  a completed request's listener. Phase-to-phase ownership transfer detaches
-  the prior listener inside `bind-external-abort!` itself, not here."
-  [ctx]
-  #?(:cljs (rf.http.transport-cljs/detach-external-abort! (:external-abort ctx)))
-  nil)
-
 (defn- emit-reply-tail-error!
   "Surface a REPLY-TAIL exception — a throw AFTER the transport already
   completed, during reply delivery: an `:after` interceptor throw
@@ -132,21 +112,20 @@
 
   Per Spec 014 §Failure mode a response-side throw MUST NOT be reclassified
   as a transport rejection. Letting it propagate back into the platform
-  completion handler would retry a request whose wire outcome already
-  SUCCEEDED — on CLJS a 2xx re-send storm (the `.catch` feeds
-  `classify-cljs-error` → `:rf.http/transport` → `maybe-retry!`, and the retry
-  mints a FRESH handle, bypassing the once-only `:finalised?` guard); on the
-  JVM the throw would escape the unobserved `whenComplete` future and vanish
-  (the caller hangs). This
+  completion handler would lose it: on CLJS the `.catch` would read it as a
+  `:rf.http/transport` rejection of a request that has already completed, and
+  on the JVM it would escape the unobserved `whenComplete` future. Either way
+  nothing would say the reply never arrived. This
   boundary catches the reply-tail throw and surfaces it ONCE as
   `:rf.error/http-reply-tail-failed` — the response-side analogue of the
   request-side `:rf.error/fx-handler-exception` boundary — observably (not
   swallowed on the JVM) and WITHOUT retry.
 
-  The request is already finalised (the once-only reply CAS was won and the
-  registry cleared BEFORE the reply tail ran), so no teardown is performed
-  here — only the observable emit. The reply itself is not delivered (delivery
-  is what threw); the emit names the situation and the failing interceptor /
+  No teardown is performed here — only the observable emit. A reply tail
+  runs after its request has completed and left the registry, and the
+  completion fence ends a still-live request itself before calling this. The
+  reply itself is not delivered (delivery is what threw); the emit names the
+  situation and the failing interceptor /
   target so the broken `:after` / reply target is fixable. Privacy-composed
   by the failure composer, matching the sibling `:rf.http/*` error rows: the
   URL redacts under the effective `:sensitive?` flag / query-param denylist,
@@ -205,61 +184,6 @@
                         (rf.interop/now-ms) trace-tags)))
   nil)
 
-(defn- complete-fenced!
-  "THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
-  completion callback (the Fetch `.then` on CLJS, the `CompletableFuture`
-  `.whenComplete` on the JVM), and catch anything it throws.
-
-  The reply-tail fence in `dispatch-reply!` below covers the BOTTOM of that
-  callback — the `:after` chain and the late-bind reply dispatch. This covers
-  everything ABOVE it: the 4xx/5xx/2xx cascade, response-body schema
-  classification, the retry decision, and the finalise + teardown itself. An
-  unfenced throw there would fail differently — and badly — on each host:
-
-  - CLJS — the throw would reject the promise `.then` returns, so the `.catch`
-    chained after it would feed `classify-cljs-error` → `:rf.http/transport` →
-    `maybe-retry!`, which RE-SENDS a request whose wire outcome had already
-    SUCCEEDED. The retry mints a FRESH handle, so the once-only `:finalised?`
-    guard does not stop it. The double-send presents to the caller as success:
-    nothing observable says the request ran twice, and a non-idempotent
-    endpoint is mutated twice.
-  - JVM — the throw would escape into the `whenComplete` stage nobody holds,
-    which completes that discarded future exceptionally and swallows it. No
-    reply is dispatched and the registry entry is never cleared, so the
-    request hangs in flight for ever, silently.
-
-  Those are exactly the two registers Spec 014 §Failure mode already names for
-  a response-side throw, which is why this routes to the SAME non-retrying,
-  observable `:rf.error/http-reply-tail-failed` emit the reply-tail fence uses
-  rather than minting a second category: from the app's point of view the
-  situation is identical — the transport succeeded and the outcome could not be
-  delivered. `:reply-error-id` carries the caught throw's own `:rf.error/id`,
-  which is what tells the two apart on the wire; one reachable case is
-  `:rf.error/schemas-artefact-missing`, thrown by
-  `privacy-body/classify-decoded` when the request's `:decode` schema declares
-  a per-slot mark and the shared walker hook is unbound.
-
-  A throw ABOVE `finalise-success!` / `finalise-failure!` has not cleared the
-  in-flight registry, so the fence performs the same terminal teardown the
-  natural completion does. All three steps are idempotent — `clear-in-flight!`
-  is identity-conditional, `evict-issuance-on-completion!` conditional-atomic,
-  `detach-external-abort!` a no-op when absent — so a throw BELOW the teardown,
-  where the natural path has already run it, costs nothing.
-
-  Deliberately NO reply is dispatched here: the once-only `:finalised?` token
-  may already be spent, and inventing a reply would race the one the finalise
-  path may have just delivered. The app's `:on-success` / `:on-failure` does
-  not fire; the emit is what makes the failure fixable."
-  [ctx f]
-  (try
-    (f)
-    (catch #?(:clj Throwable :cljs :default) e
-      (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
-      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
-      (detach-external-abort! ctx)
-      (emit-reply-tail-error! ctx e)
-      nil)))
-
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
   chain (REVERSE registration order) BEFORE handing off to the
@@ -291,15 +215,13 @@
   synthesised one.
 
   The `:after` chain + late-bind dispatch is the REPLY TAIL,
-  and it runs AFTER the transport already succeeded (the once-only reply CAS
-  is won and the registry cleared before this fn is reached). A throw here (a
+  and it runs AFTER the request completed (its outcome committed and the
+  record retired before this fn is reached). A throw here (a
   throwing `:after`, or a belt-and-braces malformed-reply-target throw) MUST
   NOT propagate back into the platform completion handler — on CLJS the Fetch
-  `.catch` would reclassify it as `:rf.http/transport` and `maybe-retry!`
-  would re-send the already-completed 2xx (a retry-storm, because the retry
-  mints a fresh handle that bypasses the once-only guard); on the JVM the
-  throw would escape the unobserved `whenComplete` future and vanish (the
-  caller hangs). The fence catches it and routes it to a NON-retrying,
+  `.catch` would misread it as a `:rf.http/transport` rejection; on the JVM it
+  would escape the unobserved `whenComplete` future and vanish (the caller
+  hangs). The fence catches it and routes it to a NON-retrying,
   once-observable `:rf.error/http-reply-tail-failed` emit — never the
   transport-rejection classifier. Per Spec 014 §Failure mode."
   [{:keys [origin-event explicit-on-success explicit-on-failure
@@ -314,9 +236,8 @@
       {:frame               frame
        :middleware-ctx      middleware-ctx
        ;; The chain this request captured at issue, carried on
-       ;; the normalised ctx beside `:middleware-ctx` and surviving the
-       ;; retry handoff (which only ever dissocs `:rf.http/retry-handoff`
-       ;; and `:handle`). The `:after` walk uses it instead of a
+       ;; the normalised ctx beside `:middleware-ctx` through every
+       ;; attempt. The `:after` walk uses it instead of a
        ;; response-time registry deref.
        :chain               interceptor-chain
        :origin-event        origin-event
@@ -408,10 +329,9 @@
      :max-attempts (:max-attempts (:retry ctx))}))
 
 ;; `dispatch-failure!` and `dispatch-success!` below spell the failure-reply
-;; and success-reply dispatch shapes once for finalise-success!,
-;; finalise-failure! and the abort path's dispatch-aborted!, which makes the
-;; abort/natural symmetry the surrounding comments describe visible in code.
-;; The load-bearing concurrency comments sit at the call sites.
+;; and success-reply dispatch shapes once for a completed request's reply and
+;; the abort path's `dispatch-aborted!`, which makes the abort/natural
+;; symmetry visible in code.
 
 (defn- emit-reply-trace!
   "Emit a managed-async completion trace row built from the
@@ -541,9 +461,9 @@
   the carried + current correlation).
 
   Called from `managed-handler` when a fresh request supersedes a prior
-  in-flight one with the same `:request-id`. `superseded-handle` is the OLD
-  attempt's handle (carrying its `:request-id` / `:origin-event` / `:issuance`
-  / `:attempt` / `:frame` identity facts, stamped at `record-in-flight!`);
+  in-flight one with the same `:request-id`. `superseded` is the OLD
+  request's record (carrying its `:request-id` / `:origin-event` / `:issuance`
+  / `:attempt` / `:frame` identity facts, published at issuance);
   `current-work-id` is the SUPERSEDING attempt's work-id (the new live
   `:work/id`). The carried (superseded) and current (superseding) work ids are
   `=`-distinct because the per-request-id issuance counter bumped — so tooling
@@ -557,18 +477,18 @@
   `re-frame.reply/suppress` trace facts) so Xray's reply-envelope view joins
   it as a uniform stale-suppression row. Gated on `debug-enabled?` like the
   other `:rf.http/*` trace rows."
-  [superseded-handle current-work-id]
+  [superseded current-work-id]
   (when rf.interop/debug-enabled?
-    (let [stale-ctx {:request-id   (:request-id superseded-handle)
-                     :origin-event (:origin-event superseded-handle)
-                     :issuance     (:issuance superseded-handle)
-                     :attempt      (:attempt superseded-handle)
-                     :frame        (:frame superseded-handle)}
+    (let [stale-ctx {:request-id   (:request-id superseded)
+                     :origin-event (:origin-event superseded)
+                     :issuance     (:issuance superseded)
+                     :attempt      (:attempt superseded)
+                     :frame        (:frame superseded)}
           {:keys [reply trace]} (rf.http.reply/suppress stale-ctx current-work-id)
           summary (rf.http.reply/trace-reply
                     reply
-                    (cond-> {:sensitive? (true? (:sensitive? superseded-handle))}
-                      (:frame superseded-handle) (assoc :frame (:frame superseded-handle))))]
+                    (cond-> {:sensitive? (true? (:sensitive? superseded))}
+                      (:frame superseded) (assoc :frame (:frame superseded))))]
       (rf.trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
                             :rf.reply/work-status   (:rf.reply/work-status summary)
@@ -582,7 +502,7 @@
                             :rf.reply/carried       (:rf.reply/carried trace)
                             :rf.reply/current       (:rf.reply/current trace)
                             :recovery               :superseded-by-fresh-request}
-                     (:frame superseded-handle) (assoc :frame (:frame superseded-handle)))))))
+                     (:frame superseded) (assoc :frame (:frame superseded)))))))
 
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
@@ -693,24 +613,16 @@
   cancelled request, honouring supersession and obsolete actor-target
   suppression.
 
-  Shared by both cancellation states:
-   - the in-flight-fetch abort-fn in `run-attempt!` (a fetch / future is
-     live), and
-   - the backoff-sleeping abort-fn in `maybe-retry!` (no fetch is live;
-     a retry timer is pending).
-
-  Both flip their once-only `:finalised?` cell, perform the state-
-  specific teardown (CLJS `.abort` / JVM `.cancel` vs `clear-timeout!`),
-  clear the registry, then land here so an aborted request looks
-  identical to consumers regardless of which lifecycle phase it was in.
-  `reason` is `:user` / `:actor-destroyed` / `:request-id-superseded` /
-  `:epoch-restored` / `:frame-destroyed` / `:resource-superseded` — the
-  genuine cancellation reasons that flip the handle's `:aborted?` cell and
-  reach this path. Every one emits its trace row at `:info`
-  (`emit-failure-trace!`). A `:timeout` is NOT an
-  abort: it classifies to `:rf.http/timeout` (a failure kind) and routes
-  through `maybe-retry!` → `finalise-failure!`, never here. `ctx` must
-  carry `:request-id`, `:actor-id`, `:url`, `:sensitive?`.
+  Reached from `abort!` alone, once the abort has committed, cancelled the
+  current phase's host work and retired the request — so an aborted request
+  looks identical to consumers whichever phase it was in: preparing, in
+  flight, or sleeping in its backoff. `reason` is `:user` /
+  `:actor-destroyed` / `:request-id-superseded` / `:epoch-restored` /
+  `:frame-destroyed` / `:resource-superseded` / `:test-reset`. Every one
+  emits its trace row at `:info` (`emit-failure-trace!`). A `:timeout` is NOT
+  an abort: it classifies to `:rf.http/timeout` (a failure kind) and routes
+  through `maybe-retry!`, never here. `ctx` must carry `:request-id`,
+  `:actor-id`, `:url`, `:sensitive?` and the current `:attempt`.
 
   Per Managed-Effects §Cancellation, an `:actor-destroyed`
   abort whose reply target is OBSOLETE — its event-id names the destroyed
@@ -738,19 +650,6 @@
                                 :recovery :no-recovery)
                          sensitive?)]
         (emit-failure-trace! :rf.http/aborted redacted)))
-    ;; An abort is terminal for this request-id (this is the
-    ;; direct abort-fn choke: user / actor-destroy / supersede / epoch-restore
-    ;; all land here). Evict the issuance counter so an unbounded distinct-id
-    ;; space does not accumulate a permanent entry. Conditional-atomic: a
-    ;; supersede has ALREADY bumped the counter past this (superseded) attempt's
-    ;; issuance, so the evict skips and the live successor keeps the id; only a
-    ;; genuinely-quiescent id is dropped.
-    (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
-    ;; Terminal for this request: detach the external
-    ;; `:abort-signal` listener so a shared / parent controller retains no
-    ;; completed-request listener. Fires for every abort reason (this is the
-    ;; single choke both phase abort-fns route through).
-    (detach-external-abort! ctx)
     (cond
       ;; Supersede and epoch-restore reasons
       ;; suppress the reply (the cancellation replaces the original outcome; the
@@ -775,62 +674,10 @@
       :else
       (dispatch-failure! ctx failure))))
 
-(defn- already-replied?
-  "The once-only reply guard. The handle carries a
-  `:finalised?` atom stamped at `record-in-flight!` time; the abort
-  path AND the natural-completion paths both reach `finalise-*` and
-  must NOT both dispatch a reply for the same request. CAS the flag
-  from false→true on first arrival; subsequent calls see `true` and
-  bail. Returns truthy when the caller MUST NOT proceed (already
-  replied OR no handle present at all — defensive, see below).
-
-  Synthetic / test-path callers may pass a ctx with no `:handle`
-  (e.g. some failure-shape unit tests build ctx maps directly). In
-  that case the guard is a no-op — the flag's nil and the call
-  proceeds. The real run-attempt! path always stamps a handle."
-  [ctx]
-  (when-let [flag (:finalised? (:handle ctx))]
-    (not (compare-and-set! flag false true))))
-
-(defn- aborted-snapshot
-  "Abort-always-wins precedence. Returns the abort-state map
-  `{:reason :actor-id}` if the
-  handle's `:aborted?` atom has been flipped (by either `:rf.http/managed-
-  abort` user-aborts OR `abort-on-actor-destroy` per Spec 014 §Abort on
-  actor destroy), else nil. Read once at finalise-* entry so the late-
-  arriving decode / status / transport classification gets reclassified
-  to `:rf.http/aborted` rather than racing the abort-fn's CAS — see Spec
-  014 §Abort precedence (abort always wins)."
-  [ctx]
-  (when-let [abort-cell (:aborted? (:handle ctx))]
-    @abort-cell))
-
-(defn- aborted-failure
-  "Build the `:rf.http/aborted` failure shape from an abort snapshot."
-  [ctx abort-state]
-  {:kind       :rf.http/aborted
-   :request-id (:request-id ctx)
-   :reason     (:reason abort-state)
-   :actor-id   (or (:actor-id abort-state) (:actor-id ctx))})
-
 (defn- emit-and-dispatch-failure!
-  "Shared failure-finalisation tail: privacy composition, trace emission,
-  then suppression-aware reply dispatch.
-
-  PRECONDITION: the caller already holds the once-only `:finalised?`
-  token (won the CAS / no handle) AND has already cleared the in-flight
-  registry. This helper deliberately does NEITHER — it is the shared
-  source of truth for the redaction shape and supersede-
-  suppression guard, called from BOTH:
-    - `finalise-failure!` (the canonical site), and
-    - `finalise-success!`'s sample-(2) abort path (which has already won
-      the CAS and cleared the registry, so it must NOT re-enter
-      `finalise-failure!` — that would double-clear + re-check
-      `already-replied?`).
-
-  A supersede (`:rf.http/aborted` with
-  `:reason :request-id-superseded`) emits to the trace bus but does NOT
-  dispatch the `:on-failure` reply — the new request replaces the old.
+  "The failure reply's tail: privacy composition, trace emission, then the
+  reply dispatch. Reached once a failure outcome has committed, so the
+  request is already done and out of the registry.
 
   The failure map is made self-identifying (`:request
   {:method :url}` / `:request-id` / `:attempt` / `:max-attempts` /
@@ -881,171 +728,8 @@
                        (or (contains? failure :body)
                            (contains? failure :body-text))
                        (assoc :rf.http/off-box-body :omit))]
-      ;; The same kind-chosen severity as `dispatch-aborted!`, so
-      ;; an abort that wins a completion race (reclassified here) emits the
-      ;; same `:info` row as a direct abort.
       (emit-failure-trace! (:kind failure) redacted)))
-  (cond
-    ;; Supersede / epoch-restore reasons suppress the
-    ;; reply outright; the canonical stale trace for those is emitted at
-    ;; supersede / restore time, not here.
-    (and (= :rf.http/aborted (:kind failure))
-         (reply-suppressing-abort-reason? (:reason failure)))
-    nil
-
-    ;; The actor-destroy obsolete-target suppression
-    ;; must ALSO gate this abort-precedence reclassification path (the
-    ;; finalise-failure! + finalise-success! sample-2 routes into this shared
-    ;; tail), not only the direct `dispatch-aborted!` path. An `:actor-destroyed`
-    ;; reclassification whose reply target addresses the destroyed actor ITSELF
-    ;; must NOT deliver a live `:status :cancelled` reply to the dead actor — a
-    ;; JVM completion-wins-the-CAS race reaches here (the abort-fn flips
-    ;; `:aborted?` then loses the once-only CAS to the whenComplete thread, which
-    ;; reclassifies via `aborted-snapshot`). It lowers to the canonical
-    ;; `:status :stale` / `:rf.reply/work-status :suppressed` outcome, matching
-    ;; `dispatch-aborted!`. The `:rf.http/aborted` `:info` trace already fired
-    ;; above; only the app delivery is replaced by the stale-suppressed trace.
-    ;; `(:actor-id failure)` is the destroyed actor's id carried from the abort
-    ;; snapshot (`aborted-failure`), falling back to the ctx's actor-id.
-    (and (= :rf.http/aborted (:kind failure))
-         (= :actor-destroyed (:reason failure))
-         (rf.http.reply/actor-destroy-target-obsolete?
-           (reply-target-id ctx) (:actor-id failure)))
-    (emit-actor-destroy-stale-trace! (reply-ctx ctx))
-
-    :else
-    (dispatch-failure! ctx failure))))
-
-(defn- finalise-success! [ctx accepted]
-  ;; Abort-precedence check. Two sampling points:
-  ;;   (1) BEFORE the once-only CAS — covers the case where abort-fn
-  ;;       already flipped `:aborted?` and lost the CAS to a
-  ;;       synchronously-completing decode.
-  ;;   (2) AFTER winning the CAS — covers the narrower window where
-  ;;       abort-fn flips `:aborted?` between our sample-(1) read and
-  ;;       our CAS. Sampling after the CAS pins the contract:
-  ;;       any abort observed by a flag we hold ownership of has
-  ;;       precedence over the success-classification reply.
-  ;; Together these close every interleaving consistent with the
-  ;; abort-always-wins rule (Spec 014 §Abort precedence). The CAS-loser
-  ;; case (sample (1)) routes through finalise-failure! so the trace
-  ;; emit + supersede-suppression path stays in one place.
-  (if-let [abort-state (aborted-snapshot ctx)]
-    (finalise-failure! ctx (aborted-failure ctx abort-state))
-    (when-not (already-replied? ctx)
-      ;; Frame-bearing clear. `(:handle ctx)` is nil on the
-      ;; synthetic / test-path ctxs this fn documents, and with a nil handle
-      ;; `(:frame ctx)` names the completing attempt's own slot to clear.
-      (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
-      ;; Terminal completion: evict this id's issuance counter
-      ;; (conditional-atomic; skips when a live re-issue has bumped past it).
-      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
-      ;; Terminal: detach the external abort-signal listener
-      ;; (covers the success, accept-failure, and sample-(2) abort branches
-      ;; below; idempotent with the abort-path detach in `dispatch-aborted!`).
-      (detach-external-abort! ctx)
-      (if-let [post-cas-abort (aborted-snapshot ctx)]
-        ;; Sample (2): abort flipped between our pre-CAS sample and
-        ;; our CAS-win. We hold the once-only token AND have cleared the
-        ;; registry above; dispatch the aborted reply directly rather
-        ;; than re-entering finalise-failure! (which would double-clear
-        ;; the registry and re-check `already-replied?`). The redact +
-        ;; emit + supersede-suppress tail is shared with finalise-failure!
-        ;; via `emit-and-dispatch-failure!` — single source of
-        ;; truth for the failure redaction shape.
-        (emit-and-dispatch-failure! ctx (aborted-failure ctx post-cas-abort))
-        (cond
-          (contains? accepted :ok)
-          (dispatch-success! ctx (:ok accepted))
-
-          (contains? accepted :failure)
-          ;; A domain `:accept` failure (`{:failure user-map}` on a
-          ;; successful 2xx decode) is an `:rf.http/accept-failure`, exactly like
-          ;; the throw / malformed-return accept-failure branches in
-          ;; `handle-response!`. It MUST route through `emit-and-dispatch-failure!`
-          ;; (NOT `dispatch-failure!` directly): that is the shared tail which
-          ;;   - emits the `:rf.http/accept-failure` failure-CATEGORY trace via
-          ;;     `trace/emit-error!` (the failure redaction + Managed-Effects
-          ;;     §Tracing structured-failure-coverage contract), and
-          ;;   - stamps `:rf.http/off-box-body` for the `:decoded` slot
-          ;;     (the fail-closed disposition).
-          ;; Calling `dispatch-failure!` directly would emit ONLY the canonical
-          ;; `:rf.http/replied` envelope, missing the failure-category event and
-          ;; letting the decoded body ride unclassified off-box. The `:decoded` slot
-          ;; carries the schema-classified body (`privacy-body/classify-decoded`)
-          ;; so a `:decode`-schema sensitive slot redacts on the on-box trace —
-          ;; the same on-box projection the `handle-response!` accept-failure
-          ;; branches apply. We already hold the once-only `:finalised?` token and
-          ;; cleared the registry above, satisfying `emit-and-dispatch-failure!`'s
-          ;; precondition (the abort/natural-completion sample-(2) path next door
-          ;; relies on the same).
-          (emit-and-dispatch-failure!
-            ctx {:kind       :rf.http/accept-failure
-                 :detail     (:failure accepted)
-                 :decoded    (rf.http.privacy-body/classify-decoded (:decoded ctx) (:decode ctx))
-                 :request-id (:request-id ctx)}))))))
-
-(defn- finalise-failure!
-  "Final-failure dispatch (after retries exhausted or non-retriable).
-
-  When a fresh request supersedes a prior one with the
-  same `:request-id`, the prior request's `:on-failure` reply is NOT
-  dispatched (the supersede semantic = the new request replaces the
-  old one — the original `:on-failure` would race the new request's
-  outcome and corrupt debounce-search patterns). The supersede event
-  still emits to the trace bus (`:rf.http/aborted` with
-  `:reason :request-id-superseded`); consumers wanting abort telemetry
-  subscribe via `register-listener!`.
-
-  Guarded by the once-only `:finalised?` CAS so the
-  abort path and a later natural-completion path can't both dispatch
-  a reply for the same request. The trace emit + registry clear ALSO
-  live inside the guard — a doubled trace would be just as observable
-  as a doubled reply on the dev surface.
-
-  Abort always wins (aligned with the Fetch AbortController / Node HTTP /
-  JVM HttpClient / gRPC universal convention): the abort-precedence check
-  fires AFTER winning the CAS. If the
-  handle's `:aborted?` cell has been flipped (by user abort OR
-  actor-destroy), the incoming `failure` is replaced by the canonical
-  `:rf.http/aborted` shape before trace-emit and reply-dispatch. This
-  closes the window where a decode-failure / transport / 5xx
-  classification could synchronously win the once-only `:finalised?`
-  CAS in the same scheduler tick the abort-fn was running — the
-  user-visible outcome is deterministic by classification, not by
-  CAS race ordering. See Spec 014 §Abort precedence (abort always wins)."
-  [ctx failure]
-  (when-not (already-replied? ctx)
-    (let [;; Abort-precedence reclassification. Sampled
-          ;; AFTER winning the once-only CAS so any abort-fn that
-          ;; flipped `:aborted?` between our caller's classification
-          ;; and this point is still observed. The abort-fn itself
-          ;; flips the cell BEFORE racing the CAS, so the cell is
-          ;; monotonic-set under contention — once flipped, every
-          ;; subsequent sample reads non-nil.
-          abort-state (aborted-snapshot ctx)
-          effective   (if (and abort-state
-                               (not= :rf.http/aborted (:kind failure)))
-                        (aborted-failure ctx abort-state)
-                        failure)]
-      ;; Frame-bearing clear, as in `finalise-success!`: a nil
-      ;; `(:handle ctx)` clears this frame's slot, never a sibling's.
-      (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
-      ;; Terminal completion: evict this id's issuance counter
-      ;; (conditional-atomic; skips when a live re-issue has bumped past it, so
-      ;; a superseded-then-reclassified attempt does not drop the successor's
-      ;; live counter).
-      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
-      ;; Terminal: detach the external abort-signal listener
-      ;; (natural terminal failure + the abort-precedence reclassification;
-      ;; idempotent with the abort-path detach in `dispatch-aborted!`).
-      (detach-external-abort! ctx)
-      ;; The redact + emit-error! + supersede-suppressed
-      ;; dispatch tail is shared with finalise-success!'s sample-(2) abort
-      ;; path via `emit-and-dispatch-failure!`. We have already won the
-      ;; once-only CAS (the `already-replied?` guard above) and cleared
-      ;; the registry, satisfying the helper's precondition.
-      (emit-and-dispatch-failure! ctx effective))))
+  (dispatch-failure! ctx failure)))
 
 (defn- emit-retry-attempt!
   "Emit one arm of the `:rf.http/retry-attempt` info trace.
@@ -1085,376 +769,229 @@
                      (contains? failure :body-text))
                  (assoc :rf.http/off-box-body :omit))))
 
-(defn- schedule-backoff-handle!
-  "Arm the retry backoff timer AND keep the request
-  registered (and therefore cancellable) for the whole backoff window.
+;; ---- the request record -----------------------------------------------------
+;;
+;; One managed request is ONE record for its whole life — published once at
+;; issuance into `re-frame.http.registry`, with every key it will carry — and
+;; it changes only through four transitions:
+;;
+;;   send!       :preparing → :in-flight     the host send, its cancel published
+;;   completed!  :preparing | :in-flight (attempt n)
+;;                 → :backoff (a retry) or :done (the reply)
+;;   fire!       :backoff → :preparing        attempt n+1, then send!
+;;   abort!      any phase but :done → :done  cancel, then reply or suppress
+;;
+;; Each transition decides outside the record's guard and commits inside it.
+;; The guard is the record's monitor on the JVM, where the HttpClient
+;; completion thread and the backoff scheduler thread race the event thread;
+;; CLJS is single-threaded, so there a commit is a plain `swap!`. User code —
+;; `:decode`, `:accept`, `:after`, the reply dispatch, a body thunk — never
+;; runs under the guard.
+;;
+;; Reaching `:done` retires the record (`commit!`), and only one transition
+;; can reach it: whichever of `completed!` and `abort!` commits first decides
+;; the request's one outcome, and the other finds it done and does nothing.
+;; Every transition checks the phase AND the attempt it was started for, so a
+;; callback from an earlier attempt, or one that lost to an abort, is inert.
 
-  Cells coordinating the transition:
-   - `fired?` is a once-only CAS owned jointly by the timer callback and
-     the abort-fn. Whoever wins it owns the transition out of the
-     backoff state; the loser is a no-op. This is the source of truth —
-     even if `clear-timeout!` races and misses (e.g. a JVM cancel that
-     arrives after the timer thread has begun but before our cell flips),
-     a timer callback that LOST the CAS bails before issuing the next
-     attempt, so no retry ever fires after a cancel.
-   - `timer-cell` forwards the scheduler handle to the abort-fn closure,
-     which is constructed before the handle exists. The abort-fn reads
-     it lazily and calls `interop/clear-timeout!` (a best-effort fast
-     cancel layered over the authoritative `fired?` CAS).
-   - `finalised?` / `aborted?` are the just-completed live-fetch attempt's
-     REQUEST-LEVEL cells, REUSED here rather than minted fresh.
-     `finalised?` is the once-only reply guard; `aborted?` is the abort-
-     precedence cell. Reusing the prior handle's cells makes the prior
-     live-fetch handle and this backoff handle act as ONE reply-guarded,
-     one-abort unit across the transition, so (a) an abort that resolves
-     the prior handle mid-transition and delivers the terminal reply is
-     visible here (the post-arm re-check reads `aborted?`), and (b) two
-     abort-fns firing for the same request (e.g. actor-destroy walking both
-     handles while both are transiently in the actor index) dispatch AT
-     MOST ONE reply (both CAS the shared `finalised?`). See Spec 014
-     §486-492 (abort always wins / a cancelled request MUST NOT issue a
-     fresh attempt / an abort during the backoff MUST cancel the retry).
+(defn- guarded
+  "Run `f` under `record`'s guard: its monitor on the JVM. CLJS is
+  single-threaded, so there `f` simply runs."
+  [record f]
+  #?(:clj  (locking record (f))
+     :cljs (f)))
 
-  The backoff handle carries the same `:request-id` / `:actor-id` /
-  `:url` / `:sensitive?` shape every cancellation path expects, so
-  `:rf.http/managed-abort`, `abort-on-actor-destroy`, and `supersede!`
-  all cancel a sleeping request through their `:abort-fn`
-  dispatch with no path-specific code. It ALSO carries the sleeping
-  attempt's `:origin-event` / `:issuance` / `:attempt` identity facts,
-  mirroring the live-fetch handle, so a
-  `supersede!` during the backoff window can build the SUPERSEDED
-  attempt's canonical `:status :stale` reply-envelope trace with the
-  correct carried work-id (issuance/attempt preserved) rather than a
-  default first-attempt id.
+(defn- retire!
+  "Retire a finished request: take its record out of the registry (by its
+  token, so a successor reusing its frame, request id or actor is never
+  touched), evict its named issuance counter (an anonymous one lives until its
+  owner goes), and detach its external `:abort-signal` listener, so a shared
+  or parent controller retains nothing. Reached only through `commit!`."
+  [r]
+  (rf.http.registry/clear-in-flight! (:request-id r) r)
+  (rf.http.registry/evict-issuance-on-completion! (:frame r) (:request-id r) (:issuance r))
+  #?(:cljs (rf.http.transport-cljs/detach-external-abort! (:external-abort r)))
+  nil)
 
-  `prev-handle` is the just-completed live-fetch attempt's handle. This
-  registers the backoff handle FIRST (taking over the request-id slot),
-  THEN clears `prev-handle` — CONTINUOUS REGISTRATION: the
-  request is never absent from the registry for an instant, so an abort
-  landing anywhere in the transition always resolves SOME live handle.
-  Clearing before arming would leave a window where an abort resolves no
-  handle.
+(defn- commit!
+  "Commit `(apply f value args)` as `record`'s new value — the only write a
+  record takes, made by the four transitions inside its guard. A record that
+  reaches `:done` is retired here, so retirement happens exactly once."
+  [record f & args]
+  (let [after (apply swap! record f args)]
+    (when (= :done (:phase after))
+      (retire! after))
+    after))
 
-  `interop/set-timeout!` / `interop/clear-timeout!` are defined on both
-  platforms (CLJS: `js/setTimeout` / `js/clearTimeout`; JVM:
-  `ScheduledExecutorService` + `ScheduledFuture.cancel`), so the backoff
-  scheduling and its cancellation are uniform across hosts.
+(defn- current?
+  "Is `r` still attempt `(:attempt ctx)`, in one of `phases`?"
+  [r ctx phases]
+  (and (contains? phases (:phase r))
+       (= (:attempt ctx) (:attempt r))))
 
-  `failure` is the just-failed attempt's
-  classified failure map, threaded through (in the `:rf.http/retry-handoff`
-  payload) solely so the honest intermediate `:rf.http/retry-attempt`
-  `:recovery :retried` trace can be emitted at the cancellation-safe point —
-  which is INSIDE `run-attempt!`, after the successor attempt is
-  registered and re-confirmed not-aborted (the instant attempt N+1 is
-  actually permitted to start), never before."
-  [ctx delay-ms prev-handle failure]
-  ;; Test-only interleaving seam: an abort injected HERE resolves
-  ;; the prior live-fetch handle (still registered — the backoff has not yet
-  ;; taken over the slot), reproducing the transitional
-  ;; window deterministically. No-op in production.
-  (interleave! :backoff/before-register ctx)
-  (let [{:keys [request-id actor-id]} ctx
-        ;; REUSE the just-completed attempt's request-level cells
-        ;; (see docstring). The prior live-fetch handle always carries them
-        ;; (stamped in `run-attempt!`) on the production retry path. Synthetic /
-        ;; test-path callers may pass a nil `prev-handle` (no prior phase); fall
-        ;; back to fresh cells so the abort-fn's `reset!` / `compare-and-set!`
-        ;; always operate on a real atom.
-        finalised? (or (:finalised? prev-handle) (atom false))
-        aborted?   (or (:aborted? prev-handle) (atom nil))
-        fired?     (atom false)
-        timer-cell (atom nil)
-        ;; Forward-reference cell for the stamped handle, the
-        ;; same idiom as `timer-cell` here and `handle-holder` in
-        ;; `run-attempt!`. The abort-fn is constructed before
-        ;; `record-in-flight!` returns the handle, so it cannot close over
-        ;; `handle` lexically; it reads it lazily through `@handle-cell` at
-        ;; fire time (always after registration completes).
-        handle-cell (atom nil)
-        abort-fn   (fn [reason]
-                     ;; Abort always wins: flip the shared
-                     ;; precedence cell FIRST (before racing `fired?`), so a
-                     ;; concurrent timer-fire (its `run-attempt!` guard) and the
-                     ;; post-arm re-check both observe the cancellation.
-                     (reset! aborted? {:reason reason :actor-id actor-id})
-                     ;; Win the once-only transition; a concurrent timer
-                     ;; fire that loses here bails without retrying.
-                     (when (compare-and-set! fired? false true)
-                       (when-let [t @timer-cell]
-                         (rf.interop/clear-timeout! t))
-                       ;; Drop the backoff handle from both
-                       ;; indexes via the 2-arg `clear-in-flight!`, passing
-                       ;; the stamped handle (through `@handle-cell`) so the
-                       ;; actor-in-flight slot is cleared BY IDENTITY,
-                       ;; independent of whether `request-id` is non-nil.
-                       ;; This mirrors the live-fetch
-                       ;; abort-fn in `run-attempt!` and the by-identity
-                       ;; clear the timer-fires path below uses.
-                       ;;
-                       ;; Pass the frame too. `@handle-cell`
-                       ;; is nil for as long as the publication window below is
-                       ;; open, and the frame then names the one slot to clear.
-                       ;; That window precedes any SAME-FRAME successor, but a
-                       ;; sibling frame running the same reusable app code can
-                       ;; already be live under the same id, and its slot is
-                       ;; not this request's to delete.
-                       (rf.http.registry/clear-in-flight! (:frame ctx) request-id @handle-cell)
-                       ;; Dispatch guarded by the SHARED once-only
-                       ;; reply guard so a prior-phase abort-fn (the just-
-                       ;; completed live-fetch handle, resolvable during the
-                       ;; transition) that already delivered the terminal reply
-                       ;; is not doubled. In steady state (an abort during the
-                       ;; settled backoff window) `finalised?` is still false —
-                       ;; the retry path never consumed it — so this CAS wins
-                       ;; and the canonical aborted reply is dispatched.
-                       (when (compare-and-set! finalised? false true)
-                         (dispatch-aborted! ctx reason))))
-        handle     (rf.http.registry/record-in-flight!
-                     request-id actor-id
-                     {:abort-fn   abort-fn
-                      :url        (:url ctx)
-                      :sensitive? (true? (:sensitive? ctx))
-                      ;; Carry the originating frame for the actor-destroy abort
-                      ;; trace's frame stamp. HTTP carrier redaction is
-                      ;; process-global (the :rf.http/managed `:carriers`
-                      ;; registration, EP-0025), not frame-resolved.
-                      :frame      (:frame ctx)
-                      ;; Carry the SLEEPING attempt's reply-ctx
-                      ;; identity facts on the backoff handle, exactly as the
-                      ;; live-fetch handle in `run-attempt!` does.
-                      ;; `supersede!` returns this handle when a same-id
-                      ;; request supersedes the request DURING its backoff
-                      ;; window, and `emit-superseded-stale-trace!` builds the
-                      ;; carried (superseded) work-id from the handle's
-                      ;; `:origin-event` / `:issuance` / `:attempt`. Without
-                      ;; these the carried work-id would default to issuance 1 /
-                      ;; attempt 1 — a phantom first-attempt id that breaks
-                      ;; reply-envelope/trace correlation whenever the sleeping
-                      ;; retry is at attempt > 1 (or issuance > 1). The handle
-                      ;; represents the just-failed attempt (`ctx`'s `:attempt`
-                      ;; / `:issuance`); the timer's `(update :attempt inc)`
-                      ;; advances to the NEXT attempt only when it fires.
-                      :origin-event (:origin-event ctx)
-                      :issuance     (:issuance ctx)
-                      :attempt      (:attempt ctx)}
-                     ;; Take the request-id slot only from
-                     ;; `prev-handle`: a same-id successor that registered
-                     ;; since `maybe-retry!` decided to retry keeps it, and the
-                     ;; re-check below finishes this cancelled request.
-                     prev-handle)
-        ;; The shared `finalised?` / `aborted?` cells are NOT
-        ;; stamped onto the backoff handle: the abort-fn closes over them
-        ;; lexically, and the re-check / timer-guard read the same lexical
-        ;; bindings, so a handle copy would be dead weight. The backoff handle
-        ;; deliberately carries NO `:finalised?` — that absence is the
-        ;; documented invariant distinguishing a sleeping-backoff handle from a
-        ;; live-fetch handle (the fetch handle carries `:finalised?`).
-        ;; Publish the stamped handle so the abort-fn closure
-        ;; (defined above, before `handle` was bound) can pass it to the
-        ;; 2-arg `clear-in-flight!` via `@handle-cell`. The reset! happens
-        ;; synchronously here, before the timer is armed, so the cell is
-        ;; always populated by the time any abort can fire.
-        _          (reset! handle-cell handle)
-        ;; CONTINUOUS REGISTRATION. The backoff handle now owns the
-        ;; request-id slot (`record-in-flight!` overwrote it). Clear the PRIOR
-        ;; live-fetch handle only NOW — AFTER the backoff is registered — so the
-        ;; request is never absent from the registry for an instant. The 2-arg
-        ;; clear is identity-conditional: the request-id slot holds
-        ;; the backoff handle (not `prev-handle`) so it no-ops on the request-id
-        ;; index and only drops the prior handle from the actor index (no
-        ;; stale accumulation across retries).
-        _          (when prev-handle
-                     (rf.http.registry/clear-in-flight! request-id prev-handle))
-        ;; Ownership transfer: rebind the external
-        ;; `:abort-signal` from the just-completed live-fetch handle onto THIS
-        ;; sleeping-backoff handle's canonical abort-fn, so a signal that fires
-        ;; DURING the backoff window cancels the pending retry (clears the
-        ;; timer + registry) immediately rather than being observed only when
-        ;; the next attempt starts. `bind-external-abort!` detaches the prior
-        ;; live-fetch listener first. An already-aborted signal fires the
-        ;; backoff abort-fn synchronously (winning `fired?`); the trailing
-        ;; re-check below then disarms the armed timer.
-        #?@(:cljs
-            [_     (rf.http.transport-cljs/bind-external-abort!
-                     (:external-abort ctx)
-                     (fn [] ((:abort-fn handle) :user)))])
-        ;; Test-only interleaving seam: an abort injected HERE
-        ;; resolves the BACKOFF handle (now registered), the settled-window
-        ;; path. No-op in production.
-        _          (interleave! :backoff/after-register ctx)
-        ;; Schedule AFTER registering so the request is cancellable the
-        ;; instant the timer is armed. The callback wins/loses the same
-        ;; `fired?` CAS: on a win it clears its own handle and proceeds;
-        ;; on a loss (a cancel beat it) it does nothing.
-        timer      (rf.interop/set-timeout!
-                     (fn []
-                       (when (compare-and-set! fired? false true)
-                         ;; CONTINUOUS HANDOFF into attempt N+1.
-                         ;; Winning `fired?` owns the transition out of the
-                         ;; backoff, but the successor is NOT yet registered. Do
-                         ;; NOT clear this backoff handle here, and do NOT emit
-                         ;; `:retried` / issue the attempt here: an early
-                         ;; clear + one-shot abort-sample + late fresh-cell
-                         ;; registration would open a timer-fire→attempt-N+1 gap —
-                         ;; an abort landing between the sample and the successor's
-                         ;; registration would resolve NO handle and the retry
-                         ;; would fire anyway, re-sending a cancelled request. Instead hand
-                         ;; the predecessor backoff handle AND the SHARED
-                         ;; cancellation cells to `run-attempt!`, which registers
-                         ;; the successor FIRST, drops this predecessor only
-                         ;; after (identity-conditional), and re-checks the
-                         ;; shared abort cell at the cancellation-safe point —
-                         ;; mirroring the live-fetch→backoff handoff. The honest
-                         ;; `:retried` trace and the fresh attempt both fire
-                         ;; inside `run-attempt!`, only once the successor
-                         ;; re-confirms the request was not aborted; so a request
-                         ;; cancelled at the handoff is never re-issued and emits
-                         ;; no phantom `:retried` (Spec 014 §486-492).
-                         (interleave! :retry/before-attempt ctx)
-                         (run-attempt!
-                           (-> ctx
-                               (dissoc :handle)
-                               (update :attempt inc)
-                               (assoc :rf.http/retry-handoff
-                                      {:prev-handle handle
-                                       :finalised?  finalised?
-                                       :aborted?    aborted?
-                                       :failure     failure
-                                       :delay-ms    delay-ms
-                                       :emit-ctx    ctx})))))
-                     delay-ms)]
-    (reset! timer-cell timer)
+(defn- abort!
+  "Any phase but `:done` → `:done`, then cancel the current phase's host work
+  and reply (or suppress). The request's one abort entry point: every
+  cancellation source — `:rf.http/managed-abort`, supersession, actor destroy,
+  the frame sweeps, an external `:abort-signal` — reaches it through the
+  record's `:abort-fn`.
+
+  Abort intent is observed here, at the commit. A request already done — its
+  outcome committed, or another abort first — is left alone, so two sources
+  acting at once deliver one reply. The cancel read under the guard is the one
+  the current phase published: on the JVM an abort that arrives while `send!`
+  is inside the host call waits for the guard, then finds that call's future
+  and cancels it, so the app is never told a request was cancelled and then
+  has it sent. The cancel itself and the reply run after the guard is
+  released."
+  [record ctx reason]
+  (when-let [r (guarded record
+                 (fn []
+                   (let [r @record]
+                     (when-not (= :done (:phase r))
+                       (commit! record assoc :phase :done :abort reason :cancel nil)
+                       r))))]
+    (when-let [cancel (:cancel r)]
+      (try (cancel reason)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (dispatch-aborted! (assoc ctx :attempt (:attempt r)) reason)))
+
+(defn- deliver!
+  "Deliver a committed outcome's reply. Runs outside the guard: the `:after`
+  chain and the reply dispatch are user code."
+  [ctx {:keys [failure stop?] :as outcome}]
+  (if (contains? outcome :value)
+    (dispatch-success! ctx (:value outcome))
+    (do
+      ;; The terminal retry-sequence STOP row precedes the failure's own rows.
+      (when (and stop? rf.interop/debug-enabled?)
+        (emit-retry-attempt! ctx failure nil :no-recovery))
+      (emit-and-dispatch-failure! ctx failure))))
+
+(declare fire!)
+
+(defn- completed!
+  "Attempt n's outcome: `:preparing` / `:in-flight` (attempt n) → `:backoff`
+  when the outcome retries, otherwise `:done`, then the reply. `outcome` is
+  one of:
+
+   - `{:value v}` — a success;
+   - `{:failure f}` — a failure that ends the request (`:stop?` marks the end
+     of a retry sequence);
+   - `{:failure f :retry-ms ms}` — a failure that retries after `ms`;
+   - `{:fault e}` — a throw the completion fence caught. A request still live
+     ends without a reply, and the throw is surfaced as
+     `:rf.error/http-reply-tail-failed` either way.
+
+  The outcome is decided before this runs — status classification, `:decode`
+  and `:accept` happen outside the guard — and commits only while attempt n is
+  still current. An abort that committed first has already replied, so the
+  late classification is dropped: abort always wins. An outcome that commits
+  first is final, and a later abort finds the request done.
+
+  A retry arms its backoff timer INSIDE the guard and publishes the timer's
+  cancel in the same commit, so an abort either commits first — and no timer
+  is ever armed — or finds the armed timer and clears it. On the JVM a timer
+  that fires at once waits on the guard until the commit has landed."
+  [record ctx outcome]
+  (interleave! :completed/before-commit ctx)
+  (let [{:keys [failure retry-ms fault]} outcome
+        committed?
+        (guarded record
+          (fn []
+            (when (current? @record ctx #{:preparing :in-flight})
+              (if retry-ms
+                (let [timer (rf.interop/set-timeout! #(fire! record ctx failure retry-ms)
+                                                     retry-ms)]
+                  (commit! record assoc :phase :backoff
+                           :cancel (fn [_] (rf.interop/clear-timeout! timer))))
+                (commit! record assoc :phase :done :cancel nil))
+              true)))]
     (cond
-      ;; The backoff handle's own abort-fn already fired (won
-      ;; `fired?`): it cleared the registry + guarded-dispatched. It may have
-      ;; read `timer-cell` as nil and skipped `clear-timeout!`; re-check and
-      ;; disarm the now-known timer so the scheduler carries no doomed task.
-      @fired?
-      (rf.interop/clear-timeout! timer)
-
-      ;; The SHARED abort cell is flipped but this backoff's own
-      ;; abort-fn never ran: an abort resolved the PRIOR live-fetch handle
-      ;; during the transition into this backoff and already delivered the
-      ;; single terminal reply through the shared once-only guard. Win the
-      ;; transition, disarm the timer, and DROP the freshly-registered backoff
-      ;; handle so NO fresh network attempt fires for the cancelled request. Do
-      ;; NOT re-dispatch — the prior handle's abort-fn already replied.
-      (and (some? @aborted?)
-           (compare-and-set! fired? false true))
-      (do
-        (rf.interop/clear-timeout! timer)
-        (rf.http.registry/clear-in-flight! request-id handle)))
-    nil))
+      fault                           (emit-reply-tail-error! ctx fault)
+      (and committed? (not retry-ms)) (deliver! ctx outcome))))
 
 (defn- maybe-retry!
-  "Decide between retry, immediate-final-failure, and successful-completion.
-  `failure` is the failure map for the just-finished attempt.
+  "Decide whether attempt n's `failure` retries, and hand the outcome to
+  `completed!`. A retry needs budget left (`:max-attempts`) and a failure kind
+  the policy's `:on` names; `:rf.http/aborted` never retries.
 
-  Abort always wins: a request whose handle's
-  `:aborted?` cell has been flipped MUST NOT be retried, regardless of
-  the just-classified failure category or the caller's `:retry :on`
-  set. A user/actor-destroy abort that arrives mid-decode-failure
-  retry-eligible classification would otherwise schedule a fresh
-  attempt against a request the caller has already cancelled — a
-  contract violation under Spec 014 §Abort precedence. Routing the
-  aborted request through `finalise-failure!` lets the in-flight
-  reclassification (built into finalise-failure!'s abort-snapshot
-  read) replace the would-be retry-eligible failure with the canonical
-  `:rf.http/aborted` shape.
+  The decision does not settle whether the request is still live —
+  `completed!`'s commit does. An abort that lands after this decision commits
+  first, the retry is never armed, and the cancelled request is never
+  re-issued (Spec 014 §Abort precedence).
 
-  The backoff window is cancellable: when a retry is
-  scheduled, the request stays REGISTERED for the whole backoff window
-  under a `schedule-backoff-handle!` handle whose `:abort-fn` cancels
-  the pending retry timer and clears the registry, rather than firing
-  a network abort (there is no live fetch between attempts). All three
-  cancellation paths — `:rf.http/managed-abort`, `abort-on-actor-
-  destroy`, `supersede!` — resolve a handle and fire its `:abort-fn`,
-  so registering the backoff handle is sufficient to make the sleeping
-  request cancellable through every path with no path-specific code.
-  Clearing the handle from both indexes BEFORE arming the timer would
-  leave the request invisible to every cancellation path for the whole
-  backoff, and the timer would fire regardless."
-  [ctx failure]
-  (let [{:keys [retry attempt]} ctx
+  A failure that does not retry ends the request. When retries were part of
+  its lifecycle — an attempt after the first, or a retry-eligible kind under a
+  multi-attempt policy — that end is marked by the terminal
+  `:rf.http/retry-attempt` STOP row (`:next-backoff-ms nil`, `:recovery
+  :no-recovery`). It is NOT always exhaustion: the sequence also stops when a
+  later attempt fails with a kind outside `:retry :on`. A non-retried,
+  non-eligible failure on attempt 1 emits no such row — there was no retry
+  sequence to stop. The honest `:retried` row for a retry that DOES go ahead
+  is emitted by `fire!`, once attempt n+1 is really starting."
+  [record ctx failure]
+  (let [{:keys [retry attempt]}           ctx
         {:keys [on max-attempts backoff]} retry
-        on-set      (or on #{})
-        kind        (:kind failure)
-        aborted?    (some? (aborted-snapshot ctx))
-        can-retry?  (and (some? max-attempts)
+        on-set (or on #{})
+        kind   (:kind failure)]
+    (completed! record ctx
+                (if (and (some? max-attempts)
                          (> max-attempts attempt)
                          (contains? on-set kind)
-                         (not= :rf.http/aborted kind)
-                         (not aborted?))]
-    (if can-retry?
-      (let [delay-ms (rf.http.encoding/compute-backoff-ms (or backoff {}) attempt)]
-        ;; HONEST timing: the intermediate `:recovery :retried`
-        ;; disposition is deliberately NOT emitted here. This point only
-        ;; DECIDES a retry is eligible and arms the backoff; the request can
-        ;; still be aborted in the cancellation-safe window (the
-        ;; `:maybe-retry/before-schedule` interleave below, or anywhere during
-        ;; the async backoff) and then NEVER re-issued. Emitting `:retried`
-        ;; here would let a trace listener report a retry that never happens
-        ;; (Spec 009's recovery law: `:retried` means the runtime actually
-        ;; retried). The emit lives at the cancellation-safe point inside
-        ;; `run-attempt!` — after the successor attempt is registered and
-        ;; re-confirmed not aborted; `failure` is threaded there for it through
-        ;; the `:rf.http/retry-handoff` payload.
-        ;; Invariant: no `:retried` row unless attempt N+1 is actually
-        ;; permitted to start.
-        ;; Test-only interleaving seam: an abort injected HERE
-        ;; (after `aborted?` was already sampled `false`, so `can-retry?` is
-        ;; committed) resolves the PRIOR live-fetch handle, still registered
-        ;; because the clear is deferred into `schedule-backoff-handle!`.
-        ;; No-op in production.
-        (interleave! :maybe-retry/before-schedule ctx)
-        ;; Hand the prior attempt's live-fetch handle to
-        ;; `schedule-backoff-handle!`, which registers the backoff handle FIRST
-        ;; and only THEN clears the prior handle (continuous registration).
-        ;; Clearing the prior handle HERE, before arming, would (a) open a
-        ;; window where an abort resolves no handle and is lost, and (b)
-        ;; sample the abort cell only once (`aborted?` above) so an abort
-        ;; landing during the arm would re-issue a cancelled request. Deferring
-        ;; the clear closes both: the prior handle stays resolvable through the
-        ;; transition, and `schedule-backoff-handle!` re-checks the shared abort
-        ;; cell after arming (Spec 014 §486-492). The clear that prevents
-        ;; actor-in-flight accumulation happens just after registration, by
-        ;; identity.
-        (schedule-backoff-handle! ctx delay-ms (:handle ctx) failure))
-      (do
-        ;; Terminal retry-sequence STOP marker: emit the final
-        ;; `:rf.http/retry-attempt` trace (with `:next-backoff-ms nil`) ONLY
-        ;; when retries were actually part of this request's lifecycle. The
-        ;; spec (§Retry × `:on-failure` semantics) ties the trace to "each
-        ;; intermediate attempt" — the final marker is meaningful only when a
-        ;; retry sequence happened. A guard of `(> max-attempts 1)` alone
-        ;; would fire for ANY terminal failure under a >1-attempt policy, even
-        ;; a NON-retry-eligible failure on attempt 1 (e.g. a
-        ;; `:rf.http/decode-failure` under `:retry {:on #{:rf.http/http-5xx}
-        ;; :max-attempts 3}`) — no retry ever happens, yet pair tools would see
-        ;; a phantom retry-attempt. So the guard also requires one of:
-        ;;   - `(> attempt 1)`         — at least one retry actually fired
-        ;;                               (we are on attempt 2+), OR
-        ;;   - `(contains? on-set kind)` — this failure WAS retry-eligible.
-        ;; This guard is why the marker is NOT always "exhaustion".
-        ;; It stops the retry sequence in one of two honest cases:
-        ;;   (a) the retry budget was spent — the last permitted attempt also
-        ;;       failed with a retryable category; or
-        ;;   (b) a later attempt (2+) failed with a category OUTSIDE
-        ;;       `:retry :on` — the sequence stops BEFORE the budget is spent
-        ;;       (e.g. attempt 1 retries a 5xx, attempt 2 hits a non-retryable
-        ;;       decode failure under `:max-attempts 3`).
-        ;; A non-retried, non-eligible terminal failure emits nothing.
-        (when (and rf.interop/debug-enabled?
-                   (some? max-attempts)
-                   (> max-attempts 1)
-                   (or (> attempt 1)
-                       (contains? on-set kind)))
-          ;; The terminal STOP marker schedules NOTHING
-          ;; (discriminated by `:next-backoff-ms nil`); stamping `:retried`
-          ;; here would be a lie, so its honest disposition is `:no-recovery`
-          ;; — no further attempt occurs.
-          (emit-retry-attempt! ctx failure nil :no-recovery))
-        (finalise-failure! ctx failure)))))
+                         (not= :rf.http/aborted kind))
+                  {:failure  failure
+                   :retry-ms (rf.http.encoding/compute-backoff-ms (or backoff {}) attempt)}
+                  {:failure failure
+                   :stop?   (and (some? max-attempts)
+                                 (> max-attempts 1)
+                                 (or (> attempt 1)
+                                     (contains? on-set kind)))}))))
+
+(defn- complete-fenced!
+  "THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
+  completion callback (the Fetch `.then` on CLJS, the `CompletableFuture`
+  `.whenComplete` on the JVM), and catch anything it throws.
+
+  The reply-tail fence in `dispatch-reply!` covers the BOTTOM of that
+  callback — the `:after` chain and the late-bind reply dispatch. This covers
+  everything ABOVE it: the 4xx/5xx/2xx cascade, response-body schema
+  classification, the retry decision and the commit. An unfenced throw there
+  would fail differently — and badly — on each host:
+
+  - CLJS — the throw would reject the promise `.then` returns, so the `.catch`
+    chained after it would feed `classify-cljs-error` → `:rf.http/transport` →
+    `maybe-retry!`, which RE-SENDS a request whose wire outcome had already
+    SUCCEEDED. The double-send presents to the caller as success: nothing
+    observable says the request ran twice, and a non-idempotent endpoint is
+    mutated twice.
+  - JVM — the throw would escape into the `whenComplete` stage nobody holds,
+    which completes that discarded future exceptionally and swallows it. No
+    reply is dispatched and the request stays in the registry for ever,
+    silently.
+
+  Those are exactly the two registers Spec 014 §Failure mode already names for
+  a response-side throw, which is why this routes to the SAME non-retrying,
+  observable `:rf.error/http-reply-tail-failed` emit the reply-tail fence uses
+  rather than minting a second category: from the app's point of view the
+  situation is identical — the transport succeeded and the outcome could not be
+  delivered. `:reply-error-id` carries the caught throw's own `:rf.error/id`,
+  which is what tells the two apart on the wire; one reachable case is
+  `:rf.error/schemas-artefact-missing`, thrown by
+  `privacy-body/classify-decoded` when the request's `:decode` schema declares
+  a per-slot mark and the shared walker hook is unbound.
+
+  The throw is handed to `completed!` as a fault: a request still live ends
+  there — done and retired, with NO reply — and the error is emitted either
+  way. Inventing a reply would race the one a committed outcome may already
+  have delivered; the app's `:on-success` / `:on-failure` does not fire, and
+  the emit is what makes the failure fixable."
+  [record ctx f]
+  (try
+    (f)
+    (catch #?(:clj Throwable :cljs :default) e
+      (completed! record ctx {:fault e})
+      nil)))
 
 (defn- handle-response!
   "Shared 4xx/5xx/2xx/else response cascade. `result` is the platform
@@ -1465,13 +1002,16 @@
   decode never fires on a non-success response, so an HTML 404 from a
   JSON endpoint classifies as `:rf.http/http-4xx` (not
   `:rf.http/decode-failure`). Decode runs only on 2xx; if that fails
-  the failure category is `:rf.http/decode-failure`."
-  [ctx result]
+  the failure category is `:rf.http/decode-failure`.
+
+  Decode and accept are user code, so all of this runs outside the record's
+  guard; the attempt's outcome commits only afterwards, in `completed!`."
+  [record ctx result]
   (let [{:keys [decode accept request-id]} ctx
         {:keys [ok? status status-text headers body-text body-binary]} result]
     (cond
       (and (>= status 400) (< status 500))
-      (maybe-retry! ctx
+      (maybe-retry! record ctx
                     {:kind        :rf.http/http-4xx
                      :status      status
                      :status-text status-text
@@ -1479,7 +1019,7 @@
                      :headers     headers})
 
       (>= status 500)
-      (maybe-retry! ctx
+      (maybe-retry! record ctx
                     {:kind        :rf.http/http-5xx
                      :status      status
                      :status-text status-text
@@ -1492,9 +1032,8 @@
       ;; would misclassify an `:accept` throw as
       ;; `:rf.http/decode-failure` (step-4 error masquerading as step-3),
       ;; and a malformed `:accept` return (nil / a map without :ok/:failure)
-      ;; would fall through `finalise-success!`'s `cond` with no matching
-      ;; branch — clearing the in-flight request and dispatching NO reply, so
-      ;; the caller would hang forever. So:
+      ;; would match no outcome — ending the request with NO reply, so the
+      ;; caller would hang forever. So:
       ;;
       ;;   - the decode try/catch catches ONLY decoder exceptions →
       ;;     `:rf.http/decode-failure`;
@@ -1542,7 +1081,7 @@
                 reason     (when malformed? (:cause d))
                 limit      (when malformed? (:limit d))]
             (maybe-retry!
-              ctx
+              record ctx
               (cond-> {:kind                       :rf.http/decode-failure
                        :body-text                  body-text
                        :cause                      #?(:clj (.getMessage ^Throwable e)
@@ -1557,9 +1096,8 @@
           ;; ---- ACCEPT phase -----------------------------------------
           ;; Decode succeeded. Run `:accept` in its OWN try/catch and
           ;; shape-validate the return. Three outcomes:
-          ;;   - returns `{:ok v}` / `{:failure m}` → hand to
-          ;;     `finalise-success!`, which dispatches the success reply
-          ;;     or the `:rf.http/accept-failure` domain-failure reply;
+          ;;   - returns `{:ok v}` → the success outcome; `{:failure m}` →
+          ;;     the `:rf.http/accept-failure` domain-failure outcome;
           ;;   - throws → `:rf.http/accept-failure` (the throw is the
           ;;     app's accept bug; misclassifying it as decode-failure
           ;;     would point telemetry at the wrong phase);
@@ -1567,14 +1105,15 @@
           ;;     exactly one of :ok/:failure) → `:rf.http/accept-failure`,
           ;;     so the request is never stranded with no reply.
           ;; `:rf.http/accept-failure` is non-retryable by construction
-          ;; (Spec 014 §Failure categories), so we route straight to
-          ;; `finalise-failure!` — never `maybe-retry!`.
+          ;; (Spec 014 §Failure categories), so it goes straight to
+          ;; `completed!` — never `maybe-retry!`, and so never the terminal
+          ;; retry-sequence STOP row.
           (let [decoded (:decoded decode-result)
                 ;; Carry the successful response's wire facts
                 ;; (actual status, status text, and the transport's already-
                 ;; normalized header map — the SAME cross-host shape the
                 ;; 4xx/5xx failure maps ride) forward to success
-                ;; finalisation, where they land on the canonical reply's
+                ;; completion, where they land on the canonical reply's
                 ;; `:meta` family-extension slot, so both `:after` and
                 ;; the app reply target can observe status and headers for
                 ;; a SUCCESSFUL request (the facts the spec's rate-limit /
@@ -1599,26 +1138,41 @@
                             {:accept-error e}))]
             (cond
               (:accept-error outcome)
-              (finalise-failure!
-                ctx'
-                {:kind       :rf.http/accept-failure
-                 :detail     {:rf.http/bad-accept :threw
-                              :message #?(:clj (.getMessage ^Throwable (:accept-error outcome))
-                                          :cljs (.-message ^js (:accept-error outcome)))}
-                 :decoded    decoded'
-                 :request-id request-id})
+              (completed!
+                record ctx'
+                {:failure {:kind       :rf.http/accept-failure
+                           :detail     {:rf.http/bad-accept :threw
+                                        :message #?(:clj (.getMessage ^Throwable (:accept-error outcome))
+                                                    :cljs (.-message ^js (:accept-error outcome)))}
+                           :decoded    decoded'
+                           :request-id request-id}})
 
               (rf.http.encoding/valid-accept-return? (:accepted outcome))
-              (finalise-success! ctx' (:accepted outcome))
+              (let [accepted (:accepted outcome)]
+                (if (contains? accepted :ok)
+                  (completed! record ctx' {:value (:ok accepted)})
+                  ;; A domain `:accept` failure (`{:failure user-map}` on a
+                  ;; successful 2xx decode) is an `:rf.http/accept-failure`,
+                  ;; exactly like the throw / malformed-return branches. Its
+                  ;; reply goes through `emit-and-dispatch-failure!`, which
+                  ;; emits the failure-CATEGORY trace and stamps the off-box
+                  ;; disposition for the `:decoded` slot — the schema-classified
+                  ;; body, so a `:decode`-schema sensitive slot redacts on the
+                  ;; on-box trace.
+                  (completed! record ctx'
+                              {:failure {:kind       :rf.http/accept-failure
+                                         :detail     (:failure accepted)
+                                         :decoded    decoded'
+                                         :request-id request-id}})))
 
               :else
-              (finalise-failure!
-                ctx'
-                {:kind       :rf.http/accept-failure
-                 :detail     {:rf.http/bad-accept :malformed-return
-                              :returned (:accepted outcome)}
-                 :decoded    decoded'
-                 :request-id request-id})))))
+              (completed!
+                record ctx'
+                {:failure {:kind       :rf.http/accept-failure
+                           :detail     {:rf.http/bad-accept :malformed-return
+                                        :returned (:accepted outcome)}
+                           :decoded    decoded'
+                           :request-id request-id}})))))
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the
@@ -1630,7 +1184,7 @@
       ;; and this synthetic-4xx (1xx/3xx) alike. The branch is rare in
       ;; practice (the JVM `NORMAL` / Fetch stacks follow 3xx by default).
       (maybe-retry!
-        ctx
+        record ctx
         {:kind        :rf.http/http-4xx
          :status      status
          :status-text status-text
@@ -1657,7 +1211,7 @@
 
   A throwing body thunk or a non-serialisable body (e.g. a value
   `JSON.stringify` / form-encode rejects) is caught here rather than
-  escaping `run-attempt!` as a generic `:rf.error/fx-handler-exception`.
+  escaping the attempt as a generic `:rf.error/fx-handler-exception`.
   `:rf.http/transport` is in the retryable subset, so a caller with
   `:retry {:on #{:rf.http/transport} …}` re-runs the whole attempt
   (re-invoking the thunk for a fresh handle) — consistent with the
@@ -1678,549 +1232,196 @@
                :cause   #?(:clj (.getName (class e))
                            :cljs (some-> (.-name ^js e)))}})))
 
-(defn run-attempt!
-  "Issue one HTTP attempt, then dispatch reply or retry. Platform-specific
-  transport wiring (Fetch Promise on CLJS, CompletableFuture on JVM) is
-  reader-conditional; the response cascade, retry decision, in-flight
-  registry interaction, privacy redaction, and supersede suppression are
-  all shared.
+(defn- send!
+  "`:preparing` → `:in-flight`. The phase check, the host send and the
+  publication of the send's cancel run as ONE guarded step, so cancellation
+  is ordered against issuance in both directions: an abort that commits first
+  leaves nothing to send, and an abort that arrives during the host call waits
+  for the guard, then finds the cancel published and uses it. Checking the
+  phase, releasing the guard and only then sending would let an abort land in
+  between — telling the app the request was cancelled, and sending it anyway.
+  Once the send has won, the request may already have reached the server: JDK
+  exchange cancellation is best-effort.
 
-  Body realization + encoding run as a managed preparation
-  PHASE (`prepare-body!`) AFTER the in-flight handle is registered, so a
-  throwing body thunk / encode failure is routed through the normal
-  `maybe-retry!` → final-failure path (a `:rf.http/transport` reply to
-  `:on-failure`) rather than escaping as `:rf.error/fx-handler-exception`."
+  On CLJS nothing can run between the check and the call. The cancel is
+  published before `cljs-fetch` runs, so an abort re-entering from inside the
+  call still finds it. The completion callbacks are wired outside the guard."
+  [record ctx {:keys [enc-body headers]}]
+  (interleave! :issue/before-send ctx)
+  (let [{:keys [request timeout-ms]} ctx
+        method (or (:method request) :get)
+        url    (:url ctx)]
+    #?(:cljs
+       (when-let [promise
+                  (guarded record
+                    (fn []
+                      (when (current? @record ctx #{:preparing})
+                        ;; The attempt's own controller: an abort and the
+                        ;; per-attempt timeout both abort it. The caller's
+                        ;; `:abort-signal` is never handed to Fetch — it is
+                        ;; bound to the request's abort at issuance.
+                        (let [controller (js/AbortController.)]
+                          (commit! record assoc :phase :in-flight
+                                   :cancel (fn [reason] (.abort controller (clj->js reason))))
+                          (rf.http.transport-cljs/cljs-fetch
+                            {:method              method
+                             :url                 url
+                             :headers             headers
+                             :body                enc-body
+                             :credentials         (:credentials request)
+                             :mode                (:mode request)
+                             :redirect            (:redirect request)
+                             :cache               (:cache request)
+                             :referrer            (:referrer request)
+                             :integrity           (:integrity request)
+                             :timeout-ms          timeout-ms
+                             :internal-controller controller
+                             ;; The transport picks the Fetch body-reader
+                             ;; (`.text()` vs `.blob()` / `.arrayBuffer()` /
+                             ;; `.formData()`) from the resolved decode mode.
+                             :decode              (:decode ctx)
+                             ;; So a Fetch `Headers.append` validation throw
+                             ;; surfaces as a redacted
+                             ;; `:rf.warning/http-header-invalid` trace instead of
+                             ;; escaping as a generic `:rf.error/fx-handler-exception`.
+                             :sensitive?          (true? (:sensitive? ctx))
+                             :frame               (:frame ctx)})))))]
+         (-> promise
+             ;; The completion fence. Without it a throw anywhere in the
+             ;; response cascade rejects this promise, and the `.catch` below
+             ;; reclassifies it as `:rf.http/transport` → `maybe-retry!` → a
+             ;; RE-SEND of a request whose 2xx already landed.
+             (.then (fn [result]
+                      (complete-fenced! record ctx #(handle-response! record ctx result))))
+             ;; A genuine transport rejection. After an abort the Fetch also
+             ;; rejects (the controller aborted it); the request is done by
+             ;; then, so `completed!` commits nothing.
+             (.catch (fn [err]
+                       (maybe-retry! record ctx (rf.http.transport-cljs/classify-cljs-error err url))))))
+       :clj
+       ;; A monotonic start mark for the timeout's `:elapsed-ms`, taken before
+       ;; the request is issued so the measured elapsed spans the whole attempt.
+       (let [started-ns (System/nanoTime)
+             elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
+         (try
+           (when-let [^CompletableFuture cf
+                      (guarded record
+                        (fn []
+                          (when (current? @record ctx #{:preparing})
+                            (let [^CompletableFuture cf
+                                  (rf.http.transport-jvm/jvm-fetch
+                                    {:method     method
+                                     :url        url
+                                     :headers    headers
+                                     :body       enc-body
+                                     :timeout-ms timeout-ms
+                                     ;; Binary decode modes (`:blob` /
+                                     ;; `:array-buffer` / `:form-data`) read the
+                                     ;; body as bytes.
+                                     :decode     (:decode ctx)
+                                     ;; The spec's `:redirect` envelope key
+                                     ;; (default `:follow`) selects the
+                                     ;; redirect-policy-specific client.
+                                     :redirect   (:redirect request)
+                                     :sensitive? (true? (:sensitive? ctx))
+                                     ;; The originating frame stamps the warning
+                                     ;; and supplies its general elision policy;
+                                     ;; HTTP carrier names come from effect
+                                     ;; registration.
+                                     :frame      (:frame ctx)})]
+                              (commit! record assoc :phase :in-flight
+                                       ;; `true` = may-interrupt-if-running.
+                                       :cancel (fn [_] (.cancel cf true)))
+                              cf))))]
+             ;; The callback fires after an abort's `.cancel` too, with a
+             ;; CancellationException; the request is done by then, so
+             ;; `completed!` commits nothing. The completion fence: this
+             ;; BiConsumer's returned stage is discarded, so an unfenced throw
+             ;; in the response cascade would vanish — no reply, the request
+             ;; registered for ever.
+             (.whenComplete cf
+                            (reify java.util.function.BiConsumer
+                              (accept [_ result throwable]
+                                (complete-fenced!
+                                  record ctx
+                                  #(if throwable
+                                     (maybe-retry! record ctx (rf.http.transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
+                                     (handle-response! record ctx result)))))))
+           (catch Throwable t
+             (maybe-retry! record ctx (rf.http.transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))
+
+(defn- run-attempt!
+  "Run attempt n of the request: realise and encode the body, then `send!`.
+
+  Preparation is a managed phase that runs outside the guard — a `:body`
+  thunk is user code, re-invoked per attempt (Spec 014 §Body encoding). A
+  preparation failure is the attempt's outcome, routed through `maybe-retry!`
+  exactly like a network failure, so `:on-failure`, the retry policy, abort
+  precedence and redaction all apply to it. A request no longer preparing — an
+  external `:abort-signal` already aborted at issuance, or an abort landing as
+  the backoff timer fired — is skipped before any body thunk runs."
+  [record ctx]
+  (when (current? @record ctx #{:preparing})
+    (let [prep (prepare-body! (:request ctx))]
+      (if-let [failure (:error prep)]
+        (maybe-retry! record ctx failure)
+        (send! record ctx (:ok prep))))))
+
+(defn- fire!
+  "The backoff timer fired: `:backoff` → `:preparing` for attempt n+1, then
+  run it. `ctx` is the failed attempt n's, which the record kept as its work
+  identity while it slept.
+
+  The honest `:rf.http/retry-attempt` `:recovery :retried` row is emitted
+  here, once the commit shows attempt n+1 really starting — never when the
+  retry was merely scheduled — so a request cancelled during its backoff emits
+  no phantom `:retried` (Spec 009's recovery law). It names the failed
+  attempt and the backoff that governed the new one."
+  [record ctx failure delay-ms]
+  (interleave! :retry/before-attempt ctx)
+  (let [next-ctx (update ctx :attempt inc)]
+    (when (guarded record
+            (fn []
+              (when (current? @record ctx #{:backoff})
+                (commit! record assoc :phase :preparing :attempt (:attempt next-ctx) :cancel nil)
+                true)))
+      (when rf.interop/debug-enabled?
+        (emit-retry-attempt! ctx failure delay-ms :retried))
+      (run-attempt! record next-ctx))))
+
+(defn issue!
+  "Issue a managed request: publish its record — once, with every key it will
+  carry, before any cancellation path can reach it — then run attempt 1.
+  `ctx` is the normalised request (`re-frame.http.handlers`).
+
+  The external `:abort-signal` (CLJS) is bound here, once, to the request's
+  abort, so it reaches whichever phase is current; retirement detaches it. An
+  already-aborted signal aborts the request on the spot, and attempt 1 then
+  never prepares a body or issues anything."
   [ctx]
-  (let [;; Retry handoff, present ONLY on the timer-fire→attempt
-        ;; N+1 path (nil on the first attempt). It carries the predecessor
-        ;; backoff handle (for the continuous-registration clear performed AFTER
-        ;; this successor registers), the SHARED `:finalised?` / `:aborted?`
-        ;; cancellation cells to REUSE (so the request's once-only reply guard
-        ;; and abort-precedence state thread UNBROKEN across the handoff — a
-        ;; cancelled request cannot slip through a fresh-cell seam), and the
-        ;; honest-`:retried` trace payload (emitted below at the
-        ;; cancellation-safe point, never before).
-        handoff  (:rf.http/retry-handoff ctx)
-        ctx      (dissoc ctx :rf.http/retry-handoff)
-        {:keys [request timeout-ms request-id actor-id abort-signal]} ctx
-        method   (or (:method request) :get)
-        url      (rf.http.encoding/merge-params (:url request) (:params request))
-        ;; Body realization + encoding are DEFERRED past handle
-        ;; registration and run inside `prepare-body!` as a managed
-        ;; request-preparation PHASE (see below). Realizing a `:body` thunk
-        ;; or encoding the body here, in the binding `let`, would run them BEFORE
-        ;; `record-in-flight!` and the platform transport try/catch — a
-        ;; throwing thunk or `encode-body` failure would escape `run-attempt!`
-        ;; entirely and surface as a generic `:rf.error/fx-handler-exception`
-        ;; (the fx walk's catch-all in `fx.cljc`), stranding the caller with
-        ;; no `:on-failure` reply and skipping retry/abort semantics. With
-        ;; the work below the handle, a prep throw is caught, classified
-        ;; as `:rf.http/transport` (the spec category for an error "before the
-        ;; HTTP transaction completed" — closed set, no new category), and
-        ;; routed through the normal `maybe-retry!` path so `:on-failure`,
-        ;; retry policy, trace metadata, abort precedence, and sensitivity
-        ;; redaction all stay consistent.
-        ;; The external `:abort-signal` binding is a REQUEST-
-        ;; lifecycle object, created ONCE (attempt 1) and carried forward on
-        ;; ctx across retries/backoff so each phase rebinds the SAME signal
-        ;; onto the current handle. `make-external-abort` returns nil for no
-        ;; signal; the bind/detach helpers are no-ops on nil. CLJS-only — the
-        ;; JVM treats `:abort-signal` as a degraded no-op (a one-line trace via
-        ;; `check-cljs-only-keys!`), so no binding is made there.
-        external-abort #?(:cljs (or (:external-abort ctx)
-                                    (rf.http.transport-cljs/make-external-abort abort-signal))
-                          :clj  nil)
-        ctx-no-handle (cond-> (assoc ctx :url url)
-                        external-abort (assoc :external-abort external-abort))
-        ;; CLJS: always own an internal AbortController so
-        ;; the per-attempt timeout fires even when the caller supplied
-        ;; `:abort-signal`. `cljs-fetch` forwards the caller's signal into
-        ;; this controller via `addEventListener "abort"`. JVM: no per-
-        ;; attempt controller — abort signalling is host-specific and
-        ;; lives outside the sendAsync future.
-        #?@(:cljs [internal-controller (js/AbortController.)])
-        ;; Once-only reply guard. The abort path AND the
-        ;; subsequent natural-completion path (Fetch .catch on CLJS,
-        ;; CompletableFuture .whenComplete on JVM) both fan into
-        ;; finalise-*; without this CAS each slow-server abort would
-        ;; dispatch TWO replies for the same request — first the
-        ;; synthesised :rf.http/aborted (immediate), then the natural-
-        ;; completion reply (much later, after the underlying transport
-        ;; drains). The flag is stamped on the handle map; finalise-*
-        ;; reads it via `(:finalised? (:handle ctx))` and the abort-fn
-        ;; closure CASes the same atom lexically before dispatching the
-        ;; abort reply itself. JVM additionally cancels the underlying
-        ;; CompletableFuture so the work actually stops (not just the
-        ;; reply path).
-        ;; On the retry handoff REUSE the shared once-only reply
-        ;; guard so the predecessor (backoff) handle and this successor act as
-        ;; ONE reply-guarded unit: an abort that resolved the predecessor and
-        ;; delivered the terminal reply has already won this cell, so no second
-        ;; reply and no re-issue can follow. Fresh atom on the first attempt.
-        finalised? (or (:finalised? handoff) (atom false))
-        ;; The abort closure flips this precedence cell
-        ;; BEFORE racing the once-only `:finalised?` CAS, so even if a
-        ;; synchronously-completing decode wins the CAS, the finalise-*
-        ;; entry sees the abort snapshot and reclassifies the reply as
-        ;; `:rf.http/aborted` per Spec 014 §Abort precedence (abort
-        ;; always wins). The cell carries the abort reason map so the
-        ;; canonical reply shape (and the `:actor-id` slot, when
-        ;; actor-destroy was the source) is reconstructable inside
-        ;; finalise-failure! without re-deriving from `failure`.
-        ;; On the retry handoff REUSE the shared abort-precedence
-        ;; cell so an abort landing anywhere in the timer-fire→attempt-N+1
-        ;; window is consulted END-TO-END at the post-registration re-check
-        ;; below (never a stale sample against a disconnected fresh cell).
-        aborted?   (or (:aborted? handoff) (atom nil))
-        ;; On the JVM the abort closure must `.cancel cf true`
-        ;; on the underlying CompletableFuture, but cf only exists AFTER
-        ;; this binding (built inside the try-body below). Forward via a
-        ;; one-cell atom that the JVM body fills after construction; the
-        ;; abort-fn reads it lazily through `@cf-holder`.
-        #?@(:clj  [cf-holder (atom nil)])
-        ;; The ISSUANCE REGION's mutex (JVM only; CLJS is single-
-        ;; threaded and has no region to guard). Two short critical sections
-        ;; take it: the host-entry region below — commit CAS, `jvm-fetch`
-        ;; (`HttpClient.sendAsync`), publication of the returned future — and
-        ;; the abort closure's cancel step. Serializing those two is what makes
-        ;; the invariant hold in BOTH orderings: an abort that gets here first
-        ;; commits `issue-phase` to `:aborted`, so the host call never happens;
-        ;; an abort that arrives while the host call is in flight cannot
-        ;; complete (it blocks before its cancel step, so its registry clear and
-        ;; its cancelled reply come after) and finds the future already
-        ;; published when it does. Neither side ever runs app code while
-        ;; holding it: the region contains only the CAS, the transport call and
-        ;; a `reset!`, and `.whenComplete` / `clear-in-flight!` /
-        ;; `dispatch-aborted!` are all outside.
-        #?@(:clj  [issue-lock (Object.)])
-        ;; One-cell issuance-phase CAS closing the request-
-        ;; preparation → host-transport window. `nil` until one side commits:
-        ;; the host-entry region below CASes it to `:issued` as its first act
-        ;; inside the region, and the abort closure CASes it to `:aborted`
-        ;; after winning the once-only reply guard. Exactly one winner, and the
-        ;; winner is decided at the host call itself rather than anywhere
-        ;; earlier — a cell flipped to `:issued` therefore means the request
-        ;; really was issued. An abort that lands while `prepare-body!` is
-        ;; blocked inside a body thunk wins this cell, so the attempt NEVER
-        ;; calls `cljs-fetch` / `jvm-fetch` after the canonical cancelled reply
-        ;; went out. A `@finalised?` sample taken only BEFORE prep would not
-        ;; suffice: on the JVM `cf-holder` is still nil during prep, so the
-        ;; abort would have no future to cancel and `HttpClient.sendAsync` would
-        ;; issue a side-effecting request AFTER the framework told the app it
-        ;; was cancelled. When
-        ;; issuance wins the cell instead, the JVM abort path cancels via
-        ;; `cf-holder`, which `issue-lock` guarantees is published by the time
-        ;; that abort can read it. Per-attempt like `cf-holder`, never
-        ;; threaded through the retry handoff — each attempt owns its own
-        ;; issuance; the handoff window itself is covered by the shared-cell
-        ;; re-check further down.
-        issue-phase (atom nil)
-        ;; Forward-reference cell for the stamped handle.
-        ;; The abort-fn's registry cleanup must pass the handle to the
-        ;; 2-arg `clear-in-flight!` so the actor-in-flight slot is cleared
-        ;; by identity regardless of whether `request-id` is non-nil
-        ;; (anonymous-from-actor requests carry a nil id and are indexed
-        ;; ONLY in actor-in-flight). But the handle is the value being
-        ;; computed by `record-in-flight!` below, so it cannot be a
-        ;; lexical reference inside the closure. Forward it through this
-        ;; one-cell atom — same idiom as `cf-holder` — filled immediately
-        ;; after `record-in-flight!` returns the stamped handle; the
-        ;; abort-fn reads it lazily via `@handle-holder` at fire time
-        ;; (always after registration completes).
-        handle-holder (atom nil)
-        ;; Register the abort handle. The handle ref is stamped into ctx
-        ;; so finalise-* can clear it from both indexes without needing
-        ;; the request-id, including anonymous actor-owned requests.
-        handle   (rf.http.registry/record-in-flight!
-                   request-id actor-id
-                   {:abort-fn (fn [reason]
-                                ;; Flip `:aborted?` before the
-                                ;; once-only CAS so that a concurrently-
-                                ;; running finalise-* (decode-failure,
-                                ;; transport, http-5xx, success) that wins
-                                ;; the CAS still reads the abort snapshot
-                                ;; on entry and reclassifies. The reset!
-                                ;; is idempotent across re-entrant aborts
-                                ;; (supersede + actor-destroy in rapid
-                                ;; succession): subsequent flips just
-                                ;; overwrite with the same shape, which is
-                                ;; fine because the once-only CAS below
-                                ;; collapses everything after the first
-                                ;; pass into a no-op. We do NOT CAS this
-                                ;; cell because a racing finalise-* that
-                                ;; samples it as nil and then later sees
-                                ;; it as set is exactly the window we're
-                                ;; closing — abort always wins regardless
-                                ;; of which side flipped first.
-                                (reset! aborted? {:reason   reason
-                                                  :actor-id actor-id})
-                                ;; Single-shot CAS guard.
-                                ;; A re-entrant abort (e.g. supersede +
-                                ;; actor-destroy firing in rapid
-                                ;; succession against the same handle)
-                                ;; is a no-op past the first call.
-                                (when (compare-and-set! finalised? false true)
-                                  ;; Claim the issuance phase.
-                                  ;; Winning (nil → `:aborted`) means the host
-                                  ;; call has not been made yet: the host-entry
-                                  ;; region's own CAS will now fail, so no
-                                  ;; fetch is ever issued for this cancelled
-                                  ;; attempt. Losing (already `:issued`) means
-                                  ;; the transport call is in flight or done —
-                                  ;; the JVM branch below cancels it via
-                                  ;; `cf-holder`, which the issuance region
-                                  ;; publishes before releasing `issue-lock`.
-                                  (compare-and-set! issue-phase nil :aborted)
-                                  #?(:cljs
-                                     (try
-                                       (when internal-controller
-                                         (.abort internal-controller (clj->js reason)))
-                                       (catch :default _ nil))
-                                     :clj
-                                     ;; Cancel the underlying
-                                     ;; future so it stops running. The
-                                     ;; CompletableFuture's whenComplete
-                                     ;; will still fire (with a
-                                     ;; CancellationException), but
-                                     ;; finalise-failure! is guarded by
-                                     ;; the same :finalised? flag and
-                                     ;; bails before re-emitting.
-                                     ;; `true` = may-interrupt-if-running.
-                                     ;; Under `issue-lock`: when
-                                     ;; issuance won the cell we may be racing
-                                     ;; the host call itself, and taking the
-                                     ;; monitor is what makes this read see a
-                                     ;; PUBLISHED future rather than nil.
-                                     ;; It also holds the rest of
-                                     ;; this cascade — registry clear and the
-                                     ;; cancelled reply — behind the in-flight
-                                     ;; host call, so the abort can never
-                                     ;; complete and then have a request go out
-                                     ;; behind it. The region it waits on
-                                     ;; contains no app code, so the wait is
-                                     ;; the transport call and nothing else.
-                                     (locking issue-lock
-                                       (when-let [^CompletableFuture cf @cf-holder]
-                                         (try (.cancel cf true)
-                                              (catch Throwable _ nil)))))
-                                  ;; Registry cleanup happens
-                                  ;; here once; finalise-failure! is
-                                  ;; bypassed. Pass the stamped handle (via
-                                  ;; `@handle-holder`) so the 2-arg form
-                                  ;; walks BOTH indexes by identity,
-                                  ;; independent of whether `request-id`
-                                  ;; is non-nil. This is unconditionally
-                                  ;; correct for every abort trigger
-                                  ;; (managed-abort, supersede,
-                                  ;; actor-destroy) AND for anonymous
-                                  ;; (request-id-less) requests, whose
-                                  ;; handle is indexed ONLY in
-                                  ;; actor-in-flight. The 2-arg
-                                  ;; `clear-in-flight!` performs an
-                                  ;; identity-based actor-index remove that
-                                  ;; no-ops against an already-cleared
-                                  ;; (or absent) slot, so it is a safe
-                                  ;; idempotent no-op on the actor-destroy
-                                  ;; path (its eager dissoc already emptied
-                                  ;; the vector) while closing the gap for
-                                  ;; any future trigger that does not
-                                  ;; pre-clear.
-                                  ;;
-                                  ;; Pass the frame too. On
-                                  ;; the JVM another thread can fire this
-                                  ;; just-published abort-fn while
-                                  ;; `@handle-holder` is still nil, and the
-                                  ;; frame then names the one slot to clear,
-                                  ;; never a sibling frame's.
-                                  (rf.http.registry/clear-in-flight! (:frame ctx) request-id @handle-holder)
-                                  ;; The abort closure dispatches a synthesised reply directly
-                                  ;; (no finalise-failure! re-entry). The
-                                  ;; shared `dispatch-aborted!` reuses the
-                                  ;; same trace-emit + reply shape the
-                                  ;; backoff-window abort uses, so abort +
-                                  ;; natural failures look identical to
-                                  ;; consumers regardless of lifecycle phase.
-                                  ;; Bypassing finalise-failure! keeps the
-                                  ;; cancel + CAS + dispatch sequence atomic
-                                  ;; and gives the once-only guard a single
-                                  ;; owner.
-                                  (dispatch-aborted! ctx-no-handle reason)))
-                    :url url
-                    ;; Once-only reply guard, see comment above.
-                    :finalised? finalised?
-                    ;; Abort-precedence cell read at finalise-*
-                    ;; entry. See the `aborted?` binding above.
-                    :aborted?   aborted?
-                    ;; Propagate the :sensitive? flag onto
-                    ;; the in-flight handle so the actor-destroy abort
-                    ;; emit (lives in the registry ns) can stamp the
-                    ;; trace event without re-resolving registration
-                    ;; metadata.
-                    :sensitive? (true? (:sensitive? ctx))
-                    ;; Carry the originating frame for the actor-destroy abort
-                    ;; trace's frame stamp. HTTP carrier redaction is
-                    ;; process-global through the `:rf.http/managed`
-                    ;; registration; the frame is for trace attribution.
-                    :frame      (:frame ctx)
-                    ;; Carry the superseded attempt's reply context
-                    ;; identity facts on the handle so `supersede!` can build
-                    ;; this (now-stale) attempt's canonical `:status :stale`
-                    ;; reply-envelope trace when a fresh request replaces it.
-                    :origin-event (:origin-event ctx)
-                    :issuance     (:issuance ctx)
-                    :attempt      (:attempt ctx)}
-                   ;; On the retry handoff take the request-id
-                   ;; slot only from the predecessor backoff handle: a same-id
-                   ;; successor that registered after the timer won `fired?`
-                   ;; keeps it, and the re-check below finishes this request.
-                   ;; nil on the first attempt, which claims the slot outright.
-                   (:prev-handle handoff))
-        ;; Publish the stamped handle so the abort closure
-        ;; (defined above, before `handle` was bound) can pass it to the
-        ;; 2-arg `clear-in-flight!` via `@handle-holder`. The reset!
-        ;; happens synchronously here, before any fetch is issued, so the
-        ;; cell is always populated by the time any abort can fire.
-        _        (reset! handle-holder handle)
-        ;; CONTINUOUS REGISTRATION on the retry handoff: the
-        ;; successor live-fetch handle now owns the request-id slot
-        ;; (`record-in-flight!` overwrote it above), so the request is never
-        ;; absent from the registry across the timer-fire→attempt-N+1 handoff.
-        ;; Drop the predecessor backoff handle only NOW — after the successor is
-        ;; registered. The 2-arg clear is identity-conditional: the
-        ;; request-id slot holds the successor, so it no-ops there and only
-        ;; removes the predecessor from the actor index (no stale accumulation
-        ;; across retries). No-op on the first attempt (no handoff).
-        _        (when-let [prev (:prev-handle handoff)]
-                   (rf.http.registry/clear-in-flight! request-id prev))
-        ;; Bind the external `:abort-signal` to THIS live-fetch
-        ;; handle's canonical abort-fn (`:reason :user`), detaching the prior
-        ;; phase's listener (ownership transfer). An ALREADY-aborted signal
-        ;; fires the abort-fn synchronously HERE — it wins the once-only CAS,
-        ;; aborts the internal controller, clears the registry, dispatches the
-        ;; canonical `:rf.http/aborted :reason :user` reply, and detaches its
-        ;; listener — so the `(when-not @finalised? …)` guard below skips body
-        ;; prep + transport entirely (no fresh attempt / body-thunk after
-        ;; cancellation, Spec 014 §Abort precedence). Must run AFTER
-        ;; `handle-holder` is published (the abort-fn reads `@handle-holder`).
-        #?@(:cljs
-            [_   (rf.http.transport-cljs/bind-external-abort!
-                   external-abort
-                   (fn [] ((:abort-fn handle) :user)))])
-        ctx'     (assoc ctx-no-handle :handle handle)]
-    ;; CANCELLATION-SAFE RE-CHECK at the timer-fire→attempt-N+1
-    ;; handoff. If an abort flipped the SHARED cell during the handoff, a
-    ;; request the caller cancelled MUST NOT issue a fresh attempt (Spec 014
-    ;; §486-492). Drop the successor handle we just registered (idempotent if an
-    ;; abort-fn already cleared it), and — iff no terminal reply has gone out —
-    ;; deliver the single canonical `:rf.http/aborted` reply here through the
-    ;; SHARED once-only guard. That "no reply yet" case is the load-bearing one:
-    ;; an abort resolving the PREDECESSOR backoff handle LOSES the timer's
-    ;; already-won `fired?` CAS and so its abort-fn dispatched nothing — the
-    ;; reply is ours to deliver. Winning the guard here ALSO makes the
-    ;; `when-not @finalised?` below short-circuit, so no fresh attempt issues.
-    ;; (On the first attempt / steady-state retry the cell is nil and this is a
-    ;; single volatile read.)
-    (when (some? @aborted?)
-      (rf.http.registry/clear-in-flight! request-id handle)
-      (when (compare-and-set! finalised? false true)
-        (dispatch-aborted! ctx-no-handle (:reason @aborted?))))
-    ;; HONEST `:retried` (retry handoff only): the
-    ;; successor is registered and the shared abort cell is still clear, so
-    ;; attempt N+1 is genuinely about to issue. Emitting here — never at the
-    ;; earlier decision point in `maybe-retry!` — means an in-window
-    ;; cancellation emits NO phantom `:retried` for a retry that never happened
-    ;; (Spec 009 recovery law). `:emit-ctx` is the just-failed attempt's ctx so
-    ;; the trace's `:attempt` names that attempt and `:next-backoff-ms` the
-    ;; backoff that governed this one.
-    (when (and (some? handoff)
-               (not (some? @aborted?))
-               (not @finalised?)
-               rf.interop/debug-enabled?)
-      (emit-retry-attempt! (:emit-ctx handoff) (:failure handoff) (:delay-ms handoff) :retried))
-    ;; Short-circuit when an already-aborted external signal
-    ;; won the CAS synchronously during the bind above: the request is already
-    ;; terminal (reply dispatched, registry cleared, listener detached), so
-    ;; running the body thunk / prep or issuing the transport would violate
-    ;; abort precedence. On the JVM (and when no signal aborted) `@finalised?`
-    ;; is false and the request proceeds normally.
-    (when-not @finalised?
-      ;; Request preparation runs after the
-      ;; handle is registered (so abort precedence, the once-only reply
-      ;; guard, and registry cleanup all apply to a prep failure exactly
-      ;; as they do to a network failure) but BEFORE the platform fetch is
-      ;; issued. A throwing body thunk / encode failure becomes a
-      ;; `:rf.http/transport` reply routed through `maybe-retry!` rather
-      ;; than escaping as `:rf.error/fx-handler-exception`.
-      (let [prep (prepare-body! request)]
-       (if-let [prep-error (:error prep)]
-        ;; Body-prep failed — route through the normal retry/final-failure
-        ;; path on `ctx'` (which carries the registered `:handle`), so retry
-        ;; (when configured for `:rf.http/transport`), trace metadata, abort
-        ;; precedence, and the `:on-failure` reply shape all stay consistent.
-        (maybe-retry! ctx' prep-error)
-        (let [{:keys [enc-body headers]} (:ok prep)]
-        ;; POST-PREPARATION cancellation gate. A body thunk may
-        ;; block inside `prepare-body!` for arbitrarily long, and the
-        ;; `@finalised?` sample above ran BEFORE prep — so an abort that won
-        ;; while preparation was in progress has already delivered the
-        ;; canonical cancelled reply and cleared the registry, and this
-        ;; attempt must not now enter the host transport (Spec 014 §Abort
-        ;; precedence: body realization is a managed phase; a cancelled
-        ;; request must not issue). The `issue-phase` CAS below makes the
-        ;; abort/issuance race have exactly one winner: losing it (the abort
-        ;; closure already CASed `:aborted`) skips the fetch entirely, with
-        ;; nothing left to do — reply and registry were the abort's.
-        ;;
-        ;; THE COMMIT IS THE HOST CALL. Each host CASes the shared cell as the
-        ;; first act of its own host-entry region, never earlier: committing
-        ;; ahead of the call would re-open the hole one step further down,
-        ;; where an abort loses the cell (so it cannot suppress the send) yet
-        ;; finds no future to cancel (so it cannot stop it either) and returns
-        ;; having told the app the request was cancelled — after which the
-        ;; request goes out anyway. On CLJS the region is implicit: the host is
-        ;; single-threaded and nothing can run between the CAS and `cljs-fetch`,
-        ;; so the CAS alone orders the only interleaving that host can produce
-        ;; (a re-entrant external abort fired during body realization). On the
-        ;; JVM the region is `issue-lock`, held across CAS → `sendAsync` →
-        ;; publication so the abort path is serialized against it.
-        (interleave! :issue/before-send ctx')
-        #?(:cljs
-           (when (compare-and-set! issue-phase nil :issued)
-           (-> (rf.http.transport-cljs/cljs-fetch
-                           {:method              method
-                            :url                 url
-                            :headers             headers
-                            :body                enc-body
-                            :credentials         (:credentials request)
-                            :mode                (:mode request)
-                            :redirect            (:redirect request)
-                            :cache               (:cache request)
-                            :referrer            (:referrer request)
-                            :integrity           (:integrity request)
-                            :timeout-ms          timeout-ms
-                            ;; The external `:abort-signal` is
-                            ;; NOT forwarded into the attempt-local Fetch:
-                            ;; cancellation is lifecycle-owned (bound to the
-                            ;; handle's abort-fn above), which aborts THIS
-                            ;; `internal-controller` when it fires.
-                            :internal-controller internal-controller
-                            ;; The transport picks the Fetch
-                            ;; body-reader (`.text()` vs `.blob()` /
-                            ;; `.arrayBuffer()` / `.formData()`) from the
-                            ;; resolved decode mode; pass it through.
-                            :decode              (:decode ctx)
-                            ;; Thread `:sensitive?` and `:frame` so a
-                            ;; Fetch `Headers.append` validation throw surfaces
-                            ;; as a redacted `:rf.warning/http-header-invalid`
-                            ;; trace (with registration-owned carriers applied)
-                            ;; instead of escaping as a generic
-                            ;; `:rf.error/fx-handler-exception`. Same shape the
-                            ;; JVM branch threads into `jvm-fetch` below.
-                            :sensitive?          (true? (:sensitive? ctx))
-                            :frame               (:frame ctx)})
-               ;; The completion fence. Without it a throw anywhere
-               ;; in the response cascade rejects this promise, and the `.catch`
-               ;; below reclassifies it as `:rf.http/transport` → `maybe-retry!`
-               ;; → a RE-SEND of a request whose 2xx already landed. The fence
-               ;; catches first, so the `.catch` only ever sees a genuine
-               ;; transport rejection.
-               (.then (fn [result]
-                        (complete-fenced! ctx' #(handle-response! ctx' result))))
-               ;; Pass `url` so `classify-cljs-error` can stamp a
-               ;; cross-origin `:rf.http/transport` failure's
-               ;; `:cross-origin?` hint.
-               ;; When the abort closure fired and dispatch-aborted!
-               ;; already replied, the Fetch promise still rejects (because
-               ;; `.abort internal-controller` rejects the underlying
-               ;; fetch); this .catch would call `maybe-retry!` →
-               ;; `finalise-failure!` for a second pass. The once-only
-               ;; `:finalised?` CAS on the handle short-circuits the second
-               ;; dispatch inside finalise-*, so this path stays as the
-               ;; natural-completion sink without a bespoke "did we abort?"
-               ;; check here.
-               (.catch (fn [err]
-                         (maybe-retry! ctx' (rf.http.transport-cljs/classify-cljs-error err url))))))
-           :clj
-           ;; Monotonic start mark for the per-host timeout
-           ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
-           ;; (immune to wall-clock adjustments); the delta is converted to
-           ;; whole milliseconds at the failure site. Captured BEFORE the
-           ;; request is issued so the measured elapsed spans the whole attempt.
-           (let [started-ns (System/nanoTime)
-                 elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
-             (try
-               ;; THE ISSUANCE REGION. Commit, issue and publish
-               ;; hold `issue-lock` together, so the abort closure's cancel
-               ;; step cannot land between them. An abort that reaches the
-               ;; monitor first wins the cell, this CAS fails, and `sendAsync`
-               ;; is never called — `when-let` yields nil and there is nothing
-               ;; to wire. An abort that arrives once this region is running
-               ;; waits at its cancel step: it cannot clear the registry or
-               ;; deliver its cancelled reply until the region ends, and by
-               ;; then `cf-holder` carries the future it cancels. Either way
-               ;; the app is never told a request was cancelled and then has
-               ;; one issued behind that reply. The region deliberately holds
-               ;; nothing but the CAS, the transport call and the `reset!` —
-               ;; `.whenComplete` and every reply a completion dispatches run
-               ;; outside the monitor.
-               (when-let [^CompletableFuture cf
-                          (locking issue-lock
-                            (when (compare-and-set! issue-phase nil :issued)
-                              (let [cf (rf.http.transport-jvm/jvm-fetch
-                                         {:method     method
-                                          :url        url
-                                          :headers    headers
-                                          :body       enc-body
-                                          :timeout-ms timeout-ms
-                                          ;; Thread the resolved `:decode`
-                                          ;; so `jvm-fetch` can read the response
-                                          ;; body with `ofByteArray` for binary
-                                          ;; decode modes (`:blob` /
-                                          ;; `:array-buffer` / `:form-data`) and
-                                          ;; ride the raw bytes under
-                                          ;; `:body-binary` instead of the lossy
-                                          ;; String fallback.
-                                          :decode     (:decode ctx)
-                                          ;; Honour the spec's `:redirect`
-                                          ;; envelope key on the JVM (default
-                                          ;; `:follow`). Selects the
-                                          ;; redirect-policy-specific client.
-                                          :redirect   (:redirect request)
-                                          :sensitive? (true? (:sensitive? ctx))
-                                          ;; The originating frame stamps the
-                                          ;; warning and supplies its general
-                                          ;; elision policy; HTTP carrier names
-                                          ;; come from effect registration.
-                                          :frame      (:frame ctx)})]
-                                ;; Publish cf to the abort closure's holder
-                                ;; before the monitor is released. This is the
-                                ;; publication a racing abort is waiting for,
-                                ;; and the future it goes on to cancel.
-                                (reset! cf-holder cf)
-                                cf)))]
-                 ;; The whenComplete callback fires even after
-                 ;; `.cancel cf true`: the cancel completes-exceptionally
-                 ;; with a CancellationException, which routes through this
-                 ;; BiConsumer as `throwable`. `maybe-retry!` →
-                 ;; `finalise-failure!` is then guarded by the once-only
-                 ;; `:finalised?` CAS (the abort-fn already finalised), so
-                 ;; the abort's reply is the only one that ever reaches the
-                 ;; user. An abort that cancelled cf between the region
-                 ;; ending and this line lands the same way — registering on
-                 ;; an already-cancelled future fires the callback at once.
-                 ;; The completion fence. This BiConsumer's returned
-                 ;; stage is discarded, so without the fence a throw in the
-                 ;; response cascade completes that unheld future exceptionally
-                 ;; and vanishes: no reply, registry never cleared, caller hangs
-                 ;; for ever with nothing on any surface. The fence tears down
-                 ;; and emits observably instead.
-                 (.whenComplete cf
-                                (reify java.util.function.BiConsumer
-                                  (accept [_ result throwable]
-                                    (complete-fenced!
-                                      ctx'
-                                      #(if throwable
-                                         (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
-                                         (handle-response! ctx' result)))))))
-               (catch Throwable t
-                 (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))
+  (let [{:keys [request]} ctx
+        ctx    (assoc ctx :url (rf.http.encoding/merge-params (:url request) (:params request)))
+        record (atom nil)]
+    (reset! record
+            (cond-> {:token        (rf.http.registry/next-token!)
+                     :frame        (:frame ctx)
+                     :request-id   (:request-id ctx)
+                     :actor-id     (:actor-id ctx)
+                     :origin-event (:origin-event ctx)
+                     :issuance     (:issuance ctx)
+                     :attempt      (:attempt ctx)
+                     :url          (:url ctx)
+                     :sensitive?   (true? (:sensitive? ctx))
+                     :phase        :preparing
+                     :cancel       nil
+                     :abort        nil
+                     :abort-fn     (fn [reason] (abort! record ctx reason))}
+              #?@(:cljs [(:abort-signal ctx)
+                         (assoc :external-abort
+                                (rf.http.transport-cljs/make-external-abort (:abort-signal ctx)))])))
+    (rf.http.registry/publish! record)
+    #?(:cljs (rf.http.transport-cljs/bind-external-abort!
+               (:external-abort @record)
+               (fn [] (abort! record ctx :user))))
+    (run-attempt! record ctx)
+    nil))

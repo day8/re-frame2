@@ -2,16 +2,16 @@
   "An actor-destroy abort whose reply target addresses the destroyed actor
   itself is obsolete (Managed-Effects §Cancellation): the target MUST NOT run,
   and the outcome lowers to a `:status :stale` / `:suppressed`
-  `:rf.http/stale-suppressed` row. Two transport paths reach an aborted reply —
-  the abort-fn's own `dispatch-aborted!`, and a completion that wins the
-  once-only CAS and reclassifies the flipped abort cell — and both must apply
-  the suppression.
+  `:rf.http/stale-suppressed` row — whether the destroy lands while the
+  request is plainly in flight, or mid-completion, after its response has
+  already been classified.
 
   The host transport is replaced at `jvm-fetch`, so each test decides when the
   request completes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.transport :as rf.http.transport]
             [re-frame.http.transport-jvm :as rf.http.transport-jvm]
             [re-frame.interop :as rf.interop]
             [re-frame.machines]
@@ -87,9 +87,9 @@
           (finally
             (rf.trace.tooling/unregister-listener! ::direct)))))))
 
-(deftest completion-wins-cas-obsolete-target-suppresses-stale-on-destroy
-  (testing "a completion that wins the once-only CAS after an actor-destroy flipped
-            the abort cell reclassifies to :actor-destroyed and suppresses the
+(deftest destroy-mid-completion-obsolete-target-suppresses-stale-on-destroy
+  (testing "an actor-destroy landing after the completion classified its
+            response, before it committed, wins and suppresses the
             self-addressed reply the same way"
     (let [traces (atom [])
           cf     (CompletableFuture.)]
@@ -98,10 +98,14 @@
           (rf.trace.tooling/register-listener! ::reclassified #(swap! traces conj %))
           (start-self-addressed-worker!)
           (let [before (self-dispatches @traces)
-                handle (first (get (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))]
-            ;; Flip the abort cell exactly as `abort-on-actor-destroy` does, but
-            ;; without firing the abort-fn, so the completion wins the CAS.
-            (reset! (:aborted? handle) {:reason :actor-destroyed :actor-id :worker/proc#1})
+                record (first (get (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))]
+            ;; Abort the request exactly as `abort-on-actor-destroy` does, at the
+            ;; completion's commit boundary: the 200 is already classified.
+            (rf.http.transport/set-test-interleave-hook!
+              (fn [point _]
+                (when (= point :completed/before-commit)
+                  (rf.http.transport/set-test-interleave-hook! nil)
+                  ((:abort-fn record) :actor-destroyed))))
             (.complete cf {:ok? true :status 200 :status-text "OK" :headers {} :body-text "{}"})
             (settle-router!)
             (is (= {:rf.reply/status       :stale
@@ -112,4 +116,5 @@
             (is (= before (self-dispatches @traces))
                 "no live :cancelled reply reached the destroyed actor's target"))
           (finally
+            (rf.http.transport/set-test-interleave-hook! nil)
             (rf.trace.tooling/unregister-listener! ::reclassified)))))))

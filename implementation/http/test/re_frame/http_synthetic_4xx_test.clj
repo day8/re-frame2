@@ -7,7 +7,7 @@
 
   `:redirect :error` selects the JDK `NEVER` redirect client, so a 302 from a
   loopback server surfaces unfollowed. Only a real 3xx driven through the
-  cascade catches the arm being routed to `finalise-failure!` or reclassified."
+  cascade catches the arm being routed past `maybe-retry!` or reclassified."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
