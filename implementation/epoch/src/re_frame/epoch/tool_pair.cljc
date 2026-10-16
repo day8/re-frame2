@@ -834,7 +834,7 @@
 ;; Tool writes route the WHOLE state-sensitive operation — not just the final
 ;; container call — through the core single-drainer `:drain-lock` via
 ;; `frame/call-serialized-with-drain!` (Spec 002 §Single drainer per frame; the
-;; SAME primitive the flows lifecycle ops use). Under that lock no event
+;; SAME primitive the `destroy-frame!` liveness flip uses). Under that lock no event
 ;; transition can run concurrently, so the tool write holds ONE serial position
 ;; relative to any drain: its coherent read and its physical write see the same
 ;; frame-state, and the recorded synthetic epoch describes exactly the
@@ -844,8 +844,8 @@
 ;; tool write issued mid-cascade from an event handler) must NOT run: it would
 ;; either self-deadlock re-taking `:drain-lock` or, worse, splice a
 ;; non-linearizable write into the in-flight transition (`call-serialized-with-
-;; drain!`'s reentrant branch runs the thunk DIRECTLY — correct for the flows
-;; ops, wrong for a tool write). So we refuse the reentrant case up front with
+;; drain!`'s reentrant branch runs the thunk DIRECTLY — correct for a nested
+;; liveness flip, wrong for a tool write). So we refuse the reentrant case up front with
 ;; the documented during-drain op, returning its refusal envelope and recording
 ;; nothing.
 ;; `frame/in-drain?` is the same `:in-drain?` thread marker the pre-lock
@@ -878,23 +878,23 @@
 ;; ---- flows dirty-check reset after a tool write ----------------------------
 ;;
 ;; A flow recomputes only when its inputs differ from the ones its last
-;; evaluation cached (Spec 013 §Dirty-check semantics). Inside a drain the cache
+;; evaluation cached (Spec 013 §Dirty-check semantics). Inside a drain the memo
 ;; stays in step with app-db because the flow pass runs over the db the drain
 ;; installs. A tool write installs frame-state OUTSIDE any drain, flow outputs
-;; included, so the cache would still describe the timeline the write replaced:
+;; included, so the memo would still describe the timeline the write replaced:
 ;; an event that sets an input back to its pre-write value would skip the flow
-;; and keep the output the write installed. Dropping the frame's rows makes the
+;; and keep the output the write installed. Dropping the frame's memo makes the
 ;; next drain evaluate every flow against the installed state. Late-bound so
 ;; epoch never statically depends on the optional flows artefact — absent the
-;; artefact the hook is nil and there is no cache to reset.
+;; artefact the hook is nil and there is no memo to reset.
 
 (defn reset-flows-dirty-check!
-  "Drop `frame-id`'s flow dirty-check rows after a successful tool write. The
-  flows hook is fenced to `incarnation-token`, so it writes nothing once that
-  incarnation is lost. Returns nil."
-  [frame-id incarnation-token]
+  "Drop `frame-id`'s flow evaluation memo after a successful tool write. The
+  caller holds the frame's drain serialization and has just installed on the
+  exact incarnation, so the reset lands on that incarnation. Returns nil."
+  [frame-id]
   (when-let [restore-last-inputs! (rf.late-bind/get-fn :flows/restore-last-inputs!)]
-    (restore-last-inputs! frame-id incarnation-token {}))
+    (restore-last-inputs! frame-id {}))
   nil)
 
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
@@ -1204,7 +1204,7 @@
              (refuse! :rf.error/no-such-handler {:kind :frame :frame frame-id})
              (do ;; Before the first callback boundary, so no callback sees the
                  ;; installed state beside a stale cache.
-                 (reset-flows-dirty-check! frame-id incarnation-token)
+                 (reset-flows-dirty-check! frame-id)
                  (rf.trace/emit! :rf.epoch :rf.epoch/restored
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
@@ -1585,8 +1585,8 @@
 
   The live walk classifies by the frame's registry as it stands NOW, and
   removing an owner drops its claims from that registry — destroying a machine
-  actor drops the paths lowered for its snapshot, clearing a flow drops those
-  on its output, a declassifying event effect drops its own — while older
+  actor drops the paths lowered for its snapshot, a flow leaving a frame drops
+  those on its output, a declassifying event effect drops its own — while older
   records still hold the values those claims governed. A record projects under
   the classification that applied when it was recorded, and the registry
   travels inside the recorded frame-state, so a historic value keeps its

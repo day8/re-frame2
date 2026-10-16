@@ -633,7 +633,7 @@
           (if (nil? changed-keys)
             (rf.epoch.tool-pair/refuse! :rf.error/no-such-handler
                                         {:kind :frame :frame frame-id})
-            (do (rf.epoch.tool-pair/reset-flows-dirty-check! frame-id incarnation-token)
+            (do (rf.epoch.tool-pair/reset-flows-dirty-check! frame-id)
                 (let [record (record-synthetic-replace-epoch!
                                frame-id incarnation-token
                                frame-state-before frame-state-after)]

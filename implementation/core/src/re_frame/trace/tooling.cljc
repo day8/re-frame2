@@ -1117,8 +1117,8 @@
   A deferred fan-out runs after the drain has unwound, and by then the
   predicate can read false with no listener involved: a destroy requested
   during the drain runs at the event boundary, before the post-drain flush, so
-  an `:rf.flow/registered` that a mid-drain `:rf.fx/reg-flow` emitted under its
-  pinned incarnation reaches the flush with that incarnation already gone. Under
+  a trace that a mid-drain effect emitted under its pinned incarnation reaches
+  the flush with that incarnation already gone. Under
   a bare live re-read the driver would take that as suppression and abandon
   listeners 2..N of an event that was authorised when it was emitted.
   Level-testing the predicate at the flush is the defect; the reading has to be
@@ -1243,7 +1243,7 @@
   and `continue?` explicitly rather than letting this ns read them.
 
   Nesting is inherited, not re-established: a reentrant drain (`drain-reentrant!`
-  under a cold serialized section, an `:rf.fx/reg-flow` mid-drain) already runs
+  under a cold serialized section, a `destroy-frame!` mid-drain) already runs
   inside its owner's scope and appends to the same batch, which the OWNER flushes
   once it has dropped the lock.
 
