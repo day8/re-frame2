@@ -13,8 +13,10 @@
     [:rf.resource/remove          {:resource … :scope … :params …}]
 
   Plus the framework-INTERNAL replies (`:rf.resource.internal/*`) that
-  carry the verification payload (`:work/id` / `:resource/key` / `:scope`
-  / `:generation` / `:rf.frame/id`) — user code MUST NOT dispatch them.
+  carry the verification payload (`:work/id` / `:generation` /
+  `:rf.frame/id`) — user code MUST NOT dispatch them. The payload carries no
+  scoped key: a reply handler resolves it through the receiving frame's
+  work-ledger row (`resolve-reply-payload`).
   The internal replies RECEIVE the canonical uniform reply map (Managed-
   Effects §The uniform reply envelope) — `re-frame.resources.reply` builds
   it from the transport's public payload + the verification payload, so a
@@ -200,15 +202,14 @@
 (defn- infinite-page-reply-payload
   "The verification payload for an infinite-feed page fetch — the SAME
   stale-suppression identity the scalar reply carries (`:work/id` /
-  `:resource/key` / `:scope` / `:generation`; the `:rf.frame/id` is merged by
-  `build-managed-args`) PLUS the resolved `:rf.resource/page-param` and
-  `:rf.resource/page-index` so the page-success reply records the right param
-  in `:page-params` (the param is reply state, never re-derived at settle).
-  Per Spec 016 §Causal event — load-more."
-  [scoped-key scope generation work-id page-param page-index]
+  `:generation`; the `:rf.frame/id` is merged by `build-managed-args`) PLUS
+  the resolved `:rf.resource/page-param` and `:rf.resource/page-index` so the
+  page-success reply records the right param in `:page-params` (the param is
+  reply state, never re-derived at settle). Like the scalar payload it
+  carries no scoped key — the handler resolves it from the ledger row. Per
+  Spec 016 §Causal event — load-more."
+  [generation work-id page-param page-index]
   {:work/id                  work-id
-   :resource/key             scoped-key
-   :scope                    scope
    :generation               generation
    page-reserved-ctx-param-key page-param
    page-reserved-ctx-index-key page-index})
@@ -816,9 +817,10 @@
                                               update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
             ;; lower into the resource's transport (the transport seam). The
             ;; runtime owns reply addressing: the internal reply payloads
-            ;; stamp the qualified :rf.frame/id + :work/id + :resource/key +
-            ;; :scope + :generation so the reply handlers verify before
-            ;; writing (stale suppression is the correctness boundary).
+            ;; stamp the qualified :rf.frame/id + :work/id + :generation so
+            ;; the reply handlers verify before writing (stale suppression is
+            ;; the correctness boundary); the scoped key stays on the ledger
+            ;; row, where the handler resolves it.
             ;; EP-0021 R8 — the `:request` fn has the `(params ctx)`
             ;; shape; an infinite feed's reserved `ctx` carries the resolved
             ;; page context for THIS page, a non-infinite resource's ctx is
@@ -835,8 +837,8 @@
                               {:on-success-id page-succeeded-reply
                                :on-failure-id page-failed-reply
                                :reply-payload (infinite-page-reply-payload
-                                                scoped-key scope generation
-                                                work-id page-param page-index)})
+                                                generation work-id
+                                                page-param page-index)})
             ;; Guard the declared transport (registration-time
             ;; misconfig throw), then lower directly into the only
             ;; built-in transport. With one transport there is no dispatch
@@ -849,7 +851,6 @@
                                 :request-id   request-id
                                 :work-id      work-id
                                 :resource/key scoped-key
-                                :scope        scope
                                 :frame-id     frame-id
                                 :generation   generation
                                 :where        where}
@@ -1103,7 +1104,6 @@
                               :request-id   request-id
                               :work-id      work-id
                               :resource/key scoped-key
-                              :scope        scope
                               :frame-id     frame-id
                               :generation   generation
                               :where        where
@@ -1113,8 +1113,8 @@
                               :on-success-id page-succeeded-reply
                               :on-failure-id page-failed-reply
                               :reply-payload (infinite-page-reply-payload
-                                               scoped-key scope generation
-                                               work-id next-param page-index)}))]
+                                               generation work-id
+                                               next-param page-index)}))]
         (rf.trace/emit! :rf.event :rf.resource/load-more
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
@@ -1265,15 +1265,14 @@
                               :request-id   request-id
                               :work-id      work-id
                               :resource/key scoped-key
-                              :scope        scope
                               :frame-id     frame-id
                               :generation   generation
                               :where        where
                               :on-success-id page-succeeded-reply
                               :on-failure-id page-failed-reply
                               :reply-payload (infinite-page-reply-payload
-                                               scoped-key scope generation
-                                               work-id page-param page-index)}))]
+                                               generation work-id
+                                               page-param page-index)}))]
         (rf.trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
@@ -2473,12 +2472,32 @@
 ;; below (the slot path-fn, the work-kind, and the stale-reason) plus the
 ;; resource correlation-fn / trace-id / bespoke trace facts.
 
+(defn- resolve-reply-payload
+  "The internal reply `payload` with the attempt's scoped key resolved through
+  the RECEIVING frame's work-ledger row (Spec 016 §Transport): `:resource/key`
+  is the row's, and `:scope` is that key's scope. A resource reply payload
+  carries only `:work/id` / `:generation` / `:rf.frame/id` (plus a feed page's
+  `:rf.resource/page-*`), because the ledger row is the one place that records
+  which key an attempt serves. A key or scope the payload carries itself is
+  discarded, never trusted. A reply with no row to resolve through — a
+  cross-frame reply, or an attempt whose row left with its entry — comes back
+  with no key, and `live-entry-for-reply` then suppresses it as stale."
+  [runtime-db receiving-frame-id payload]
+  (let [resource-key (:resource/key (rf.resources.reply-handlers/ledger-row-for-reply
+                                      runtime-db receiving-frame-id payload))]
+    (cond-> (dissoc payload :resource/key :scope)
+      (some? resource-key) (assoc :resource/key resource-key
+                                  :scope        (first resource-key)))))
+
 (defn- entry-path-for-reply
   "The resource family's durable-slot path-fn (`(payload) → db-path`): the
-  cache entry at the reply's `:resource/key`. Used by the shared
-  `reply-handlers` verifier + current-generation reader."
+  cache entry at the scoped key `resolve-reply-payload` resolved from the
+  receiving frame's ledger row, or nil when none resolved (no slot — the reply
+  is stale). Used by the shared `reply-handlers` verifier +
+  current-generation reader."
   [{resource-key :resource/key}]
-  (rf.resources.state/entry-path resource-key))
+  (when (some? resource-key)
+    (rf.resources.state/entry-path resource-key)))
 
 (defn- resource-correlation
   "The resource family's stale-reply diagnostic correlation keys (beyond the
@@ -2526,7 +2545,8 @@
 (defn- live-entry-for-reply
   "Look the live entry up for an internal reply via the SHARED
   `rf.resources.reply-handlers/live-slot-for-reply` (frame + work-id + generation
-  verification against the resource entry at the reply's `:resource/key`).
+  verification against the resource entry at the scoped key
+  `resolve-reply-payload` resolved from the ledger row).
   Returns the entry on a match, nil on a cross-frame / stale / superseded /
   vanished reply (which MUST be suppressed — Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory)."
@@ -2544,11 +2564,13 @@
 ;;   [:rf.resource.internal/succeeded <verification-payload> {:status :ok    :value <decoded-data> …}]
 ;;   [:rf.resource.internal/failed    <verification-payload> {:status :error :error <:rf.http/* envelope> …}]
 ;;
-;; `<verification-payload>` (arg 2) is the `{:work/id :resource/key :scope
-;; :generation :rf.frame/id}` map resource lowering supplied (the stale-
-;; suppression identity, the boundary the runtime OWNS — EP-0007: the work
-;; identity is `:work/id`). `<http-result>` (arg 3) is the transport's
-;; PUBLIC outcome.
+;; `<verification-payload>` (arg 2) is the `{:work/id :generation
+;; :rf.frame/id}` map resource lowering supplied (the stale-suppression
+;; identity, the boundary the runtime OWNS — EP-0007: the work identity is
+;; `:work/id`). Each handler first resolves the attempt's scoped key through
+;; the receiving frame's ledger row (`resolve-reply-payload`) — the key never
+;; rides the transport. `<http-result>` (arg 3) is the transport's PUBLIC
+;; outcome.
 ;;
 ;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
 ;; map every managed-async family produces — `re-frame.resources.reply`
@@ -2594,8 +2616,10 @@
   (`rf.resources.reply/transport-success-value` with the `:data` durable-layer fallback)
   and re-lifted into the canonical `:value`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
+   [_event-id reply-payload http-result]]
   (let [runtime-db (or rt {})
+        {work-id :work/id resource-key :resource/key :keys [generation] :as payload}
+        (resolve-reply-payload runtime-db frame-id reply-payload)
         value      (rf.resources.reply/transport-success-value payload http-result :data)
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery:
@@ -2810,8 +2834,10 @@
   Managed-Effects §Status taxonomy / EP-0011 §Resource Reply And Work
   Ledger)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
+   [_event-id reply-payload http-result]]
   (let [runtime-db (or rt {})
+        {work-id :work/id resource-key :resource/key :keys [generation] :as payload}
+        (resolve-reply-payload runtime-db frame-id reply-payload)
         error      (rf.resources.reply/transport-failure-envelope payload http-result)
         ;; EP-0017 declared-only delivery + EP-0010 §Managed Effects And Reply
         ;; Tokens: a FAILED / CANCELLED completion is still a
@@ -3055,11 +3081,13 @@
   the decoded page is read from there (with the `:data` durable-layer fallback
   for direct-dispatch tests) and appended."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key
-               :keys [generation]
-               page-param :rf.resource/page-param
-               page-index :rf.resource/page-index :as payload} http-result]]
+   [_event-id reply-payload http-result]]
   (let [runtime-db   (or rt {})
+        {work-id :work/id resource-key :resource/key
+         :keys [generation]
+         page-param :rf.resource/page-param
+         page-index :rf.resource/page-index :as payload}
+        (resolve-reply-payload runtime-db frame-id reply-payload)
         page         (rf.resources.reply/transport-success-value payload http-result :data)
         completed-at time-ms
         reply        (rf.resources.reply/success-reply payload page
@@ -3251,9 +3279,11 @@
   Event shape: `[_ <verification-payload> <http-result>]` — the transport
   appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the last arg."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation]
-               page-index :rf.resource/page-index :as payload} http-result]]
+   [_event-id reply-payload http-result]]
   (let [runtime-db   (or rt {})
+        {work-id :work/id resource-key :resource/key :keys [generation]
+         page-index :rf.resource/page-index :as payload}
+        (resolve-reply-payload runtime-db frame-id reply-payload)
         error        (rf.resources.reply/transport-failure-envelope payload http-result)
         completed-at time-ms
         reply        (rf.resources.reply/failure-reply payload error
@@ -3686,8 +3716,10 @@
   the suppression in trace for tools. Per Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload}]]
+   [_event-id reply-payload]]
   (let [runtime-db (or rt {})
+        {work-id :work/id resource-key :resource/key :keys [generation] :as payload}
+        (resolve-reply-payload runtime-db frame-id reply-payload)
         stale      (stale-suppress-reply runtime-db resource-key payload nil)]
     (emit-resource-stale-suppressed!
       frame-id resource-key work-id generation nil stale)
