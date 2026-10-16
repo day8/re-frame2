@@ -1904,7 +1904,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; keyword (per Spec 006 §Adapter introspection — surfaced by
   ;; `(rf/current-adapter)`). Consumers pass this map to
   ;; (rf/init! adapter-map) — each adapter ns
-  ;; (re-frame.adapter.{reagent,reagent-slim,uix}, re-frame.ssr,
+  ;; (re-frame.adapter.{reagent,uix}, re-frame.ssr,
   ;; re-frame.substrate.plain-atom) exports an `adapter` Var of this shape.
   [:map
    [:kind                      :keyword]
