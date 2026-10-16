@@ -243,6 +243,29 @@
          (map rf.identity/canonical-bytes [9007199254740991 -9007199254740991]))
       "the safe-range boundaries are admitted"))
 
+;; ---- text holding an unpaired surrogate has no UTF-8 form ---------------
+
+(deftest unpaired-surrogate-rejection
+  (let [high (str (char 0xD800))
+        low  (str (char 0xDC00))]
+    (testing "a string, keyword or symbol holding an unpaired surrogate fails
+              closed on both surfaces, wherever it sits"
+      (doseq [v [(str "a" high "b")        ; a high not followed by a low
+                 (str "x" high)            ; a high at the end
+                 low                       ; a lone low
+                 (str low high)            ; a reversed pair is two unpaired units
+                 (keyword (str "k" high))
+                 (keyword (str "ns" low) "k")
+                 (symbol (str "s" high))
+                 {:k ["ok" high]}]]
+        (is (= [:unpaired-surrogate :unpaired-surrogate]
+               [(non-edn-id-reason #(rf.identity/canonical-bytes v))
+                (non-edn-id-reason #(rf.identity/canonical v))])
+            (pr-str v))))
+    (testing "a well-formed pair is one supplementary character, emitted raw"
+      (is (= (str "s:\"" high low "\"") (rf.identity/canonical-bytes (str high low))))
+      (is (= (str high low) (rf.identity/canonical (str high low)))))))
+
 ;; ---- canonical projection: ordering is owned by canonical-bytes ----------
 ;;
 ;; `canonical` returns an =-equal, recursively normalized value but does NOT

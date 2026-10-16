@@ -256,6 +256,48 @@
      (or (not (cljs.core/integer? x))
          (not (js/isFinite x)))))
 
+;; ---- well-formed text ----------------------------------------------------
+;;
+;; CEDN-1 is a UTF-8 token stream, and a UTF-16 surrogate that is not half of
+;; a pair has no UTF-8 form: a host encoder substitutes it (`?` on the JVM,
+;; U+FFFD in JavaScript), so a digest over the bytes would equal an ordinary
+;; string's and differ across hosts. Text holding one is outside the domain
+;; (Conventions §Canonical byte encoding).
+
+(defn- code-unit-at [s i]
+  #?(:clj  (int (.charAt ^String s (int i)))
+     :cljs (.charCodeAt s i)))
+
+(defn- unpaired-surrogate?
+  "True iff `s` holds a high surrogate (U+D800-U+DBFF) not followed by a low
+  one (U+DC00-U+DFFF), or a low surrogate not preceded by a high one."
+  [s]
+  (let [n #?(:clj (.length ^String s) :cljs (.-length s))]
+    (loop [i 0]
+      (if (< i n)
+        (let [c (code-unit-at s i)]
+          (cond
+            (< c 0xD800) (recur (inc i))
+            (< c 0xDC00) (if (and (< (inc i) n)
+                                  (<= 0xDC00 (code-unit-at s (inc i)) 0xDFFF))
+                           (recur (+ i 2))
+                           true)
+            (< c 0xE000) true
+            :else        (recur (inc i))))
+        false))))
+
+(defn- well-formed-text
+  "Return `x` (a string, keyword or symbol), or fail closed with
+  `:unpaired-surrogate` when it, or a keyword's or symbol's namespace or name,
+  holds an unpaired surrogate."
+  [x]
+  (if (if (string? x)
+        (unpaired-surrogate? x)
+        (or (unpaired-surrogate? (name x))
+            (some-> (namespace x) unpaired-surrogate?)))
+    (reject! x :unpaired-surrogate)
+    x))
+
 ;; ---- canonical token encoding (CEDN-1) -----------------------------------
 ;;
 ;; Encode into a UTF-8 token string. Strings/keywords/symbols use the EDN
@@ -265,18 +307,19 @@
 (declare encode)
 
 (defn- encode-string [s]
-  ;; `pr-str` produces a canonical EDN string literal over Unicode scalar
-  ;; values, identical across CLJ/CLJS.
-  (str "s:" (pr-str s)))
+  ;; `pr-str` writes the canonical EDN string literal identically on CLJ and
+  ;; CLJS: seven characters escaped, every other character raw (Conventions
+  ;; §Canonical byte encoding).
+  (str "s:" (pr-str (well-formed-text s))))
 
 (defn- encode-keyword [k]
   ;; The canonical EDN keyword token, never auto-resolved `::` shorthand.
   ;; `pr-str` on a keyword always prints the single-colon fully-qualified
   ;; form.
-  (str "k:" (pr-str k)))
+  (str "k:" (pr-str (well-formed-text k))))
 
 (defn- encode-symbol [y]
-  (str "y:" (pr-str y)))
+  (str "y:" (pr-str (well-formed-text y))))
 
 (defn- encode-elements
   "Encode a sequence of already-canonical-ordered elements, space-joined.
@@ -391,7 +434,8 @@
   iff their `canonical-bytes` are `=`. Throws `:rf.error/non-edn-identity`
   for any value outside the CEDN-1 domain (functions, atoms, promises,
   DOM nodes, host objects, floats / ratios / NaN / infinities, integers
-  outside the safe range)."
+  outside the safe range, and a string, keyword or symbol holding an
+  unpaired surrogate)."
   [value]
   (encode value))
 
@@ -451,8 +495,8 @@
   (cond
     (nil? value)       nil
     (boolean? value)   value
-    (string? value)    value
-    (keyword? value)   value
+    (string? value)    (well-formed-text value)
+    (keyword? value)   (well-formed-text value)
     ;; A UUID is `=` across both surfaces already (UUID equality is over the
     ;; canonical 4122 form), so it has no two-surface divergence — preserve it.
     (uuid-value? value) value
@@ -466,7 +510,7 @@
     ;; — never reinterpreted as a generic vector. Checked BEFORE the vector
     ;; branch so a malformed tuple fails closed.
     (tagged-instant-head? value) [instant-marker (tagged-instant-text value)]
-    (symbol? value)    value
+    (symbol? value)    (well-formed-text value)
     (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
                          value
                          (reject! value :integer-out-of-safe-range))
