@@ -230,6 +230,27 @@
       (is (= :timeout (get-in (sim-state) [:snapshot :state]))
           "the engine honoured the epoch the row read off the stored fx"))))
 
+(deftest rail-names-a-named-delay-timer-row-by-its-name
+  ;; A keyword `:after` key names an entry of the root `:delays` map; the row
+  ;; reads the name, not a resolved value, and fires the timer by it.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (select-static-machine! :auth/login)
+    (start-sim! (-> timer-fixture-definition
+                    (assoc :delays {:idle-warning 5000})
+                    (assoc-in [:states :loading :after] {:idle-warning :timeout})))
+    (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                       {:machine-id :auth/login :event [:start]}])
+    (let [rows (find-all-by-testid-prefix
+                 (sim/SimRail rf/dispatch-sync (sim-rail-values))
+                 "rf-xray-static-machines-sim-available-after-")
+          row  (first rows)]
+      (is (= ["rf-xray-static-machines-sim-available-after-idle-warning"]
+             (map (comp :data-testid second) rows)))
+      (is (re-find #":idle-warning.*timer" (text-of row)))
+      ((:on-click (second row)) nil)
+      (is (= :timeout (get-in (sim-state) [:snapshot :state]))))))
+
 ;; ---- body -----------------------------------------------------------------
 
 (deftest body-auto-starts-sim-when-definition-present

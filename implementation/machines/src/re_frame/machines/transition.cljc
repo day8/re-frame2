@@ -641,11 +641,12 @@
 
 (defn classify-delay-source
   "Classify an `:after` delay-key into its source form — the closed set
-  `{:literal :fn}` owned by the `:after` grammar (Spec 005 §Delayed
+  `{:literal :fn :named}` owned by the `:after` grammar (Spec 005 §Delayed
   `:after` transitions). A `number?` key is the literal-ms form; a `fn?`
-  key is the computed-once-at-entry form. Any other shape (an ISO-8601
-  duration string included) falls back to `:literal` (the schema constrains
-  the canonical forms; this is defensive).
+  key is the computed-once-at-entry form; a `keyword?` key names an entry of
+  the machine's root `:delays` map. Any other shape (an ISO-8601 duration
+  string included) falls back to `:literal` (the schema constrains the
+  canonical forms; this is defensive).
 
   The single home for the classification, shared by the pure side
   (`build-after-fx`, which tags the `:rf.machine.timer/scheduled` /
@@ -655,9 +656,10 @@
   what a given delay-key's source is."
   [delay-key]
   (cond
-    (number? delay-key) :literal
-    (fn? delay-key)     :fn
-    :else               :literal))
+    (number? delay-key)  :literal
+    (fn? delay-key)      :fn
+    (keyword? delay-key) :named
+    :else                :literal))
 
 (defn state-path
   "Coerce a snapshot's :state — either a keyword or a vector path — into

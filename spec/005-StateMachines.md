@@ -207,6 +207,7 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | `:schemas` | top-level | optional — machine-level schema declarations. A closed sub-key map: `:data` (the live, wired category — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade), plus the declaration-only categories `:events` / `:tags` / `:meta` (abstract values; no wired behaviour yet); `[:schemas :output]` is live (the `:where :machine-output` boundary — see [§The `:schemas` map](#schema-validation)). `[:schemas :input]` and any unknown sub-key fail loud at registration (`:rf.error/machine-bad-schemas-key`); a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`. See [§Schema validation](#schema-validation). |
 | `:guards` | top-level | optional — `{<keyword> <fn>}` map of machine-local named guards; referenced by keyword from `:guard` slots |
 | `:actions` | top-level | optional — `{<keyword> <fn>}` map of machine-local named actions; referenced by keyword from `:action` / `:entry` / `:exit` slots |
+| `:delays` | top-level | optional — `{<keyword> <ms \| ISO-8601 string \| fn>}` map of machine-local named delays; referenced by keyword from `:after` keys (see [§Value shape](#value-shape)) |
 | `:meta` | top-level | optional — e.g. `:rf/snapshot-version` |
 | `:states` | top-level | required — map of FSM-keyword → state node |
 | `:on` | per-state and top-level | event-driven transition map |
@@ -2377,11 +2378,12 @@ An `:after` transition fires after a specified time delay, no event needed. xsta
 
 Each `:after` map entry is `<delay> → <transition-spec>`. Both halves admit multiple forms.
 
-**Delay (the key) — three forms:**
+**Delay (the key) — four forms:**
 
 - **`pos-int?`** — literal milliseconds, computed at registration time. The default form for fixed timeouts (`{30000 :timeout}` — fire after 30 seconds).
 - **ISO-8601 duration string** — `"PT30S"`, `"PT2M"`, `"PT1H30M"`: the [`:timeout` duration](#timeout--on-timeout-state--spawn) grammar, read by the same parser, so the two delay slots accept the same strings and both refuse the `"5s"` / `"10ms"` shorthand (`:rf.error/machine-bad-after-delay` here). A literal delay: the timer arms at its milliseconds on entry, and the key stays the string as written (`{"PT30S" :timeout}`).
 - **`(fn [{:keys [snapshot]}] ms)`** — fn-valued delay, called once at state entry against the entering snapshot via the unified context-map (the `:after` timer fx calls it against the committed snapshot). Returns a `pos-int?` ms value. The snapshot is `{:state :data :meta?}`, so the fn computes the delay from the machine's own `:data`. It is **never re-evaluated** while the timer is in flight: `:data` may change later, but the armed timer keeps the delay it was armed with. Example: `{(fn [{:keys [snapshot]}] (* 1000 (:retry-count (:data snapshot)))) :retry}`.
+- **`:keyword`** — a **named delay**: an entry of the machine's root `:delays` map, resolved **machine-locally** exactly as a `:guard` keyword resolves against `:guards`. The entry's value is any of the three forms above, and it is resolved where and when an inline key would be — at state entry, in the timer fx, against the committed snapshot — so a named fn is called once per entry like an inline one. The keyword, not its value, is the timer's identity: the elapsed event and the trace rows carry it, so a timer in flight across a re-registration still finds its `:after` entry. A name `:delays` does not declare is refused at registration with `:rf.error/machine-bad-after-delay`, whose message names the key and the names `:delays` declares; so is a `:delays` value outside the three forms. `:delays` is root-only, like `:guards`. A test shortens a named delay without touching the state tree: `(assoc-in machine-def [:delays :idle-warning] 50)`.
 
 Any other key, a vector included, is refused at registration with `:rf.error/machine-bad-after-delay`. Literal `pos-int?` covers the common case where the delay is a constant.
 
@@ -2398,14 +2400,17 @@ The `:after` value is resolved through the **same** value-form grammar as an `:o
 Sugar normalises at registration time: `{5000 :timeout}` is equivalent to `{5000 {:target :timeout}}`, and a single map is the one-element case of the candidate-vector. The runtime sees the desugared form.
 
 ```clojure
-;; Three delay forms in one state node:
-{:loading
- {:after {30000                        {:target :timeout :guard :no-progress?}     ;; literal ms
-          "PT2M"                       {:target :warn :action :log-slow}            ;; ISO-8601 duration
-          (fn [{:keys [snapshot]}] (* 1000 (-> snapshot :data :retry-count)))
-                                       :retry}                                      ;; fn over :data
-  :on    {:loaded :ready
-          :failed :error}}}
+;; The four delay forms in one state node:
+{:delays {:idle-warning (fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))}
+ :states
+ {:loading
+  {:after {30000                        {:target :timeout :guard :no-progress?}     ;; literal ms
+           "PT2M"                       {:target :warn :action :log-slow}            ;; ISO-8601 duration
+           (fn [{:keys [snapshot]}] (* 1000 (-> snapshot :data :retry-count)))
+                                        :retry                                       ;; fn over :data
+           :idle-warning                :idle}                                       ;; named, from :delays
+   :on    {:loaded :ready
+           :failed :error}}}}
 ```
 
 ### Wall-clock from state entry
@@ -2548,10 +2553,10 @@ When an `:after` timer's delay elapses, the substrate dispatches the synthetic `
 
 The runtime emits five trace events around every `:after`:
 
-- **`:rf.machine.timer/scheduled`** — emitted when a timer is scheduled at state entry. `:tags {:actor-id <id> :state <state> :delay <ms> :epoch <e> :delay-source <:literal | :fn>}`. One event per `:after` entry per scheduling. (The timer's owning actor INSTANCE rides under `:actor-id`; `:machine-id` is reserved for the registered TYPE.)
+- **`:rf.machine.timer/scheduled`** — emitted when a timer is scheduled at state entry. `:tags {:actor-id <id> :state <state> :delay <ms> :epoch <e> :delay-source <:literal | :fn | :named>}`. One event per `:after` entry per scheduling. (The timer's owning actor INSTANCE rides under `:actor-id`; `:machine-id` is reserved for the registered TYPE.)
 - **`:rf.machine.timer/fired`** — emitted when a live (epoch-matching) timer's transition resolves. `:tags {:actor-id <id> :state <state> :delay <ms> :epoch <e> :fired? <bool>}`. `:fired? false` indicates the guard was checked and returned false; the transition was suppressed and other in-flight timers continue (per [§Multi-stage interaction with `:guard`](#multi-stage-interaction-with-guard)).
 - **`:rf.machine.timer/stale-after`** — emitted when a stale (epoch-mismatched) timer fires. `:tags {:actor-id <id> :state <state> :delay <ms> :scheduled-epoch <e1> :current-epoch <e2>}`. The transition does not fire.
-- **`:rf.machine.timer/cancelled`** — emitted on every `:after` timer cancellation, regardless of cause (one unified event id). `:tags {:actor-id <id> :state <state> :delay <prior-ms> :epoch <e> :reason :on-exit | :on-destroy | :on-supersede | :on-frame-destroy | :on-restore :delay-source <:literal | :fn, when known>}`. The `:reason` closed set discriminates the five cancellation paths: `:on-exit` (state owning the `:after` was exited), `:on-destroy` (machine destroyed), `:on-supersede` (a new schedule landed at an already-armed slot), `:on-frame-destroy` (the bearing frame was destroyed), `:on-restore` (epoch restore unwound the bearing epoch — the in-flight host-clock handle is released eagerly so the orphaned timer never fires against the restored state, per [Managed-Effects §SSR, preload, hydration, and restore](Managed-Effects.md#ssr-preload-hydration-and-restore)). Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-cancel pairing by `(actor-id, state, epoch)` so the Xray Handler section's AFTER TIMERS sub-section can render scheduled→fired→cancelled rows directly from the trace stream.
+- **`:rf.machine.timer/cancelled`** — emitted on every `:after` timer cancellation, regardless of cause (one unified event id). `:tags {:actor-id <id> :state <state> :delay <prior-ms> :epoch <e> :reason :on-exit | :on-destroy | :on-supersede | :on-frame-destroy | :on-restore :delay-source <:literal | :fn | :named, when known>}`. The `:reason` closed set discriminates the five cancellation paths: `:on-exit` (state owning the `:after` was exited), `:on-destroy` (machine destroyed), `:on-supersede` (a new schedule landed at an already-armed slot), `:on-frame-destroy` (the bearing frame was destroyed), `:on-restore` (epoch restore unwound the bearing epoch — the in-flight host-clock handle is released eagerly so the orphaned timer never fires against the restored state, per [Managed-Effects §SSR, preload, hydration, and restore](Managed-Effects.md#ssr-preload-hydration-and-restore)). Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-cancel pairing by `(actor-id, state, epoch)` so the Xray Handler section's AFTER TIMERS sub-section can render scheduled→fired→cancelled rows directly from the trace stream.
 - **`:rf.machine.timer/skipped-on-server`** — emitted in SSR mode when a state's `:after` entry is reached but timer scheduling is suppressed (per [§SSR mode](#ssr-mode)). `:tags {:actor-id <id> :state <state> :delay <ms>}`. Diagnostic: lets server-side tooling see which timers a real client run would have scheduled.
 
 Tools subscribe to whichever granularity they need: `:scheduled` for timeline visualisation, `:fired` for the externally-observable transition, `:stale-after` for diagnosing "a timer should have fired but didn't" symptoms, `:cancelled` (with `:reason`) for every cancellation cause, `:skipped-on-server` for confirming SSR no-op behaviour.
@@ -2611,7 +2616,7 @@ A state — or a `:spawn` spec — may declare a `:timeout` duration plus an `:o
 
 `:timeout` and `:after` express **different intent** and **may coexist** on the same state node:
 
-- `:after` is the general delayed-transition table (`{ms → transition}`, possibly several entries, with literal / fn delays). It answers "after N ms in this state, *consider* a transition."
+- `:after` is the general delayed-transition table (`{ms → transition}`, possibly several entries, with literal / named / fn delays). It answers "after N ms in this state, *consider* a transition."
 - `:timeout` names the single deadline fact: "this state (or its child) must finish before this time." `:timeout` **requires** `:on-timeout`; an `:on-timeout` with no `:timeout` is meaningless.
 
 re-frame2 keeps **ONE timer mechanism**. `:timeout` / `:on-timeout` **desugars** — at registration / transition normalisation time — into an `:after` entry keyed by the resolved-ms duration, mapping to the `:on-timeout` transition. The whole `:after` machinery (scheduling, per-decl-path `:rf/after-epoch` staleness, cancel-on-exit, the `:rf.machine.timer/*` traces) then drives it. So:
@@ -4671,7 +4676,7 @@ Resolved: a declarative-`:spawn` spawn allocates a keyword id of the form `<id-p
 
 > **The goal: an excellent statecharts implementation, native to re-frame and ClojureScript.** XState is the admired reference — the state of the art — and re-frame2 aims to support its features, each expressed the re-frame way: topology as data, keywords and registered ids, pure callbacks returning `{:data :fx}`, the per-frame router, and managed effects and subscriptions where they fit. The reference is the **XState v6** design direction, not XState v5. XState v6 ships only on the `alpha` dist-tag at the baseline named below, but its alpha.1/alpha.2 surface is settled enough to act on, so re-frame2 tracks the v6 *direction* — plain guard/action functions over a declarative topology, a broader optional `:schemas` vocabulary, explicit state/spawn timeouts, choice states, private internal events, sharper parent/child ordering, and event-shaped completion. v5 is **not** the live behavioural baseline. The posture is **directional, not exact-upstream-alpha-chasing**: re-frame2 *rejects* exact compatibility with an alpha XState release and aims at v6's design principles, recording each intentional divergence rather than copying JavaScript runtime shapes (no v5/v6 helper-creator compatibility, no actor objects, no function-valued transitions). re-frame2 will re-confirm against v6 `latest` when it ships, but does not re-litigate the reference on each alpha patch. This section records the *posture*; the grammar lives in the sections above.
 
-For readers familiar with xstate, the explicit list of where re-frame2 differs — `ActorRef` vs snapshots, mailboxes vs the per-frame router, `raise` vs `:raise`, three-creation-modes vs one, `:context` vs `:data`, compound guards, action vectors, `setup({...})` vs machine-scoped `:guards` / `:actions`, `[:assign {...}]` vs `:data` returns, **`enqueueActions` vs the `{:data :fx}` effect map**, **`emit` vs domain-notification `dispatch`**, and **the v5 actor-logic creators (`fromPromise` / `fromCallback` / `fromObservable` / `fromTransition` / `fromEventObservable`) vs fx + flows** — lives in [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences). The three v5-surface rows share one substrate root: re-frame2 is data-first with a single per-frame router/bus and models async as managed effects (Spec 014) and flows (Spec 013), not as actors — so the imperative action-list builder, the isolated-mailbox side-channel, and the non-machine actor abstractions all collapse into mechanisms re-frame2 already has.
+For readers familiar with xstate, the explicit list of where re-frame2 differs — `ActorRef` vs snapshots, mailboxes vs the per-frame router, `raise` vs `:raise`, three-creation-modes vs one, `:context` vs `:data`, compound guards, action vectors, `setup({...})` vs machine-scoped `:guards` / `:actions` / `:delays`, `[:assign {...}]` vs `:data` returns, **`enqueueActions` vs the `{:data :fx}` effect map**, **`emit` vs domain-notification `dispatch`**, and **the v5 actor-logic creators (`fromPromise` / `fromCallback` / `fromObservable` / `fromTransition` / `fromEventObservable`) vs fx + flows** — lives in [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences). The three v5-surface rows share one substrate root: re-frame2 is data-first with a single per-frame router/bus and models async as managed effects (Spec 014) and flows (Spec 013), not as actors — so the imperative action-list builder, the isolated-mailbox side-channel, and the non-machine actor abstractions all collapse into mechanisms re-frame2 already has.
 
 Convergences: machines-as-actors, run-to-completion, encapsulated state, snapshots, definition/implementation split, transition tables as data, hierarchical compound states.
 
