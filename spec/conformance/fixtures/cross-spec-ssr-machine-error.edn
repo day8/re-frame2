@@ -28,7 +28,7 @@
  :fixture/doc          "Cross-Spec #17 Machine error inside SSR. Composes §11 (machine all-or-nothing — snapshot does not commit on action throw) with §16 (error projector runs on the server frame). Asserts the projector's output reaches the response accumulator AND that the machine-scoped :rf.error/machine-action-exception fires (generic :rf.error/handler-exception does NOT also fire)."
 
  :fixture/registry
- {:event {:rf/server-init {:platforms #{:server}}
+ {:event {:app/server-init {:platforms #{:server}}
           :test/m         {:doc "Machine-as-event-handler under a :platform :server frame."}}
   :machine-action
   {:boom {:doc "Action body throws — exercises §11 inside an SSR drain."}}
@@ -43,11 +43,11 @@
    {:doc "Built-in default projector — generic 500 covers machine-action-exception."}}}
 
  :fixture/handlers
- {:event {:rf/server-init [[:fx [[:dispatch [:test/m [:bang]]]]]]}
+ {:event {:app/server-init [[:fx [[:dispatch [:test/m [:bang]]]]]]}
   :machine-action
   {:boom [[:throw "ssr-bang"]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]]
+ :fixture/frame-config {:initial-events [[:app/server-init]]
                         :platform :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}
@@ -62,7 +62,7 @@
  {:final-app-db {}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :test/m}}
    {:operation :rf.error/machine-action-exception
     :op-type   :error

@@ -67,7 +67,7 @@ The three-page worked example for Spec 012 — `reg-route`, `route-link` anchors
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
-The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` events, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
+The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, per-request setup events (`:app/server-init`), the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
 
 ## resources_ssr — `examples/capabilities/ssr/resources_ssr/`
 

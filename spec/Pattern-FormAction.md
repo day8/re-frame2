@@ -17,7 +17,7 @@ A six-step shape:
 
 1. **The HTML form** renders with `method="POST" action="/<route>"` and a hidden CSRF token. Standard Pattern-Forms slice drives the field values (server-rendered from `app-db`).
 2. **The host adapter receives the POST**. Per [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract), the host owns the wire layer; it MUST parse the request body (form-urlencoded or multipart), bind it to `*current-request*` under a `:form-params` slot, and create a per-request frame. What it binds is what the wire carried: HTML form encoding has no types and no keywords, so the parsed body is strings keyed by strings. The host is not obliged to keywordise or coerce, and re-frame2 defines no contract saying it does.
-3. **`:rf/server-init` normalises the body, then dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, `:query-string`, and `:form-params` from the supplied request coeffect; on POST it decodes that wire shape into domain values and dispatches the domain event (e.g. `[:cart/add-item decoded]`); on GET it dispatches `[:rf.route/handle-url-change url]`, the route handshake of [011 §Routing and SSR](011-SSR.md#routing-and-ssr), with `url` the request target: `:uri`, plus `?` and the `:query-string` when the request has one. This dispatch is the pattern's single normalisation seam — see [§`:rf/server-init` routes GET vs POST, and owns normalisation](#rfserver-init-routes-get-vs-post-and-owns-normalisation).
+3. **`:app/server-init` normalises the body, then dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, `:query-string`, and `:form-params` from the supplied request coeffect; on POST it decodes that wire shape into domain values and dispatches the domain event (e.g. `[:cart/add-item decoded]`); on GET it dispatches `[:rf.route/handle-url-change url]`, the route handshake of [011 §Routing and SSR](011-SSR.md#routing-and-ssr), with `url` the request target: `:uri`, plus `?` and the `:query-string` when the request has one. This dispatch is the pattern's single normalisation seam — see [§`:app/server-init` routes GET vs POST, and owns normalisation](#appserver-init-routes-get-vs-post-and-owns-normalisation).
 4. **The domain event handler validates the form-params in its own body** and branches on the result — the same shape it already uses for the CSRF check. On failure it writes the submitted values back into the form slice's `:draft` and structured errors into its `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)), emits `[:rf.server/set-status 400]`, and lets the drain settle; the standard SSR render reads the slice and emits the form again, populated, with the errors beside the fields. On success it runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render. The handler's `:schema` metadata is a development tripwire that does not run in a production build, so it cannot be the thing that rejects a bad POST — see [§Validation is the handler's job](#validation-is-the-handlers-job).
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` handler intercepts the native submission, calls `(.preventDefault e)`, and dispatches the *same* domain event the server dispatched. The handler tree is identical; only the dispatch site differs.
@@ -170,7 +170,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
 
 **Both callbacks are `#?(:cljs …)`, and that is a compilation requirement rather than a tidiness one.** A view described as running on both platforms is a `.cljc` file that the JVM really does compile, and `js` is a ClojureScript-only namespace: a bare `js/parseInt` (or any other `js/…` reference) is `No such namespace: js` on the JVM, so the namespace fails to load and the server renders nothing at all. The `:clj` branch is `nil` by design — server-side there is no event to intercept, and leaving `:on-submit` unset is precisely what preserves the native POST the no-JS path depends on. The same applies to any interop the browser owns (`.-target`, `.preventDefault`, `js/FormData`): put it inside the `:cljs` branch, not beside it.
 
-### `:rf/server-init` routes GET vs POST, and owns normalisation
+### `:app/server-init` routes GET vs POST, and owns normalisation
 
 A POST body does not arrive as domain data. The browser sends
 `csrf-token=tok-abc&item-id=sku-1&quantity=2`, the host adapter parses it, and
@@ -208,7 +208,7 @@ exactly the knowledge this pattern spends its effort not needing.
   ;; is only the first of them.
   (m/decode schema (update-keys form-params keyword) mt/string-transformer))
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc              "Per-request boot for SSR. Routes GET → the URL's route; POST → form action."
    :platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -233,7 +233,7 @@ A host whose middleware already keywordises keys (Ring's `wrap-keyword-params`)
 makes `update-keys` a no-op rather than a conflict; a host that also coerces
 types makes the transformer one. Neither is a reason to drop the call, and
 neither changes which layer is *responsible*. Only the server path needs any of
-this: only the server dispatches `:rf/server-init`, from the per-request frame's
+this: only the server dispatches `:app/server-init`, from the per-request frame's
 `:initial-events`, and the hydrated client
 dispatches a draft the view already holds as typed values.
 
@@ -263,7 +263,7 @@ dispatches a draft the view already holds as typed values.
    ;; one surface, the schema-VALIDATION-FAILURE trace — and a POST that
    ;; validates cleanly produces no such trace at all. Ordinary observation of
    ;; a SUCCESSFUL dispatch carries the args verbatim on `:rf.event/v`, and
-   ;; `:rf/server-init` put the whole POST envelope there. This path is what
+   ;; `:app/server-init` put the whole POST envelope there. This path is what
    ;; redacts the token on that surface, and it is always-on: it still holds
    ;; in the release build where the tripwire above is gone.
    :sensitive        [[:csrf-token]]
@@ -384,7 +384,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a POST whose tok
 
 The token lives in two places in `app-db` (both at app-owned slots):
 
-- `[:app.csrf :session-token]` — the per-session token, seeded by `:rf/server-init` from the request's session/cookie via the `:rf.server/request` cofx.
+- `[:app.csrf :session-token]` — the per-session token, seeded by `:app/server-init` from the request's session/cookie via the `:rf.server/request` cofx.
 - `[:app.csrf :form-token]` — the token rendered into the form (same value as `:session-token` for double-submit, or a freshly-rotated value for sync-pattern tokens). The view subscribes to an app-owned `[:app.csrf/token]` and emits a `<input type="hidden" name="csrf-token" value="…">`.
 
 An app-owned `:app.csrf/active-token` cofx exposes the session token to action handlers; the handler compares against the form-submitted `:csrf-token` field and fails-closed with 403 on mismatch (see the worked example above). Register it `:platforms #{:server}` — the check guards the POST entry point, and there is no session token to read on the client. That makes the arm a server arm: it must be guarded on the same coeffect-presence test the success path uses, or a client submission compares its token against an absent coeffect and 403s every time.
@@ -403,7 +403,7 @@ Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite=
 
 The CSRF token field is also on the `[:rf.http :sensitive-headers]` denylist via the `X-CSRF-Token` / `X-XSRF-Token` entries in the standard set ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) — when the token is carried in a request header (the JS-fetch path), the redaction is automatic.
 
-In the form-body path it is not automatic, and the slot to mark is **not** an `app-db` slot. This pattern deliberately keeps the token out of `app-db` altogether: the failure arm's `select-keys` writes the editable fields and nothing else, so there is no persisted slot to declare sensitive. What the token *does* travel through is the **event args** — `:rf/server-init` decodes the POST body and dispatches the whole of it as `[:cart/add-item decoded]`.
+In the form-body path it is not automatic, and the slot to mark is **not** an `app-db` slot. This pattern deliberately keeps the token out of `app-db` altogether: the failure arm's `select-keys` writes the editable fields and nothing else, so there is no persisted slot to declare sensitive. What the token *does* travel through is the **event args** — `:app/server-init` decodes the POST body and dispatches the whole of it as `[:cart/add-item decoded]`.
 
 **That takes two declarations, because the args are observed on two different surfaces and neither declaration reaches the other's.** They are not belt-and-braces; one of them is the only cover the commonest case has.
 
@@ -441,9 +441,9 @@ The `:cart/add-item` event runs unchanged on both platforms — one registration
 
 | Concern | Server (no-JS submit) | Client (post-hydration submit) |
 |---|---|---|
-| Dispatch site | `:rf/server-init`'s POST branch | view's `:on-submit` handler |
+| Dispatch site | `:app/server-init`'s POST branch | view's `:on-submit` handler |
 | Source of `form-params` | parsed by host adapter from POST body | the view's `:draft` slice (Pattern-Forms) |
-| Normalisation | `:rf/server-init` decodes the string-keyed, string-valued wire body into domain values before dispatching | none needed — the draft already holds typed values, keyed by keyword |
+| Normalisation | `:app/server-init` decodes the string-keyed, string-valued wire body into domain values before dispatching | none needed — the draft already holds typed values, keyed by keyword |
 | Shape of `form-params` | fields **+ `:csrf-token`** (the POST envelope) | fields **alone** — the browser has no session token |
 | Field validation | `(m/explain AddToCartFields form-params)` | identical — same call, same schema, both platforms |
 | `:rf.server/request` cofx | delivered | **absent** (platform-skipped) — this is the platform test |
@@ -468,8 +468,8 @@ A cofx a handler declares but does not always get is not a hazard to route aroun
 
 The action handler's input is `form-params`, which the request cofx exposes per [011 §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context). Two patterns:
 
-- **Direct args**: `:rf/server-init` extracts `:form-params` from the request, decodes it, and dispatches the result as the event's args vector — the handler reads via destructuring, no coeffect declaration required. Simpler, recommended for app-level action handlers.
-- **Declared coeffect**: the handler itself declares `{:rf.cofx/requires [:rf.server/request]}` and reads `:form-params` from the supplied request coeffect — useful when the handler also needs other request slots (session, headers, locale) without the dispatcher having to thread them through. Note that this route hands the handler the *raw* parsed body, so a handler taking it owns the decode that `:rf/server-init` would otherwise have done, and owns keeping its client arm out of it.
+- **Direct args**: `:app/server-init` extracts `:form-params` from the request, decodes it, and dispatches the result as the event's args vector — the handler reads via destructuring, no coeffect declaration required. Simpler, recommended for app-level action handlers.
+- **Declared coeffect**: the handler itself declares `{:rf.cofx/requires [:rf.server/request]}` and reads `:form-params` from the supplied request coeffect — useful when the handler also needs other request slots (session, headers, locale) without the dispatcher having to thread them through. Note that this route hands the handler the *raw* parsed body, so a handler taking it owns the decode that `:app/server-init` would otherwise have done, and owns keeping its client arm out of it.
 
 Either is acceptable; the worked example above uses the direct-args form for the form fields and a declared `:rf.server/request` coeffect for CSRF (since CSRF is cross-cutting). The declared form has a second use once the handler runs on both platforms: because the cofx is `:platforms #{:server}` and a platform-skipped supplier delivers no key at all, `(contains? cofx :rf.server/request)` is a reliable "am I the POST entry point?" test. Handlers that take the direct-args route and still need to branch by platform should declare the coeffect anyway, for that.
 
@@ -485,7 +485,7 @@ An action without a form slice (a pure-API endpoint sharing the action-event sur
 
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
 - **Validating only on the client.** Client validation is for UX; the server is the authority. The action handler MUST re-check the POST body in its own body — never trust what the browser sent.
-- **Assuming `:form-params` arrives as domain data.** A form submits text: `quantity=2` parses to the string `"2"` under the string key `"quantity"`, and the host adapter is required to parse the body, not to keywordise or coerce it. Hand that map straight to the action handler and a *valid* submission takes the failure arm — the CSRF compare looks up `:csrf-token` in a string-keyed map and finds nothing, so a correct token 403s, and `"2"` fails an `:int` field. Decode once, at the dispatch site, so the handler has one input shape. See [§`:rf/server-init` routes GET vs POST, and owns normalisation](#rfserver-init-routes-get-vs-post-and-owns-normalisation).
+- **Assuming `:form-params` arrives as domain data.** A form submits text: `quantity=2` parses to the string `"2"` under the string key `"quantity"`, and the host adapter is required to parse the body, not to keywordise or coerce it. Hand that map straight to the action handler and a *valid* submission takes the failure arm — the CSRF compare looks up `:csrf-token` in a string-keyed map and finds nothing, so a correct token 403s, and `"2"` fails an `:int` field. Decode once, at the dispatch site, so the handler has one input shape. See [§`:app/server-init` routes GET vs POST, and owns normalisation](#appserver-init-routes-get-vs-post-and-owns-normalisation).
 - **Normalising inside the action handler.** It looks like the tidier home for it, and it costs the pattern its central property. The hydrated client sends typed values already, so a handler that decodes has to know which platform called it before it can decide whether to — and the two arms it grows are two chances to diverge. One seam, above the dispatch, on the server side only.
 - **Letting `:schema` be the server-side validation.** The commonest way to ship an unvalidated form endpoint: declare `:schema` on the action handler, read it as "the framework checks this", and write no branch. It is a dev tripwire and is absent from the production build ([010 §Production builds](010-Schemas.md#production-builds)), so the endpoint that passes every test accepts anything in production. Declaring `:boundary? true` gets you further than nothing — that check is ungated, so the payload is refused and the projector answers 400 — but it skips the handler, so the user gets a generic error body instead of their form back, with everything they typed gone. See [§Validation is the handler's job](#validation-is-the-handlers-job).
 - **Pointing the action event's `:schema` at the strict field schema.** The mirror of the bullet above, and it bites in development rather than in production, which is why it survives review: the code looks *more* careful. A `:schema` failure is adjudicated at the router, before the handler, so a strict `:schema` means `quantity=0` is answered with a schema rejection and the documented 400 — status, field errors, repopulated draft — never happens in a dev build. The same handler under `goog.DEBUG=false` behaves exactly as this page describes, so the example passes a release-posture test and misleads every reader who runs it in dev. Keep the `:schema` structural: the envelope, an optional unconstrained token, nothing about field values.
@@ -509,8 +509,8 @@ A form-action implementation conforms to this convention when:
 - The field schema and the POST envelope are **distinct**. The editable-field schema types nothing and validates everything — it is what the handler's own arm checks on both platforms; the token appears only on the POST envelope and the event's `:schema`, `{:optional true}` so one registration admits both call sites, and `{:sensitive? true}` so a dev-time validation trace does not carry it. A schema that requires the token of every submission is non-conformant: it rejects the hydrated client in production and makes the draft unsatisfiable.
 - The form slice's `:draft` is typed **structurally** — keys optional, and the value type admitting the string an undecodable field arrives as — so the failure arm's write of the just-rejected submission survives `reg-app-schema`'s whole-candidate check in a development build.
 - The host adapter parses POST bodies (form-urlencoded and multipart) and binds them to `*current-request*` under a `:form-params` slot. The parsed body carries whatever the wire carried — string keys, string values — and neither the host nor the framework is obliged to normalise it.
-- Exactly one layer owns that normalisation, and it is the POST dispatch site: `:rf/server-init` decodes the parsed body into domain values before dispatching the action event. An implementation that leaves the decoding to the action handler, or that relies on host middleware without saying so, is non-conformant — the handler's contract is that its args have the same shape on both platforms.
-- `:rf/server-init` routes GET through `[:rf.route/handle-url-change url]`, `url` being `:uri` plus `?` and the `:query-string` when present ([011 §Routing and SSR](011-SSR.md#routing-and-ssr)); POST → action event.
+- Exactly one layer owns that normalisation, and it is the POST dispatch site: `:app/server-init` decodes the parsed body into domain values before dispatching the action event. An implementation that leaves the decoding to the action handler, or that relies on host middleware without saying so, is non-conformant — the handler's contract is that its args have the same shape on both platforms.
+- `:app/server-init` routes GET through `[:rf.route/handle-url-change url]`, `url` being `:uri` plus `?` and the `:query-string` when present ([011 §Routing and SSR](011-SSR.md#routing-and-ssr)); POST → action event.
 - The action handler validates `form-params` **in its own body** and branches on the result. This check is what runs on a production server; it is NEVER skipped, even when client validation matches.
 - The action handler ALSO carries a `:schema`, as the dev tripwire and the introspection surface, and that `:schema` is **structural**: it describes the envelope — a map whose `:csrf-token` is optional and unconstrained — and constrains no field value. It MUST admit both call sites (the server's POST envelope and the client's field-only dispatch) **and** every malformed submission the 400 arm exists to answer, since a `:schema` rejection happens at the router and would pre-empt that arm in a development build. The conformance criterion above is not satisfied by the `:schema` alone ([010 §Production builds](010-Schemas.md#production-builds)).
 - The view is reader-conditional at every browser-owned callback. A view this pattern describes as running on both platforms MUST carry no unguarded `js/…` reference or DOM-event interop outside a `#?(:cljs …)` branch: `js` is a ClojureScript-only namespace, so an unguarded reference fails JVM compilation outright and the SSR path cannot render the form at all. The `:clj` branch is `nil`, which is also what preserves the form's native POST.

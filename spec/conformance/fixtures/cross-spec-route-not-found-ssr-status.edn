@@ -28,7 +28,7 @@
  :fixture/doc          "Cross-Spec #7 Route-not-found under SSR. An unmatched URL on a :server frame routes to :rf.route/not-found; :on-match fires; the default error projector writes :status 404 to the response accumulator. The structured error trace records :rf.error/no-such-handler with the URL and the routing context."
 
  :fixture/registry
- {:event {:rf/server-init     {:platforms #{:server}}
+ {:event {:app/server-init    {:platforms #{:server}}
           :analytics/log-404  {:doc "Logs the 404 hit (would-be on-match for the not-found route)."
                                :platforms #{:server}}}
   :route {:route/home         {:path "/"}
@@ -39,10 +39,10 @@
    {:doc "The runtime's default error projector — maps routing :no-such-handler to a 404 public-error."}}}
 
  :fixture/handlers
- {:event {:rf/server-init    [[:fx [[:dispatch [:rf.route/handle-url-change "/missing"]]]]]
+ {:event {:app/server-init   [[:fx [[:dispatch [:rf.route/handle-url-change "/missing"]]]]]
           :analytics/log-404 [[:set [:analytics :last-404] true]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]]
+ :fixture/frame-config {:initial-events [[:app/server-init]]
                         :platform  :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}
@@ -63,7 +63,7 @@
                  :error  nil}}}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}
    ;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
    ;; (Per Spec 012 §Route-not-found, route-not-found IS treated as an error

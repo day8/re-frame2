@@ -17,7 +17,7 @@
 ;; the OUTER `:on-error` transport path (Spec 011 §`:on-error` vs
 ;; `:error-view`), NOT a projector-catches-it case. The error PROJECTOR
 ;; covers errors INSIDE the render/cascade drain — exactly what a post-
-;; construction request dispatch models. So :rf/server-init is a clean
+;; construction request dispatch models. So :app/server-init is a clean
 ;; setup step; the throwing handler fires afterward, in the projector's
 ;; domain.
 
@@ -27,7 +27,7 @@
  :fixture/doc          "A handler throws. Internal trace event carries full :exception-message; the runtime's default projector maps it to {:status 500 :code :internal-error :message \"Something went wrong\" :retryable? false} and writes :status 500 to the response accumulator. Asserts the projector's output, not a user-stub-rolled fx."
 
  :fixture/registry
- {:event {:rf/server-init   {:platforms #{:server}}
+ {:event {:app/server-init  {:platforms #{:server}}
           :load/article     {:doc "Throws — used to trigger projection." :platforms #{:server}}}
   ;; :rf.ssr/default-error-projector ships with the runtime
   ;; (re-frame.ssr/reg-error-projector at ns-load).
@@ -36,14 +36,14 @@
          {:doc "The runtime's default error projector — generic 500 in prod."}}}
 
  :fixture/handlers
- ;; :rf/server-init is a CLEAN setup step (no-op write) — construction
+ ;; :app/server-init is a CLEAN setup step (no-op write) — construction
  ;; succeeds and the frame is alive for the render-time request dispatch. The
  ;; throwing handler runs AFTER construction, in the projector's drain-time
  ;; domain.
- {:event {:rf/server-init [[:set [] {}]]
+ {:event {:app/server-init [[:set [] {}]]
           :load/article   [[:throw "Database connection failed: SECRET_TOKEN=xyz"]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]]
+ :fixture/frame-config {:initial-events [[:app/server-init]]
                         :platform :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}      ;; prod-mode default
@@ -66,7 +66,7 @@
 
   ;; Internal trace event preserves full detail (for monitoring).
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/article}}
    {:operation :rf.error/handler-exception
     :op-type   :error

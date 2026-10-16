@@ -131,10 +131,12 @@ destroyed when the response is written.
 `with-new-frame` from Step 1 destroys its frame when the block exits. The handler
 below runs the same lifecycle long-hand, with `make-frame` and a `destroy-frame!` in a
 `finally`, because the frame id is needed before the frame exists: the request is
-stored against the id, and the frame's boot event reads it from there.
+stored against the id, where the frame's handlers can read it.
 
-The boot event is `:rf/server-init`. The framework reserves the name; you supply the
-body. It reads the request through a declared [coeffect](../core/glossary.md#coeffect):
+The boot event is an ordinary event your app names and registers; this tutorial
+calls it `:app/server-init`. The page size comes from the request's `?limit=`. The
+handler keeps it in app-db, so it arrives on the event's payload, where the dispatch
+records it:
 
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr/core.cljc
@@ -142,22 +144,29 @@ body. It reads the request through a declared [coeffect](../core/glossary.md#coe
   [{:id "1" :title "Hello, server"}
    {:id "2" :title "Hydration, verified"}])
 
-(rf/reg-event :rf/server-init
-  {:platforms        #{:server}                    ;; records intent; Step 6 explains
-   :rf.cofx/requires [:rf.server/request]}         ;; hand me the request, as data
-  (fn [{:keys [db rf.server/request]} _]
-    (let [limit (or (some-> (get-in request [:query-params "limit"]) parse-long) 10)]
-      {:db (assoc db :articles/limit limit)
-       :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]]})))
+(defn request-limit [request]                      ;; the request fact the page keeps
+  (or (some-> (get-in request [:query-params "limit"]) parse-long) 10))
+
+(rf/reg-event :app/server-init
+  {:platforms #{:server}}                          ;; records intent; Step 6 explains
+  (fn [{:keys [db]} [_ {:keys [limit]}]]
+    {:db (assoc db :articles/limit limit)
+     :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]]}))
 ```
 
+A real page usually starts its HTTP fetches here instead of reading a `def`. The
+worked example fires [`:rf.http/managed`](../async/http.md) here and, because the
+reply lands asynchronously, its `handle-request` waits for it by hand before
+rendering; Step 7 shows how the Ring adapter waits instead.
+
+A handler can also read the request itself, through a declared
+[coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`.
 `:rf.server/request` is the request map exactly as the host stored it. For Ring that
 is `:uri`, `:request-method`, `:headers`, plus whatever middleware adds:
 `:query-params` from `wrap-params`, `:cookies` from `wrap-cookies`, `:session` from
-`wrap-session`. A real page usually starts its HTTP fetches here instead of reading a
-`def`. The worked example fires [`:rf.http/managed`](../async/http.md) here and,
-because the reply lands asynchronously, its `handle-request` waits for it by hand
-before rendering; Step 7 shows how the Ring adapter waits instead.
+`wrap-session`. Use it for decisions, such as a redirect; a value that lands in
+app-db rides the payload, as `limit` does here
+([why](concepts.md#reading-the-request)).
 
 The per-request lifecycle:
 
@@ -170,7 +179,7 @@ The per-request lifecycle:
        (rf/make-frame                               ;; 2. fresh frame; :initial-events run
          {:id             fid                       ;;    synchronously as it comes up,
           :platform       :server                   ;;    so the request must be stored first
-          :initial-events [[:rf/server-init]]})
+          :initial-events [[:app/server-init {:limit (request-limit request)}]]})
        (try
          (rf/with-frame fid
            (let [hiccup ((rf/view :app/root))]      ;; 3. the settled state, as hiccup
@@ -460,7 +469,7 @@ When a server-side drain reaches a `#{:client}` effect, it skips it and emits a
 need to know which runtime it is on. Coeffects are gated the same way:
 `:rf.server/request` is `#{:server}`, so a handler running client-side after
 hydration does not receive it. Events are not gated: an event registration stores
-`:platforms`, but the router never reads it. Step 2's `:rf/server-init` stays on
+`:platforms`, but the router never reads it. Step 2's `:app/server-init` stays on
 the server because only the per-request frame's `:initial-events` dispatch it.
 
 ## Step 7 — swap in the Ring adapter
@@ -491,7 +500,8 @@ The server goes in its own JVM-only namespace, which loads `app.core`'s registra
 
 (def handler
   (ssr.ring/ssr-handler
-    {:initial-events [[:rf/server-init]]                ;; Step 2's boot event
+    {:initial-events (fn [request]                      ;; Step 2's boot event, built per request
+                       [[:app/server-init {:limit (app.core/request-limit request)}]])
      :root-view      (fn [] ((rf/view :app/root)))      ;; Step 2's called render target, hashed
      :payload        [:articles]}))                     ;; Step 3's payload, now an allowlist
 
@@ -505,7 +515,7 @@ The server goes in its own JVM-only namespace, which loads `app.core`'s registra
 
 Ordinary Ring middleware supplies the rest: `wrap-resource` serves `/main.js`, which
 the handler's page shell loads by default, and `wrap-params` parses `?limit=1` into
-the `:query-params` that `:rf/server-init` reads.
+the `:query-params` that `request-limit` reads.
 
 `:root-view` is a fn that calls the root view, as in Step 2, so the handler can hash
 the page. The vector form `[(rf/view :app/root)]` renders the same HTML, but the
@@ -533,14 +543,12 @@ handlers return. Add a cache header to the boot event from Step 2 (the new line 
 the last `:fx` entry):
 
 ```clojure
-(rf/reg-event :rf/server-init
-  {:platforms        #{:server}
-   :rf.cofx/requires [:rf.server/request]}
-  (fn [{:keys [db rf.server/request]} _]
-    (let [limit (or (some-> (get-in request [:query-params "limit"]) parse-long) 10)]
-      {:db (assoc db :articles/limit limit)
-       :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]
-            [:rf.server/set-header {:name "Cache-Control" :value "public, max-age=60"}]]})))
+(rf/reg-event :app/server-init
+  {:platforms #{:server}}
+  (fn [{:keys [db]} [_ {:keys [limit]}]]
+    {:db (assoc db :articles/limit limit)
+     :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]
+          [:rf.server/set-header {:name "Cache-Control" :value "public, max-age=60"}]]}))
 ```
 
 **What you see:** `curl -i localhost:3000` now shows `Cache-Control: public, max-age=60`
