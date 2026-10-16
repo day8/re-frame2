@@ -267,9 +267,10 @@ reads at first paint can stay lazy.
 ```
 
 The kick runs the initial entry — `:entry` actions fire, `:after` timers
-arm — and stops; it never matches an `:on` transition. The first ordinary event runs the same initial
-entry before it is handled, and either way those `:entry` actions see `:event`
-as `[:rf.machine/start]`, never the trigger that started the machine.
+arm — and stops; it never matches an `:on` transition. The first ordinary
+event runs the same initial entry before it is handled, and either way those
+`:entry` actions see `:event` as `[:rf.machine/start]`, never the trigger that
+started the machine.
 
 Do not build views that switch on detailed `:state` shapes unless the exact
 state is the product decision. For "busy", "read-only", "connected", use
