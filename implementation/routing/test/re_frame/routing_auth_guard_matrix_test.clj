@@ -257,7 +257,7 @@
            never commits (fail CLOSED); the runtime would otherwise have applied
            it in place on the protected route"))))
 
-;; ---- The recipe mirrors the SHIPPED runtime (verify against navigate.cljc) --
+;; ---- The recipe mirrors the SHIPPED runtime (verify against url_change.cljc) -
 
 (deftest runtime-resolves-raw-url-navigate-to-the-protected-route
   (testing "the shipped :rf.route/navigate resolves a {:url ...} target through

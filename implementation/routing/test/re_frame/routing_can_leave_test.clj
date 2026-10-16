@@ -317,8 +317,9 @@
 ;; ============================================================================
 ;;
 ;; The guard-phase target comes from `rf.routing.resolve/url-resolution`, which
-;; resolves through `match-url-fail-closed` — the SAME wrapper `url-change-fx`
-;; uses. It runs on every navigation, guards or not, so a raw `match-url` there
+;; resolves through `match-url-fail-closed` — the one raw-URL extraction the
+;; navigation pipeline runs. It runs on every navigation, guards or not, so a
+;; raw `match-url` there
 ;; would let an unexpected throw escape `dispatch-sync` and crash the event
 ;; drain for every nav entry point instead of failing closed to
 ;; `:rf.route/not-found` like a bare miss.
