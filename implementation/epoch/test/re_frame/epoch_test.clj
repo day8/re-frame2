@@ -55,6 +55,11 @@
     (rf/register-listener! :trace ::recorder (fn [ev] (swap! recorded conj ev)))
     recorded))
 
+;; A refused restore or replace returns `{:ok? false :reason <op> …}`, where
+;; `<op>` is the error trace the refusal emitted.
+(defn- refusal-reason [r]
+  (when (false? (:ok? r)) (:reason r)))
+
 (defn- has-error-op? [events op]
   (some (fn [ev] (and (= :error (:op-type ev))
                       (= op     (:operation ev))))
@@ -165,7 +170,7 @@
     (rf/dispatch-sync [:set 2] {:frame :test/main})
     (rf/configure! {:epoch-history {:depth 0}})
     (is (= [] (rf/epoch-history :test/main)))
-    (is (false? (rf/restore-epoch! :test/main saved-id)))
+    (is (= :rf.epoch/restore-unknown-epoch (refusal-reason (rf/restore-epoch! :test/main saved-id))))
     (is (= {:ok? false :reason :rf.epoch/replay-unknown-epoch}
            (select-keys (rf/replay-epoch! :test/main saved-id) [:ok? :reason])))
     (is (= {:n 2} (rf/app-db-value :test/main))
@@ -268,7 +273,7 @@
           (rf/dispatch-sync [:clear] {:frame :test/main})
           (with-redefs [rf.interop/now-ms       (constantly clock-time)
                         rf.interop/epoch-now-ms (constantly clock-time)]
-            (is (true? (rf/restore-epoch! :test/main (:epoch-id mid)))))
+            (is (:ok? (rf/restore-epoch! :test/main (:epoch-id mid)))))
           (is (= [(get-in mid [:frame-state-after :rf.db/runtime])
                   :test/main
                   {:defer-traces? true :restore-time-ms token-time}]
@@ -291,8 +296,8 @@
         (let [record (last (rf/epoch-history :test/main))
               token  (rf.frame/frame-incarnation-token :test/main)]
           (rf/destroy-frame! :test/main)
-          (is (= [false false]
-                 [(rf.epoch.tool-pair/perform-restore! :test/main token record)
+          (is (= [:rf.error/no-such-handler false]
+                 [(refusal-reason (rf.epoch.tool-pair/perform-restore! :test/main token record))
                   @fired?])))
         (finally
           (rf.late-bind/set-fn! k orig))))))
@@ -312,7 +317,7 @@
       (rf/dispatch-sync [:rest/m [:fetch]] {:frame :test/main})
       (is (seq (get @rf.machines.timer/after-timers :test/main))
           "precondition: :loading armed its :after timer")
-      (is (true? (rf/restore-epoch! :test/main idle-epoch)))
+      (is (:ok? (rf/restore-epoch! :test/main idle-epoch)))
       (is (empty? (get @rf.machines.timer/after-timers :test/main))))))
 
 (deftest restore-rewinds-route-slice-and-route-sub
@@ -331,7 +336,7 @@
           _          (rf/dispatch-sync [:go :route/article] {:frame :test/main})
           route      (rf/subscribe [:rf.route/id] {:frame :test/main})]
       (is (= :route/article @route) "the held sub has cached the pre-restore route")
-      (is (true? (rf/restore-epoch! :test/main home-epoch)))
+      (is (:ok? (rf/restore-epoch! :test/main home-epoch)))
       (is (= :route/home @route))
       (rf/unsubscribe route))))
 
@@ -369,7 +374,7 @@
 
 (deftest restore-failure-unknown-frame
   (let [recorded (record-trace!)]
-    (is (false? (rf/restore-epoch! :no.such/frame :ignored)))
+    (is (= :rf.error/no-such-handler (refusal-reason (rf/restore-epoch! :no.such/frame :ignored))))
     (is (= {:kind :frame :frame :no.such/frame}
            (some #(when (= :rf.error/no-such-handler (:operation %))
                     (select-keys (:tags %) [:kind :frame]))
@@ -386,7 +391,7 @@
       (rf/dispatch-sync [:set 0] {:frame :test/main})
       (rf/reg-app-schema [:n] {:frame :test/main} [:int])
       (let [recorded (record-trace!)]
-        (is (false? (rf/restore-epoch! :test/main (:epoch-id target))))
+        (is (= :rf.epoch/restore-schema-mismatch (refusal-reason (rf/restore-epoch! :test/main (:epoch-id target)))))
         (is (= {:n 0} (rf/app-db-value :test/main)) "app-db unchanged")
         (is (= {:failing-paths          [[:n]]
                 :schema-digest-recorded (:schema-digest target)
@@ -421,9 +426,9 @@
         (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
         (rf/dispatch-sync [:seed] {:frame :test/sub})
         (let [recorded (record-trace!)]
-          (is (false? (rf/replace-frame-state! :test/sub {:rf.db/app {:n -5}})))
+          (is (= :rf.epoch/replace-schema-mismatch (refusal-reason (rf/replace-frame-state! :test/sub {:rf.db/app {:n -5}}))))
           (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))))
-        (is (true? (rf/replace-frame-state! :test/sub {:rf.db/app {:n 7}}))
+        (is (:ok? (rf/replace-frame-state! :test/sub {:rf.db/app {:n 7}}))
             "CONTROL: a value the validator accepts is admitted")))))
 
 (deftest epoch-record-stamps-schema-digest
@@ -445,7 +450,7 @@
   (let [target (last (rf/epoch-history :test/main))]
     (rf.registrar/unregister! :route :route/users)
     (let [recorded (record-trace!)]
-      (is (false? (rf/restore-epoch! :test/main (:epoch-id target))))
+      (is (= :rf.epoch/restore-missing-handler (refusal-reason (rf/restore-epoch! :test/main (:epoch-id target)))))
       (is (= [{:kind :route :id :route/users}]
              (some #(when (= :rf.epoch/restore-missing-handler (:operation %))
                       (:missing (:tags %)))
@@ -461,8 +466,8 @@
     (let [target (last (rf/epoch-history :test/main))]
       (rf/reg-event :machine/tl (fn [{:keys [db]} _] {:db db}))
       (let [recorded (record-trace!)]
-        (is (= [false [{:kind :machine :id :machine/tl}]]
-               [(rf/restore-epoch! :test/main (:epoch-id target))
+        (is (= [:rf.epoch/restore-missing-handler [{:kind :machine :id :machine/tl}]]
+               [(refusal-reason (rf/restore-epoch! :test/main (:epoch-id target)))
                 (some #(when (= :rf.epoch/restore-missing-handler (:operation %))
                          (:missing (:tags %)))
                       @recorded)]))))))
@@ -491,7 +496,7 @@
       (rf/reg-machine :machine/tl (machine current))
       (let [traces (record-trace!)
             before (rf/frame-state-value frame)
-            ok?    (rf/restore-epoch! frame target)]
+            ok?    (:ok? (rf/restore-epoch! frame target))]
         {:ok?        ok?
          :unchanged? (= before (rf/frame-state-value frame))
          :mismatch   (some #(when (= :rf.epoch/restore-version-mismatch (:operation %))
@@ -592,7 +597,7 @@
                (emitted :rf.epoch/snapshotted)))
         (is (= (map vector ids [:ok :ok :ok :ok :ok :blocked]) (emitted :rf.epoch/outcome)))
         (let [refusal (record-trace!)]
-          (is (false? (rf/restore-epoch! :test/main (:epoch-id halted))))
+          (is (= :rf.epoch/restore-non-ok-record (refusal-reason (rf/restore-epoch! :test/main (:epoch-id halted)))))
           (is (has-error-op? @refusal :rf.epoch/restore-non-ok-record)))))))
 
 ;; Xray's Trace panel and Story chips render off this mapping.
@@ -730,7 +735,7 @@
       {:db            {:n 0}
        :rf.db/runtime (assoc (or rt {}) :rf.runtime/routing {:current {:route-id :kept}})}))
   (rf/dispatch-sync [:seed] {:frame :test/main})
-  (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99 :injected? true}})))
+  (is (:ok? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99 :injected? true}})))
   (is (= [{:n 99 :injected? true} {:current {:route-id :kept}}]
          [(rf/app-db-value :test/main)
           (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing])])))
@@ -746,7 +751,7 @@
     (is (= [[:rf.epoch/db-replaced] {:n 7} {:n 999}]
            ((juxt :trigger-event :db-before :db-after) fresh)))
     (is (= (:epoch-id fresh) (rf.epoch.state/last-settled-epoch-id :test/main)))
-    (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history)))))
+    (is (:ok? (rf/restore-epoch! :test/main (:epoch-id (first history)))))
     (is (= {:n 7} (rf/app-db-value :test/main)))))
 
 (deftest replace-frame-state-app-only-emits-trace
@@ -774,7 +779,7 @@
   (testing "an app-db-only patch on an unknown frame returns false and emits
             :rf.error/no-such-handler (kind :frame)"
     (let [recorded (record-trace!)]
-      (is (false? (rf/replace-frame-state! :no.such/frame {:rf.db/app {:any 'value}})))
+      (is (= :rf.error/no-such-handler (refusal-reason (rf/replace-frame-state! :no.such/frame {:rf.db/app {:any 'value}}))))
       (is (= [[:error {:kind :frame :frame :no.such/frame}]]
              (no-such-frame-errors @recorded))))))
 
@@ -794,7 +799,7 @@
           (reset! attempt (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))
           {:db db}))
       (rf/dispatch-sync [:try-reset] {:frame :test/main})
-      (is (false? @attempt))
+      (is (= :rf.epoch/replace-during-drain (refusal-reason @attempt)))
       (is (= :test/main (:frame (tags-of @recorded :rf.epoch/replace-during-drain))))
       (is (= [:seed :try-reset] (mapv :event-id (rf/epoch-history :test/main))))
       (is (= [:try-reset] @seen)))))
@@ -808,7 +813,7 @@
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [recorded (record-trace!)]
-      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n "not-an-int"}})))
+      (is (= :rf.epoch/replace-schema-mismatch (refusal-reason (rf/replace-frame-state! :test/main {:rf.db/app {:n "not-an-int"}}))))
       (is (= {:n 0} (rf/app-db-value :test/main)))
       (is (= [:test/main [[:n]]]
              ((juxt :frame :failing-paths)
@@ -826,7 +831,7 @@
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [recorded (record-trace!)]
-      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})))
+      (is (= :rf.epoch/replace-history-disabled (refusal-reason (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))))
       (is (= {:n 0} (rf/app-db-value :test/main)))
       (is (has-error-op? @recorded :rf.epoch/replace-history-disabled)))))
 
@@ -846,7 +851,7 @@
          :fx [[:dispatch [:halt-loop]]]}))
     (rf/dispatch-sync [:halt-loop] {:frame :test/halt-anchor})
     (is (= :halted-depth (:outcome (peek (rf/epoch-history :test/halt-anchor)))))
-    (is (true? (rf/restore-epoch! :test/halt-anchor
+    (is (:ok? (rf/restore-epoch! :test/halt-anchor
                                   (rf.epoch.state/last-settled-epoch-id :test/halt-anchor))))))
 
 ;; ---- replace-frame-state! (runtime-db and both partitions) ----------------
@@ -857,12 +862,12 @@
   (rf/dispatch-sync [:seed] {:frame :test/main})
   (let [injected {:rf.db/app     {:a :injected}
                   :rf.db/runtime {:rf.runtime/routing {:r :injected}}}]
-    (is (true? (rf/replace-frame-state! :test/main injected)))
+    (is (:ok? (rf/replace-frame-state! :test/main injected)))
     (is (= injected (rf/frame-state-value :test/main)))
     (let [history (rf/epoch-history :test/main)]
       (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id history)))
       (is (= injected (:frame-state-after (peek history))))
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id (first history))))))
+      (is (:ok? (rf/restore-epoch! :test/main (:epoch-id (first history))))))
     (is (= [{:n 7} nil]
            [(rf/app-db-value :test/main)
             (get-in (rf/frame-state-value :test/main) [:rf.db/runtime :rf.runtime/routing])]))))
@@ -884,7 +889,7 @@
     (rf/make-frame {:id :test/fresh})
     (let [pre-injection (rf/frame-state-value :test/fresh)]
       (rf/replace-frame-state! :test/fresh both-partitions-injected)
-      (is (true? (rf/restore-epoch! :test/fresh
+      (is (:ok? (rf/restore-epoch! :test/fresh
                                     (:epoch-id (peek (rf/epoch-history :test/fresh)))
                                     {:to :before})))
       (is (= pre-injection (rf/frame-state-value :test/fresh)))))
@@ -897,7 +902,7 @@
     (let [pre-injection (rf/frame-state-value :test/shallow)]
       (rf/replace-frame-state! :test/shallow both-partitions-injected)
       (is (= [:rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/shallow))))
-      (is (true? (rf/restore-epoch! :test/shallow
+      (is (:ok? (rf/restore-epoch! :test/shallow
                                     (:epoch-id (peek (rf/epoch-history :test/shallow)))
                                     {:to :before})))
       (is (= pre-injection (rf/frame-state-value :test/shallow))))))
@@ -910,7 +915,7 @@
     (rf/reg-event :set-n (fn [_ [_ n]] {:db {:n n}}))
     (doseq [n [1 2 3]] (rf/dispatch-sync [:set-n n] {:frame :test/evicted}))
     (let [oldest (first (rf/epoch-history :test/evicted))]
-      (is (true? (rf/restore-epoch! :test/evicted (:epoch-id oldest) {:to :before})))
+      (is (:ok? (rf/restore-epoch! :test/evicted (:epoch-id oldest) {:to :before})))
       (is (= {:n 1} (rf/app-db-value :test/evicted)))
       (is (nil? (rf.epoch.state/last-settled-epoch-id :test/evicted))
           "no retained record settled into the restored state, so nothing is anchored"))))
@@ -927,10 +932,10 @@
     (rf/reg-app-schema [:n] {:frame :test/main} [:int])
     (let [target   (second (rf/epoch-history :test/main))
           recorded (record-trace!)]
-      (is (false? (rf/restore-epoch! :test/main (:epoch-id target) {:to :before})))
+      (is (= :rf.epoch/restore-schema-mismatch (refusal-reason (rf/restore-epoch! :test/main (:epoch-id target) {:to :before}))))
       (is (= {:n 5} (rf/app-db-value :test/main)) "app-db unchanged")
       (is (= [[:n]] (:failing-paths (tags-of @recorded :rf.epoch/restore-schema-mismatch))))
-      (is (true? (rf/restore-epoch! :test/main (:epoch-id target) {:to :after})))
+      (is (:ok? (rf/restore-epoch! :test/main (:epoch-id target) {:to :after})))
       (is (= {:n 0} (rf/app-db-value :test/main))))))
 
 (deftest replace-frame-state!-raises-when-epoch-artefact-missing
@@ -958,11 +963,11 @@
        :states  {:idle {}}})
     (let [before   (rf/frame-state-value :test/main)
           recorded (record-trace!)]
-      (is (false? (rf/replace-frame-state!
+      (is (= :rf.epoch/replace-schema-mismatch (refusal-reason (rf/replace-frame-state!
                     :test/main
                     {:rf.db/app     {:fresh :app}
                      :rf.db/runtime {:rf.runtime/machines
-                                     {:snapshots {:rf.szbzei/gate {:state :idle :data {:n -1}}}}}})))
+                                     {:snapshots {:rf.szbzei/gate {:state :idle :data {:n -1}}}}}}))))
       (is (= before (rf/frame-state-value :test/main)))
       (is (= [:test/main [[:rf.runtime/machines :snapshots]]]
              ((juxt :frame :failing-paths)
@@ -993,7 +998,8 @@
           {:db db}))
       (rf/dispatch-sync [:try-both] {:frame :test/main})
       (let [rec (peek (rf/epoch-history :test/main))]
-        (is (= [false false] @attempts))
+        (is (= [:rf.epoch/restore-during-drain :rf.epoch/replace-during-drain]
+               (mapv refusal-reason @attempts)))
         (is (= #{[:rf.epoch/restore-during-drain (:dispatch-id rec)]
                  [:rf.epoch/replace-during-drain (:dispatch-id rec)]}
                (into #{}
@@ -1016,6 +1022,46 @@
                          #":op\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
                          #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"])]
       (is (= emitted @#'rf.epoch.capture/skip-ops)))))
+
+;; ---- the write-result envelope ---------------------------------------------
+;;
+;; Restore and replace answer with the envelope replay returns, so the caller
+;; reads why a write was refused from the return value; the refusal's trace
+;; still fires for observers.
+
+(deftest restore-and-replace-return-the-write-result-envelope
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (testing "success names the frame and the epoch: replace the synthetic record
+            it published, restore the epoch it reinstalled and its direction"
+    (let [seed-id  (:epoch-id (peek (rf/epoch-history :test/main)))
+          replaced (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})
+          synthetic (peek (rf/epoch-history :test/main))]
+      (is (= :rf.epoch/db-replaced (:event-id synthetic)))
+      (is (= {:ok? true :frame :test/main :epoch-id (:epoch-id synthetic)} replaced))
+      (is (= {:ok? true :frame :test/main :epoch-id seed-id :to :after}
+             (rf/restore-epoch! :test/main seed-id)))
+      (is (= {:ok? true :frame :test/main :epoch-id seed-id :to :before}
+             (rf/restore-epoch! :test/main seed-id {:to :before})))))
+  (testing "a refusal's :reason is the op of the error trace it emitted, and the
+            envelope carries that trace's tags with :rf.epoch/id spelled :epoch-id"
+    (let [recorded (record-trace!)
+          refused  (rf/restore-epoch! :test/main :no-such-epoch)
+          trace    (some #(when (= :rf.epoch/restore-unknown-epoch (:operation %)) %)
+                         @recorded)]
+      (is (some? trace) "the refusal's trace still fires")
+      (is (= (-> (:tags trace)
+                 (dissoc :category :recovery :rf.epoch/id)
+                 (assoc :ok? false :reason (:operation trace) :epoch-id :no-such-epoch))
+             refused))))
+  (testing "the bad-keys diagnostic rides as :cause, under the op-level :reason"
+    (let [recorded (record-trace!)]
+      (is (= {:ok? false :reason :rf.error/replace-frame-state-bad-keys
+              :frame :test/main :cause :unknown-keys :keys [:rf.db/apps]}
+             (rf/replace-frame-state! :test/main {:rf.db/apps {:n 2}})))
+      (is (= :unknown-keys (:reason (tags-of @recorded :rf.error/replace-frame-state-bad-keys)))
+          "the trace keeps its own :reason tag"))))
 
 ;; ---- restore trace tags ------------------------------------------------------
 ;;
@@ -1207,7 +1253,8 @@
       (rf/make-frame {:id :test/succ})
       (rf/dispatch-sync [:set-owner :B 99] {:frame :test/succ})
       (let [recorded (record-trace!)]
-        (is (false? (rf.epoch.tool-pair/perform-restore! :test/succ incarnation-token epoch)))
+        (is (= :rf.error/no-such-handler
+               (refusal-reason (rf.epoch.tool-pair/perform-restore! :test/succ incarnation-token epoch))))
         (is (= {:owner :B :n 99} (rf/app-db-value :test/succ)))
         (is (= [[:error {:kind :frame :frame :test/succ}]] (no-such-frame-errors @recorded)))
         (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded))))))
@@ -1215,8 +1262,8 @@
 (deftest restore-tail-anchoring-fenced-to-exact-incarnation
   (testing "a :rf.epoch/restored trace listener that destroys A and
             seats a same-id successor B after the install: restore still
-            returns true (it committed on A), but the post-write tail does not
-            stamp B's last-settled anchor with A's restored epoch"
+            reports success (it committed on A), but the post-write tail does
+            not stamp B's last-settled anchor with A's restored epoch"
     (rf/make-frame {:id :test/seam3})
     (rf/reg-event :set-owner3 (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-owner3 :A 1] {:frame :test/seam3})
@@ -1233,7 +1280,7 @@
             (rf/destroy-frame! :test/seam3)
             (rf/make-frame {:id :test/seam3})
             (rf/dispatch-sync [:set-owner3 :B 99] {:frame :test/seam3}))))
-      (is (true? (rf.epoch.tool-pair/perform-restore! :test/seam3 incarnation-token epoch)))
+      (is (:ok? (rf.epoch.tool-pair/perform-restore! :test/seam3 incarnation-token epoch)))
       (is (not= a-target-id (rf.epoch.state/last-settled-epoch-id :test/seam3))))))
 
 (deftest restore-through-all-fences-still-succeeds
@@ -1263,7 +1310,7 @@
             rdb))
         (rf.late-bind/set-fn! ck
           (fn [_rdb frame-id opts] (reset! committed [frame-id (:owner-token opts)])))
-        (is (true? (rf/restore-epoch! :test/allfences target-id)))
+        (is (:ok? (rf/restore-epoch! :test/allfences target-id)))
         (is (true? @token-live?) "the reconcile saw the exact token, live")
         (is (= [:test/allfences true]
                [(first @committed) (identical? token (second @committed))])
@@ -1302,7 +1349,7 @@
                                             (rf/epoch-history frame-id)])
                         (reset! fanned [])
                         r))]
-        (is (false? (rf/replace-frame-state! :test/inj {:rf.db/app {:owner :STALE-A}}))))
+        (is (= :rf.error/no-such-handler (refusal-reason (rf/replace-frame-state! :test/inj {:rf.db/app {:owner :STALE-A}})))))
       (is (= @b-baseline [(rf/frame-state-value :test/inj) (rf/epoch-history :test/inj)]))
       (is (= [[:error {:kind :frame :frame :test/inj}]] (no-such-frame-errors @recorded)))
       (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded))
@@ -1310,9 +1357,10 @@
 
 (deftest replace-frame-state-post-write-tail-fenced-to-exact-incarnation
   (testing "A-to-B churn after A's physical write but before the synthetic
-            bookkeeping: the result stays true (the install committed on A),
-            but no synthetic record, anchor, :rf.epoch/db-replaced trace or
-            listener delivery lands in successor B"
+            bookkeeping: the result stays a success (the install committed on
+            A) whose :epoch-id is nil, since no synthetic record, anchor,
+            :rf.epoch/db-replaced trace or listener delivery lands in
+            successor B"
     (rf/make-frame {:id :test/inj3})
     (rf/reg-event :set-owner-inj3 (fn [_ [_ o]] {:db {:owner o}}))
     (rf/dispatch-sync [:set-owner-inj3 :A] {:frame :test/inj3})
@@ -1320,15 +1368,16 @@
           fanned     (atom [])
           recorded   (record-trace!)]
       (rf/register-listener! :epoch ::inj3-fan #(swap! fanned conj (:event-id %)))
-      (is (true? (with-redefs [rf.frame/replace-frame-state!
-                               (fn [frame-id token fs]
-                                 ;; A's exact write lands, then the churn.
-                                 (let [changed (real-write frame-id token fs)]
-                                   (rf/destroy-frame! frame-id)
-                                   (rf/make-frame {:id frame-id})
-                                   (rf/dispatch-sync [:set-owner-inj3 :B] {:frame frame-id})
-                                   changed))]
-                   (rf/replace-frame-state! :test/inj3 {:rf.db/app {:owner :INJECTED-A}}))))
+      (is (= {:ok? true :frame :test/inj3 :epoch-id nil}
+             (with-redefs [rf.frame/replace-frame-state!
+                           (fn [frame-id token fs]
+                             ;; A's exact write lands, then the churn.
+                             (let [changed (real-write frame-id token fs)]
+                               (rf/destroy-frame! frame-id)
+                               (rf/make-frame {:id frame-id})
+                               (rf/dispatch-sync [:set-owner-inj3 :B] {:frame frame-id})
+                               changed))]
+               (rf/replace-frame-state! :test/inj3 {:rf.db/app {:owner :INJECTED-A}}))))
       (let [b-history (rf/epoch-history :test/inj3)]
         (is (= [:set-owner-inj3] (mapv :event-id b-history)))
         (is (= (:epoch-id (first b-history)) (rf.epoch.state/last-settled-epoch-id :test/inj3))))
@@ -1338,16 +1387,18 @@
 (deftest replace-frame-state-post-liveness-teardown-returns-false
   (testing "a frame destroyed after the liveness gate passes but before the
             physical write returns (the write returns nil): replace-frame-state!
-            returns false with the typed :rf.error/no-such-handler and emits no
+            refuses with the typed :rf.error/no-such-handler and emits no
             :rf.epoch/db-replaced"
     (rf/make-frame {:id :test/short-lived})
     (let [real-write rf.frame/replace-frame-state!
           recorded   (record-trace!)]
-      (is (false? (with-redefs [rf.frame/replace-frame-state!
-                                (fn [frame-id token fs]
-                                  (rf/destroy-frame! frame-id)
-                                  (real-write frame-id token fs))]
-                    (rf/replace-frame-state! :test/short-lived {:rf.db/app {:n 999}}))))
+      (is (= :rf.error/no-such-handler
+             (refusal-reason
+               (with-redefs [rf.frame/replace-frame-state!
+                             (fn [frame-id token fs]
+                               (rf/destroy-frame! frame-id)
+                               (real-write frame-id token fs))]
+                 (rf/replace-frame-state! :test/short-lived {:rf.db/app {:n 999}})))))
       (is (= [[:error {:kind :frame :frame :test/short-lived}]] (no-such-frame-errors @recorded)))
       (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)))))
 
@@ -1359,7 +1410,7 @@
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [_ _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 7}})))
+    (is (:ok? (rf/replace-frame-state! :test/main {:rf.db/app {:n 7}})))
     (is (= [:seed :rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history :test/main))))))
 
 ;; ---- replay is fenced to the same exact incarnation -------------------------
@@ -1431,7 +1482,7 @@
           (rf/dispatch-sync [:set-q :B 99] {:frame fid}))
         (fn [fid] (swap! http-saw conj fid))
         (fn []
-          (is (true? (rf/restore-epoch! :test/sdeae-quiesce target-id)))
+          (is (:ok? (rf/restore-epoch! :test/sdeae-quiesce target-id)))
           (is (empty? @http-saw)))))))
 
 (defn- with-quiesce-warning-capture
@@ -1556,7 +1607,7 @@
                            (rf.epoch.tool-pair/perform-restore!
                              :test/short-lived incarnation-token epoch))]
           (is (= :ok outcome))
-          (is (false? result))
+          (is (= :rf.error/no-such-handler (refusal-reason result)))
           (is (= [[:error {:kind :frame :frame :test/short-lived}]]
                  (no-such-frame-errors @recorded)))
           (is (not-any? #{:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released}
@@ -1575,7 +1626,7 @@
       (fn []
         (let [recorded (record-trace!)
               success? #{:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released}]
-          (is (true? (rf/restore-epoch! :test/obi8rr-ok
+          (is (:ok? (rf/restore-epoch! :test/obi8rr-ok
                                         (:epoch-id (first (rf/epoch-history :test/obi8rr-ok))))))
           (is (= [:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released]
                  (filterv success? (map :operation @recorded)))))))))

@@ -418,7 +418,7 @@
   (rf/dispatch-sync [:seed]        {:frame :test/main})
   (rf/dispatch-sync [:counter-inc] {:frame :test/main})
   (let [live (last-epoch :test/main)]
-    (is (false? (rf/restore-epoch! :test/main :no-such-epoch)))
+    (is (false? (:ok? (rf/restore-epoch! :test/main :no-such-epoch))))
     (emit-render! :test/main :counter-view)
     (is (contains? (rendered-view-ids (epoch-by-id :test/main live)) :counter-view)
         "the re-anchor is success-only: later activity still lands on the live epoch")))
@@ -442,7 +442,7 @@
                [(contains? (rf.epoch.state/render-deps-for :test/main render-key) :counter)
                 (contains? (sub-run-ids (epoch-by-id :test/main stale)) :counter)])
             "premise: the read-set is learned and the stale epoch carries the evidence")
-        (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
+        (is (:ok? (rf/restore-epoch! :test/main (:epoch-id target))))
         (emit-render! :test/main render-key)
         (is (= [#{} #{:counter-view}]
                (map (comp rendered-view-ids #(epoch-by-id :test/main %)) [stale target]))

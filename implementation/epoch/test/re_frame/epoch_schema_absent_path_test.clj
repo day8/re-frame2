@@ -28,8 +28,8 @@
 (deftest ^:requires-debug replace-frame-state-admits-an-app-db-lacking-a-registered-path
   (rf/make-frame {:id ::f})
   (rf/reg-app-schema [:n] {:frame ::f} :int)
-  (is (true? (rf/replace-frame-state! ::f {:rf.db/app {:other 1}})))
+  (is (:ok? (rf/replace-frame-state! ::f {:rf.db/app {:other 1}})))
   (is (= {:other 1} (rf/app-db-value ::f)))
-  (is (false? (rf/replace-frame-state! ::f {:rf.db/app {:n nil}}))
+  (is (false? (:ok? (rf/replace-frame-state! ::f {:rf.db/app {:n nil}})))
       "a present nil is refused")
   (is (= {:other 1} (rf/app-db-value ::f))))

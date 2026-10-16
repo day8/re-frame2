@@ -146,20 +146,21 @@
   ;; `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
   ;; so it lives in an fx, not a plain `reg-event` `:db` reducer. `rf/restore-epoch!`
-  ;; returns `false` on any of the seven documented failure modes (per
-  ;; Tool-Pair §Time-travel — Restore, including
-  ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged; on
-  ;; failure we dispatch the inline flash so the operator is told (never
-  ;; a silent lie). The framework also emits a structured `:rf.epoch/*`
-  ;; trace row on the bus — Xray's own Trace panel surfaces the specifics.
+  ;; returns `{:ok? false :reason <op> …}` on any of the seven documented
+  ;; failure modes (per Tool-Pair §Time-travel — Restore, including
+  ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged, and
+  ;; `false` when the epoch surface is elided; on failure we dispatch the
+  ;; inline flash with the reason so the operator is told why (never a
+  ;; silent lie). The framework also emits a structured `:rf.epoch/*` trace
+  ;; row on the bus, which Xray's own Trace panel shows.
   ;; re-frame2 fx handlers are `(fn [ctx args] …)` — `args` is the value
   ;; from the `:fx` vector entry (here the `{:frame … :epoch-id …}` map).
   (rf/reg-fx :rf.xray.fx/restore-epoch
     (fn [_ctx {:keys [frame epoch-id]}]
       (when (and frame epoch-id)
-        (let [ok? (rf/restore-epoch! frame epoch-id)]
-          (when-not ok?
-            (rf/dispatch [:rf.xray/reset-flash-failed]))))))
+        (let [r (rf/restore-epoch! frame epoch-id)]
+          (when-not (:ok? r)
+            (rf/dispatch [:rf.xray/reset-flash-failed (:reason r)]))))))
 
   ;; ---- events ------------------------------------------------------------
 
@@ -356,13 +357,17 @@
        :fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
 
   ;; `:rf.xray/reset-flash-failed` — set the inline failure
-  ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
-  ;; `rf/restore-epoch!` returns false. `:rf.trace/no-emit? true` keeps
-  ;; Xray's own chrome event off the trace bus it is inspecting.
+  ;; flash, naming the refusal's `:reason`. Dispatched from
+  ;; `:rf.xray.fx/restore-epoch` when `rf/restore-epoch!` refuses; a nil
+  ;; reason means the epoch surface itself is unavailable (elided).
+  ;; `:rf.trace/no-emit? true` keeps Xray's own chrome event off the trace
+  ;; bus it is inspecting.
   (rf/reg-event :rf.xray/reset-flash-failed
     {:rf.trace/no-emit? true}
-    (fn [{:keys [db]} _event]
-      {:db (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")}))
+    (fn [{:keys [db]} [_ reason]]
+      {:db (assoc db :reset-flash (if reason
+                                    (str "Reset failed — " reason)
+                                    "Reset failed — epoch surface unavailable"))}))
 
   ;; `:rf.xray/clear-reset-flash` — clear the inline flash.
   ;; The steady-state clear path is `:rf.xray/reset-to-epoch` dissoc-ing

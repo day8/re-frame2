@@ -85,7 +85,7 @@
         (is (= 2 (:n (app-db-of :rf/default)))
             "app-db is not rewound to the target epoch"))
       (with-redefs [rf.interop/debug-enabled? true]
-        (is (true? (rf/restore-epoch! :rf/default target-id))
+        (is (:ok? (rf/restore-epoch! :rf/default target-id))
             "CONTROL: with the gate open the same restore succeeds, so the
              refusal above was the gate's alone")))))
 

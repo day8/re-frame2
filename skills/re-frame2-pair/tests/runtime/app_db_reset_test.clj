@@ -25,8 +25,10 @@
         "app-db-reset! must delegate to rf/replace-frame-state!, which records the epoch restore-epoch needs")
     (is (rt/calls? 'tap> form)
         "app-db-reset! must tap> the change so the human sees what the agent wrote (docs/capabilities.md guardrails)")
+    (is (rt/form-contains? #(= '(:ok? r) %) form)
+        "app-db-reset! must branch on the write's :ok?: a refusal envelope is a truthy map")
     (is (rt/form-contains? #(and (map? %) (= false (:ok? %)) (= :reset-rejected (:reason %))) form)
-        "a rejected reset must return {:ok? false :reason :reset-rejected}, never a silent success")))
+        "an elided epoch surface (a bare false) must return {:ok? false :reason :reset-rejected}, never a silent success")))
 
 (let [{:keys [fail error]} (run-tests 'app-db-reset-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

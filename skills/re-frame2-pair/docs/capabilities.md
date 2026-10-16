@@ -60,7 +60,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:rf.event/run-end` carries the whole chain's `:rf.event/elapsed-ms` (there is no per-interceptor timing) |
 | Hot reload leaves stale registrations behind | *done* | Probe-based `tail-build` against `(rf/handler-meta ...)`; `:rf.registry/handler-replaced` trace fires on every replace |
 | Wrong frame routing | *done* | `frame: ":foo"` on dispatch + `watch-epochs {frame}`; `:ambiguous-frame` refuses unsafe ops |
-| Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:restore-rejected` and the error trace carries `:rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
+| Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:reason :rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
 | Form bug mixes edit / validation / saved state | *not yet* | General re-frame pattern; not a specific recipe |
 
 ---

@@ -279,7 +279,7 @@
         (let [r (last-record)]
           (is (= [100 :done] [(:replay/gen (:rf.cofx r)) (machine-state :replay/mint)])
               "the live run reached :done and its replay token captured the MID-RUN fact")
-          (is (true? (rf/restore-epoch! frame-id anchor-id)))
+          (is (:ok? (rf/restore-epoch! frame-id anchor-id)))
           (is (not= :done (machine-state :replay/mint))
               "restore rewound the machine to its pre-run snapshot")
           (reset! calls 0)

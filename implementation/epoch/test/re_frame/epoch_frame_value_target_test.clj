@@ -26,11 +26,11 @@
     (let [[seed-id inc-id] (mapv :epoch-id (rf/epoch-history frame))]
       (is (= (rf/epoch-history ::counter) (rf/epoch-history frame))
           "the value reads the same history as the id")
-      (is (true? (rf/restore-epoch! frame seed-id)))
+      (is (:ok? (rf/restore-epoch! frame seed-id)))
       (is (= {:n 0} (rf/app-db-value ::counter)) "the frame rewound to the seed epoch")
       (let [result (rf/replay-epoch! frame inc-id)]
         (is (true? (:ok? result)) (pr-str result))
         (is (= ::counter (:frame result)) "the envelope names the frame by its id"))
       (is (= {:n 1} (rf/app-db-value ::counter)) "the inc ran again on the same frame")
-      (is (true? (rf/replace-frame-state! frame {:rf.db/app {:n 41}})))
+      (is (:ok? (rf/replace-frame-state! frame {:rf.db/app {:n 41}})))
       (is (= {:n 41} (rf/app-db-value ::counter))))))

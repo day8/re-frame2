@@ -1681,10 +1681,10 @@ See [Observability](../core/observability.md).
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch! frame-target epoch-id)      → boolean
-  (restore-epoch! frame-target epoch-id opts) → boolean
+  (restore-epoch! frame-target epoch-id)      → envelope map (false when elided / artefact absent)
+  (restore-epoch! frame-target epoch-id opts) → envelope map (false when elided / artefact absent)
   ```
-- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `true`, or `false` when it refuses. With `opts` `{:to :before}` it installs the state from before the epoch's event instead. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
+- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `{:ok? true …}`, or `{:ok? false :reason …}` when it refuses. With `opts` `{:to :before}` it installs the state from before the epoch's event instead. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
 
 ### `replay-epoch!`
 
@@ -1701,9 +1701,9 @@ See [Observability](../core/observability.md).
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (replace-frame-state! frame-target frame-state) → boolean
+  (replace-frame-state! frame-target frame-state) → envelope map
   ```
-- **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, and records a synthetic epoch so `restore-epoch!` can rewind it. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
+- **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, records a synthetic epoch so `restore-epoch!` can rewind it, and returns a `{:ok? …}` envelope. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
 
 ## Registrar queries
 
