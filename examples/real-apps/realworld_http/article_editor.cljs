@@ -316,7 +316,9 @@
   {:doc "Pull an existing article into the editor for editing. The house
          data-fetch retry policy applies. Broadcasts `:use-edit` so the :mode
          region flips to edit, and `:fetch-started` so the :lifecycle region
-         moves to :loading while the fetch is out.
+         moves to :loading while the fetch is out. The slug comes off the
+         activation target the edit route's `:on-match` appends:
+         `[:editor/load-article target]`.
 
          Both reply targets CARRY THE REQUESTED SLUG. A GET is slower than a
          click, so the reader can be on `/editor/B` (or `/editor`, or a page
@@ -324,9 +326,8 @@
          along so `still-editing?` can tell the reply apart from the slice it
          would otherwise land on. See that helper for why neither `seed-slice`
          nor the `:request-id` covers this."}
-  ;; The route lives in runtime-db.
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
+  (fn [{:keys [db]} [_ target]]
+    (let [slug (get-in target [:params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
        ;; `:reset` first, so a NEW editing session starts the machine clean. A
        ;; save or delete left pending by an earlier session holds the lifecycle

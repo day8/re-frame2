@@ -72,7 +72,8 @@
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [ring.middleware.content-type :as ring.content-type]
             [ring.util.response :as ring.response]
-            ;; The one render-state list, shared with `server.cljs`.
+            ;; The namespace both halves share: the render-state policy only
+            ;; this host reads, and the entry id `server.cljs` publishes.
             [fresco.login.policy :as policy]
             ;; The application, on the JVM: every `auth.login` schema, fx,
             ;; machine, event and sub. Requiring it is what makes
@@ -157,8 +158,8 @@
                        {:endpoint     endpoint
                         :entry        policy/root-entry
                         :build-id     build-id
-                        ;; The one list. `server.cljs` publishes the same
-                        ;; keys as the entry's per-partition allowlists.
+                        ;; What the RENDER receives: the one render-visibility
+                        ;; policy. The sidecar checks shape, never which keys.
                         :render-state policy/render-state-policy
                         :timeout-ms   1000})
      ;; The client bundle, and the element it adopts. `fresco.login.core/run`

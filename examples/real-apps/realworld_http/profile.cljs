@@ -39,12 +39,6 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
-;; Which profile are we on? It's in the URL. The route lives in runtime-db, and
-;; `username-from-db` digs the :username param out of it (handlers receive
-;; runtime-db via the `:rf.db/runtime` coeffect).
-(defn username-from-db [runtime-db]
-  (get-in runtime-db [:rf.runtime/routing :current :params :username]))
-
 ;; `:profile.follow-pending` is the set of profiles with a follow/unfollow
 ;; mutation in flight — the toggle's one-at-a-time latch, keyed by username.
 ;; It is a TOP-LEVEL slice rather than a field of `[:profile]` on purpose, and
@@ -253,6 +247,8 @@
          Public endpoint, so the house data-fetch retry applies. Broadcasts
          `:fetch-started` into the `:ui/profile` machine, nudging the `:data`
          region to `:loading` (or `:refreshing`, if a banner's already up).
+         The username comes off the activation target the profile route's
+         `:on-match` appends: `[:profile/load target]`.
 
          Stamps the username the slice is loading and CARRIES it on both reply
          targets, so a settle for a profile the reader has left writes nothing
@@ -265,8 +261,8 @@
          the mutation rather than to the screen, and lives in its own
          username-keyed slice for exactly that reason. See SERIALISING THE
          TOGGLE below."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)
+  (fn [{:keys [db]} [_ target]]
+    (let [username (get-in target [:params :username])
           refresh? (reply-for-current-profile? db :profile username)
           ;; A refresh keeps the slice; a new identity starts a fresh one.
           slice    (if refresh? (:profile db) (request-slice))
@@ -339,16 +335,17 @@
          broadcasts `:show-articles` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
          official RealWorld limit/offset shape), which also URL-encodes the
-         `:author` filter.
+         `:author` filter. The username and the page come off the activation
+         target the route's `:on-match` appends.
 
          Same correlation law as the banner: the slice records the username it
          is loading, both reply targets carry it, and a username change resets
          the list. The `?page=` step does NOT — it reuses `:request-id`, so
          managed HTTP supersedes the previous page's reply for you, and the
          rows stay up while `:fetching`."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)
-          page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+  (fn [{:keys [db]} [_ target]]
+    (let [username (get-in target [:params :username])
+          page     (or (get-in target [:query :page]) 1)
           path     (rh/paginate-path "/articles" {:author username} page)
           refresh? (reply-for-current-profile? db :profile.articles username)
           slice    (if refresh? (:profile.articles db) (assoc (request-slice) :data []))]
@@ -396,15 +393,16 @@
          broadcasts `:show-favorites` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
          official RealWorld limit/offset shape), which also URL-encodes the
-         `:favorited` filter.
+         `:favorited` filter. The username and the page come off the
+         activation target the route's `:on-match` appends.
 
          Correlated exactly as the authored list is — the slice records the
          username it is loading, both reply targets carry it, a username change
          resets the list, and a `?page=` step is left to managed HTTP's same-id
          supersede."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)
-          page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+  (fn [{:keys [db]} [_ target]]
+    (let [username (get-in target [:params :username])
+          page     (or (get-in target [:query :page]) 1)
           path     (rh/paginate-path "/articles" {:favorited username} page)
           refresh? (reply-for-current-profile? db :profile.favorites username)
           slice    (if refresh? (:profile.favorites db) (assoc (request-slice) :data []))]

@@ -994,8 +994,8 @@
         (open-profile! f lowered "alice" false)
         (settle-ok! f (:on-success (req-by-id @lowered [:profile.articles/load "alice"]))
                     (articles-of "a1"))
-        (rf/dispatch-sync [:profile/load] {:frame f})
-        (rf/dispatch-sync [:profile.articles/load] {:frame f})
+        (rf/dispatch-sync [:profile/load {:params {:username "alice"}}] {:frame f})
+        (rf/dispatch-sync [:profile.articles/load {:params {:username "alice"}}] {:frame f})
         (is (= [:fetching "alice" ["a1"]]
                [(:status (sub f [:profile/slice])) (:username (sub f [:profile/data]))
                 (mapv :slug (sub f [:profile.articles/data]))]))

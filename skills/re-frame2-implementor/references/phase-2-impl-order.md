@@ -8,7 +8,7 @@ Before or alongside the first foundation slice, build the smallest harness seam 
 
 - **Read the corpus at the pin.** An EDN reader is ~200 lines in any host with maps and vectors; or translate the corpus locally at bootstrap.
 - **Enumerate, don't transcribe.** Fixture ids, capability tags, handler-DSL ops, Mode-B `:call` ops, and the top-level `:fixture/*` key set are all facts of the corpus at the pin — how to derive each is in [`conformance.md`](conformance.md).
-- **Fail loud on the unknown.** The harness owes the fail-loud floors listed once in [`conformance.md` §The harness](conformance.md#the-harness-300-lines-per-host) — each fails the run with a diagnostic naming it, never a silent skip.
+- **Fail loud on the unknown.** The harness owes the fail-loud floors listed once in [`conformance.md` §The harness](conformance.md#the-harness) — each fails the run with a diagnostic naming it, never a silent skip.
 - **Grow op-by-op.** Implement handler-DSL and Mode-B operators as live fixtures require them. Do not invent a generated fixture-translation layer or a cross-host compatibility package.
 
 A loop-step-4 slice may report "not run" only while this seam does not yet exist, and the seam lands with the first foundation EP.

@@ -536,11 +536,13 @@ with [browser URL configuration](how-to/configure-browser-urls.md#troubleshootin
 <a id="a-hand-rolled-async-loader"></a>
 
 Prefer resources for page loads. If an `:on-match` handler starts its own request,
-capture the current navigation's token with `:rf.route/nav-token` and deliver
-the reply through `:rf.route/with-nav-token`. A reply from an earlier navigation
-is dropped instead of overwriting the current page. The
-[token effect reference](../api/re-frame.routing.md#effects-fx) shows the complete
-reply shape.
+read the navigation's token and the params it needs from the activation target
+the router appends as the event's last argument, carry the token into the reply,
+and deliver the reply through `:rf.route/with-nav-token`. A reply from an earlier
+navigation is dropped instead of overwriting the current page. An event not
+reached through `:on-match` gets the same token from the `:rf.route/nav-token`
+coeffect. The [token effect reference](../api/re-frame.routing.md#effects-fx)
+shows the complete reply shape.
 
 ### Warming a destination before the click
 

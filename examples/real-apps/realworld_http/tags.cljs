@@ -234,23 +234,23 @@
 ;; The contract's token for the authenticated "Your Feed".
 (def following-feed-token "following")
 
-;; The route lives in runtime-db, and `home-context` reads it off a runtime-db
-;; value (handlers get it via the `:rf.db/runtime` coeffect; the subs below
-;; instead compose off the public `[:rf.route/params]` / `[:rf.route/query]`
-;; subs). Its job: flatten the two home routes into one tidy
+;; `home-context` flattens the two home routes into one tidy
 ;; `{:tag :feed :page}` — the tag from the `/tag/:tag` route's params, the feed
-;; and page from the query.
-(defn home-context [runtime-db]
-  (let [cur   (get-in runtime-db [:rf.runtime/routing :current] {})
-        query (:query cur {})]
-    {:tag  (get-in cur [:params :tag])
+;; and page from the query. It takes the route as a map: `:home/load` hands it
+;; the activation target its `:on-match` appends, `:home/show-page` the live
+;; route slice off the `:rf.db/runtime` coeffect. (The subs below instead
+;; compose off the public `[:rf.route/params]` / `[:rf.route/query]` subs.)
+(defn home-context [route]
+  (let [query (:query route {})]
+    {:tag  (get-in route [:params :tag])
      :feed (:feed query)
      :page (:page query)}))
 
 (rf/reg-event :home/load
   {:doc "The `:on-match` for BOTH `:realworld/home` and `:realworld/home-tag`.
-         It reads the flattened home context (the active tag off the
-         `/tag/:tag` route's path params, the feed + page off the query) and
+         It reads the flattened home context off the activation target the
+         route appends, `[:home/load target]` (the active tag off the
+         `/tag/:tag` route's path params, the feed + page off the query), and
          then conducts three things:
            - steers the `:feed` region to `:user-feed` / `:tag-feed` / `:global`
              based on `?feed=` and the tag,
@@ -260,8 +260,8 @@
          Each fetch then broadcasts its own `:fetch-started` into the home
          machine's `:data` region (see articles.cljs and favorites.cljs), so
          the loading state takes care of itself."}
-  (fn [{rt :rf.db/runtime} _]
-    (let [{:keys [feed tag]} (home-context rt)
+  (fn [_ [_ target]]
+    (let [{:keys [feed tag]} (home-context target)
           your-feed? (= following-feed-token feed)
           tag-feed?  (and (not your-feed?) (some? tag))
           feed-event (cond
@@ -303,7 +303,7 @@
          query), which re-runs `:home/load` and the fetch with the new
          limit/offset window. The URL leads; the data follows."}
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [tag feed]} (home-context rt)]
+    (let [{:keys [tag feed]} (home-context (get-in rt [:rf.runtime/routing :current]))]
       (if tag
         {:fx [[:dispatch [:rf.route/navigate {:to :realworld/home-tag :params {:tag tag} :query {:page page}}]]]}
         (let [query (cond-> {:page page} feed (assoc :feed feed))]
