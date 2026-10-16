@@ -47,11 +47,11 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `context` | `:data` |
 | `state.value` | snapshot `:state` |
 | `state.context` | snapshot `:data` |
-| `actor.getSnapshot()` | `@(rf/subscribe [:rf/machine id])` |
+| `actor.getSnapshot()` | `@(rf/subscribe [:rf/machine id])`, which reads `nil` until the machine is born |
 | `actor.getPersistedSnapshot()` | `(rf/frame-state-value frame)` — the machines, spawned children and spawn registry are its `[:rf.db/runtime :rf.runtime/machines]` subtree; see [Persist and restore](persist-and-restore.md) |
 | `createActor(machine, { snapshot })` | `(rf/dispatch-sync [:rf/install-frame-state saved] {:frame f})` at boot — no entry replay, children restored, live `:after` timers re-armed; see [Persist and restore](persist-and-restore.md) |
 | `actor.send(event)` | `(rf/dispatch [machine-id [event …]])` |
-| `createActor(machine).start()` | nothing to create: the first event, or `(rf/dispatch [machine-id [:rf.machine/start]])`, starts a registered machine |
+| `createActor(machine).start()` | the start kick in the frame's `:initial-events`, `[[machine-id [:rf.machine/start]]]`. XState computes the settled initial snapshot at `createActor`, so `getSnapshot()` is never `undefined`; re-frame2's creation site is the frame, and the kick there births the machine before `make-frame` returns. Without it, the first event births the machine lazily |
 | `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none, and destroys the children its `:spawn` / `:spawn-all` states track, as `stop()` stops children |
 | `snapshot.status` / `snapshot.output` after completion | the `:rf.machine/done` trace carries `:output`; the snapshot is gone, so `[:rf/machine id]` reads `nil` for a finished, destroyed or never-started machine alike |
 | `actor.subscribe({ complete })` | the `:rf.machine/done` trace, and `:rf.machine/destroyed` with its `:reason` |
