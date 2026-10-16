@@ -9,8 +9,7 @@
 
   - `re-frame.machines.timer` — the state-machine `:after` timers, one per
     `{:parent :spawn :delay}` slot of a frame; cancellation emits the
-    `:rf.machine.timer/cancelled` reply-envelope trace and tears down the
-    dynamic-delay subscription watcher.
+    `:rf.machine.timer/cancelled` reply-envelope trace.
   - `re-frame.resources.timers` — the resource STALE / GC / POLL timers,
     one per `[frame-id resource-key kind]` slot; cancellation is silent.
 
@@ -37,10 +36,9 @@
     bookkeeping beside each handle; the kernel holds no state.
 
   - **Cancel-then-arm orchestration + cancellation.** Machines cancels a
-    whole entry (release the sub-reaction watcher, unsubscribe, emit the
-    `:rf.machine.timer/cancelled` reply-envelope trace stamped with a
-    closed `:reason`) and SWALLOWS host-clock throws, through `cancel!`
-    below; resources cancels SILENTLY through
+    whole entry (release its handle, emit the `:rf.machine.timer/cancelled`
+    reply-envelope trace stamped with a closed `:reason`) and SWALLOWS
+    host-clock throws, through `cancel!` below; resources cancels SILENTLY through
     `re-frame.interop/cancel-scheduled!` and does NOT swallow. The two
     cancel disciplines are genuinely different observable behaviour —
     neither may adopt the other's.
@@ -48,16 +46,15 @@
   - **The advisory re-check / generation-epoch guard.** This is the
     load-bearing correctness boundary and it is per-artefact: machines
     guards on a per-decl-path EPOCH read from the durable machine snapshot
-    (with per-region hierarchy resolution) and re-resolves on a
-    subscription-delay change; resources guards in the FIRED-EVENT HANDLER
-    on the durable entry's timestamps / owner-set / generation. They share
+    (with per-region hierarchy resolution); resources guards in the
+    FIRED-EVENT HANDLER on the durable entry's timestamps / owner-set /
+    generation. They share
     only the PRINCIPLE (the timer is an advisory nudge; re-check live
     durable facts on fire), not a code path.
 
-  - **Delay resolution.** Machines resolves a literal / subscription-vector
-    / fn delay (with subscription bookkeeping + fn-throw tracing); resources
-    receives an already-resolved positive-int ms. Only machines has this
-    layer.
+  - **Delay resolution.** Machines resolves a literal / ISO-8601 duration
+    / fn delay (with fn-throw tracing); resources receives an
+    already-resolved positive-int ms. Only machines has this layer.
 
   So this kernel is intentionally small: the positive-delay-guarded arm,
   plus a best-effort cancel helper for the swallow-throws callers (machines)
