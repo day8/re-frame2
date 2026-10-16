@@ -258,7 +258,7 @@
 (defn- fn-key-label
   "The inert stand-in for a fn-valued map KEY (Spec 005's
   function-valued `:after` delay): a `[<names-only label> <n>]` vector. The
-  share grammar accepts it as a subscription-vector-shaped delay, so the
+  share grammar accepts a non-empty vector as an `:after` delay key, so the
   viewer projects the timed transition without ever holding — or calling —
   the fn. `n` numbers the fn keys of ONE map, so two anonymous delays, which
   share a label, keep two transitions instead of merging into one."
