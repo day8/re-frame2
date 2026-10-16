@@ -1,6 +1,6 @@
 # The level witness, armed within one run
 
-Seat: MEASUREMENT RECORD, EP-0039. Bead `rf2-a233t` — the floor arm is multi-modal and
+Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-a233t` — the floor arm is multi-modal and
 **both modes certify**. The leg witness asks whether a window's legs are alike, and in
 both modes they are; it has nothing to say about which of two levels a window sits at.
 So a figure quoted from this arm out of a single run has been a coin toss between levels
