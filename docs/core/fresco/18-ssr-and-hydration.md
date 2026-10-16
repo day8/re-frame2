@@ -470,7 +470,8 @@ Three pieces make it work:
   already owns all three. It replays no boot events either, because the JVM
   already ran them and the state it sends is the settled result.
 - **A render module** in a `:node-library` build, publishing a build id and an
-  entry table whose per-entry allowlists are the render-visibility policy.
+  entry table of the ids a host may name. Which state a render sees is the
+  renderer's `:render-state` policy, projected on the JVM.
 - **`:renderer`** on the Ring handler, pointing at
   `re-frame.ssr.ring.node/renderer`.
 
