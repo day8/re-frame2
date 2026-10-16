@@ -334,9 +334,9 @@
 ;; the frame already exists, reuses it, and skips the re-seed, so your circles
 ;; survive the reload instead of vanishing.
 ;;
-;; `app-frame` is just a name we picked. `:rf/default` carries no special powers;
-;; it's an ordinary frame id, named here and handed to the provider like any
-;; other. See docs/core/frames.md.
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it, so
+;; it is named here and handed to the provider. See docs/core/frames.md.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree

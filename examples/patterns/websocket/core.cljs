@@ -111,9 +111,9 @@
 ;; existing frame and skips the seed. Create, seed, and scope-into-React,
 ;; all in one spot.
 ;;
-;; The id `:rf/default` is the same one `schema.cljs` scopes its
-;; `reg-app-schema` to — they have to agree, or the schema lands in a
-;; different frame than the app. See docs/core/frames.md.
+;; The id is `:rf/default`, the conventional app-frame id. The schemas in
+;; `schema.cljs` need no frame: a schema is a program registration, like an
+;; event. See docs/core/frames.md.
 (def app-frame :rf/default)
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs

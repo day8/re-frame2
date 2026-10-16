@@ -89,10 +89,9 @@
 ;; counter doesn't snap back to 5 every time you save. See
 ;; `docs/core/frames.md`.
 ;;
-;; `app-frame` is just an id we picked. `:rf/default` looks special but
-;; isn't — it's an ordinary frame id like any other. The runtime never
-;; guesses which frame you mean, so we name one here and hand it over
-;; explicitly. See
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it,
+;; so we name the frame here and hand it over explicitly. See
 ;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 

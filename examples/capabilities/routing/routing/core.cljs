@@ -176,10 +176,10 @@
 ;; means whoever calls `run` wins the element, and only then.
 (defonce app-root (rf.adapter.reagent/client-root))
 
-;; The id of the one frame this whole app runs under. `:rf/default` looks
-;; special, but it isn't — it's an ordinary id with no secret privileges, and
-;; the runtime won't conjure it for you. You stand it up like any other (the
-;; provider in `run` does exactly that). The one bit of magic worth knowing:
+;; The id of the one frame this whole app runs under: `:rf/default`, the
+;; conventional app-frame id. The runtime won't conjure it for you; you stand
+;; it up like any other frame (the provider in `run` does exactly that). The
+;; one bit of magic worth knowing:
 ;; a frame "owns" the browser URL when it carries `:url-bound? true`, and this
 ;; app's provider flips that on. That's what connects the address bar to *this*
 ;; frame's route state. See the routing guide, "The browser is just another

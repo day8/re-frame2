@@ -244,9 +244,10 @@
 ;; app-frame …}` at the render root below. On first mount it creates the app
 ;; frame, applies its config, and runs `:initial-events` once to seed app-db.
 ;; On hot reload it reuses the same frame and skips re-seeding, so your
-;; half-filled form survives a save. `app-frame` is just an id we pick and hand
-;; to the provider — the runtime won't guess it for us. Same mount shape as the
-;; counter: examples/core/counter/core.cljs.
+;; half-filled form survives a save. `app-frame` is `:rf/default`, the
+;; conventional app-frame id, and we hand it to the provider — the runtime
+;; never falls back to it. Same mount shape as the counter:
+;; examples/core/counter/core.cljs.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree

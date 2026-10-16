@@ -313,9 +313,9 @@
 ;; there, reuses it, and skips the seed. From then on every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame.
 ;;
-;; `:rf/default` is just the id this app happened to pick — an ordinary frame
-;; id with no special standing, which is why the runtime won't conjure it for
-;; you. Same mount you'll find in examples/core/counter/core.cljs.
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it, so
+;; the app names it here. Same mount you'll find in examples/core/counter/core.cljs.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
