@@ -1315,64 +1315,78 @@
           (contains? tags :input)    (assoc :input    (project-input (:input tags)))
           (contains? tags :cascade)  (assoc :cascade  (project-cascade (:cascade tags))))))))
 
-(def ^:private exception-text-slots
-  "The exception slots that carry the thrown value's TEXT: `:exception-message`,
-  the machine row's `:reason`, and the machine row's raw `:exception`, whose
-  printed form carries its message and its `ex-data`."
-  [:exception-message :reason :exception])
+(def ^:private thrown-value-slots
+  "The slots that carry a thrown value: its `ex-data` (`:exception-data`), its
+  message (`:exception-message`), and the raw `:exception`, whose printed form
+  carries both."
+  [:exception-data :exception-message :exception])
+
+(defn- carries-thrown-value?
+  [tags]
+  (boolean (some #(contains? tags %) thrown-value-slots)))
 
 (defn- redact-exception-slots
-  "Fail-closed whole-slot redaction tail shared by the two exception-payload
-  projectors: replace the WHOLE `:exception-data` slot, and each PRESENT
-  exception-text slot, with the `:rf/redacted` sentinel and stamp
-  `:sensitive? true`. A message routinely quotes the value that failed, so a row
-  judged sensitive for its `ex-data` is judged sensitive for its text too."
+  "Fail-closed whole-slot redaction tail shared by the machine and flow exception
+  projectors: replace each PRESENT thrown-value slot, the `:reason` sentence
+  beside it, and the raw `:exception` inside an `:info` failure map with the
+  `:rf/redacted` sentinel, and stamp `:sensitive? true`. A message routinely
+  quotes the value that failed, so a row judged sensitive is redacted for its
+  text as well as its `ex-data`."
   [tags]
-  (reduce (fn [tags slot]
-            (cond-> tags
-              (contains? tags slot) (assoc slot rf.privacy/redacted-sentinel)))
-          (assoc tags :exception-data rf.privacy/redacted-sentinel :sensitive? true)
-          exception-text-slots))
+  (cond-> (reduce (fn [tags slot]
+                    (cond-> tags
+                      (contains? tags slot) (assoc slot rf.privacy/redacted-sentinel)))
+                  (assoc tags :sensitive? true)
+                  (conj thrown-value-slots :reason))
+    (and (map? (:info tags)) (contains? (:info tags) :exception))
+    (assoc-in [:info :exception] rf.privacy/redacted-sentinel)))
 
 (defn- project-machine-error-tags
-  "Walk the `:rf.error/machine-action-exception` tag shape. The trace carries
-  `:exception-data` — the `ex-data` of a thrown machine action — which could
-  embed the same app secrets the machine's `:data` classification gates, and
-  `:exception-message` / `:reason` / `:exception`, which can quote them. The
-  conservative, footgun-prevention posture: when the machine declares ANY
-  `:sensitive` classification, elide each of those slots WHOLE.
+  "Walk a machine-owned row that carries a thrown value: the
+  `:rf.error/machine-action-exception` row of a throwing action, guard,
+  `:on-done` callback or destroy-time `:exit` action, the
+  `:rf.machine/guard-evaluated` and `:rf.machine/action-ran` rows of the throw
+  itself, and the timer's `:rf.error/machine-after-*` rows. `:exception-data` is
+  the thrown value's `ex-data`, which could embed the same app secrets the
+  machine's `:data` classification gates, and `:exception-message` / `:reason` /
+  `:exception` can quote them. The conservative, footgun-prevention posture:
+  when the machine declares ANY `:sensitive` classification, elide each of those
+  slots the row carries WHOLE.
 
   EP-0025: the \"machine declares ANY `:sensitive`\" decision
   consults the FRAME's snapshot-path classification (the sole app-db mechanism)
-  unioned with any author `:event` registration classification.
+  unioned with any author `:event` registration classification. A row that names
+  no machine (the timer's delay-resolver rows) has neither to consult.
 
   A nil / unresolvable frame FAILS CLOSED (redacts) — matching the sibling
-  `project-flow-failed-tags` and Spec 015 §Failure-posture (unknown frame =>
+  `project-flow-exception-tags` and Spec 015 §Failure-posture (unknown frame =>
   fail closed). `:exception-data` is author-shaped `ex-data` and the text slots
   are free prose, none of which can be path-walked safely, so a nil frame
   redacts each WHOLE slot."
   [tags frame-id]
-  (let [machine-id (or (:actor-id tags) (:machine-id tags))
-        author     (classification-when :event machine-id)
-        frame-mk   (frame-snapshot-classification frame-id machine-id)]
-    (if (and (contains? tags :exception-data)
-             (or (nil? frame-id)
-                 (seq (:sensitive author)) (seq (:sensitive frame-mk))))
-      (redact-exception-slots tags)
-      tags)))
+  (if-not (carries-thrown-value? tags)
+    tags
+    (let [machine-id (or (:actor-id tags) (:machine-id tags))
+          author     (classification-when :event machine-id)
+          frame-mk   (frame-snapshot-classification frame-id machine-id)]
+      (if (or (nil? frame-id)
+              (seq (:sensitive author)) (seq (:sensitive frame-mk)))
+        (redact-exception-slots tags)
+        tags))))
 
-(defn- project-flow-failed-tags
-  "Walk the `:rf.flow/failed` tag shape. The trace carries the throwing flow's
-  structured exception summary — `:exception-message` (plain string) +
-  `:exception-data` (the ex-info `ex-data` map). The `:inputs` slot already rode
-  the wire-elision walker at emit time; the `:exception-data` map is the
-  developer's arbitrary author-keyed payload, and the message can quote the same
-  values. When the flow's FRAME declares ANY sensitive elision declaration,
-  elide both slots WHOLE. A nil / unresolvable frame FAILS CLOSED (redacts)."
+(defn- project-flow-exception-tags
+  "Walk the flow rows that carry a thrown value: `:rf.flow/failed`'s structured
+  exception summary — `:exception-message` (plain string) + `:exception-data`
+  (the ex-info `ex-data` map, or nil) — and the run-level
+  `:rf.error/flow-eval-exception`'s raw `:exception`, whose printed form carries
+  the flow's thrown value as its cause. The `:inputs` slot already rode the
+  wire-elision walker at emit time; the `:exception-data` map is the developer's
+  arbitrary author-keyed payload, and the message can quote the same values.
+  When the flow's FRAME declares ANY sensitive elision declaration, elide each
+  slot the row carries WHOLE. A nil / unresolvable frame FAILS CLOSED (redacts)."
   [tags]
   (let [frame-id (:frame tags)]
-    (if (and (contains? tags :exception-data)
-             (some? (:exception-data tags))
+    (if (and (carries-thrown-value? tags)
              (or (nil? frame-id)
                  (seq (rf.elision/sensitive-declarations frame-id))))
       (redact-exception-slots tags)
@@ -1412,6 +1426,22 @@
     (and n (or (= "rf.machine" n)
                (and (>= (count n) 11)
                     (= "rf.machine." (subs n 0 11)))))))
+
+(defn- machine-error-op?
+  "True for the machine layer's `:rf.error/machine-*` error categories."
+  [operation]
+  (and (keyword? operation)
+       (= "rf.error" (namespace operation))
+       (let [n (name operation)]
+         (and (> (count n) 8) (= "machine-" (subs n 0 8))))))
+
+(defn- flow-exception-op?
+  "True for the flow rows that carry a thrown value: the per-flow
+  `:rf.flow/failed` and the run-level `:rf.error/flow-eval-exception`."
+  [operation]
+  (case operation
+    (:rf.flow/failed :rf.error/flow-eval-exception) true
+    false))
 
 (defn- interceptor-ref-id?
   "True when `x` is a structurally-valid interceptor REFERENCE id — a bare
@@ -1555,11 +1585,10 @@
                         (contains? tags :rf.interceptor/override-summary)
                         (project-override-summary-tags)
 
-                        (= :rf.flow/failed operation)
-                        (project-flow-failed-tags)
+                        (flow-exception-op? operation)
+                        (project-flow-exception-tags)
 
-                        (and (not= :rf.flow/failed operation)
-                             (contains? tags :exception-data))
+                        (or (machine-op? operation) (machine-error-op? operation))
                         (project-machine-error-tags frame-id)
 
                         (contains? tags :offending-value)
