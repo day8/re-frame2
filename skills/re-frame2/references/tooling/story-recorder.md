@@ -49,11 +49,11 @@ The privacy contract classifies at the **owner of the data** — the three-owner
 
 | Owner declaration | Stamps top-level trace `:sensitive?`? | Recorder behaviour |
 |---|---|---|
-| Durable app-db `:sensitive` **classification effect** (returned alongside `:db`) | **Yes** — the sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
+| Durable app-db `:sensitive` **classification effect** (returned alongside `:db`) | **No** — it classifies an app-db path, which the dispatched event vector does not carry | Row kept, payload verbatim — classify the payload at its registration too |
 | Registration `:sensitive [[:path]]` | **No** — the trace event's named payload paths already read `:rf/redacted`, so nothing is stamped | Row kept, the named paths `:rf/redacted` |
 | Handler-meta `{:sensitive? true}` | **No** — not honoured; ignored | Row kept, payload verbatim — **do not rely on this** |
 
-So to get a recorded login / 2FA / API-key flow suppressed, classify the secret's *path* at its owner (see the three-owner table): a durable app-db secret via the writing event's `:sensitive` classification effect, which stamps the trace event and triggers whole-row redaction, or a payload-only secret in the submit handler's registration `:sensitive` metadata, which keeps the row and redacts the named paths inside it. The contract is **fail-open** — a path you never classify ships its row verbatim.
+So to keep a login / 2FA / API-key secret out of a recording, classify the secret's *path* in the submit handler's registration `:sensitive` metadata, which keeps the row and redacts the named paths inside it; a durable app-db copy of the secret is classified separately, by the writing event's `:sensitive` classification effect (see the three-owner table). The contract is **fail-open** — a path you never classify ships its row verbatim.
 
 > **Surfaces that do not exist.** The non-existent-API list (`redact-interceptor` / `add-marks` / frame `:sensitive {:app-db …}` and what to use instead) is owned by [`../cross-cutting/privacy-and-elision.md` §Surfaces that do not exist](../cross-cutting/privacy-and-elision.md#surfaces-that-do-not-exist--use-the-model) — reaching for any of them is a wrong turn; classify the secret's *path* at its owner instead.
 
@@ -66,7 +66,7 @@ When the runtime *has* stamped the event sensitive, it still appears in the reco
  [:counter/inc]]
 ```
 
-**Whole-row placeholder vs payload-only redaction.** The recorder substitutes the *whole event vector* with the single-element placeholder `[:rf/redacted]`, not a redacted-payload vector. A *payload-only* redaction (only named keys scrubbed, e.g. `[:auth/login {:password :rf/redacted}]`) can appear on the trace surface when a registration's `:sensitive` paths name individual payload keys; that row may not be whole-row-suppressed. Whole-row `[:rf/redacted]` is the recorder's own substitution, applied when the trace event is stamped `:sensitive?` — which a durable app-db `:sensitive` classification effect on a focused handler does, as does a whole-payload registration `:sensitive [[]]`.
+**Whole-row placeholder vs payload-only redaction.** The recorder substitutes the *whole event vector* with the single-element placeholder `[:rf/redacted]`, not a redacted-payload vector. A *payload-only* redaction (only named keys scrubbed, e.g. `[:auth/login {:password :rf/redacted}]`) can appear on the trace surface when a registration's `:sensitive` paths name individual payload keys; that row may not be whole-row-suppressed. Whole-row `[:rf/redacted]` is the recorder's own substitution, applied only when the dispatched trace event carries a top-level `:sensitive? true`, which none of the declarations in the table above stamps; a whole-payload registration `:sensitive [[]]` records as `[:auth/login :rf/redacted]`.
 
 Properties of the whole-row placeholder:
 
