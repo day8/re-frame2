@@ -201,7 +201,7 @@ The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` plus t
   (fn [db _] (get-in db [:tenant :partner-api-key])))
 ```
 
-Propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop). The audit question for a consumer app is simply *"is every path a secret reaches classified?"* — no inheritance to reason about.
+Propagation is machinery for an unusual case already covered by classifying the output path. The egress rules over the paths you *do* classify are unchanged — **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant still elides behind the ordinary size marker, measured after that descendant is redacted, so the marker never varies with the secret. The audit question for a consumer app is simply *"is every path a secret reaches classified?"* — no inheritance to reason about.
 
 ## The display contract: three sentinels
 

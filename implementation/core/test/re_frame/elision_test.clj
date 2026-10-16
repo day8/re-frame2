@@ -12,6 +12,7 @@
   `(when rf.interop/debug-enabled? …)` arm beside an always-on assertion that the
   value rides verbatim."
   (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.flows :as rf.flows]
@@ -121,15 +122,44 @@
     (is (rf.elision/marker? (get-in once [:doc :body])))
     (is (= once (rf.elision/elide-wire-value once)))))
 
-;; A :large subtree with a :sensitive descendant redacts the descendant and
-;; emits no marker: a marker's :bytes, :type and digest over a subtree holding
-;; the secret would leak it (Spec 015 §No propagation, no taint).
+;; A :large subtree with a :sensitive descendant elides behind the ordinary
+;; marker, measured over the subtree AFTER its sensitive descendants redact, so
+;; no figure on the marker varies with the secret (Spec 015 §No propagation).
 
-(deftest nested-axis-large-over-sensitive-redacts-not-marks
+(defn- pr-str-bytes [v]
+  (count (.getBytes ^String (pr-str v) "UTF-8")))
+
+(deftest nested-axis-large-over-sensitive-elides-after-redaction
   (install-class! [[:a :b]] [[:a]])
-  (is (= {:a {:b :rf/redacted :c "public"}}
-         (rf.elision/elide-wire-value {:a {:b "TOP-SECRET-TOKEN" :c "public"}}
-                                      {:rf.egress/include-digests? true}))))
+  (let [v {:a {:b "TOP-SECRET-TOKEN" :c "public"}}]
+    (is (= {:a {:rf.size/large-elided {:path   [:a]
+                                       :bytes  (pr-str-bytes {:b :rf/redacted :c "public"})
+                                       :type   :map
+                                       :reason :effect
+                                       :hint   nil
+                                       :handle [:rf.elision/at [:a]]}}}
+           (rf.elision/elide-wire-value v)))
+    (is (= {:a {:b :rf/redacted :c "public"}}
+           (rf.elision/elide-wire-value v {:rf.egress/include-large? true}))
+        "the size override returns the subtree with only its secret redacted")
+    (is (= (pr-str-bytes {:b "TOP-SECRET-TOKEN" :c "public"})
+           (get-in (rf.elision/elide-wire-value v {:rf.egress/include-sensitive? true})
+                   [:a :rf.size/large-elided :bytes]))
+        "a caller that opted out of sensitive redaction is measured over the raw subtree")))
+
+(deftest nested-axis-marker-does-not-vary-with-the-secret
+  (install-class! [[:a :b]] [[:a]])
+  (let [short-secret {:a {:b "s" :c "public"}}
+        long-secret  {:a {:b (apply str (repeat 500 "LONG-SECRET")) :c "public"}}
+        opts         {:rf.egress/include-digests? true}
+        durable      (rf.elision/elide-wire-value short-secret opts)
+        path-walk    #(rf.classification/redact-with-paths % [[:a :b]] [[:a]])]
+    (is (string? (get-in durable [:a :rf.size/large-elided :digest]))
+        "control: the digest is computed")
+    (is (= durable (rf.elision/elide-wire-value long-secret opts)))
+    (is (rf.elision/marker? (:a (path-walk short-secret)))
+        "control: the transient walker marks the collision node")
+    (is (= (path-walk short-secret) (path-walk long-secret)))))
 
 (deftest streamed-cascades-elide-per-element-frame
   ;; A drain walking several frames' bundles in one tick must elide each under
@@ -296,11 +326,30 @@
         "the marker describes the value read, at its own offset")
     (is (= "xxxx" (read-at db [:big :blob] {:rf.egress/include-large? true})))))
 
-(deftest offset-read-below-a-shadowing-large-ancestor-redacts-and-never-marks
+(deftest offset-read-below-a-shadowing-large-ancestor-elides-after-redaction
   (install-class! [[:a :x :secret]] [[:a]])
-  (is (= {:secret :rf/redacted :pub "ok"}
-         (read-at {:a {:x {:secret "TOP-SECRET" :pub "ok"}}} [:a :x]
-                  {:rf.egress/include-digests? true}))))
+  (let [db {:a {:x {:secret "TOP-SECRET" :pub "ok"}}}]
+    (is (= {:rf.size/large-elided {:path   [:a :x]
+                                   :bytes  (pr-str-bytes {:secret :rf/redacted :pub "ok"})
+                                   :type   :map
+                                   :reason :effect
+                                   :hint   nil
+                                   :handle [:rf.elision/at [:a :x]]}}
+           (read-at db [:a :x]))
+        "the marker sits at the read's own offset, measured after redaction")
+    (is (= {:secret :rf/redacted :pub "ok"}
+           (read-at db [:a :x] {:rf.egress/include-large? true})))
+    (is (= [:rf/redacted :rf/redacted]
+           [(read-at db [:a :x :secret])
+            (read-at db [:a :x :secret] {:rf.egress/include-large? true})])
+        "a direct read of the secret redacts, with or without the size override")))
+
+(deftest offset-read-at-a-finer-large-below-a-collision-elides
+  (install-class! [[:a :secret]] [[:a] [:a :big]])
+  (let [marker (read-at {:a {:secret "TOP-SECRET" :big {:rows (vec (range 100))}}}
+                        [:a :big])]
+    (is (rf.elision/marker? marker))
+    (is (= [:a :big] (get-in marker [:rf.size/large-elided :path])))))
 
 ;; The walk rebuilds each map, and `(empty v)` throws on the JVM for a record,
 ;; so a record is rebuilt as a plain map; otherwise egress of any value holding

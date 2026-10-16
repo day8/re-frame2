@@ -220,8 +220,9 @@ for non-secret data, or when a subsystem tidies its registry on teardown.
 undeclared path is **not** auto-elided — the size threshold is advisory, firing
 `:rf.warning/large-value-unschema'd` while the value ships unchanged; declaring the
 path `:large` is what elides it. A `:large`-marked
-subtree containing a `:sensitive` descendant redacts rather than showing a size
-preview. **Classification does not propagate** — you redact exactly the paths you
+subtree containing a `:sensitive` descendant still elides behind the ordinary size
+marker, with its `:bytes` (and `:digest`) measured after the descendant is redacted,
+so the marker never varies with a secret. **Classification does not propagate** — you redact exactly the paths you
 classify, and nothing is inherited (no "derived output takes its input's sensitivity,"
 no universal "same value redacted everywhere"). If you derive a secret to a new path —
 through a sub, a flow, anything — classify that path. The existing sentinel/display

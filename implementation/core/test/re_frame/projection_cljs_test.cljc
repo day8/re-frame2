@@ -169,13 +169,14 @@
          (rf/project-egress {:secret big-string}
                             {:frame :proj/both :rf.egress/profile :rf.egress/off-box-observability}))))
 
-(deftest path-walker-nested-large-over-sensitive-descendant-redacts
+(deftest path-walker-nested-large-over-sensitive-descendant-elides-after-redaction
   ;; `rf.classification/redact-with-paths` walks event arg-maps, sub outputs,
-  ;; fx args and cofx values. A :large path with a :sensitive descendant
-  ;; descends and redacts, emitting no marker (Spec 015 §No-propagation, a
-  ;; MUST), for a nested and a whole-value large path alike; with no
-  ;; sensitive descendant it still marks.
-  (is (= [{:a {:b :rf/redacted :c "public"}} {:b :rf/redacted :other "ok"}]
+  ;; fx args and cofx values. A :large path with a :sensitive descendant elides
+  ;; behind the ordinary marker, measured over the subtree after the descendant
+  ;; redacts (Spec 015 §No propagation), for a nested and a whole-value large
+  ;; path alike; with no sensitive descendant it marks the raw subtree.
+  (is (= [{:a (rf.elision/->marker {:b :rf/redacted :c "public"} [:a] {:reason :classification})}
+          (rf.elision/->marker {:b :rf/redacted :other "ok"} [] {:reason :classification})]
          [(rf.classification/redact-with-paths {:a {:b "PATH-WALKER-SECRET" :c "public"}} [[:a :b]] [[:a]])
           (rf.classification/redact-with-paths {:b "WHOLE-VALUE-SECRET" :other "ok"} [[:b]] [[]])]))
   (is (large-marker? (:a (rf.classification/redact-with-paths {:a {:b "x"}} [[:elsewhere]] [[:a]])))))
