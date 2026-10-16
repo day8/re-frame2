@@ -503,25 +503,28 @@ async function runShadow(args, opts = {}) {
   const display = clojure
     ? `clojure ${clojure} -m shadow.cljs.devtools.cli ${args.join(' ')}`
     : `shadow-cljs ${args.join(' ')}`;
-  let exe;
-  let exeArgs;
-  if (clojure) {
-    exe = 'clojure';
-    exeArgs = [...clojure.split(/\s+/).filter(Boolean), '-m', 'shadow.cljs.devtools.cli', ...args];
-  } else {
-    try {
-      exeArgs = [resolveRunner(cwd), ...args];
-    } catch (err) {
-      log(`${label}: could not resolve shadow-cljs from ${cwd} (run \`npm install\` there): ${err.message}`);
-      return 1;
-    }
-    exe = process.execPath;
-  }
 
   const release = policy === 'none' ? () => {} : await acquireLane({ command: display, cwd });
   try {
+    // The declared outputs go first, before anything can refuse the run: a stale
+    // bundle that outlived a failed attempt is what this helper exists to prevent,
+    // whether the compiler failed or never started.
     for (const p of cleanPaths) {
       fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+    let exe;
+    let exeArgs;
+    if (clojure) {
+      exe = 'clojure';
+      exeArgs = [...clojure.split(/\s+/).filter(Boolean), '-m', 'shadow.cljs.devtools.cli', ...args];
+    } else {
+      try {
+        exeArgs = [resolveRunner(cwd), ...args];
+      } catch (err) {
+        log(`${label}: could not resolve shadow-cljs from ${cwd} (run \`npm install\` there): ${err.message}`);
+        return 1;
+      }
+      exe = process.execPath;
     }
     const result = await spawnOwned(exe, exeArgs, {
       cwd,
