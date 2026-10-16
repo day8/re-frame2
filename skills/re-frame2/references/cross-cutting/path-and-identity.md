@@ -117,7 +117,7 @@ A resource instance's identity is a **scoped resource key** — `[canonical-scop
    (canonical [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]))  ;; => true
 ```
 
-Work ids build on the same identity (`[:rf.work/resource scoped-resource-key generation]`) — one fact, one canonical id. See `patterns/resources.md` for the resource-side authoring rules.
+A work id names an attempt, not a key (`[:rf.work/resource resource-id generation]`) — one fact, one canonical id; the scope and params stay in the scoped key. See `patterns/resources.md` for the resource-side authoring rules.
 
 ## Routes are prisms
 
