@@ -1251,10 +1251,11 @@
   ;; epoch, yet it holds real traces, a hydration mismatch among them. So
   ;; when focus pins it and the bundle is present, the feed lists that
   ;; bundle's events through `h/project-feed-from-ungrouped`: the
-  ;; mismatch's row names both hashes in its reason, and expanding it shows
-  ;; the raw trace's `:server-hash` and `:client-hash` tags. Every other
-  ;; focus takes the epoch path unchanged, and so does an `:ungrouped` pin
-  ;; whose bundle has gone, which reads `:no-epoch`.
+  ;; mismatch lists as a row, and expanding it shows the raw trace with
+  ;; React's message (`:error`), the hydrating door (`:where`) and
+  ;; `:recovery`. Every other focus takes the epoch path unchanged, and so
+  ;; does an `:ungrouped` pin whose bundle has gone, which reads
+  ;; `:no-epoch`.
   (rf/reg-sub :rf.xray/trace-feed
     {:inputs [[:rf.xray/focus]
               [:rf.xray/epoch-history]

@@ -7,9 +7,12 @@
   payload builder would emit — see `examples/capabilities/ssr/ssr/core.cljc`'s
   `handle-request` for the reference). The browser-side `run` reads the
   payload, dispatches `:rf/hydrate` (locked `:replace-app-db` policy per
-  [spec/011-SSR.md §The :rf/hydrate event]), renders against the now-
-  seeded app-db, and invokes `verify-hydration!` to drive hash-based
-  mismatch detection.
+  [spec/011-SSR.md §The :rf/hydrate event]), and renders against the
+  now-seeded app-db. The static markup is hand-written rather than the
+  byte-for-byte paint of the client's root, so the client renders over it
+  with a fresh root instead of hydrating it; the hydrating render, and the
+  adoption report a divergence draws, are exercised by the sibling
+  `ssr_hydration_mismatch/` testbed.
 
   Per-request `:rf.server/*` response data — the per-request side-channel
   the server-side framework uses for headers / cookies / status / redirect
@@ -36,16 +39,12 @@
       `:schemas/app-schemas-digest` late-bind hook isn't registered —
       captured by the trace listener installed below and exposed on
       `window.__rf_trace_events()`.
-    - `verify-hydration!` is invoked post-first-render with the resolved
-      client tree. On the happy path (no hash baked in the payload) the
-      check no-ops cleanly; a sibling testbed (`ssr_hydration_mismatch/`)
-      exercises the mismatch trace.
     - Click pipeline is live post-hydration: `inc` mutates `:count`, the
       sub recomputes, the view re-renders.
 
   This is NOT a tutorial — bodies are stark. HOT PATH comments mark the
-  three load-bearing trigger sites: trace-bus listener install, hydrate
-  dispatch, and post-render `verify-hydration!`."
+  two load-bearing trigger sites: trace-bus listener install and the
+  hydrate dispatch."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; SSR hydration metadata is durable runtime-db state, so the
@@ -54,7 +53,9 @@
             [re-frame.subs :as rf.subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.ssr :as rf.ssr]
+            ;; Loading the SSR artefact registers `:rf/hydrate` and its
+            ;; compatibility-check fxs.
+            [re-frame.ssr]
             [cljs.reader])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -77,8 +78,6 @@
     (clj->js
       (cond-> {:operation (str (:operation ev))
                :op-type   (some-> ev :op-type str)}
-        (:server-hash t) (assoc :server-hash (:server-hash t))
-        (:client-hash t) (assoc :client-hash (:client-hash t))
         (:failing-id t)  (assoc :failing-id (str (:failing-id t)))
         (:check t)       (assoc :check (str (:check t)))
         ;; `:recovery` is hoisted onto the top-level envelope.
@@ -183,7 +182,7 @@
 
 (defn read-server-payload
   "Read the EDN payload baked into the static index.html. Per Spec 011
-  §Payload scope: `{:rf/version :rf/frame-id :rf/app-db :rf/render-hash
+  §Payload scope: `{:rf/version :rf/frame-id :rf/app-db
   :rf/schema-digest? :rf/response?}`."
   []
   (when-let [el (.getElementById js/document "__rf_payload")]
@@ -212,7 +211,7 @@
     (rf/with-frame :rf/default
       (if payload
         ;; HOT PATH — :rf/hydrate is auto-registered by re-frame.ssr;
-        ;; replaces app-db with the payload's :rf/app-db, stashes
+        ;; replaces app-db with the payload's :rf/app-db, records
         ;; metadata in runtime-db at [:rf.runtime/ssr :hydration],
         ;; dispatches the two compatibility-check fxs (which the trace
         ;; listener mirrors).
@@ -220,14 +219,4 @@
         ;; Degraded path: no payload baked. Don't crash — render against
         ;; the empty app-db. This is the "client-only first load" shape.
         (rf/dispatch-sync [::inc])))
-    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
-
-    ;; HOT PATH — verify-hydration! reads the server-hash stashed at
-    ;; [:rf.runtime/ssr :hydration :server-hash] in runtime-db, computes
-    ;; the client-render hash, and emits :rf.ssr/hydration-mismatch on
-    ;; disagreement.
-    ;; Resolve the view under the current (default) frame so the
-    ;; subs evaluate against the post-hydrate app-db.
-    (when payload
-      (let [tree ((rf/view :ssr-basic.core/root))]
-        (rf.ssr/verify-hydration! :rf/default tree)))))
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])))

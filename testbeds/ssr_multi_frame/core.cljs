@@ -23,19 +23,20 @@
   subtrees render the three panels. Each subtree reads ONLY its own
   frame's app-db — `:counter/a`'s `:n` sub fires against `:counter/a`'s
   app-db, never `:counter/b`'s. A `data-testid='hydration-summary'`
-  element renders the three frames' post-hydrate hydration metadata —
-  read from each frame's runtime-db at `[:rf.runtime/ssr :hydration]` —
-  to prove each frame's hydrate-event fired against its own frame-state
-  (no cross-frame bleed).
+  element reads each frame directly — its hydration metadata from
+  runtime-db at `[:rf.runtime/ssr :hydration]` and its seeded value from
+  app-db — to prove each frame's hydrate-event fired against its own
+  frame-state (no cross-frame bleed).
 
   What a Playwright consumer observes:
 
     - Three panels with distinct seeded values, each tagged with the
       frame id. Cross-frame state is independent (Inc-A only bumps
       `:counter/a`; A's panel reads 11, B's panel still reads 99).
-    - The hydration-summary block confirms three independent
-      runtime-db `[:rf.runtime/ssr :hydration] {:server-hash ...}`
-      records — one per frame — proving the round-trip is per-frame.
+    - The hydration-summary block confirms three hydrated frames
+      (each with its own runtime-db `[:rf.runtime/ssr :hydration]`
+      record) holding three distinct seeded values — proving the
+      round-trip is per-frame.
 
   This is NOT a tutorial — bodies are stark."
   (:require [reagent.dom.client :as rdc]
@@ -46,7 +47,8 @@
             [re-frame.subs :as rf.subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.ssr :as rf.ssr]
+            ;; Loading the SSR artefact registers `:rf/hydrate`.
+            [re-frame.ssr]
             [cljs.reader])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -81,7 +83,7 @@
 (rf/reg-sub :n          (fn [db _] (:n db)))
 (rf/reg-sub :entries    (fn [db _] (:entries db)))
 ;; The SSR hydration metadata is durable runtime-db state — the `:rf/hydrate`
-;; handler stashes it at [:rf.runtime/ssr :hydration] in each frame's
+;; handler records it at [:rf.runtime/ssr :hydration] in each frame's
 ;; runtime-db partition (NOT app-db). So :hydration is a runtime-db sub; the
 ;; frame-explicit `{:frame f}` reads in `hydration-summary` resolve it against
 ;; each named frame's runtime-db.
@@ -106,9 +108,6 @@
      [:p "hydrated="
       [:span {:data-testid (str "hyd-" test-suffix)}
        (str (boolean hyd))]]
-     [:p "server-hash="
-      [:span {:data-testid (str "hash-" test-suffix)}
-       (str (:server-hash hyd))]]
      [:button {:data-testid (str "inc-" test-suffix)
                :on-click    #(dispatch [::inc])}
       "Inc"]]))
@@ -126,8 +125,6 @@
       [:span {:data-testid "entries-count"} (count entries)]]
      [:p "hydrated="
       [:span {:data-testid "hyd-log"} (str (boolean hyd))]]
-     [:p "server-hash="
-      [:span {:data-testid "hash-log"} (str (:server-hash hyd))]]
      [:ul {:data-testid "log-entries"
            :style {:max-height "8em" :overflow :auto}}
       (for [[idx e] (map-indexed vector entries)]
@@ -136,31 +133,33 @@
 
 (reg-view hydration-summary []
   ;; Cross-frame readout — proves each frame's runtime-db hydration
-  ;; metadata ([:rf.runtime/ssr :hydration]) was written independently.
-  ;; Reactive `subscribe` with the frame-explicit
-  ;; opts form (`[query-v {:frame f}]`) so each reaction resolves against the
-  ;; named frame's app-db (this view renders OUTSIDE any `frame-provider`),
-  ;; and the summary re-renders when a frame's hydration metadata changes.
+  ;; metadata ([:rf.runtime/ssr :hydration]) was written, and each frame's
+  ;; app-db holds its OWN payload slice. Reactive `subscribe` with the
+  ;; frame-explicit opts form (`[query-v {:frame f}]`) so each reaction
+  ;; resolves against the named frame (this view renders OUTSIDE any
+  ;; `frame-provider`), and the summary re-renders when a frame changes.
   ;; (Render-time reads are reactive `subscribe`, never `subscribe-once`.)
-  (let [hyd-a @(rf/subscribe [:hydration] {:frame frame-a})
-        hyd-b @(rf/subscribe [:hydration] {:frame frame-b})
-        hyd-l @(rf/subscribe [:hydration] {:frame frame-log})]
+  (let [hyd-a  @(rf/subscribe [:hydration] {:frame frame-a})
+        hyd-b  @(rf/subscribe [:hydration] {:frame frame-b})
+        hyd-l  @(rf/subscribe [:hydration] {:frame frame-log})
+        seed-a @(rf/subscribe [:n] {:frame frame-a})
+        seed-b @(rf/subscribe [:n] {:frame frame-b})
+        seed-l (count @(rf/subscribe [:entries] {:frame frame-log}))]
     [:div {:data-testid "hydration-summary"
            :style {:border  "1px solid #aaa"
                    :padding "0.5em"
                    :margin  "0.5em 0"
                    :font-family "monospace"}}
-     [:p "frame :counter/a hash="
-      [:span {:data-testid "summary-a-hash"} (str (:server-hash hyd-a))]]
-     [:p "frame :counter/b hash="
-      [:span {:data-testid "summary-b-hash"} (str (:server-hash hyd-b))]]
-     [:p "frame :log hash="
-      [:span {:data-testid "summary-log-hash"} (str (:server-hash hyd-l))]]
+     [:p "frame :counter/a hydrated=" (str (boolean hyd-a)) " n="
+      [:span {:data-testid "summary-a-seed"} (str seed-a)]]
+     [:p "frame :counter/b hydrated=" (str (boolean hyd-b)) " n="
+      [:span {:data-testid "summary-b-seed"} (str seed-b)]]
+     [:p "frame :log hydrated=" (str (boolean hyd-l)) " entries="
+      [:span {:data-testid "summary-log-seed"} (str seed-l)]]
      [:p "all-distinct="
       [:span {:data-testid "summary-all-distinct"}
-       (str (= 3 (count (set [(:server-hash hyd-a)
-                              (:server-hash hyd-b)
-                              (:server-hash hyd-l)]))))]]]))
+       (str (and (every? boolean [hyd-a hyd-b hyd-l])
+                 (= 3 (count (set [seed-a seed-b seed-l])))))]]]))
 
 (reg-view root []
   [:div {:data-testid "ssr-multi-frame"

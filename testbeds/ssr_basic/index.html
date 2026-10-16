@@ -14,21 +14,18 @@
 <body>
   <!--
     SERVER-RENDERED markup. Per Spec 011 §The render-tree → HTML emitter,
-    this is the bytes the JVM-side `(ssr/render-to-string ((rf/view
-    :ssr-basic.core/root)) {:doctype? true :render-hash h})` would have
-    produced if a Clojure server were sitting in front. The companion
-    `<script id="__rf_payload">` below carries the serialised app-db +
-    metadata so the client-side `run` can `:rf/hydrate` against the same
-    state the server's render saw.
+    this is the shape the JVM-side `(ssr/render-to-string [(rf/view
+    :ssr-basic.core/root)] {:doctype? true})` produces when a Clojure
+    server sits in front. The companion `<script id="__rf_payload">`
+    below carries the serialised app-db + metadata so the client-side
+    `run` can `:rf/hydrate` against the same state the server's render
+    saw.
 
-    The static page deliberately omits a `data-rf-render-hash` attribute
-    on the root — the matching hash would have to be computed from the
-    full canonical-EDN walk of the resolved hiccup tree, which is JVM-
-    side machinery. The payload's `:rf/render-hash` slot is left nil so
-    `verify-hydration!` no-ops cleanly (server has nothing to compare
-    against). The hash-mismatch path is exercised by the sibling testbed
-    `testbeds/ssr_hydration_mismatch/`; this surface is the no-mismatch
-    baseline.
+    The markup is hand-written and indented for reading, so the client
+    renders over it with a fresh root rather than hydrating it. The
+    hydrating render, and the mismatch report React's recovery draws, are
+    exercised by the sibling testbed `testbeds/ssr_hydration_mismatch/`;
+    this surface is the no-mismatch baseline.
   -->
   <div id="app">
     <div data-testid="ssr-basic" style="font-family: sans-serif; padding: 1em">
@@ -58,7 +55,6 @@
   <script id="__rf_payload" type="application/edn">
 {:rf/version     1
  :rf/frame-id    :rf/default
- :rf/render-hash nil
  :rf/app-db      {:count 7
                   :title "seeded"}
  :rf/response    {:status   200
