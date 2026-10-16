@@ -845,7 +845,7 @@ A frame owns the browser URL by carrying `:url-bound? true`, and that declaratio
 
 ```clojure
 (rdc/render @react-root
-  [rf/frame-root {:id             :app/main
+  [rf/frame-root {:id             :rf/default
                   :doc            "The application frame."
                   :url-bound?     true                       ;; this frame owns the browser URL
                   :url-strategy   rf.routing/history-url-strategy   ;; the default; omittable
@@ -1003,13 +1003,13 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 
 (defn ^:export run []                                  ;; the client build's :init-fn
   (rf/init! reagent-adapter/adapter)
-  (rf/make-frame {:id :app/main :platform :client})    ;; the client names its own frame; the payload names none
+  (rf/make-frame {:id :rf/default :platform :client})  ;; the client names its own frame; the payload names none
   (let [payload (ssr/hydrate!                          ;; read __rf_payload, install it, verify the render hash
-                  {:frame :app/main :render-tree-fn (fn [] ((rf/view :app/root)))})]
+                  {:frame :rf/default :render-tree-fn (fn [] ((rf/view :app/root)))})]
     (when-not payload                                  ;; nil: nobody server-rendered this page
-      (rf/dispatch-sync [:client/bootstrap] {:frame :app/main}))
+      (rf/dispatch-sync [:client/bootstrap] {:frame :rf/default}))
     (reagent-adapter/render! app-root
-      [rf/frame-provider {:frame :app/main} [(rf/view :app/root)]]
+      [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]
       (js/document.getElementById "app")               ;; the shell's app element
       {:hydrate? (some? payload)})))                   ;; adopt the server's DOM, or mount fresh
 ```
