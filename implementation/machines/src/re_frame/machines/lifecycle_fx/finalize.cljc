@@ -518,8 +518,8 @@
                         runtime-db reply-parent-id)
         stale-spawn?  (and reply-parent-id reply-invoke-id (not parent-live?))
         ;; The carried generation is THIS finishing attempt's work-id
-        ;; generation; the CURRENT generation is the LIVE counterpart — the generation of
-        ;; the actor currently occupying the spawn slot at
+        ;; generation; the CURRENT generation is the LIVE counterpart — the
+        ;; generation of the actor currently occupying the spawn slot at
         ;; `[:rf.runtime/machines :spawned parent-id invoke-id]`, read ONLY
         ;; when the parent is still live. With the parent gone there is no
         ;; live counterpart, so `:current` is nil — exactly the supersession
