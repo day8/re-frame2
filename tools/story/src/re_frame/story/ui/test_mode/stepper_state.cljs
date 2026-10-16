@@ -24,14 +24,14 @@
        :statuses       <vector>       ; `rf.story.ui.test-mode.stepper-pure/enrich-statuses` rows
        :breakpoints    #{<int>}       ; step indices that pause auto-play
        :epoch-stack    <vector>       ; per-step :epoch-id pre-images, for
-                                      ;   step-back via rf/restore-epoch!
+                                      ;   step-back via restore-epoch!
        :interval-id    <int|nil>      ; the auto-play setInterval handle
        :tick-ms        <int>}         ; ms between auto-play steps
 
   ## Step-back semantics
 
   The runtime substrate only steps FORWARD (`step-once!`). To support
-  step-back we leverage the same `rf/restore-epoch!` substrate the
+  step-back we leverage the same `restore-epoch!` substrate the
   scrubber uses: BEFORE each forward step we capture the variant frame's
   current `:epoch-id` (the head of `epoch-history`) and push it onto
   `:epoch-stack`. A step-back POPS the stack and `restore-epoch`s the
@@ -51,7 +51,7 @@
   unmounts, or when the stepper hits the end of the play sequence.
   Clears the interval and the per-frame play state."
   (:require [reagent.core                                 :as r]
-            [re-frame.core                                :as rf]
+            [re-frame.story.assertions                    :as rf.story.assertions]
             [re-frame.story.play                          :as rf.story.play]
             [re-frame.story.runtime                       :as rf.story.runtime]
             [re-frame.story.ui.test-mode.state            :as rf.story.ui.test-mode.state]
@@ -70,7 +70,7 @@
   Returns nil when the history is empty (production elision / disabled
   ring buffer)."
   [variant-id]
-  (-> (rf/epoch-history variant-id) last :epoch-id))
+  (-> (rf.story.assertions/epoch-history variant-id) last :epoch-id))
 
 (defn- recompute-statuses
   "Pure: re-derive the enriched step list from a slot. Called after every
@@ -203,7 +203,7 @@
 
 (defn step-back!
   "Restore the variant frame to its previous epoch and decrement the
-  cursor. Uses `rf/restore-epoch!` against the top-of-stack id;
+  cursor. Uses `rf.story.runtime/restore-epoch!` against the top-of-stack id;
   no-ops when the stepper is parked at step 0 or not active.
 
   Step-back never re-dispatches the popped event — that would create a
@@ -232,7 +232,7 @@
             target-id (peek stack)
             new-stack (vec (butlast stack))]
         (when target-id
-          (rf/restore-epoch! variant-id target-id))
+          (rf.story.runtime/restore-epoch! variant-id target-id))
         ;; Pop the substrate's last-run step + result so the row outcomes
         ;; track the cursor and a re-step re-runs the popped step cleanly.
         (rf.story.play/stepper-step-back! variant-id)
@@ -255,7 +255,7 @@
             ;; first pre-image we pushed on `begin!`).
             seed  (first stack)]
         (when seed
-          (rf/restore-epoch! variant-id seed))
+          (rf.story.runtime/restore-epoch! variant-id seed))
         ;; Restoring the pre-play epoch above already rewinds
         ;; `[:rf.story/assertions]` (it lives in the frame's app-db), so a
         ;; fresh forward run starts clean without an explicit accumulator

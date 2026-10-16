@@ -29,11 +29,11 @@ Fresco renders through `react-dom/client` and interprets its own hiccup, so it
 needs no renderer from an adapter. What the adapter supplies is the reactive half:
 the container `app-db` lives in, and derived values that notify when it changes.
 
-Reagent, reagent-slim and UIx adapters also work under a Fresco tree, because every
+Reagent and UIx adapters also work under a Fresco tree, because every
 React adapter writes the same frame context. An app that already installs one for
 its other views runs its Fresco views on it and needs no second adapter.
 [Installation](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter)
-teaches the boot line, and [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md)
+teaches the boot line, and [Use UIx](../core/how-to/use-uix-or-slim.md)
 lists the other adapters and their coordinates.
 
 ## Adapter spec

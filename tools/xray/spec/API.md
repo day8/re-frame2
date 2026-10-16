@@ -546,9 +546,9 @@ reference:
 | `(rf/register-listener! :trace key callback)` | Spec 009 | The trace bus (every operation). Xray attaches through the facade, like any other listener — what keeps the collector out of a production build is preload placement plus the `goog.DEBUG` gate, not the namespace the call names (per [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)). |
 | `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records. `day8/re-frame2-epoch` is a hard Xray dependency (`tools/xray/deps.edn`) and `install.cljs` carries a bare `[re-frame.epoch]` require, so the producer is loaded on every startup path and the facade's absent-artefact no-op cannot arise for a compiled Xray. |
 | `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)` | Spec 009 | The named frame's bounded trace ring (default 50 retained events, per-frame override via `:rf.trace/events-retained`). `opts` is the Spec 009 filter map; `{:flat true}` yields raw trace events instead of event bundles. |
-| `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
-| `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
-| `(rf/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | The partition-write surface (a partial frame-state map). **Not consumed by shipped Xray code — there is no call site under `tools/xray/src`.** Xray's only epoch write is the confirmed rewind `(rf/restore-epoch! …)` above; a rewind that fails leaves the frame unchanged and raises the inline `:rf.xray/reset-flash` notice, never a "try anyway" override — that modal-confirmation flow died with the deleted Time Travel panel (rf2-yhl5v), see [`018-Event-Spine.md`](./018-Event-Spine.md) §Tab-ribbon chrome and [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md). Xray's own test fixtures call it to seed a frame's app-db. |
+| `(rf.epoch/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
+| `(rf.epoch/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
+| `(rf.epoch/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | The partition-write surface (a partial frame-state map). **Not consumed by shipped Xray code — there is no call site under `tools/xray/src`.** Xray's only epoch write is the confirmed rewind `(rf.epoch/restore-epoch! …)` above; a rewind that fails leaves the frame unchanged and raises the inline `:rf.xray/reset-flash` notice, never a "try anyway" override — that modal-confirmation flow died with the deleted Time Travel panel (rf2-yhl5v), see [`018-Event-Spine.md`](./018-Event-Spine.md) §Tab-ribbon chrome and [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md). Xray's own test fixtures call it to seed a frame's app-db. |
 | `(rf/app-db-value frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
 | `(rf/compute-sub query-v db)` | Spec 008 | One-shot evaluation of a sub against a supplied db value. **Not consumed by shipped Xray code — there is no call site anywhere under `tools/xray`, in `src`, `test` or `testbeds`.** Sub values reach the reactive/subs panel from the epoch record's `:rf.sub/prev-value` / `:rf.sub/value` trace tags, which the panel projects; the in-tree mentions of `compute-sub` are prose about that pure form emitting no `:rf.sub/first-run?` tag, not calls. |
 | `(rf/registrations {:source :store :kind kind})` / `(rf/handler-meta {:source :store :kind kind :id id})` | Spec 001 | Registry-browser metadata. |
@@ -947,7 +947,7 @@ default `:app`, exactly like application code. Nor is there a
 re-dispatch affordance that could stamp one — the `R` re-dispatch key
 is catalogued in [`007-UX-IA.md`](./007-UX-IA.md) §Trimmed pending
 demand as never wired, with no implementation at all — and the Epoch
-panel's rewind calls `(rf/restore-epoch! frame-id epoch-id)` directly
+panel's rewind calls `(rf.epoch/restore-epoch! frame-id epoch-id)` directly
 rather than dispatching a tagged event.
 
 The origin tag Xray *reads* is the one the pair tooling sets. The

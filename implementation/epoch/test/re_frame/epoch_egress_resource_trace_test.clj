@@ -23,7 +23,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             ;; `fx/reg-fx`, the plain fn: it replaces the framework's own
             ;; `:rf.http/managed` registration in place, where the `rf/reg-fx`
@@ -421,7 +421,7 @@
   (testing "every family row a REAL ensure / release-owner cascade emits reaches
             a settled record's :trace-events"
     (let [bus-family (filterv family-row? (drive-real-cascade!))
-          records    (rf/epoch-history :test/rt)]
+          records    (rf.epoch/epoch-history :test/rt)]
       (is (contains-secret? bus-family)
           "FIXTURE — the cascade emitted family rows carrying the raw secret")
       (is (= (frequencies (map :operation bus-family))
@@ -591,7 +591,7 @@
                        {:resource resource-id :params params
                         :owner    [:app :reader 2] :reply-to read-reply-target}]
                       {:frame :test/rt})
-    (rf/epoch-history :test/rt)))
+    (rf.epoch/epoch-history :test/rt)))
 
 (deftest fx-carrier-reply-tokens-carry-no-enumerable-content
   (testing "a redacting owner's reply :value and :params tokenize on the
@@ -887,7 +887,7 @@
                       {:frame :test/rt})
     (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error abort-envelope})
                       {:frame :test/rt})
-    (first (filter #(seq (carrier-replies %)) (rf/epoch-history :test/rt)))))
+    (first (filter #(seq (carrier-replies %)) (rf.epoch/epoch-history :test/rt)))))
 
 (def ^:private continuation-settle-drives
   {:rf.resource.internal/succeeded

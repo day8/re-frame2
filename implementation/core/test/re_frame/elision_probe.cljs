@@ -222,14 +222,14 @@
   ;;      snapshotted sentinel.
   (rf/configure! {:epoch-history {:depth 10}})
   (rf/register-listener! :epoch ::probe-epoch (fn [_record] nil))
-  (let [_history (rf/epoch-history :rf/default)]
+  (let [_history (rf.epoch/epoch-history :rf/default)]
     nil)
   (rf/unregister-listener! :epoch ::probe-epoch)
   ;; Drive a restore failure-mode emit site so the unknown-epoch
   ;; sentinel has a path through a documented entry point. The
   ;; remaining failure ops survive via their literal occurrence in
   ;; the gated emit-restore-failure! call sites in re-frame.epoch.
-  (rf/restore-epoch! :rf/default 999999)
+  (rf.epoch/restore-epoch! :rf/default 999999)
   ;; replace-frame-state! is the Tool-Pair §Pair-tool-writes
   ;; surface. The body is gated by an `(if-not interop/debug-enabled?
   ;; false ...)` early-return — the success branch fires
@@ -239,7 +239,7 @@
   ;; three string fragments must elide under :advanced + goog.DEBUG=
   ;; false. Calling against a frame ID without forcing an actual
   ;; replace is enough — the literal sentinels live in the gated body.
-  (rf/replace-frame-state! :rf/default {:rf.db/app {}})
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {}})
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
   (rf.epoch/clear-history!)

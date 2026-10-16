@@ -19,13 +19,14 @@ and the runtime drains them to a settled app-db before rendering. Concurrent
 requests each have their own frame, so they cannot see each other's state.
 See [Tutorial Step 2](tutorial.md#step-2--a-frame-per-request).
 
-### **`:rf/server-init`**
+### **setup event**
 
-The conventional boot event for a per-request frame, named in `:initial-events`.
-The name is reserved and your app registers the handler, usually with
-`:platforms #{:server}` and `:rf.cofx/requires [:rf.server/request]` so it can read
-the request. It dispatches whatever the page needs, typically the route change for
-the request's URL. See [Reading the request](concepts.md#reading-the-request).
+The app's own event that boots a per-request frame, named in `:initial-events`.
+These docs call it `:app/server-init`; any app-namespaced id works. The app
+registers it, usually with `:platforms #{:server}` and
+`:rf.cofx/requires [:rf.server/request]` so it can read the request. It dispatches
+whatever the page needs, typically the route change for the request's URL. See
+[Reading the request](concepts.md#reading-the-request).
 
 ### **render-to-string**
 

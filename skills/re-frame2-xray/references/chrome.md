@@ -91,7 +91,7 @@ explicit* **`Reset` button** on the far-right of the L3 tab-bar ribbon:
 it dispatches `:rf.xray/reset-to-epoch` against the *observed* app frame +
 the focused epoch, reinstalling that frame's WHOLE frame-state — both app-db
 AND runtime-db — from the epoch's `:frame-state-after` via
-`(rf/restore-epoch! …)` (which installs atomically through
+`(rf.epoch/restore-epoch! …)` (which installs atomically through
 `replace-frame-state!`, not the `:db-after` projection alone, so machine
 snapshots / the route slice / elision declarations / SSR metadata revive
 alongside app-db) — disabled when no epoch is focused; on the rare framework

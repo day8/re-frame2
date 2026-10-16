@@ -11,8 +11,8 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 **This is the source of truth.** Every op the skill teaches is a structured call against one of the Tool-Pair surfaces:
 
 - `(rf/register-listener! :trace id cb)` / `(re-frame.trace.tooling/trace-buffer frame-id)` — the trace stream. (Listeners attach through the stream-parameterized facade verb; the 2-arg `re-frame.trace.tooling` fn behind it is an implementation seam. `trace-buffer` IS a same-signature `rf/` re-export and exists on both platforms; an `eval-cljs` form spells whichever home fully qualified — frame-id first, `(trace-buffer frame-id opts)` for filters.)
-- `(rf/register-listener! :epoch id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
-- `(rf/restore-epoch! ...)` — first-class time-travel.
+- `(rf/register-listener! :epoch id cb)` / `(rf.epoch/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
+- `(rf.epoch/restore-epoch! ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
 - `(re-frame.schemas/app-schemas {:frame f})` / `(rf/handler-meta {:source :store :kind kind :id id})` — registrar reflection (source-coords). (`app-schemas` lives on `re-frame.schemas`, not the `re-frame.core` façade, and takes one map whose `:frame` is required; `handler-meta` stays on `rf/`.)
 - `(rf/configure! {:epoch-history {:depth N}})` — ring retention.

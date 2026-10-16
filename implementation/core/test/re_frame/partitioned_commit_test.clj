@@ -30,7 +30,7 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; `replace-frame-state!` delegates to the epoch artefact's
             ;; late-bind hooks.
-            [re-frame.epoch]))
+            [re-frame.epoch :as rf.epoch]))
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -167,16 +167,16 @@
   ;; A full map replaces BOTH partitions wholesale: no key of the old
   ;; runtime-db survives.
   (rf/make-frame {:id :pc/m-full})
-  (rf/replace-frame-state! :pc/m-full {:rf.db/app     {:a :old}
+  (rf.epoch/replace-frame-state! :pc/m-full {:rf.db/app     {:a :old}
                                        :rf.db/runtime {:rf.runtime/machines {:m :old}}})
-  (rf/replace-frame-state! :pc/m-full {:rf.db/app     {:a :new}
+  (rf.epoch/replace-frame-state! :pc/m-full {:rf.db/app     {:a :new}
                                        :rf.db/runtime {:rf.runtime/routing {:r :new}}})
   (is (= {:rf.db/app {:a :new} :rf.db/runtime {:rf.runtime/routing {:r :new}}}
          (rf/frame-state-value :pc/m-full))))
 
 (deftest ^:requires-debug schema-rejection-discards-both-partitions
   (rf/make-frame {:id :pc/rb})
-  (rf/replace-frame-state! :pc/rb {:rf.db/app     {:n 0}
+  (rf.epoch/replace-frame-state! :pc/rb {:rf.db/app     {:n 0}
                                    :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
   (rf/with-frame :pc/rb
     (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
@@ -193,7 +193,7 @@
   ;; The in-band `:sensitive` effect rides the rejected candidate, so it never
   ;; installs; the `:source :flow` mark predates the event and stands.
   (rf/make-frame {:id :pc/rb-srcaware})
-  (rf/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0} :rf.db/runtime {}})
   (rf/reg-flow :creds {:frame       :pc/rb-srcaware
                        :inputs      [[:n]]
                        :output-path [:derived :creds]
@@ -212,7 +212,7 @@
   ;; A subsystem lowering a declaration during the event writes the LIVE
   ;; registry, not the discarded candidate, so the mark stands.
   (rf/make-frame {:id :pc/rb-subsys})
-  (rf/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0} :rf.db/runtime {}})
   (rf/with-frame :pc/rb-subsys
     (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
   (rf/reg-interceptor :pc/subsystem-mark-writer
@@ -236,7 +236,7 @@
   ;; durable re-registration: the old-path claim stays dropped and the
   ;; new-path claim stands.
   (rf/make-frame {:id :pc/rb-move})
-  (rf/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0} :rf.db/runtime {}})
   (rf/reg-flow :mover {:frame       :pc/rb-move
                        :inputs      [[:n]]
                        :output-path [:old :creds]
@@ -268,7 +268,7 @@
   ;; rejection that restored from there would write the slice as the whole
   ;; app-db. `:keep` is the canary outside the path.
   (rf/make-frame {:id :pc/rb-path})
-  (rf/replace-frame-state! :pc/rb-path
+  (rf.epoch/replace-frame-state! :pc/rb-path
                            {:rf.db/app     {:keep :must-survive :slice {:n 0}}
                             :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
   (rf/with-frame :pc/rb-path

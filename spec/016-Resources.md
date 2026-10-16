@@ -579,7 +579,7 @@ The surface splits into **four lanes**, and they must not be read as competing r
 | **Registration** | `reg-resource` / `clear-resource`, `reg-mutation` / `clear-mutation`, `reg-resource-scope` / `clear-resource-scope` (functions) | Author, once, at boot. Declares a handler; does **not** fetch or read state. |
 | **Commands (causal)** | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.mutation/execute …]`, … (dispatched event vectors) | App events / routes / machines. These **cause** work; they are not reads. |
 | **App reads (passive)** | `[:rf/resource …]`, `[:rf.resource/data …]`, `[:rf/mutation …]`, … (subscription vectors) | Views, via `subscribe`. The **only** lane app UI uses to project runtime state. |
-| **Tool/test projections** | the `:rf/resource` / `:rf/mutation` inner-key projections off `rf/handler-meta` (no per-kind accessor), plus `resource-state` / `mutation-state` (direct functions) | Tools (Xray), tests, SSR plumbing — an explicit-frame snapshot read. **Not** an app-UI alternative to the subscription lane. |
+| **Tool/test projections** | the `:rf/resource` / `:rf/mutation` inner-key projections off `rf/handler-meta` (no per-kind accessor), plus `resource-state` / `mutation-state` (direct functions, called in `re-frame.resources`) | Tools (Xray), tests, SSR plumbing — an explicit-frame snapshot read. **Not** an app-UI alternative to the subscription lane. |
 
 The load-bearing distinction is between **registration** (the function that records a `:resource` / `:mutation` / `:resource-scope` handler in the registrar — analogous to `reg-event` / `reg-sub`) and **projection** (reading the runtime state that handler produces). Registering a resource never reads its cache, and projecting its state never registers anything. App code projects through the **passive subscription** lane; the direct `resource-state` / `mutation-state` functions are the **tool/test projection** of the same runtime state at an explicit frame, used where there is no reactive subscription context (Xray, a unit test, an SSR serializer) — they are **not** a second app-read API competing with the subs.
 
@@ -749,7 +749,7 @@ This is a **causal-command continuation keyed on acceptance of the attempt** —
 
 ```clojure
 (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :article/by-slug}))  ;; registration projection: the registered spec
-(rf/resource-state {:resource … :scope … :params … :frame :app/main}) ;; runtime projection: one entry, explicit frame
+(rf.resources/resource-state {:resource … :scope … :params … :frame :app/main}) ;; runtime projection: one entry, explicit frame
 (keys (rf/registrations {:source :store :kind :resource}))            ;; registry enumeration: every registered id
 (keys (rf/registrations {:source :store :kind :mutation}))            ;; the same, for mutations
 (get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries]) ;; whole live entries table

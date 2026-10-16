@@ -114,7 +114,7 @@
                        ;;     (`re-frame.story.invariants`) registers a live epoch
                        ;;     listener via `(rf/register-listener! :epoch …)`;
                        ;;   • the run-artifact replay path (`re-frame.story.artifact`)
-                       ;;     captures a live epoch tape via `rf/epoch-history`.
+                       ;;     captures a live epoch tape via `rf.epoch/epoch-history`.
                        ;; Both degrade to a no-op / empty tape unless the epoch
                        ;; artefact is on the classpath. The top-level CLJS build
                        ;; already carries `epoch/src` (shadow-cljs.edn); this gives

@@ -927,7 +927,7 @@
 
 (defn- seed-framework-epoch-ring!
   "Append epoch records into the framework's per-frame ring (the same
-  atom `rf/epoch-history` reads). Each record carries the literal
+  atom `rf.epoch/epoch-history` reads). Each record carries the literal
   `:dispatch-id` slot `common/dispatch-id-of-epoch` reads, so the
   spine's epoch-id ⇄ dispatch-id correlation resolves."
   [frame-id records]

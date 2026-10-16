@@ -1,5 +1,5 @@
 (ns re-frame.resources-frame-value-target-cljs-test
-  "`rf/resource-state` and `rf/mutation-state` accept a live frame VALUE as
+  "`rf.resources/resource-state` and `rf.resources/mutation-state` accept a live frame VALUE as
   their `:frame` target and read the same rows as its id (Spec 002). Without
   the normalization a value would read a live row as a silent nil. The
   managed-HTTP fx is a no-op, so every ensured row stays in flight."
@@ -9,7 +9,7 @@
    [re-frame.core :as rf]
    [re-frame.frame :as rf.frame]
    [re-frame.fx :as rf.fx]
-   [re-frame.resources]
+   [re-frame.resources :as rf.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
@@ -80,29 +80,29 @@
     (seed! fa "jake" "a" :fv/save-a)
     (seed! fb "abel" "b" :fv/save-b)
     (testing "resource-state"
-      (let [by-id (rf/resource-state (assoc (article "a") :frame :fv/frame-a))]
+      (let [by-id (rf.resources/resource-state (assoc (article "a") :frame :fv/frame-a))]
         (is (some? by-id))
-        (is (= by-id (rf/resource-state (assoc (article "a") :frame fa))))))
+        (is (= by-id (rf.resources/resource-state (assoc (article "a") :frame fa))))))
     (testing "a {:from-db} scope resolves against the value's own frame app-db"
-      (let [by-id (rf/resource-state (assoc feed :frame :fv/frame-a))]
+      (let [by-id (rf.resources/resource-state (assoc feed :frame :fv/frame-a))]
         (is (= (session-key "jake") (:resource/key by-id)))
-        (is (= by-id (rf/resource-state (assoc feed :frame fa))))
-        (is (= (session-key "abel") (:resource/key (rf/resource-state (assoc feed :frame fb)))))))
+        (is (= by-id (rf.resources/resource-state (assoc feed :frame fa))))
+        (is (= (session-key "abel") (:resource/key (rf.resources/resource-state (assoc feed :frame fb)))))))
     (testing "mutation-state"
-      (let [by-id (rf/mutation-state {:instance :fv/save-a :frame :fv/frame-a})]
+      (let [by-id (rf.resources/mutation-state {:instance :fv/save-a :frame :fv/frame-a})]
         (is (some? by-id))
-        (is (= by-id (rf/mutation-state {:instance :fv/save-a :frame fa})))))
+        (is (= by-id (rf.resources/mutation-state {:instance :fv/save-a :frame fa})))))
     (testing "another frame stays isolated when addressed by value"
-      (is (nil? (rf/resource-state (assoc (article "b") :frame fa))))
-      (is (nil? (rf/mutation-state {:instance :fv/save-b :frame fa}))))
+      (is (nil? (rf.resources/resource-state (assoc (article "b") :frame fa))))
+      (is (nil? (rf.resources/mutation-state {:instance :fv/save-b :frame fa}))))
     (testing "a destroyed frame reads nil by its retained value"
       (rf.frame/destroy-frame! fa)
-      (is (nil? (rf/resource-state (assoc (article "a") :frame fa))))
-      (is (nil? (rf/mutation-state {:instance :fv/save-a :frame fa}))))
+      (is (nil? (rf.resources/resource-state (assoc (article "a") :frame fa))))
+      (is (nil? (rf.resources/mutation-state {:instance :fv/save-a :frame fa}))))
     (rf.frame/destroy-frame! fb)))
 
 (deftest missing-nil-and-unknown-targets-are-unchanged
   (seed! :rf/default "jake" "a" :fv/save-a)
   (is (thrown-with-msg? #?(:clj Throwable :cljs js/Error) #"no-frame-context"
-        (rf/resource-state (article "a"))))
-  (is (nil? (rf/resource-state (assoc (article "a") :frame :fv/no-such-frame)))))
+        (rf.resources/resource-state (article "a"))))
+  (is (nil? (rf.resources/resource-state (assoc (article "a") :frame :fv/no-such-frame)))))

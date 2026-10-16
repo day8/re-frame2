@@ -58,7 +58,7 @@ node-test build.
 **Status: the wiring gate.** These parse `runtime.cljs` and pin its *wiring* —
 not copied behaviour. They cover: the runtime→`pure` delegations and live-gate
 injection (`pure_delegation_test.clj`); framework-boundary wiring the runtime
-must keep (`app_db_reset_test.clj` → `rf/replace-frame-state!`,
+must keep (`app_db_reset_test.clj` → `rf.epoch/replace-frame-state!`,
 `dom_readback_redaction_test.clj` → `rf/project-egress`,
 `registrar_describe_test.clj` → `strip-fns` / `:handler-fn` hygiene,
 `frame_registrar_test.clj`, `dispatch_consequence_test.clj`); the load-time

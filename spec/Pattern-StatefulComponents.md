@@ -5,7 +5,7 @@
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic where the host has a component-lifecycle equivalent; on the JVM there is no DOM to bridge, so the pattern is browser-side.
 
-> **What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **stock-Reagent compatibility/interop tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **UIx and reagent-slim adapters**. All three are first-class and actively supported (see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role). It is the guidance for bridging a stateful JS component.
+> **What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **stock-Reagent compatibility/interop tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **UIx adapter**. Both are first-class and actively supported (see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role). It is the guidance for bridging a stateful JS component.
 >
 > The Form-3 / `reg-view*` / `capture-frame` shape documented here is the shipping bridge.
 
@@ -55,7 +55,7 @@ Nothing more. The outer is pure render; it never touches the DOM; it never holds
 
 ### Inner — Form-3-equivalent lifecycle wrapper
 
-The inner view is **not** a Form-1. It is whatever the active adapter exposes as its Form-3 equivalent — a Reagent `create-class` for Reagent / Reagent-slim, a `use-effect` body for UIx. The inner owns three lifecycle phases:
+The inner view is **not** a Form-1. It is whatever the active adapter exposes as its Form-3 equivalent — a Reagent `create-class` for Reagent, a `use-effect` body for UIx. The inner owns three lifecycle phases:
 
 1. **Mount** — after first commit, the DOM mount point exists. Read it via a ref, hand it to the library's constructor, stash the resulting instance handle in a per-mount closure cell (a plain `atom` for Reagent; a `ui/ref` for hooks-based adapters). Apply the initial props.
 2. **Update** — when props change, the library's instance is **already mounted**; it is not torn down and re-created. Push the new props into the instance via whatever imperative API the library exposes (`.setData`, `.setView`, `.setOptions`, `.update`, `.panTo`, …).
@@ -74,7 +74,7 @@ The outer handles the reactive read; the inner handles the imperative lifecycle.
 
 ## Per-adapter spelling
 
-The shape is identical across adapters; only the lifecycle-hook surface differs. Cross-link to each adapter's README for the exact API surface and per-adapter worked example. Per the classification callout above, the **Reagent** and **Reagent-slim** rows are the stock-Reagent compatibility/interop tier and the **UIx** row is a first-class, actively-supported adapter — all three live on and remain the shipping spelling today.
+The shape is identical across adapters; only the lifecycle-hook surface differs. Cross-link to each adapter's README for the exact API surface and per-adapter worked example. Per the classification callout above, the **Reagent** row is the stock-Reagent compatibility/interop tier and the **UIx** row is a first-class, actively-supported adapter — both live on and remain the shipping spelling today.
 
 | Adapter | Inner lifecycle surface | Registration | Reference |
 |---|---|---|---|
@@ -89,7 +89,7 @@ The three things that are identical across adapters:
 
 The one cross-adapter discipline: **carry the frame from render-time into the after-commit callback** — never a bare `(rf/dispatch […])` from inside a lifecycle callback (it escapes the frame scope, carries no frame stamp, and fails loudly with `:rf.error/no-frame-context` — no `:rf/default` fall-through; per [Spec 002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)). The carried value is the same primitive on every adapter — a `(rf/capture-frame)` frame api, whose `:dispatch` op resolves to the right frame after commit — but the **spelling is per-adapter**:
 
-- **Reagent / Reagent-slim** — capture `(rf/capture-frame)` at render-time, in the closure around `create-class`, and use its `:dispatch` op.
+- **Reagent** — capture `(rf/capture-frame)` at render-time, in the closure around `create-class`, and use its `:dispatch` op.
 - **UIx** — call the **`use-frame` hook** at the top of the `defui` body: the hook-position spelling of `capture-frame`, returning the same `{:frame :dispatch :dispatch-sync :subscribe}` frame api. The hook reads the surrounding `frame-provider` / `frame-root` through React context, which a bare render-time `(rf/capture-frame)` in a plain hooks component **cannot** — no-arg capture reads only the dynamic-var tier, so under a context-only frame it raises `:rf.error/no-frame-context`. Read subs in the outer with **`use-sub`** (not `@(subscribe …)`).
 
 ## Worked example — a Mapbox-shaped widget

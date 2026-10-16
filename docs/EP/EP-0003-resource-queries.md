@@ -1266,7 +1266,7 @@ Introspection:
 
 ```clojure
 (rf/resource-meta :article/by-slug)
-(rf/resource-state
+(rf.resources/resource-state
  {:resource :article/by-slug
   :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}

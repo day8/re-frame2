@@ -50,13 +50,13 @@ per-request, and the wire payload stays minimal.
   It's the same frame isolation that powers tests and stories — here it
   buys the privacy you most need when rendering many users' pages in one
   JVM. `handle-request` (`:clj`) mints the frame — its `:initial-events`
-  fire `:rf/server-init` — renders, and tears the frame down in a
+  fire `:app/server-init` — renders, and tears the frame down in a
   `finally` on every exit path — success or throw, no leak.
 
 - Block on the preload, so the render never sees a skeleton. A
   resource is normally async: ask for it, get a `:loading` view-model,
   fill in the data when the reply lands. That's wrong for SSR, where
-  there's no second render to fill anything in. So `:rf/server-init`
+  there's no second render to fill anything in. So `:app/server-init`
   [ensures](../../../../docs/resources/glossary.md#owner--cause) the page
   resource under an `[:ssr request-id nav-token]`
   [owner](../../../../docs/resources/glossary.md#owner--cause) with
@@ -68,7 +68,7 @@ per-request, and the wire payload stays minimal.
   current nav-token, and a route-free `[:ssr …]`-owned ensure never
   registers there. Instead `handle-request` calls `await-resource-loaded!`
   (defined alongside it), which polls the resource's own runtime entry
-  directly via the public `rf/resource-state` introspection read until it
+  directly via the public `rf.resources/resource-state` introspection read until it
   reaches `:loaded` / `:error`, or a render-deadline budget elapses. Only
   `:loaded` proceeds to render; a failed fetch or exhausted deadline returns
   HTTP 503 with `Cache-Control: no-store` and no hydration payload. The

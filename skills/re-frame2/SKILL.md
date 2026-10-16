@@ -56,7 +56,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 Triggers and the sibling-skill carve-outs are in the description above; the full disambiguation matrix is [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). This skill edits source files and runs the project's own declared noninteractive gates (workflow step 9). Its story-mcp grants are the author/refine tools; `register-variant` writes only when the server was started with writes allowed ([`references/tooling/story-mcp-loop.md`](references/tooling/story-mcp-loop.md)).
 
-This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fresco is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Fresco](references/fundamentals/views.md#fresco--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
+This skill's view surface is the **adapters** — Reagent, UIx. Fresco is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Fresco](references/fundamentals/views.md#fresco--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
 
 ## Cardinal rules
 

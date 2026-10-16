@@ -12,7 +12,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Publishes the epoch late-bind hooks this test reads through.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -31,7 +31,7 @@
     (let [before (js/Date.now)]
       (rf/dispatch-sync [:clk/init])
       (let [after        (js/Date.now)
-            committed-at (:committed-at (last (rf/epoch-history :rf/default)))]
+            committed-at (:committed-at (last (rf.epoch/epoch-history :rf/default)))]
         ;; ~10s slack either side for slow CI.
         (is (and (>= committed-at (- before 10000))
                  (<= committed-at (+ after 10000)))

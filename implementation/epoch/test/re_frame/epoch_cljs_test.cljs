@@ -8,7 +8,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Publishes the epoch late-bind hooks this test reads through.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             ;; Schemas + the Malli adapter so a `:schema`-bearing reg-event's
             ;; `:where :event` violation actually fires (without the adapter the
             ;; default validator soft-passes).
@@ -36,5 +36,5 @@
     (is (= 1 (count (filter #(and (= :rf.error/schema-validation-failure
                                      (:operation %))
                                   (= :event (-> % :tags :where)))
-                            (:trace-events (last (rf/epoch-history :rf/default))))))
+                            (:trace-events (last (rf.epoch/epoch-history :rf/default))))))
         "the :where :event violation is captured in THIS epoch's :trace-events")))

@@ -115,7 +115,6 @@ For local investigation, opt into the green-path tables:
 ```bash
 RF2_VERBOSE_TESTS=1 npm run test:elision
 RF2_VERBOSE_TESTS=1 npm run test:bundle-isolation
-RF2_VERBOSE_TESTS=1 npm run test:reagent-slim:bundle-isolation
 RF2_VERBOSE_TESTS=1 npm run test:schemas-bundle
 RF2_VERBOSE_TESTS=1 npm run test:perf-bundle
 ```

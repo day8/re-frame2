@@ -41,7 +41,7 @@
  :fixture/doc          "Cross-Spec #16 Server error projection. An fx handler throws on a server frame; the runtime emits :rf.error/fx-handler-exception with the original exception message; the active error projector maps it to the locked generic-500 public-error shape on the request frame's response accumulator. The internal trace preserves full detail; the public-error is sanitised."
 
  :fixture/registry
- {:event {:rf/server-init {:doc "Per-request server-side init — dispatches a chain that ends in the buggy fx."
+ {:event {:app/server-init {:doc "Per-request server-side init — dispatches a chain that ends in the buggy fx."
                            :platforms #{:server}}
           :load/start     {:doc "Emits the buggy fx as part of its :fx return."
                            :platforms #{:server}}}
@@ -52,7 +52,7 @@
    {:doc "Built-in default projector — maps :rf.error/fx-handler-exception to generic 500 (anything-else branch)."}}}
 
  :fixture/handlers
- {:event {:rf/server-init [[:fx [[:dispatch [:load/start]]]]]
+ {:event {:app/server-init [[:fx [[:dispatch [:load/start]]]]]
           :load/start     [[:fx :user.fx/db-call {:query "users"}]]}
   :fx    {:user.fx/db-call
           ;; Throw with an internal-detail message — the projector's
@@ -60,7 +60,7 @@
           ;; appear on the public response.
           [[:throw "Postgres unreachable: PASSWORD=hunter2"]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]]
+ :fixture/frame-config {:initial-events [[:app/server-init]]
                         :platform  :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}
@@ -81,7 +81,7 @@
   ;;      the trace surface is allowed (and required) to preserve PII;
   ;;      sanitisation happens at the projector boundary.
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :load/start}}
    {:operation :rf.error/fx-handler-exception
     :op-type   :error

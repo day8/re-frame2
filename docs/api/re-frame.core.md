@@ -332,7 +332,7 @@ The value is a map `{interceptor-ref replacement}`:
 - Events queued with `[:dispatch …]` or `[:dispatch-later …]` inherit the dispatch's map.
 - The `{:boundary? true}` schema check of [`reg-event`](#reg-event) runs before the chain, so no override can remove it.
 - In development builds the run's `:rf.event/run-start` trace event carries `:rf.interceptor/override-summary`: `{:matched […] :replaced […] :removed […] :count n}`, naming the keys that matched an entry. A key that matched nothing is not listed.
-- An epoch record carries the dispatch's map as `:interceptor-overrides`, never the frame's, so [`replay-epoch!`](#replay-epoch) supplies the recorded map and the frame's own config applies as it stands at replay.
+- An epoch record carries the dispatch's map as `:interceptor-overrides`, never the frame's, so [`replay-epoch!`](re-frame.epoch.md#replay-epoch) supplies the recorded map and the frame's own config applies as it stands at replay.
 
 ```clojure
 (rf/reg-interceptor :app/audit
@@ -536,7 +536,7 @@ The framework registers a few `:rf/*` events that you dispatch like any other. R
 
 Register views with `reg-view`. Give a subtree its frame with `frame-root` when the subtree should bring the frame into being, or `frame-provider` when the frame already exists; [Frames](#frames) covers when you need more than one.
 
-Frames, subscriptions, dispatch, source metadata and registry ids work the same under every adapter, and `capture-frame` works under all of them. Adapter-specific functions are on each adapter's page: [re-frame.adapter.reagent](re-frame.adapter.reagent.md) (full and slim Reagent) and [re-frame.adapter.uix](re-frame.adapter.uix.md), whose components read and dispatch through the `use-sub` and `use-frame` hooks.
+Frames, subscriptions, dispatch, source metadata and registry ids work the same under every adapter, and `capture-frame` works under all of them. Adapter-specific functions are on each adapter's page: [re-frame.adapter.reagent](re-frame.adapter.reagent.md) and [re-frame.adapter.uix](re-frame.adapter.uix.md), whose components read and dispatch through the `use-sub` and `use-frame` hooks.
 
 ### `reg-view`
 
@@ -782,7 +782,7 @@ Any other top-level key rejects the event before anything commits, so a valid `:
   ```
 - **Description**: `overrides` is a map `{fx-id override}`. Replaces effect handlers for every `dispatch` and `dispatch-sync` inside `body`, usually to stub an effect in a test. Each such call merges the map under its own `:fx-overrides`, so a per-call key wins. The overrides apply for the dynamic extent of `body` and compose with `with-frame`.
     - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
-    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](#replay-epoch).
+    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
     - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
     - `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` and `:rf.route/with-nav-token` cannot be overridden: the override is ignored, the real effect runs, and `:rf.error/reserved-fx-override` is emitted.
     - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
@@ -957,7 +957,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 - The new frame starts with an empty `app-db` and `runtime-db` and runs its `:initial-events` again; a machine's snapshot stays `nil` until the machine next handles an event.
 - For a frame built from images, pass the same `:images` vector again; otherwise the new frame gets the default image, which runs every registration.
 - Flows are not part of the config. `destroy-frame!` removes the frame's flows, so register them again after `make-frame`, or register them from `:initial-events` with [`:rf.fx/reg-flow`](re-frame.flows.md#rffxreg-flow).
-- To empty `app-db` and keep `runtime-db`, dispatch `[:rf/set-db {}]` instead. Development tools can also call `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
+- To empty `app-db` and keep `runtime-db`, dispatch `[:rf/set-db {}]` instead. Development tools can also call `(rf.epoch/replace-frame-state! frame-id {:rf.db/app {}})`.
 - The pair is not atomic. `destroy-frame!` has no handler-scope guard, so called from inside a handler it destroys the frame, and the following `make-frame` throws because frames cannot be created inside a handler, leaving the frame destroyed. Frame creation and destruction belong outside handlers anyway.
 - See [Ending and resetting a frame](../core/frames.md#ending-and-resetting-a-frame).
 
@@ -1151,7 +1151,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
     - `(init!)` with no argument is an arity error: an `ArityException` on the JVM, a compiler warning on ClojureScript. `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified`.
     - Calling it again with the installed adapter is a no-op. Calling it with a different adapter raises `:rf.error/adapter-already-installed` and leaves the installed one in place; call `destroy-adapter!` first to switch. Two adapter maps are the same adapter when they carry the same canonical `:rf.adapter/*` `:kind`, or when they are the identical map.
     - Until `init!` runs, `make-frame`, `frame-root` and anything else that needs the adapter raise `:rf.error/no-adapter-installed`. Returns `nil`.
-    - The shipped adapter Vars: `re-frame.adapter.reagent/adapter`, `re-frame.adapter.reagent-slim/adapter`, `re-frame.adapter.uix/adapter`, `re-frame.fresco.substrate/adapter`, `re-frame.ssr/adapter` for server rendering, and `re-frame.substrate.plain-atom/adapter`, the headless adapter for tests and scripts on the JVM or Node.
+    - The shipped adapter Vars: `re-frame.adapter.reagent/adapter`, `re-frame.adapter.uix/adapter`, `re-frame.fresco.substrate/adapter`, `re-frame.ssr/adapter` for server rendering, and `re-frame.substrate.plain-atom/adapter`, the headless adapter for tests and scripts on the JVM or Node.
     - Hot reload is safe with the shipped adapters. Reloading re-evaluates the adapter map with new function identities, but its canonical kind is unchanged, so a `^:dev/after-load` call stays a no-op. See [Hot reload](../core/how-to/boot-and-mount-an-app.md#hot-reload).
     - A custom adapter with no canonical kind is compared by identity, so re-evaluating its Var and calling `init!` again raises. Hold it in a `defonce`, or call [`destroy-adapter!`](#destroy-adapter) in the after-load fn.
     - See [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md).
@@ -1189,7 +1189,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
   (current-adapter) → adapter map or nil
   ```
 - **Description**: Returns the installed adapter map, exactly as passed to `rf/init!`, or `nil` when no adapter is installed. The map carries the adapter contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) and a `:kind`.
-    - To branch on the substrate, read `(:kind (rf/current-adapter))`: `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/fresco`, `:rf.adapter/plain-atom` or `:rf.adapter/ssr`, or `nil` for a custom adapter map with no canonical kind. `:rf.adapter/helix`, `:rf.adapter/ui` and `:rf.adapter/freehand` are reserved, and nothing produces them.
+    - To branch on the substrate, read `(:kind (rf/current-adapter))`: `:rf.adapter/reagent`, `:rf.adapter/uix`, `:rf.adapter/fresco`, `:rf.adapter/plain-atom` or `:rf.adapter/ssr`, or `nil` for a custom adapter map with no canonical kind. `:rf.adapter/helix`, `:rf.adapter/reagent-slim`, `:rf.adapter/ui` and `:rf.adapter/freehand` are reserved, and nothing produces them.
     - To check whether an adapter is installed, test the map, not `:kind`: a custom adapter without a kind is installed while `(:kind (rf/current-adapter))` reads `nil`.
     - In a Fresco app, `:kind` names the substrate the app booted on (normally `:rf.adapter/fresco`), not the view layer; see [re-frame.fresco](re-frame.fresco.md).
 - **Example**:
@@ -1360,7 +1360,7 @@ Malli schemas attached to `app-db` paths, validated on writes in development bui
 
 Only the two SSR registration macros, `reg-head` and `reg-error-projector`, are on this facade. They resolve to `re-frame.ssr` when the `day8/re-frame2-ssr` artefact is on the classpath and throw `:rf.error/ssr-artefact-missing` otherwise.
 
-Everything else is called on `re-frame.ssr`: `render-to-string`, `render-tree-hash`, `project-error`, `head-model`, `head-model->html` and `hydrate!` (the head functions are also on `re-frame.ssr.head`). Requiring `re-frame.ssr` is what installs the SSR runtime, so an app that renders on the server already names it. The SSR page also documents the `:rf.server/*` fx and the `:rf/server-init` and `:rf/hydrate` events; the Ring adapter is on [re-frame.ssr.ring](re-frame.ssr.ring.md).
+Everything else is called on `re-frame.ssr`: `render-to-string`, `render-tree-hash`, `project-error`, `head-model`, `head-model->html` and `hydrate!` (the head functions are also on `re-frame.ssr.head`). Requiring `re-frame.ssr` is what installs the SSR runtime, so an app that renders on the server already names it. The SSR page also documents the `:rf.server/*` fx and the `:rf/hydrate` event; the Ring adapter is on [re-frame.ssr.ring](re-frame.ssr.ring.md).
 
 SSR registers no subscriptions: `:rf/head` and `:rf/public-error` are data shapes, read with `head-model` and `project-error` ([details](re-frame.ssr.md#subscriptions--there-are-none)).
 
@@ -1417,17 +1417,9 @@ Resources are cached server-state reads, and mutations are the writes that updat
 - **Signature**: `(resolve-resource-scope db scope-id) → scope or nil`
 - **Description**: Resolves the named scope resolver against `db`. See [`resolve-resource-scope`](re-frame.resources.md#resolve-resource-scope).
 
-#### `resource-state`
+#### Reading a resource's or mutation's runtime state
 
-- **Kind**: function
-- **Signature**: `(resource-state {:resource … :scope … :params … :frame …}) → entry or nil`
-- **Description**: Returns a resource instance's durable runtime entry in an explicit frame, resolving the scoped key as a subscription would. For tools and tests. See [`resource-state`](re-frame.resources.md#resource-state).
-
-#### `mutation-state`
-
-- **Kind**: function
-- **Signature**: `(mutation-state {:instance … :frame …}) → row or nil`
-- **Description**: Returns a mutation instance's durable runtime row (`{:status :result :error …}`) in an explicit frame. For tools and tests. See [`mutation-state`](re-frame.resources.md#mutation-state).
+These reads are inspection for tools and tests, so they are called in `re-frame.resources` rather than through `rf/`: [`resource-state`](re-frame.resources.md#resource-state) and [`mutation-state`](re-frame.resources.md#mutation-state).
 
 #### Reading a registered resource's or mutation's spec
 
@@ -1590,7 +1582,7 @@ See [Observability](../core/observability.md).
 - **Description**: Returns a record or value prepared for sending off-box: the paths the frame classifies as sensitive are redacted and large values elided, as the chosen egress profile (a named policy for one kind of destination) directs. Call it before handing anything to an off-box destination yourself, or to check what a sink will receive; sinks registered with [`register-observability-sink!`](#register-observability-sink) are handed records already projected. It is the only record-level egress function.
     - It recognises four record kinds by `:kind`: `:rf.observe/handled-event`, `:rf.observe/error`, `:rf.observe/derived-tree` and `:rf/epoch-record`. An input without a recognised `:kind` is walked as a plain value against the frame's classification.
     - Projecting an `:rf/epoch-record` needs the optional `day8/re-frame2-epoch` artefact. Without it the call throws `:rf.error/epoch-artefact-missing`, naming the kind, rather than walking the record as a plain value, which would ship its `app-db` slots raw.
-    - To project a whole epoch ring, map over it: `(mapv #(rf/project-egress % opts) (rf/epoch-history frame-id))`. The ring and its listeners always hold the raw record, so projecting never affects `restore-epoch!`. See [re-frame.epoch](re-frame.epoch.md).
+    - To project a whole epoch ring, map over it: `(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))`. The ring and its listeners always hold the raw record, so projecting never affects `restore-epoch!`. See [re-frame.epoch](re-frame.epoch.md).
     - See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md), and [Choosing a profile](../core/how-to/keep-secrets-out-of-traces.md#choosing-a-profile).
 - **Options**: `opts` is closed; an unknown key throws `:rf.error/bad-egress-opts`, naming it.
 
@@ -1674,36 +1666,9 @@ See [Observability](../core/observability.md).
   ```clojure
   (epoch-history frame-target) → vector of epoch records
   ```
-- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds. See [`epoch-history`](re-frame.epoch.md#epoch-history) for the full contract.
+- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds, and `[]` without the `day8/re-frame2-epoch` artefact. It is the same read as [`re-frame.epoch/epoch-history`](re-frame.epoch.md#epoch-history), which new code calls.
 
-### `restore-epoch!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (restore-epoch! frame-target epoch-id)      → boolean
-  (restore-epoch! frame-target epoch-id opts) → boolean
-  ```
-- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `true`, or `false` when it refuses. With `opts` `{:to :before}` it installs the state from before the epoch's event instead. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
-
-### `replay-epoch!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replay-epoch! frame-target epoch-id)      → envelope map (false when elided / artefact absent)
-  (replay-epoch! frame-target epoch-id opts) → envelope map (false when elided / artefact absent)
-  ```
-- **Description**: Development builds only: runs a retained epoch's event again in `frame-target`, a frame id or a live frame value, with the coeffect values and overrides it recorded, and returns a `{:ok? …}` envelope. See [`replay-epoch!`](re-frame.epoch.md#replay-epoch) for the full contract.
-
-### `replace-frame-state!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replace-frame-state! frame-target frame-state) → boolean
-  ```
-- **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, and records a synthetic epoch so `restore-epoch!` can rewind it. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
+Rewinding a frame, replaying an epoch and writing frame state outside the event pipeline are tools, so they are called in `re-frame.epoch` rather than through `rf/`: [`restore-epoch!`](re-frame.epoch.md#restore-epoch), [`replay-epoch!`](re-frame.epoch.md#replay-epoch) and [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state).
 
 ## Registrar queries
 

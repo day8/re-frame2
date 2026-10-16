@@ -910,7 +910,7 @@ collector buffers raw events for panel-side projections (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md)), the epoch-collector serves
 a different job: it is the **reactive pump** that keeps Xray's
 cached epoch-history snapshot consistent with the framework's. Xray
-cannot subscribe directly against `(rf/epoch-history target)` —
+cannot subscribe directly against `(rf.epoch/epoch-history target)` —
 the framework atom backs a side-effecting read, not a reactive
 source. Routing each settle through Xray's `:rf/xray` frame is
 what makes the
@@ -958,7 +958,7 @@ registered against `:rf/xray` (per
 and is responsible for the no-op-vs-update decision: when the
 record's `:frame` does not match the currently-selected target
 frame, the handler returns `db` unchanged; when it matches, the
-handler re-reads `(rf/epoch-history target)` and writes the fresh
+handler re-reads `(rf.epoch/epoch-history target)` and writes the fresh
 vector into Xray's app-db. Re-reading rather than threading the
 record's contents through the dispatch arg keeps the snapshot
 consistent with the framework's own view — the record is the
@@ -1014,7 +1014,7 @@ outside any `:rf/xray` event, so it roots a family of its own and
 `:drain-depth` never halts the burst; the cost is the events themselves.
 
 Coalescing loses no information, because the dispatch is a **trigger,
-not a payload**: the handler re-reads `(rf/epoch-history target)`, so a
+not a payload**: the handler re-reads `(rf.epoch/epoch-history target)`, so a
 merged burst of N settles on one frame yields exactly the snapshot the
 N-th dispatch would have written. The arg keeps its meaning ("this
 frame recorded"), and the handler keeps its target comparison
@@ -1067,7 +1067,7 @@ no-op it correctly performs for a host that must tolerate the artefact's
 absence. The "absent-artefact" case therefore cannot arise for a compiled
 Xray. See [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).
 Xray's epoch-reading panels still render an empty state when
-`(empty? (rf/epoch-history ...))` — but that reflects a target frame
+`(empty? (rf.epoch/epoch-history ...))` — but that reflects a target frame
 with **no epochs recorded yet**, not an absent artefact. (There is no
 Time Travel PANEL to point at: it was deleted under `rf2-qy0nu` as
 unreachable in the 4-layer shell. Its epoch / target-frame plumbing

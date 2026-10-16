@@ -35,7 +35,7 @@
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; `re-frame.epoch` records the tape `rf/restore-epoch!` travels back on;
+  ;; `re-frame.epoch` records the tape `rf.epoch/restore-epoch!` travels back on;
   ;; clear it so each test reads only its own epochs.
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
@@ -101,10 +101,10 @@
   (let [vid :story.stepper/mutating]
     (reg-mutating! vid)
     (start! vid)
-    (let [pre-play (-> (rf/epoch-history vid) last :epoch-id)]
+    (let [pre-play (-> (rf.epoch/epoch-history vid) last :epoch-id)]
       (dotimes [_ 3] (rf.story.play/step-once! vid))
       (is (= 3 (count-of vid)) "precondition: the stepped run reached the end")
-      (rf/restore-epoch! vid pre-play)
+      (rf.epoch/restore-epoch! vid pre-play)
       (rf.story.play/stepper-rewind! vid)
       (is (= 0 (count-of vid)) "the bottom epoch is the :setup state, not the post-script one")
       (is (= 3 (count (:remaining (slot vid)))) "and every step is pending again"))))

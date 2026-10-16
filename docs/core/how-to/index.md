@@ -38,7 +38,7 @@ To inspect a *running* app instead — read a [frame](../glossary.md#frame)'s ap
 | keep tokens, passwords, and large blobs out of traces | [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) |
 | hear about production errors with their full context | [Report errors in production](report-errors-in-production.md) |
 | set up dev and production builds | [Configure dev and production builds](configure-dev-and-prod.md) |
-| render with UIx or reagent-slim instead of Reagent | [Use UIx or reagent-slim](use-uix-or-slim.md) |
+| render with UIx instead of Reagent | [Use UIx](use-uix-or-slim.md) |
 
 ## When a recipe is the wrong shape
 

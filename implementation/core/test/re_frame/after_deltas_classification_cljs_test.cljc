@@ -20,8 +20,8 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.classification :as rf.classification]
-            ;; Publishes the epoch hooks `rf/epoch-history` reads.
-            [re-frame.epoch]
+            ;; Publishes the epoch hooks `rf.epoch/epoch-history` reads.
+            [re-frame.epoch :as rf.epoch]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.privacy :as rf.privacy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -289,7 +289,7 @@
     (let [ev       (run-focused! [:fc84b/set-token-carried])
           run-end? #(= :rf.event/run-end (:operation %))
           ring-ev  (last (filter run-end? (rf/trace-buffer frame-id {:flat true})))
-          epoch-ev (first (filter run-end? (:trace-events (last (rf/epoch-history frame-id)))))
+          epoch-ev (first (filter run-end? (:trace-events (last (rf.epoch/epoch-history frame-id)))))
           closed   #{:rf.interceptor.delta/id :rf.interceptor.delta/ctx-delta}]
       (doseq [[where e] [[:listener ev] [:ring ring-ev] [:epoch epoch-ev]]]
         (let [recs (get-in e [:tags :rf.event/after-deltas])]

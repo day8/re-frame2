@@ -62,6 +62,7 @@
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.mount :as mount]
@@ -119,7 +120,7 @@
   []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id host-frame})
-  (rf/replace-frame-state! host-frame
+  (rf.epoch/replace-frame-state! host-frame
                            {:rf.db/app {:counter 5 :user {:name "ada"}}})
   (mount/ensure-xray-frame! :rf/xray)
   (rf/dispatch-sync [:rf.xray/set-target-frame host-frame] {:frame :rf/xray})

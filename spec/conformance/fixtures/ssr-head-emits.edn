@@ -13,7 +13,7 @@
                           :path "/articles/:id"
                           :head :head/article}}
   :head  {:head/article {:doc "Article-page head model."}}
-  :event {:rf/server-init {:platforms #{:server}}}}
+  :event {:app/server-init {:platforms #{:server}}}}
 
  :fixture/handlers
  {:head  {:head/article
@@ -25,11 +25,11 @@
                      {:property "og:title" :content "Article: re-frame2 SSR"}
                      {:property "og:image" :content "https://example.com/og.png"}]
              :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}]]}
-  :event {:rf/server-init [[:set [:articles "123"] {:title "re-frame2 SSR"
+  :event {:app/server-init [[:set [:articles "123"] {:title "re-frame2 SSR"
                                                     :summary "How re-frame2 ships SSR"
                                                     :image "https://example.com/og.png"}]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
+ :fixture/frame-config {:initial-events [[:app/server-init]] :platform :server}
 
  :fixture/dispatches [[:rf.route/handle-url-change "/articles/123"]]
 
@@ -51,5 +51,5 @@
    "<link rel=\"canonical\" href=\"https://example.com/articles/123\">"]
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}]}}
