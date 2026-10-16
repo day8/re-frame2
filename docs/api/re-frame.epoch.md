@@ -246,7 +246,7 @@ Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-liste
 - `id` may be any comparable value; registering the same `id` again replaces the callback.
 - `(rf/register-listener! :epoch …)` returns `id`, or `nil` when the `day8/re-frame2-epoch` artefact is not loaded; `(rf/unregister-listener! :epoch id)` returns `nil`.
 - A listener exception is caught and isolated, emitting `:rf.epoch.cb/listener-exception`, so one broken listener cannot block the others.
-- When a frame a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback on the `:trace` stream. Call [`rf/epoch-silence-current?`](re-frame.core.md#epoch-silence-current) with the trace's tags to decide whether it still describes the current callback.
+- A callback whose frame is destroyed simply receives no more records for it. A tool that wants to forget the frame listens for `:rf.frame/destroyed` on the `:trace` stream.
 
 ```clojure
 ;; Keep the latest copy of each record, keyed by [frame epoch-id].
@@ -325,14 +325,13 @@ Trace events emitted by epoch history:
 | `:rf.error/replace-frame-state-bad-keys` | `:frame`, `:reason` (`:unknown-keys` or `:no-recognized-keys`), `:keys` |
 | `:rf.error/no-such-handler` | `:kind` (`:frame`), `:frame` |
 | `:rf.epoch.cb/listener-exception` | `:frame`, `:cb-id`, `:rf.epoch/id`, `:message` |
-| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id`, `:observed-gen` |
 | `:rf.warning/restore-quiesce-hook-exception` | `:frame`, `:hook`, `:exception` |
 
 ## Framework integration
 
 Not for application code — used by adapters, tools and the test harness.
 
-`re-frame.epoch`'s `epoch-history`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!` and `epoch-silence-current?` are the functions the same-named `rf/` vars call. `register-epoch-listener!` and `unregister-epoch-listener!` implement the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!` (there is no `rf/register-epoch-listener!`), and `configure!` implements `(rf/configure! {:epoch-history …})`, taking the inner map. None is a second public spelling; call the `rf/` forms.
+`re-frame.epoch`'s `epoch-history`, `restore-epoch!`, `replay-epoch!` and `replace-frame-state!` are the functions the same-named `rf/` vars call. `register-epoch-listener!` and `unregister-epoch-listener!` implement the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!` (there is no `rf/register-epoch-listener!`), and `configure!` implements `(rf/configure! {:epoch-history …})`, taking the inner map. None is a second public spelling; call the `rf/` forms.
 
 ### `clear-history!`
 

@@ -1096,17 +1096,10 @@ green — which is precisely why the focused build exists.
 
 **Frame-destroy handling.** When the host frame whose drain
 produced an epoch is later destroyed (per
-[Spec 002 §Destroy](../../../spec/002-Frames.md)), the framework
-emits a one-shot
-`:rf.epoch.cb/silenced-on-frame-destroy` trace event for each
-`(frame, cb-id)` pair whose previously-firing callback has gone
-silent (per
+[Spec 002 §Destroy](../../../spec/002-Frames.md)), Xray's epoch
+callback simply receives no more records for it (per
 [Tool-Pair §Surface behaviour against destroyed frames](../../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames)).
-Xray MAY surface this trace in the event log (it flows through
-the trace bus like any other event) but MUST NOT take any
-additional action on it — the silencing is the framework's
-contract surface; Xray's role is read-only observation. If the
-destroyed frame was Xray's selected target, the
+If the destroyed frame was Xray's selected target, the
 `:rf.xray/epoch-history` sub returns the last-cached vector
 until the user selects a different target frame.
 

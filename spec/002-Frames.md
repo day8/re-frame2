@@ -782,8 +782,8 @@ exact-token teardown cascade described below is the sole executable exception.
    after the destroyed trace has flowed.
 9. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
    have no second registrar row to unregister.
-10. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
-    live frame has vanished so tools silence their per-frame event buffers in one pass.
+10. **Notify epoch listeners** — publish the terminal `:halted-destroy` record, if any,
+    and drop the frame's epoch stores.
     This is the PUBLISH half of the epoch destroy contract: it ships the terminal
     evidence the pre-dissoc snapshot (below) bound. The internal hook carries the
     destroyed incarnation token and compare-cleans only that owner: if a fresh same-id
@@ -798,7 +798,7 @@ registered hooks does not change.
 own right.** Between step 7 and step 8 — before the trace-ring release, and before the
 step-9 registry dissoc — `destroy-frame!` invokes `snapshot-terminal-destroy-evidence!`
 (the `:epoch/snapshot-frame-destroyed` hook). It binds the dying incarnation's terminal
-`:halted-destroy` evidence (the partial epoch record plus the listener/silencing snapshot)
+`:halted-destroy` evidence (the partial epoch record and the listeners it fans to)
 while that incarnation still **solely** owns its id-keyed epoch stores. A same-id successor
 is constructable only *after* the dissoc, so it can never claim — and thereby drop — those
 stores out from under the snapshot; step 10 then publishes the bound evidence whether or
@@ -827,7 +827,7 @@ observes the cutoff before the frame is dissociated (for example, a captured sch
 tick fires only after destroy returns), no interrupt trace is fabricated; the queued
 work is still discarded.
 
-- Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); listener silencing emits a one-shot trace) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
+- Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); a listener simply receives no more records for the frame) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
 <a id="two-destroy-hook-verbs"></a>
 #### Two destroy-hook verbs — a naming rule
