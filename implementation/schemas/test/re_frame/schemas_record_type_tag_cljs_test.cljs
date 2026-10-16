@@ -14,8 +14,8 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; `reg-app-schema` needs an established frame scope, and the reset gives the
-;; end-to-end test a clean schema slate.
+;; The reset gives the end-to-end test a clean schema slate: a schema it
+;; registers is registrar state, rolled back after it.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter}))

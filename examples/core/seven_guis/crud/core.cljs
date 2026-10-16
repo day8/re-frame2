@@ -58,14 +58,11 @@
                    [:name    :string]
                    [:surname :string]]]])
 
-;; A schema belongs to a frame, so registering one has to say which frame.
-;; `with-frame` is how we say it: `:rf/default`, the same frame the render-root
-;; `frame-root` will create, and the one whose commits this schema then
-;; checks. Note we register against the frame before it exists — the name is all
-;; the machinery needs to hang the schema on.
+;; A schema is a program registration, like an event, so registering one names
+;; no frame: the frame the render-root `frame-root` will create resolves it, and
+;; its commits are checked against it.
 ;; See docs/core/how-to/validate-with-schemas.md.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:crud] CrudState))
+(rf/reg-app-schema [:crud] CrudState)
 
 ;; ============================================================================
 ;; EVENTS

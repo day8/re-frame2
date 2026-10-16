@@ -226,7 +226,7 @@ The Reagent-specific bridging pseudocode — which Reagent primitive realises wh
 
 - Open shape ([009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)).
 - Compile-time elidable in production ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-- Listener invocation is synchronous, on the runtime's emit call stack — every emit returns once every listener has run, except an emit raised inside a listener callback, which queues its event behind the one being delivered and returns at once. Listener-invocation order is **not contract** ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
+- Every trace event reaches every listener, in emission order, before the public operation that produced it returns; when the emit itself returns depends on who raised it. An emit outside a frame drain returns once every listener has run. A drain-owned emit — one the runtime raises while it owns a frame's drain lock — returns at once, and its event reaches listeners at the post-drain boundary, before the enclosing dispatch or drain call returns. An emit raised inside a listener callback queues its event behind the one being delivered and returns at once. Listener-invocation order is **not contract** ([009 §Subscription / consumption](009-Instrumentation.md#subscription--consumption), [009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
 
 ## Lifecycles
 

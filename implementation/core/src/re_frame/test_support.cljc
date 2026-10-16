@@ -139,7 +139,7 @@
             ;; generation, so a stale default generation cannot leak.
             [re-frame.source-store :as rf.source-store]
             [re-frame.image-assembly :as rf.image-assembly]
-            ;; The flows / schemas / machines / routing / http-managed /
+            ;; The flows / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
             ;; `reset-hook-table` var docstring below for the per-artefact
@@ -300,7 +300,7 @@
 
   Order is load-bearing — non-late-bind steps interleave with the hooks:
     1. `(reset! rf.frame/frames {})`
-    2. `:pre-dispose` hooks (flows resets, schemas clear)
+    2. `:pre-dispose` hooks (flows resets)
     3. `(rf.substrate.adapter/dispose-adapter!)`, then the error-listener,
        observability-sink, process-default and trace-disabled-frame clears
     4. `:post-dispose` hooks (machines, routing, http, epoch, ssr,
@@ -315,10 +315,6 @@
                                        flow registry, the paired dirty-check
                                        last-inputs containers, and the pending
                                        abandoned-output-paths containers.
-    :schemas/clear-by-frame!         — clear per-frame schema registrations.
-                                       Paired with `:schemas/snapshot-by-frame`
-                                       + `:schemas/restore-by-frame!` for
-                                       snapshot/restore around the test body.
     :machines/reset-timers!          — cancel in-flight `:after` wall-clock
                                        timers so a stale timer from a
                                        sibling test can't survive.
@@ -414,7 +410,6 @@
 
   Adding a new artefact's reset is a one-row addition here."
   [{:hook :flows/reset-flows!              :phase :pre-dispose}
-   {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
    {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
@@ -451,14 +446,13 @@
 ;;   1. `reinstate-and-snapshot!`  — the pre-try work: fold the ns-load
 ;;      baseline back over the live registration table, clear the generation
 ;;      cache, and CAPTURE the restore context
-;;      (table snapshot + the late-bound schemas snapshot/restore fns +
-;;      the per-frame schemas snapshot, taken BEFORE the frames reset).
+;;      (the table snapshot).
 ;;   2. `reset-runtime!`           — the reset body proper: frames reset, the
 ;;      pre/post-dispose hook phases, adapter dispose+install, the framework-
 ;;      standard re-seeds, `:clear-kinds`. Runs inside the caller's try so
 ;;      the finish half still fires if it throws.
-;;   3. `finish-runtime-reset!`    — the finally body: restore the table +
-;;      per-frame schemas, reset the frames + flows registries.
+;;   3. `finish-runtime-reset!`    — the finally body: restore the table,
+;;      reset the frames + flows registries.
 ;;
 ;; What the halves DELIBERATELY leave to each shape: establishing the ambient
 ;; frame scope. The fn-form wraps the body in a dynamic `binding` (unwound when
@@ -474,19 +468,14 @@
   clear the resolved-generation cache (EP-0026), then capture and return the
   restore context the reset + finish halves consume:
 
-    {:snap         <table snapshot to restore to on the way out>
-     :restore-fn   <late-bound schemas restore-by-frame! fn, or nil>
-     :schemas-snap <per-frame schemas snapshot, taken BEFORE the frames reset>}
+    {:snap <table snapshot to restore to on the way out>}
 
   No frames / adapter mutation happens here — that is `reset-runtime!`, run
   inside the caller's try so `finish-runtime-reset!` still fires if it throws."
   [ns-load-baseline]
   (restore-registrar! ns-load-baseline)
   (rf.image-assembly/clear-generation-cache!)
-  (let [snapshot-fn (rf.late-bind/get-fn :schemas/snapshot-by-frame)]
-    {:snap         (snapshot-registrar)
-     :restore-fn   (rf.late-bind/get-fn :schemas/restore-by-frame!)
-     :schemas-snap (when snapshot-fn (snapshot-fn))}))
+  {:snap (snapshot-registrar)})
 
 (defn- reset-runtime!
   "The per-test runtime reset body shared by both fixture shapes. Reset the ONE
@@ -497,8 +486,9 @@
   (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
   standards (`:rf.interceptor/path`, `:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
-  loaded), apply `:clear-kinds`, and LAST reinstate the `:app-ns` rows the
-  fixture removed at build time. Establishes everything EXCEPT the
+  loaded), apply `:clear-kinds`, reinstate the `:app-ns` rows the fixture
+  removed at build time, and LAST clear every app-db schema registration.
+  Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
   the section comment above).
 
@@ -529,16 +519,21 @@
   (doseq [k clear-kinds]
     (rf.registrar/clear-kind! k))
   (when app-ns
-    (reinstate-app-ns-rows! app-ns)))
+    (reinstate-app-ns-rows! app-ns))
+  ;; App-db schemas are development assertions a test opts into: clear every
+  ;; one — ns-load and `:app-ns` registrations included — so a test validates
+  ;; only against the schemas it registers, and a schema one co-loaded app
+  ;; registers never checks another app's frames.
+  (rf.registrar/clear-kind! :app-schema))
 
 (defn- finish-runtime-reset!
   "The post-test finally body shared by both fixture shapes. Restore the
-  registration table to `:snap` and the per-frame schemas to `:schemas-snap`,
-  clear the generation cache, then reset the frames + flows registries so
-  nothing a test body seated survives into the next fixture run."
-  [{:keys [snap restore-fn schemas-snap]}]
+  registration table to `:snap` (the app-db schemas step 8 of
+  `make-reset-runtime-fixture` cleared included), clear the generation
+  cache, then reset the frames + flows registries so nothing a test body
+  seated survives into the next fixture run."
+  [{:keys [snap]}]
   (restore-registrar! snap)
-  (when restore-fn (restore-fn schemas-snap))
   (rf.image-assembly/clear-generation-cache!)
   (reset! rf.frame/frames {})
   (when-let [reset-flows! (rf.late-bind/get-fn :flows/reset-flows!)]
@@ -588,14 +583,11 @@
        resolved-generation cache (EP-0026 — see above).
     1. Captures the current (baseline-reinstated) table (so user-test
        registrations can be rolled back without losing ns-load-time
-       framework / example registrations).
+       framework / example registrations, app-db schemas among them).
     2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
        `flows/reset-flows!` — atoms are private behind
-       an accessor seam) and the schemas per-frame registry (via the
-       encapsulated `:schemas/clear-by-frame!` hook → `clear-schemas-
-       by-frame!` — the raw `schemas-by-frame` atom is
-       not re-exported) (when those artefacts are loaded — reset is
-       late-bound so JVM tests that don't pull them in are unaffected).
+       an accessor seam) when that artefact is loaded — reset is
+       late-bound so JVM tests that don't pull it in are unaffected.
     3. Disposes the currently-installed substrate adapter.
     4. Cancels the machines' in-flight `:after` wall-clock timers.
     5. Clears the trace, event-emit and error-emit listeners, the
@@ -608,19 +600,21 @@
     7. If an `:app-ns` was supplied, reinstates the app rows it removed at
        fixture-build time — so this suite sees its own app, and no other
        suite's baseline ever did.
-    8. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
+    8. Clears every app-db schema registration, ns-load and `:app-ns` ones
+       included: a test validates only against the schemas it registers
+       (in its body or `:init-fn`), so one co-loaded app's schemas never
+       check another app's frames.
+    9. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter
        live — e.g. seeding test data into the just-installed adapter's
        app-db.
-    9. Runs the test.
-   10. Restores the registration table to the captured snapshot.
-   11. Restores the schemas per-frame registry to the snapshot taken before
-       the reset (via the `:schemas/restore-by-frame!` late-bind hook, when
-       the schemas artefact is loaded), then resets `rf.frame/frames` back
-       to `{}` for symmetry, and the flows registry (via the
-       `:flows/reset-flows!` late-bind hook, when flows is loaded).
+   10. Runs the test.
+   11. Restores the registration table to the captured snapshot.
+   12. Resets `rf.frame/frames` back to `{}` for symmetry, and the flows
+       registry (via the `:flows/reset-flows!` late-bind hook, when flows
+       is loaded).
 
-  Steps 10–11 run in a `finally` block so they fire even on test
+  Steps 11–12 run in a `finally` block so they fire even on test
   exceptions. The table restore they carry is also what takes the
   `:app-ns` rows of step 7 back out — the snapshot they restore to never
   held them — so an exceptional teardown leaves no app row behind.
@@ -716,7 +710,7 @@
       `dispatch-sync` in the async body therefore drains and lands, exactly
       as it does under the fn-form in a sync test.
     - `:after` tears the ambient scope back down (`set!` to nil) and runs the
-      shared restore half (registration table / schemas / frames / flows
+      shared restore half (registration table / frames / flows
       baselines). `cljs.test` guarantees `:after` runs AFTER the test's
       `done`, so the restore does not race the async body.
 
@@ -828,7 +822,7 @@
          ;; `:init-fn` (per-suite setup that needs the registrar /
          ;; adapter live, e.g. an app's `register-all!`) runs UNDER the same
          ;; ambient scope as the body, so a frame-local op in setup
-         ;; (`reg-app-schema` / a bare `dispatch`) does not throw
+         ;; (a bare `dispatch`) does not throw
          ;; `:rf.error/no-frame-context`. For the fn-form that scope is the
          ;; enclosing `binding`; for the async map-form it is the persistent
          ;; `set!` already in effect when this runs.

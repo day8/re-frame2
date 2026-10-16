@@ -69,7 +69,7 @@
 
 (deftest boot-under-the-shipped-registry
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
+    (rf/reg-app-schemas app-schema/app-db-schemas)
     (boot! f)
     (is (= booted-db (rf/app-db-value f))
         "every seed landed, each its own commit: a sibling the candidate still lacks is not checked")

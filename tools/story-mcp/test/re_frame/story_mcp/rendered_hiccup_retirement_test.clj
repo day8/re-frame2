@@ -4,7 +4,8 @@
   (:require [clojure.string :as string]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas]
             [re-frame.story :as rf.story]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.render]
@@ -20,10 +21,10 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (rf.story/clear-all!)
+  (rf.registrar/clear-kind! :app-schema)
   (rf.story/install-canonical-vocabulary!)
   (rf.story-mcp.config/set-allow-writes! false)
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.story.recorder/clear!)
   ;; Keep epoch evidence out of the wire budget on a wider test classpath.
   (rf/configure! {:epoch-history {:depth 0}})

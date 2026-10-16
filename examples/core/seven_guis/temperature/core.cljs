@@ -52,12 +52,10 @@
    [:input-source [:enum :celsius :fahrenheit]]
    [:typing       :string]])              ;; the raw characters the user is typing
 
-;; Schemas are frame-local, so registration happens inside a frame. The
-;; `frame-root` at the render root runs this app in `:rf/default`, so we
-;; name that same frame here and bind the schema to it. From then on, every
-;; commit to the `[:temp]` slice is checked against `TempState`.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:temp] TempState))
+;; A schema is a program registration, like an event, so it names no frame.
+;; The frame the `frame-root` at the render root creates resolves it, and from
+;; then on every commit to the `[:temp]` slice is checked against `TempState`.
+(rf/reg-app-schema [:temp] TempState)
 
 ;; ============================================================================
 ;; EVENTS

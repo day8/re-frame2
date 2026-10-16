@@ -90,11 +90,12 @@
 ;; ---- schema-digest --------------------------------------------------------
 
 (defn current-schema-digest
-  "Return the live digest of the named frame's registered app-schema set,
+  "Return the live digest of the app-schema set the named frame resolves,
   or nil when the schemas namespace has not registered its late-bind
-  hook (e.g. an embedding host that ships no schema layer). Per Spec 010
-  §Per-frame schemas the digest is frame-scoped — restore-mismatch
-  reasoning runs against the frame the epoch belongs to."
+  hook (e.g. an embedding host that ships no schema layer). The digest
+  follows the frame's own resolution (Spec 010 §Schemas resolve through the
+  frame's images), so restore-mismatch reasoning runs against the frame the
+  epoch belongs to."
   ([frame-id]
    (current-schema-digest frame-id (constantly true)))
   ([frame-id continue?]

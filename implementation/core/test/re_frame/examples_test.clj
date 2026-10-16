@@ -40,7 +40,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; `init!` is idempotent only for the adapter already seated, and the SSR
   ;; tests seat `re-frame.ssr/adapter`, so destroy first: every test starts on
   ;; the substrate it asks for, whatever its predecessor left
@@ -175,34 +174,31 @@
 ;; would validate against nothing. Requiring `re-frame.schemas` wires the
 ;; default Malli validator, so validation is live here.
 
-(deftest ^:requires-debug ssr-example-per-request-frame-carries-and-validates-articles-schema
-  (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
-            :articles schema and validation runs on that frame, not :rf/default"
+(deftest ^:requires-debug ssr-example-per-request-frame-validates-against-the-top-level-schema
+  (testing "examples/capabilities/ssr/ssr — a per-request SERVER frame resolves the
+            example's one top-level :articles schema with no registration of its
+            own, and validation runs on that frame"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
     (let [schema @(resolve 'ssr.core/ArticlesSchema)
           fid    (keyword "rf.frame" (str (gensym "f")))
           _      (rf.ssr/set-request! fid {:uri "/articles"})
-          _      (rf/reg-app-schema [:articles] {:frame fid} schema)
           f      (rf/with-fx-overrides {:rf.http/managed :ssr.http/canned-articles}
                    (rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
                                    :platform :server
                                    :initial-events [[:app/server-init]]}))
+          meta   (rf.schemas/app-schema-meta {:frame fid :path [:articles]})
           db     (rf/app-db-value f)
           bad-db (assoc db :articles "not-a-vector-of-articles")]
-      (is (= [schema nil 2]
-             [(:schema (rf.schemas/app-schema-meta {:frame fid :path [:articles]}))
-              (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]}))
-              (count (:articles db))])
-          "bound to the per-request frame and not :rf/default; the server-init commit loaded two articles")
-      ;; the bare [:vector …] schema accepts the loaded articles and refuses
-      ;; a non-vector on the per-request frame, while :rf/default, carrying no
-      ;; SSR schema, soft-passes the same bad value
-      (is (= [true false true]
+      (is (= [schema 'ssr.core 2]
+             [(:schema meta) (:ns meta) (count (:articles db))])
+          "the frame resolves the example's own registration; the server-init commit loaded two articles")
+      ;; the bare [:vector …] schema accepts the loaded articles and refuses a
+      ;; non-vector on the per-request frame
+      (is (= [true false]
              [(rf.schemas/validate-app-schema! db :app/server-init fid)
-              (rf.schemas/validate-app-schema! bad-db :app/server-init fid)
-              (rf.schemas/validate-app-schema! bad-db :app/server-init :rf/default)]))
+              (rf.schemas/validate-app-schema! bad-db :app/server-init fid)]))
       (rf/destroy-frame! f))))
 
 ;; ---- ssr: the client hydration path ----------------------------------------------

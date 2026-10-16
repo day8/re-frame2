@@ -251,7 +251,7 @@
                                   :bio nil :image nil}})))
   (is (true? (:sensitive? (vec-map-slot-props ws/User :token))))
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
+    (rf/reg-app-schema [:auth] app-schema/AuthSlice)
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com" :username "alice"
                                             :token "jwt-abc" :bio nil :image nil}]
                       {:frame f})

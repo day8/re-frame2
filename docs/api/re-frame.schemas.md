@@ -10,9 +10,8 @@ This namespace ships in the optional artefact `day8/re-frame2-schemas`. Require 
 ```
 
 ```clojure
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:user]
-    [:map [:id :uuid] [:name :string]]))
+(rf/reg-app-schema [:user]
+  [:map [:id :uuid] [:name :string]])
 
 (rf/reg-event :user/rename
   {:schema [:cat [:= :user/rename] :string]}
@@ -30,7 +29,7 @@ In a development build each schema is checked where its data is produced, and a 
 
 | Schema on | Declared with | Checked | On failure (`:where`) |
 |---|---|---|---|
-| An `app-db` path | `reg-app-schema` or `reg-app-schemas` | After an event handler returns `:db`, before the new `app-db` installs. Every schema in the frame is checked, including those at paths the handler did not write. | `:app-db`. The event's whole transition is rejected: `app-db` keeps its pre-handler value and the event's `:fx` do not run. |
+| An `app-db` path | `reg-app-schema` or `reg-app-schemas` | After an event handler returns `:db`, before the new `app-db` installs. Every schema the frame resolves is checked, including those at paths the handler did not write. | `:app-db`. The event's whole transition is rejected: `app-db` keeps its pre-handler value and the event's `:fx` do not run. |
 | An event | `:schema` on `reg-event`, matched against the whole event vector, id included | Before the handler runs. | `:event`. The handler does not run; the queue moves on to the next event. |
 | An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
 | A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The subscription yields `nil`. |
@@ -93,27 +92,27 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 - **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler returns `:db`, the proposed `app-db` is validated before it is installed. A write that fails keeps the pre-handler `app-db`, and the event's `:fx` do not run (see [What is validated](#what-is-validated)).
     - The schema constrains the value only where its path exists: a path the proposed `app-db` lacks is not checked, and a present `nil` is. So a slice that nothing has seeded yet blocks no commit. To require that a key exists, say so in an enclosing schema, usually the root: `(rf/reg-app-schema [] [:map [:cart CartSchema]])`. A `dissoc` of a registered slice installs unless such a schema requires the key.
     - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](#validation-in-production) on the event registration where untrusted input must be validated in production too.
-    - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries the frame under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys. A frame value passed in place of the metadata map names that frame, as `{:frame fv}` does. Without `:frame`, the schema registers against the frame in scope, for example inside `rf/with-frame`.
-    - The frame need not exist yet. A schema registered against a frame id before `make-frame` creates that frame applies once it does, so schemas can be registered at boot ahead of their frames; a mistyped frame id is not detected. Destroying the frame removes its schemas.
-    - The path is the registration id. App-db schemas are not a registrar kind: they live in the schemas artefact's per-frame table, and `(schemas/app-schema-meta {:frame f :path [:user]})` looks one up by the same path.
+    - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries `:doc` and open `:my/*` keys.
+    - Registration names no frame. It is a top-level program registration, like `reg-event`, so it needs no frame in scope and can run at namespace load. Every frame validates against the schemas it resolves, as it resolves any other registration: live from the registrar for a frame made without `:images`, through its sealed image generation for a frame made with them. A schema therefore applies to every frame that resolves it — an SSR per-request frame, a test frame from `(rf/make-frame {})`, a Story variant built from the app's image — with no per-frame step.
+    - A frame that should validate differently selects a later image that shadows the path: register the narrower schema in a namespace that image selects, and that image's frames resolve it instead.
+    - The path is the registration id, under the registrar kind `:app-schema`. `(schemas/app-schema-meta {:frame f :path [:user]})` and `(rf/registrations {:frame f :kind :app-schema})` read what a frame resolves, and `(rf/clear :app-schema [:user])` removes the registration. A hot reload drops a schema its reloaded namespace no longer registers.
+    - A path registered from two namespaces is ambiguous. A frame made without `:images` refuses it: validation fails loudly with `:rf.error/ambiguous-registration` when a candidate puts a value at that path, and the introspection reads raise the same error. The schema is never silently skipped.
     - `path` is a sequential `get-in` path of concrete segments, normalised to a vector. `[]` registers a schema for the whole `app-db`. Returns the normalised path.
     - A segment can be a keyword, string, symbol, boolean, UUID, instant, `nil`, or an integer from −9,007,199,254,740,991 to 9,007,199,254,740,991. Composite values, functions and host handles are rejected. A `nil` segment is a literal map key; a `nil` path is invalid. Use a non-negative integer to address a vector element.
-    - In development builds, registering a schema at a path whose live `app-db` value is present and fails it emits an `:rf.schema/violation` warning trace (`:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, `:frame`). That covers a first registration, whose trace has no `:pre-reload-schema`, and a re-registration with a different schema; an absent path and an unchanged re-registration emit nothing. `app-db` is left as it is: an event that leaves the slice in place commits, and one that writes it is rejected until the value it writes conforms.
+    - In development builds, registering a schema checks the live `app-db` of each running frame that resolves it: a value present at the path that fails it emits an `:rf.schema/violation` warning trace (`:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, `:frame`). That covers a first registration, whose trace has no `:pre-reload-schema`, and a re-registration with a different schema; an absent path and an unchanged re-registration emit nothing. `app-db` is left as it is: an event that leaves the slice in place commits, and one that writes it is rejected until the value it writes conforms.
     - A schema the walkers cannot inspect for `:sensitive?` / `:large?` flags warns once per process with `:rf.warning/schema-walker-opaque`: a compiled `m/schema` value, at the root or nested inside a vector form, a local `:registry`, or a `[:ref …]`. A failure against such a schema redacts every value-bearing trace slot, as if the whole schema were sensitive; register the plain vector form to keep per-slot redaction.
 - **Errors**:
     - `:rf.error/app-schema-bad-metadata` — the middle argument of the three-argument form is not a map.
     - `:rf.error/app-schema-bad-path` — the path is not sequential, or has a non-concrete segment.
     - `:rf.error/app-schema-runtime-path` — the first segment reaches the `runtime-db` partition (`:rf.runtime/*`, `:rf.db/runtime`, or the `:rf/runtime` root).
-    - `:rf.error/app-schemas-bad-arg` — `:frame` does not resolve to a keyword frame id.
-    - `:rf.error/no-frame-context` — no `:frame` and no frame in scope.
+    - `:rf.error/app-schema-frame-target` — the metadata map carries `:frame`, or a frame value sits in its place. The message points at the image route described above.
 - **Example**:
   ```clojure
-  (rf/with-frame :rf/default
-    (rf/reg-app-schema [:cells]
-      [:map [:cells/grid [:map-of :keyword :string]]]))
+  (rf/reg-app-schema [:cells]
+    [:map [:cells/grid [:map-of :keyword :string]]])
 
-  ;; naming the frame in the metadata map instead
-  (rf/reg-app-schema [:user] {:frame :rf/default :doc "The signed-in user."}
+  ;; the three-argument form carries registration metadata
+  (rf/reg-app-schema [:user] {:doc "The signed-in user."}
     [:map [:id :uuid] [:name :string]])
   ```
 
@@ -123,31 +122,30 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 - **Signature**:
   ```clojure
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...}) → [path …]
-  (reg-app-schemas {path-1 schema-1, ...} opts-or-frame-id) → [path …]
+  (reg-app-schemas {path-1 schema-1, ...} opts) → [path …]
   ```
-- **Description**: Registers several `app-db` schemas in one call; each entry behaves as a `reg-app-schema` call.
+- **Description**: Registers several `app-db` schemas in one call; each entry behaves as a `reg-app-schema` call, so each is its own frame-agnostic `:app-schema` registration.
     - A development-build assertion, as for the singular form: every entry registers in a production build but is never checked there.
     - Each entry is stamped with this call's source coords.
-    - The optional second argument names the frame for every entry: an opts map (`{:frame target}`), a frame-id keyword, or a frame value. One frame per call.
     - Returns the vector of paths registered, in map-iteration order. `{}` registers nothing.
     - Every path is checked before anything is stored, so a batch with one invalid path (`:rf.error/app-schema-bad-path` or `:rf.error/app-schema-runtime-path`) registers nothing.
     - A `nil` or non-map first argument raises `:rf.error/app-schemas-bad-batch`.
-    - A second argument that is not an opts map, a frame-id keyword or a frame value, or a `:frame` that does not resolve to a keyword frame id, raises `:rf.error/app-schemas-bad-arg`. With no frame named and none in scope the call raises `:rf.error/no-frame-context`. Either way nothing is registered.
+    - The optional second argument names no frame. A frame-id keyword, a frame value, or an opts map carrying `:frame` raises `:rf.error/app-schema-frame-target`; any other non-map value raises `:rf.error/app-schemas-bad-arg`. Either way nothing is registered.
 - **Example**:
   ```clojure
   (rf/reg-app-schemas
     ;; AuthState and ArticlesState are Malli schemas you define elsewhere
     {[:auth]     AuthState
-     [:articles] ArticlesState}
-    {:frame :rf/default})
+     [:articles] ArticlesState})
   ```
 
 ## Introspection
 
 `re-frame.core` does not re-export these reads. Each takes one opts map whose `:frame` is required: a frame-id keyword or a frame value (normalised to its id), the same targets `rf/registrations` accepts. There is no default frame and no positional frame argument, because a frame value is itself a map and could not be told apart from an opts map. [Query your schemas](../core/how-to/validate-with-schemas.md#query-your-schemas-tools-and-agents) shows them in use.
 
+- Each read answers from that frame's own resolution: the schemas its images select, or the live registrar for a frame made without `:images`. `(rf/registrations {:frame f :kind :app-schema})` answers the same.
 - A map without `:frame`, or a non-map argument, raises `:rf.error/no-frame-context`, with a message naming the `{:frame f}` form. A `:frame` that does not resolve to a keyword raises `:rf.error/app-schemas-bad-arg`.
-- A frame with no schemas returns `{}`, `nil` or the empty-set digest rather than raising, and the frame need not be live.
+- A frame that resolves no schemas returns `{}`, `nil` or the empty-set digest rather than raising. The frame need not be live: an id naming no live frame answers from each path's latest registration.
 
 ### `app-schemas`
 
@@ -156,16 +154,16 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```clojure
   (app-schemas {:frame f}) → {path registration-metadata}
   ```
-- **Description**: Returns every schema registered in a frame as a `{path → registration-metadata}` map, or `{}`.
+- **Description**: Returns every schema a frame resolves as a `{path → registration-metadata}` map, or `{}`.
     - This is the same `{id → meta}` shape [`rf/registrations`](re-frame.core.md#registrations) returns for registrar kinds.
-    - Each value is the metadata recorded by `reg-app-schema`: `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata.
+    - Each value is the metadata recorded by `reg-app-schema`: `:path`, `:schema`, `:doc` when given, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata.
     - Map `:schema` over the values when you want only the schemas.
 - **Example**:
   ```clojure
-  ;; every registration in the default frame
+  ;; every schema the default frame resolves
   (schemas/app-schemas {:frame :rf/default})
   ;; => {[:user] {:path [:user] :schema [:map [:id :uuid]]
-  ;;              :frame :rf/default :ns my.app.schema :line 12 :column 3 :file "..."}}
+  ;;              :ns my.app.schema :line 12 :column 3 :file "..."}}
 
   ;; just the schema values
   (update-vals (schemas/app-schemas {:frame :rf/default}) :schema)
@@ -179,15 +177,15 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```clojure
   (app-schema-meta {:frame f :path p}) → registration-metadata or nil
   ```
-- **Description**: Returns the registration metadata for one path in a frame, or `nil` when nothing is registered there.
-    - The map contains `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
+- **Description**: Returns the registration metadata the frame resolves for one path, or `nil` when it resolves nothing there.
+    - The map contains `:path`, `:schema`, `:doc` when given, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
     - Both `:frame` and `:path` are required. A missing or malformed `:path` raises `:rf.error/bad-path`.
 - **Example**:
   ```clojure
   ;; schema plus the source coords a tool uses to jump to the registration
   (schemas/app-schema-meta {:frame :rf/default :path [:user]})
   ;; => {:path [:user] :schema [:map [:id :uuid]]
-  ;;     :frame :rf/default :ns my.app.schema :line 12 :column 3 :file "..."}
+  ;;     :ns my.app.schema :line 12 :column 3 :file "..."}
 
   ;; the schema alone
   (:schema (schemas/app-schema-meta {:frame :tenant/a :path [:articles]}))
@@ -200,11 +198,11 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```clojure
   (app-schemas-digest {:frame f}) → string
   ```
-- **Description**: Returns one hash over all the schemas registered in a frame, so you can tell whether the set changed without comparing schemas one by one.
+- **Description**: Returns one hash over all the schemas a frame resolves, so you can tell whether the set changed without comparing schemas one by one.
     - The format is `"sha256:"` followed by the first 16 lowercase hex characters.
     - A frame with no schemas has a stable digest. Schemas made only of EDN data digest identically on every runtime. A function inside a schema (`[:map [:n pos-int?]]`) is hashed by the host's name for it, so its digest is stable across restarts of one runtime but differs between the JVM and ClojureScript and can differ between builds; a floating-point value other than a whole number in the safe-integer range carries no cross-runtime guarantee either. An SSR server on the JVM and a browser client therefore report `:rf.ssr/schema-digest-mismatch` for such a schema set; write those constraints as EDN data where the digests must match.
     - It is computed over the `{path → schema}` projection of `app-schemas`, so other registration metadata does not affect it.
-    - SSR hydration uses it to check that server and client registered the same schemas.
+    - SSR hydration uses it to check that the server's frame and the client's frame resolve the same schemas.
 - **Example**:
   ```clojure
   (schemas/app-schemas-digest {:frame :rf/default})
@@ -254,7 +252,7 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
 - **Description**: Returns the installed validator, explainer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
     - `(set-schema-fns! (schema-fns))` changes nothing.
     - `:validate` and `:explain` may be `nil`; `:print` never is.
-    - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. The equivalent for registered schemas is `snapshot-schemas-by-frame` / `restore-schemas-by-frame!`.
+    - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. Registered schemas are registrar state, so `re-frame.test-support`'s registrar snapshot restores them after each test, and its reset clears them for the test's length.
 - **Example**:
   ```clojure
   ;; capture / stub / restore is an ordinary let + finally over a value
@@ -305,12 +303,12 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id frame-id continue?) → boolean or :rf/stale-incarnation
   (validate-app-schema! db event-id frame-id continue? db-before) → boolean or :rf/stale-incarnation
   ```
-- **Description**: Validates the handler's proposed `app-db` before installation, against every schema registered for the frame whose path the proposed `app-db` has. A path it lacks is skipped in every arity, and a present `nil` is checked. Schemas registered in other frames are ignored.
+- **Description**: Validates the handler's proposed `app-db` before installation, against every schema the frame resolves whose path the proposed `app-db` has. A path it lacks is skipped in every arity, and a present `nil` is checked. A schema the frame's images do not select is ignored.
     - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
     - `db-before` (optional, and what the runtime passes) is the `app-db` the candidate replaces. A schema whose slice the candidate leaves `identical?` to it is skipped, since the commit does not write that slice. A parent path is still checked when a write lands beneath it, and `[]` whenever the db changed.
-    - Returns `true` when every schema conformed, and also when no validator or no schema is registered for the frame, or the build elided validation.
+    - Returns `true` when every schema conformed, and also when no validator is installed, the frame resolves no schema, or the build elided validation.
     - Returns `false` when at least one schema failed. The router then rejects the transition: `app-db` keeps its pre-handler value and the event's `:fx` are skipped.
     - Does nothing for any schema when `set-schema-fns!` has installed a `nil` `:validate`.
 
@@ -495,44 +493,7 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
 
 ### Test support
 
-These functions reset the artefact's state between tests. `re-frame.test-support`'s `make-reset-runtime-fixture` calls the snapshot, restore and clear functions for you; the latch and cache resetters let each test case start with no remembered warnings and empty caches. `on-frame-destroyed!` is called by frame teardown.
-
-#### `snapshot-schemas-by-frame`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (snapshot-schemas-by-frame) → snapshot
-  ```
-- **Description**: Returns a snapshot of the per-frame schema registry; restore it with `restore-schemas-by-frame!`. It is the registry-level counterpart of `schema-fns`.
-
-#### `restore-schemas-by-frame!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (restore-schemas-by-frame! snap)
-  ```
-- **Description**: Resets the per-frame schema registry to a snapshot taken by `snapshot-schemas-by-frame`.
-
-#### `clear-schemas-by-frame!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-schemas-by-frame!)
-  ```
-- **Description**: Empties the per-frame schema registry (`{}`). The registry is the artefact's only mutable registration state.
-    - [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) calls it at every reset, through the `:schemas/clear-by-frame!` hook. It takes a `snapshot-schemas-by-frame` first and restores it with `restore-schemas-by-frame!` when the test ends, so a test body starts with no per-frame schemas.
-
-#### `on-frame-destroyed!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (on-frame-destroyed! frame-id)
-  ```
-- **Description**: Removes every schema registered against a destroyed frame, so a later `make-frame` with the same id starts with no schemas. Frame teardown calls it. Idempotent: a frame with no entry is a no-op.
+These functions reset the artefact's once-per-process latches between tests, so each test case starts with no remembered warnings. Registered schemas need no reset of their own: [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) clears every one before each test and its registrar snapshot restores them afterwards, so a test checks only the schemas it registers, and a schema registered in a test body is rolled back after it like any other registration.
 
 #### `clear-validator-unavailable-warned!`
 

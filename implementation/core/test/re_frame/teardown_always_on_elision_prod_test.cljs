@@ -118,7 +118,7 @@
       (rf.frame/upsert-frame! :prod.teardown/n-failures {:doc "three hooks will throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed           (throwing-hook :ssr)
-         :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+         :machines/on-frame-destroyed!      (throwing-hook :machines)
          :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
         (fn [] (rf/destroy-frame! :prod.teardown/n-failures)))
       (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
@@ -131,7 +131,7 @@
           (is (= 3 (count (:hook-failures r)))
               "the report carries one :hook-failures entry per failed hook")
           (is (= #{:ssr/on-frame-destroyed
-                   :schemas/on-frame-destroyed!
+                   :machines/on-frame-destroyed!
                    :flows/teardown-on-frame-destroy!}
                  (set (map :hook (:hook-failures r))))
               "every failed hook key is represented under prod")

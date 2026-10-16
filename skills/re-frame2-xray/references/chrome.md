@@ -24,8 +24,8 @@ Static. It does **not** re-scope the process-global definition catalogues
 (events / subs / routes / interceptors / machine definitions read the same in
 every frame, Spec 001); what it moves are the per-frame *live* projections —
 each Dynamic tab's observed-frame state and the Static tabs' per-frame slices
-(machine snapshots, the flows registry, the app-db-schema side-table, the
-current-route slice; see [`panels.md` §Static mode](panels.md)).
+(machine snapshots, the flows registry, the app-db schemas the frame
+resolves, the current-route slice; see [`panels.md` §Static mode](panels.md)).
 
 - **The control always renders.** On a single-frame app it is a working
   one-entry dropdown (the native select still opens and shows the lone

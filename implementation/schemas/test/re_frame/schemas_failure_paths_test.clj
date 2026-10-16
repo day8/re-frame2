@@ -9,6 +9,7 @@
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -53,7 +54,7 @@
   (rf.schemas/set-schema-fns! {:validate (fn [_ _] false) :explain (fn [_ _] nil)})
   (are [schema value expected]
        (= expected
-          (let [[v :as all] (do (rf.schemas/clear-schemas-by-frame!)
+          (let [[v :as all] (do (rf.registrar/clear-kind! :app-schema)
                                 (rf/reg-app-schema [:slot] schema)
                                 (capture-trace #(rf.schemas/validate-app-schema! {:slot value} :s/bad)))]
             [(count all) (:sensitive? v) (locator v)]))

@@ -7,7 +7,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [counter-with-stories.elision-demo])
@@ -19,13 +19,11 @@
 (defn- before! []
   (reset! registrar-snapshot (rf.test-support/snapshot-registrar))
   (reset! rf.frame/frames {})
-  (when-let [clear! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
-    (clear!))
+  (rf.registrar/clear-kind! :app-schema)
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   (rf.frame/ensure-default-frame!)
   (rf.event-emit/clear-event-listeners!)
-  (rf/reg-app-schema [:user/avatar-pdf]
-                     {:frame :rf/default} [:maybe :string])
+  (rf/reg-app-schema [:user/avatar-pdf] [:maybe :string])
   (rf.frame/swap-runtime-db! :rf/default
     (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
 

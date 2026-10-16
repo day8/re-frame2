@@ -15,7 +15,8 @@
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas]
             [re-frame.story :as rf.story]
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.registrar :as rf.story.registrar]
@@ -48,10 +49,10 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (rf.story/clear-all!)
+  (rf.registrar/clear-kind! :app-schema)
   (rf.story/install-canonical-vocabulary!)
   (rf.story-mcp.config/set-allow-writes! false)
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
-  (rf.schemas/clear-schemas-by-frame!)
   (reset! declared-class {})
   ;; `re-frame.epoch` installs its capture hooks process-wide at ns-load, so
   ;; on any classpath that carries it `run-variant` would ship a full

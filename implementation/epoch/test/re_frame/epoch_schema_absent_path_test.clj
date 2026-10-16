@@ -16,8 +16,8 @@
 
 (deftest failing-schema-paths-skips-an-absent-path-and-flags-a-present-nil
   (rf/make-frame {:id ::f})
-  (rf/reg-app-schema [:n] {:frame ::f} :int)
-  (rf/reg-app-schema [:user :name] {:frame ::f} :string)
+  (rf/reg-app-schema [:n] :int)
+  (rf/reg-app-schema [:user :name] :string)
   (let [failing #(set (rf.epoch.tool-pair/failing-schema-paths ::f %))]
     (is (= #{} (failing {})) "both paths absent")
     (is (= #{} (failing {:user {}})) "a path absent beneath a present parent")
@@ -27,7 +27,7 @@
 
 (deftest ^:requires-debug replace-frame-state-admits-an-app-db-lacking-a-registered-path
   (rf/make-frame {:id ::f})
-  (rf/reg-app-schema [:n] {:frame ::f} :int)
+  (rf/reg-app-schema [:n] :int)
   (is (:ok? (rf.epoch/replace-frame-state! ::f {:rf.db/app {:other 1}})))
   (is (= {:other 1} (rf/app-db-value ::f)))
   (is (false? (:ok? (rf.epoch/replace-frame-state! ::f {:rf.db/app {:n nil}})))

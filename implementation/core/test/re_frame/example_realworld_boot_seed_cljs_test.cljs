@@ -8,9 +8,9 @@
    development build validates, since `validate-app-schema!` is gated on
    `debug-enabled?`.
 
-   `reg-app-schemas` is frame-local and the example registers against
-   `:rf/default`, so this ns installs the example's own registry on the frame
-   under test. It requires the feature nses only, never `realworld-http.core`,
+   The reset fixture clears every app-db schema before each test, so this ns
+   registers the example's own registry, which the frame under test resolves.
+   It requires the feature nses only, never `realworld-http.core`,
    which would register routes into the shared node-test registrar; the boot
    fan-out `:app/initialise` performs is spelled out below."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
@@ -61,7 +61,7 @@
 
 (deftest realworld-boots-under-its-own-app-db-schemas
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
+    (rf/reg-app-schemas app-schema/app-db-schemas)
     (boot! f)
     (let [db (rf/app-db-value f)]
       (is (= [] (remove #(contains? db %)

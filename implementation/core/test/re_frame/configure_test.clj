@@ -18,7 +18,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.elision :as rf.elision]
             [re-frame.late-bind :as rf.late-bind]
@@ -32,7 +32,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf.trace.tooling/clear-trace-rings!)
   (rf/init! rf.substrate.plain-atom/adapter)

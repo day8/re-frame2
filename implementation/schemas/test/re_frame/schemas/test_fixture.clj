@@ -1,12 +1,12 @@
 (ns re-frame.schemas.test-fixture
   "Shared `:each` reset fixture for the schemas-artefact JVM tests: one reset
-  of the registrar, frames, flows, schema registry, schema fns and warn-once
-  caches, so no per-file copy can drift and let state bleed between tests.
-  `schemas/printer_seam_test.clj` keeps a narrower fixture of its own.
+  of the registrar (app-db schemas included), frames, flows, schema fns and
+  warn-once caches, so no per-file copy can drift and let state bleed between
+  tests. `schemas/printer_seam_test.clj` keeps a narrower fixture of its own.
 
-  `reg-app-schema` needs an established frame scope and `init!` creates no
-  `:rf/default`, so the fixture ensures that frame and binds
-  `*current-frame*` to it; an explicit `{:frame ...}` overrides the binding."
+  Ambient dispatches and the validation entry points' frameless arities need
+  a frame scope, and `init!` creates no `:rf/default`, so the fixture ensures
+  that frame and binds `*current-frame*` to it."
   (:require [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
@@ -20,7 +20,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
   (rf.schemas/clear-validator-unavailable-warned!)
   (rf.schemas/clear-walker-opaque-warned!)

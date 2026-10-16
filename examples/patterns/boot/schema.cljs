@@ -142,16 +142,14 @@
 ;; a snapshot path would guard nothing, since snapshots live in runtime-db, not
 ;; app-db.)
 
-;; One wrinkle worth knowing: `reg-app-schema` is frame-local, so a bare
-;; ns-load call with no frame in scope raises `:rf.error/no-frame-context`.
-;; This app lives in the `:rf/default` frame (see `core/run`), so we name that
-;; frame explicitly with `with-frame`. The registrations then carry a frame
-;; stamp even though they run at module-load, before `init!`.
-(rf/with-frame :rf/default
-  ;; The boot machine promotes its final payloads into these top-level slices
-  ;; on entering `:hydrating` — the very slices the main app reads through subs
-  ;; once the boot hits `:ready`.
-  (rf/reg-app-schema [:config] Config)
-  (rf/reg-app-schema [:flags]  Flags)
-  (rf/reg-app-schema [:user]   User)
-  (rf/reg-app-schema [:routes] Routes))
+;; A schema is a program registration, like an event, so these run at
+;; module-load, before `init!`, with no frame in scope: the frame the app runs
+;; in (see `core/run`) resolves them.
+;;
+;; The boot machine promotes its final payloads into these top-level slices on
+;; entering `:hydrating` — the very slices the main app reads through subs once
+;; the boot hits `:ready`.
+(rf/reg-app-schema [:config] Config)
+(rf/reg-app-schema [:flags]  Flags)
+(rf/reg-app-schema [:user]   User)
+(rf/reg-app-schema [:routes] Routes)

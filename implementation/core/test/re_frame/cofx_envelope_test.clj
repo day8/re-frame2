@@ -14,7 +14,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.recordable :as rf.recordable]
             [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
@@ -24,8 +23,6 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
-    (clear-schemas!))
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))

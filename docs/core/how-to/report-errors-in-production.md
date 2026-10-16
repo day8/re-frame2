@@ -202,7 +202,7 @@ Together, `:handled-events` tells you that something is wrong (a spike in `:erro
 
 ### The frame-teardown report
 
-When a frame is destroyed it runs best-effort cleanup hooks: [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, [schema](../glossary.md#schema) deregistration, trace-ring release. Any of them may throw, and the runtime reports all the failures together in one record with no `:event` and no top-level `:exception`.
+When a frame is destroyed it runs best-effort cleanup hooks: [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, trace-ring release. Any of them may throw, and the runtime reports all the failures together in one record with no `:event` and no top-level `:exception`.
 
 The runtime builds the record with flat, category-specific keys:
 

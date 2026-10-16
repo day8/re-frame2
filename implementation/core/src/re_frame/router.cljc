@@ -1133,13 +1133,12 @@
   vocabulary (the deterministic post-condition — app-db keeps its
   pre-event value); it does not imply a physical write-pair.
 
-  Per Spec 010 §Per-frame schemas the validation walks the schemas
-  registered against THIS dispatch's frame only — sibling frames'
-  schemas don't fire here. One registry snapshot per candidate:
-  `validate-app-schema!` derefs the per-frame schema registry exactly
-  once, under the frame's drain (the single-drainer invariant), so a
-  concurrent re-registration can never produce a mixed-generation
-  validation (pinned by the JVM registry-generation race test).
+  Per Spec 010 §Schemas resolve through the frame's images the
+  validation walks the schemas THIS dispatch's frame resolves, so a frame
+  whose images resolve a different schema at a path validates against
+  that one. `validate-app-schema!` reads the frame's resolved set once per
+  candidate, under the frame's drain (the single-drainer invariant), so
+  every entry it checks comes from the same read.
 
   Per Spec 010 §Per-step recovery row 7: AND-conjoins the app-db
   validator with `:machines/validate-machine-data!` (the `:where

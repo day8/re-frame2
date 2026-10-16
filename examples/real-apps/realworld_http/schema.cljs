@@ -18,8 +18,7 @@
             ;; Schemas live in their own artefact; we require it to load it,
             ;; which registers the hooks that make `rf/reg-app-schemas` resolve
             ;; at the call site below.
-            [re-frame.schemas])
-  (:require-macros [re-frame.core :refer [with-frame]]))
+            [re-frame.schemas]))
 
 ;; ============================================================================
 ;; APP-DB SLICES — the remote-data slice shape, one per resource
@@ -283,17 +282,14 @@
 ;; marks a path some handler writes `nil` to, with the comment beside it naming
 ;; the write.
 ;;
-;; One wrinkle: `reg-app-schemas` is frame-local, so it needs a frame in
-;; context — call it bare at ns-load and you'd get :rf.error/no-frame-context.
-;; `with-frame` names the target, `:rf/default`, so these register against that
-;; frame at load time, ready for the frame-provider in core.cljs to pick up
-;; when it creates `:rf/default`.
+;; A schema is a program registration, like an event, so these register at
+;; load time with no frame in context, and the frame the frame-provider in
+;; core.cljs creates resolves them.
 
 (def app-db-schemas
-  "This app's app-db schema registry as a `{path -> schema}` VALUE, so the same
-   set can be registered against a frame other than `:rf/default` — registration
-   is frame-local, and a harness driving its own frame gets no schemas at all
-   unless it asks for these by name."
+  "This app's app-db schema registry as a `{path -> schema}` VALUE, registered
+   once below. A harness can name the set as data — to register it from its own
+   namespace, or to read a slice's schema."
   {[:auth]                          AuthSlice
    [:articles]                      RequestSlice
    [:articles :data]                [:vector ws/Article]
@@ -342,5 +338,4 @@
    ;; arrives ambiguous.
    [:settings.saves-answered]       :int})
 
-(with-frame :rf/default
-  (rf/reg-app-schemas app-db-schemas))
+(rf/reg-app-schemas app-db-schemas)

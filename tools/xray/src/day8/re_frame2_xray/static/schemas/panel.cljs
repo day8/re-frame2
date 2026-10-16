@@ -25,12 +25,11 @@
 
     - app-db schemas — assembled from the public `re-frame.schemas`
       façade: `rf/frame-ids` enumerates the live frames, then per
-      frame ONE `rf.schemas/app-schemas {:frame f}` read returns that
-      frame's whole `{path → schema-meta}` map (`:schema` Malli EDN,
+      frame ONE `rf.schemas/app-schemas {:frame f}` read returns the
+      `{path → schema-meta}` map that frame RESOLVES (`:schema` Malli EDN,
       `:doc`, `:file`/`:line`/`:ns` source
       coords). This yields the `{frame-id {path schema-meta}}` shape
-      the per-frame projection consumes — without reaching the private
-      `re-frame.schemas.storage/schemas-by-frame` atom.
+      the per-frame projection consumes.
     - `(rf/registrations {:source :store :kind :event})` — events whose metadata carries a
       `:schema` slot.
     - `(rf/registrations {:source :store :kind :sub})` — subs whose metadata carries a `:schema`
@@ -101,9 +100,9 @@
 
 (defn scope-app-schemas-to-frame
   "Narrow a `{frame-id {path schema-meta}}` app-db-schema snapshot to a
-  single `frame-id`. App-db schemas are genuinely per-frame (the
-  schemas registry is keyed by frame-id — see `re-frame.schemas/app-schemas`), so the
-  L1 frame picker scopes the app-db-schema rows.
+  single `frame-id`. Each frame validates against the schemas it resolves
+  through its images (see `re-frame.schemas/app-schemas`), so two frames can
+  answer differently, and the L1 frame picker scopes the app-db-schema rows.
 
   A nil `frame-id` (no frame resolved yet) returns the snapshot
   verbatim. Pure data.
@@ -264,7 +263,7 @@
   inspector node key, and both must carry the frame. Under the
   browse-all projection (`scope-app-schemas-to-frame` with a nil frame-id,
   which passes every frame's app-db schemas through) the same path
-  registered against two frames yields two rows in ONE render frame, and
+  resolved by two frames yields two rows in ONE render frame, and
   a key built from `(kind, id)` ALONE would give them the SAME
   `:mount-id`. That is not cosmetic:
   `edn-widget/inspect-view` hands the node-key straight to the boundary as
@@ -491,15 +490,13 @@
 (defn read-app-schemas-by-frame
   "Assemble the `{frame-id {path schema-meta}}` app-db-schema snapshot
   the per-frame projection consumes, using only public `re-frame.schemas`
-  / `re-frame.core` surfaces (Tool-Pair.md §public APIs) — never the
-  private `re-frame.schemas.storage/schemas-by-frame` atom.
+  / `re-frame.core` surfaces (Tool-Pair.md §public APIs).
 
   For each live frame (`rf/frame-ids`), ONE `(rf.schemas/app-schemas
-  {:frame frame-id})` read returns that frame's whole `{path →
-  schema-meta}` map — `:schema`, `:doc`, `:file` / `:line` / `:ns` source
+  {:frame frame-id})` read returns the `{path → schema-meta}` map that
+  frame resolves — `:schema`, `:doc`, `:file` / `:line` / `:ns` source
   coords. `app-schemas` answers the metadata directly, so no per-path
-  second read is needed. Frames with no app-db
-  schemas are dropped so the snapshot mirrors the storage atom's shape
+  second read is needed. Frames resolving no app-db schemas are dropped
   (absent rather than empty-mapped). Returns `{}` when the schemas artefact
   is not on the classpath (`app-schemas` then yields `{}` per frame)."
   []
@@ -529,8 +526,8 @@
   COMPUTATION, and Xray seats in its OWN image-loaded `:rf/xray` frame, so the
   sub build binds the registrar to Xray's image generation — a bare read would
   resolve through Xray's OWN image and the schemas catalogue would lose the host
-  app's event/sub specs. (App-db schemas live in a dedicated side-table keyed by
-  frame, not the registrar, so `read-app-schemas-by-frame` is unaffected.) See
+  app's event/sub specs. (`read-app-schemas-by-frame` names each frame it reads,
+  so it answers from that frame's own resolution, not Xray's.) See
   spec/API.md §Public registrar query API."
   []
   {:schemas-by-frame

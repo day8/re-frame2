@@ -10,7 +10,7 @@
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :interceptor :view :frame :route :head
-    :error-projector :flow :resource
+    :error-projector :flow :resource :mutation :resource-scope :app-schema
 
   Machine guards and actions are NOT a registrar kind. Per Spec 005 the
   machine spec's `:guards` / `:actions` maps are the single source of
@@ -25,11 +25,10 @@
   per Spec 009 §Production builds (the macro emits no `:source-*` slots
   under `goog.DEBUG=false`, so the derivation returns nil).
 
-  App-db schemas are NOT a registrar kind. `reg-app-schema`
-  writes only to the schemas artefact's own per-frame side-table
-  (`schemas/schemas-by-frame`), which is the single source of truth.
-  Tools introspecting app-db schemas go through `schemas/app-schemas`
-  / `schemas/app-schema-meta`.
+  `:app-schema` is the app-db schema kind: `reg-app-schema` registers a
+  schema under its canonical path vector, frame-agnostically, and every frame
+  validates against the schemas it resolves, exactly as it resolves any other
+  kind.
 
   The `:flow` kind is RESERVED but the registrar slot is
   intentionally **empty** — `reg-flow` writes only to the flows artefact's
@@ -40,8 +39,7 @@
   registrar slot is the wrong shape; the kind keyword is preserved for
   Spec 001 §Registry model continuity. Tools introspecting flows go through
   `flows/flows` / `flows/flow-meta` / `flows/flows-snapshot` rather than
-  `handlers :flow` / `handler-meta :flow` — matching the `:app-schema`
-  precedent.
+  `handlers :flow` / `handler-meta :flow`.
 
   The `:frame` kind is likewise RESERVED with an intentionally
   **empty** registrar slot — the frame engine (`re-frame.frame/upsert-frame!`)
@@ -115,9 +113,10 @@
   registration spec (see `re-frame.core-machines/machine-handler-meta`),
   not stored here.
 
-  App-db schemas are NOT a registrar kind — they live in the schemas
-  artefact's per-frame side-table (`schemas/schemas-by-frame`).
-  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta`.
+  `:app-schema` (Spec 010) is the app-db schema kind — `reg-app-schema`
+  registers a schema under it, keyed by the canonical path vector. A frame
+  resolves it like every other kind: live for a frame made without `:images`,
+  through the sealed generation for a frame made with them.
 
   `:resource` (Spec 016 §Registration) is the resources
   artefact's registrar kind — `reg-resource` registers a resource spec
@@ -148,7 +147,7 @@
   at chain assembly (`re-frame.interceptor-registry`). Application ids are
   application-owned; framework standard refs live under `:rf.interceptor/*`."
   #{:event :sub :fx :cofx :interceptor :view :frame :route :head
-    :error-projector :flow :resource :mutation :resource-scope})
+    :error-projector :flow :resource :mutation :resource-scope :app-schema})
 
 (defn valid-kind? [k]
   (contains? kinds k))
@@ -504,16 +503,21 @@
     (or (nil? d)
         (and (string? d) (= "" d)))))
 
+(def ^:dynamic ^:no-doc *missing-doc-exempt?*
+  "True while a registration whose authoring form has no slot for a `:doc` is
+  in flight, so `register!` emits no `:rf.warning/missing-doc` for it. The
+  schemas artefact binds it around each entry of a `reg-app-schemas` batch: a
+  `{path -> schema}` pair has nowhere to put a per-path `:doc`."
+  false)
+
 (defn ^:no-doc maybe-emit-missing-doc!
   "Emit `:rf.warning/missing-doc` once per `(kind, id)` when `meta`
   came from the public macro path and carries no usable `:doc`.
   Per Spec 001 §`:doc` is dev-warned when absent.
 
   The one emitter for the warning: `register!` calls it for every
-  registrar kind, and the schemas artefact's `reg-app-schema` calls it
-  with kind `:app-schema` and the canonical path as id, because an app-db
-  schema lives in that artefact's per-frame side table and never reaches
-  `register!`. Both share this suppression cache.
+  registrar kind, sharing this suppression cache, unless
+  [[*missing-doc-exempt?*]] is bound true.
 
   Callers MUST wrap invocations in `(when rf.interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
@@ -845,7 +849,8 @@
     ;; on subsequent calls; obligation 2 says re-registering the same id
     ;; without `:doc` does NOT re-fire the warning.
     (when rf.interop/debug-enabled?
-      (maybe-emit-missing-doc! kind id metadata))
+      (when-not *missing-doc-exempt?*
+        (maybe-emit-missing-doc! kind id metadata)))
     ;; The always-on registration hooks — fired on BOTH first-time and
     ;; re-registration so cross-id invariants (e.g. routing's `:url-bound?`
     ;; exclusivity per Spec 012 §Multi-frame routing) are validated at the
