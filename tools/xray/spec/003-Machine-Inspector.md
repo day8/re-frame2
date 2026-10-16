@@ -2159,15 +2159,14 @@ chart above).
 **Not built:** the 400ms red flash with its tooltip, and the metadata
 rail's "Recent guard rejections" section — there is no metadata rail.
 
-### M.2 — Stale `:after` timer / cancelled (per rf2-82a0u — unified `:rf.machine.timer/cancelled` event with `:reason :on-resolution` for the sub-resolve case)
+### M.2 — Stale `:after` timer / cancelled (per rf2-82a0u — unified `:rf.machine.timer/cancelled` event)
 
 **Bug class:** Wall-clock time-bound bug. The timer arms; the wall clock
-advances; the timer expires; the snapshot doesn't move. Five
+advances; the timer expires; the snapshot doesn't move. Four
 possibilities: (1) epoch stale because we exited and re-entered the state;
 (2) guard returned false; (3) the synthetic event hit a `nil` `:on` entry;
-(4) the timer fired in SSR mode and was suppressed; (5) subscription-driven
-re-resolution cancelled the old timer in favour of a new one that hasn't
-fired yet. The user can't tell from snapshots alone.
+(4) the timer fired in SSR mode and was suppressed. The user can't tell
+from snapshots alone.
 
 **Example bug:** You entered `:loading` with `:after 5000ms → :timeout`.
 30 seconds passed. The snapshot is still `:loading`. The Trace shows both
@@ -2188,7 +2187,7 @@ time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
   drop out of the rings projection — only `:armed` and `:cancelled`
   records reach the chart. (An earlier draft promised a dashed/grey
   ring with a staleness tooltip; it was never built.)
-- **Cancelled** (including cancelled-on-resolution): the ring renders
+- **Cancelled**: the ring renders
   faded with a diagonal cross and is **retained ~2 s** from its
   `:closed-at`, then evicted (rf2-y8doi.23). One crossed ring per state
   — the newest cancellation wins — so re-entering a state repeatedly

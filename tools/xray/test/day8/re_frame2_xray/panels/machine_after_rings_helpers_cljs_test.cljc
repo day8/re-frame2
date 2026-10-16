@@ -50,7 +50,7 @@
   (let [arm   (scheduled 1000 :auth/login :idle 5000 0)
         armed {:machine-id :auth/login :state :idle :armed-at 1000
                :fires-at 6000 :duration-ms 5000 :epoch 0 :status :armed
-               :delay-source :literal :delay-key nil :sub-id nil}]
+               :delay-source :literal :delay-key nil}]
     (are [buf expected] (= expected (active-timers buf :auth/login))
       [arm]
       [armed]
