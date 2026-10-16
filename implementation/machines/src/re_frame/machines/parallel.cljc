@@ -290,6 +290,7 @@
     (-> region-body
         (assoc :guards            (:guards parent-machine))
         (assoc :actions           (:actions parent-machine))
+        (assoc :delays            (:delays parent-machine))
         (assoc :rf/parent-id      (:rf/parent-id parent-machine))
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
@@ -308,9 +309,9 @@
 (defn region-machine
   "Synthetic single-machine spec for a region of `parent-machine`.
 
-  Inherits `:guards` / `:actions` from the parent so
-  region transitions can reference the parent's named guards / actions
-  without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
+  Inherits `:guards` / `:actions` / `:delays` from the parent so
+  region transitions can reference the parent's named guards / actions /
+  delays without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
   `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
   fxs the region emits carry the parent's identity (the region name is
   prepended onto the `:rf/invoke-id` separately).

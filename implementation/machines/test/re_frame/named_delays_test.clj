@@ -115,10 +115,10 @@
     (rf.machines.test-support/with-trace-capture captured
       (let [arms (arm! id [:go])]
         (is (= [250] (mapv first arms)) (str label ": armed at the resolved ms"))
-        (is (= [{:delay :idle-warning :delay-source :named}]
-               (mapv #(select-keys (:tags %) [:delay :delay-source])
+        (is (= [{:delay 250 :delay-key :idle-warning :delay-source :named}]
+               (mapv #(select-keys (:tags %) [:delay :delay-key :delay-source])
                      (ops @captured :rf.machine.timer/scheduled)))
-            (str label ": /scheduled names the delay and its :named source"))
+            (str label ": /scheduled carries the armed ms, the name and its :named source"))
         (fire! (second (first arms)))
         (is (= :warning (:state (rf.machines.test-support/snapshot id)))
             (str label ": the timer fired its transition"))))))

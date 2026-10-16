@@ -146,8 +146,8 @@
   `:rf.machine/after-schedule` fxs, so a hydrated timer lands in the slot
   a subsequent state exit will cancel.
 
-  `:state` is `(last decl-path)` — exactly what `build-after-fx` puts on
-  the `/scheduled` row for an entered node, so the trace pairing is
+  `:state` is `(last decl-path)` — exactly what `build-after-fx` gives an
+  entered node's schedule fx, and so its `/scheduled` row, so the trace pairing is
   identical whether the timer was entered into or hydrated into."
   [machine snapshot path prefix-fn]
   (into []
@@ -328,10 +328,9 @@
   Both phases emit traces —
   `:rf.machine.timer/cancelled` in phase 1, and in phase 2 both each
   arm's leading `:on-supersede` and the arm's own
-  `:rf.machine.timer/scheduled` (hydration arms with
-  `:emit-scheduled-trace?` true, so it is emitted here rather than by a
-  transition; on a frame that held no prior timer it is the FIRST
-  callback of the whole reconcile). From the `:rf.machine/hydrate-rearm`
+  `:rf.machine.timer/scheduled` (every arm emits its own, so a hydration
+  arm's is emitted here, where no transition ran; on a frame that held no
+  prior timer it is the FIRST callback of the whole reconcile). From the `:rf.machine/hydrate-rearm`
   fx, inside the hydrating event's drain, their listeners run after the
   drain. On a direct call they run synchronously on this stack, so each
   trace is a callback boundary, and a listener on any of them can

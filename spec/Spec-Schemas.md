@@ -1569,6 +1569,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:actor-id      :keyword]
    [:state         :any]                    ;; keyword OR vector path
    [:delay         :int]                    ;; the resolved-ms the timer held
+   [:delay-key     :any]                    ;; the :after key as declared: ms, an ISO-8601 string, a :delays name, or the delay fn
    [:epoch         :int]
    [:reason        [:enum
                     :on-exit                ;; bearing state exited
