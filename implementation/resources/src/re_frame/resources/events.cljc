@@ -550,7 +550,7 @@
             ;; work record (no fetch, no new generation), so a call-site
             ;; `:reply-to` continuation dispatches IMMEDIATELY: build the
             ;; canonical `:status :ok` reply for the cached value and append it.
-            ;; The completion `:work/id` is DERIVED from the current scoped key +
+            ;; The completion `:work/id` is DERIVED from the resource id +
             ;; the entry's generation (the load that produced this cached value —
             ;; a truthful, uniform identity; Spec 016 §Read completion
             ;; continuations settles the cache-hit `:work/id` wrinkle
@@ -570,7 +570,7 @@
                          (read-continuation-reply
                            (rf.resources.reply/success-reply
                              {:work/id      (rf.resources.work-ledger/resource-work-id
-                                              scoped-key (:generation entry))
+                                              resource (:generation entry))
                               :resource/key scoped-key
                               :scope        scope
                               :generation   (:generation entry)
@@ -670,7 +670,7 @@
       ;; identical `:work/id`, which derives from it) — a recorded managed
       ;; reply keeps its current-vs-stale verdict on replay.
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
-            work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
+            work-id    (rf.resources.work-ledger/resource-work-id resource generation)
             ;; The transport correlation token is the
             ;; frame-QUALIFIED request-id, NOT the bare work-id: two frames
             ;; can hold the same work-id, and the out-of-cascade teardown
@@ -1049,7 +1049,7 @@
       ;; ----- issue the next page fetch (fresh generation, APPEND) ---------
       :else
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
-            work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
+            work-id    (rf.resources.work-ledger/resource-work-id resource generation)
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
@@ -1224,7 +1224,7 @@
       ;; ----- issue the replacement fetch for THIS page (fresh generation) --
       :else
       (let [generation (rf.resources.state/allocated-generation gen-allocation)
-            work-id    (rf.resources.work-ledger/resource-work-id scoped-key generation)
+            work-id    (rf.resources.work-ledger/resource-work-id resource generation)
             request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
