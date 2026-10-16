@@ -391,7 +391,7 @@ jobs:
 
       - name: Compile re-frame2-pair-mcp server bundle
         working-directory: tools/re-frame2-pair-mcp
-        run: npx shadow-cljs compile server
+        run: npm run build
 
       - name: Install mcp-conformance deps
         run: npm install
@@ -589,7 +589,7 @@ jobs:
 
       - name: Compile re-frame2-pair-mcp server bundle
         working-directory: tools/re-frame2-pair-mcp
-        run: npx shadow-cljs compile server
+        run: npm run build
 
       # `npm ci` rather than `npm install`: tools/mcp-conformance ships a
       # committed package-lock.json, so this is lockfile-exact and fails on
