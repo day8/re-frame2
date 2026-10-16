@@ -972,7 +972,7 @@ The canonicalizer **MUST reject by default** (fail closed, error id `:rf.error/n
 |---|---|
 | `nil` | `n` |
 | Boolean | `b:0` or `b:1` |
-| String | `s:` plus a canonical EDN string literal over Unicode scalar values |
+| String | `s:` plus the canonical EDN string literal: seven characters escaped, every other character raw (**String literal**, below) |
 | Keyword | `k:` plus the canonical EDN keyword token, without auto-resolved `::` shorthand |
 | Symbol | `y:` plus the canonical EDN symbol token |
 | Portable integer | `i:` plus base-10 digits in the safe range, no leading `+`, no leading zero except `0` |
@@ -984,6 +984,8 @@ The canonicalizer **MUST reject by default** (fail closed, error id `:rf.error/n
 | Map | `m{` key/value pairs sorted by key `CEDN-1` bytes `}` |
 
 Adjacent element tokens, and each map key from its value, are separated by a single ASCII space. String/keyword/symbol encoders MUST reject names that cannot round-trip through portable EDN readers on both CLJ and CLJS. Instant encoding normalizes equivalent instants to UTC before printing (timezone text from the source literal is not identity); the reserved tagged-instant tuple `[:rf.identity/instant <text>]` encodes to the SAME `t:` token as the host instant it denotes, while a plain string stays `s:` ([§The tagged-instant canonical form](#the-tagged-instant-canonical-form-rfidentityinstant)). The type tag is part of the bytes, so `"42"`, `42`, `:42`, `[1 2]`, and `(1 2)` cannot collide; **heterogeneous map keys are therefore legal** within the supported domain (the sort key is the complete type-tagged key byte sequence). If a value is outside the domain, the whole identity fails closed.
+
+**String literal.** The literal is the string between two `"` characters with exactly seven characters escaped, each as a backslash and one character: `"` as `\"`, `\` as `\\`, newline (U+000A) as `\n`, tab (U+0009) as `\t`, carriage return (U+000D) as `\r`, backspace (U+0008) as `\b`, and form feed (U+000C) as `\f`. Every other character is emitted raw, as its UTF-8 bytes — the other C0 controls, DEL (U+007F) and all non-ASCII text included — so no `\uXXXX` escape ever appears. This is what `pr-str` prints on both CLJ and CLJS; a printer that escapes more (JSON's `\u0001`, Python's `\x01`) produces different bytes, and so a different identity. An unpaired surrogate, which only a host with UTF-16 strings can hold, is copied raw too, neither escaped nor rejected; a string carrying one has no UTF-8 form, so no fixture carries one.
 
 **Map key canonicalization.** Map entries MUST be ordered deterministically by the `CEDN-1` bytes of their keys — not by insertion order, hash-map iteration order, locale, or host identity. Compute each key's bytes, sort lexicographically, encode entries in that order. Duplicate canonical keys are invalid and MUST be rejected before the value becomes a cache key, route identity, or work id.
 
