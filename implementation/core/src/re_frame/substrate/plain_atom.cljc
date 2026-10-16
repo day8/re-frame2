@@ -28,25 +28,24 @@
       an orphaned reaction is GC-reclaimable along with its callbacks
       rather than pinned in a global strong-ref map.
 
-    - **CLJS.** `re-frame.interop` (the `.cljs`) routes those calls
+    - **CLJS.** `re-frame.interop` (the `.cljs`) reaches those calls
       through the `:adapter/add-on-dispose!` / `:adapter/dispose!`
-      late-bind hooks, which dispatch on the derived value reifying a
-      disposal protocol. The plain-atom CLJS derived value therefore
-      reifies `re-frame.disposable/IDisposable` (mirroring the spine),
-      and this ns publishes the two hooks via `rf.substrate.adapter/
-      route-hook!` so a CLJS-plain-atom host (rather than a leak)
-      releases inputs symmetrically on slot evict.
+      late-bind slots, which hold the installed map's `:add-on-dispose!` /
+      `:dispose!`. The plain-atom CLJS derived value therefore reifies
+      `re-frame.disposable/IDisposable` (mirroring the spine), and the map
+      carries `add-on-dispose!` / `dispose!` below over that protocol, so a
+      CLJS-plain-atom host (rather than a leak) releases inputs
+      symmetrically on slot evict. The SSR adapter, which reuses
+      `make-derived-value`, carries the same two.
 
   The atom-backed container quartet (`make-state-container` /
   `read-container` / `replace-container!` / `subscribe-container`) lives in
   `re-frame.substrate.atom-container` — see that ns for why only the
   container quartet (not `make-derived-value`) lives there."
   (:require [re-frame.error :as rf.error]
-            [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.atom-container :as rf.substrate.atom-container]
             #?@(:clj  [[re-frame.interop :as rf.interop]]
-                :cljs [[re-frame.disposable :as rf.disposable]
-                       [re-frame.substrate.adapter :as rf.substrate.adapter]])))
+                :cljs [[re-frame.disposable :as rf.disposable]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -66,9 +65,9 @@
   ;; un-disposed reaction is GC-reclaimable along with its callbacks
   ;; rather than pinned in a global strong-ref map.
   ;;
-  ;; CLJS: `re-frame.interop` (the .cljs) routes
-  ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` hooks, which
-  ;; dispatch on the derived value reifying `IDisposable`. Reify it here
+  ;; CLJS: `re-frame.interop` (the .cljs) reaches
+  ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` slots, which hold
+  ;; the map's dispatch on the derived value reifying `IDisposable`. Reify it here
   ;; (mirroring `re-frame.substrate.spine`) so the sub-cache's symmetric
   ;; input-release callback is registered at slot construction and fires
   ;; at slot evict — otherwise layer-2+ input ref-counts never decrement
@@ -143,13 +142,40 @@
   nil)
 
 (defn- dispose-adapter! []
-  ;; Frames outlive the adapter, so disposal clears every frame's sub-cache
-  ;; (Spec 006 §Adapter disposal lifecycle): a slot left behind keeps its
-  ;; references on its inputs, and a subscribe after reinstall would reuse the
-  ;; pre-dispose derived value. Watch handles are GC'd with their atoms, and the
-  ;; hiccup emitter stays armed because it holds no host resource.
-  (rf.subs.cache/clear-all-frame-sub-caches!)
+  ;; Nothing of the adapter's own to release: core's teardown disposes every
+  ;; frame's sub-cache, watch handles are GC'd with their atoms, and the hiccup
+  ;; emitter stays armed because it holds no host resource.
   nil)
+
+;; ---- disposal capabilities (CLJS only) ------------------------------------
+;;
+;; On CLJS `re-frame.interop`'s `add-on-dispose!` / `dispose!` read the
+;; `:adapter/*` slots `install-adapter!` fills from these two map keys (the JVM
+;; `re-frame.interop` implements both directly over its own `Reaction`, so the
+;; keys are CLJS-only). Each dispatches into the `re-frame.disposable/
+;; IDisposable` protocol the CLJS `make-derived-value` reifies above, so a
+;; CLJS-plain-atom host participates in the sub-cache's ref-count / disposal
+;; contract symmetrically with the React-shaped adapters. The SSR adapter
+;; reuses `make-derived-value`, so its map carries these same two fns.
+;;
+;; Both tolerate a value that does NOT satisfy the protocol by no-op'ing:
+;; plain-atom never produces one, so it is not one of this adapter's values.
+
+#?(:cljs
+   (defn add-on-dispose!
+     "Register `f` to run when `a` — a value `make-derived-value` returned —
+     is disposed. A no-op on anything else."
+     [a f]
+     (when (satisfies? rf.disposable/IDisposable a)
+       (rf.disposable/-add-on-dispose a f))))
+
+#?(:cljs
+   (defn dispose!
+     "Dispose `a`, a value `make-derived-value` returned, firing its
+     registered callbacks once. A no-op on anything else."
+     [a]
+     (when (satisfies? rf.disposable/IDisposable a)
+       (rf.disposable/-dispose a))))
 
 (def adapter
   "The plain-atom adapter map. Pass to `(rf/init! ...)` to install:
@@ -157,8 +183,9 @@
       (require '[re-frame.substrate.plain-atom :as plain-atom])
       (rf/init! plain-atom/adapter)
 
-  See Spec 006 §The adapter API contract for the ten-fn shape (six
-  required + three optional + one lifecycle)."
+  See Spec 006 §The adapter API contract for the required, optional and
+  lifecycle functions and the capability keys; on CLJS the map carries the
+  `:add-on-dispose!` / `:dispose!` capabilities."
   {:kind                      :rf.adapter/plain-atom
    :make-state-container      rf.substrate.atom-container/make-state-container
    :read-container            rf.substrate.atom-container/read-container
@@ -168,43 +195,6 @@
    :render                    render
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
-   :dispose-adapter!          dispose-adapter!})
-
-;; ---- late-bind hook routing (CLJS only) -----------------------------------
-;;
-;; On CLJS `re-frame.interop`'s `add-on-dispose!` / `dispose!` route
-;; through these `:adapter/*` hooks (the JVM `re-frame.interop` implements
-;; both directly, so this block is CLJS-only). Each routes into the
-;; `re-frame.disposable/IDisposable` protocol the CLJS `make-derived-value`
-;; reifies above, so a CLJS-plain-atom host participates in the sub-cache's
-;; ref-count / disposal contract symmetrically with the React-shaped
-;; adapters (see `re-frame.substrate.spine`'s identical routing). Routed
-;; through `rf.substrate.adapter/route-hook!` so a test bundle that also loads
-;; a React adapter only runs the plain-atom impl while plain-atom is the
-;; `(rf/init!)`-installed adapter (per Spec 006 §adapter routing). That same
-;; routing is why an adapter reusing `make-derived-value` routes the hooks for
-;; itself: plain-atom's routed impl does not answer while another adapter is
-;; installed.
-;;
-;; The `add-on-dispose!` / `dispose!` dispatch tolerates a value that does
-;; NOT satisfy the protocol (e.g. a foreign reaction inherited through a
-;; cross-substrate test bundle) by no-op'ing — mirroring the Reagent
-;; adapter's fall-through dispatch.
-#?(:cljs
-   (defn route-disposal-hooks!
-     "Route the `:adapter/add-on-dispose!` / `:adapter/dispose!` late-bind hooks
-     for `adapter-spec` into the `IDisposable` protocol `make-derived-value`
-     reifies. Called for this ns's `adapter` and for every adapter that reuses
-     `make-derived-value`. Returns nil."
-     [adapter-spec]
-     (rf.substrate.adapter/route-hook! adapter-spec :adapter/add-on-dispose!
-       (fn add-on-dispose!-dispatch [a f]
-         (when (satisfies? rf.disposable/IDisposable a)
-           (rf.disposable/-add-on-dispose a f))))
-     (rf.substrate.adapter/route-hook! adapter-spec :adapter/dispose!
-       (fn dispose!-dispatch [a]
-         (when (satisfies? rf.disposable/IDisposable a)
-           (rf.disposable/-dispose a))))
-     nil))
-
-#?(:cljs (route-disposal-hooks! adapter))
+   :dispose-adapter!          dispose-adapter!
+   #?@(:cljs [:add-on-dispose!  add-on-dispose!
+              :dispose!         dispose!])})

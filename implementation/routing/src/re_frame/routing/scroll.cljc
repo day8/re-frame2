@@ -467,9 +467,8 @@ egress to trace / epochs / SSR."})
      Through the installed adapter's `:adapter/after-render` hook when there
      is one — decided by the hook's PRESENCE, never by what it returns, since
      a hook that has scheduled `f` may answer nil. With no installed adapter
-     publishing the hook, `f` runs at once. The routed
-     hook's own fallback drops `f` rather than running it, so a bundle that
-     has loaded an adapter but installed none counts as hookless.
+     publishing the hook, `f` runs at once — including mid-teardown, when the
+     departing adapter's hook is still published but nothing will render.
 
      A deferred `f` is dropped when the navigation it belongs to has been
      superseded (or its frame torn down) by the time it fires: the scroll

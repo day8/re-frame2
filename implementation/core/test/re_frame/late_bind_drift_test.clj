@@ -2,8 +2,9 @@
   "Pins the late-bind hook directory (`re-frame.late-bind.directory/hooks`)
   against the publication sites under `implementation/*/src` in both
   directions: every published key has an entry, and every entry is published by
-  the producer it names. The scan matches the four publication shapes:
-  `set-fn!`, `route-hook!`, `chain-fn!` and the map-form `set-fns!`.")
+  the producer it names. The scan matches the three publication shapes:
+  `set-fn!`, `chain-fn!` and the map-form `set-fns!` — the last is how
+  `install-adapter!` publishes the `:adapter/*` capabilities.")
 
 (require '[clojure.java.io :as io]
          '[clojure.set :as set]
@@ -52,11 +53,6 @@
   "`(late-bind/set-fn! :ns/key ...`, with or without the `rf.` alias prefix."
   #"\((?:rf\.)?late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
-(def ^:private route-hook-call-re
-  "`(substrate-adapter/route-hook! adapter :ns/key ...`: adapters publish
-  their `:adapter/*` hooks through it, and it calls `set-fn!` itself."
-  #"\((?:rf\.substrate\.adapter|substrate-adapter)/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
-
 (def ^:private chain-fn-call-re
   "`(late-bind/chain-fn! :ns/key ...`, alias prefix optional: inside
   `re-frame.late-bind` itself the call is unqualified."
@@ -94,7 +90,6 @@
   [^java.io.File f]
   (let [content (slurp f)]
     (-> (match-keys set-fn-call-re content)
-        (into (match-keys route-hook-call-re content))
         (into (match-keys chain-fn-call-re content))
         (into (match-set-fns-block-keys content)))))
 

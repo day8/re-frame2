@@ -147,10 +147,11 @@
 ;; ---- 4. shutdown + unmount interleaving ------------------------------------
 ;;
 ;; The claimed-generation path: `dispose-adapter!` walks every live frame's
-;; sub-cache and disposes each cached Reaction through the generation's own
-;; disposer (NOT the routed hook, which terminal teardown has already
-;; closed). A mounted owner's outward watch survives that walk; its later
-;; removal auto-disposes the same Reaction inside stock Reagent.
+;; sub-cache and disposes each cached Reaction through the departing map's
+;; `:dispose!`, which stays published until teardown finalizes although
+;; public delegation is already closed. A mounted owner's outward watch
+;; survives that walk; its later removal auto-disposes the same Reaction
+;; inside stock Reagent.
 
 (deftest shutdown-then-unmount-does-not-refire-sub-cache-teardown
   (testing "dispose-adapter! then a lingering owner's watch removal: the

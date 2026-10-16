@@ -220,8 +220,9 @@
 
 ;; ---- in-flight Reagent component -----------------------------------------
 ;;
-;; The active adapter publishes its Reagent build's `current-component`
-;; fn through `:adapter/current-component` at ns-load time. Static
+;; The Reagent adapter's map carries its Reagent build's `current-component`
+;; fn as its `:current-component` capability, which `install-adapter!`
+;; publishes through `:adapter/current-component`. Static
 ;; `:require [reagent.core]` would hard-couple this substrate-neutral ns
 ;; to Reagent and put Reagent on every UIx and Fresco classpath.
 
@@ -230,9 +231,8 @@
   Returns nil when no adapter has registered the hook (JVM / headless
   builds; no-adapter tests)."
   []
-  ;; Sticky hook — published once per loaded React-shaped
-  ;; adapter; called per Reagent render path that consults its
-  ;; component identity.
+  ;; Sticky hook — published when the adapter is installed; called per
+  ;; Reagent render path that consults its component identity.
   (when-let [hook (rf.late-bind/get-fn-cached :adapter/current-component)]
     (hook)))
 

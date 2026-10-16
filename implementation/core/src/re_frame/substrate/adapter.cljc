@@ -2,7 +2,7 @@
   "The reactive substrate adapter contract. Per Spec 006.
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
-  goes through these ten functions. The reference ships TWO first-class,
+  goes through the installed adapter map. The reference ships TWO first-class,
   actively-supported browser adapters — the Reagent and UIx renderer
   adapters. Neither is transitional, a fallback, or scheduled for removal
   (EP-0036); they are permanent siblings. Alongside them, the Fresco view
@@ -19,6 +19,15 @@
   Lifecycle (1):
     dispose-adapter!
 
+  Capabilities (optional keys):
+    current-frame, current-component, ratom, ratom?, make-reaction,
+    activate-derived-value!, add-on-dispose!, dispose!, reactive?,
+    reactive-owner, read-container-untracked, derived-container?,
+    after-render, wrap-view, componentize-view — published into their
+    `:adapter/<key>` late-bind slots at install (`publish-capabilities!`) —
+    and arm-hiccup-emitter-if-unarmed!, which `install-adapter!` reads off
+    the map itself.
+
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
   `:rf.adapter/*` namespace (`:rf.adapter/reagent`
@@ -27,7 +36,7 @@
   a user-supplied adapter that picks no canonical kind simply has no
   `:kind` — nothing is synthesised for it. Retired members —
   `:rf.adapter/helix`, `:rf.adapter/ui`, `:rf.adapter/freehand`,
-  `:rf.adapter/reagent-slim` — stay
+  `:rf.adapter/reagent-slim`, `:rf.adapter/test-react` — stay
   reserved and are never recycled, per the Conventions tombstone rule;
   nothing here can produce one. It is installed into the process via
   install-adapter! and introspected via current-adapter, which answers
@@ -40,7 +49,8 @@
   var (the spec map); consumers require the ns and pass the var
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
-  ships only that adapter's code."
+  ships only that adapter's code. Loading an adapter namespace publishes
+  nothing: its capabilities answer only while its map is installed."
   (:require [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -83,27 +93,153 @@
   adapter-lifecycle-state
   (atom {:installed nil :disposed? false}))
 
+;; ---- adapter identity ------------------------------------------------------
+;;
+;; "Is this the adapter already seated?" is a question about the adapter, and a
+;; map's object identity is the wrong answer to it: a user (or a test's
+;; adapter-swap) that `assoc`/`merge`/`update`s a canonical adapter map for
+;; instrumentation or local overrides holds a value-equal map with a DIFFERENT
+;; identity, and an adapter Var re-evaluated by a reload is a fresh map too. So
+;; the answer is a STABLE token carried in the map: the canonical `:kind`
+;; discriminator (`:rf.adapter/reagent`, `:rf.adapter/uix`, …), which survives
+;; `assoc`/`merge`/copy and re-evaluation. A custom adapter that did NOT pick a
+;; canonical `:rf.adapter/*` kind has no distinguishing token, so it falls back
+;; to object identity — two distinct kind-less adapters are never conflated.
+
+(defn- canonical-kind?
+  "True when `kind` is a canonical framework adapter kind — a keyword in the
+  reserved `:rf.adapter/*` namespace (per Spec 006 §Adapter introspection /
+  Conventions §Reserved namespaces). A `nil` / absent kind is NOT canonical:
+  it carries no per-adapter distinguishing token, so the comparison for it
+  falls back to object identity."
+  [kind]
+  (and (keyword? kind) (= "rf.adapter" (namespace kind))))
+
+(defn same-adapter?
+  "True when adapter spec map `a` is the SAME adapter as `b`. Stable-token
+  comparison: when both maps carry the same canonical `:rf.adapter/*` `:kind`,
+  they are the same adapter even across a copy/`assoc`/`merge` or a reload's
+  re-evaluation. Otherwise (a non-canonical or kindless adapter, or mismatched
+  kinds) it falls back to object identity so two distinct custom adapters are
+  never conflated. Nil-safe: a nil `b` (no adapter installed) is never the same
+  as a non-nil `a`.
+
+  Public so the installed-adapter checks outside this ns — `init!`'s
+  idempotence guard and the view and subscription caches' built-under
+  checks — share one predicate rather than re-deriving an object-identity
+  check that would reject a copied canonical map.
+
+  The flat nest of `if`s is deliberate: ClojureScript emits a `let` in
+  EXPRESSION position (under `boolean`/`and`) as an IIFE (compiler.cljc
+  L1139-1162, r1.12.145), which allocates a closure per call, and the view-head
+  lookup asks this on every `(rf/view id)`. Every leaf is already boolean, so
+  the flat spelling means exactly what the nested `and` would."
+  [a b]
+  (if a
+    (if b
+      (let [ka (:kind a)]
+        (if (canonical-kind? ka)
+          (= ka (:kind b))
+          (identical? a b)))
+      false)
+    false))
+
+;; ---- capability publication -----------------------------------------------
+;;
+;; An adapter's capabilities are optional keys on its map. Core reads each one
+;; through a late-bind slot — `(rf.late-bind/get-fn-cached :adapter/after-render)`
+;; and its siblings — because the readers sit in namespaces the adapter map
+;; never reaches and several run on every render, where a cached slot costs
+;; one lookup and a `(:k (current-adapter))` read would cost an atom deref and
+;; a map lookup per call. So `install-adapter!` publishes the installed map's
+;; capabilities into those slots, and the generation's terminal teardown
+;; clears them.
+;;
+;; Publication covers EVERY slot, whatever the map carries: a key the map lacks
+;; is published as absent, so no other adapter's capability can answer for it.
+;; Loading an adapter namespace publishes nothing.
+;;
+;; Every write to the slots, and every release of the install seat, happens
+;; under `capability-lock`, and only while the writing generation still holds
+;; the seat. Seating needs the seat EMPTY, so while a generation holds it no
+;; other can seat itself or publish: a generation that checks it still holds
+;; the seat and then writes, under the lock, cannot overwrite or erase another
+;; generation's capabilities — the same exact-generation rule the lifecycle
+;; state follows.
+
+(defonce ^:private capability-lock #?(:clj (Object.) :cljs (js-obj)))
+
+(defn- publish-capabilities!
+  "Publish `adapter`'s capability keys into their `:adapter/*` late-bind slots.
+  Every slot is written, so a key the map lacks is published as absent; a nil
+  `adapter` clears them all. Callers hold `capability-lock`."
+  [adapter]
+  (rf.late-bind/set-fns!
+    {:adapter/current-frame            (:current-frame adapter)
+     :adapter/current-component        (:current-component adapter)
+     :adapter/ratom                    (:ratom adapter)
+     :adapter/ratom?                   (:ratom? adapter)
+     :adapter/make-reaction            (:make-reaction adapter)
+     :adapter/activate-derived-value!  (:activate-derived-value! adapter)
+     :adapter/add-on-dispose!          (:add-on-dispose! adapter)
+     :adapter/dispose!                 (:dispose! adapter)
+     :adapter/reactive?                (:reactive? adapter)
+     :adapter/reactive-owner           (:reactive-owner adapter)
+     :adapter/read-container-untracked (:read-container-untracked adapter)
+     :adapter/derived-container?       (:derived-container? adapter)
+     :adapter/after-render             (:after-render adapter)
+     :adapter/wrap-view                (:wrap-view adapter)
+     :adapter/componentize-view        (:componentize-view adapter)}))
+
+(defn- holds-seat?
+  "True while `generation` is the one in the install seat — seated or claimed
+  for teardown."
+  [generation]
+  (identical? generation (get-in @adapter-lifecycle-state [:installed :generation])))
+
+(defn- publish-for-generation!
+  "Publish `adapter`'s capabilities, provided `generation` still holds the
+  install seat."
+  [generation adapter]
+  (locking capability-lock
+    (when (holds-seat? generation)
+      (publish-capabilities! adapter)))
+  nil)
+
+(defn- release-generation!
+  "Clear the published capabilities and empty the install seat — both only
+  while `generation` still holds it, so a stale caller touches neither a
+  replacement generation's seat nor its capabilities. `disposed?` is the
+  breadcrumb the release leaves: true after a teardown, false after a failed
+  install, which disposed nothing."
+  [generation disposed?]
+  (locking capability-lock
+    (when (holds-seat? generation)
+      (publish-capabilities! nil)
+      (swap! adapter-lifecycle-state
+             (fn [state]
+               (if (identical? generation (get-in state [:installed :generation]))
+                 (assoc state :installed nil :disposed? disposed?)
+                 state)))))
+  nil)
+
 (defn- rearm-hiccup-emitter!
   "Re-arm the retained SSR hiccup emitter into the freshly-installed adapter
-  generation — ROUTED to that generation ALONE and PRECEDENCE-SAFE.
-  `re-frame.ssr.emit` retains the current emitter
-  durably under `:ssr/current-hiccup-emitter` at ns-load; the React-shaped
-  adapter (UIx) and the ratom family (Reagent) clear their
-  per-generation `emitter-cell` on
+  generation, through `adapter`'s own `:arm-hiccup-emitter-if-unarmed!`.
+  `re-frame.ssr.emit` retains the current emitter durably under
+  `:ssr/current-hiccup-emitter` at ns-load; the React-shaped adapter (UIx) and
+  the ratom family (Reagent) clear their per-generation `emitter-cell` on
   `dispose-adapter!`, so a public destroy → re-init cycle — or an
   SSR-before-adapter load order — would otherwise leave `render-to-string`
   unarmed (`:rf.error/no-hiccup-emitter-bound`).
 
-  Applies through the `:adapter/arm-hiccup-emitter-if-unarmed!` late-bind hook
-  each React/ratom adapter publishes via `route-hook!` — NOT an adapter-
-  agnostic `:reagent/set-hiccup-emitter!` broadcast. Two consequences:
+  Two properties, both load-bearing:
 
-    1. ROUTED — the hook dispatches to the (rf/init!)-installed adapter ALONE
-       (per `route-hook!` stable-token routing). A loaded-but-inactive adapter's
-       setter never runs, so its throw cannot break the ACTIVE adapter's boot.
-       A broadcast would re-arm EVERY loaded adapter and let any one
-       adapter's throwing setter propagate through the whole install.
-    2. PRECEDENCE-SAFE — the hook arms the slot ONLY when it is otherwise
+    1. THE INSTALLED MAP ALONE — the arm is read off the map being installed,
+       never a broadcast like `:reagent/set-hiccup-emitter!`. A loaded but
+       uninstalled adapter's setter never runs, so its throw cannot break the
+       installed adapter's boot.
+    2. PRECEDENCE-SAFE — the arm fills the slot ONLY when it is otherwise
        unarmed. A pre-init explicit custom emitter (or reset) is therefore NOT
        silently overwritten by the retained default; the explicit direct
        override remains authoritative (per Spec 006 §`set-hiccup-emitter!`
@@ -114,14 +250,14 @@
   cannot overwrite a replacement generation's slot with a disposed generation's
   emitter. A no-op when re-frame.ssr is not loaded (the durable slot is unset) —
   `render-to-string` then throws the honest `:rf.error/no-hiccup-emitter-bound`
-  — and on hosts whose adapters do not publish the hook (the JVM/plain-atom
-  emitter is retained across its no-op dispose, so no re-arm is required).
-  Raising is the caller's contract: `install-adapter!` runs this
-  inside its failure-atomic transaction, so a throwing arm rolls the install
-  back rather than half-installing."
-  []
+  — and for a map carrying no arm (the JVM/plain-atom emitter is retained
+  across its dispose, so no re-arm is required). Raising is the caller's
+  contract: `install-adapter!` runs this inside its failure-atomic
+  transaction, so a throwing arm rolls the install back rather than
+  half-installing."
+  [adapter]
   (when-let [emitter (rf.late-bind/get-fn :ssr/current-hiccup-emitter)]
-    (when-let [arm-if-unarmed! (rf.late-bind/get-fn :adapter/arm-hiccup-emitter-if-unarmed!)]
+    (when-let [arm-if-unarmed! (:arm-hiccup-emitter-if-unarmed! adapter)]
       (arm-if-unarmed! emitter))))
 
 (defn install-adapter!
@@ -131,24 +267,24 @@
   breadcrumb so subsequent delegation calls see a fresh adapter rather
   than `:rf.error/adapter-disposed`.
 
-  Re-arms the retained SSR hiccup emitter for the fresh generation
-  (`rearm-hiccup-emitter!`) so a destroy → re-init cycle — or an
-  SSR-before-adapter load order — leaves `render-to-string` correctly armed
-  after disposal cleared the previous generation's emitter slot.
+  Publishes the map's capabilities into the `:adapter/*` late-bind slots — a
+  key the map lacks as absent — and re-arms the retained SSR hiccup emitter for
+  the fresh generation (`rearm-hiccup-emitter!`), so a destroy → re-init cycle
+  — or an SSR-before-adapter load order — leaves `render-to-string` correctly
+  armed after disposal cleared the previous generation's emitter slot.
 
-  FAILURE-ATOMIC. Seating the generation and re-arming its retained
-  SSR emitter is ONE transaction. If the re-arm throws (an inactive or the
-  active adapter's setter, or the retained emitter fn), the just-seated
-  generation is rolled back — bounded EXACT-generation cleanup (`identical?` on
-  the generation token, so a concurrent replacement install is never clobbered),
-  the re-arm exception preserved as PRIMARY, the process left in a clean
-  never-installed state so an immediate retry installs fresh. Boot is therefore
-  all-or-nothing: fully installed, or cleanly failed with a consistent adapter
-  state — never the half-installed / partial-armed boot a seat-then-replay
-  order would leave when a replay step threw AFTER the generation was already
-  seated."
+  FAILURE-ATOMIC. Seating the generation, publishing its capabilities and
+  re-arming its retained SSR emitter is ONE transaction. If the re-arm throws,
+  the just-seated generation is rolled back — its capabilities cleared and its
+  seat emptied, both bounded to THIS generation (`identical?` on the
+  generation token, so a replacement installed meanwhile keeps both) — the
+  re-arm exception preserved as PRIMARY, the process left in a clean
+  never-installed state so an immediate retry installs fresh. Boot is
+  therefore all-or-nothing: fully installed, or cleanly failed with a
+  consistent adapter state."
   [adapter]
-  (let [entry {:adapter adapter :generation (fresh-adapter-generation)}]
+  (let [{:keys [generation] :as entry} {:adapter    adapter
+                                        :generation (fresh-adapter-generation)}]
     (swap! adapter-lifecycle-state
            (fn [{:keys [installed] :as state}]
              (when installed
@@ -159,33 +295,47 @@
                 {:extra {:installed (:adapter installed)
                          :attempted adapter}}))
              (assoc state :installed entry :disposed? false)))
-    ;; The generation is now seated. Re-arm the SSR emitter as part of the SAME
-    ;; install transaction: on failure roll the EXACT generation back so a
-    ;; throwing re-arm cannot leave a half-installed / partial-armed boot.
-    ;; The `identical?` guard bounds the cleanup to the generation
-    ;; THIS call seated — a concurrent replacement install (a different token)
-    ;; is never erased by this rollback, symmetric with `dispose-adapter!`'s
-    ;; finally. `:disposed? false` restores the never-installed diagnosis (a
-    ;; failed install disposed nothing), so a retry surfaces
+    ;; The generation is now seated. Publication and the re-arm belong to the
+    ;; SAME install transaction: a throw rolls THIS generation back, and
+    ;; `:disposed? false` restores the never-installed diagnosis (a failed
+    ;; install disposed nothing), so a retry surfaces
     ;; `:rf.error/no-adapter-installed`, not `:rf.error/adapter-disposed`.
     (try
-      (rearm-hiccup-emitter!)
+      (publish-for-generation! generation adapter)
+      (rearm-hiccup-emitter! adapter)
       (catch #?(:clj Throwable :cljs :default) e
-        (swap! adapter-lifecycle-state
-               (fn [state]
-                 (if (identical? (:generation entry)
-                                 (get-in state [:installed :generation]))
-                   (assoc state :installed nil :disposed? false)
-                   state)))
+        (release-generation! generation false)
         (throw e)))
     adapter))
+
+(defn refresh-capabilities!
+  "Republish `adapter`'s capabilities over the seated generation's, when
+  `adapter` is the seated adapter by `same-adapter?` but not the identical map.
+  `init!` calls this on its idempotent path; anything else is a no-op.
+
+  That path is hot reload. Every adapter Var is a plain `def`, so reloading an
+  adapter namespace re-evaluates its map with fresh function identities, and a
+  `^:dev/after-load` boot re-calls `init!` with that map. The re-call does not
+  reinstall: the seat, and the contract functions `current-adapter` answers,
+  stay the generation that owns the live containers and roots. The reloaded
+  capabilities are published, so the renders, reads and hooks that run next use
+  the code that was just loaded. A map identical to the seated one has nothing
+  new to publish and leaves the slots as they are."
+  [adapter]
+  (let [{:keys [installed]} @adapter-lifecycle-state]
+    (when (and installed
+               (not (:disposing? installed))
+               (not (identical? adapter (:adapter installed)))
+               (same-adapter? adapter (:adapter installed)))
+      (publish-for-generation! (:generation installed) adapter)))
+  nil)
 
 (defn current-adapter
   "Return the installed adapter SPEC MAP — the exact value passed to
   `init!` — or nil if none is installed. The map carries the adapter
   contract fns (`:make-state-container`, `:replace-container!`,
-  `:make-derived-value`, …) per Spec 006 §The reactive-substrate adapter
-  contract, plus a `:kind` discriminator keyword.
+  `:make-derived-value`, …) and any capability keys, per Spec 006 §The
+  adapter API contract, plus a `:kind` discriminator keyword.
 
   ONE read, map-shaped. Branch code asks for the discriminator as a KEY:
 
@@ -212,7 +362,7 @@
   its entry, or nil when the slot is empty/already being destroyed. Claiming
   prevents a re-entrant destroy from invoking cleanup twice and atomically
   closes public delegation through the disposed breadcrumb. The exact internal
-  slot remains claimed until adapter-owned cleanup reaches its finally boundary."
+  slot remains claimed until cleanup reaches its finally boundary."
   []
   (loop []
     (let [{:keys [installed] :as before} @adapter-lifecycle-state]
@@ -250,10 +400,23 @@
     (drain!))
   nil)
 
-(def ^:private no-teardown-failure
-  "Presence sentinel for a cleanup step that returned normally. Compared by
-  identity, never by truthiness: `nil` and `false` are legal CLJS throws."
-  #?(:clj (Object.) :cljs (js-obj)))
+(defn- clear-frame-sub-caches!
+  "Dispose and empty every live frame's sub-cache. Returns the values the
+  per-entry disposes threw, in traversal order — `[]` when nothing threw.
+
+  Frames outlive the adapter, so their caches are process teardown core owns,
+  whichever adapter is installed. Each cached derived value is disposed
+  through `re-frame.interop/dispose!`, which on CLJS reads the
+  `:adapter/dispose!` slot — still the DEPARTING map's `:dispose!` here, since
+  the claim hid the generation from `current-adapter` while its capabilities
+  stay published until finalization. Reached through the
+  `:subs.cache/clear-all-frame-sub-caches!` late-bind hook because
+  `re-frame.subs.cache` requires `re-frame.frame`, which requires this ns. A
+  no-op when that namespace is not loaded, since then no frame holds a cache."
+  []
+  (if-let [clear-all! (rf.late-bind/get-fn :subs.cache/clear-all-frame-sub-caches!)]
+    (clear-all!)
+    []))
 
 #?(:cljs
    (def ^:private teardown-secondary-errors-key
@@ -281,53 +444,60 @@
                (catch :default _ nil))))
   nil)
 
-(defn dispose-adapter!
-  "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
-  fn (if present), then ALWAYS clears the install slot and sets the disposed
-  breadcrumb so a new adapter can install and subsequent delegation calls raise
-  `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`.
-  A throwing cleanup is rethrown unchanged only AFTER
-  this process-owned lifecycle reaches its terminal state. Finalization clears
-  only the generation this call claimed: stale teardown can never erase a
-  replacement installation. One failed host cleanup cannot leave the single-use
-  install slot half seated. Calling dispose with no adapter installed leaves the
-  breadcrumb untouched — it doesn't pretend a never-installed adapter was
-  disposed.
+(defn- run-teardown-step!
+  "Run `step!` and return `failures` with anything it threw appended. Kept by
+  PRESENCE, never truthiness: `nil` and `false` are legal CLJS throws."
+  [failures step!]
+  (try (step!) failures
+       (catch #?(:clj Throwable :cljs :default) e (conj failures e))))
 
-  Package-owned host roots go FIRST, before the adapter's own cleanup — see
-  `drain-fresco-client-roots!`. That order lets React unmounts run while the
-  substrate is still whole. A throwing drain skips neither the adapter
-  disposer nor the finalization below it. When both steps throw, the drain's
-  failure is the first, so it is the one rethrown, and the disposer's rides on
-  it as secondary evidence (Spec 006 §Adapter disposal lifecycle): among its
-  suppressed exceptions on the JVM, and in its
+(defn dispose-adapter!
+  "Tear down the installed adapter. Teardown is a one-way terminal boundary:
+  it claims the exact installed generation (so `current-adapter` reads nil and
+  public delegation raises `:rf.error/adapter-disposed` from that moment), runs
+  cleanup, and then ALWAYS clears that generation's published capabilities and
+  install slot and leaves the disposed breadcrumb set, so a new adapter can
+  install. Finalization touches only the generation this call claimed: stale
+  teardown can never erase a replacement installation or its capabilities.
+  Calling dispose with no adapter installed leaves the breadcrumb untouched —
+  it doesn't pretend a never-installed adapter was disposed.
+
+  Cleanup runs in this order, every step attempted even when an earlier one
+  throws:
+
+    1. Package-owned host roots — `drain-fresco-client-roots!` — so React
+       unmounts run while the substrate is still whole.
+    2. Every live frame's sub-cache — `clear-frame-sub-caches!` — each cached
+       derived value disposed through the departing map's `:dispose!`.
+    3. The adapter's own `:dispose-adapter!` (if present).
+
+  Cleanup reaches the departing map's capabilities because they stay
+  published until finalization; what the claim closes is admission of new
+  public work. The first failure is rethrown unchanged once finalization is
+  done; later ones ride it as secondary evidence (Spec 006 §Adapter disposal
+  lifecycle): among its suppressed exceptions on the JVM, and in its
   `rfAdapterTeardownSecondaryErrors` array on CLJS."
   []
   (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
     (try
-      (let [drain-failure (try
-                            (drain-fresco-client-roots!)
-                            no-teardown-failure
-                            (catch #?(:clj Throwable :cljs :default) e e))]
-        (try
-          (when-let [f (:dispose-adapter! adapter)]
-            (f))
-          (catch #?(:clj Throwable :cljs :default) e
-            (if (identical? no-teardown-failure drain-failure)
-              (throw e)
-              (attach-secondary-teardown-failure! drain-failure e))))
-        (when-not (identical? no-teardown-failure drain-failure)
-          (throw drain-failure)))
+      (let [failures (-> []
+                         (run-teardown-step! drain-fresco-client-roots!)
+                         (as-> fs (try (into fs (clear-frame-sub-caches!))
+                                       (catch #?(:clj Throwable :cljs :default) e
+                                         (conj fs e))))
+                         (run-teardown-step! (fn adapter-cleanup []
+                                               (when-let [f (:dispose-adapter! adapter)]
+                                                 (f)))))]
+        (when (seq failures)
+          (let [primary (first failures)]
+            (doseq [later (rest failures)]
+              (attach-secondary-teardown-failure! primary later))
+            (throw primary))))
       (finally
         ;; Lifecycle finalization is process ownership, not adapter-owned
-        ;; cleanup. It must happen even when the host teardown reports failure,
-        ;; but an old generation must never clear a replacement generation.
-        (swap! adapter-lifecycle-state
-               (fn [state]
-                 (if (identical? generation
-                                 (get-in state [:installed :generation]))
-                   (assoc state :installed nil :disposed? true)
-                   state))))))
+        ;; cleanup. It must happen even when cleanup reports failure, but an old
+        ;; generation must never clear a replacement generation.
+        (release-generation! generation true))))
   nil)
 
 (defn adapter-disposed?
@@ -342,12 +512,15 @@
 
 (defn ^:no-doc reset-lifecycle-state-for-tests!
   "Test-only seam — resets the adapter slot and the disposed breadcrumb to a
-  never-installed cold state. NOT part of the runtime contract; cold-start
-  test fixtures (e.g. `boot_test/cold-start`) use this to wipe the lifecycle
-  state between cases so the no-adapter-installed throw can be asserted
-  independently of the adapter-disposed throw."
+  never-installed cold state, and clears the published capabilities with
+  them. NOT part of the runtime contract; cold-start test fixtures (e.g.
+  `boot_test/cold-start`) use this to wipe the lifecycle state between cases
+  so the no-adapter-installed throw can be asserted independently of the
+  adapter-disposed throw."
   []
-  (reset! adapter-lifecycle-state {:installed nil :disposed? false})
+  (locking capability-lock
+    (publish-capabilities! nil)
+    (reset! adapter-lifecycle-state {:installed nil :disposed? false}))
   nil)
 
 ;; ---- delegation helpers ---------------------------------------------------
@@ -426,7 +599,7 @@
 
   Construction-failure obligation. A RETURNED physical
   state container is GC-OWNED: it must not require an explicit per-container
-  teardown verb (there is none — the ten-fn adapter surface exposes no
+  teardown verb (there is none — the adapter contract exposes no
   state-container disposal, and the container is reclaimed by GC with the
   dropped frame record). So `make-state-container` must either THROW BEFORE
   returning or return a DISPOSAL-FREE value. `new-frame-record` relies on
@@ -446,18 +619,6 @@
   (let [a (require-adapter! 'rf/read-container)]
     ((:read-container a) container)))
 
-(def ^:no-doc untracked-read-no-opinion
-  "Sentinel the routed `:adapter/read-container-untracked` hook returns from
-  its chain-bottom fallback to mean \"the installed adapter publishes no
-  untracked read\". `read-container-untracked` then falls back to
-  `read-container`. A sentinel rather than nil, because nil is a legitimate
-  container value.
-
-  Public so `re-frame.substrate.spine` (the ratom hook producer) and any
-  custom adapter that publishes the routed hook return the SAME sentinel from
-  their `route-hook!` fallback thunk."
-  ::untracked-read-no-opinion)
-
 (defn ^:no-doc read-container-untracked
   "Read `container` exactly as `read-container` would, WITHOUT recording a
   dependency on the enclosing reactive computation. The value is a snapshot:
@@ -467,46 +628,36 @@
   classification reads the frame's elision registry while a sub computes or a
   view renders — so that observing a computation never adds an input to it.
 
-  Resolves the installed adapter's optional `:adapter/read-container-untracked`
-  late-bind hook (Spec 006 §`make-derived-value`). A substrate whose reads
-  capture dependencies publishes it. On every other substrate a read captures
-  nothing, so `read-container` is already untracked and this falls back to it:
-  when no adapter publishes the hook, and when the routed hook answers the
-  `untracked-read-no-opinion` sentinel because the installed adapter is not one
-  that publishes it.
+  Uses the installed adapter's optional `:read-container-untracked`
+  capability, published at install into the `:adapter/read-container-untracked`
+  slot (Spec 006 §`make-derived-value`). A substrate whose reads capture
+  dependencies carries it. On every other substrate a read captures nothing,
+  so `read-container` is already untracked and this falls back to it when the
+  slot is absent.
 
   On the per-dispatch hot path (the elision registry feeds every dispatch's
-  redaction paths), so the hook resolves through `get-fn-cached`."
+  redaction paths), so the slot resolves through `get-fn-cached`."
   [container]
-  (let [hook (rf.late-bind/get-fn-cached :adapter/read-container-untracked)
-        v    (if hook (hook container) untracked-read-no-opinion)]
-    (if (= untracked-read-no-opinion v)
-      (read-container container)
-      v)))
+  (if-let [hook (rf.late-bind/get-fn-cached :adapter/read-container-untracked)]
+    (hook container)
+    (read-container container)))
 
 (def container-class-unknown
-  "Sentinel the routed `:adapter/derived-container?` hook returns from its
-  chain-bottom fallback to mean \"the installed adapter has NO opinion on
-  this container's base-vs-derived class\" — distinct from a genuine
-  `false` (\"the installed adapter classifies this as one of ITS base
-  containers\"). The choke point (`derived-container?`) treats this
-  sentinel — and a never-published hook (`nil`) — as the signal to fall
-  back to the host atom-marker heuristic.
+  "The answer an adapter's `:derived-container?` capability gives for a
+  container it has NO opinion on — distinct from a genuine `false` (\"this
+  is one of MY base containers\"). The choke point (`derived-container?`)
+  treats this sentinel — and an absent capability (`nil` slot) — as the
+  signal to fall back to the host atom-marker heuristic.
 
-  Why a sentinel and not `false`: a `(constantly false)` fallback would be
-  indistinguishable, at the choke point, from an installed adapter's
-  authoritative \"this is a base container\" answer. The choke point would
-  then run its atom-marker arm even when an installed adapter published the
-  hook and answered `false` for one of ITS base containers — and, for a
-  custom adapter whose base container is NOT atom-shaped, WRONGLY reclassify
-  that legitimate base container as derived and reject the write before the
-  adapter's own `:replace-container!` could run. The sentinel makes \"no
-  opinion\" (use the heuristic) distinguishable
-  from \"installed adapter says base\" (trust it; skip the heuristic).
+  Why a sentinel and not `false`: `false` is the adapter's authoritative
+  \"this is one of my base containers\" answer, on which the choke point
+  delegates the write and skips its atom-marker arm. An adapter answering
+  `false` for a container it does not recognise would have that write
+  delegated unchecked; the sentinel hands such a container to the heuristic
+  instead, so \"no opinion\" (use the heuristic) stays distinguishable from
+  \"installed adapter says base\" (trust it; skip the heuristic).
 
-  Public so `re-frame.substrate.spine` (the ratom hook producer) and any
-  custom adapter that publishes a routed `:adapter/derived-container?` hook
-  return the SAME sentinel from their `route-hook!` fallback thunk."
+  Public so any adapter's `:derived-container?` can answer it."
   ::container-class-unknown)
 
 (defn- base-atom-shaped-container?
@@ -514,9 +665,8 @@
   host's atom marker protocol — `clojure.lang.IAtom` on the JVM,
   `cljs.core/IAtom` on CLJS. The host-uniform fall-back discriminator for
   `derived-container?` when the installed adapter has NO opinion on the
-  container's class (no `:adapter/derived-container?` hook published, or the
-  installed adapter's routed hook returns the `container-class-unknown`
-  sentinel).
+  container's class (its map carries no `:derived-container?`, or that
+  capability answers the `container-class-unknown` sentinel).
 
   Why `IAtom`, not `ISwap`/`IReset`: a CLJS `cljs.core/Atom` implements
   `IAtom` but NOT `ISwap`/`IReset` — `swap!` / `reset!` fast-path on
@@ -532,11 +682,10 @@
   which is an `IAtom`. NOT sound for the Reagent family (a Reagent
   `Reaction` reifies `IAtom` too) NOR for a custom adapter whose base
   container is a non-atom host shape (a JS class instance, signal/store
-  object, or record). Those adapters MUST publish an
-  `:adapter/derived-container?` late-bind hook (the ratom family via
-  `spine/make-ratom-adapter`; a custom adapter via its own `route-hook!`)
-  so `derived-container?` consults the adapter and never reaches this
-  heuristic for their containers."
+  object, or record). Those adapters MUST carry a `:derived-container?`
+  capability (the ratom family via `spine/make-ratom-adapter`; a custom
+  adapter on its own map) so `derived-container?` consults the adapter and
+  never reaches this heuristic for their containers."
   [container]
   #?(:clj  (instance? clojure.lang.IAtom container)
      :cljs (satisfies? IAtom container)))
@@ -552,15 +701,15 @@
   base `r/atom`, and a custom adapter's base container may be a non-atom
   host shape entirely. So `detecting a derived container is the adapter's
   responsibility` (Spec 006 §`make-derived-value`): the installed adapter
-  is the authority on its own container shapes and declares them via the
-  routed `:adapter/derived-container?` late-bind hook (the ratom adapters
-  key it on their reaction's substrate disposal protocol — a `Reaction` is
-  disposable, an `r/atom` is not; a custom adapter answers from whatever
-  distinguishes its own base from its own derived containers). Routed (per
-  `route-hook!`) so it answers authoritatively only while its adapter is
-  installed.
+  is the authority on its own container shapes and declares them through its
+  `:derived-container?` capability, published at install into the
+  `:adapter/derived-container?` slot (the ratom adapters key it on their
+  reaction's substrate disposal protocol — a `Reaction` is disposable, an
+  `r/atom` is not; a custom adapter answers from whatever distinguishes its
+  own base from its own derived containers). Published at install, it answers
+  only while its adapter is installed.
 
-  Three-way reading of the routed hook, where the installed adapter is the
+  Three-way reading of the capability, where the installed adapter is the
   authority WHENEVER it has an opinion:
 
     * hook returns truthy → DERIVED (the installed adapter classifies this
@@ -570,20 +719,16 @@
       write. The host atom-marker heuristic is NOT consulted, so a custom
       adapter whose legitimate base container is not `IAtom`-shaped is not
       misclassified.
-    * hook returns the `container-class-unknown` sentinel, or no adapter
-      published the hook (`nil`) → the installed adapter has NO opinion;
-      fall back to the host atom-marker heuristic (sound only for adapters
-      whose base container IS atom-shaped — plain-atom / UIx /
-      whose derived values are NOT atom-shaped).
+    * hook returns the `container-class-unknown` sentinel, or the installed
+      map carries no `:derived-container?` (`nil` slot) → the installed
+      adapter has NO opinion; fall back to the host atom-marker heuristic
+      (sound only for adapters whose base container IS atom-shaped —
+      plain-atom / UIx — whose derived values are NOT atom-shaped).
 
   For the ratom family the hook is decisive (truthy for a `Reaction`,
   `false` for a base `r/atom`), so the heuristic is never reached for their
-  containers. For plain-atom / UIx the routed hook is
-  absent or returns the sentinel (chain fallback), so the atom-marker arm
-  decides — exactly where it is sound.
-
-  The hook lives in the late-bind table (not the adapter spec map) so the
-  adapter contract keeps its ten-fn shape."
+  containers. Plain-atom and UIx carry no `:derived-container?`, so the
+  atom-marker arm decides — exactly where it is sound."
   [container]
   (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
         verdict (when hook (hook container))]
@@ -622,8 +767,8 @@
   `replace-container!` — partial/whole replacement of a value computed
   from sources is meaningless (per Spec 006 §`make-derived-value`).
   Writing to one is a programmer error. The choke point detects the
-  derived container (`derived-container?` — the installed adapter's routed
-  `:adapter/derived-container?` late-bind hook is authoritative whenever it
+  derived container (`derived-container?` — the installed adapter's
+  `:derived-container?` capability is authoritative whenever it
   has an opinion (truthy = derived → reject; `false` = one of the adapter's
   base containers → delegate), and the host atom-marker heuristic is the
   fall-back only when the installed adapter has no opinion),
@@ -634,9 +779,9 @@
   adapter `replace-container!` is NOT invoked. Guarding here (rather than
   per-adapter) gives one uniform contract across every reference adapter —
   the same single choke point that carries the nil guard above. A custom
-  adapter whose legitimate base container is NOT atom-shaped publishes the
-  routed hook (answering `false` for its base) so its writes delegate
-  rather than being rejected as derived."
+  adapter whose legitimate base container is NOT atom-shaped carries a
+  `:derived-container?` (answering `false` for its base) so its writes
+  delegate rather than being rejected as derived."
   [container new-value]
   (if (nil? container)
     ;; The nil guard runs BEFORE the adapter lookup (a scheduled drain
@@ -704,9 +849,10 @@
       dispose it, so an un-returned partial allocation must unwind itself.
     - DISPOSABLE result. Every successfully RETURNED derived value is
       disposable through the `re-frame.interop/dispose!` seam (the
-      same seam that releases it at normal frame teardown). This is what lets
-      a caller reverse-order-dispose earlier projections when a LATER
-      construction step fails, WITHOUT an eleventh adapter function."
+      same seam that releases it at normal frame teardown, and the one the
+      installed map's `:dispose!` answers on CLJS). This is what lets a
+      caller reverse-order-dispose earlier projections when a LATER
+      construction step fails."
   [source-containers compute-fn]
   (let [a (require-adapter! 'rf/make-derived-value)]
     ((:make-derived-value a) source-containers compute-fn)))
@@ -791,165 +937,3 @@
   (let [a (require-adapter! 'rf/register-context-provider)
         f (:register-context-provider a)]
     (when f (f frame-keyword))))
-
-;; ---- adapter routing token ------------------------------------------------
-;;
-;; Hook routing (below) must answer one question: "is the adapter THIS hook
-;; belongs to the one (rf/init!)-installed right now?" Raw object identity —
-;; `(identical? adapter-spec (current-adapter))` — is the WRONG answer
-;; against a copied or wrapped canonical adapter map: a user (or the
-;; adapter-swap pattern in `boot_test`) that `assoc`/`merge`/`update`s a
-;; canonical adapter map for instrumentation or local overrides installs a
-;; value-equal map with a DIFFERENT identity, so every routed hook would
-;; silently fall through to the chain/fallback — boot would be green but UIx
-;; would lose `:adapter/current-frame` React-context resolution, view
-;; source/view-id wrapping, after-render, and derived-value disposal;
-;; Reagent would lose the ratom-family hooks including the
-;; `:adapter/derived-container?` guard. Spec 006
-;; §Frame-provider via React context requires the `:adapter/current-frame`
-;; hook to resolve to the LIVE routed impl, so a frozen-identity guard that
-;; serves stale (inert) hooks for a copied map is a correctness bug.
-;;
-;; So routing is by a STABLE token carried in the installed map rather than
-;; object identity. The token is the adapter's canonical `:kind`
-;; discriminator (`:rf.adapter/reagent`, `:rf.adapter/uix`, …) — a value
-;; that survives `assoc`/`merge`/copy, so a copied canonical map still
-;; dispatches to its adapter's live hooks. A genuinely custom adapter that
-;; did NOT pick a canonical `:rf.adapter/*` kind (its `:kind` is absent)
-;; has no distinguishing token, so it falls back to object identity — two
-;; distinct kind-less adapters can never be conflated.
-
-(defn- canonical-kind?
-  "True when `kind` is a canonical framework adapter kind — a keyword in the
-  reserved `:rf.adapter/*` namespace (per Spec 006 §Adapter introspection /
-  Conventions §Reserved namespaces). A `nil` / absent kind is NOT canonical:
-  it carries no per-adapter distinguishing token, so routing for it
-  falls back to object identity."
-  [kind]
-  (and (keyword? kind) (= "rf.adapter" (namespace kind))))
-
-(defn same-adapter?
-  "True when adapter spec map `a` is, for hook-routing and installed-adapter
-  checks, the SAME adapter as `b`. Stable-token comparison:
-  when both maps carry the same canonical `:rf.adapter/*` `:kind`, they are
-  the same adapter even across a copy/`assoc`/`merge` (the token survives
-  structural edits), so a copied canonical adapter map still routes to its
-  live hooks. Otherwise (a non-canonical or kindless adapter, or
-  mismatched kinds) it falls back to object identity so two distinct custom
-  adapters are never conflated. Nil-safe: a
-  nil `b` (no adapter installed) is never the same as a non-nil `a`.
-
-  Public so the installed-adapter checks outside this ns — `init!`'s
-  idempotence guard and the view and subscription caches' built-under
-  checks — share the one stable-token predicate `route-hook!` uses, rather
-  than re-deriving an object-identity check that would reject a copied
-  canonical map.
-
-  SPELLING IS LOAD-BEARING, and the flat nest of `if`s below is deliberate.
-  The obvious spelling — `(boolean (and a b (let [ka (:kind a)]
-  …)))` — puts a `let` in EXPRESSION position under `boolean`/`and`, and
-  ClojureScript emits a `let` in expression context as an IIFE (compiler.cljc
-  L1139-1162, r1.12.145). `:advanced` does not remove it, so every call
-  would allocate one JS closure plus its context: measured at 144.1 B/call
-  against 4.1 for this flat form, CLJS / node 24.13.0 / V8 13.6, `:advanced` +
-  `goog.DEBUG=false`. This predicate is on the ambient-frame reader's hot
-  path — every routed hook call, on every chain link, of every routed hook in
-  the bundle — so that would be 53% of the reader's whole per-call cost. The two
-  spellings are semantically identical (every leaf of both is already
-  boolean: canonical kinds compare with `=`, custom/kindless adapters with
-  `identical?`, falsey inputs return `false`), and the read-attribution
-  bench's agreement gate runs them over nine discriminating cases. Do not
-  \"tidy\" this back into `boolean`/`and`."
-  [a b]
-  (if a
-    (if b
-      (let [ka (:kind a)]
-        (if (canonical-kind? ka)
-          (= ka (:kind b))
-          (identical? a b)))
-      false)
-    false))
-
-;; ---- late-bind hook routing -----------------------------------------------
-;;
-;; Each CLJS adapter publishes its late-bind hooks at ns-load time so
-;; consumers in core (subs, views, interop) reach the installed adapter's
-;; substrate-specific impls without a static :require. In test bundles that
-;; load multiple adapter ns's, a plain (rf.late-bind/set-fn! k impl) would
-;; keep only the LAST-LOADED adapter's impl — and an app installed via
-;; `(rf/init! reagent/adapter)` would then silently use (say) UIx's impl,
-;; breaking adapter-specific contracts.
-;;
-;; So each adapter's impl is wrapped in a routing closure that
-;; runs the impl ONLY when this adapter is the (rf/init!)-installed
-;; one; otherwise the closure chains to the previously-registered
-;; handler (which does the same active-adapter check for ITS adapter).
-;; The chain terminates with fallback-fn — typically `(constantly nil)`,
-;; `(constantly false)` for predicates, or `#(frame/current-frame)`
-;; for the React-context-tier `:adapter/current-frame` hook.
-;;
-;; The active-adapter check is `same-adapter?` (stable-token routing),
-;; NOT raw object identity — so a copied / wrapped canonical
-;; adapter map still dispatches to its adapter's live hooks.
-
-(defn route-hook!
-  "Install `impl-fn` under late-bind hook `hook-key`, wrapped so the call
-  dispatches to `impl-fn` ONLY when `adapter-spec` is — by stable token —
-  the currently (rf/init!)-installed adapter; otherwise it chains to the
-  previously-registered handler. When no previous handler is registered
-  (this is the first/only adapter to publish this hook), the routed closure
-  returns `(fallback-fn)`.
-
-  Routing is by stable token (`same-adapter?`): a copied or
-  wrapped canonical adapter map (same `:rf.adapter/*` `:kind`) still
-  dispatches to its adapter's live impl, rather than falling through to the
-  chain/fallback because object identity changed.
-
-  See `spec/006-ReactiveSubstrate.md` §Frame-provider via React context for
-  the adapter routing contract.
-
-  3-arg form: defaults `fallback-fn` to `(constantly nil)` — the
-  most common shape across the adapters (nil-fallback semantics).
-  4-arg form: callers pass an explicit thunk for predicate hooks
-  (`(constantly false)`) or the React-context tier
-  (`#(frame/current-frame)`)."
-  ([adapter-spec hook-key impl-fn]
-   (route-hook! adapter-spec hook-key impl-fn (constantly nil)))
-  ([adapter-spec hook-key impl-fn fallback-fn]
-   (let [previous (rf.late-bind/get-fn hook-key)]
-     (rf.late-bind/set-fn! hook-key
-       ;; EXPLICIT ARITIES, and the repetition is the mechanism.
-       ;; The obvious spelling is one variadic body forwarding with
-       ;; `(apply impl-fn args)` — but `route-hook!` publishes ~11 hook keys
-       ;; for every adapter in the bundle and they would all share that ONE
-       ;; `apply` site, so its callee is polymorphic there and
-       ;; `cljs.core/apply` cannot be inlined: it enters generic invocation
-       ;; dispatch and examines the function and the argument seq on every
-       ;; call. Spelling the common arities out calls `impl-fn` (and the
-       ;; chained `previous`) DIRECTLY instead. Repository call sites use 0,
-       ;; 1 or 2 arguments routinely; `:adapter/wrap-view`'s 3 and any
-       ;; future/custom arity take the variadic tail, which keeps the
-       ;; generality and pays the `apply` cost only where it is rare.
-       ;;
-       ;; The generated shape is not a contract. What IS — and what
-       ;; `routing_arity_cljs_test` pins at 0/1/2/3/4 arguments on all three
-       ;; routes — is that every arity forwards the same arguments, answers
-       ;; the same value, chains in the same order, and calls `fallback-fn`
-       ;; as a ZERO-argument thunk.
-       (fn routed-hook
-         ([]
-          (if (same-adapter? adapter-spec (current-adapter))
-            (impl-fn)
-            (if previous (previous) (fallback-fn))))
-         ([a]
-          (if (same-adapter? adapter-spec (current-adapter))
-            (impl-fn a)
-            (if previous (previous a) (fallback-fn))))
-         ([a b]
-          (if (same-adapter? adapter-spec (current-adapter))
-            (impl-fn a b)
-            (if previous (previous a b) (fallback-fn))))
-         ([a b & more]
-          (if (same-adapter? adapter-spec (current-adapter))
-            (apply impl-fn a b more)
-            (if previous (apply previous a b more) (fallback-fn)))))))))

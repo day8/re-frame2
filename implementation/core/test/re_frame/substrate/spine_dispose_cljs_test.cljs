@@ -1,33 +1,22 @@
 (ns re-frame.substrate.spine-dispose-cljs-test
-  "The substrate spine's `dispose-adapter!` factory and sub-cache walk (Spec 006
-  §Adapter disposal lifecycle): every cleanup step is attempted, the FIRST
-  failure is rethrown (kept by presence, so a falsey throw still surfaces), and
-  later failures ride it as `rfAdapterTeardownSecondaryErrors`.
+  "The substrate spine's `dispose-adapter!` factory (Spec 006 §Adapter disposal
+  lifecycle): every cleanup step is attempted, the FIRST failure is rethrown
+  (kept by presence, so a falsey throw still surfaces), and later failures ride
+  it as `rfAdapterTeardownSecondaryErrors`. Every frame's sub-cache is core's
+  teardown step, pinned in `re-frame.adapter.capabilities-cljs-test`.
 
-  Fake roots (objects with an `unmount` slot) and fake cached reactions stand in
-  for React roots and Reactions, so this runs on node with no DOM.
+  Fake roots (objects with an `unmount` slot) stand in for React roots, so this
+  runs on node with no DOM.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.disposable :as rf.disposable]
-            [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.spine :as rf.substrate.spine]))
 
 (defn- fake-root []
   (let [unmount-count (atom 0)]
     {:root          #js {:unmount #(swap! unmount-count inc)}
      :unmount-count unmount-count}))
-
-(defn- fake-reaction []
-  (let [dispose-count (atom 0)]
-    {:reaction      (reify rf.disposable/IDisposable
-                      (-dispose [_] (swap! dispose-count inc))
-                      (-add-on-dispose [_ _f] nil))
-     :dispose-count dispose-count}))
-
-(defn- fake-frame [cache-map]
-  {:sub-cache (atom cache-map)})
 
 (defn- cells [driver-root]
   {:active-roots-cell             (rf.substrate.spine/make-active-roots-cell)
@@ -51,36 +40,19 @@
 
 (def ^:private all-cleared [#{} nil nil nil])
 
-;; The walk disposes through the `:adapter/dispose!` hook, so seed it with the
-;; protocol fn and restore the globals afterwards.
-(use-fixtures :each
-  (fn [test-fn]
-    (let [saved-frames @rf.frame/frames
-          saved-hook   (rf.late-bind/get-fn-cached :adapter/dispose!)]
-      (reset! rf.frame/frames {})
-      (rf.late-bind/set-fn! :adapter/dispose! rf.disposable/-dispose)
-      (try (test-fn)
-           (finally
-             (reset! rf.frame/frames saved-frames)
-             (when saved-hook
-               (rf.late-bind/set-fn! :adapter/dispose! saved-hook)))))))
-
-(deftest dispose-drains-every-root-walks-the-sub-caches-then-rethrows
+(deftest dispose-drains-every-root-then-rethrows
   (let [c        (cells nil)
         good-1   (fake-root)
         good-2   (fake-root)
-        sentinel (js/Error. "boom")
-        r        (fake-reaction)
-        frm      (fake-frame {[:sub :x] (select-keys r [:reaction])})]
-    (reset! rf.frame/frames {:walk/a frm})
+        sentinel (js/Error. "boom")]
     ;; A set does not keep insertion order: both good roots must unmount
     ;; wherever the bad one falls.
     (swap! (:active-roots-cell c) conj (:root good-1) #js {:unmount #(throw sentinel)}
            (:root good-2))
     (let [thrown (dispose-thrown c)]
-      (is (= [true 1 1 1 {} all-cleared]
+      (is (= [true 1 1 all-cleared]
              [(identical? sentinel thrown) @(:unmount-count good-1) @(:unmount-count good-2)
-              @(:dispose-count r) @(:sub-cache frm) (cleared c)])))))
+              (cleared c)])))))
 
 (deftest dispose-surfaces-a-driver-root-only-unmount-failure-as-the-primary
   ;; The driver root lives outside `active-roots-cell`; when its unmount is the
@@ -108,34 +80,6 @@
 (deftest dispose-captures-a-falsey-driver-root-throw-by-presence
   (let [c (cells #js {:unmount #(throw false)})]
     (is (= [false nil] [(dispose-thrown c) @(:after-render-driver-root-cell c)]))))
-
-(deftest dispose-frame-sub-caches-walks-every-live-frame
-  ;; Two healthy entries in one cache: a walk cut short to each cache's first
-  ;; entry fails here.
-  (let [r-a-x (fake-reaction)
-        r-a-y (fake-reaction)
-        r-b   (fake-reaction)
-        frm-a (fake-frame {[:sub :x] (select-keys r-a-x [:reaction])
-                           [:sub :y] (select-keys r-a-y [:reaction])})
-        frm-b (fake-frame {[:sub :z] (select-keys r-b [:reaction])})]
-    (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
-    (rf.substrate.spine/dispose-frame-sub-caches!)
-    (is (= [1 1 1 {} {}]
-           [@(:dispose-count r-a-x) @(:dispose-count r-a-y) @(:dispose-count r-b)
-            @(:sub-cache frm-a) @(:sub-cache frm-b)]))))
-
-(deftest dispose-frame-sub-caches-is-best-effort
-  ;; The poison entry is not IDisposable, so the seeded hook throws on it.
-  (let [good-1 (fake-reaction)
-        good-2 (fake-reaction)
-        frm-a  (fake-frame {[:sub :good-1] (select-keys good-1 [:reaction])
-                            [:sub :poison] {:reaction (js-obj "not" "a reaction")}})
-        frm-b  (fake-frame {[:sub :good-2] (select-keys good-2 [:reaction])})]
-    (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
-    (rf.substrate.spine/dispose-frame-sub-caches!)
-    (is (= [1 1 {} {}]
-           [@(:dispose-count good-1) @(:dispose-count good-2)
-            @(:sub-cache frm-a) @(:sub-cache frm-b)]))))
 
 (deftest spine-derived-value-dispose-is-idempotent-and-re-entrant-safe
   ;; A callback that re-enters `-dispose`, and a second plain `-dispose`, must

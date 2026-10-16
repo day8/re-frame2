@@ -12,7 +12,7 @@
     {:adapter rf.adapter.reagent/adapter :ambient-frame nil})
   (fn [test-fn] (try (test-fn) (finally (r/flush)))))
 
-(deftest copied-adapter-map-routes-to-live-after-render-hook
+(deftest copied-adapter-map-drives-live-after-render-hook
   (testing "a copied stock-Reagent adapter map still drives the live
             :adapter/after-render hook"
     (let [original (rf.substrate.adapter/current-adapter)
@@ -27,9 +27,8 @@
         (r/flush)
         (is (= 1 @fired)
             (str "the callback FIRED on the render-queue drain under the COPIED"
-                 " Reagent adapter map — the routed :adapter/after-render hook"
-                 " dispatched to its live impl despite the copy's distinct"
-                 " identity"))
+                 " Reagent adapter map — install published the copy's own"
+                 " :after-render despite its distinct identity"))
         (finally
           (r/flush)
           (rf.substrate.adapter/dispose-adapter!)

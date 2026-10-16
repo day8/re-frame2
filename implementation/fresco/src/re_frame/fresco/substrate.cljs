@@ -42,7 +42,8 @@
   `IWatchable` and still notifies nobody until `deref-capture` teaches it its
   sources, which is why the collector ACTIVATES a subscription
   (`re-frame.interop/activate-derived-value!`) before watching it. On this
-  spine that activation is a routed no-op, because the watch is already wired.
+  spine that activation is a no-op — the map carries no
+  `:activate-derived-value!` — because the watch is already wired.
 
   So Fresco supplies React's own `useMemo` / `useCallback` / `useContext` and
   takes no new dependency: it already requires `react`, and the spine already
@@ -149,8 +150,8 @@
   Fresco application that installs Reagent or UIx instead keeps working and
   never reaches this namespace.
 
-  `spine/make-react-adapter` owns the shared React-hook routing and lifecycle
-  wiring — the nine-key contract map, the five routed late-bind hooks, and the
+  `spine/make-react-adapter` owns the shared React-hook capability and
+  lifecycle wiring — the contract map with its capability keys, and the
   chained SSR hiccup-emitter install. The
   frame-provider stays here because the spine carries no substrate's own
   element machinery.

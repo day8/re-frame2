@@ -228,29 +228,19 @@
 
     H-FVID     `frame-value->id` on the result
     H-CACHE    `rf.late-bind/get-fn-cached` — the hook lookup alone
-    H-SPEC     `substrate-adapter/current-adapter` — the state read alone
-    H-IMPL     `function-component-current-frame` — the routed impl alone
-    H-SAMEH    `same-adapter?` on two HELD maps — the SHIPPED routing predicate
-    H-SAMEFLAT a local copy of the same flat predicate, in the same
-               process — a PARITY control: both spellings are flat, so
-               SAMEH - SAMEFLAT attributes no cost to anything
-    H-ROUTED   `((get-fn-cached :adapter/current-frame))` — the whole shipped
+    H-IMPL     `function-component-current-frame` — the installed adapter's
+               `:current-frame` capability alone
+    H-HOOK     `((get-fn-cached :adapter/current-frame))` — the whole shipped
                hook call
 
-  `H-ROUTED` strictly contains `H-CACHE + H-SPEC + H-SAMEH + H-IMPL`, so the
-  residual is the routed closure's own call. Its zero-argument body calls
-  `impl-fn` DIRECTLY — `route-hook!` spells out the 0/1/2 arities and reaches
-  `apply` only from 3 arguments — but that call site is ONE site shared by
-  every routed hook in the bundle, hence callee-POLYMORPHIC. That is why no
-  arm here measures the call at a private site: with a single callee V8
-  inlines it and it reads zero, which is a fast path the shipped code never
-  takes. `S0-SCOPE - H-ROUTED - H-FVID` must close to the floor, and does.
+  `H-HOOK` strictly contains `H-CACHE + H-IMPL`, so the residual is the call
+  itself: the slot holds the installed map's capability, and the shipped
+  consumer calls it directly. `S0-SCOPE - H-HOOK - H-FVID` must close to the
+  floor.
 
-  These arms publish NO routed hooks — they only call existing ones. That is
-  deliberate: publishing re-spellings of `route-hook!` itself changes how many
-  shapes pass through the shared `same-adapter?` and `impl-fn` call sites. Measured,
-  four such arms move `S0-SCOPE` from 264.0 to 280.0 B/read and split eight
-  arms 4x-7x by PHASE, and the guard rightly refuses. Do not add
+  These arms publish NO hooks — they only call the one the installed adapter
+  published. An arm that published its own would replace the very slot
+  `S0-SCOPE` reads and hand the shipped call site a second callee. Do not add
   hook-PUBLISHING arms to this plan.
 
   ## Cache HIT, and why the db is held STILL
@@ -443,10 +433,6 @@
 
 (defonce ^:private rig (volatile! nil))
 
-;; Was `:adapter/current-frame` already published when the bench installed
-;; its adapter? Read before `rf/init!`, printed with the figures.
-(defonce ^:private pre-published (volatile! nil))
-
 (def ^:private fid :ra/frame)
 
 (def ^:private prod-sub-meta
@@ -543,8 +529,8 @@
 ;;
 ;; `rf.frame/resolve-current-frame` is a plain `*current-frame*` var read on the
 ;; JVM. On CLJS it consults the `:adapter/current-frame` late-bind hook so the
-;; React-context tier is live — a hook lookup plus a routed-hook chain that
-;; bottoms out in `rf.frame/current-frame`. Every ambient subscribe pays it, and
+;; React-context tier is live — a hook lookup plus the installed adapter's
+;; reader, falling back to `rf.frame/current-frame` when the slot is empty. Every ambient subscribe pays it, and
 ;; nothing in the JVM decomposition can see it.
 ;;
 ;;   S0-VAR    `(rf.frame/current-frame)` — the dynamic-var tier ALONE, which is
@@ -939,71 +925,22 @@
 ;; ---------------------------------------------------------------------------
 ;; the ambient-frame reader, STEP BY STEP
 ;;
-;; `S0-SCOPE - S0-VAR` says the CLJS-only React-context consult costs 264 B/read
-;; and nothing about WHERE. The route has four steps and each is a candidate:
+;; `S0-SCOPE - S0-VAR` says what the CLJS-only React-context consult costs and
+;; nothing about WHERE. The route has three steps and each is a candidate:
 ;;
 ;;   (frame-value->id                                    <- H-FVID
 ;;     (if-let [f (rf.late-bind/get-fn-cached               <- H-CACHE
 ;;                  :adapter/current-frame)]
-;;       (f)                                             <- H-ROUTED (the whole call)
+;;       (f)                                             <- H-HOOK (the whole call)
 ;;       (current-frame)))
 ;;
-;; and `f` is `route-hook!`'s closure, whose zero-argument arity is itself
-;; three things:
-;;
-;;   (fn routed-hook
-;;     ([]
-;;      (if (same-adapter? spec (current-adapter))  <- H-SAMEH + H-SPEC
-;;        (impl-fn)                                     <- the RESIDUAL: the call
-;;        ...)) ...)
-;;
-;; with `impl-fn` = `rf.adapter.context/function-component-current-frame`  <- H-IMPL.
+;; with `f` = `rf.adapter.context/function-component-current-frame`  <- H-IMPL,
+;; the installed map's `:current-frame` capability.
 ;;
 ;; The arms below price each step against the SAME installed adapter in the
 ;; SAME process, and the budget must close:
 ;;
-;;   H-ROUTED  =  H-CACHE + H-SPEC + H-SAMEH + H-IMPL + the routed call
-;;
-;; THE PARITY CONTROL. `same-adapter?` is a flat nest of `if`s in RETURN
-;; position; its docstring says why, and carries the measured cost of the
-;; expression-position `boolean` / `and` / `let` spelling that the
-;; ClojureScript compiler would wrap in a per-call IIFE. `same-adapter-flat?`
-;; is a local copy of that same flat shape, so H-SAMEH and H-SAMEFLAT price two
-;; EQUIVALENT spellings: their difference is parity noise, and it attributes no
-;; cost to an IIFE or to anything else. The agreement gate in `-main` checks
-;; that the two decide identically.
-
-(defn- same-adapter-flat?
-  "`substrate-adapter/same-adapter?` with IDENTICAL semantics and no
-  expression-position `boolean` / `and` / `let`: false for a falsey `a` or `b`,
-  the canonical-kind comparison when `a`'s kind is canonical, object identity
-  otherwise, and a real boolean in every branch. That it decides identically is
-  CHECKED rather than asserted — the agreement gate in `-main` runs both
-  spellings over the cases that discriminate the branches."
-  [a b]
-  (if a
-    (if b
-      (let [ka (:kind a)]
-        (if (and (keyword? ka) (= "rf.adapter" (namespace ka)))
-          (= ka (:kind b))
-          (identical? a b)))
-      false)
-    false))
-
-(defn- arm-h-spec []
-  (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (rf.substrate.adapter/current-adapter)))
-    nil))
-
-(defn- arm-h-sameh []
-  (let [{:keys [n spec]} @rig]
-    (dotimes [_ n] (keep! (rf.substrate.adapter/same-adapter? spec spec)))
-    nil))
-
-(defn- arm-h-sameflat []
-  (let [{:keys [n spec]} @rig]
-    (dotimes [_ n] (keep! (same-adapter-flat? spec spec)))
-    nil))
+;;   H-HOOK  =  H-CACHE + H-IMPL + the call
 
 (defn- arm-h-fvid []
   (let [{:keys [n]} @rig]
@@ -1020,9 +957,10 @@
     (dotimes [_ n] (keep! (rf.adapter.context/function-component-current-frame)))
     nil))
 
-;; The whole shipped call — the hook lookup AND the routed closure. `S0-SCOPE -
-;; H-ROUTED` is then `frame-value->id`, which H-FVID prices independently.
-(defn- arm-h-routed []
+;; The whole shipped call — the hook lookup AND the capability it holds.
+;; `S0-SCOPE - H-HOOK` is then `frame-value->id`, which H-FVID prices
+;; independently.
+(defn- arm-h-hook []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
       (keep! ((rf.late-bind/get-fn-cached :adapter/current-frame))))
@@ -1249,19 +1187,19 @@
           :want   :per-call
           :points [{:reps 500 :p50 16.1} {:reps 1000 :p50 12.0}
                    {:reps 2000 :p50 9.0} {:reps 4000 :p50 8.0}]}
-         ;; LIVE, recorded from one run of this harness on this host: H-ROUTED
-         ;; refused by phase (its plan rounds split 179.4 -> 1227.9 B/call at
-         ;; reps=4000, the floor-level signature) with a sweep collapsing
-         ;; 7.83x across an 8x ladder — the floor, attributed.
-         {:name   "the live H-ROUTED signature attributes to the floor"
+         ;; LIVE, recorded from one run of this harness on this host: a
+         ;; whole-hook arm refused by phase (its plan rounds split 179.4 ->
+         ;; 1227.9 B/call at reps=4000, the floor-level signature) with a sweep
+         ;; collapsing 7.83x across an 8x ladder — the floor, attributed.
+         {:name   "a live whole-hook signature attributes to the floor"
           :want   :floor
           :points [{:reps 500 :p50 9616.0} {:reps 1000 :p50 1227.9}
                    {:reps 2000 :p50 1227.9} {:reps 4000 :p50 1227.9}]}
-         ;; The SAME run's H-SAMEFLAT — the flat predicate, nominally the same
-         ;; near-zero subject — is pinned by the instrument in a rep-
-         ;; INDEPENDENT state instead (9632.0 B/call, bit-flat across its
-         ;; ladder), and its refusal must stand: a flat sweep proves nothing
-         ;; about the floor, whatever the arm's subject nominally costs.
+         ;; A nominally near-zero arm from the SAME run is pinned by the
+         ;; instrument in a rep-INDEPENDENT state instead (9632.0 B/call,
+         ;; bit-flat across its ladder), and its refusal must stand: a flat
+         ;; sweep proves nothing about the floor, whatever the arm's subject
+         ;; nominally costs.
          {:name   "the same run's rep-independent sibling stays refused"
           :want   :per-call
           :points [{:reps 75 :p50 9632.0} {:reps 149 :p50 9632.0}
@@ -1346,9 +1284,7 @@
                 :held      held
                 :raw       raw
                 :container src
-                ;; the installed spec the routing predicate compares against,
-                ;; and the routed impl the calling-convention pair calls
-                :spec      (rf.substrate.adapter/current-adapter)
+                ;; the installed adapter's `:current-frame` capability
                 :impl      rf.adapter.context/function-component-current-frame
                 ;; the exact reaction the shipped `identical?` guard compares
                 ;; against, a SNAPSHOT of the real n-entry cache map for the
@@ -1396,12 +1332,6 @@
         tolerance    (env-num "RA_TOLERANCE" 0.25)
         rev?         (= "rev" (env "RA_ORDER" ""))
         coords?      (not= "0" (env "RA_COORDS" "1"))]
-    ;; PROVENANCE. `route-hook!` chains, so the shipped hook is one
-    ;; closure PER PUBLISHING ADAPTER. Whether any adapter published this key at
-    ;; ns-load — before the bench installs its own — decides whether the shipped
-    ;; route is ONE link or two — and a second link would be a second
-    ;; `same-adapter?` call. Read it, do not assume it.
-    (vreset! pre-published (some? (rf.late-bind/get-fn :adapter/current-frame)))
     (rf/init! (rf.substrate.spine/make-react-adapter
                 (rf.substrate.spine/make-react-spine
                   {:gensym-prefix-sub     "ra-sub-"
@@ -1466,26 +1396,6 @@
         (when-not agree?
           (throw (ex-info "arms disagree; measurement is meaningless"
                           {:want expect :rgread rg-v :deref dr-v :raw raw-v :scope scope-v}))))
-      ;; The local flat copy is only a parity CONTROL while it
-      ;; decides identically. Checked over the cases that discriminate
-      ;; the branches: nil, a canonical-kind match, a canonical-kind mismatch, a
-      ;; kindless map (object identity), and a copied canonical map.
-      (let [spec   (rf.substrate.adapter/current-adapter)
-            copy   (assoc spec :rf.bench/copied true)
-            other  {:kind :rf.adapter/ra-not-installed}
-            custom {:kind :custom}
-            cases  [[nil nil] [spec nil] [nil spec] [spec spec] [spec copy]
-                    [spec other] [other spec] [custom custom] [custom {:kind :custom}]]
-            bad    (remove (fn [[a b]] (= (rf.substrate.adapter/same-adapter? a b)
-                                          (same-adapter-flat? a b)))
-                           cases)]
-        (println (gstring/format ";; predicate agreement over %d discriminating cases -> %s"
-                         (count cases)
-                         (if (empty? bad) "AGREE (H-SAMEFLAT is a control, not a variant)"
-                             "*** DISAGREE ***")))
-        (when (seq bad)
-          (throw (ex-info "same-adapter? spellings disagree; H-SAMEFLAT is not a control"
-                          {:cases (vec bad)}))))
       (let [plan (vec (concat
                         (map (fn [d] [(ctl-key "DBL" d) (arm-ctl "DBL" d) 1]) ctl-double-ds)
                         (map (fn [d] [(ctl-key "SMI" d) (arm-ctl "SMI" d) 1]) ctl-smi-ds)
@@ -1528,19 +1438,16 @@
                          ["N-LOOKGEN"  arm-n-lookgen   n]
                          ["N-LOOKATOM" arm-n-lookatom  n]
                          ;; the ambient reader's route, decomposed HERE because
-                         ;; this is the plan in which S0-SCOPE reads its
-                         ;; 264.0 B/read. NONE of these arms publishes a routed
-                         ;; hook; they only call ones that exist, which is what
+                         ;; this is the plan in which S0-SCOPE is measured.
+                         ;; NONE of these arms publishes a hook; they only
+                         ;; call the one that exists, which is what
                          ;; keeps them from moving the arms above (the ns
                          ;; docstring says why a hook-PUBLISHING arm does not
                          ;; belong in this plan).
                          ["H-FVID"     arm-h-fvid      n]
                          ["H-CACHE"    arm-h-cache     n]
-                         ["H-SPEC"     arm-h-spec      n]
-                         ["H-SAMEH"    arm-h-sameh     n]
-                         ["H-SAMEFLAT"  arm-h-sameflat   n]
                          ["H-IMPL"     arm-h-impl      n]
-                         ["H-ROUTED"   arm-h-routed    n]]))
+                         ["H-HOOK"     arm-h-hook      n]]))
             plan (if rev? (vec (reverse plan)) plan)
             k    (count plan)
             ;; --- warm-up and calibration, one pass, nothing read -----------
@@ -1804,64 +1711,43 @@
           (println ";;   and the route, part by part:")
           (row "H-FVID    frame-value->id on the result"   (net* "H-FVID")   "H-FVID")
           (row "H-CACHE   rf.late-bind/get-fn-cached, lookup only" (net* "H-CACHE") "H-CACHE")
-          (row "H-SPEC    current-adapter alone"      (net* "H-SPEC")   "H-SPEC")
           (row "H-IMPL    function-component-current-frame" (net* "H-IMPL")  "H-IMPL")
-          (row "H-SAMEH   same-adapter?, two HELD maps  (SHIPPED)" (net* "H-SAMEH") "H-SAMEH")
-          (row "H-SAMEFLAT local flat copy (parity control)" (net* "H-SAMEFLAT") "H-SAMEFLAT")
-          (row "  = SAMEH - SAMEFLAT (parity, not a cost)"
-               (- (net* "H-SAMEH") (net* "H-SAMEFLAT")) nil)
-          (row "H-ROUTED  the SHIPPED hook: lookup + routed call" (net* "H-ROUTED") "H-ROUTED")
+          (row "H-HOOK    the SHIPPED hook: lookup + call" (net* "H-HOOK") "H-HOOK")
           (println ";;")
-          ;; BUDGET. H-ROUTED is a strict superset of the parts above it — the
-          ;; hook lookup, the adapter-state read, the predicate, the routed
-          ;; call, the impl. The residual is therefore the routed closure's
-          ;; direct `(impl-fn)` call at `route-hook!`'s OWN site: ONE site
-          ;; shared by every routed hook in the bundle, so its callee is
-          ;; POLYMORPHIC and the call cannot be inlined there. Measured at a
-          ;; private site with a single callee it is free — which is exactly
-          ;; why it is not measured that way.
-          (let [budget (+ (net* "H-CACHE") (net* "H-SPEC") (net* "H-SAMEH") (net* "H-IMPL"))
-                meas   (net* "H-ROUTED")
+          ;; BUDGET. H-HOOK is a strict superset of the parts above it — the
+          ;; hook lookup and the capability it holds. The residual is the call.
+          (let [budget (+ (net* "H-CACHE") (net* "H-IMPL"))
+                meas   (net* "H-HOOK")
                 resid  (- meas budget)]
             (println (gstring/format
-                       ";;   BUDGET — H-CACHE + H-SPEC + H-SAMEH + H-IMPL = %s vs H-ROUTED %s"
+                       ";;   BUDGET — H-CACHE + H-IMPL = %s vs H-HOOK %s"
                        (fmt budget) (fmt meas)))
             (println (gstring/format
-                       ";;   residual %s B/read (%s of H-ROUTED) — the routed call at route-hook!'s own,"
+                       ";;   residual %s B/read (%s of H-HOOK) — the call itself"
                        (fmt resid)
                        (if (zero? meas) "n/a"
                            (gstring/format "%.1f%%" (* 100.0 (/ resid meas))))))
-            (println ";;   callee-POLYMORPHIC site — one site, every routed hook in the bundle.")
             (println (gstring/format
-                       ";;   and S0-SCOPE - H-ROUTED - H-FVID = %s B/read left over"
-                       (fmt (- (net* "S0-SCOPE") (net* "H-ROUTED") (net* "H-FVID"))))))
+                       ";;   and S0-SCOPE - H-HOOK - H-FVID = %s B/read left over"
+                       (fmt (- (net* "S0-SCOPE") (net* "H-HOOK") (net* "H-FVID"))))))
           (println ";;")
           (let [whole (- (net* "S0-SCOPE") (net* "S0-VAR"))
                 pctof (fn [v] (if (zero? whole) "n/a"
                                   (gstring/format "%.1f%%" (* 100.0 (/ v whole)))))
-                appl  (- (net* "H-ROUTED") (net* "H-CACHE") (net* "H-SPEC")
-                         (net* "H-SAMEH") (net* "H-IMPL"))]
+                call  (- (net* "H-HOOK") (net* "H-CACHE") (net* "H-IMPL"))]
             (println (gstring/format
                        ";;   VERDICT — of the %s B/read CLJS-only consult:" (fmt whole)))
-            (println (gstring/format ";;     same-adapter?, SHIPPED                      %10s  %s"
-                             (fmt (net* "H-SAMEH")) (pctof (net* "H-SAMEH"))))
-            (println (gstring/format ";;     the call at route-hook!'s polymorphic site  %10s  %s"
-                             (fmt appl) (pctof appl)))
-            (println ";;   and, at or under the floor, contributing nothing:")
-            (println (gstring/format ";;     the adapter-state read (current-adapter) %9s  %s"
-                             (fmt (net* "H-SPEC")) (pctof (net* "H-SPEC"))))
             (println (gstring/format ";;     the hook lookup (get-fn-cached)              %10s  %s"
                              (fmt (net* "H-CACHE")) (pctof (net* "H-CACHE"))))
             (println (gstring/format ";;     the impl itself (function-component-…)       %10s  %s"
                              (fmt (net* "H-IMPL")) (pctof (net* "H-IMPL"))))
+            (println (gstring/format ";;     the call                                     %10s  %s"
+                             (fmt call) (pctof call)))
             (println (gstring/format ";;     frame-value->id on the result                %10s  %s"
                              (fmt (net* "H-FVID")) (pctof (net* "H-FVID"))))
-            (println ";;   route-hook! publishes ~11 hook keys and EVERY call through any of")
-            (println ";;   them carries this shape, so these are per ROUTED-HOOK CALL figures,")
-            (println ";;   not per subscribe. Both terms are therefore paid by ambient dispatch")
-            (println ";;   and rf/current-frame-id as well, and once per PUBLISHING adapter:")
-            (println ";;   an inactive adapter loaded in the same bundle adds a chain link, and")
-            (println ";;   a link is another same-adapter? plus another routed call."))
+            (println ";;   Every :adapter/* capability call carries this shape, so these are")
+            (println ";;   per HOOK CALL figures, not per subscribe: ambient dispatch and")
+            (println ";;   rf/current-frame-id pay them as well."))
           (println ";;"))
         ;; --- THE HEADLINE ---------------------------------------------------
         (println ";; ==== THE TERM THIS HARNESS IS ABOUT ====")

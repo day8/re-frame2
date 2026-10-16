@@ -433,12 +433,11 @@
   Reagent adapter does NOT publish the hook; the inline hiccup walk
   in `build-frame-aware-view` serves it.
 
-  The hook may be registered (e.g. test bundle loaded UIx
-  adapter ns's) yet return nil — each adapter's routing closure
-  returns nil when its own adapter is NOT the installed one,
-  so the chain bottoms out at nil when the Reagent adapter
-  is installed. A nil from the hook means \"no substrate wrap
-  applied\" — keep render-fn unchanged and let the inline walk run.
+  The slot holds the INSTALLED adapter's `:wrap-view` and nothing else:
+  a loaded UIx adapter ns contributes nothing while Reagent is installed,
+  so the slot is absent there. An absent slot, or a nil from the hook,
+  means \"no substrate wrap applied\" — keep render-fn unchanged and let
+  the inline walk run.
 
   The adapter's wrap-view body itself sits inside
   `(when rf.interop/debug-enabled? ...)`, so under :advanced +
@@ -454,11 +453,9 @@
   substrate wrap)."
   [id metadata render-fn]
   ;; Per the sticky-hook convention: `:adapter/wrap-view` is
-  ;; published once at adapter ns-load via `rf.substrate.adapter/route-hook!`
-  ;; and never withdrawn in production, so the resolution is cacheable.
-  ;; `route-hook!` calls `rf.late-bind/set-fn!` which invalidates the
-  ;; cache, so dev-time hot-reload of an adapter re-resolves on the
-  ;; next derivation.
+  ;; published when its adapter is installed and cleared at teardown, and
+  ;; each publication goes through `rf.late-bind/set-fn!`, which invalidates
+  ;; the cached resolution — so the next derivation re-resolves.
   (let [hook    (rf.late-bind/get-fn-cached :adapter/wrap-view)
         wrapped (when hook (hook id metadata render-fn))]
     (if (some? wrapped)
@@ -486,7 +483,7 @@
   Consulted LAST, after the substrate wrap and the frame-aware wrapper have
   been composed, so the shell is the OUTERMOST layer and every inner
   wrapper keeps its frame, tracing, source-coordinate and unmount behaviour
-  underneath it. Same sticky-hook / routed-resolution contract as
+  underneath it. Same sticky-hook / installed-adapter contract as
   `:adapter/wrap-view` above: nil means \"this substrate needs no
   componentization\" — keep the wrapper as the head."
   [id metadata wrapped]
@@ -748,9 +745,10 @@
 ;; ---- the head is (registration × substrate) ------------------------------
 ;;
 ;; BOTH substrate hooks in the pipeline above — `:adapter/wrap-view` and
-;; `:adapter/componentize-view` — are ROUTED (`rf.substrate.adapter/route-hook!`):
-;; each answers only while ITS adapter is the `rf/init!`-installed one, and
-;; returns nil otherwise. Registration is therefore the wrong moment to ask
+;; `:adapter/componentize-view` — are capabilities of the INSTALLED adapter,
+;; published by `rf.substrate.adapter/install-adapter!`: each answers only
+;; while ITS adapter is the `rf/init!`-installed one, and is absent
+;; otherwise. Registration is therefore the wrong moment to ask
 ;; either, because the repository's canonical boot order
 ;; (`docs/core/how-to/boot-and-mount-an-app.md`) loads the registration
 ;; namespaces FIRST, at ns-load, and calls `rf/init!` afterwards. A view
@@ -871,7 +869,7 @@
   substrate wrap composed beneath it — or nil when nothing is registered.
 
   Re-derived from the registration against the installed adapter and memoized
-  (see the section comment above), so both routed hooks are correct under the
+  (see the section comment above), so both substrate hooks are correct under the
   canonical boot order — registration namespaces at ns-load, `rf/init!`
   afterwards — without asking application authors to move their top-level
   registrations into `run`. Registration AFTER `init!` needs no re-derivation:
@@ -937,8 +935,8 @@
   §`(re-frame.core/view id)` describes.
 
   That whole derivation is only a SEED, because BOTH substrate hooks it
-  consults are routed and answer nothing until `rf/init!` has seated their
-  adapter — and the canonical boot order registers views at ns-load, BEFORE
+  consults are published at install and answer nothing until `rf/init!` has
+  seated their adapter — and the canonical boot order registers views at ns-load, BEFORE
   `init!`. `view-head` (what `re-frame.core/view` calls) re-runs the pipeline
   against the installed adapter when this reg-time answer was taken against a
   different one, and memoizes. Registration order is therefore not a

@@ -3,13 +3,14 @@
   See Spec 002 §Interop layer and Spec 005 §Interop layer.
 
   Reactive-substrate surfaces (`ratom`, `ratom?`, `make-reaction`,
-  `add-on-dispose!`, `dispose!`, `reactive?`, `after-render`) dispatch
-  through the late-bind hook table so adapter swap-in works without
-  hard-coupling this ns to any substrate's protocols. Each adapter
-  publishes its impls at ns-load time under the `:adapter/*` hook keys.
-  Hook installation routes through `(substrate-adapter/current-adapter)`
-  so test bundles loading multiple adapters stay honest about which
-  substrate is active."
+  `activate-derived-value!`, `add-on-dispose!`, `dispose!`, `reactive?`,
+  `after-render`) dispatch through the late-bind hook table so adapter
+  swap-in works without hard-coupling this ns to any substrate's protocols.
+  Each is a capability key on an adapter's map, which
+  `re-frame.substrate.adapter/install-adapter!` publishes under the matching
+  `:adapter/*` key — a key the installed map lacks as absent — so only the
+  installed adapter ever answers, however many adapter namespaces a bundle
+  loads."
   (:require [goog.async.nextTick]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -42,9 +43,9 @@
 
 ;; ---- adapter-published reactive hooks -------------------------------------
 ;;
-;; The seven `:adapter/*` reactive hooks below are published once per
-;; loaded React-shaped adapter at ns-load time (see Spec 006 §Substrate
-;; adapter contract). They are read on every render /
+;; The `:adapter/*` reactive hooks below are published from the installed
+;; adapter's map when it is installed (see Spec 006 §The adapter API
+;; contract). They are read on every render /
 ;; subscribe / reaction tear-down — sticky-cache via
 ;; `rf.late-bind/get-fn-cached` so the resolution is one
 ;; per-key atom slot rather than a `@hooks` map walk per call.
@@ -52,8 +53,8 @@
 ;; ---- after-render hook ----------------------------------------------------
 
 (defn after-render
-  "Schedule f to run after the next render. Returns nil when no adapter
-  has registered the `:adapter/after-render` hook."
+  "Schedule f to run after the next render. Returns nil when the installed
+  adapter carries no `:after-render` capability."
   [f]
   (when-let [hook (rf.late-bind/get-fn-cached :adapter/after-render)]
     (hook f)))
@@ -67,8 +68,8 @@
     (hook v)))
 
 (defn ratom?
-  "True if x is a reactive atom (per the active adapter's substrate).
-  Returns false when no adapter has registered the hook."
+  "True if x is a reactive atom (per the installed adapter's substrate).
+  Returns false when the installed adapter carries no `:ratom?`."
   [x]
   (if-let [hook (rf.late-bind/get-fn-cached :adapter/ratom?)]
     (hook x)
@@ -109,7 +110,7 @@
   inside the app-db `reset!`).
 
   Idempotent and total: adapters whose derived values are already push-based
-  (the React-hook spine: UIx) publish no hook
+  (the React-hook spine: UIx) carry no `:activate-derived-value!`
   and the call is a no-op; the ratom impls no-op on an already-activated
   reaction and on any container that is not one of their derived values."
   [derived]
@@ -131,7 +132,7 @@
 
 (defn reactive?
   "True when called from inside a reactive context (e.g. a render).
-  Returns false when no adapter has registered the hook."
+  Returns false when the installed adapter carries no `:reactive?`."
   []
   (if-let [hook (rf.late-bind/get-fn-cached :adapter/reactive?)]
     (hook)

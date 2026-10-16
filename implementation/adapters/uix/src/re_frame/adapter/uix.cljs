@@ -272,7 +272,8 @@
 
 ;; Source-coord injection is INTERNAL. The wrapper that stamps
 ;; `data-rf2-source-coord` on a view's root DOM element reaches its callers
-;; through the `:adapter/wrap-view` late-bind hook, which `views/reg-view*`
+;; through the `:wrap-view` capability — the `:adapter/wrap-view` late-bind
+;; slot once this map is installed — which `views/reg-view*`
 ;; consults on every registration — so registering a view is the whole public
 ;; story and the hook is the whole mechanism. This namespace publishes no
 ;; `wrap-view` var.
@@ -320,7 +321,7 @@
       (rf/init! uix-adapter/adapter)
 
   Adapter installation is explicit; there is no default-adapter registry.
-  `spine/make-react-adapter` owns the shared React-hook routing and
+  `spine/make-react-adapter` owns the shared React-hook capability and
   lifecycle wiring. The native provider stays in this namespace so the spine
   has no dependency on UIx's element macro."
   (rf.substrate.spine/make-react-adapter spine-fns
