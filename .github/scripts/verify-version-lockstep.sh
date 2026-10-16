@@ -737,8 +737,7 @@ done
 # grep that could drift. The authority reads each deps.edn's real
 # :aliases/:clein/build KEY: a genuine alias survives `;` inside EDN strings,
 # and a :clein/build token inside a string, a `;` comment, or a `#_` discard
-# form (e.g. implementation/adapters/test-react/ only MENTIONS the alias in
-# prose) is correctly NOT treated as publishable. It emits one
+# form is correctly NOT treated as publishable. It emits one
 # implementation/-relative subpath per line for every publishable artefact
 # under implementation/ (bounded flat-plus-nested). If it cannot run we FAIL
 # CLOSED (exit) rather than skip the inventory guard.

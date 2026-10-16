@@ -264,8 +264,7 @@
 ;; fresco shape rather than the façade one. But each adapter tree is ONE
 ;; namespace, and that namespace is its door: `re-frame.adapter.reagent` and
 ;; `re-frame.adapter.uix` are already accounted for by the sidecar's
-;; `:cljs-only` rows, which the CLJS probe reconciles, and
-;; `re-frame.adapter.test-react` is an unpublished test substrate. A tree with
+;; `:cljs-only` rows, which the CLJS probe reconciles. A tree with
 ;; one door has nothing for this gate to find, so an adapter tree is enrolled
 ;; when it acquires a second requirable namespace, like every other tree.
 ;; ---------------------------------------------------------------------------
