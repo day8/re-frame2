@@ -12,7 +12,9 @@
 ;; :group; its recording is keyed by the REGION-QUALIFIED declaration path
 ;; [:s1 :group]. The sibling region :s0 is unaffected. The pseudo-state is never
 ;; occupied — the snapshot's region value is the resolved real leaf, never [...
-;; :sh].
+;; :sh]. :group's :initial names :sh, as test580's s1 <initial> targets sh1, so
+;; entering :group through its :initial (target [:group]) restores exactly as
+;; the explicit [:group :sh] target does (Spec 005 §Restoring).
 ;;
 ;; SEMANTIC DIVERGENCE (cited): SCXML drives the sequence with <send delay> +
 ;; datamodel counters; re-frame2 has no datamodel / <send>, so the record→
@@ -27,7 +29,7 @@
 {:fixture/id           :machine/scxml-history-test580-parallel-shallow
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/hierarchical :fsm/parallel-regions :fsm/history}
- :fixture/doc          "W3C SCXML test580 adapted: a shallow history inside a compound (:group) within a parallel region (:s1) remembers the most-recent child (:s12) on exit and restores it on re-entry, keyed by the region-qualified path [:s1 :group]; the sibling region :s0 is unaffected."
+ :fixture/doc          "W3C SCXML test580 adapted: a shallow history inside a compound (:group) within a parallel region (:s1) remembers the most-recent child (:s12) on exit and restores it on re-entry, keyed by the region-qualified path [:s1 :group]; the sibling region :s0 is unaffected. :group's :initial names the history, so entering :group through its :initial restores too (the recording, else the :default-target :s11) and never occupies the pseudo-state."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -74,4 +76,45 @@
    :expect-next-snapshot {:state    {:s0 :idle :s1 [:group :s12]}
                           :data     {}
                           :rf/history {[:s1 :group] :s12}}
+   :expect-effects       []}
+
+  ;; (3) RESTORE THROUGH :initial: :enter targets [:group] itself; its :initial
+  ;; names :sh, so the entry resolves the history and lands on the remembered
+  ;; :s12 — never on [:group :sh].
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :on      {:exit-to-park [:s1park]}
+                                      :states  {:sh   {:type :history :default-target :s11}
+                                                :s11  {:on {:to12 :s12}}
+                                                :s12  {}}}
+                             :s1park {:on {:back [:group :sh] :enter [:group]}}}}}}
+   :snapshot     {:state    {:s0 :idle :s1 [:s1park]}
+                  :data     {}
+                  :rf/history {[:s1 :group] :s12}}
+   :event        [:enter]
+   :expect-next-snapshot {:state    {:s0 :idle :s1 [:group :s12]}
+                          :data     {}
+                          :rf/history {[:s1 :group] :s12}}
+   :expect-effects       []}
+
+  ;; (4) DEFAULT THROUGH :initial: the same entry with nothing recorded takes the
+  ;; history's :default-target :s11.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :on      {:exit-to-park [:s1park]}
+                                      :states  {:sh   {:type :history :default-target :s11}
+                                                :s11  {:on {:to12 :s12}}
+                                                :s12  {}}}
+                             :s1park {:on {:back [:group :sh] :enter [:group]}}}}}}
+   :snapshot     {:state {:s0 :idle :s1 [:s1park]} :data {}}
+   :event        [:enter]
+   :expect-next-snapshot {:state {:s0 :idle :s1 [:group :s11]} :data {}}
    :expect-effects       []}]}

@@ -51,8 +51,7 @@
 
   ;; Step 2: the reply settles :loaded (entry now idle: :current-work nil).
   [:rf.resource.internal/succeeded
-   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+   {:work/id      [:rf.work/resource :res/article 1]
     :generation   1
     :data         {:title "Welcome"}}]
 
@@ -75,8 +74,7 @@
   ;; is the proof: schedule-timers carries the DEFAULT GC delay (:timers {:gc
   ;; 300000}), not nil, even though this resource never declared the key.
   [:rf.resource.internal/succeeded
-   {:resource/key [:rf.scope/global :res/no-gc-policy {:slug "d"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/no-gc-policy {:slug "d"}] 2]
+   {:work/id      [:rf.work/resource :res/no-gc-policy 2]
     :generation   2
     :data         {:title "Defaulted"}}]]
 

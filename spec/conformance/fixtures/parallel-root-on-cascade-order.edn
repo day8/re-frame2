@@ -1,0 +1,62 @@
+;; Conformance fixture: machine/parallel-root-on-cascade-order
+;;
+;; Per [005 §Root parallel `:on`](../../005-StateMachines.md#root-parallel-on--the-ancestor-fallback)
+;; step 3 and [§Entry/exit cascading along the LCA](../../005-StateMachines.md#entryexit-cascading-along-the-lca).
+;;
+;; A root parallel `:on` moving two regions is ONE transition in the exit ->
+;; action -> entry order every transition follows: every targeted region's
+;; exits, then the root `:action` once, then every targeted region's entries.
+;; Regions run in declaration order (`:region-order`), whatever order the
+;; targets are written in, and the untargeted region :c runs nothing.
+;;
+;; Each action appends its own name to `:data :log`, so the log IS the order.
+;; Because the exits run before the root action, :a's exit sees the `:data`
+;; the root action has not yet written.
+
+{:fixture/id           :machine/parallel-root-on-cascade-order
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "A root parallel :on targeting regions :b then :a (as written) runs every targeted region's :exit in region declaration order, then the root :action once, then every targeted region's :entry in declaration order; the untargeted region :c runs nothing. The :data :log records the order."
+
+ :fixture/registry
+ {:machine-action
+  {:order/a-exit  {:doc ":a's :one exit — logs :a-exit."}
+   :order/a-entry {:doc ":a's :two entry — logs :a-entry."}
+   :order/b-exit  {:doc ":b's :one exit — logs :b-exit."}
+   :order/b-entry {:doc ":b's :two entry — logs :b-entry."}
+   :order/c-exit  {:doc ":c's :one exit (must NOT run — :c is untargeted) — logs :c-exit-WRONG."}
+   :order/root    {:doc "The root :go action — logs :root."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:order/a-exit  [[:set [:log] [:fn :conj [:get [:log]] :a-exit]]]
+   :order/a-entry [[:set [:log] [:fn :conj [:get [:log]] :a-entry]]]
+   :order/b-exit  [[:set [:log] [:fn :conj [:get [:log]] :b-exit]]]
+   :order/b-entry [[:set [:log] [:fn :conj [:get [:log]] :b-entry]]]
+   :order/c-exit  [[:set [:log] [:fn :conj [:get [:log]] :c-exit-WRONG]]]
+   :order/root    [[:set [:log] [:fn :conj [:get [:log]] :root]]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type         :parallel
+                  :data         {:log []}
+                  :region-order [:a :b :c]
+                  :actions      {:a-exit  :order/a-exit
+                                 :a-entry :order/a-entry
+                                 :b-exit  :order/b-exit
+                                 :b-entry :order/b-entry
+                                 :c-exit  :order/c-exit
+                                 :root    :order/root}
+                  ;; Written :b first; declaration order (:a, then :b) governs.
+                  :on           {:go {:target [[:b :two] [:a :two]] :action :root}}
+                  :regions      {:a {:initial :one
+                                     :states  {:one {:exit :a-exit} :two {:entry :a-entry}}}
+                                 :b {:initial :one
+                                     :states  {:one {:exit :b-exit} :two {:entry :b-entry}}}
+                                 :c {:initial :one
+                                     :states  {:one {:exit :c-exit}}}}}
+   :snapshot     {:state {:a :one :b :one :c :one} :data {:log []}}
+   :event        [:go]
+   :expect-next-snapshot {:state {:a :two :b :two :c :one}
+                          :data  {:log [:a-exit :b-exit :root :a-entry :b-entry]}}
+   :expect-effects       []}]}

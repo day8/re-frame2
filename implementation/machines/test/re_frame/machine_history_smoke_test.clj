@@ -244,3 +244,34 @@
           after  (step region-child-declared before [:go])]
       (is (= {:r1 [:p :b :b1] :r2 :x} (:state after)))
       (is (= [:exit/b :enter/b :enter/b1] (get-in after [:data :log]))))))
+
+;; A compound whose `:initial` names its own history pseudo-state (W3C SCXML
+;; test580's shape). Entering the compound through that `:initial` restores
+;; exactly as a transition naming the pseudo-state does, and never occupies it.
+(def ^:private initial-history-machine
+  {:initial :park
+   :states  {:park  {:on {:enter :group}}
+             :group {:initial :sh
+                     :on      {:leave :park}
+                     :states  {:sh {:type :history :default-target :b}
+                               :a  {}
+                               :b  {}
+                               :c  {:initial :c1 :states {:c1 {} :c2 {}}}}}}})
+
+(deftest entering-through-an-initial-that-names-history-restores
+  (is (= [[:group :b] [:group :c :c1]]
+         (mapv (fn [recorded]
+                 (:state (step initial-history-machine
+                               (cond-> {:state :park :data {}}
+                                 recorded (assoc :rf/history recorded))
+                               [:enter])))
+               [nil {[:group] :c}]))
+      "no recording -> the :default-target; a recording -> the recorded child, cascaded"))
+
+(deftest an-initial-that-names-history-needs-a-default-target
+  (is (= :rf.error/machine-history-bad-default-target
+         (try (rf.machines/validate-machine!
+                (update-in initial-history-machine [:states :group :states :sh] dissoc :default-target))
+              nil
+              (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+      "the fallback to the compound's :initial would name the pseudo-state itself"))

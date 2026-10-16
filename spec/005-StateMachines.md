@@ -184,12 +184,12 @@ The argument: **the Single Store invariant pays off again.** Every frame-state c
 A transition table is pure data. Top-level shape:
 
 ```clojure
-{:initial <fsm-keyword>                     ;; required — initial state
+{:initial <fsm-keyword>                     ;; required to boot — initial state
  :data    {<initial data>}                  ;; optional — initial data map
  :schemas {:data <schema>, ...}             ;; optional — machine-level schema declarations; `[:schemas :data]` validates `:data` at the `:where :machine-data` boundary (see §Schema validation)
  :guards  {<keyword> <fn>, ...}             ;; optional — machine-local named guard impls
  :actions {<keyword> <fn>, ...}             ;; optional — machine-local named action impls
- :states  {<fsm-keyword> <state-node>, ...} ;; required
+ :states  {<fsm-keyword> <state-node>, ...} ;; required to boot
  :on      {<event-id> <transition>, ...}    ;; optional — top-level fallback
  :meta    {<user-keys> ...}}                ;; optional — e.g. :rf/snapshot-version
 ```
@@ -202,14 +202,14 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 
 | Key | Where | Notes |
 |---|---|---|
-| `:initial` | top-level | required — the initial FSM-keyword |
+| `:initial` | top-level | required to boot — the initial FSM-keyword (see the note below the table) |
 | `:data` | top-level | optional — initial data map |
 | `:schemas` | top-level | optional — machine-level schema declarations. A closed sub-key map: `:data` (the live, wired category — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade), plus the declaration-only categories `:events` / `:tags` / `:meta` (abstract values; no wired behaviour yet); `[:schemas :output]` is live (the `:where :machine-output` boundary — see [§The `:schemas` map](#schema-validation)). `[:schemas :input]` and any unknown sub-key fail loud at registration (`:rf.error/machine-bad-schemas-key`); a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`. See [§Schema validation](#schema-validation). |
 | `:guards` | top-level | optional — `{<keyword> <fn>}` map of machine-local named guards; referenced by keyword from `:guard` slots |
 | `:actions` | top-level | optional — `{<keyword> <fn>}` map of machine-local named actions; referenced by keyword from `:action` / `:entry` / `:exit` slots |
 | `:delays` | top-level | optional — `{<keyword> <ms \| ISO-8601 string \| fn>}` map of machine-local named delays; referenced by keyword from `:after` keys (see [§Value shape](#value-shape)) |
 | `:meta` | top-level | optional — e.g. `:rf/snapshot-version` |
-| `:states` | top-level | required — map of FSM-keyword → state node |
+| `:states` | top-level | required to boot — map of FSM-keyword → state node (see the note below the table) |
 | `:on` | per-state and top-level | event-driven transition map |
 | `:on` keys | exact event keyword, `:ns/*` namespace wildcard, or `:*` total wildcard | resolved most-specific-first: exact > `:ns/*` > `:*` (see [§Wildcard transitions](#wildcard-transitions)) |
 | `:entry`, `:exit` | per-state and top-level | one fn or one keyword reference into the machine's `:actions` map; at the top level they run once at birth and once at teardown (see [§The machine root](#the-machine-root)) |
@@ -225,6 +225,8 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | omit `:target` for the targetless `internal?` no-op, or name the declaring state as the `:target` (non-reentering by default — target survives, descendants re-resolve); add `:reenter? true` for external (exit+re-enter). A `:target` naming a proper ancestor of the declaring state exits and re-enters that ancestor either way |
 | per-state `:meta` | per-state | tooling-visible, e.g. `{:terminal? true}` |
+
+**A bodiless spec registers.** Registration validates the structure a spec declares and builds no snapshot, so a spec with neither `:initial` nor `:states` (a bodiless spawn target, say) registers, and fails only when an instance of it first boots: its initial `:state` is nil, and the boot throws `:rf.error/machine-bad-state-form`. A declared `:initial` is still checked against `:states` at registration (per [§Initial-state cascading](#initial-state-cascading)).
 
 ### State nodes
 
@@ -919,7 +921,7 @@ Reference resolution:
 - `:action :clear-error` → `(get-in spec [:actions :clear-error])`.
 - `:action (fn [...] ...)` → inline fn, called directly.
 
-The transition table is walked at registration time and every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) is verified to resolve to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
+The transition table is walked at registration time and every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) is verified to resolve through the spec's `:guards` / `:actions` map. A `:guards` / `:actions` entry whose value is itself a keyword is followed through the same map, hop by hop, until it reaches a fn or a `{:fn …}` entry; a chain that reaches a missing key or revisits one is unresolved, exactly as a reference to a missing key is. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
 **Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a Clojure var and reference the var from each machine's `:guards` / `:actions` map:
 
@@ -1279,7 +1281,7 @@ The same rule covers the larger units a transition sits in:
 
 - **A macrostep** — the event's transition, then each `:always` microstep and dequeued `:raise` (Level 3) — concatenates its transitions' vectors in the order they ran.
 - **Birth** is a transition from the empty configuration, so its descent emits groups 1, 4 and 5. The root leads it: the root's `:entry` fx, then the root `:spawn`'s `:rf.machine/spawn` with `:rf/invoke-id []`, both before the descent (per [§The machine root](#the-machine-root)).
-- **A `:type :parallel` machine** runs one such transition per region, in region declaration order, each region's fx carrying region-qualified ids (per [§Per-region scoping](#per-region-always--after--spawn-scoping)). At birth each region body's `:entry` leads its own region, and the root's own `:after` schedules after every region, with `:rf/invoke-id []` and `:state :rf/parallel-root` (per [§Root parallel `:on`](#root-parallel-on--the-ancestor-fallback)). A root `:on` / `:after` transition emits its `:action`'s fx first, then each targeted region's actionless transition vector in region declaration order (per that section's apply order).
+- **A `:type :parallel` machine** runs one such transition per region, in region declaration order, each region's fx carrying region-qualified ids (per [§Per-region scoping](#per-region-always--after--spawn-scoping)). At birth each region body's `:entry` leads its own region, and the root's own `:after` schedules after every region, with `:rf/invoke-id []` and `:state :rf/parallel-root` (per [§Root parallel `:on`](#root-parallel-on--the-ancestor-fallback)). A root `:on` / `:after` transition is one transition over its targeted regions, taking them in region declaration order throughout (per that section's apply order): its action fx are every targeted region's exit fx, the root `:action`'s fx, then every targeted region's entry fx, and groups 2–5 follow for each targeted region in turn.
 
 ### Level 3 — within a single machine event
 
@@ -1430,7 +1432,7 @@ Targeting `[:authenticated]` lands the snapshot at `[:authenticated :dashboard]`
 
 A compound state without `:initial` is a registration error — emits `:rf.error/machine-compound-state-missing-initial` at registration time and, in the CLJS reference with schema validation enabled, fails the registration.
 
-Every `:initial` — the machine root's, a compound state's, a parallel region body's — must be the key of a state declared in that same node's `:states`. An `:initial` naming nothing would boot the machine into a phantom state that handles no event, so registration rejects it with `:rf.error/machine-unresolved-target` (`:slot :initial`, `:target` the undeclared keyword).
+Every `:initial` — the machine root's, a compound state's, a parallel region body's — must be the key of a state declared in that same node's `:states`. An `:initial` naming nothing would boot the machine into a phantom state that handles no event, so registration rejects it with `:rf.error/machine-unresolved-target` (`:slot :initial`, `:target` the undeclared keyword). An `:initial` may name the compound's own history pseudo-state; entering through it restores, per [§Restoring](#restoring--on-transition-to-the-pseudo-state).
 
 #### Initial-state `:entry` fires on machine creation (start)
 
@@ -1771,8 +1773,8 @@ A transition declared on the **`:type :parallel` root itself** — the root's ow
 **Selection — atomic ancestor fallback (the load-bearing semantic):**
 
 1. The root parallel transition is selected **ONLY when no region-local transition was selected** for the event. If **any** region handled the event, the root transition is **SUPPRESSED ENTIRELY** — atomic, all-or-nothing; it is *not* "fire the root for the regions that did not handle it". The root `:on`'s guard is evaluated against the **frozen pre-event snapshot** (the same two-phase frozen-selection model region guards use — see [§Cross-region coordination](#cross-region-coordination--tags-as-statein)).
-2. When selected, the root transition runs its `:action` **once** against the shared `:data`, then **atomically** updates one or more region-qualified targets, leaving **UNtargeted** regions unchanged. The complete post-root configuration then enters the parent's shared `:always` rounds; any emitted raises wait in the same parent internal-event queue.
-3. **Apply order.** The root `:action` runs **first**. Each targeted region then moves in region declaration order, whatever order the targets are written in, and runs its own exit cascade and then its entry cascade before the next targeted region starts: region `:a`'s `:exit` actions, region `:a`'s `:entry` actions, then region `:b`'s. A targeted region's `:exit` therefore sees the root action's `:data` write. A targeted region exits and re-enters only the states below its region body, so the body's own `:entry` / `:exit` do not run, and untargeted regions run nothing. The `:fx` vector follows the same order: the root action's fx, then each targeted region's own transition vector (per [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order)). This is **not** the exit → action → entry order of a region-local transition, nor SCXML's microstep order, which exits every targeted region before the transition's own content runs, so a port follows this order rather than either of those.
+2. When selected, the root transition **atomically** updates one or more region-qualified targets, leaving **UNtargeted** regions unchanged, and runs its `:action` **once** against the shared `:data`, in the order step 3 gives. The complete post-root configuration then enters the parent's shared `:always` rounds; any emitted raises wait in the same parent internal-event queue.
+3. **Apply order.** The root transition is **one** transition over its targeted regions, so it follows [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca): every targeted region's exit cascade, then the root `:action`, then every targeted region's entry cascade — every exit completes before any entry, as in SCXML. Each phase takes the targeted regions in region declaration order, whatever order the targets are written in: region `:a`'s `:exit` actions, region `:b`'s `:exit` actions, the root `:action`, region `:a`'s `:entry` actions, then region `:b`'s. A targeted region's `:exit` therefore sees the `:data` from before the root action, and its `:entry` sees the root action's write. A targeted region exits and re-enters only the states below its region body, so the body's own `:entry` / `:exit` do not run, and untargeted regions run nothing. The `:fx` vector and the macrostep's `:cascade` follow the same order (per [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order)); the `parallel-root-on-cascade-order` conformance fixture pins it.
 
 **Target grammar.** A root `:on` transition's `:target` is one of:
 
@@ -2947,7 +2949,13 @@ An already-destroyed actor has **all** of these gone, atomically — the unified
 
 The **first** destroy's `:rf.machine/destroyed` (with `:reason :explicit` for cascade-driven destroys, `:reason :rf.machine/finished` for auto-destroy on `:final?` per [§Final states D6](#final-states-final--on-done--output-key)) IS the destroy signal. No second event fires for the no-op attempts, and no `:rf.warning/destroy-of-finished-actor` is emitted — silence is the contract.
 
-**Exact-incarnation terminal fence (the destroy tail).** An ordinary `[:rf.machine/destroy <id>]` fx runs inside the destroying event's drain, so it is owned by the exact frame incarnation **A** that owns the in-flight event. Its teardown tail crosses several callback-bearing boundaries in order — the `:exit` cascade, the HTTP-abort hook and the per-instance classification drop — any of which can synchronously destroy A and publish a **same-id successor B**. Its `:rf.machine.timer/cancelled` and `:rf.machine/destroyed` traces are boundaries of the same kind only when the destroy effect is called directly, outside any drain: inside the drain their listeners run after the drain has finished (per [Spec 009 §Subscription / consumption](009-Instrumentation.md#subscription--consumption)), so they cannot act on the tail. **Loss of the exact incarnation terminally fences every subsequent framework-owned destroy action** — the classification drop, timer cancellation, the durable teardown projection, the registrar unregister, and the resource-owner release. Ownership is rechecked against A's dequeue-time owner token **after** every callback boundary and **before** the next framework action, and the durable writes ride that token, so no A-derived teardown erases or mutates B. Adjacent stages never share one precheck: on the direct-call path the `:rf.machine/destroyed` trace is itself a callback boundary, so `registrar/unregister!` is rechecked **after** it — a listener that registers B's handler at `<id>` on that trace's own stack keeps it, with its metadata, provenance, and resolved generation intact, and dispatch to `<id>` still resolves B. An already-entered callback still stands — the framework unwinds forward rather than rolling back (the post-commit best-effort teardown posture; irreversible teardown side effects cannot be un-run). **The eventless frame-destroy cascade keeps full authority:** frame teardown carries no bound event owner, so the fence never fires and every actor is reaped in reverse-creation order regardless of which event, if any, triggered the destroy (see [§Cross-Spec Interactions](#cross-spec-interactions)). The `:final?`-state auto-destroy path (`finalize-machine`) fences its completion + teardown tail under the identical discipline.
+**Exact-incarnation terminal fence (the destroy tail).** An ordinary `[:rf.machine/destroy <id>]` fx runs inside the destroying event's drain, so it is owned by the exact frame incarnation **A** that owns the in-flight event. Its teardown tail crosses several callback-bearing boundaries in order — the `:exit` cascade, the HTTP-abort hook and the per-instance classification drop. A callback that destroys A from inside the drain does not cut the tail short: that destroy is pending until the event boundary, and A's per-id reservation is held until its teardown has finished, so no **same-id successor B** can be published while the tail runs (per [Spec 002 §Destroy](002-Frames.md#destroy)). The tail's `:rf.machine.timer/cancelled` and `:rf.machine/destroyed` traces reach their listeners only after the drain has finished (per [Spec 009 §Subscription / consumption](009-Instrumentation.md#subscription--consumption)), so they cannot act on the tail either.
+
+When the destroy effect is called directly — under A's event owner, with no drain on the stack — a frame destroy is immediate, so any of those callbacks, and the two traces' listeners as well, can destroy A and publish B mid-tail. There **loss of the exact incarnation terminally fences every subsequent framework-owned destroy action** — the classification drop, timer cancellation, the durable teardown projection, the registrar unregister, and the resource-owner release. Ownership is rechecked against A's owner token **after** every callback boundary and **before** the next framework action, and the durable writes ride that token, so no A-derived teardown erases or mutates B. Adjacent stages never share one precheck: the `:rf.machine/destroyed` trace is itself a callback boundary, so `registrar/unregister!` is rechecked **after** it — a listener that registers B's handler at `<id>` on that trace's own stack keeps it, with its metadata, provenance, and resolved generation intact, and dispatch to `<id>` still resolves B. An already-entered callback still stands — the framework unwinds forward rather than rolling back (the post-commit best-effort teardown posture; irreversible teardown side effects cannot be un-run).
+
+The reference implementation does not yet defer a destroy requested mid-drain: it tears A down at once, so a callback on the tail's stack can publish B there too, and the tail applies the same fence inside the drain.
+
+**The eventless frame-destroy cascade keeps full authority:** frame teardown carries no bound event owner, so the fence never fires and every actor is reaped in reverse-creation order regardless of which event, if any, triggered the destroy (see [§Cross-Spec Interactions](#cross-spec-interactions)). The `:final?`-state auto-destroy path (`finalize-machine`) fences its completion + teardown tail under the identical discipline.
 
 ### Spawning multiple, dynamic counts
 
@@ -3568,6 +3576,8 @@ When a transition resolves to a history pseudo-state declared under compound `C`
 
 In every case the **resolved** leaf path — not the pseudo-state — is what the entry cascade enters and what the post-transition snapshot's `:state` records. The pseudo-state node is never a member of any `:state` configuration; it has no `:entry` / `:exit` / `:on` / `:always` / `:after` of its own (see [§Pseudo-state constraints](#pseudo-state-constraints)).
 
+**An `:initial` that names the history pseudo-state.** A compound's `:initial` may name its own history pseudo-state — W3C SCXML test580's shape, `{:initial :sh :states {:sh {:type :history :default-target :s11} …}}`. Entering the compound through its `:initial`, by a transition whose target cascades into it or by the birth cascade, resolves the pseudo-state exactly as a transition naming it does: the recorded configuration, else the `:default-target`. Rule (2)'s fallback to `C`'s `:initial` would name the pseudo-state itself, so a pseudo-state named by its compound's `:initial` must declare a `:default-target`, and registration refuses one that does not (per [§Pseudo-state constraints](#pseudo-state-constraints)).
+
 ### Composition with the LCA, entry/exit cascade, and final states
 
 History restoration is **not a cascade mechanism of its own** — it is a target-resolution step that feeds the entry-cascade machinery. Once the pseudo-state resolves to a concrete leaf path, the standard geometry applies:
@@ -3626,6 +3636,7 @@ Registration validates the history grammar (the same layer that rejects malforme
 - **A `:type :history` node MUST be declared inside a compound state's `:states`** (it has an owning compound whose configuration it records). A history node at the machine root, or under a `:type :parallel` root that has no enclosing compound region, is a registration error.
 - **A history pseudo-state declares only `:type` / `:deep?` / `:default-target`.** It MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:spawn`, `:spawn-all`, `:entry`, `:exit`, `:tags`, or `:final?` — it is never occupied, so transition / lifecycle / projection keys are meaningless on it. Any such key is a registration error.
 - **`:default-target`, when present, MUST resolve to a real state** — a direct child of the owning compound (keyword form) or an absolute path (vector form) the definition declares. An unresolvable `:default-target` is a registration error.
+- **A history pseudo-state its owning compound's `:initial` names MUST declare a `:default-target`** (per [§Restoring](#restoring--on-transition-to-the-pseudo-state)): with nothing recorded, the fallback to the compound's `:initial` would name the pseudo-state itself. Omitting it is the same registration error as an unresolvable `:default-target`.
 - **A compound state may declare at most one history pseudo-state.** Two history children under one compound is a registration error (deep-vs-shallow is a property of the single node's `:deep?`, not a reason for two nodes).
 
 These are the registration-time guarantees; the precise error-id catalogue for history-grammar violations is owned by [Spec 009 §Error contract](009-Instrumentation.md#error-contract).
@@ -3827,7 +3838,9 @@ The map under `:spawn-all` accepts the following keys:
 | `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` resolves on the success-side | required iff `:join :any` |
 | `:on-any-failed` | event vector the runtime dispatches into the parent when any child fails (sibling cancellation applies) | optional; if absent, child failures are tracked but do not short-circuit the join |
 
-Each child invoke-spec under `:children` accepts the same keys as a single `:spawn` (`:machine-id`, `:data`, `:id-prefix`, `:on-done`, `:start`, `:fixed-actor-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the runtime carries on that child's completion and on the join's resolution event (see [§Child completion protocol](#child-completion-protocol)).
+The block's key set is **closed**: any other bare key — `:cancel-on-decision?` (there is no opt-out, per [§Cancel-on-decision](#cancel-on-decision-default-true)), or a misspelt join event — is rejected at registration with `:rf.error/machine-spawn-all-bad-shape`, whose message names the valid keys. A namespaced key passes as a user extension, and `:timeout-ms` is refused with its own `:rf.error/spawn-timeout-ms-removed`.
+
+Each child invoke-spec under `:children` accepts the same keys as a single `:spawn` (`:machine-id`, `:data`, `:id-prefix`, `:on-done`, `:start`, `:fixed-actor-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the runtime carries on that child's completion and on the join's resolution event (see [§Child completion protocol](#child-completion-protocol)). A child's key set is closed too: any other bare key, `:on-error` included (below), is rejected at registration with `:rf.error/machine-unknown-spawn-key`, and a namespaced key passes.
 
 Two differences from the single-`:spawn` vocabulary, both enforced at registration:
 
@@ -4023,7 +4036,7 @@ The guard reads `:data`, not the join state at `[:rf.runtime/machines :spawned <
 
 `:spawn-all` has three registration-time error categories of its own, beside the general `:rf.error/machine-*` set:
 
-- `:rf.error/machine-spawn-all-bad-shape` — a child invoke-spec is missing `:id` or `:machine-id`, or carries an inline `:definition` (the reason names the fix: register the child with `reg-machine` and spawn it by `:machine-id`); or `:spawn-all` is not a vector; or the join-event slots are missing per the required-iff rules above.
+- `:rf.error/machine-spawn-all-bad-shape` — the `:spawn-all` slot is not a map, or its `:children` is not a non-empty vector; a child invoke-spec is missing `:id` or `:machine-id`, or carries an inline `:definition` (the reason names the fix: register the child with `reg-machine` and spawn it by `:machine-id`); `:join` is neither `:all` nor `:any`; the join-event slots are missing per the required-iff rules above; or the block declares a bare key outside its closed set (per [§`:spawn-all` map keys](#spawn-all-map-keys)).
 - `:rf.error/machine-spawn-all-duplicate-id` — two spawns collide on one actor address. At **registration** two child invoke-specs share a logical `:id` keyword (each `:id` must be unique inside the same `:spawn-all` block). The **same category** also surfaces at **spawn time**, twice: for resolved actor-address aliasing *within* one `:spawn-all` batch — see the invoke-level admission preflight below — and, outside `:spawn-all` entirely, for a **single `:spawn` whose GENERATED `<type>#<n>` address is already held by a live actor**, per [§Declarative `:spawn`](#declarative-spawn). All three are one failure: two distinct spawns resolving to one address, where one would silently overwrite the other.
 - `:rf.error/machine-spawn-all-with-spawn` — a state node declares both `:spawn` and `:spawn-all`; the combination is rejected.
 

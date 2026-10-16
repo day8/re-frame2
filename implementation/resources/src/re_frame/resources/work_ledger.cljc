@@ -87,8 +87,10 @@
 
 ;; ---- work-id (Spec 016 §Frame work ledger) --------------------------------
 ;;
-;; The work-id embeds the generation: `[:rf.work/resource <scoped-key>
-;; <generation>]`. Stale suppression keys on it (ONE identity per work
+;; The work-id names an attempt by its resource id and generation:
+;; `[:rf.work/resource <resource-id> <generation>]`. It carries no scope and
+;; no params — the ledger row is the one place that records which scoped key
+;; an attempt serves. Stale suppression keys on it (ONE identity per work
 ;; record). The generation allocator is monotonic + host-side
 ;; (`re-frame.resources.state`), so a work-id can never be re-issued across
 ;; an epoch restore — a dangling restored row can never re-match a live
@@ -102,11 +104,17 @@
   :resource)
 
 (defn resource-work-id
-  "Build the resource work-id `[:rf.work/resource <scoped-key>
-  <generation>]` — the ledger record key, the entry's `:current-work`
-  pointer, and the identity stale suppression keys on. Embeds the
-  generation so stale suppression keys on it. Per Spec 016 §Frame work
-  ledger / §Ledger row retention and identity.
+  "Build the resource work-id `[:rf.work/resource <subject> <generation>]` —
+  the ledger record key, the entry's `:current-work` pointer, and the
+  identity stale suppression keys on. `subject` is the registered resource
+  id for a read (`[:rf.work/resource :article/by-slug 4]`) and
+  `[:rf.mutation <instance-id>]` for a mutation.
+
+  A read's work-id carries no scope and no params. The generation alone makes
+  an attempt unique within its frame (every attempt takes its own allocation),
+  and the attempt's ledger row (`:resource/key`) is the one place that records
+  which scoped key it serves — a reply resolves its entry through that row.
+  Per Spec 016 §Frame work ledger / §Ledger row retention and identity.
 
   The work-id carries no frame. Its generation comes from one
   process-global high-water mark, but it is a RECORDED allocation value, so
@@ -114,28 +122,38 @@
   generation and therefore the same work-id. The transport correlation
   token is the frame-QUALIFIED `managed-request-id` below — a deliberate
   second identity (Spec 016 §Ledger row retention and identity)."
-  [scoped-key generation]
-  [:rf.work/resource scoped-key generation])
+  [subject generation]
+  [:rf.work/resource subject generation])
+
+(defn work-id-resource-id
+  "The registered resource id a READ work-id names
+  (`[:rf.work/resource <resource-id> <generation>]` → `<resource-id>`), or nil —
+  nil for a mutation work-id (whose subject is `[:rf.mutation <instance-id>]`)
+  and for any value that is not a resource work-id. Attempt-scoped trace rows
+  stamp it as `:resource/id`, so a row names its resource without carrying the
+  attempt's scoped key, including a stale reply whose ledger row is gone."
+  [work-id]
+  (when (and (vector? work-id) (= :rf.work/resource (first work-id)))
+    (let [subject (nth work-id 1 nil)]
+      (when (keyword? subject) subject))))
 
 (def work-id-id
-  "The CEDN-1 BYTE-IDENTITY map-key for a `work-id`
-  (`[:rf.work/resource <scoped-key> <generation>]`) — its `canonical-bytes`
-  string. The work-ledger runtime-db map is keyed on THIS string,
-  NOT the work-id vector, for the SAME reason `:entries` is keyed on
-  `rf.resources.state/key-id`: the work-id embeds the scoped-key, so two work-ids that
-  differ only by a list-vs-vector params spelling are `=`-equal (Clojure
-  `(= [1 2 3] '(1 2 3))`) and would collide in the ledger map even though
-  their CEDN-1 byte identities differ. Keying on the bytes string makes the
-  map-key comparison exactly the CEDN-1 identity. The work-id VECTOR remains
-  the kind-preserving `:work/id` carried in the record, the entry's
-  `:current-work`, and on the wire. Total on a work-id over a canonical
-  scoped-key. Per Spec 016 §Frame work ledger.
+  "The CEDN-1 BYTE-IDENTITY map-key for a `work-id` — its `canonical-bytes`
+  string. The work-ledger runtime-db map is keyed on THIS string, NOT the
+  work-id vector, because a mutation work-id embeds the caller-supplied
+  instance id (`[:rf.work/resource [:rf.mutation <instance-id>] <generation>]`),
+  and two instance ids that differ only by a list-vs-vector spelling are
+  `=`-equal (Clojure `(= [1 2 3] '(1 2 3))`) while their CEDN-1 identities
+  differ — the mutation instance rows are keyed on bytes for the same reason
+  (`re-frame.resources.mutation-runtime/instance-path`). Keying on the bytes
+  string makes the map-key comparison exactly the CEDN-1 identity. The
+  work-id VECTOR remains the kind-preserving `:work/id` carried in the
+  record, the entry's `:current-work`, and on the wire. Per Spec 016 §Frame
+  work ledger.
 
   This IS `rf.resources.state/key-id` (both are `canonical-bytes` of an
-  already-canonical EDN identity): the work-id-as-map-key
-  byte-identity rule is the SAME rule the scoped-key-as-map-key follows, so
-  the ledger surface re-binds the one canonical wrapper under its own name
-  rather than re-typing the `canonical-bytes` call."
+  already-canonical EDN identity), re-bound under the ledger surface's own
+  name rather than re-typing the `canonical-bytes` call."
   rf.resources.state/key-id)
 
 (defn managed-request-id
@@ -203,7 +221,7 @@
   shape (they are in the side table). Per Spec 016 §Frame work ledger.
 
   Opts:
-  - `:work-id`     — `[:rf.work/resource <scoped-key> <generation>]`
+  - `:work-id`     — `[:rf.work/resource <resource-id> <generation>]`
   - `:frame-id`    — the qualified `:work/frame` stamp (matches the
                      reply's `:rf.frame/id`)
   - `:resource/key`/`:generation`/`:transport`
