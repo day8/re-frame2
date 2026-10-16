@@ -3636,30 +3636,21 @@
   carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
   and Spec-Schemas §DrainInterruptedTags).
 
-  An authored callback already on the stack may return and entered authored
-  interceptor afters may unwind, but the exact-incarnation continuation fence
-  makes its returned context/output inert before this check fires.
-  `:dropped-count` combines
-  events removed atomically at claim time with any ordinary events found at
-  this later check; the destroy-owned private cleanup queue is excluded.
+  For a PENDING destroy this is the destroying event's boundary: the event
+  settled as an ordinary event, and everything still queued in both lanes —
+  its own descendants included — is dropped here. `:dropped-count` combines
+  events removed atomically at an immediate claim with any ordinary events
+  found at this later check; the destroy-owned private cleanup queue is
+  excluded.
 
   The check fires AFTER `process-event!` returns and BEFORE the next
   `take-event!` — same seam as `handle-depth-exceeded!`.
 
-  This seam does NOT commit the `:halted-destroy` epoch
-  record. That record is owned by a single site — the epoch destroy hook
-  (`re-frame.epoch.listeners/on-frame-destroyed!`), invoked synchronously
-  from `rf.frame/destroy-frame!` (step 10) the instant the handler destroyed
-  its own frame. That site carries the run's harvested buffer AND the
-  pre-run / destroy-time frame-state snapshots (threaded via
-  `rf.frame/*run-frame-state-before*` + the destroy-time container read), so it
-  builds a record with real `:frame-state-before` / `:frame-state-after`
-  (and their `:db-*` app-db projections) per Spec-Schemas
-  §`:rf/epoch-record` §Outcomes. Routing a second `:halted-destroy` commit
-  through `settle!` here would either no-op on the now-empty (already-
-  harvested-by-the-hook) buffer or, worse, double-fan a duplicate record to
-  listeners. The drain-loop's responsibility is the lifecycle trace + queue
-  drop; the epoch record is the destroy hook's."
+  Returns `{:dropped-count n :trigger <envelope>}` when this call reported —
+  `:trigger` is the envelope the drain would have dequeued next, nil when
+  nothing was queued — or nil when an earlier callback already reported. The
+  `:halted-destroy` epoch record is not committed here: the pending destroy's
+  teardown publishes it from this evidence (`rf.frame/run-pending-destroy!`)."
   [frame-id router]
   (let [report (volatile! nil)]
     ;; Claim can leave more than one already-captured scheduler callback, and a
@@ -3669,12 +3660,16 @@
     ;; consumes the combined evidence and emits.
     (swap! router
            (fn [{:keys [destroy-claim-dropped-count
-                        destroy-claim-report-emitted?]
+                        destroy-claim-report-emitted?
+                        internal queue]
                  :as state}]
              (let [dropped (+ (queued-count state)
                               (or destroy-claim-dropped-count 0))]
                (when-not destroy-claim-report-emitted?
-                 (vreset! report dropped))
+                 (vreset! report {:dropped-count dropped
+                                  :trigger       (if (seq internal)
+                                                   (peek internal)
+                                                   (peek queue))}))
                (cond-> (-> state
                            (assoc :queue      rf.interop/empty-queue
                                   :internal   rf.interop/empty-queue
@@ -3682,14 +3677,49 @@
                            (dissoc :destroy-claim-dropped-count))
                  (not destroy-claim-report-emitted?)
                  (assoc :destroy-claim-report-emitted? true)))))
-    (when-some [dropped @report]
+    (when-some [{:keys [dropped-count] :as evidence} @report]
       ;; A stale drainer can reach this seam after A's registry slot has been
       ;; reused by B. The lifecycle report is still globally observable, but
       ;; it must never enter B's bare-id epoch buffer.
       (rf.trace/call-with-structural-delivery
         #(rf.trace/emit! :rf.frame :rf.frame/drain-interrupted
                       {:frame         frame-id
-                       :dropped-count dropped})))))
+                       :dropped-count dropped-count}))
+      evidence)))
+
+(defn- classified-trigger
+  "The event vector of `envelope` — an event the drain is about to refuse —
+  classified by its registration inside `frame-id`'s resolution scope, so a
+  halt record's `:trigger-event` holds what every `:ok` record's does. The
+  event never ran, so no run-start trace classified it."
+  [frame-id envelope]
+  (let [event  (:event envelope)
+        redact (rf.late-bind/get-fn-cached
+                 :classification/redact-event-by-registration)]
+    (if (and redact event)
+      (rf.live-frame/call-with-frame-resolution frame-id #(redact event))
+      event)))
+
+(defn- halt-at-pending-destroy!
+  "The destroying event's boundary for a PENDING destroy of `frame-record`'s
+  incarnation (Spec 002 §Destroy): drop both lanes and report them in one
+  `:rf.frame/drain-interrupted`, then run the claimed teardown — `:on-destroy`
+  once, against the db the destroying event committed, then the rest of the
+  recipe. `last-event` is the destroying event's vector (nil when a throw
+  unwound the drain before it settled). The caller still holds the frame's
+  drain serialization."
+  [frame-id frame-record router last-event]
+  (let [token    (:drain-lock frame-record)
+        evidence (handle-drain-interrupted! frame-id router)
+        dropped  (:dropped-count evidence 0)
+        trigger  (:trigger evidence)
+        halt     (when (and rf.interop/debug-enabled? (pos? dropped) trigger)
+                   {:frame-state   (rf.frame/frame-record-state-value frame-record)
+                    :committed-at  (-> trigger :rf.cofx :rf/time-ms)
+                    :trigger-event (classified-trigger frame-id trigger)
+                    :dropped-count dropped
+                    :last-event-id (when (vector? last-event) (first last-event))})]
+    (rf.frame/run-pending-destroy! frame-id token halt)))
 
 (defn- run-one-pass!
   "Process events from both lanes to fixed point, internal lane first.
@@ -3739,6 +3769,30 @@
          last-event nil
          tail-ring  []]
     (cond
+      ;; The destruction-ownership check fires BEFORE the next dequeue, and
+      ;; before the depth check: a destroy at this boundary drops BOTH lanes,
+      ;; so the family's internal work is reported in the one
+      ;; `:rf.frame/drain-interrupted` rather than as a depth halt.
+      ;;
+      ;; A PENDING destroy — requested while the event that just settled was
+      ;; running (by its handler, an effect, a listener, or another frame's
+      ;; handler under a nested cross-frame `dispatch-sync`) — is found here,
+      ;; after that event committed, ran its effects and settled its `:ok`
+      ;; epoch. The drain drops everything still queued, the event's own
+      ;; descendants included, and runs the frame's teardown.
+      (and (rf.frame/frame-disposed-for-drain? frame-id)
+           ;; The sole post-claim execution path is the internal teardown
+           ;; cascade. It presents the exact claimed incarnation token and
+           ;; drains an isolated local queue; ordinary drains always pass nil.
+           ;; If the marker no longer names this token, even that cascade halts.
+           (not (and (some? allowed-destroy-token)
+                     (rf.frame/frame-incarnation-closing?
+                       frame-id allowed-destroy-token))))
+      (do (if (rf.frame/pending-destroy? frame-id (:drain-lock frame-record))
+            (halt-at-pending-destroy! frame-id frame-record router last-event)
+            (handle-drain-interrupted! frame-id router))
+          ::halt)
+
       ;; PEEK BEFORE HALTING, and peek the INTERNAL lane only. `depth` counts
       ;; the family's events already SETTLED, so `(>= depth drain-depth)` on
       ;; its own would fire at the top of the pass that FOLLOWS the family's
@@ -3769,40 +3823,11 @@
       ;; Thread A's EXACT owner token (`:drain-lock`) so the halt
       ;; fanout, frame route, dev trace, and terminal commit all bind to A's
       ;; incarnation and are fenced from a same-id B a depth-error listener may
-      ;; publish. The pass then continues: the destruction check below runs
+      ;; publish. The pass then continues: the destruction check above runs
       ;; before the next dequeue, so a listener that destroyed A still stops it.
       (do (handle-depth-exceeded! frame-id (:drain-lock frame-record) router
                                   depth last-event tail-ring)
           (recur 0 nil []))
-
-      ;; The destruction-ownership check fires BEFORE the next
-      ;; dequeue. A handler in the just-completed event may have
-      ;; called `destroy-frame!` on its own frame; the spec calls for
-      ;; interrupting the drain at this exact seam — drop the
-      ;; remaining queue, emit one `:rf.frame/drain-interrupted`
-      ;; lifecycle event, halt.
-      ;;
-      ;; The authored callback may have returned
-      ;; and entered authored interceptor afters may have unwound, but the
-      ;; returned context and every normal framework tail are inert. The
-      ;; `:halted-destroy`
-      ;; record for the interrupted drain is committed by the epoch destroy
-      ;; hook (`on-frame-destroyed!`), which fired synchronously inside the
-      ;; handler that called `destroy-frame!`, carrying the cascade buffer
-      ;; and real db snapshots; this seam only drops the queue and emits the
-      ;; `:rf.frame/drain-interrupted` lifecycle trace. `restore-epoch!`
-      ;; refuses non-:ok records, preserving the "time-travel never
-      ;; lands in a misleading state" invariant.
-      (and (rf.frame/frame-disposed-for-drain? frame-id)
-           ;; The sole post-claim execution path is the internal teardown
-           ;; cascade. It presents the exact claimed incarnation token and
-           ;; drains an isolated local queue; ordinary drains always pass nil.
-           ;; If the marker no longer names this token, even that cascade halts.
-           (not (and (some? allowed-destroy-token)
-                     (rf.frame/frame-incarnation-closing?
-                       frame-id allowed-destroy-token))))
-      (do (handle-drain-interrupted! frame-id router)
-          ::halt)
 
       :else
       (if-let [[envelope external?] (take-event! router)]
@@ -3842,18 +3867,10 @@
               ;; §Recordable coeffects) so the durable causal-time fact is
               ;; replayable rather than an ambient assembly-time clock read.
               time-ms   (-> envelope :rf.cofx :rf/time-ms)]
-          ;; Expose this event's pre-run frame-state to a
-          ;; handler that calls `destroy-frame!` on its OWN frame mid-drain.
-          ;; `destroy-frame!`'s epoch hook reads `rf.frame/*run-frame-state-before*`
-          ;; for the `:halted-destroy` record's pre-run snapshot — the
-          ;; value the frame-state held before this in-flight event's run
-          ;; began, which is otherwise gone by the time the (post-dissoc)
-          ;; epoch hook fires. `*run-time-ms*` is bound the
-          ;; same way so the mid-drain `:halted-destroy` record's
-          ;; `:committed-at` is THIS event's causal time, not an ambient read.
+          ;; `*run-frame-state-before*` marks this event's run as open on the
+          ;; stack (`rf.frame/guard-open-drain!`).
           (when-not (= ::stale-incarnation fs-before)
-            (binding [rf.frame/*run-frame-state-before* fs-before
-                      rf.frame/*run-time-ms*            time-ms]
+            (binding [rf.frame/*run-frame-state-before* fs-before]
               (when (continue?)
                 (call-with-event-in-flight
                   router
@@ -3962,6 +3979,16 @@
     (let [outcome (try
                     (mark-drainer! router)
                     (run-one-pass! frame-id frame-record router drain-depth nil)
+                    (catch #?(:clj Throwable :cljs :default) t
+                      ;; A throw escaping the drain ends the event in flight
+                      ;; too, so a destroy it requested reaches its boundary
+                      ;; here, while this thread still holds the drain. The
+                      ;; teardown is best-effort and never masks `t`.
+                      (when (rf.frame/pending-destroy? frame-id drain-lock)
+                        (try
+                          (halt-at-pending-destroy! frame-id frame-record router nil)
+                          (catch #?(:clj Throwable :cljs :default) _ nil)))
+                      (throw t))
                     (finally
                       (clear-drainer! router)))]
       (case outcome

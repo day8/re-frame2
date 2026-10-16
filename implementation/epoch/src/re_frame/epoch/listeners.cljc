@@ -19,10 +19,9 @@
     3. `on-frame-destroyed!` — the late-bind hook
        `re-frame.frame/destroy-frame!` invokes against the
        `:epoch/on-frame-destroyed` slot AFTER dissoc. It delivers the
-       pre-dissoc bundle's `:halted-destroy` partial record (carrying the
-       real pre-cascade `:db-before` and destroy-time snapshots), if any, to
-       listeners rather than the ring, and drops the frame's id-keyed
-       stores.
+       pre-dissoc bundle's `:halted-destroy` record (the work a pending
+       destroy dropped at its boundary), if any, to listeners rather than the
+       ring, and drops the frame's id-keyed stores.
 
        Publication is independent of the compare-owned store drop, so a
        same-id successor claiming the stores cannot lose predecessor A's
@@ -290,27 +289,37 @@
   constructed after that dissoc, so it can never claim — and thereby drop — the
   capture buffer out from under this snapshot.
 
+  `halt` is the drain's evidence from the destroying event's boundary, nil for
+  an immediate destroy: `{:frame-state :committed-at :trigger-event
+  :dropped-count :last-event-id}`.
+
   Returns the evidence bundle `{:record :listener-snapshot}` consumed by
   `on-frame-destroyed!`, or nil when no epoch layer participates (production /
-  debug disabled). `:record` is the `:halted-destroy` partial record when the
-  frame was mid-drain (a `:rf.event/run-start` is buffered), else nil.
-  `:listener-snapshot` is the `{cb-id → callback}` registry that record fans
-  to, read at destroy time, so a listener registered in the post-dissoc window
-  never receives A's terminal record; it is empty when there is no record.
+  debug disabled). `:record` is the `:halted-destroy` record when a pending
+  destroy's boundary drop removed at least one event, else nil (Spec-Schemas
+  §`:rf/epoch-record` §Outcomes): its trigger is the event the drain would
+  have dequeued next, which never ran, so both frame-state slots hold the
+  committed frame-state. `:listener-snapshot` is the `{cb-id → callback}`
+  registry that record fans to, read at destroy time, so a listener registered
+  in the post-dissoc window never receives A's terminal record; it is empty
+  when there is no record.
 
   Schema digesting is intentionally omitted: A's schemas are already torn down
   and a bare-id digest could only resolve absent state or a same-id B."
-  [frame-id fs-before fs-after committed-at]
+  [frame-id halt]
   (when rf.interop/debug-enabled?
-    (let [buffered-events (rf.epoch.state/buffer-for frame-id)
-          in-flight?      (some #(= :rf.event/run-start (:operation %))
-                                buffered-events)
-          record          (when in-flight?
-                            (rf.epoch.assembly/build-record
-                              frame-id fs-before fs-after buffered-events
-                              committed-at :halted-destroy
-                              {:operation :rf.frame/destroyed-mid-drain}
-                              nil))]
+    (let [{:keys [frame-state committed-at trigger-event dropped-count
+                  last-event-id]} halt
+          halt-reason (cond-> {:operation     :rf.frame/drain-interrupted
+                               :dropped-count dropped-count}
+                        last-event-id (assoc :last-event-id last-event-id))
+          record      (when (and (some? dropped-count) (pos? dropped-count))
+                        (cond-> (rf.epoch.assembly/build-record
+                                  frame-id frame-state frame-state []
+                                  committed-at :halted-destroy halt-reason nil)
+                          (vector? trigger-event)
+                          (assoc :event-id      (first trigger-event)
+                                 :trigger-event trigger-event)))]
       {:record            record
        :listener-snapshot (if record (rf.epoch.state/listeners-snapshot) {})})))
 
@@ -323,10 +332,10 @@
   now-shared id-keyed stores) is what keeps predecessor A's evidence intact
   after a same-id successor B has claimed those stores.
 
-  If a run-start was buffered, listeners receive a raw `:halted-destroy` record
-  (pre-run + destroy-time whole-frame snapshots plus the destroying event's
-  causal time). The record is not stored: destroyed frames have empty history,
-  so listener delivery is the only channel for this terminal partial record.
+  If the snapshot bound a `:halted-destroy` record — the work a pending
+  destroy dropped at its boundary — listeners receive it raw. The record is not
+  stored: destroyed frames have empty history, so listener delivery is the only
+  channel for this terminal record.
 
   The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
   runs only while `owner-token` still owns the stores, so stale A can never
@@ -341,7 +350,7 @@
   not A still owns the stores; a nil bundle bound nothing and publishes nothing.
   All terminal emits use structural delivery so a same-id B's frame-no-emit
   policy can neither suppress nor capture them. Repeated destroys are idempotent
-  (a re-destroyed frame has no mid-drain record, so nothing is owed)."
+  (a re-destroyed frame has no boundary record, so nothing is owed)."
   [frame-id owner-token terminal-evidence]
   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
