@@ -29,6 +29,7 @@
             [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.trace :as rf.trace]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -110,9 +111,8 @@
 
 (defn- root-options
   "React's `react-dom/client` root options object, or nil when there is
-  nothing to say. Nil rather than an empty object, because both root doors
-  branch on it to call React's bare arity — the shipped production call
-  once the reporter compiles away. String keys through `unchecked-set`:
+  nothing to say. Nil rather than an empty object, because `root!`
+  branches on it to call React's bare arity. String keys through `unchecked-set`:
   the string is what keeps the property off Closure's renamer under
   `:advanced`, and an `identifierPrefix` renamed is a prefix React never
   sees."
@@ -315,18 +315,21 @@
   a React-element root has neither — and `:recovery` is
   `:warned-and-replaced` because React has already patched the DOM. Not
   an event and mints no epoch: it fires from a root-error callback,
-  outside any dispatch scope."
+  outside any dispatch scope. The dev trace only, so the gate compiles it
+  away in production, where the always-on record is the report."
   [error]
-  (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
-               {:error    (some-> error .-message)
-                :where    're-frame.fresco.impl.mount/hydrate-root!
-                :recovery :warned-and-replaced}))
+  (when rf.interop/debug-enabled?
+    (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
+                 {:error    (some-> error .-message)
+                  :where    're-frame.fresco.impl.mount/hydrate-root!
+                  :recovery :warned-and-replaced})))
 
 (defn hydration-reporter
-  "Build the `onRecoverableError` for the root that owns `window`: emit
-  the framework diagnostic while THAT root's window is open, then always
-  delegate to React's default reporting. Without it a mismatch is an
-  uncaught window error and nothing else — Spec 011's
+  "Build the `onRecoverableError` for the root that owns `window`: while
+  THAT root's window is open, fan the always-on record (owned by
+  `frame-kw`, when the door knows it) and emit the framework diagnostic,
+  then always delegate to React's default reporting. Without it a
+  mismatch is an uncaught window error and nothing else — Spec 011's
   `:rf.ssr/hydration-mismatch` never fires. A builder, as the spine's
   `native-hydration-reporter` is, because the window belongs to one root
   and the callback has to close over it.
@@ -341,22 +344,24 @@
   outside this channel (docs/design/fresco/production-server-arm.md).
   Public so a witness can drive the real callback across the window
   boundary."
-  [^js window]
-  (fn on-recoverable [error _error-info]
-    (when (rf.fresco.impl.roots/adopting? window)
-      (emit-hydration-mismatch! error))
-    (report-recoverable-default! error)))
+  ([window] (hydration-reporter window nil))
+  ([^js window frame-kw]
+   (fn on-recoverable [error _error-info]
+     (when (rf.fresco.impl.roots/adopting? window)
+       (rf.substrate.spine/dispatch-hydration-mismatch-record!
+         're-frame.fresco.impl.mount/hydrate-root! frame-kw)
+       (emit-hydration-mismatch! error))
+     (report-recoverable-default! error))))
 
 (defn- hydrate-root-options
-  "The root options for the root owning `window`, or nil. The reporter is
-  debug-only — in production the emit compiles away behind
-  `interop/debug-enabled?` and what would remain is a replica of React's
-  default — while `:identifier-prefix` is never gated: it is behaviour,
-  deciding what `useId` answers, and a release build that dropped it would
-  hydrate every server `useId` into a mismatch."
-  [window opts]
-  (root-options (:identifier-prefix opts)
-                (when rf.interop/debug-enabled? (hydration-reporter window))))
+  "The root options for the root owning `window`, mounted under `frame-kw`.
+  Neither key is gated on `interop/debug-enabled?`. The reporter's
+  always-on record is how a production build's error sinks learn of a
+  mismatch, and `:identifier-prefix` is behaviour, deciding what `useId`
+  answers: a release build that dropped it would hydrate every server
+  `useId` into a mismatch."
+  [window frame-kw opts]
+  (root-options (:identifier-prefix opts) (hydration-reporter window frame-kw)))
 
 (defn hydrate-root!
   "Associate `container`'s existing server-rendered DOM with `frame-kw`
@@ -377,12 +382,13 @@
   because a `flushSync` would manufacture a schedule no shipped caller
   has, so the DOM on the next line is still the server's and the window
   is closed by `adoption-window-closer` from a passive effect, the
-  earliest point unambiguously after the hydration commit. In debug
-  builds the root carries `hydration-reporter` as its `onRecoverableError`,
-  so a divergence React recovers from surfaces as Spec 011's
-  `:rf.ssr/hydration-mismatch` beside the uncaught error, never instead
-  of it. The window is minted in every build because presence reads it in
-  production.
+  earliest point unambiguously after the hydration commit. The root
+  carries `hydration-reporter` as its `onRecoverableError` in every
+  build, so a divergence React recovers from surfaces as Spec 011's
+  `:rf.ssr/hydration-mismatch` — the always-on record, plus the trace in
+  debug builds — beside the uncaught error, never instead of it. The
+  window is minted in every build because presence and the reporter read
+  it in production.
 
   `opts` carries one key, `:identifier-prefix` — React's `identifierPrefix`,
   passed through untouched, and it must be the string the server render
@@ -401,10 +407,8 @@
          handle  {:frame frame-kw :container container :adoption window}
          element (binding [rf.fresco.impl.roots/*adopting-walk?* true]
                    (tree handle hiccup))
-         ropts   (hydrate-root-options window opts)]
-     (assoc handle :root (if ropts
-                           (react-dom-client/hydrateRoot container element ropts)
-                           (react-dom-client/hydrateRoot container element))))))
+         ropts   (hydrate-root-options window frame-kw opts)]
+     (assoc handle :root (react-dom-client/hydrateRoot container element ropts)))))
 
 (defn unmount!
   "Take THIS root down and touch nothing else: the impl tier's teardown,
