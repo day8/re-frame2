@@ -51,7 +51,7 @@
             [re-frame.machines]
             [re-frame.flows]
             [re-frame.schemas]
-            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.managed]
             [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.routing]
@@ -422,13 +422,12 @@
     3. Registrations. Without this, a later page could dispatch to a handler
        it never registered and reach the outgoing page's. The registrar goes
        back to the baseline captured in `ensure-init!`: a cell's own
-       registrations, app-db schemas among them, are unregistered, so that
+       registrations, app-db schemas and HTTP interceptors among them, are
+       unregistered, so that
        dispatch raises
        `:rf.error/no-such-handler` (or `-sub`) instead, and a framework
        registration a cell replaced, such as `:rf.route/entry-denied`, gets
        the framework's back.
-    4. HTTP interceptors. They are keyed by frame id outside the registrar,
-       so a later page's frame of the same id would otherwise inherit them.
 
   Destroying a frame already aborts its in-flight requests and cancels its
   retry, resource and `:dispatch-later` timers.
@@ -454,7 +453,6 @@
         (doseq [[id m] framework]
           (when-not (identical? m (get current id))
             (try (rf.registrar/register! kind id m) (catch :default _ nil)))))))
-  (try (rf.http.managed/clear-all-http-interceptors!) (catch :default _ nil))
   nil)
 
 ;; ---------------------------------------------------------------------------
