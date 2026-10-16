@@ -133,7 +133,7 @@
 (def ^:private live-composition-scoped-key
   [[:rf.scope/global] :article/by-slug {:slug "a1"}])
 (def ^:private live-composition-work-id
-  [:rf.work/resource live-composition-scoped-key 3])
+  [:rf.work/resource :article/by-slug 3])
 
 (def ^:private live-composition-resource-node
   {:id          live-composition-scoped-key
@@ -291,7 +291,7 @@
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [owner-a    (:owner (rf.routing.tooling/route-slice-algebra-view :rf/default))
         scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "welcome"})
-        work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)
+        work-id    (rf.resources.work-ledger/resource-work-id :article/by-slug 1)
         entry      (-> (rf.resources.state/empty-entry :article/by-slug scoped-key)
                        (rf.resources.state/attach-owner owner-a)
                        (assoc :status :fetching :current-work work-id))
@@ -374,7 +374,7 @@
 (def ^:private egress-scoped-key [secret-scope :article/by-slug secret-params])
 (def ^:private egress-nav-token 23)
 (def ^:private egress-generation 4)
-(def ^:private egress-work-id [:rf.work/resource egress-scoped-key egress-generation])
+(def ^:private egress-work-id [:rf.work/resource :article/by-slug egress-generation])
 
 (defn- egress-live-contributors
   []
@@ -445,8 +445,9 @@
     (is (= [:process :resource-process [:scope :param] :runtime [:rf.runtime/resources :entries] :pending]
            [(:kind node) (:refinement node) (mapv first (:inputs node)) (first (:output node))
             (vec (take 2 (second (:output node)))) (get-in node [:work-ledger :record :status])]))
-    (is (= [[:rf.work/resource projected egress-generation] wid wid]
-           [wid (get-in node [:work-ledger :record :work/id]) (second (first (:host-transient node)))]))
+    (is (= [egress-work-id wid wid]
+           [wid (get-in node [:work-ledger :record :work/id]) (second (first (:host-transient node)))])
+        "a work id names its attempt by resource id and generation, so it carries nothing to project")
 
     (is (= redacted (rf.derivation.egress/project-graph redacted egress-frame)))))
 
@@ -655,7 +656,7 @@
   (let [owner      (:owner (rf.routing.tooling/route-slice-algebra-view real-egress-frame))
         scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :secret/tenant-article
                                                            {:auth-token secret-token})
-        work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)]
+        work-id    (rf.resources.work-ledger/resource-work-id :secret/tenant-article 1)]
     (rf.frame/swap-runtime-db!
       real-egress-frame
       (fn [rdb]

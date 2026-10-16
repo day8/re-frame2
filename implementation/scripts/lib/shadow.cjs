@@ -31,7 +31,9 @@
  *    a runner builds one thing at a time, so the lock is always free and costs one file.
  *
  * 2. THE PROCESS TREE. The compiler is spawned shell-free under this node — the runner's
- *    `.js` resolved from the project directory, never `npx` or a `.cmd` — and on POSIX as
+ *    `.js` resolved from the project directory, or, for a project with no `node_modules`
+ *    of its own (the Fresco bench lane), from the implementation install beside this
+ *    helper; never `npx` or a `.cmd` — and on POSIX as
  *    a process-group leader, so its whole tree (node runner, JVM) dies together. A signal
  *    to this process, or its exit, reaps that tree before the lock is released.
  *
@@ -374,8 +376,14 @@ function buildIds(args) {
   return ids;
 }
 
+// The implementation install, beside this helper.
+const IMPL_DIR = path.resolve(__dirname, '..', '..');
+
+// A project with no install of its own shares the implementation's; a project that
+// has one must carry shadow-cljs in it, so a broken install fails loudly.
 function resolveRunner(projectDir) {
-  return require.resolve('shadow-cljs/cli/runner.js', { paths: [projectDir] });
+  const own = fs.existsSync(path.join(projectDir, 'node_modules'));
+  return require.resolve('shadow-cljs/cli/runner.js', { paths: own ? [projectDir] : [projectDir, IMPL_DIR] });
 }
 
 // Spawn the compiler as an owned child and settle with how it ended. Under the
@@ -503,25 +511,28 @@ async function runShadow(args, opts = {}) {
   const display = clojure
     ? `clojure ${clojure} -m shadow.cljs.devtools.cli ${args.join(' ')}`
     : `shadow-cljs ${args.join(' ')}`;
-  let exe;
-  let exeArgs;
-  if (clojure) {
-    exe = 'clojure';
-    exeArgs = [...clojure.split(/\s+/).filter(Boolean), '-m', 'shadow.cljs.devtools.cli', ...args];
-  } else {
-    try {
-      exeArgs = [resolveRunner(cwd), ...args];
-    } catch (err) {
-      log(`${label}: could not resolve shadow-cljs from ${cwd} (run \`npm install\` there): ${err.message}`);
-      return 1;
-    }
-    exe = process.execPath;
-  }
 
   const release = policy === 'none' ? () => {} : await acquireLane({ command: display, cwd });
   try {
+    // The declared outputs go first, before anything can refuse the run: a stale
+    // bundle that outlived a failed attempt is what this helper exists to prevent,
+    // whether the compiler failed or never started.
     for (const p of cleanPaths) {
       fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+    let exe;
+    let exeArgs;
+    if (clojure) {
+      exe = 'clojure';
+      exeArgs = [...clojure.split(/\s+/).filter(Boolean), '-m', 'shadow.cljs.devtools.cli', ...args];
+    } else {
+      try {
+        exeArgs = [resolveRunner(cwd), ...args];
+      } catch (err) {
+        log(`${label}: could not resolve shadow-cljs from ${cwd} (run \`npm install\` there): ${err.message}`);
+        return 1;
+      }
+      exe = process.execPath;
     }
     const result = await spawnOwned(exe, exeArgs, {
       cwd,

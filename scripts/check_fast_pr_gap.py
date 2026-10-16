@@ -287,7 +287,8 @@ SPINE_LANES = (
     Lane(
         "js-harness-self-tests",
         r"^npm run test:scripts$",
-        "spine node tier: 'implementation JS harness self-tests' -- the one discovery command, as CI runs it",
+        "spine node tier, when the diff touches a script or a package manifest: "
+        "'implementation JS harness self-tests' -- the one discovery command, as CI runs it",
     ),
     # ANCHORED ON THE WRAPPER, and the working directory is half the
     # signature.  `npx shadow-cljs compile node-test ; node out/node-test.js`
@@ -310,23 +311,24 @@ SPINE_LANES = (
     Lane(
         "cljs-node-test",
         r"^npm run test:cljs$",
-        "spine node tier: `npm run test:cljs` -- the same command, wrapper included",
+        "spine node tier, when the diff touches Clojure source or EDN: "
+        "`npm run test:cljs` -- the same command, wrapper included",
         working_dir="implementation",
     ),
     Lane(
         "per-ns-isolation-self-test",
         r"^node scripts/check-per-ns-isolation\.cjs --self-test$",
-        "spine node tier: 'per-ns isolation self-test'",
+        "spine node tier under --all: 'per-ns isolation self-test'",
     ),
     Lane(
         "per-ns-isolation",
         r"^node scripts/check-per-ns-isolation\.cjs$",
-        "spine node tier: 'per-ns test isolation'",
+        "spine node tier under --all: 'per-ns test isolation'",
     ),
     Lane(
         "fresco-compile",
         r"^npm run test:fresco-compile$",
-        "spine node tier: 'fresco modules compile'",
+        "spine node tier under --all: 'fresco modules compile'",
     ),
     Lane(
         "fresco-invariants",

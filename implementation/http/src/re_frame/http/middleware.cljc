@@ -1,16 +1,19 @@
 (ns re-frame.http.middleware
-  "Per-frame request- AND response-side interceptor chain for `:rf.http/managed`.
+  "Request- AND response-side HTTP interceptors for `:rf.http/managed`.
 
-  Per Spec 014 §Middleware, each frame has an ordered chain of HTTP
-  interceptors. Each interceptor is an interceptor-map carrying an
-  optional `:before` (request-side transform, fired in registration
-  order before `:rf.http/managed` issues the request) and an optional
-  `:after` (response-side transform, fired in REVERSE registration order
-  on the response BEFORE `:on-success` / `:on-failure` are dispatched).
+  Per Spec 014 §Middleware, an HTTP interceptor is a frame-agnostic
+  DEFINITION and a frame ACTIVATES definitions by naming them:
 
-  The public surface is `(reg-http-interceptor id interceptor-map)`, where the
-  map carries `:before`, `:after`, `:frame`, and standard registration
-  metadata.
+    (rf/reg-http-interceptor :shop/auth {:before … :after …})   ;; top level
+    (rf/make-frame {:id :shop/app
+                    :http-interceptors [:shop/auth :shop/telemetry]})
+
+  `reg-http-interceptor` stores the definition under the registrar kind
+  `:http-interceptor`. Each definition carries an optional `:before`
+  (request-side transform, fired before `:rf.http/managed` issues the
+  request) and an optional `:after` (response-side transform, fired on the
+  response BEFORE `:on-success` / `:on-failure` are dispatched). A frame that
+  names no chain runs none, however many definitions are registered.
 
   ## ctx contract
 
@@ -23,7 +26,7 @@
      :sensitive? <boolean>}      ;; the args' sensitivity, resolved before the chain
 
   A `:before` returns the (possibly-modified) ctx. The runtime threads
-  the chain in registration order; the final `:request` is what the
+  the chain in the frame's vector order; the final `:request` is what the
   transport ships.
 
   Each `:after` receives `(fn [ctx response] response')` where:
@@ -49,46 +52,43 @@
 
   ## Chain ordering
 
-  - `:before` chain — registration order. A registered before B: request
-    flows A.before → B.before → transport.
-  - `:after`  chain — REVERSE registration order. A registered before B:
-    response flows transport → B.after → A.after → reply dispatch.
+  The frame's `:http-interceptors` vector IS the order; registration and
+  load order configure nothing.
 
-  This mirrors the event-interceptor onion (Spec 002): the outermost
-  registration wraps the innermost on the request side and again on the
-  response side. Interceptors with no `:after` are transparent in the
-  response chain (skipped, not nil-substituted).
+  - `:before` chain — vector order. `[:a :b]`: request flows
+    a.before → b.before → transport.
+  - `:after`  chain — REVERSE vector order. `[:a :b]`: response flows
+    transport → b.after → a.after → reply dispatch.
 
-  ## Storage
+  This mirrors the event-interceptor onion (Spec 002): the first id wraps
+  the rest on the request side and again on the response side. Interceptors
+  with no `:after` are transparent in the response chain (skipped, not
+  nil-substituted).
 
-  Per-frame in a `defonce` atom keyed `frame-id → [interceptor ...]`,
-  mirroring the per-frame flow registry pattern (see
-  `re-frame.flows.registry`'s private `flows` atom + the
-  `flows-snapshot` accessor). Frame-scoped: an interceptor registered
-  against frame A does not fire for a request dispatched from frame B."
+  ## Resolution
+
+  `capture-chain` reads the frame's `:http-interceptors` when a request is
+  issued and resolves each id through the frame's own view (its image
+  generation, or the live registration table), so a later image's
+  definition of an id shadows the app's for frames built on that image. The
+  resolved vector is captured once per request."
   (:require [re-frame.error        :as rf.error]
             [re-frame.frame        :as rf.frame]
             [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.privacy :as rf.http.privacy]
             [re-frame.interop      :as rf.interop]
+            [re-frame.late-bind    :as rf.late-bind]
+            [re-frame.registrar    :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.trace        :as rf.trace]))
 
-(defonce
-  ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
-  carrying `:id`, optional `:before`, optional `:after`, `:frame`, and the
-  captured registration-metadata (`:doc`, `:schema`, `:tags`,
-  flat source-coord keys `:ns`/`:line`/`:column`/`:file`). Per-frame so
-  each frame's HTTP middleware chain is isolated. Order is
-  registration-order; clearing an id and re-registering re-appends to the
-  end."}
-  interceptors
-  (atom {}))
+(def kind
+  "The registrar kind HTTP interceptor definitions live under."
+  :http-interceptor)
 
 (defn- valid-args?
-  "Validate the positional id and interceptor map. The map must carry at least one of
-  `:before` / `:after` (each, if present, must be a fn), and
-  if `:frame` is present it must be a keyword."
+  "Validate the positional id and interceptor map. The map must carry at least
+  one of `:before` / `:after`, each, if present, a fn."
   [id interceptor-map]
   (and (keyword? id)
        (map? interceptor-map)
@@ -99,13 +99,25 @@
        ;; at least one of :before / :after must be supplied — registering
        ;; a no-op interceptor is meaningless and almost certainly a typo
        (or (some? (:before interceptor-map))
-           (some? (:after  interceptor-map)))
-       (or (nil? (:frame interceptor-map))
-           (keyword? (:frame interceptor-map)))))
+           (some? (:after  interceptor-map)))))
+
+(defn- throw-frame-key!
+  "A definition is frame-agnostic, so a `:frame` in the interceptor map has no
+  meaning; ignoring it would activate nothing where the author asked for a
+  frame-local interceptor. The message names the activation route."
+  [id interceptor-map]
+  (rf.error/throw-error!
+    :rf.error/http-bad-interceptor 'rf/reg-http-interceptor
+    (str "reg-http-interceptor `" id "` carries `:frame "
+         (pr-str (:frame interceptor-map)) "`, but an HTTP interceptor is a "
+         "frame-agnostic definition. Register it at the top level without "
+         "`:frame`, and name it in the frame's `:http-interceptors` config "
+         "vector, e.g. (rf/make-frame {:id :my/app :http-interceptors ["
+         id "]}).")
+    {:extra {:received {:id id :interceptor-map interceptor-map}}}))
 
 (defn reg-http-interceptor
-  "Register an HTTP interceptor on a frame's `:rf.http/managed` middleware
-  chain. Per Spec 014 §Middleware.
+  "Register the HTTP interceptor definition `id`. Per Spec 014 §Middleware.
 
   Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
   keyword; `interceptor-map` carries:
@@ -113,12 +125,12 @@
     - `:before` (optional) — `(fn [ctx] ctx')`, request-side transform
     - `:after`  (optional) — `(fn [ctx response] response')`,
                               response-side transform
-    - `:frame`  (optional) — frame id (the EP-0002 *override*). Absent,
-                              the carried-invariant scope chain resolves it;
-                              registering under no scope raises
-                              `:rf.error/no-frame-context`.
     - `:doc` / `:tags` / `:schema` — standard
       `:rf/registration-metadata` (per `:rf/http-interceptor-meta`)
+
+  A definition is frame-agnostic and runs only for a frame that names `id` in
+  its `:http-interceptors` config vector, in that vector's position. A
+  definition no frame names is simply unused — there is no warning.
 
   Request sensitivity is not interceptor metadata: it is each request's
   per-call `:sensitive?` or `[:request :sensitive?]` (see
@@ -133,12 +145,6 @@
        :before (fn [ctx] ...)
        :after  (fn [ctx response] ...)})
 
-  The `:before` chain runs in REGISTRATION ORDER before the request
-  fires. The `:after` chain runs in REVERSE REGISTRATION ORDER after
-  the response is built, BEFORE `:on-success` / `:on-failure` are
-  dispatched. `:after` sees the SAME ctx the `:before` chain produced
-  (enables request-correlated telemetry).
-
   `ctx` carries `:request` (the request map), `:args` (the full
   `:rf.http/managed` args), `:frame` (the frame-id), and `:event` (the
   originating event vector). `:before` returns a (possibly-modified)
@@ -149,195 +155,122 @@
   Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured
   at the `rf/reg-http-interceptor` call site by the JVM-emitted macro in
   `re-frame.core` (per Spec 001 §Source-coordinate capture). The stored
-  slot conforms to `:rf/http-interceptor-meta` (Spec-Schemas).
+  definition conforms to `:rf/http-interceptor-meta` (Spec-Schemas).
 
-  Re-registering an id replaces the slot in place (keeping registration
-  order). Order is preserved across replace; first registration wins
-  for position.
+  Re-registering an id replaces its definition; every frame naming it picks
+  up the new one on its next request. Clear one with
+  `(rf/clear :http-interceptor id)`.
 
-  After `clear-http-interceptor` removes a slot, a subsequent
-  `reg-http-interceptor` of the same id is a fresh registration and
-  appends to the end of the chain — the prior position is forgotten on
-  clear (per Spec 014 §Chain order and frame scope).
-
-  Throws `:rf.error/http-bad-interceptor` if any arg shape is invalid.
+  Throws `:rf.error/http-bad-interceptor` if any arg shape is invalid, or if
+  the map carries `:frame`.
 
   Returns the registered `id`."
   [id interceptor-map]
+  (when (and (map? interceptor-map) (contains? interceptor-map :frame))
+    (throw-frame-key! id interceptor-map))
   (when-not (valid-args? id interceptor-map)
     (rf.error/throw-error!
       :rf.error/http-bad-interceptor 'rf/reg-http-interceptor
-      "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"
+      "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :rf/registration-metadata"
       {:extra {:received {:id id :interceptor-map interceptor-map}}}))
-  (let [frame-id  (or (:frame interceptor-map)
-                      ;; EP-0002 — HTTP interceptor registration is
-                      ;; CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
-                      ;; (the *override*) wins, else the carried-invariant
-                      ;; scope chain (a `with-frame` scope, a `frame-provider`
-                      ;; (SCOPE) or `frame-root` (ENSURE) boundary,
-                      ;; or a frame `:initial-events` step). Registering under no
-                      ;; scope and no explicit `:frame` raises the always-on
-                      ;; `:rf.error/no-frame-context` rather than installing
-                      ;; the interceptor against a synthesised `:rf/default`
-                      ;; chain (per Spec 002 §Frame target resolution).
-                      (rf.frame/require-current-frame!
-                        :reg-http-interceptor
-                        {:where 'rf/reg-http-interceptor :event-id id}))
-        before    (:before interceptor-map)
-        after     (:after  interceptor-map)
-        user-meta (dissoc interceptor-map :frame :before :after)
-        slot      (cond-> (rf.source-coords/merge-coords user-meta)
-                    true   (assoc :id    id
-                                  :frame frame-id)
-                    before (assoc :before before)
-                    after  (assoc :after  after))]
-    (swap! interceptors update frame-id
-           (fn [chain]
-             (let [chain (or chain [])
-                   idx   (->> chain
-                              (keep-indexed (fn [i v] (when (= (:id v) id) i)))
-                              first)]
-               (if idx
-                 (assoc chain idx slot)
-                 (conj chain slot)))))
+  (let [before (:before interceptor-map)
+        after  (:after  interceptor-map)]
+    (rf.registrar/register! kind id
+                            (cond-> (rf.source-coords/merge-coords
+                                      (dissoc interceptor-map :before :after))
+                              true   (assoc :id id)
+                              before (assoc :before before)
+                              after  (assoc :after after)))
     (when rf.interop/debug-enabled?
-      (rf.trace/emit! :info :rf.http.interceptor/registered
-                   {:frame frame-id
-                    :id    id}))
+      (rf.trace/emit! :info :rf.http.interceptor/registered {:id id}))
     id))
-
-(defn clear-http-interceptor*
-  "Internal frame-first clear seam: drop the slot named `id` from `frame`'s
-  chain and emit the `:rf.http.interceptor/cleared` trace when a slot actually
-  existed. `frame` is a RESOLVED frame TARGET (a frame-id keyword or a live
-  frame value) — normalized to its frame-id before keying the per-frame
-  registry, so both spellings land on the same chain.
-
-  This is the artefact-internal `(frame id)` seam — NOT part of the public
-  `re-frame.core` surface (only `clear-http-interceptor` is late-bound to
-  core). Both public arities of `clear-http-interceptor` funnel through it
-  once they have resolved a frame, and they are its only callers.
-  Returns `id`."
-  [frame id]
-  (let [frame-id (rf.frame/frame-target->id frame)
-        existed? (some? (some (fn [v] (when (= (:id v) id) v))
-                              (get @interceptors frame-id)))]
-    (swap! interceptors update frame-id
-           (fn [chain]
-             (vec (remove (fn [v] (= (:id v) id)) chain))))
-    (when (and existed? rf.interop/debug-enabled?)
-      (rf.trace/emit! :info :rf.http.interceptor/cleared
-                   {:frame frame-id
-                    :id    id}))
-    id))
-
-(def ^:private valid-clear-opts?
-  "The public two-arity opts map must be EXACTLY `{:frame target}`.
-
-  This is the ONE shared validator in `re-frame.frame`, which `rf/clear` and
-  the flows arm use as well: a map whose sole key is `:frame`, its value a
-  frame-id keyword or a live frame value. One shared copy keeps the
-  identically-shaped doors from drifting apart."
-  rf.frame/frame-opts?)
 
 (defn clear-http-interceptor
-  "Unregister an HTTP interceptor by id from a frame's chain.
-
-  EP-0002 — context-required frame-local. The public surface is EXACT:
-
-    (clear-http-interceptor id)                  ;; ambient scope
-    (clear-http-interceptor id {:frame target})  ;; explicit frame
-
-  The single-arity `(clear-http-interceptor id)` resolves the frame through
-  the carried-invariant scope chain (a `with-frame` scope, or the closest
-  enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root`
-  (ENSURE));
-  under no scope it raises the always-on `:rf.error/no-frame-context` rather
-  than clearing against a synthesised `:rf/default`.
-
-  The two-arity opts form names the frame explicitly (the *override*) —
-  `target` is a frame-id keyword or a live frame value. The opts map is
-  FAIL-CLOSED: it must be EXACTLY `{:frame target}` with a present, non-nil
-  target. A missing `:frame`, a nil target, a misspelled/unknown or extra
-  key, and a non-map second argument all raise the typed
-  `:rf.error/http-bad-interceptor` (mirroring `reg-http-interceptor`'s arg
-  validation) BEFORE any ambient frame is resolved or touched. An
-  `(or (:frame opts) ambient-frame)` resolution would silently mis-clear:
-  `(clear-http-interceptor id {})` or a typo'd `{:fram f}` would clear the
-  AMBIENT frame instead of failing.
-
-  Two-scalar frame-first `(clear-http-interceptor frame id)` is NOT a public
-  shape; the frame-first form is the internal `clear-http-interceptor*`
-  seam. No-arg form is not supported — explicit ids only."
-  ([id]
-   (clear-http-interceptor*
-     (rf.frame/require-current-frame!
-       :clear-http-interceptor
-       {:where 'rf/clear :event-id id})
-     id))
-  ([id opts]
-   ;; The PUBLIC two-arity is ONLY `(id {:frame target})`.
-   ;; Fail-closed: reject anything that is not exactly `{:frame target}`
-   ;; (present, non-nil) BEFORE resolving or touching the ambient frame. This
-   ;; also rejects a two-scalar frame-first shape — a keyword or other
-   ;; scalar second arg is not a valid opts map. The explicit target names the
-   ;; frame; the opts form never falls back to the ambient scope.
-   (when-not (valid-clear-opts? opts)
-     (rf.error/throw-error!
-       :rf.error/http-bad-interceptor 'rf/clear
-       "expected (clear-http-interceptor id {:frame target}): the two-arity opts map must be exactly {:frame target} with a present, non-nil frame target (a frame-id keyword or a live frame value). Two-scalar frame-first (frame id) is not a public shape."
-       {:extra {:received {:id id :opts opts}}}))
-   (clear-http-interceptor* (:frame opts) id)))
+  "Remove the HTTP interceptor definition `id` — the `:http-interceptor` arm of
+  `(rf/clear :http-interceptor id)`. Emits `:rf.http.interceptor/cleared` when
+  a definition existed. A frame that still names `id` fails its next request
+  at issue, as it would for an id never registered. Returns `id`."
+  [id]
+  (let [existed? (contains? (rf.registrar/registrations kind) id)]
+    (rf.registrar/unregister! kind id)
+    (when (and existed? rf.interop/debug-enabled?)
+      (rf.trace/emit! :info :rf.http.interceptor/cleared {:id id}))
+    id))
 
 (defn clear-all-http-interceptors!
-  "Test-time helper: drop the per-frame interceptor registry."
+  "Test-time helper: remove every HTTP interceptor definition."
   []
-  (reset! interceptors {})
+  (rf.registrar/clear-kind! kind)
   nil)
 
-(defn interceptors-snapshot
-  "Test-time helper: read the current value of the per-frame interceptor
-  registry — `frame-id → [interceptor-slot ...]`. Each slot is the stored
-  `:rf/http-interceptor-meta` map (`:id`, optional `:before` / `:after`,
-  `:frame`, captured source-coords + registration-metadata).
-
-  For tests that need to assert chain ORDER, slot CONTENTS (source-coords,
-  user-meta), or per-frame ISOLATION without reaching into the `interceptors`
-  atom directly. Not part of the user-facing API — application code routes
-  through `reg-http-interceptor` / `clear-http-interceptor`. Mirrors the
-  registry's `in-flight-snapshot` / `actor-in-flight-snapshot` test-observability
-  helpers."
-  ([] @interceptors)
-  ([frame-id] (get @interceptors frame-id)))
+(defn- throw-unregistered!
+  [frame-id ids id]
+  (rf.error/throw-error!
+    :rf.error/unregistered-interceptor 'rf.http.middleware/capture-chain
+    (str "frame `" frame-id "` names HTTP interceptor `" id "` in its "
+         "`:http-interceptors` chain " (pr-str ids) ", but no "
+         "`reg-http-interceptor` defines it. Register the definition, or "
+         "remove the id from the frame's `:http-interceptors`.")
+    {:recovery :fix-registration
+     :extra    {:ref               id
+                :id                id
+                :frame             frame-id
+                :http-interceptors ids}}))
 
 (defn capture-chain
-  "Snapshot `frame-id`'s interceptor chain for ONE request, at
-  ISSUE time. Returns the registration-order vector of function-bearing
-  slots; that same vector drives the request's `:before` walk, its
+  "Resolve `frame-id`'s HTTP interceptor chain for ONE request, at ISSUE time.
+  Returns the vector of definitions the frame's `:http-interceptors` names, in
+  that order; that same vector drives the request's `:before` walk, its
   `:after` walk and every retry attempt.
 
-  Chain resolution is at issue time (Spec 014 §Chain order and frame
-  scope): registering, replacing or clearing an interceptor affects only
-  requests that capture their chain afterwards. Callers pass the captured
-  vector to `run-interceptor-chain!` / `run-after-chain!` — neither walker
-  consults the live registry, so there is no window in which a response
-  walks a chain its request never had.
+  Each id resolves through the frame's own view (its image generation, or the
+  live registration table), so a frame built on a later image runs that
+  image's definition of an id. An id with no definition fails the request
+  here with `:rf.error/unregistered-interceptor`, before any `:before` runs.
 
-  An EMPTY capture is a real snapshot (the frame had no interceptors when
-  the request was issued), never a signal to fall back to the live
-  registry.
+  Resolution is at issue time (Spec 014 §Chain order and frame scope):
+  re-registering or clearing a definition, or re-making the frame with a
+  different `:http-interceptors`, affects only requests issued afterwards.
+  Callers pass the captured vector to `run-interceptor-chain!` /
+  `run-after-chain!` — neither walker resolves anything, so there is no window
+  in which a response walks a chain its request never had.
+
+  A frame that names no chain captures `[]`, a real snapshot rather than a
+  signal to resolve later.
 
   Snapshotting does not freeze the world: a captured fn can still read the
   current app-db, deref an atom or call a redefined var. What is stable
   across the two walks is chain MEMBERSHIP, ORDER and the stored function
-  values. The atom holds an immutable persistent value and updates install
-  a new one, so retaining the selected vector needs no copy and no lock."
+  values."
   [frame-id]
-  (or (get @interceptors frame-id) []))
+  (let [ids (:http-interceptors (rf.frame/frame-config frame-id))]
+    (if (empty? ids)
+      []
+      (let [resolve (fn []
+                      (mapv (fn [id]
+                              (or (rf.registrar/lookup kind id)
+                                  (throw-unregistered! frame-id ids id)))
+                            ids))]
+        (if-let [with-frame-view (rf.late-bind/get-fn-cached
+                                   :live-frame/call-with-frame-resolution)]
+          (with-frame-view frame-id resolve)
+          (resolve))))))
+
+(defn interceptors-snapshot
+  "Test-time helper. With no argument, every registered HTTP interceptor
+  definition as `{id definition}`; with a `frame-id`, the chain a request
+  issued from that frame now would capture (`capture-chain`). Each definition
+  is the stored `:rf/http-interceptor-meta` map (`:id`, optional `:before` /
+  `:after`, captured source-coords + registration-metadata).
+
+  Not part of the user-facing API — application code registers with
+  `reg-http-interceptor` and activates with the frame's `:http-interceptors`."
+  ([] (rf.registrar/registrations kind))
+  ([frame-id] (capture-chain frame-id)))
 
 ;; The `:before` (`run-interceptor-chain!`) and `:after`
 ;; (`run-after-chain!`) chains share one walk shape: reduce over the
-;; per-frame chain, skip interceptors lacking the relevant slot, run the
+;; captured chain, skip interceptors lacking the relevant slot, run the
 ;; slot fn, wrap any throw as `:rf.error/http-interceptor-failed`, and
 ;; reject a non-map return with `:rf.error/http-interceptor-bad-return`
 ;; (each built under the request's effective sensitivity, traced through the
@@ -347,7 +280,7 @@
 ;; factors that body out; the two public fns are thin wrappers that vary
 ;; only on: the slot key (`:before` / `:after`), how the slot fn is
 ;; invoked (`(slot acc)` vs `(slot fixed-ctx acc)`), the chain order
-;; (registration / reverse), the `:where` symbol + optional `:phase`, the
+;; (vector / reverse), the `:where` symbol + optional `:phase`, the
 ;; URL source (the threaded `acc` for `:before`; the fixed middleware-ctx
 ;; for `:after`), and the bad-return sentence. The load-bearing comments
 ;; on each wrapper carry the per-path rationale.
@@ -446,15 +379,15 @@
     chain))
 
 (defn run-interceptor-chain!
-  "Walk the registration-order interceptor `chain` for `frame-id`, threading
+  "Walk the captured interceptor `chain` for `frame-id` in order, threading
   `ctx` through each `:before`. Returns the final ctx, or throws
   `:rf.error/http-interceptor-failed` if any `:before` throws and
   `:rf.error/http-interceptor-bad-return` if one returns a non-map.
 
-  `chain` is the caller's issue-time capture (`capture-chain`), NOT a live
-  registry read. The same vector must drive this request's
-  `:after` walk, so a registration made from inside a `:before` joins only
-  LATER requests.
+  `chain` is the caller's issue-time capture (`capture-chain`), NOT a fresh
+  resolution. The same vector must drive this request's `:after` walk, so a
+  definition registered or re-made from inside a `:before` reaches only LATER
+  requests.
 
   Interceptors without a `:before` slot are transparent in the request
   chain (acc passes through unchanged).
@@ -493,16 +426,16 @@
 
 (defn run-after-chain!
   "Per Spec 014 §Middleware. Walk this request's CAPTURED
-  interceptor `chain` in REVERSE registration order, threading
+  interceptor `chain` in REVERSE order, threading
   `response` through each `:after`. Returns the (possibly-transformed)
   response map.
 
   `chain` is the vector the request captured at ISSUE time
   (`capture-chain`), carried forward by the transport alongside the
-  middleware-ctx. It is deliberately NOT a fresh registry read: the ctx
+  middleware-ctx. It is deliberately NOT a fresh resolution: the ctx
   and the chain that consumes it are frozen together, so an `:after` only
   ever runs for a request whose `:before` chain it was part of. An empty
-  captured chain is a real snapshot — there is no live-registry fallback.
+  captured chain is a real snapshot — there is no re-resolution fallback.
 
   Each `:after` receives `(fn [ctx response] response')` — `ctx` is the
   middleware-ctx the `:before` chain produced for THIS request (carried
@@ -520,7 +453,7 @@
   (run-chain*
     {;; Reverse order — mirror of the event-interceptor onion (Spec 002).
      ;; Reversed over the request's CAPTURED chain, never a
-     ;; response-time deref of the live registry.
+     ;; response-time re-resolution of the frame's chain.
      :chain      (reverse chain)
      :frame-id   frame-id
      :slot-key   :after
@@ -590,7 +523,7 @@
                    (true? sensitive?)))))
 
 (defn run-after-then-dispatch!
-  "The shared reply tail: thread `reply-payload` through the per-frame
+  "The shared reply tail: thread `reply-payload` through the request's
   `:after` interceptor chain, route the FINAL envelope by its `:status`, and
   hand it to the late-bind reply router
   (`encoding/dispatch-reply-via-late-bind!`).
@@ -633,7 +566,7 @@
   The `:after` walk is keyed off the presence of
   `:middleware-ctx`, which is the synthetic-caller guard above; a caller
   carrying a ctx carries its captured chain with it, and an EMPTY chain
-  runs no `:after` rather than falling back to the live registry."
+  runs no `:after` rather than resolving the frame's chain afresh."
   [{:keys [frame middleware-ctx chain origin-event explicit-on-success explicit-on-failure
            reply-payload url sensitive? completed-at]}]
   (let [final-payload (if middleware-ctx

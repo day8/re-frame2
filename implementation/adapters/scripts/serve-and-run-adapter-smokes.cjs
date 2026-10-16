@@ -120,22 +120,12 @@ const RUNNER = path.resolve(__dirname, 'run-adapter-smokes.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-// shadow-cljs is a devDependency of implementation/package.json. Resolve
-// its JS entry-point from there so compileAll() can spawn it shell-free
-// under process.execPath — never `npx`/`npx.cmd` under a shell, which on
-// Windows resolves a workspace-local `.cmd` ahead of PATH from a repo-
-// controlled cwd (the command-hijack accident class).
-let SHADOW_CLJS_RUNNER;
-try {
-  SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
-    paths: [IMPL_ROOT],
-  });
-} catch {
-  throw new Error(
-    'serve-and-run-adapter-smokes: could not resolve shadow-cljs. Run ' +
-      `\`npm install\` in ${IMPL_ROOT} first.`,
-  );
-}
+// compileAll() runs the shared shadow-cljs launcher shell-free under
+// process.execPath — never `npx`/`npx.cmd` under a shell, which on Windows
+// resolves a workspace-local `.cmd` ahead of PATH from a repo-controlled cwd
+// (the command-hijack accident class) — so the compile takes the machine-wide
+// build lane and the launcher owns the compiler's process tree.
+const { SHADOW_CLI } = require('../../scripts/lib/shadow.cjs');
 const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -182,10 +172,9 @@ function compileAll() {
       `ADAPTER_SMOKE_FILTER='${FILTER}' matched zero builds; nothing to compile.`,
     );
   }
-  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free. Same hardened posture as story-build.cjs /
-  // dev-testbed.cjs in implementation/scripts.
-  const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
+  // The shared launcher under THIS node binary, shell-free. Same hardened
+  // posture as story-build.cjs / dev-testbed.cjs in implementation/scripts.
+  const args = [SHADOW_CLI, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',

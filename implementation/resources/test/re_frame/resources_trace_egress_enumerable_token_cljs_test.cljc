@@ -94,20 +94,27 @@
 
 (deftest pagination-cursor-token-is-not-enumerable
   ;; the cursor is an app-derived free tag that can carry a record id; the
-  ;; length is kept, since an integer cannot carry a fragment of it
-  (let [k     (key-for :sealed/feed tenant-a)
-        token {:rf/redacted {:type :string :count (count cursor-a)}}]
+  ;; length is kept, since an integer cannot carry a fragment of it. The two
+  ;; cursor rows (`:rf.resource/load-more`, `:rf.resource/page-appended`) are
+  ;; attempt rows, so they name their owner by `:resource/id`.
+  (let [token {:rf/redacted {:type :string :count (count cursor-a)}}]
     (is (= [token token token]
-           [(:page-param (project-row {:resource/key k :page-param cursor-a}))
-            (:page-param (project-row {:resource/key k :page-param cursor-b}))
-            (:next-page-param (project-row {:resource/key k :next-page-param cursor-a}))])
-        "under a redacting owner, distinct cursors project to one token, on either cursor tag")))
+           [(:page-param (project-row {:resource/id :sealed/feed :page-param cursor-a}))
+            (:page-param (project-row {:resource/id :sealed/feed :page-param cursor-b}))
+            (:next-page-param (project-row {:resource/id :sealed/feed :next-page-param cursor-a}))])
+        "under a redacting owner, distinct cursors project to one token, on either cursor tag")
+    (is (= token (:page-param (project-row {:resource/id :unknown/feed :page-param cursor-a})))
+        "an unregistered owner fails closed")))
 
 (deftest plain-owner-rides-verbatim
   (let [k (key-for :plain/feed tenant-a)]
-    (is (= {:resource/key k :page-param cursor-a}
-           (select-keys (project-row {:resource/key k :page-param cursor-a}) [:resource/key :page-param]))
-        "a :serialize owner declaring nothing keeps its key byte-identical and its cursor readable")))
+    (is (= {:resource/key k}
+           (select-keys (project-row {:resource/key k}) [:resource/key]))
+        "a :serialize owner declaring nothing keeps its key byte-identical")
+    (is (= {:resource/id :plain/feed :page-param cursor-a}
+           (select-keys (project-row {:resource/id :plain/feed :page-param cursor-a})
+                        [:resource/id :page-param]))
+        "and its cursor readable")))
 
 (deftest large-owner-keeps-a-distinct-content-derived-token
   (let [ta (nth (projected-key (key-for :bulky/feed tenant-a)) 2)

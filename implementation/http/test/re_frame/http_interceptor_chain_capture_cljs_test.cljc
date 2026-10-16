@@ -2,12 +2,12 @@
   "Host-symmetric (JVM + CLJS) contract: HTTP interceptor CHAIN RESOLUTION IS
   AT ISSUE TIME (Spec 014 §Chain order and frame scope).
 
-  A managed request captures its frame's interceptor chain once, immediately
-  before running `:before`, and its response walks the SAME captured
-  registrations in reverse. Resolving the `:after` chain again from the live
-  registry would let a response landing after the registry changed walk a
-  chain its request never had, handing an `:after` a ctx its own `:before`
-  never touched.
+  A managed request resolves its frame's `:http-interceptors` chain once,
+  immediately before running `:before`, and its response walks the SAME
+  captured definitions in reverse. Resolving the `:after` chain again would
+  let a response landing after a definition or the frame's chain changed
+  walk a chain its request never had, handing an `:after` a ctx its own
+  `:before` never touched.
 
   The tests hold a response OUTSTANDING without a clock: the canned path
   splits into `capture-and-run-request-chain` (issue: capture, walk `:before`)
@@ -30,22 +30,24 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; Every registration and clear names its frame explicitly, so these tests
-;; read identically on both hosts whatever the ambient scope.
+;; Every request names its frame explicitly, so these tests read identically
+;; on both hosts whatever the ambient scope.
 
 (def ^:private test-frame :v3f6/app)
 (def ^:private frame-ctx {:frame test-frame})
 
+(defn- name-chain! [ids]
+  (rf/make-frame {:id test-frame :http-interceptors ids}))
+
 (defn- marking
-  "An interceptor that stamps `id` on the ctx in `:before` and, in
-  `:after`, appends `[id <the mark it finds on the ctx it is handed>]` to
-  `log`. A nil mark is the tell that this `:after` ran for a request whose
-  `:before` chain it was never part of."
-  [id log]
-  {:frame  test-frame
-   :before (fn [ctx] (assoc ctx id :marked))
+  "A definition that stamps `id` on the ctx in `:before` and, in `:after`,
+  appends `[tag <the mark it finds on the ctx it is handed>]` to `log`. A nil
+  mark is the tell that this `:after` ran for a request whose `:before` chain
+  it was never part of."
+  [id tag log]
+  {:before (fn [ctx] (assoc ctx id :marked))
    :after  (fn [ctx response]
-             (swap! log conj [id (get ctx id)])
+             (swap! log conj [tag (get ctx id)])
              response)})
 
 (defn- issue!
@@ -61,53 +63,48 @@
   [captured args]
   (rf.http.test-support/emit-canned-success! frame-ctx (assoc args :reply-to nil) captured))
 
-(defn- clear-frame! []
-  (rf.http.managed/clear-all-http-interceptors!))
-
 ;; Distinguishes real capture from LATE capture: a snapshot taken after the
-;; `:before` walk returns would already hold an interceptor the walk itself
+;; `:before` walk returns would already hold the definition the walk itself
 ;; registered, so its `:after` would run with a nil mark.
 
-(deftest a-registration-made-inside-a-before-does-not-join-that-request
-  (testing "an interceptor registered from INSIDE a `:before`
-            joins only LATER requests; it does not acquire an `:after` on
-            the request whose `:before` walk registered it"
-    (clear-frame!)
+(deftest a-definition-replaced-inside-a-before-does-not-reach-that-request
+  (testing "a definition re-registered from INSIDE a `:before` reaches only
+            LATER requests; the request whose `:before` walk replaced it runs
+            the definition it captured, both halves"
     (let [log (atom [])]
+      (rf/reg-http-interceptor :swapped (marking :swapped :v1 log))
       (rf/reg-http-interceptor :opener
-        {:frame  test-frame
-         :before (fn [ctx]
-                   (rf/reg-http-interceptor :joiner (marking :joiner log))
+        {:before (fn [ctx]
+                   (rf/reg-http-interceptor :swapped (marking :swapped :v2 log))
                    (assoc ctx :opener :marked))
          :after  (fn [ctx response]
                    (swap! log conj [:opener (:opener ctx)])
                    response)})
+      (name-chain! [:opener :swapped])
       (let [a (issue! {:value :a})]
-        (is (= [:opener :joiner]
-               (mapv :id (rf.http.managed/interceptors-snapshot test-frame)))
-            "control: :joiner IS on the live chain — the registration took")
         (release! a {:value :a})
-        (is (= [[:opener :marked]] @log)
-            ":joiner did not join the request its own registration interrupted"))
+        (is (= [[:v1 :marked] [:opener :marked]] @log)
+            "the request ran the :swapped it captured, not the replacement"))
       (reset! log [])
       (let [b (issue! {:value :b})]
         (release! b {:value :b})
-        (is (= [[:joiner :marked] [:opener :marked]] @log)
-            "the NEXT request captures :joiner and runs both halves of it")))))
+        (is (= [[:v2 :marked] [:opener :marked]] @log)
+            "the NEXT request captures the replacement and runs both halves of it")))))
 
 (deftest an-empty-capture-is-a-real-snapshot-not-a-fallback-signal
-  (testing "a request issued while the frame has NO interceptors
-            walks no `:after`, however the registry looks when its response
-            lands. This is the arm a live-registry fallback would fail."
-    (clear-frame!)
+  (testing "a request issued while the frame names NO chain walks no
+            `:after`, whatever the frame names when its response lands. This
+            is the arm a late re-resolution would fail."
     (let [log (atom [])]
+      (name-chain! [])
       (is (empty? (rf.http.managed/interceptors-snapshot test-frame))
           "control: the frame's chain really is empty at issue")
       (let [a (issue! {:value :a})]
-        (rf/reg-http-interceptor :late (marking :late log))
+        (rf/reg-http-interceptor :late (marking :late :late log))
+        (name-chain! [:late])
         (is (seq (rf.http.managed/interceptors-snapshot test-frame))
-            "control: the registry is non-empty by the time the response lands")
+            "control: the frame names a chain by the time the response lands")
         (release! a {:value :a})
         (is (= [] @log)
             "an empty capture runs NO :after — it is a real snapshot, never a
-             signal to consult the live registry")))))
+             signal to resolve the frame's chain again")))))

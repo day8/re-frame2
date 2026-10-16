@@ -946,7 +946,21 @@
                         " does not resolve to a real state — it must be a "
                         "direct child (keyword) of the owning compound or an "
                         "absolute path (vector) the definition declares.")
-                   {:state hist-key :default-target dt :feature :history})))))))
+                   {:state hist-key :default-target dt :feature :history})))))
+    ;; A pseudo-state its owning compound's `:initial` names is restored on
+    ;; every entry through that `:initial`; with nothing recorded it needs a
+    ;; `:default-target`, because the fallback — the compound's `:initial` —
+    ;; names the pseudo-state itself.
+    (when (and (= hist-key (:initial (node-at-states states owning-path)))
+               (not (contains? node :default-target)))
+      (throw (validation-error
+               :rf.error/machine-history-bad-default-target
+               (str "history pseudo-state " hist-key " is its owning compound's "
+                    ":initial but declares no :default-target — entering the "
+                    "compound with nothing recorded would fall back to the "
+                    "compound's :initial, which names the pseudo-state itself. "
+                    "Declare a :default-target.")
+               {:state hist-key :default-target nil :feature :history})))))
 
 (defn- at-most-one-history-per-compound!
   "Per Spec 005 §History states §Pseudo-state constraints: a compound may

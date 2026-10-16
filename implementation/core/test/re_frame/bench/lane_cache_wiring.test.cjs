@@ -18,8 +18,9 @@
 // An id with fewer than two riders fails `really is shared`, so deleting a lane
 // without its id is loud.
 //
-// A rider reaches a release build DIRECTLY (it spawns shadow-cljs's
-// `cli/runner.js` with `'release', BUILD, '--config-merge', …`) or through a DOOR
+// A rider reaches a release build DIRECTLY (it spawns shadow-cljs — through the
+// shared launcher `scripts/lib/shadow.cjs`, or its `cli/runner.js` — with
+// `'release', BUILD, '--config-merge', …`) or through a DOOR
 // (a required local module that owns the spawn, called as
 // `shadowBuild({ mode: 'release', buildId: BUILD_ID, … })`). The door is resolved
 // through one level of local requires rather than named, so a second door is
@@ -27,7 +28,7 @@
 //
 // NOT COVERED: compile-mode riders (listed in the roster, not checked: every
 // measurement behind the rule was on release bundles), and a rider that neither
-// names the id nor reaches `runner.js` — `every clear is accounted for` catches
+// names the id nor reaches the runner — `every clear is accounted for` catches
 // the half of that class that clears.
 //
 // THE FAIL-OPENS a naive scan admits: clearing one id and building another, and a
@@ -171,7 +172,9 @@ function read(abs) {
 // scan keyed to single quotes walks past a double-quoted call site, and a
 // "found nothing at all" fallback keyed the same way agrees with it because
 // both are blind.
-const RUNNER = /runner\.js/;
+// shadow-cljs's CLI runner, named directly or through the shared launcher every
+// lane builds through.
+const RUNNER = /runner\.js|lib\/shadow\.cjs/;
 const CONFIG_MERGE = /['"]--config-merge['"]/;
 const SPAWN_SLOT = /['"]release['"]\s*,/;
 const DOOR_CALL = /shadowBuild(?:Verdict)?\s*\(/;
@@ -190,7 +193,7 @@ function namesRunner({ code }) {
 
 // One level of require resolution, which is what turns "the door" from a name
 // hard-coded here into a thing discovery finds. A candidate that requires a
-// local `.cjs` naming `runner.js` reaches shadow-cljs through it.
+// local `.cjs` naming the runner reaches shadow-cljs through it.
 function reachesRunner(rider) {
   if (namesRunner(rider)) return true;
   LOCAL_REQUIRE.lastIndex = 0;

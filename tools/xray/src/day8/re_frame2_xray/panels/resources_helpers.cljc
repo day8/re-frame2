@@ -420,8 +420,9 @@
 ;; TRACE row does not have — a trace value carries no key-id and no runtime-db
 ;; coordinate — so the same fn cannot be reused here.
 ;;
-;; What a trace row DOES carry is the RESOURCE-ID, in its `:resource/key`
-;; scoped key (`[scope resource-id params]`) and in its `:resource-id` tag. The
+;; What a trace row DOES carry is the RESOURCE-ID: in its `:resource/key`
+;; scoped key (`[scope resource-id params]`), in an attempt row's
+;; `:resource/id`, or in its `:resource-id` tag. The
 ;; static registry carries the coarse root `:sensitive?` declaration per
 ;; resource (`registry-row`). Joining those two gives the on-box gate for the
 ;; trace-borne sections: a row that NAMES a `:sensitive?` resource redacts its
@@ -438,9 +439,8 @@
 ;; different shape. The METADATA (operation, label, class, resource-id,
 ;; generation, work-id, owner, status, tags, counts) is never redacted — a
 ;; redacted row still shows the whole lifecycle SHAPE. A resource work-id
-;; embeds its scoped key, so a row keeps the raw work-id for keys and joins
-;; and renders `work-id-text`, which prints that key's scope and params
-;; through the same gate.
+;; `[:rf.work/resource <resource-id> <generation>]` names no scope or params,
+;; so it prints as-is.
 ;;
 ;; NOT applied to `scope-resolutions`: its rows are named-scope RESOLVER
 ;; resolutions, whose `:resource-id` tag carries the RESOLVER id (see the
@@ -480,25 +480,6 @@
   [eg sensitive?]
   (if sensitive? (constantly redacted-sentinel) eg))
 
-(defn work-id-text
-  "The on-box display text of a work-id. A resource work-id
-  `[:rf.work/resource <scoped-key> <generation>]` embeds its scoped key, so
-  printing it prints the same scope and params the row's value slots
-  redact. For a work-id whose scoped key names a resource in
-  `sensitive-rids`, the scope and params print as the redaction sentinel
-  through `sensitive-eg`, while the head, resource-id and generation stay
-  readable. Any other work-id, and every work-id when no set is threaded,
-  prints as-is.
-
-  Text only: the raw work-id stays on the row as its React key and the key
-  every join matches on."
-  [work-id sensitive-rids]
-  (str (if-let [rid (when (and (vector? work-id) (= 3 (count work-id)))
-                      (scoped-key-resource-id (nth work-id 1)))]
-         (let [[head [scope _ params] generation] work-id
-               eg (sensitive-eg identity (names-sensitive? sensitive-rids [rid]))]
-           [head [(eg scope) rid (eg params)] generation])
-         work-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Static resource registry projection (Spec 016 §Xray and AI tooling).
@@ -1265,6 +1246,21 @@
       (contains? tags :page-error)
       (assoc :page-error (summarize (eg (:page-error tags)))))))
 
+(defn- attempt-keys
+  "Index each resource attempt's scoped key by `[frame work-id]`, read off its
+  `:rf.resource/work-started` row — the one row of an attempt that states the
+  key. A work id is frame-local, so the frame is part of the index key.
+  Pure."
+  [rows]
+  (into {}
+        (keep (fn [ev]
+                (let [tags (trace-tags ev)]
+                  (when (and (= :rf.resource/work-started (trace-op ev))
+                             (some? (:work/id tags))
+                             (some? (:resource/key tags)))
+                    [[(trace-frame ev) (:work/id tags)] (:resource/key tags)]))))
+        rows))
+
 (defn lifecycle-timeline
   "Project the resource trace rows in a trace buffer into a lifecycle
   TIMELINE — an ordered, render-safe row per `:rf.resource/*` event
@@ -1289,6 +1285,13 @@
   `:next-page-param` cursor — egress-projected; `:page-index` /
   `:page-count` / `:terminal?` / `:reason` raw; `:page-error` summarized).
   See `page-detail`. A non-infinite op carries no `:page` slot.
+
+  An ATTEMPT's rows after its `:rf.resource/work-started` row name it by
+  `:work/id` and `:resource/id` only; the work-started row is the one that
+  states the attempt's scoped key. Such a row takes its `:resource-id` from
+  `:resource/id` and its `:resource/key` from that work-started row, joined
+  on frame and work id (`attempt-keys`). An attempt whose work-started row
+  is no longer in the buffer keeps its resource-id and shows no key.
 
   Pure over the trace vector; preserves buffer order (oldest-first). The
   panel renders this as the per-resource lifecycle strip; filtering by
@@ -1318,16 +1321,25 @@
   ([trace-buffer] (lifecycle-timeline trace-buffer nil nil))
   ([trace-buffer egress-fn] (lifecycle-timeline trace-buffer egress-fn nil))
   ([trace-buffer egress-fn sensitive-rids]
-   (let [eg0 (or egress-fn identity)]
-     (->> (or trace-buffer [])
-          (filter #(resource-trace-op? (trace-op %)))
+   (let [eg0      (or egress-fn identity)
+         rows     (filterv #(resource-trace-op? (trace-op %)) (or trace-buffer []))
+         key-of   (attempt-keys rows)]
+     (->> rows
           (mapv (fn [ev]
-                  (let [op   (trace-op ev)
-                        tags (trace-tags ev)
-                        rkey (:resource/key tags)
-                        rid  (or (:resource-id tags)
-                                 (when (vector? rkey) (second rkey)))
-                        eg   (sensitive-eg eg0 (names-sensitive? sensitive-rids [rid]))]
+                  (let [op      (trace-op ev)
+                        tags    (trace-tags ev)
+                        ;; Most resource-lifecycle ops carry the bare `:work/id`
+                        ;; identity; the `:rf.resource/stale-suppressed` reply
+                        ;; row carries the work identity ONLY as
+                        ;; `:rf.reply/work-id` (one name per fact on
+                        ;; reply-envelope rows).
+                        work-id (or (:work/id tags) (:rf.reply/work-id tags))
+                        rkey    (or (:resource/key tags)
+                                    (when work-id (key-of [(trace-frame ev) work-id])))
+                        rid     (or (:resource-id tags)
+                                    (:resource/id tags)
+                                    (when (vector? rkey) (second rkey)))
+                        eg      (sensitive-eg eg0 (names-sensitive? sensitive-rids [rid]))]
                     (cond->
                       {:id           (:id ev)
                        :operation    op
@@ -1336,11 +1348,7 @@
                        :resource-id  rid
                        :resource/key (when rkey (scoped-key-summary rkey eg))
                        :generation   (:generation tags)
-                       ;; Most resource-lifecycle ops carry the bare `:work/id`
-                       ;; identity; the `:rf.resource/stale-suppressed` reply row
-                       ;; carries the work identity ONLY as `:rf.reply/work-id`
-                       ;; (one name per fact on reply-envelope rows).
-                       :work-id      (or (:work/id tags) (:rf.reply/work-id tags))
+                       :work-id      work-id
                        :owner        (:owner tags)
                        :cause        (when (contains? tags :cause)
                                        (summarize (eg (:cause tags))))

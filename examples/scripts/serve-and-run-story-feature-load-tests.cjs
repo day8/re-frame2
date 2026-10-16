@@ -27,21 +27,11 @@ const RUNNER = path.resolve(__dirname, 'run-story-feature-load-tests.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-// Resolve shadow-cljs's JS entry-point so compileAll() spawns it
-// shell-free under process.execPath — never npx/npx.cmd/cmd.exe (the
-// Windows command-hijack accident class); matches
-// story-build.cjs / dev-testbed.cjs.
-let SHADOW_CLJS_RUNNER;
-try {
-  SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
-    paths: [IMPL_ROOT],
-  });
-} catch {
-  throw new Error(
-    'serve-and-run-story-feature-load-tests: could not resolve shadow-cljs. ' +
-      `Run \`npm install\` in ${IMPL_ROOT} first.`,
-  );
-}
+// compileAll() runs the shared shadow-cljs launcher shell-free under
+// process.execPath — never npx/npx.cmd/cmd.exe (the Windows command-hijack
+// accident class) — so the compile takes the machine-wide build lane and the
+// launcher owns the compiler's process tree; matches story-build.cjs.
+const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 const cleanup = createHarnessCleanup();
@@ -72,14 +62,16 @@ function cleanTestbedOutDirs() {
 
 function compileAll() {
   const builds = TESTBEDS.map((t) => t.build);
-  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free. Capture output and surface it only on
-  // failure (or under RF2_VERBOSE_TESTS) — this gate's quiet-on-success
-  // posture.
-  const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
+  // The shared launcher under THIS node binary, shell-free. The compiler's
+  // stdout is captured and surfaced only on failure (or under
+  // RF2_VERBOSE_TESTS) — this gate's quiet-on-success posture. stderr passes
+  // through, so the launcher's `waiting for build lane` line shows while it
+  // waits rather than after.
+  const args = [SHADOW_CLI, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
   });
   const output = `${result.stdout || ''}${result.stderr || ''}`;
   if (process.env.RF2_VERBOSE_TESTS === '1' || result.status !== 0) {

@@ -2984,6 +2984,25 @@
       {:recovery :use-rf-set-db
        :extra    {:initial-db (:initial-db config)}})))
 
+(defn- validate-http-interceptors!
+  "PREFLIGHT guard for the `:http-interceptors` frame-config key (Spec 014
+  §Middleware): when present and non-nil it is a vector of keyword ids naming
+  `reg-http-interceptor` definitions, in the order the frame runs them. The
+  ids resolve when a request is issued, so neither the http artefact nor the
+  definitions need exist yet. `where-sym` is the constructor symbol for the
+  diagnostic."
+  [config where-sym]
+  (let [ids (:http-interceptors config)]
+    (when-not (or (nil? ids)
+                  (and (vector? ids) (every? keyword? ids)))
+      (rf.error/throw-error!
+        :rf.error/http-bad-interceptor
+        where-sym
+        (str ":http-interceptors must be a vector of keyword ids naming "
+             "reg-http-interceptor definitions, in the order the frame runs "
+             "them, e.g. [:shop/auth :shop/telemetry] — got " (pr-str ids) ".")
+        {:extra {:http-interceptors ids}}))))
+
 (def ^:private frame-registered-hook-keys
   "The ORDERED roster of optional-artefact POST-(RE-)REGISTRATION hook keys
   `fire-frame-registered-hook!` consults, in the order it consults them. A
@@ -3270,6 +3289,7 @@
         ;; registered). The normalized steps are dispatched after the container +
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/make-frame)
+        _              (validate-http-interceptors! config 'rf/make-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
         ;; EP-0015 §9: validate the frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,

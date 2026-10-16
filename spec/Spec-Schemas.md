@@ -1690,8 +1690,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceReservedRequestKeyTags
   ;; a resource's :request (the Spec 014 managed-HTTP args map) supplied one
   ;; of the runtime-owned reply-addressing keys (:request-id / :on-success /
-  ;; :on-failure). The runtime OWNS reply addressing (from the scoped key +
-  ;; generation) so the internal reply verifies frame + work-id + generation;
+  ;; :on-failure). The runtime OWNS reply addressing (from the work id —
+  ;; resource id + generation — and the frame) so the internal reply verifies
+  ;; frame + work-id + generation;
   ;; an app-supplied reply target would bypass stale suppression. Rejected at
   ;; the managed-HTTP lower seam; the request is NOT lowered.
   [:map
@@ -2992,8 +2993,8 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
 
 ```clojure
 (def ScopedResourceKey
-  ;; The cache key, the request-correlation token payload, and the unit Xray
-  ;; and SSR enumerate. `[cache-scope resource-id canonical-params]` — scope
+  ;; The cache key and the unit Xray and SSR enumerate; an attempt is named
+  ;; by ResourceWorkId instead. `[cache-scope resource-id canonical-params]` — scope
   ;; first (the tenant/user/locale/impersonation leak boundary), then the
   ;; resource id, then the canonicalized params. Scope + params are
   ;; canonicalized under the SAME rule (key order irrelevant). All three
@@ -3005,13 +3006,16 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    :any])      ;; canonical-params (a canonicalized EDN map)
 
 (def ResourceWorkId
-  ;; The work-ledger record key + the entry's :current-work pointer + (for
-  ;; managed HTTP) the transport request-id. EMBEDS the generation, so stale
-  ;; suppression keys on it — ONE identity per attempt; there is no separate
-  ;; :stale-key synonym (per [016 §Ledger row retention and identity]).
+  ;; A read attempt's identity: the work record's :work/id, the entry's
+  ;; :current-work pointer, the internal reply payload's :work/id and (inside
+  ;; [:rf.req frame-id work-id]) the managed-HTTP transport request-id.
+  ;; EMBEDS the generation, so stale suppression keys on it — ONE identity per
+  ;; attempt; there is no separate :stale-key synonym. Names the resource id,
+  ;; never the scope or params: the attempt's scoped key is the work record's
+  ;; :resource/key (per [016 §Ledger row retention and identity]).
   [:tuple
    [:= :rf.work/resource]
-   ScopedResourceKey
+   :keyword    ;; resource-id
    :int])      ;; generation
 
 (def ResourceEntry
@@ -3078,13 +3082,40 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    [:owner-index    {:optional true} [:map-of :any [:set ScopedResourceKey]]]
    [:last-gc-window {:optional true} :int]])
 
+(def MutationWorkId
+  ;; A mutation attempt's identity: the instance row's :current-work, the
+  ;; ledger record's :work/id and the internal reply payload's :work/id. It
+  ;; reuses the resource head with the [:rf.mutation <instance-id>] subject
+  ;; (work_ledger/resource-work-id); the instance id is the caller's own value
+  ;; or a generated one, so it is any CEDN-1 identity.
+  [:tuple
+   [:= :rf.work/resource]
+   [:tuple [:= :rf.mutation] :any]   ;; [:rf.mutation instance-id]
+   :int])                            ;; generation
+
+(def MutationWorkRecord
+  ;; A mutation attempt's ledger record: the resource record's shape with
+  ;; :work/kind :mutation, a MutationWorkId, and :resource/key holding the
+  ;; [:rf.mutation <instance-id>] subject, the per-key bucket the terminal
+  ;; prune and :rf.mutation/clear drop the instance's rows by.
+  [:merge
+   ResourceWorkRecord
+   [:map
+    [:work/id      MutationWorkId]
+    [:work/kind    [:= :mutation]]
+    [:resource/key [:tuple [:= :rf.mutation] :any]]]])
+
 (def WorkLedger
-  ;; The frame work-ledger runtime-db child — serializable work records keyed
-  ;; by :work/id. Named neutrally; resources + mutations are its v1 writers
-  ;; (work-kind :resource / :mutation). Bounded: non-terminal rows ride the
+  ;; The frame work-ledger runtime-db child. Named neutrally; resources +
+  ;; mutations are its v1 writers (work-kind :resource / :mutation). Keyed by
+  ;; the CEDN-1 canonical-bytes string of each record's work id
+  ;; (work_ledger/work-id-id), not the work-id vector: a mutation work id
+  ;; embeds a caller-supplied instance id, and two instance ids that are `=`
+  ;; across a list/vector spelling have distinct CEDN-1 identities. The vector
+  ;; rides on the record as :work/id. Bounded: non-terminal rows ride the
   ;; wire, terminal rows are pruned to a small per-key tail (Xray history), so
   ;; it never grows unboundedly across SSR / epoch snapshots. Allocated lazily.
-  [:map-of ResourceWorkId ResourceWorkRecord])
+  [:map-of :string [:or ResourceWorkRecord MutationWorkRecord]])
 
 (def MutationInstance
   ;; A durable mutation INSTANCE row under [:rf.runtime/mutations <instance-id>].
@@ -3108,7 +3139,7 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    [:params        {:optional true} :any]
    [:cause         {:optional true} :any]
    [:generation    :int]
-   [:current-work  {:optional true} [:maybe ResourceWorkId]]
+   [:current-work  {:optional true} [:maybe MutationWorkId]]
    [:started-at    {:optional true} [:maybe :int]]
    [:settled-at    {:optional true} [:maybe :int]]
    [:affected-keys {:optional true} [:maybe [:vector :any]]]

@@ -2,7 +2,7 @@
   "`(rf/clear kind id ?opts)`'s own argument validation, which runs before any
   frame is resolved or registry row touched (spec/API.md §Clearing
   registrations): opts on a kind that is not frame-scoped, and an unknown kind.
-  The `:http-interceptor` suites cover the frame-scoped arm. The positive
+  The `:flow` suites cover the frame-scoped arm. The positive
   control — `clear` really deregistering a `:sub` — is
   `re-frame.sub-cache-test/clear-sub-id-leaves-cache-intact`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -43,7 +43,7 @@
             :reason      :unknown-kind
             :kind        :widget}
            (select-keys data [:rf.error/id :reason :kind])))
-    ;; One registrar kind, the added `:http-interceptor`, and the removed `:frame`
+    ;; Registrar kinds, `:http-interceptor` among them, and the removed `:frame`
     ;; (a live runtime object torn down by `destroy-frame!`).
     (is (every? kinds [:event :http-interceptor]))
     (is (not (contains? kinds :frame)))))

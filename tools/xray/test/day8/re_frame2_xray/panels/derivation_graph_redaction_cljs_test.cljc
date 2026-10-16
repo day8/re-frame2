@@ -222,11 +222,11 @@
 ;; elision policy). They use a STATIC-style resource node and never exercise
 ;; the LIVE resource IDENTITY path — a live resource node carries its
 ;; sensitive scope/params NOT in a value-bearing field but in its scoped-key
-;; identity (node key / `:id` / `:output` / realized `:inputs` / work-ledger
-;; work-id + `:resource/key` / `:host-transient`), positions the value walk is
+;; identity (node key / `:id` / `:output` / realized `:inputs` / the
+;; work-ledger record's `:resource/key`), positions the value walk is
 ;; structurally blind to. This ONE smoke proves the Xray delegate carries the
 ;; core-owned identity projection through; the COMPREHENSIVE per-position +
-;; idempotence + work-id/host-transient coverage lives in the
+;; idempotence coverage lives in the
 ;; derivation-conformance egress arms (`g-*`), which test the same owner
 ;; `re-frame.derivation.egress/project-graph` directly. Xray does
 ;; not re-prove the algorithm — it proves the wiring.
@@ -239,16 +239,16 @@
   ;; [cache-scope resource-id canonical-params] — the live fact identity.
   [secret-scope :article/by-slug secret-params])
 (def ^:private live-work-id
-  ;; the REAL resource-family work-id — `[:rf.work/resource <scoped-key>
-  ;; <generation>]` (embeds the same secret-bearing scoped key).
-  [:rf.work/resource live-scoped-key 4])
+  ;; the resource-family work-id — `[:rf.work/resource <resource-id>
+  ;; <generation>]`, which names the attempt without its scope or params.
+  [:rf.work/resource :article/by-slug 4])
 
 (def ^:private live-resource-node
   ;; mirrors `resource-cache-algebra-view`'s live-node-for shape: the scoped
   ;; key is the :id; the realized [:scope …]/[:param …] inputs; the concrete
   ;; :output entry address embeds the scoped key; the in-flight work-ledger
-  ;; record + host-transient carry the canonical work-id (which itself embeds
-  ;; the scoped key).
+  ;; record carries the scoped key, and it and the host-transient address
+  ;; name the attempt by its work-id.
   {:id             live-scoped-key
    :kind           :process
    :refinement     :resource-process

@@ -166,6 +166,7 @@ const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 const { resetLaneBuildCache } = require('../../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
+const { SHADOW_CLI } = require('../../../../../../../implementation/scripts/lib/shadow.cjs');
 const guard = require('../../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('../seam.cjs');
 
@@ -730,8 +731,7 @@ function build() {
     console.error(`[c56clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[c56clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const r = spawnSync(process.execPath, [runner, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
+  const r = spawnSync(process.execPath, [SHADOW_CLI, 'release', BUILD_ID, '--config-merge', CONFIG_MERGE], {
     cwd: PROJECT,
     stdio: ['ignore', 'inherit', 'inherit'],
   });

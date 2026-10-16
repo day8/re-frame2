@@ -350,11 +350,11 @@ sends one.
    [:get (str api-base "/articles/welcome")]   {:reply {:ok {:article welcome}}}
    [:get (str api-base "/articles/resources")] {:reply {:ok {:article resources}}}})
 
-;; Log each request that reaches the stubbed API.
+;; Log each request that reaches the stubbed API. The frame below names it
+;; in :http-interceptors.
 (def requests (r/atom []))
 (rf/reg-http-interceptor :conduit/request-log
-  {:frame  :conduit
-   :before (fn [ctx] (swap! requests conj (get-in ctx [:request :url])) ctx)})
+  {:before (fn [ctx] (swap! requests conj (get-in ctx [:request :url])) ctx)})
 
 (rf/reg-resource :conduit/articles
   {:params-schema  [:map]
@@ -430,6 +430,7 @@ sends one.
    (into [:ol] (for [url @requests] [:li url]))])
 
 [rf/frame-root {:id :conduit
+                :http-interceptors [:conduit/request-log]
                 :initial-events [[:rf.route/navigate {:to :conduit/home}]]
                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [root-view]]
