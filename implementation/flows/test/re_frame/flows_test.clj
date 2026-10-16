@@ -14,42 +14,37 @@
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling])
-  (:import [java.util.concurrent CountDownLatch TimeUnit]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(deftest exact-owner-loss-in-first-derive-stops-the-flow-tail
-  ;; Removing the post-derive owner check publishes :killer's output; removing
-  ;; the per-flow loop check invokes :later against same-id B; letting
-  ;; destroy+throw win over owner loss leaks an obsolete A exception.
+(deftest a-derive-that-destroys-its-frame-lets-the-event-finish
+  ;; The destroy waits for the event boundary (Spec 002 §Destroy): the flow
+  ;; tail runs, the event commits, and `:on-destroy` then reads the committed
+  ;; db before the frame goes.
   (let [id         :flow/destroy-owner
         later-runs (atom 0)
-        destroyed  (CountDownLatch. 1)
-        release    (CountDownLatch. 1)]
-    (rf/make-frame {:id id})
+        final-db   (atom ::unset)]
+    (rf/reg-event :flow/record-final (fn [{:keys [db]} _] (reset! final-db db) {}))
+    (rf/make-frame {:id id :on-destroy [:flow/record-final]})
     (rf/reg-flow :killer
       {:frame id :inputs [[:seed]] :output-path [:derived]}
-      (fn [_]
-        (rf.frame/destroy-frame! id)
-        (.countDown destroyed)
-        (.await release 10 TimeUnit/SECONDS)
-        (throw (ex-info "obsolete derive failure" {}))))
+      (fn [seed]
+        (when seed (rf.frame/destroy-frame! id))
+        (some-> seed inc)))
     (rf/reg-flow :later
       {:frame id :inputs [[:derived]] :output-path [:later]}
-      (fn [v] (swap! later-runs inc) v))
+      (fn [v] (when v (swap! later-runs inc)) v))
     (rf/reg-event :flow/destroy-owner-event (fn [_ _] {:db {:seed 1}}))
-    (let [dispatch-a (future (rf/dispatch-sync [:flow/destroy-owner-event] {:frame id}))]
-      (is (.await destroyed 10 TimeUnit/SECONDS)
-          "A was destroyed while its derive remained on the stack")
-      (rf/make-frame {:id id})
-      (.countDown release)
-      (is (nil? (deref dispatch-a 5000 ::timeout))
-          "destroy+throw in A's derive is inert after exact-owner loss"))
-    (is (zero? @later-runs) "no later flow callback runs")
-    (is (= {} (rf.frame/frame-app-db-value id))
-        "A's pending handler/flow transition never commits into B")))
+    (rf/dispatch-sync [:flow/destroy-owner-event] {:frame id})
+    (is (= {:later-runs 1
+            :final-db   {:seed 1 :derived 2 :later 2}
+            :frame      nil}
+           {:later-runs @later-runs
+            :final-db   @final-db
+            :frame      (rf.frame/frame id)})
+        "the later flow ran once, :on-destroy saw both outputs, and the frame is gone after the event")))
 
 ;; ---- clear-flow ----------------------------------------------------------
 
