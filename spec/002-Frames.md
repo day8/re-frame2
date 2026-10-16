@@ -633,7 +633,7 @@ An application persists a frame by reading it and restores it by dispatching one
 
 A fact lives in **runtime-db iff it must survive epoch-restore and SSR-hydration** — i.e. it is a serializable durable fact. Everything else is **transient**: frame-scoped, torn down on destroy, never serialized.
 
-- **Durable (runtime-db):** machine snapshots + spawn registry + spawn-counter; the route slice + pending-nav; elision declarations; SSR hydration metadata (e.g. a server render hash).
+- **Durable (runtime-db):** machine snapshots + spawn registry + spawn-counter; the route slice + pending-nav; elision declarations; SSR hydration metadata (the hydration payload's `:rf/version`).
 - **Transient (NOT runtime-db):** host handles (timers, AbortControllers, listeners, promises); in-flight HTTP registries; the saved scroll-position cache + nav-token / pending-nav counters (host-derived, meaningless after a restore — held outside the frame value so an epoch restore cannot rewind + recycle a token; cleared by `:routing/on-frame-destroyed!`); SSR request/response accumulators, head snapshots, pending-error buffers; trace rings; epoch capture buffers; sub-cache entries; flow evaluation memos (the dirty-check rows).
 
 Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destroy](#destroy)) but full-frame serialization, hydration, restore, and time-travel MUST NOT pull it in.

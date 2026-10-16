@@ -127,8 +127,7 @@ The view-tree assertion axis (aliased `:as th`, per `spec/008-Testing.md` — **
 
 | Surface | Shape |
 |---|---|
-| `ssr/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?`, `:render-hash`. `:render-hash` takes the **hash string** `ssr/render-tree-hash` returns (not a boolean) and stamps it as `data-rf-render-hash` on the root element; hash once and spend it on both the markup and the payload. Unknown opts are ignored silently |
-| `ssr/render-tree-hash` | `(tree)` → `"fnv1a-32bit-hex"` |
+| `ssr/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?`. Unknown opts are ignored silently |
 | `ssr/project-error` | `(frame-id trace-event)` → public-error-map |
 | `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
 | `ssr/head-model` | `(frame-id)` / `(frame-id {:head-id :route})` → the `:rf/head-model` for a frame. `:head-id` selects a registration outright, else the effective route's `:head`, else the default head; `:route` (present-key test, so an explicit `nil` means *no route*) overrides the frame's active route slice and the head fn runs against that same route. Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
