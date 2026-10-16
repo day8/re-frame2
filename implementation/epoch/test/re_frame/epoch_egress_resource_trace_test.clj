@@ -35,9 +35,6 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; load-bearing: publishes the :resources/* late-bind egress hooks.
             [re-frame.resources]
-            ;; load-bearing: `ensure` lowers into managed HTTP, which fails
-            ;; closed with `:rf.error/http-artefact-missing` without this ns.
-            [re-frame.http.managed]
             [re-frame.schemas]))
 
 (def ^:private secret "topsecret-PII")

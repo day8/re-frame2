@@ -6,19 +6,18 @@ By the end of this part the home page fetches the article list on entry, the art
 
 ## Step 1 — add the resources artefact and point at an API
 
-Resources ship as their own artefact, like routing. They sit on top of a second artefact, `day8/re-frame2-http` — the managed-HTTP **transport**, which does the network work (sending, retries, decoding). A resource describes *what* to read and how fresh it must be, hands the transport a request, and gets a decoded value back. Add both, then restart `npm run dev`:
+Resources ship as their own artefact, like routing. They sit on top of a second artefact, `day8/re-frame2-http` — the managed-HTTP **transport**, which does the network work (sending, retries, decoding). A resource describes *what* to read and how fresh it must be, hands the transport a request, and gets a decoded value back. The resources artefact depends on http, so you add only resources, then restart `npm run dev`:
 
 ```clojure
 {:deps {thheller/shadow-cljs        {:mvn/version "3.4.10"}
         day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
         day8/re-frame2-reagent      {:local/root "../re-frame2/implementation/adapters/reagent"}
         day8/re-frame2-routing      {:local/root "../re-frame2/implementation/routing"}
-        day8/re-frame2-http         {:local/root "../re-frame2/implementation/http"}
         day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}}
  :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-Leave out `day8/re-frame2-http` and the `re-frame.http.managed` require below can't be found: the resources artefact reaches the transport late-bound, so it doesn't put it on your classpath for you.
+Resources brings http onto your classpath, so the `re-frame.http.managed` require below resolves without an http coordinate of your own. An app adds `day8/re-frame2-http` itself only when its own code issues managed-HTTP requests — as Part 3's login does.
 
 Now a tiny namespace that says where the API is. Make it `.cljc` rather than `.cljs` — it holds no browser code, and [Part 6](06-test-and-ship.md) loads it on the JVM:
 

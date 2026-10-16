@@ -27,14 +27,13 @@
                        day8/re-frame2-resources  {:local/root "../resources"}
                        ;; The MCP egress conformance fixture drives a
                        ;; REAL `[:rf.resource/ensure …]` cascade so the resource
-                       ;; trace family reaches the gate. `ensure` lowers through
-                       ;; the managed-HTTP transport, which throws
-                       ;; `:rf.error/http-artefact-missing` unless
-                       ;; `re-frame.http.managed` has published its late-bind
-                       ;; hook, so the fixture needs the artefact on the TEST
-                       ;; classpath (the fx itself is overridden with a no-op —
-                       ;; nothing fetches). Mirrors the resources artefact's own
-                       ;; test-only http dep; production epoch stays http-free.
+                       ;; trace family reaches the gate, and `ensure` lowers
+                       ;; through the managed-HTTP transport (the fx itself is
+                       ;; overridden with a no-op — nothing fetches). The
+                       ;; resources artefact depends on http and brings it too;
+                       ;; naming it here keeps the transport the fixture drives
+                       ;; visible on the TEST classpath. Production epoch stays
+                       ;; http-free.
                        day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; `-e :prod-gate` excludes the ONE namespace that is a
