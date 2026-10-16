@@ -111,7 +111,7 @@ Create `src/my/app.cljs`:
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+             [h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
               [views/todo-list]]
              (js/document.getElementById "app")))
 

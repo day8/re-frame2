@@ -78,7 +78,7 @@ Instead, the handler describes the write, and one registered
             :style    {:text-decoration (when done? "line-through")}}
        title])]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 

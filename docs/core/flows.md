@@ -159,7 +159,7 @@ load. Register the flow from the seed event, which runs inside the frame:
      :fx [[:rf.fx/reg-flow remaining-count-flow]]}))
 ```
 
-`[rf/frame-root {:id :app :initial-events [[:todo/initialise]]} …]` then mounts the
+`[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]} …]` then mounts the
 app as on every earlier page.
 
 A flow registered directly first computes on the next event in its frame, which is

@@ -229,7 +229,7 @@ registered parent builds with the injected `dispatch`, as the inputs above take
     Name the setup event and list it on the frame:
 
     ```clojure
-    [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+    [rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
      [todo-app]]
     ```
 

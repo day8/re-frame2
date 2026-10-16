@@ -16,7 +16,7 @@ the app under `/reader`:
 
 ```clojure
 [rf/frame-root
- {:id           :app
+ {:id           :rf/default
   :url-bound?   true
   :url-strategy (rf.routing/with-base-path
                   rf.routing/history-url-strategy "/reader")}
@@ -45,7 +45,7 @@ the same static shell.
 When the host cannot rewrite app paths, use:
 
 ```clojure
-[rf/frame-root {:id           :app
+[rf/frame-root {:id           :rf/default
                 :url-bound?   true
                 :url-strategy rf.routing/hash-url-strategy}
  [root-view]]

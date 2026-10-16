@@ -258,17 +258,17 @@ Call it yourself only for scripted diagnosis; it returns `nil` in a release
 build. A representative entry:
 
 ```clojure
-{:boundary     {:parent nil :key [[:app :todo/by-id [:todo/by-id 7]]]}
+{:boundary     {:parent nil :key [[:rf/default :todo/by-id [:todo/by-id 7]]]}
  :views        [{:view   "todo.views/todo-row"
                  :source {:ns todo.views :file "src/todo/views.cljs" :line 41 :column 1}}]
- :frame        :app
+ :frame        :rf/default
  :instances    1
- :window       {:frames [:app] :retained-runs 12}
+ :window       {:frames [:rf/default] :retained-runs 12}
  :snapshot     9
  :peak-epoch   5
- :latest-reads [{:sub-id :todo/by-id :query [:todo/by-id 7] :frame-id :app}]
+ :latest-reads [{:sub-id :todo/by-id :query [:todo/by-id 7] :frame-id :rf/default}]
  :loss         {:reason :uncorrelated :dropped :unknown}
- :candidates   [{:dispatch-id 41 :event-id :todo/toggle :frame-id :app :sub-id :todo/by-id}]}
+ :candidates   [{:dispatch-id 41 :event-id :todo/toggle :frame-id :rf/default :sub-id :todo/by-id}]}
 ```
 
 `:latest-reads` is proven: the reads whose values changed most recently.

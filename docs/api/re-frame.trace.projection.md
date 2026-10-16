@@ -9,7 +9,7 @@ Group the development trace stream into one record per event. The raw stream arr
 
 ```clojure
 ;; each event vector, with the number of renders it caused
-(->> (rf/trace-buffer :app/main {:flat true})
+(->> (rf/trace-buffer :rf/default {:flat true})
      projection/group-by-event
      (map (fn [{:keys [event renders]}] [event (count renders)])))
 ```
@@ -50,7 +50,7 @@ Both functions are pure, with no frame, registry or router, and run the same cod
   (let [collected (atom [])]
     (rf/register-listener! :trace ::collect #(swap! collected conj %))
     (try
-      (rf/dispatch-sync [:todo/add "Buy milk"] {:frame :app/main})
+      (rf/dispatch-sync [:todo/add "Buy milk"] {:frame :rf/default})
       (finally
         (rf/unregister-listener! :trace ::collect)))
     (let [bundle (->> (projection/group-by-event @collected)

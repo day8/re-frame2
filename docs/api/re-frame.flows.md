@@ -13,7 +13,7 @@ Flows ship in the optional `day8/re-frame2-flows` artefact. Require `re-frame.fl
 (rf/reg-flow :cart/subtotal
   {:inputs      [[:cart :items] [:tax :rate]]   ;; app-db paths to watch
    :output-path [:cart :subtotal]               ;; where the result is written
-   :frame       :app/main}                      ;; a flow belongs to one frame
+   :frame       :rf/default}                    ;; a flow belongs to one frame
   (fn [items rate]                              ;; input values, in order
     (* (reduce + (map :price items)) (+ 1 (or rate 0)))))
 ;; => :cart/subtotal
@@ -73,7 +73,7 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
   (rf/reg-flow :nav/on-checkout?
     {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
      :output-path [:nav :on-checkout?]
-     :frame       :app/main}
+     :frame       :rf/default}
     (fn [route-id] (= route-id :checkout)))
   ```
 
@@ -128,7 +128,7 @@ Two reserved fx-ids register and clear flows from an event handler. Both act on 
                               {:inputs      [[:wizard :qty] [:wizard :unit-price]]
                                :output-path [:wizard :order-total]}
                               (fn [qty unit-price] (* qty unit-price))]]]}))
-  (rf/dispatch-sync [:wizard/enter-step-2] {:frame :app})
+  (rf/dispatch-sync [:wizard/enter-step-2] {:frame :rf/default})
   ;; [:wizard :order-total] is now populated (assuming the inputs were seeded).
   ```
 
@@ -199,7 +199,7 @@ Read-only functions over the per-frame flow registry, for the REPL, for tools su
 - **Example**:
   ```clojure
   ;; Which flows are registered, and against which frames?
-  (keys (get (flows/flows-snapshot) :app/main))   ;; => (:cart/subtotal :nav/on-checkout?)
+  (keys (get (flows/flows-snapshot) :rf/default)) ;; => (:cart/subtotal :nav/on-checkout?)
   ```
 
 ### `flows`
@@ -213,7 +213,7 @@ Read-only functions over the per-frame flow registry, for the REPL, for tools su
     - `:frame` is required and names a frame target (a frame-id keyword or a frame value), the same targets `rf/registrations` accepts. A call without `:frame`, or with a non-map argument, raises `:rf.error/no-frame-context`.
 - **Example**:
   ```clojure
-  (keys (flows/flows {:frame :app/main}))   ;; => (:cart/subtotal :nav/on-checkout?)
+  (keys (flows/flows {:frame :rf/default})) ;; => (:cart/subtotal :nav/on-checkout?)
   ```
 
 ### `flow-meta`
@@ -229,8 +229,8 @@ Read-only functions over the per-frame flow registry, for the REPL, for tools su
     - Both keys are required. There is no ambient frame and no positional frame argument (a live frame value is itself a map, so it could not be told apart from the opts). A call without `:frame`, or with a non-map argument, raises `:rf.error/no-frame-context`.
 - **Example**:
   ```clojure
-  ;; The :app/main frame's definition of :cart/subtotal.
-  (flows/flow-meta {:frame :app/main :id :cart/subtotal})
+  ;; The :rf/default frame's definition of :cart/subtotal.
+  (flows/flow-meta {:frame :rf/default :id :cart/subtotal})
   ```
 
 A tool that draws subscriptions, flows, resources, route facts and machine selectors as one dependency graph takes each flow's graph node from `re-frame.flows.tooling`, which it requires directly. `re-frame.flows` has no function for it.

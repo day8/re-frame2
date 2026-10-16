@@ -413,7 +413,7 @@ the following uses real dispatch into an existing
 frame, so registered handlers can change app-db:
 
 ```clojure
-(ht/fire! :app [:input {:on-input [:todo/draft-edited ::h/value]}]
+(ht/fire! :rf/default [:input {:on-input [:todo/draft-edited ::h/value]}]
           :on-input {:value "Buy milk"})
 ;; => {:intents [[:todo/draft-edited "Buy milk"]] :prevented? false}
 ```

@@ -245,7 +245,7 @@ Besides a handler's own chain, you can attach interceptors to a [frame](frames.m
 
 ```clojure
 (rf/make-frame
-  {:id           :app
+  {:id           :rf/default
    :interceptors [:my-app/logger]})   ;; wraps EVERY event handled in this frame
 ```
 
@@ -438,7 +438,7 @@ A test can remove or replace one interceptor without touching registrations.
 
 ```clojure
 (rf/dispatch-sync [:todo/toggle 1]
-                  {:frame                 :app
+                  {:frame                 :rf/default
                    :interceptor-overrides {:todo/persist nil}})        ;; don't save in this test
 ```
 

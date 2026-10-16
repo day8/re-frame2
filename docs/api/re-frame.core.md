@@ -30,7 +30,7 @@ A counter, from registration to mount:
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app/main} [counter]]
+    [rf/frame-root {:id :rf/default} [counter]]
     (js/document.getElementById "app")))
 ```
 
@@ -395,12 +395,12 @@ The value is a map `{interceptor-ref replacement}`:
 - **Example**:
   ```clojure
   ;; A one-shot boot event: app-db is initialised before the next line runs.
-  (rf/make-frame {:id :app/main})
-  (rf/dispatch-sync [:counter/initialise] {:frame :app/main})
+  (rf/make-frame {:id :rf/default})
+  (rf/dispatch-sync [:counter/initialise] {:frame :rf/default})
 
   ;; Drive a sequence of events synchronously from a test or script.
   (doseq [evec events]
-    (rf/dispatch-sync evec {:frame :app/main}))
+    (rf/dispatch-sync evec {:frame :rf/default}))
   ```
 
 ### `subscribe`
@@ -436,7 +436,7 @@ The value is a map `{interceptor-ref replacement}`:
 - **Example**:
   ```clojure
   ;; At the REPL: read the current value, retaining nothing.
-  (rf/subscribe-once [:counter/value] {:frame :app/main})   ;; => 3
+  (rf/subscribe-once [:counter/value] {:frame :rf/default}) ;; => 3
   ```
 
 ### `unsubscribe`
@@ -452,7 +452,7 @@ The value is a map `{interceptor-ref replacement}`:
 - **Example**:
   ```clojure
   ;; In a test or at the REPL: balance an explicit subscribe.
-  (let [r (rf/subscribe [:counter/value] {:frame :app/main})]
+  (let [r (rf/subscribe [:counter/value] {:frame :rf/default})]
     @r
     (rf/unsubscribe r))
   ```
@@ -468,7 +468,7 @@ The value is a map `{interceptor-ref replacement}`:
 - **Description**: Disposes every entry in a frame's subscription cache, synchronously and unconditionally. The no-argument form uses the current frame and raises `:rf.error/no-frame-context` outside a frame scope; the one-argument form names the frame. Mostly for tests.
 - **Example**:
   ```clojure
-  (rf/clear-sub-cache! :app/main)   ;; evict one frame's cached subs
+  (rf/clear-sub-cache! :rf/default) ;; evict one frame's cached subs
   (rf/clear-sub-cache!)             ;; current frame (test / REPL teardown)
   ```
 
@@ -528,8 +528,8 @@ The framework registers a few `:rf/*` events that you dispatch like any other. R
     - A non-map payload, a present non-map partition, or a resource runtime subtree (`:rf.runtime/resources`, `:rf.runtime/work-ledger`, `:rf.runtime/mutations`) throws; the router reports it as `:rf.error/handler-exception` and nothing is installed.
 - **Example**:
   ```clojure
-  ;; at boot, re-install a value saved earlier from (rf/frame-state-value :app/main)
-  (rf/dispatch-sync [:rf/install-frame-state saved] {:frame :app/main})
+  ;; at boot, re-install a value saved earlier from (rf/frame-state-value :rf/default)
+  (rf/dispatch-sync [:rf/install-frame-state saved] {:frame :rf/default})
   ```
 
 ## Views
@@ -903,7 +903,7 @@ Which function makes the frame depends on who owns its lifetime:
        :sensitive [[:auth :token]]}))   ;; classify before any value lands
 
   (rf/make-frame
-    {:id             :app/main
+    {:id             :rf/default
      :doc            "App demo frame."
      :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
      :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
@@ -948,9 +948,9 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` and releases per-feature resources, then create it again from the same config:
 
 ```clojure
-;; Destroy, then re-create from the same config (which carries :id :app/main).
+;; Destroy, then re-create from the same config (which carries :id :rf/default).
 ;; Run this outside any event handler, for example from a restart button's :on-click.
-(rf/destroy-frame! :app/main)
+(rf/destroy-frame! :rf/default)
 (rf/make-frame config)
 ```
 
@@ -995,8 +995,8 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 - **Description**: Returns the id of the current frame: the one bound by `with-frame` or `with-new-frame`, or on CLJS the nearest enclosing [`frame-provider`](#frame-provider) or [`frame-root`](#frame-root). Outside any frame scope it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
 - **Example**:
   ```clojure
-  (rf/with-frame :app/main
-    (rf/current-frame-id))   ;; => :app/main
+  (rf/with-frame :rf/default
+    (rf/current-frame-id))   ;; => :rf/default
   ```
 
 ### `frame-ids`
@@ -1039,7 +1039,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 - **Description**: Returns the frame's current `app-db` as a plain map, not the container, or `nil` for an unknown or destroyed frame. Accepts a frame-id keyword or a live frame value. Read a path with `(get-in (rf/app-db-value frame-id) path)`.
 - **Example**:
   ```clojure
-  (rf/app-db-value :app/main)
+  (rf/app-db-value :rf/default)
   ;; => {:user {:id 7} :counts {:hits 3}}
   ```
 
@@ -1053,7 +1053,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 - **Description**: Returns the frame's whole state, `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an unknown or destroyed frame. Use it for SSR, epochs, time travel and Xray, and to save state for [`:rf/install-frame-state`](#rfinstall-frame-state). A fresh frame's state is `{:rf.db/app {} :rf.db/runtime {}}`. Read `runtime-db` with `(:rf.db/runtime (rf/frame-state-value frame-id))`.
 - **Example**:
   ```clojure
-  (:rf.db/runtime (rf/frame-state-value :app/main))
+  (:rf.db/runtime (rf/frame-state-value :rf/default))
   ;; => {:rf.runtime/machines {...}}
   ```
 
@@ -1071,7 +1071,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
     - See [Reading what a frame is running](../core/images.md#reading-what-a-frame-is-running).
 - **Example**:
   ```clojure
-  (:rf.gen/shadows (rf/frame-generation :app/main))   ;; => [] when no image overrode another
+  (:rf.gen/shadows (rf/frame-generation :rf/default)) ;; => [] when no image overrode another
   ```
 
 ### `image`
@@ -1531,8 +1531,8 @@ See [Observability](../core/observability.md).
     Keys combine with AND; an unrecognised key is ignored.
 - **Example**:
   ```clojure
-  (rf/trace-buffer :app/main)               ;; event-keyed ring (oldest-first)
-  (rf/trace-buffer :app/main {:flat true})  ;; raw trace events instead of event bundles
+  (rf/trace-buffer :rf/default)              ;; event-keyed ring (oldest-first)
+  (rf/trace-buffer :rf/default {:flat true}) ;; raw trace events instead of event bundles
   ```
 
 ### `clear-trace-buffer!`
@@ -1546,7 +1546,7 @@ See [Observability](../core/observability.md).
 - **Description**: Empties the retained trace events of the named frame, or of every frame. It clears data, not settings: each ring is re-emptied at its own `:rf.trace/events-retained` cap, so the `:trace-buffer` default and every per-frame override survive. A no-op for an unknown frame and in production.
 - **Example**:
   ```clojure
-  (rf/clear-trace-buffer! :app/main)   ;; empty one frame's ring (e.g. between tool sessions)
+  (rf/clear-trace-buffer! :rf/default) ;; empty one frame's ring (e.g. between tool sessions)
   (rf/clear-trace-buffer!)             ;; empty every ring; retention policy stays put
   ```
 
@@ -1568,7 +1568,7 @@ See [Observability](../core/observability.md).
   (rf/sensitive? {:sensitive? "true"})   ;; => true
   (rf/sensitive? {:sensitive? :yes})     ;; => true
   ;; Drop sensitive events when forwarding from a flat trace read.
-  (remove rf/sensitive? (rf/trace-buffer :app/main {:flat true}))
+  (remove rf/sensitive? (rf/trace-buffer :rf/default {:flat true}))
   ```
 
 ### `project-egress`
@@ -1590,7 +1590,7 @@ See [Observability](../core/observability.md).
     |---|---|
     | `:rf.egress/profile` | The destination, one of the six profiles below. Unset: sensitive values redacted, large values elided. An unknown profile throws `:rf.error/unknown-egress-profile`. |
     | `:frame` | The frame whose classification applies. Chosen by key presence: an explicit `:frame` (even `nil`), else a recognised record's own `:frame` (even `nil`), else the current frame. A plain value that happens to carry a `:frame` key contributes no frame. With no frame known, and `:rf.egress/include-sensitive?` not `true`, the value becomes `:rf/redacted`; there is no fallback to `:rf/default`. |
-    | `:path` | The `app-db` path a plain value was read from, so declarations at or above that path apply inside it: `(rf/project-egress (get-in db [:auth]) {:frame :app/main :path [:auth]})`. Without it the value is classified as if it were the whole `app-db`, and `[:auth :token]` does not match. |
+    | `:path` | The `app-db` path a plain value was read from, so declarations at or above that path apply inside it: `(rf/project-egress (get-in db [:auth]) {:frame :rf/default :path [:auth]})`. Without it the value is classified as if it were the whole `app-db`, and `[:auth :token]` does not match. |
     | `:query-v` | For a value read from a framework subscription such as `[:rf/machine id]` or `[:rf/route]`, that query vector; classification declared on the machine or route then applies. Ignored for other queries. |
     | `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?` | Override the profile's choice for this call; an explicit value wins over the profile. |
     | `:rf.egress/threshold-bytes` | The large-value size threshold for this call (see `configure!`'s `:elision`). |
@@ -1613,11 +1613,11 @@ See [Observability](../core/observability.md).
   ;; Verify what an off-box sink will receive before wiring it.
   (rf/project-egress
     {:kind     :rf.observe/handled-event
-     :frame    :app/main
+     :frame    :rf/default
      :event-id :auth/sign-in
      :event    [:auth/sign-in {:password "hunter2"}]}
     {:rf.egress/profile :rf.egress/off-box-observability})
-  ;; => {:kind :rf.observe/handled-event :frame :app/main :event-id :auth/sign-in ...} ;; no :event off-box
+  ;; => {:kind :rf.observe/handled-event :frame :rf/default :event-id :auth/sign-in ...} ;; no :event off-box
   ```
 
 ### `register-observability-sink!`
@@ -1636,7 +1636,7 @@ See [Observability](../core/observability.md).
 - **Example**:
   ```clojure
   (rf/make-frame
-    {:id :app/main
+    {:id :rf/default
      :observability {:handled-events
                      [{:sink :my-app.sinks/datadog
                        :rf.egress/profile :rf.egress/off-box-observability}]}})

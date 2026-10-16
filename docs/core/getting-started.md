@@ -111,9 +111,11 @@ for you:
 ```
 
 `run` installs the Reagent adapter, then mounts the view. `frame-root` creates the
-frame and runs `:counter/initialise` once to set the count to 5. Saving the file
-calls `mount!` again, using the same root and frame, which is why your count
-survived the edit. Reloading the browser starts a fresh runtime and resets it to 5.
+frame and runs `:counter/initialise` once to set the count to 5. `:rf/default` is
+the conventional id for an app's single frame; the runtime never falls back to it,
+so the root names it. Saving the file calls `mount!` again, using the same root and
+frame, which is why your count survived the edit. Reloading the browser starts a
+fresh runtime and resets it to 5.
 
 [`index.html`](../../examples/core/counter/index.html) contains the `app` element.
 The `examples/counter` build in

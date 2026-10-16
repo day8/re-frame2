@@ -282,7 +282,7 @@ Register an interceptor to change every request a frame issues: add an auth head
 - **Example**:
   ```clojure
   (rf/reg-http-interceptor :auth/inject
-    {:frame  :app/main
+    {:frame  :rf/default
      :before (fn [ctx]
                ;; read the token fresh on each request, so a rotated token is picked up
                (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
@@ -292,7 +292,7 @@ Register an interceptor to change every request a frame issues: add an auth head
 
   ;; Or with both sides — :before stamps a start mark, :after reads it.
   (rf/reg-http-interceptor :telemetry
-    {:frame  :app/main
+    {:frame  :rf/default
      :before (fn [ctx] (assoc ctx ::started (js/Date.now)))
      :after  (fn [ctx resp]
                (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
@@ -316,7 +316,7 @@ Register an interceptor to change every request a frame issues: add an auth head
     - `:rf.error/registrar-clear-bad-request`: through the facade, `(rf/clear :http-interceptor id opts)` checks the same `{:frame target}` shape itself, so a malformed opts map there raises this instead.
 - **Example**:
   ```clojure
-  (rf/clear :http-interceptor :auth/inject {:frame :app/main})
+  (rf/clear :http-interceptor :auth/inject {:frame :rf/default})
   ```
 
 ## Privacy and classification

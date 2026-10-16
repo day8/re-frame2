@@ -100,23 +100,28 @@ Almost every app has one frame, established at the root of the view tree:
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)        ;; install the adapter (creates no frame)
   (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+    [rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
      [todo-list]]
     (js/document.getElementById "app")))
 ```
 
 `init!` installs the [adapter](glossary.md#adapter), the one-time connection between
 re-frame2 and your rendering library (Reagent here). It creates no frame. Then
-`frame-root {:id :app …}` creates the `:app` frame on first mount, runs its
-`:initial-events`, and makes it current for the whole subtree, so every `dispatch`
-and `subscribe` below resolves to `:app` without naming it. That is also why you can
-add frames later without touching app code.
+`frame-root {:id :rf/default …}` creates the `:rf/default` frame on first mount, runs
+its `:initial-events`, and makes it current for the whole subtree, so every
+`dispatch` and `subscribe` below resolves to `:rf/default` without naming it. That is
+also why you can add frames later without touching app code.
+
+`:rf/default` is the conventional id for an app's single frame; the scaffold, the
+examples and the test fixture use it too. It is only a name: the runtime never
+creates it and never falls back to it, so a `dispatch` outside any frame scope
+raises `:rf.error/no-frame-context`.
 
 ??? info "From re-frame v1"
 
     v1's single implicit app-db becomes one explicit frame created at the root. That
-    one wrapper is the only change. `:rf/default` is a legal frame id you may choose,
-    but it has no special status: the runtime never falls back to it.
+    one wrapper is the only change. Migration names that frame `:rf/default`, so a
+    migrated app and a new one share the id.
 
 ### Seeding initial state
 
@@ -143,11 +148,11 @@ The cases where you need several frames, roughly in the order you'll meet them:
   creates a frame per HTTP request, renders, and destroys it. A hundred concurrent
   requests are a hundred isolated app-dbs.
 
-Frame boundaries nest. Inside the root `:app` frame, each nested `frame-root`
+Frame boundaries nest. Inside the root `:rf/default` frame, each nested `frame-root`
 replaces the current frame for its own subtree:
 
 ```clojure
-[rf/frame-root {:id :app}
+[rf/frame-root {:id :rf/default}
  [:div.split
   [rf/frame-root {:id             :todos/work
                   :initial-events [[:todo/initialise] [:todo/add "Write report"]]}

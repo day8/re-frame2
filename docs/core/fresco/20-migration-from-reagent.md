@@ -178,7 +178,7 @@ The same table for the second starting point. Every row is a spelling change:
 | `dispatch`, injected into a `reg-view` body | the event vector itself, or `h/event` when callback arguments matter |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
-| `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]`, with the same options in the same place |
+| `[rf/frame-root {:id :rf/default ...}]` around the tree | `[h/frame-root {:id :rf/default ...}]`, with the same options in the same place |
 
 `h/frame-root` accepts every `rf/make-frame` option, as `rf/frame-root` does:
 `:url-bound?`, `:fx-overrides`, `:images`, `:preset` and the rest. Frame options

@@ -200,7 +200,7 @@ the error's `:reason` names the rule. The
 [full rules](../api/re-frame.routing.md#navigate-request-rules) are in the API reference.
 
 Outside a view there is no frame in scope. Navigate from a handler's `:fx`, or pass
-`{:frame :app}` to `rf/dispatch` at the REPL. A bare `rf/dispatch` inside a timeout or
+`{:frame :rf/default}` to `rf/dispatch` at the REPL. A bare `rf/dispatch` inside a timeout or
 promise callback raises `:rf.error/no-frame-context`; let the effect that started the
 async work deliver its reply as an event (managed [HTTP](../async/http.md) does this),
 and navigate from that event.
@@ -496,7 +496,7 @@ Forward, a request, or a `{:url …}` navigate), is also reported as an
 <a id="the-browser-is-just-another-event-source"></a>
 
 ```clojure
-(rf/make-frame {:id :app :url-bound? true})
+(rf/make-frame {:id :rf/default :url-bound? true})
 ```
 
 `:url-bound? true` makes this frame the owner of the address bar. Creating it reads
@@ -647,7 +647,7 @@ instead.
 ### URL strategies
 
 ```clojure
-(rf/make-frame {:id           :app
+(rf/make-frame {:id           :rf/default
                 :url-bound?   true
                 :url-strategy rf.routing/hash-url-strategy})  ;; default: history-url-strategy
 ```
