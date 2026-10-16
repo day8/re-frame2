@@ -4188,7 +4188,7 @@ These are registered under spec ids:
 
 The `:http` schema is **user-owned, not framework-owned** — projects that ship their own HTTP integration register their own `:schema` on their own `:http` `reg-fx`. The schema here is a reasonable starting point (the conformance corpus uses it) but is not part of the locked pattern contract.
 
-Per-fx args validation runs as part of the standard fx-arg validation (per [010 §Validation timing](010-Schemas.md#validation-timing)) when the `reg-fx` registration carries a `:schema`. The standard fx ship with `:schema` set to the corresponding schema above.
+Per-fx args validation runs as part of the standard fx-arg validation (per [010 §Validation timing](010-Schemas.md#validation-timing)) when the `reg-fx` registration carries a `:schema`. The `:rf.nav/*` and `:rf.server/*` fx ship with `:schema` set to the corresponding schema above. The rest describe their fx's args without riding a registration: `:dispatch` and `:dispatch-later` are reserved fx the effect interpreter runs itself, so no registration exists to carry one; `:http` is user-owned (above); and the `:rf.machine/*` fx refuse malformed args in their handlers, each with the machine error [009](009-Instrumentation.md#error-event-catalogue) catalogues for it (`:rf.error/machine-spawn-bad-shape` for a spawn naming no machine type, for one), which an `:fx-args` check would pre-empt with a generic `:rf.error/schema-validation-failure` in any dev build carrying the schemas artefact.
 
 ### `:rf/frame-meta`
 
