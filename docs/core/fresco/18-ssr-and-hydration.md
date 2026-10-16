@@ -362,18 +362,17 @@ callback:
 ```
 
 The app root still hydrates cleanly: each root reports only its own
-mismatches. Xray lists these warnings with its other issues
-([Diagnostics](16-diagnostics.md)).
+mismatches. In every build the root also emits an always-on error record under
+the same id, carrying `:where`, `:recovery` and, when the root knows it, its frame, but
+not React's message, so production error sinks see the mismatch too. Xray lists these
+warnings with its other issues ([Diagnostics](16-diagnostics.md)).
 
-React reports text differences and missing, extra, or wrong-type elements.
-An attribute-only difference may produce only a development warning. Either
-way, the fix is to put values both sides need in the snapshot or payload.
-
-??? info "Coming from a Hiccup-tree hash"
-    Some adapters can hash an authored Hiccup data tree before React sees it.
-    Fresco views produce React elements and React performs the traversal, so
-    there is no separate complete Hiccup tree to hash. Verification uses
-    React's own root-scoped adoption reports.
+This is reporting the recoveries React makes, not a comparison of the two
+renders. React reports text differences and missing, extra, or wrong-type
+elements. An attribute-only difference is not a recovery: React does not patch
+it, Fresco emits no trace and no record for it, and React's development
+`console.error` is the only signal. Either way, the fix is to put values both
+sides need in the snapshot or payload.
 
 ## Troubleshooting
 

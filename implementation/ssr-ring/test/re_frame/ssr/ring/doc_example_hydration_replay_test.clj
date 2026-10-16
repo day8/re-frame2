@@ -10,8 +10,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring :as ssr.ring]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
@@ -56,9 +56,9 @@
   (rf/reg-view* :replay/root root))
 
 (defn- served-body []
-  (:body ((ssr.ring/ssr-handler {:initial-events [[:replay/init]]
-                                 :root-view      (fn [] ((rf/view :replay/root)))
-                                 :payload        [:articles]})
+  (:body ((rf.ssr.ring/ssr-handler {:initial-events [[:replay/init]]
+                                    :root-view      (fn [] ((rf/view :replay/root)))
+                                    :payload        [:articles]})
           {:request-method :get :uri "/"})))
 
 (defn- replay
@@ -68,9 +68,9 @@
   (let [payload (read-payload body)]
     (rf/make-frame {:id frame-id :platform :client})
     [payload
-     (ssr/hydrate! {:frame frame-id :payload payload})
+     (rf.ssr/hydrate! {:frame frame-id :payload payload})
      (app-element-html body)
-     (rf/with-frame frame-id (ssr/render-to-string [(rf/view :replay/root)]))]))
+     (rf/with-frame frame-id (rf.ssr/render-to-string [(rf/view :replay/root)]))]))
 
 (deftest the-payload-rebuilds-the-page
   (reg-app! (fn [] [:ul (for [a (rf/subscribe-once [:replay/articles])] ^{:key a} [:li a])]))

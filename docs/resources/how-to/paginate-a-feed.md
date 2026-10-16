@@ -178,6 +178,6 @@ explains owners; the [polling reference](../../api/re-frame.resources.md#polling
 records timing and revalidation options.
 
 For an infinite feed, [per-page validation](load-more.md#advanced) applies to
-each reply. [SSR](../../ssr/concepts.md#the-client-side-hydrate-then-verify)
+each reply. [SSR](../../ssr/concepts.md#the-client-side-hydrate-then-adopt)
 hydrates eligible cached entries; `:blocking?` determines whether a route's
 first load delays server rendering.

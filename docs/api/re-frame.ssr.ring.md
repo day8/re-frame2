@@ -22,7 +22,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
-Those are the three required options; [The simplest server](../ssr/concepts.md#the-simplest-server) walks through what the handler does with them. The `:root-view` fn calls the view, so the handler can hash what it rendered and the client's [`ssr/hydrate!`](re-frame.ssr.md#hydrate) can check its first render against it. The client boot is on [`re-frame.ssr`](re-frame.ssr.md).
+Those are the three required options; [The simplest server](../ssr/concepts.md#the-simplest-server) walks through what the handler does with them. The client boot, [`ssr/hydrate!`](re-frame.ssr.md#hydrate), is on [`re-frame.ssr`](re-frame.ssr.md).
 
 ## Handler constructors
 
@@ -46,8 +46,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - Neither a vector nor a fn, or a fn returning a non-vector: `:rf.error/invalid-initial-events` per request, answered through `:on-error`.
         - An event handler, interceptor, coeffect or flow that throws during this drain, or a `:rf.cofx` value its `:schema` rejects, aborts frame construction with `:rf.error/initial-events-step-failed`. The request answers through `:on-error`; the error projector and `:error-view` never see it. An effect that throws, or an unregistered event, is projected instead.
     - `:root-view` (required unless `:renderer` is given) — what to render against the per-request frame once the drain settles: a hiccup vector such as `[(rf/view :app/root)]`, or a 0-arity fn returning hiccup. The head must be callable: the Var `rf/reg-view` defines, or `(rf/view :id)`. A keyword head is an HTML element on every host, so `[:app/root]` renders an empty `<root>` element.
-        - Both forms emit identical HTML, but only the resolving fn form, `(fn [] ((rf/view :app/root)))`, is hashed. The vector form `[(rf/view :app/root)]` is an unresolved root and gets no `data-rf-render-hash` and no payload `:rf/render-hash`, whatever `:emit-hash?` says. Use the fn form if you want hydration mismatch detection. The same rule applies to what the fn returns: a root view whose body is only another view, `[(rf/view :pages/home)]`, is unresolved too, so the hashed root is one that returns an element, such as `[:div …]` ([What the hash covers](../ssr/concepts.md#what-the-hash-covers)).
-        - Without a hash the page still renders and hydrates; the client's check simply compares nothing. A native UIx or Fresco root carries no hash by design: its views return React elements, not hiccup, and it reports mismatches through React's hydration instead.
+        - Both forms emit identical HTML: `[(rf/view :app/root)]` and `(fn [] ((rf/view :app/root)))` are interchangeable. A hydration mismatch is reported by the client root that adopts the page, whichever form the server used ([When the renders disagree](../ssr/concepts.md#when-the-renders-disagree)).
         - Omitted without `:renderer`: throws `:rf.error/ssr-ring-missing-root-view` at construction. Any other shape raises `:rf.error/invalid-root-view` at render time, projected like any render throw to the 5xx error page.
     - `:payload` (required) — the hydration-payload policy ([`:payload` — the fail-closed allowlist](../ssr/concepts.md#payload--the-fail-closed-allowlist)). It fails closed, in one of two shapes:
         - A sequential of top-level `app-db` keyword keys is an allowlist. Use a vector; lists and lazy sequences are accepted too. Sets are not allowlists. Only the listed keys ship in `:rf/app-db`; every other key is dropped, including keys added later. An empty allowlist, `[]`, ships nothing: `:rf/app-db` is `{}`.
@@ -62,20 +61,19 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - Under [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) this frame does not render the body, and only projected state crosses to Node. Pass the same strategy in the render module's `:frame-opts`, or Node-rendered hrefs drop the base path ([Render on Node](../ssr/concepts.md#render-on-node)).
     - `:fx-overrides` — the per-frame `:fx-overrides` map, passed through as is (e.g. to stub `:rf.http/managed` in tests).
     - `:ssr-blocking-timeout-ms` — how long the request waits for the route's blocking resources to settle before it renders; default `5000`. A resource still unsettled at the deadline settles as a first-load failure, so the request never hangs. The handler passes it to [`drain-blocking-resources!`](re-frame.ssr.md#drain-blocking-resources).
-    - `:emit-hash?` — stamp the `data-rf-render-hash` marker on the root element and `data-rf-head-hash` on `<head>`; default `true`. It controls only those markers: the payload's `:rf/render-hash`, which the client checks, is written whenever the root is hashable (see `:root-view`).
     - `:version` — the hydration payload's `:rf/version`. It defaults to the SSR artefact's pattern-protocol version (`1`), the value the client's version check expects. An integer or a string of digits (within the JVM `Long` range) overrides it; `nil` uses the default, and any other value emits `:rf.ssr/invalid-version` before using the default. Set it only to force a mismatch.
     - `:schema-digest` — the hydration payload's `:rf/schema-digest`.
-    - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell). `opts` is the handler's options with this request's values in place: `:head` is the resolved head fragment (or your `:head` string), `:html-attrs` and `:body-attrs` come from the head model, and `:head-hash` is set when `:emit-hash?` is on. Write `:head` inside `<head>`, the attribute bags on `<html>` and `<body>`, and the payload as `default-html-shell` does. [The page shell](../ssr/concepts.md#the-page-shell) shows the common changes.
+    - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell). `opts` is the handler's options with this request's values in place: `:head` is the resolved head fragment (or your `:head` string), and `:html-attrs` and `:body-attrs` come from the head model. Write `:head` inside `<head>`, the attribute bags on `<html>` and `<body>`, and the payload as `default-html-shell` does. [The page shell](../ssr/concepts.md#the-page-shell) shows the common changes.
     - `:content-type` — replaces the response Content-Type when supplied. It has no default: omit it (the normal case) and the response keeps `text/html; charset=utf-8`, from the runtime's default or from the app's own `:rf.server/set-header "content-type"`. It applies to successful pages only; a projected error page keeps the accumulated Content-Type. See [`handler-defaults`](#handler-defaults).
     - `:head` and `:body-end` — raw HTML strings injected into the envelope verbatim, without escaping. A page normally gets its `<title>` from the active route's `:head`, declared with `reg-head`, and a page with none ships no `<title>`. A `:head` string replaces that resolved head, default viewport meta included, for a static app without routing.
         - Never build them from untrusted input (a CMS field, a tenant-admin form, a query-string parameter): they are injected unescaped, so that is a script-injection hole. For such content use [`reg-head`](re-frame.ssr.md#reg-head) for the head, and registered views plus the [`:rf.server/*` fx](re-frame.ssr.md#server-only-fx) for the body.
     - `:script-src` (default `"/main.js"`) and `:app-element-id` (default `"app"`) — the bootstrap script's `src` and the app element's `id`, attribute-escaped. `:script-src false` emits no bootstrap `<script src>`, for an app that boots from `:body-end` (for example with a `type="module"` tag).
         - For all four shell-hook options (`:head`, `:body-end`, `:script-src`, `:app-element-id`), `nil` means the default, and any other non-string value except `:script-src false` throws `:rf.error/ssr-trusted-shell-opt-invalid` at construction.
     - `:lang` — the `<html lang>` value, used when the head model's `:html-attrs` carries no `:lang`; default `"en"`.
-    - `:renderer` — a fn that renders the body in place of the local renderer: `(fn [{:keys [frame-id request opts]}] → {:body-html <string> :render-hash <string-or-nil>})`. It is called once per request inside the request frame's scope, after the boot-event drain and the blocking-resource settle, and before head resolution and the payload build use its result. It receives the post-drain frame id, the Ring request and the handler opts, never a hiccup value, and returns only the body markup and an optional render hash.
-        - A `nil` `:render-hash` omits the payload's `:rf/render-hash`. The renderer owns `:body-html`, including any `data-rf-render-hash` marker; the handler does not add or remove markers in custom body HTML.
+    - `:renderer` — a fn that renders the body in place of the local renderer: `(fn [{:keys [frame-id request opts]}] → {:body-html <string>})`. It is called once per request inside the request frame's scope, after the boot-event drain and the blocking-resource settle, and before head resolution and the payload build use its result. It receives the post-drain frame id, the Ring request and the handler opts, never a hiccup value, and returns only the body markup.
+        - The renderer owns `:body-html`; the handler does not rewrite custom body HTML.
         - A throw is projected like any render-time throw.
-        - Omitted, the handler renders locally: resolve `:root-view`, hash, render.
+        - Omitted, the handler renders locally: resolve `:root-view`, then render it.
         - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](re-frame.ssr.ring.node.md#renderer)).
         - `:render-state` belongs to [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer); a copy at the handler's top level is ignored.
 
@@ -96,7 +94,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   (def handler
     (ssr.ring/ssr-handler
       {:initial-events (fn [req] [[:auth/server-init {:user (extract-user req)}]])
-       :root-view      (fn [] ((rf/view :app/root)))   ;; fn form: hashed for mismatch detection
+       :root-view      (fn [] ((rf/view :app/root)))
        :payload        [:articles :session-user]
        :ssr            {:public-error-id :app/public-error}
        :error-view     :app/error-page                  ;; registered view; receives the public error
@@ -140,8 +138,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
 - **Signature**:
   ```clojure
   handler-defaults
-  ;; => {:emit-hash? true
-  ;;     :html-shell default-html-shell}
+  ;; => {:html-shell default-html-shell}
   ```
 - **Description**: The default `ssr-handler` options, merged under the caller's options at construction; caller values win. A data var, exposed so callers can read or extend the baseline. Two options are not in it:
     - `:on-error` — resolved separately (the default is [`default-on-error`](#default-on-error)).
@@ -150,7 +147,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   ```clojure
   ;; Read the baseline the handler constructor merges under your opts.
   ssr.ring/handler-defaults
-  ;; => {:emit-hash? true, :html-shell #object[...]}
+  ;; => {:html-shell #object[...]}
   ```
 
 ### `default-html-shell`

@@ -48,9 +48,8 @@
             ;; and the demo override.
             [re-frame.http.test-support]
             ;; SSR ships in its own artefact. Requiring it registers the
-            ;; `:rf/hydrate` handler; `ssr.cljc` reaches the SSR helpers it
-            ;; leans on (`rf.ssr/render-tree-hash`) through its own
-            ;; `[re-frame.ssr :as rf.ssr]` require.
+            ;; `:rf/hydrate` handler that `ssr.cljc`'s client bootstrap
+            ;; dispatches.
             [re-frame.ssr]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [realworld-shared.avatar :as avatar]

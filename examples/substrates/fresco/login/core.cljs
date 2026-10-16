@@ -305,11 +305,10 @@
 ;; one bundle serves both, so `npm run dev:example -- examples/login-fresco`
 ;; keeps working unchanged and the SSR route needs no second build.
 ;;
-;; No `:render-tree-fn` is passed to `rf.ssr/hydrate!`. The render-tree hash is
-;; hiccup-tier-only, and this is an adoption-tier root: Fresco's server
-;; render ships no `:rf/render-hash` and there is nothing to compare
-;; against. Adoption is verified by React itself — a divergence surfaces as
-;; a recoverable error on this root's own stream.
+;; `rf.ssr/hydrate!` installs state and compares nothing. React adopts the
+;; server's markup, and a divergence it recovers from surfaces as a
+;; recoverable error on this root's own stream, which the root reports as
+;; `:rf.ssr/hydration-mismatch`.
 
 (defn hydrate-client!
   "The SSR branch's state step: install the server's `payload` into
