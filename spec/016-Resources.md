@@ -1169,7 +1169,7 @@ The route-resource `:when` predicate is the one site whose `ctx` is a **threaded
 Resources and mutations lower through [Spec 014](014-HTTPRequests.md) managed HTTP, so **cross-cutting request decoration** — auth headers, tracing headers, API base URLs, tenant headers — belongs in the **managed-HTTP interceptor seam** ([§Middleware](014-HTTPRequests.md#middleware)), not copied into every resource/mutation `:request` ([EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) Rider 3). Retry is not decoration: an interceptor decorates the nested `:request` envelope only, while `:retry` is a top-level key of the managed-HTTP args. The doctrine (MUST):
 
 - a resource/mutation `:request` function describes the **domain request** (method, url, params, body, `:decode`) and, when it wants one, its **retry policy** — a top-level `:retry` in the managed-HTTP args it returns, which the resources transport carries to managed HTTP unchanged;
-- auth headers, tracing headers, API base URLs, and tenant headers are **frame/application managed-HTTP policy**, applied by a frame-registered `reg-http-interceptor` that decorates the `:request` of *every* `:rf.http/managed` request the frame issues; the runtime carries only the interceptor's `:request` forward, so an interceptor cannot set `:retry`;
+- auth headers, tracing headers, API base URLs, and tenant headers are **frame/application managed-HTTP policy**, applied by a `reg-http-interceptor` definition the frame names in its `:http-interceptors` config, which decorates the `:request` of *every* `:rf.http/managed` request the frame issues; the runtime carries only the interceptor's `:request` forward, so an interceptor cannot set `:retry`;
 - the interceptor reads frame state through `(rf/app-db-value (:frame ctx))` (the EP-0002 carried-frame-correct read), **not** an ambient `db`, and returns `ctx` unchanged when the decoration does not apply (e.g. no token present);
 - **retry is per request and read-focused** — an app that wants one policy for all its reads shares a `:retry` value that each read's `:request` returns; **write retries stay opt-in**, because retrying a write can duplicate side effects (a mutation arms `:retry` only when its own `:request` declares it, per [§Mutations](#mutations-first-public-beta-gate));
 - resource/mutation traces make applied decoration **visible without leaking sensitive header values** — a trace reports that an auth interceptor applied, never the bearer token itself.
@@ -1181,9 +1181,11 @@ Resources and mutations lower through [Spec 014](014-HTTPRequests.md) managed HT
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Token " token)))))})
+
+(rf/make-frame {:id :realworld/app :http-interceptors [:realworld/auth]})
 ```
 
-Registered once per frame, it decorates resource reads, mutations, and plain managed calls alike — a resource that needs auth needs **no** per-resource opt-in. The interceptor registration names are illustrative; the **normative rule is ownership**: transport decoration belongs to managed-HTTP policy and is reused by resources/mutations. Per-resource interceptor *selection* is out of scope (it would be a new, separately-specified feature, not a per-resource `:transport` key).
+Registered once at the top level and named in the frame's `:http-interceptors`, it decorates resource reads, mutations, and plain managed calls alike — a resource that needs auth needs **no** per-resource opt-in. The interceptor registration names are illustrative; the **normative rule is ownership**: transport decoration belongs to managed-HTTP policy and is reused by resources/mutations. Per-resource interceptor *selection* is out of scope (it would be a new, separately-specified feature, not a per-resource `:transport` key).
 
 ## The uniform reply envelope and the canonical reply map
 

@@ -605,21 +605,20 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
 > **Owner:** [014-HTTPRequests §Middleware](014-HTTPRequests.md#middleware)
 > **Status:** v1 (optional capability)
 
-The metadata stored in the per-frame interceptor slot for a registration made via `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per shape iii, the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus optional `:frame` and any `:rf/registration-metadata` keys. Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
+The metadata of one `:http-interceptor` registrar row, written by `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per shape iii, the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus any `:rf/registration-metadata` keys. The row is a frame-agnostic definition and carries no `:frame`: a frame runs it only by naming its id in the frame's `:http-interceptors` config ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)), and a `:frame` in the interceptor map is `:rf.error/http-bad-interceptor`.
 
 ```clojure
 (def HttpInterceptorMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:id              :keyword]                                            ;; required, addressable for clear
+    [:id              :keyword]                                            ;; required; the id a frame's :http-interceptors names and (rf/clear :http-interceptor id) removes
     [:before  {:optional true} fn?]                                        ;; optional, request-side transform: (fn [ctx] ctx')
     [:after   {:optional true} fn?]                                        ;; optional, response-side transform: (fn [ctx response] response')
-    [:frame                    :keyword]                                   ;; runtime-stamped from user-supplied :frame or the established scope (no :rf/default fallback — EP-0002)
     ]])
 ```
 
-At least one of `:before` / `:after` MUST be present — a no-op slot is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` for the request-side chain) and `run-after-chain!` (which pulls `:id` / `:after` for the REVERSE-order response-side chain); it is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
+At least one of `:before` / `:after` MUST be present — a no-op definition is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). When a request is issued, `capture-chain` resolves the frame's `:http-interceptors` ids to these rows, in that order; `run-interceptor-chain!` pulls `:id` / `:before` from that captured vector for the request-side chain and `run-after-chain!` pulls `:id` / `:after` for the REVERSE-order response-side chain. The row is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
 
 #### `:rf/http-managed-meta`
 
@@ -2207,16 +2206,14 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:failure         :any]              ;; one of the :rf.http/* failure-map shapes
    [:next-backoff-ms {:optional true} [:maybe :int]]])
 
-;; --- info: per-frame HTTP interceptor lifecycle ---
+;; --- info: HTTP interceptor definition lifecycle ---
 
 (def HttpInterceptorRegisteredTags
   [:map
-   [:frame    :keyword]
    [:id       :keyword]])
 
 (def HttpInterceptorClearedTags
   [:map
-   [:frame    :keyword]
    [:id       :keyword]])
 
 ;; --- error: a request-interceptor :before threw ---
@@ -2229,13 +2226,13 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:url            {:optional true} [:maybe :string]]
    [:cause          {:optional true} [:maybe :string]]])
 
-;; --- value schemas for the per-frame request-side interceptor ---
+;; --- value schemas for the HTTP interceptor definition and its ctx ---
 
 (def HttpInterceptor
   [:map
-   [:frame  {:optional true} :keyword]   ;; the explicit override; absent → resolved from the established scope (no :rf/default fallback — EP-0002)
-   [:id     :keyword]                    ;; addressable for clear-http-interceptor
-   [:before [:=> [:cat :map] :map]]])    ;; (fn [ctx] ctx')
+   [:id     :keyword]                                         ;; the id a frame's :http-interceptors names
+   [:before {:optional true} [:=> [:cat :map] :map]]          ;; (fn [ctx] ctx')
+   [:after  {:optional true} [:=> [:cat :map :map] :map]]])   ;; (fn [ctx response] response'); at least one of :before / :after
 
 (def HttpInterceptorContext
   [:map
@@ -4198,6 +4195,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]       ;; the InterceptorOverrides map (per §:rf/interceptor-ref)
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
     [:flows        {:optional true} [:vector :keyword]]                    ;; flow ids the frame runs (none by default), resolved through its own view; per [013 §Activation](013-Flows.md#activation)
+    [:http-interceptors {:optional true} [:vector :keyword]]               ;; HTTP interceptor ids the frame runs, in order (none by default), resolved at request issue; per [014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame
