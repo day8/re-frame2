@@ -882,7 +882,7 @@
 ;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`,
 ;; `:rf/install-frame-state` and `:rf/settle-flows` — see the def's docstring
 ;; for why each is in): the OTHER framework `:rf/*` events (`:rf/hydrate`,
-;; `:rf.route/url-requested`, `:rf/server-init`, …) are registered through the
+;; `:rf.route/url-requested`, …) are registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
 

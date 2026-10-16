@@ -62,7 +62,7 @@ client picking it up:
   [app-dbs](../../../../docs/core/glossary.md#app-db) that can't see or
   race one another. The same frame isolation that's good for testing N
   apps in one process gives you request isolation for free.
-- `:rf/server-init`, gated to the server. It carries `:platforms
+- `:app/server-init`, gated to the server. It carries `:platforms
   #{:server}` and declares `:rf.cofx/requires [:rf.server/request]`, so
   the request map arrives as a
   [coeffect](../../../../docs/core/glossary.md#coeffect) rather than a
@@ -73,7 +73,7 @@ client picking it up:
   drain skips it. A handler that returns it never learns which
   runtime it's on. No `typeof window` anywhere.
 - The article fetch goes through managed HTTP, stubbed for the
-  render. `:rf/server-init` returns an `:rf.http/managed` effect. The
+  render. `:app/server-init` returns an `:rf.http/managed` effect. The
   JVM smoke redirects it to a canned-success stub through the
   `:fx-overrides` seam, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real

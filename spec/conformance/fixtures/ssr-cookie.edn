@@ -9,7 +9,7 @@
  :fixture/doc          "A login handler emits :rf.server/set-cookie {:name session :value abc123 :http-only true :secure true :same-site :lax :path /}. The response accumulator's :cookies vector contains the structured cookie. The host adapter would serialise to Set-Cookie: per RFC 6265."
 
  :fixture/registry
- {:event {:rf/server-init       {:doc       "Per-request server-side init."
+ {:event {:app/server-init      {:doc       "Per-request server-side init."
                                  :platforms #{:server}}
           :auth/establish       {:doc       "Set the session cookie after auth succeeds."
                                  :platforms #{:server}}}
@@ -19,7 +19,7 @@
   }
 
  :fixture/handlers
- {:event {:rf/server-init [[:fx [[:dispatch [:auth/establish]]]]]
+ {:event {:app/server-init [[:fx [[:dispatch [:auth/establish]]]]]
           :auth/establish [[:fx [[:rf.server/set-cookie {:name      "session"
                                                          :value     "abc123"
                                                          :max-age   3600
@@ -28,7 +28,7 @@
                                                          :same-site :lax
                                                          :path      "/"}]]]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
+ :fixture/frame-config {:initial-events [[:app/server-init]] :platform :server}
 
  :fixture/dispatches []
 
@@ -51,5 +51,5 @@
               :redirect nil}}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/establish}}]}}

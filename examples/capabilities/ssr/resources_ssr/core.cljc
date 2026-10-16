@@ -137,7 +137,7 @@
 ;; SERVER-SIDE PRELOAD EVENT
 ;; ============================================================================
 ;;
-;; `:rf/server-init` runs when the per-request frame is born. Its one job is to
+;; `:app/server-init` runs when the per-request frame is born. Its one job is to
 ;; ensure the page resource — fetch it if the cache is cold — so that by render
 ;; time the data is already warm. The renderer then waits for it to settle
 ;; before walking the tree.
@@ -148,7 +148,7 @@
 ;; cause `:ssr-preload` is the story for the trace: why this fetch happened.
 ;; Owner = how long; cause = why. See docs/resources/glossary.md#owner--cause.
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc       "Per-request server init — preload the page resource."
    :platforms #{:server}}
   (fn [{:keys [db]} _]
@@ -248,7 +248,7 @@
 ;; The view does the simplest possible thing: it reads the resource through a
 ;; subscription and renders whatever's there. Reading never kicks off a fetch —
 ;; that is the contract, not an accident of this page. What warmed the cache is
-;; a command on each side: the server's `:rf/server-init` preload, and the
+;; a command on each side: the server's `:app/server-init` preload, and the
 ;; client's `:resources-ssr.app/page-opened` acquisition below. `:rf/resource`
 ;; is the runtime's own subscription; it turns a cache entry into a tidy
 ;; view-model — a status flag and the data. On the documented run the data is
@@ -294,7 +294,7 @@
 ;; for the CURRENT nav-token (`[:rf.runtime/routing :resource-blocking
 ;; <nav-token>]`, written by the routing artefact). This page has no route
 ;; table at all — see the ns docstring — so the `[:ssr request-id nav-token]`
-;; owner `:rf/server-init` ensures under never registers there, and
+;; owner `:app/server-init` ensures under never registers there, and
 ;; `drain-blocking-resources!` would return `{:settled? true}` immediately,
 ;; whether or not `:articles/list` had actually resolved — a route-free page
 ;; leaning on it reports itself settled even when the resource has not.
@@ -346,7 +346,7 @@
 ;; ============================================================================
 ;;
 ;; This is one request, start to finish: mint a per-request frame whose
-;; `:initial-events` fire `:rf/server-init`, block on the preloaded page
+;; `:initial-events` fire `:app/server-init`, block on the preloaded page
 ;; resource, render to a string, and build a hydration payload carrying the
 ;; allowed resource projection under `:rf/runtime-db`. The frame is torn
 ;; down in a `finally` on every exit path — success or throw — so a request
@@ -376,11 +376,11 @@
            _   (rf.ssr/set-request! fid request)
            f   (rf/make-frame {:id fid :doc       "resources-ssr per-request frame"
                                :platform  :server
-                               :initial-events [[:rf/server-init]]})]
+                               :initial-events [[:app/server-init]]})]
        (try
          (rf/with-frame f
            ;; (1) Settle the blocking page resource before we render a thing.
-           ;; The `[:ssr …]`-owned ensure that `:rf/server-init` kicked off has
+           ;; The `[:ssr …]`-owned ensure that `:app/server-init` kicked off has
            ;; to land on :loaded before the render walk works with real data.
            ;; Failure and timeout respond without rendering the page.
            ;;

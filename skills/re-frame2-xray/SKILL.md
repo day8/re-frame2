@@ -120,7 +120,7 @@ moves only their per-frame live projections. The per-tab matrix is
 
 Four launch surfaces ship: one mount facade with three open verbs
 (inline / overlay / window) plus the programmatic `init!`. Xray mounts on
-any installed browser adapter — the ratom family (Reagent, reagent-slim)
+any installed browser adapter — the ratom family (Reagent)
 or the React-hook substrates (UIx, Fresco) — because it paints through its
 own React root; all it needs is that the host called `rf/init!`.
 

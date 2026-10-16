@@ -17,10 +17,6 @@ The smallest possible re-frame2 app. Three `reg-event`s (an `:initialise` plus i
 
 The canonical Flows exemplar (Spec 013) — a three-line-item shopping cart whose subtotal and total are **materialised into `app-db` by registered flows**, not derived in subs. Shows the three declarations a flow makes (`:inputs`, a pure `:derive`, an `:output-path`), a flow-reads-flow cascade (total reads subtotal), reading a flow's output from inside an event handler as plain data, and a runtime-toggleable discount. Point at this example when the question is "should this derived value be a sub or a flow?" — a flow's result lives in `app-db`, so it comes back under time-travel and survives the wire, where a sub's result stays in the view-facing cache. Exercises 013 Flows. [`references/fundamentals/flows.md`](references/fundamentals/flows.md) cites this example's `core.cljs` as its mini-example source.
 
-## counter_slim_and_fast — `examples/substrates/reagent_slim/counter/`
-
-The counter dataflow mounted on the slim Reagent rewrite (`day8/reagent-slim`) — the `reagent2.*` substrate that excludes `reagent.impl.*` and `react-dom/server`. Same six-domino dataflow as `counter/`, but every Reagent import points at `reagent2.*` and `(rf/init!)` takes the slim adapter Var. Point at this fixture only when the task is about substrate-swap, the adapter-owned bundle-isolation contract (`check-reagent-slim-bundle-isolation.cjs`), or proving that the slim adapter is API-shape-compatible with the stock Reagent adapter. It is not a human-facing teaching example; it is the live isolation fixture for the slim adapter.
-
 ## counter_with_stories — `tools/story/testbeds/counter_with_stories/`
 
 The canonical worked example / testbed for Story (`tools/story/`, the `day8/re-frame2-story` artefact). Tool-owned testbed: it lives alongside the tool it exercises rather than under `examples/`. The counter with seven `reg-*` Story macros wired end-to-end — `reg-tag`, `reg-mode`, `reg-decorator`, `reg-story-panel`, `reg-story`, `reg-variant`, `reg-workspace` — thirty variants exercising five of the canonical `:rf.assert/*` events (`caused`, `dispatched`, `effect-emitted`, `no-cascade-rerender`, `sub-equals`) plus the built-in `force-fx-stub` decorator. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. Point at this example when authoring any Story-substrate code: tag definitions, modes, decorators, variants, workspaces, or the `:rf.assert/*` family. Exercises 007 Stories, 002 Frames, and 008 Testing.
@@ -67,7 +63,7 @@ The three-page worked example for Spec 012 — `reg-route`, `route-link` anchors
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
-The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, `:rf/server-init` events, the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
+The CP-9 worked example for Spec 011 — minimal SSR + hydration walkthrough. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). Point at this example when authoring server-rendered views, per-request setup events (`:app/server-init`), the hydration payload shape, or the SSR-vs-hydration parity check. Exercises 011 SSR. The smallest possible SSR demo — read it alongside `realworld/ssr.cljc` for the broader scaffold.
 
 ## resources_ssr — `examples/capabilities/ssr/resources_ssr/`
 

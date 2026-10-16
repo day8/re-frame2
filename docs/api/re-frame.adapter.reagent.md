@@ -2,7 +2,7 @@
 
 Use this namespace to run a re-frame2 app on Reagent. It provides the `adapter` you pass to `rf/init!` at boot, and the `client-root`, `render!` and `unmount!` functions your entry namespace mounts the app through.
 
-Pick it when your views are hiccup; the Core guide uses it. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants, and when to pick slim, are compared under [Full and slim](#full-and-slim).
+Pick it when your views are hiccup; the Core guide uses it. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in `day8/re-frame2-reagent`; [Artefact and floor](#artefact-and-floor) has the coordinate and the React and Reagent versions it needs.
 
 ```clojure
 (ns my-app.core
@@ -46,7 +46,7 @@ Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `
 - **Kind**: var (map)
 - **Signature**:
   ```clojure
-  {:kind                      :rf.adapter/reagent   ;; :rf.adapter/reagent-slim on the slim variant
+  {:kind                      :rf.adapter/reagent
    :make-state-container      …
    :read-container            …
    :replace-container!        …
@@ -60,40 +60,18 @@ Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `
   ```
 - **Description**: The adapter map you pass to `rf/init!` to install Reagent as the substrate (stock `reagent.core` / `reagent.dom.client`).
     - Installation is explicit: there is no default adapter and no keyword form, so require this namespace and pass `adapter` at the call site.
-    - Once it is installed, `(rf/current-adapter)` returns this map, and its presence is how you ask whether an adapter is installed. `(:kind (rf/current-adapter))` reads `:rf.adapter/reagent`, or `:rf.adapter/reagent-slim` on the slim variant.
+    - Once it is installed, `(rf/current-adapter)` returns this map, and its presence is how you ask whether an adapter is installed. `(:kind (rf/current-adapter))` reads `:rf.adapter/reagent`.
     - Frames are scoped with core's `frame-provider` and `frame-root`, whose children are trailing hiccup: `[rf/frame-provider {:frame …} & children]`.
 - **Example**:
   ```clojure
   (rf/init! reagent-adapter/adapter)   ;; install the substrate once, at boot
   ```
 
-## Full and slim
+## Artefact and floor
 
-Reagent ships in two variants. Both publish their adapter as `re-frame.adapter.reagent`, so the require and the `init!` line are the same; the Maven coordinate in your `deps.edn` selects the variant, and a build depends on one of them only. Start on full, and move to slim once you have measured that bundle size matters.
+The adapter ships in `day8/re-frame2-reagent`, which carries stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`). It needs React 19 and runs on Reagent 2.x; there is no React 17/18 or Reagent 1.x path.
 
-| Variant | Maven coordinate | Includes | Use when |
-|---|---|---|---|
-| Full | `day8/re-frame2-reagent` | stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`) | the default; any app that uses stock Reagent APIs the slim rewrite leaves out, such as `reagent.dom.server` |
-| Slim | `day8/reagent-slim` | the `reagent2` rewrite; static HTML export via a pure-CLJS `reagent2.dom.server`, no `react-dom/server` | browser-only bundles where size is measured to matter; ~7–10 KB gzipped smaller (up to ~22–27 KB for a bundle that uses the HTML-export path) |
-
-Both variants need React 19, and full runs on Reagent 2.x. There is no React 17/18 or Reagent 1.x path.
-
-A `:git/sha` dependency on this repository is the exception to the shared name. The repository carries both adapters on one classpath, so there the slim adapter is `re-frame.adapter.reagent-slim`; the published jar renames it to `re-frame.adapter.reagent`.
-
-A build on the slim variant includes neither stock Reagent nor `react-dom/server`, so app code that requires a `reagent.*` namespace requires its `reagent2.*` counterpart instead (`reagent2.core`, `reagent2.dom.client`). Switching an app from full to slim is a four-line change, shown in [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
-
-On full, a view rendered in a pass that React discards before committing keeps its subscriptions for the life of the page. Such passes include a Suspense boundary suspending on first mount, an error boundary catching on mount, and a hidden `Activity` that is never shown. Each change to one of those subscriptions force-updates the never-mounted instance, and React's development build warns about it. Stock Reagent gives the adapter no commit signal to release them. Slim and UIx release them within one macrotask, so prefer one of them where those patterns matter.
-
-Slim rejects hiccup it cannot render with a tagged error, where stock Reagent throws its own untagged one.
-
-- **Errors**, on slim only:
-    - At render:
-        - `:rf.error/template-empty-vector`: `[]` as hiccup.
-        - `:rf.error/template-bad-tag`: a head that is not a tag (a keyword, string or symbol), a component class or a function.
-        - `:rf.error/invalid-hiccup-head`: a keyword head in the reserved `:rf/*` or `:rf.<name>/*` namespaces. No reserved head renders on the client.
-    - When `reagent2.core/create-class` creates the class:
-        - `:rf.error/create-class-key-unsupported`: a key outside the seven it accepts, which are `:reagent-render`, `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, `:get-snapshot-before-update`, `:component-did-catch` and `:display-name`.
-        - `:rf.error/create-class-missing-render`: a spec with no `:reagent-render`.
+A view rendered in a pass that React discards before committing keeps its subscriptions for the life of the page. Such passes include a Suspense boundary suspending on first mount, an error boundary catching on mount, and a hidden `Activity` that is never shown. Each change to one of those subscriptions force-updates the never-mounted instance, and React's development build warns about it. Stock Reagent gives the adapter no commit signal to release them. UIx releases them within one macrotask, so prefer it where those patterns matter.
 
 ## The client root
 
@@ -173,7 +151,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
     - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A `dispatch` queues on the router instead, so wait for it with `re-frame.test-support/poll-until`. Do not call it from inside a `dispatch-sync` handler; it runs a render.
     - React's `act()` expects the test to set `globalThis.IS_REACT_ACT_ENVIRONMENT` to `true` while it drives React through `flush-views!`, and to set it back while it waits on React's own schedule. [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real) shows the pattern.
     - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return; without `act()`, that one does nothing and does not run `f`.
-    - On slim, `reagent2.dom.client/flush-views!` is a different function: it takes no argument and returns a Promise that resolves when the drain has finished (`nil` when `act()` is unavailable, and in a production build), for a test that must await Suspense ordering.
 - **Example**:
   ```clojure
   (reagent-adapter/flush-views!)                                    ;; drain queued renders + effects
@@ -205,6 +182,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 
 - [`re-frame.adapter.uix`](re-frame.adapter.uix.md) — the hooks-first React adapter, with the same client-root functions.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; installs `set-hiccup-emitter!` for you.
-- [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — choosing a substrate, including the switch to slim.
+- [Use UIx](../core/how-to/use-uix-or-slim.md) — choosing a substrate, and moving an app's views to UIx.
 - [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) in the glossary.

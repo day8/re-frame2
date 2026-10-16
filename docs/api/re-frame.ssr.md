@@ -9,7 +9,7 @@ Ships in the `day8/re-frame2-ssr` artefact; require `re-frame.ssr` once at boot.
           [re-frame.ssr  :as ssr])
 ```
 
-The examples use the app's registered `:rf/server-init` event and `:app/root` view. The [SSR tutorial](../ssr/tutorial.md) builds both.
+The examples use an app-registered setup event, `:app/server-init`, and the `:app/root` view. The [SSR tutorial](../ssr/tutorial.md) builds both.
 
 ```clojure
 ;; Server (JVM): render one request in its own frame. In production,
@@ -18,7 +18,7 @@ The examples use the app's registered `:rf/server-init` event and `:app/root` vi
 (rf/init! ssr/adapter)
 
 (rf/with-new-frame [f (rf/make-frame {})]
-  (rf/dispatch-sync [:rf/server-init] {:frame f})
+  (rf/dispatch-sync [:app/server-init] {:frame f})
   (ssr/render-to-string [(rf/view :app/root)] {:doctype? true}))
 ```
 
@@ -52,7 +52,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
   ```clojure
   ;; Render a settled frame, stamping the hash the client will check against.
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:rf/server-init] {:frame f})
+    (rf/dispatch-sync [:app/server-init] {:frame f})
     (let [tree ((rf/view :app/root))]               ;; call the view: a hashable tree
       (ssr/render-to-string tree {:doctype?    true
                                   :render-hash (ssr/render-tree-hash tree)})))
@@ -180,7 +180,7 @@ The server writes the hydration payload into the page as EDN, in a `<script id="
 
 On the client, `hydrate!` installs that state into the frame before the first render and checks the render against the server's; then the view adapter adopts the server's DOM, as in the [`hydrate!` example](#hydrate). Three checks guard hydration, and by default each reports the problem and lets the page carry on:
 
-- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent, Reagent-slim), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
+- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
 - `:rf.ssr/version-mismatch` — the payload and client disagree on the SSR pattern-protocol version, which is separate from the library release version.
 - `:rf.ssr/schema-digest-mismatch` — the app's schema set has changed since the payload was built.
 
@@ -206,7 +206,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     - `:frame` — required; the frame to hydrate, as its id or as the frame value `make-frame` returns, the same frame the root `frame-provider` names. The version and schema-digest checks run only on a `:client`-platform frame, the default on CLJS.
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
-    - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent, Reagent-slim). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
+    - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
     - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict.
 - **Errors**:
     - `:rf.error/no-frame-context` — no `:frame`. Emitted, then thrown.
@@ -418,7 +418,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 
 ```clojure
 ;; Server: a custom projector, with error detail while developing.
-(ssr.ring/ssr-handler {:initial-events [[:rf/server-init]]
+(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
                        :root-view      (fn [] ((rf/view :app/root)))
                        :payload        [:articles]
                        :ssr            {:public-error-id   :app/public-error
@@ -430,7 +430,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 
 ## Events
 
-`re-frame.ssr` registers `:rf/hydrate`. `:rf/server-init` is a name the app registers by convention.
+`re-frame.ssr` registers `:rf/hydrate`.
 
 ### `:rf/hydrate`
 
@@ -448,28 +448,6 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
   ;; Framework-owned; dispatched on the client (usually via ssr/hydrate!) to
   ;; seed app-db from the payload before the first render.
   (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-  ```
-
-### `:rf/server-init`
-
-- **Kind**: event (registered by the app)
-- **Payload**:
-  ```clojure
-  [:rf/server-init]
-  ```
-- **Description**: The conventional per-request setup event, named in [`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)'s `:initial-events`. It reads the request through the [`:rf.server/request`](#coeffects) coeffect and dispatches setup events. It is server-only because only the per-request frame's `:initial-events` dispatch it.
-- **Example**:
-  ```clojure
-  ;; :rf/server-init — registered by the app; the per-request frame's
-  ;; :initial-events fire it. Here it resolves the route: the Ring handler waits
-  ;; for that route's blocking resources before it renders. A fetch started any
-  ;; other way is usually still in flight when the render begins.
-  (rf/reg-event :rf/server-init
-    {:rf.cofx/requires [:rf.server/request]}
-    (fn [{:rf.server/keys [request]} _]
-      (let [{:keys [uri query-string]} request]   ;; Ring keeps the query out of :uri
-        {:fx [[:dispatch [:rf.route/handle-url-change
-                          (cond-> uri query-string (str "?" query-string))]]]})))
   ```
 
 ## Keyword surfaces
@@ -579,7 +557,7 @@ The request's response accumulator (status, headers, cookies, redirect) is not a
 
 ### `:platforms` fx-gating metadata
 
-`reg-fx` and `reg-cofx` accept a `:platforms` metadata key: a set containing `:server`, `:client` or both. The effect or coeffect runs only on the listed platforms. The default is `#{:server :client}`. It gates effects and coeffects only: an event registration stores the key but the router never reads it, so a server-only event such as [`:rf/server-init`](#rfserver-init) stays on the server by being dispatched only there.
+`reg-fx` and `reg-cofx` accept a `:platforms` metadata key: a set containing `:server`, `:client` or both. The effect or coeffect runs only on the listed platforms. The default is `#{:server :client}`. It gates effects and coeffects only: an event registration stores the key but the router never reads it, so a server-only event such as the app's per-request setup event ([Reading the request](../ssr/concepts.md#reading-the-request)) stays on the server by being dispatched only there.
 
 ```clojure
 (rf/reg-fx :my/fx

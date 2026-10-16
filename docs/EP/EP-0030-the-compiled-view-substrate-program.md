@@ -33,7 +33,7 @@ frames are created at host preflight (never from render), and dev builds are a
 glass cockpit that provably vanishes from production.
 
 `re-frame.ui` is an additional option, **not** a mandated replacement and **not**
-the only taught view layer: stock **Reagent, UIx, and reagent-slim live on as
+the only taught view layer: stock **Reagent and UIx live on as
 first-class, actively-supported adapters; only Helix is removed**, behind the S7
 soak gates. The program-level decision, delivery plan, and operator rulings live
 here; the per-domain contracts live in the sibling EPs (EP-0031–EP-0035). The
@@ -96,7 +96,7 @@ component-library readiness package (EP-0035).
 **new, experimental, first-party view substrate** of re-frame2 — an additional
 option, **not** a mandated replacement and **not** the only taught view layer. It
 is the focus of the program's new compiled-substrate capability, performance, and
-debugging-integration work. **Stock Reagent, UIx, and reagent-slim live on as
+debugging-integration work. **Stock Reagent and UIx live on as
 first-class, actively-supported adapters** — they are not frozen and are not
 scheduled for removal, keeping their contract suites plus one browser smoke each.
 **Only Helix is removed**, after the proof/soak gates (S7). The v1 runtime law is
@@ -155,8 +155,8 @@ any production code.
    green is the proof.
 7. **S7 — alpha + Helix-removal wave:** every gate green, demand-bar prune,
    **only Helix removed** — strictly behind the soak gates (two consecutive
-   green nightlies + one week of repo work with no fallback). Reagent, UIx, and
-   reagent-slim live on as first-class adapters; `re-frame.ui` remains a new
+   green nightlies + one week of repo work with no fallback). Reagent and UIx
+   live on as first-class adapters; `re-frame.ui` remains a new
    experimental substrate, not their replacement.
 
 S1–S4 are complete and declared conforming, and S5's surfaces are shipped and
@@ -212,12 +212,11 @@ conformance corpus (W14), and program management (W15). None are optional;
 
 Because the retained adapters keep their example coverage, their suites, and
 their boot choices, none of these workstreams deletes a surface that belongs to
-Reagent, UIx, or reagent-slim; each one *adds* the `re-frame.ui` option beside
+Reagent or UIx; each one *adds* the `re-frame.ui` option beside
 them and subtracts only Helix. The template's post-Helix variant menu is a
 ruled, supported external-alpha surface (see Resolved Decisions): W8 adds the
 experimental `re-frame.ui` scaffold beside the retained `:reagent` (default) and
-`:uix` variants, drops `:helix`, and leaves reagent-slim a reserved future
-variant on its existing trigger. Whether the menu ever narrows later remains a
+`:uix` variants and drops `:helix`. Whether the menu ever narrows later remains a
 product choice reserved to Mike, and W8 does not presume one.
 
 ### Migration posture
@@ -265,7 +264,7 @@ covering the mental model, building a view, state, events/handlers,
 reactivity/ownership, presence, SSR, testing, and interop — rather than a
 wholesale rewrite of the existing `docs/core` view chapters, which keep working
 and keep the substrate-choice teaching (presenting `re-frame.ui` as a new
-experimental option alongside the retained Reagent/UIx/reagent-slim boot
+experimental option alongside the retained Reagent/UIx boot
 choices). Later guide growth — and any playground work — is demand-driven, not a
 program-scale promise. Sibling EPs name per-domain impacts.
 
@@ -290,10 +289,10 @@ is surface sprawl. Freezing the table before Stage 1 — then admitting change
 only as ruled row-level deltas — keeps the surface honest while staying
 amendable where real consumers (re-com being the first) demonstrate need.
 
-**Keep Reagent, UIx, and reagent-slim as first-class adapters, and offer
-`re-frame.ui` alongside them** rather than as their replacement. All three have
-named consumers: the two-step migration for existing v1/re-com apps, a correct
-boot choice for existing UIx apps, and the slim-bundle option. They stay
+**Keep Reagent and UIx as first-class adapters, and offer
+`re-frame.ui` alongside them** rather than as their replacement. Both have
+named consumers: the two-step migration for existing v1/re-com apps, and a
+correct boot choice for existing UIx apps. They stay
 actively supported — `re-frame.ui` is the new experimental substrate, not a
 mandate to leave them. **Only Helix is removed** once `ui` ships; the others
 cover its niche.
@@ -303,7 +302,7 @@ cover its niche.
 Pre-alpha: no compatibility shims. Within this repo, view surfaces gain
 `re-frame.ui` as a new option over S6–S7 (examples, testbeds, tools, template,
 docs) while the retained adapters keep working. For external apps the
-compatibility surface is deliberate: the Reagent, UIx, and reagent-slim adapters
+compatibility surface is deliberate: the Reagent and UIx adapters
 stay first-class and actively supported, keeping their contract suites and
 smokes in CI (`reg-view` stays with stock Reagent), and the removal wave touches
 **only Helix**, behind the S7 soak gates. Benchmarks against the existing

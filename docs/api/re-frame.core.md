@@ -536,7 +536,7 @@ The framework registers a few `:rf/*` events that you dispatch like any other. R
 
 Register views with `reg-view`. Give a subtree its frame with `frame-root` when the subtree should bring the frame into being, or `frame-provider` when the frame already exists; [Frames](#frames) covers when you need more than one.
 
-Frames, subscriptions, dispatch, source metadata and registry ids work the same under every adapter, and `capture-frame` works under all of them. Adapter-specific functions are on each adapter's page: [re-frame.adapter.reagent](re-frame.adapter.reagent.md) (full and slim Reagent) and [re-frame.adapter.uix](re-frame.adapter.uix.md), whose components read and dispatch through the `use-sub` and `use-frame` hooks.
+Frames, subscriptions, dispatch, source metadata and registry ids work the same under every adapter, and `capture-frame` works under all of them. Adapter-specific functions are on each adapter's page: [re-frame.adapter.reagent](re-frame.adapter.reagent.md) and [re-frame.adapter.uix](re-frame.adapter.uix.md), whose components read and dispatch through the `use-sub` and `use-frame` hooks.
 
 ### `reg-view`
 
@@ -1151,7 +1151,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
     - `(init!)` with no argument is an arity error: an `ArityException` on the JVM, a compiler warning on ClojureScript. `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified`.
     - Calling it again with the installed adapter is a no-op. Calling it with a different adapter raises `:rf.error/adapter-already-installed` and leaves the installed one in place; call `destroy-adapter!` first to switch. Two adapter maps are the same adapter when they carry the same canonical `:rf.adapter/*` `:kind`, or when they are the identical map.
     - Until `init!` runs, `make-frame`, `frame-root` and anything else that needs the adapter raise `:rf.error/no-adapter-installed`. Returns `nil`.
-    - The shipped adapter Vars: `re-frame.adapter.reagent/adapter`, `re-frame.adapter.reagent-slim/adapter`, `re-frame.adapter.uix/adapter`, `re-frame.fresco.substrate/adapter`, `re-frame.ssr/adapter` for server rendering, and `re-frame.substrate.plain-atom/adapter`, the headless adapter for tests and scripts on the JVM or Node.
+    - The shipped adapter Vars: `re-frame.adapter.reagent/adapter`, `re-frame.adapter.uix/adapter`, `re-frame.fresco.substrate/adapter`, `re-frame.ssr/adapter` for server rendering, and `re-frame.substrate.plain-atom/adapter`, the headless adapter for tests and scripts on the JVM or Node.
     - Hot reload is safe with the shipped adapters. Reloading re-evaluates the adapter map with new function identities, but its canonical kind is unchanged, so a `^:dev/after-load` call stays a no-op. See [Hot reload](../core/how-to/boot-and-mount-an-app.md#hot-reload).
     - A custom adapter with no canonical kind is compared by identity, so re-evaluating its Var and calling `init!` again raises. Hold it in a `defonce`, or call [`destroy-adapter!`](#destroy-adapter) in the after-load fn.
     - See [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md).
@@ -1189,7 +1189,7 @@ These functions start and stop a re-frame2 process and set process-wide options.
   (current-adapter) → adapter map or nil
   ```
 - **Description**: Returns the installed adapter map, exactly as passed to `rf/init!`, or `nil` when no adapter is installed. The map carries the adapter contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) and a `:kind`.
-    - To branch on the substrate, read `(:kind (rf/current-adapter))`: `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/fresco`, `:rf.adapter/plain-atom` or `:rf.adapter/ssr`, or `nil` for a custom adapter map with no canonical kind. `:rf.adapter/helix`, `:rf.adapter/ui` and `:rf.adapter/freehand` are reserved, and nothing produces them.
+    - To branch on the substrate, read `(:kind (rf/current-adapter))`: `:rf.adapter/reagent`, `:rf.adapter/uix`, `:rf.adapter/fresco`, `:rf.adapter/plain-atom` or `:rf.adapter/ssr`, or `nil` for a custom adapter map with no canonical kind. `:rf.adapter/helix`, `:rf.adapter/reagent-slim`, `:rf.adapter/ui` and `:rf.adapter/freehand` are reserved, and nothing produces them.
     - To check whether an adapter is installed, test the map, not `:kind`: a custom adapter without a kind is installed while `(:kind (rf/current-adapter))` reads `nil`.
     - In a Fresco app, `:kind` names the substrate the app booted on (normally `:rf.adapter/fresco`), not the view layer; see [re-frame.fresco](re-frame.fresco.md).
 - **Example**:
@@ -1360,7 +1360,7 @@ Malli schemas attached to `app-db` paths, validated on writes in development bui
 
 Only the two SSR registration macros, `reg-head` and `reg-error-projector`, are on this facade. They resolve to `re-frame.ssr` when the `day8/re-frame2-ssr` artefact is on the classpath and throw `:rf.error/ssr-artefact-missing` otherwise.
 
-Everything else is called on `re-frame.ssr`: `render-to-string`, `render-tree-hash`, `project-error`, `head-model`, `head-model->html` and `hydrate!` (the head functions are also on `re-frame.ssr.head`). Requiring `re-frame.ssr` is what installs the SSR runtime, so an app that renders on the server already names it. The SSR page also documents the `:rf.server/*` fx and the `:rf/server-init` and `:rf/hydrate` events; the Ring adapter is on [re-frame.ssr.ring](re-frame.ssr.ring.md).
+Everything else is called on `re-frame.ssr`: `render-to-string`, `render-tree-hash`, `project-error`, `head-model`, `head-model->html` and `hydrate!` (the head functions are also on `re-frame.ssr.head`). Requiring `re-frame.ssr` is what installs the SSR runtime, so an app that renders on the server already names it. The SSR page also documents the `:rf.server/*` fx and the `:rf/hydrate` event; the Ring adapter is on [re-frame.ssr.ring](re-frame.ssr.ring.md).
 
 SSR registers no subscriptions: `:rf/head` and `:rf/public-error` are data shapes, read with `head-model` and `project-error` ([details](re-frame.ssr.md#subscriptions--there-are-none)).
 

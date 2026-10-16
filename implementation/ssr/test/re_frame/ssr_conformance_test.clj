@@ -680,7 +680,7 @@
           traces       (collect-traces fid)
           ;; The always-on axes, captured alongside the dev bus.
           ;; Registered BEFORE `realise-handlers` / `make-frame` so the
-          ;; `:initial-events` cascade (`:rf/server-init`) is observed.
+          ;; `:initial-events` cascade (`:app/server-init`) is observed.
           ao-errors    (collect-always-on-errors)
           ao-events    (collect-always-on-events)
           _            (realise-handlers fixture)

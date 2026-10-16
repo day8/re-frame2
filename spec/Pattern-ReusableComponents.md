@@ -130,7 +130,6 @@ The id idiom solves *parameterisation across instances*; per-frame isolation sol
 The idiom is **substrate-agnostic**. The view is an ordinary function of its arguments; the subs are ordinary `reg-sub` registrations; the dispatches are ordinary events. Every reactive-substrate adapter (per [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md)) supports it without special handling:
 
 - **Reagent** — render-tree splice `[customer-card 42]` works as-is; the registered view is a Form-1 fn that closes over its args.
-- **Reagent-slim** — same surface.
 - **UIx** — the adapter's `use-sub` hook reads the parameterised sub identically; the view is a hooks-style function whose first prop carries the id.
 
 The id idiom predates substrate choice. A view that follows it ports across adapters with zero changes to the view body — only the surrounding component wrapper differs by adapter.

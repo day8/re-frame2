@@ -12,10 +12,10 @@ Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame
 
 (rf/init! ssr/adapter)
 
-;; Load the app namespaces that register :rf/server-init and :app/root.
+;; Load the app namespaces that register :app/server-init and :app/root.
 (def handler
   (ssr.ring/ssr-handler
-    {:initial-events [[:rf/server-init]]              ;; setup events for each request's frame
+    {:initial-events [[:app/server-init]]             ;; setup events for each request's frame
      :root-view      (fn [] ((rf/view :app/root)))    ;; rendered once those events settle
      :payload        [:articles :session-user]}))    ;; app-db keys shipped to the client
 
@@ -121,7 +121,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   (def app
     (-> default-handler
         ((ssr.ring/ssr-middleware
-           {:initial-events [[:rf/server-init]]
+           {:initial-events [[:app/server-init]]
             :root-view      (fn [] ((rf/view :app/root)))
             :payload        [:articles :session-user]
             :match?         (fn [req] (= :get (:request-method req)))}))

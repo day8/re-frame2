@@ -737,7 +737,7 @@ registration. Detached on flip-off.
 substrate's push path — `re-frame.interop/activate-derived-value!` — as
 its FIRST act, before the baseline seed and before `add-watch`. A
 subscription is **not** already live the instant `subscribe` returns.
-On the ratom family (Reagent, reagent-slim) a subscription IS a bare
+On the ratom family (Reagent) a subscription IS a bare
 `reagent.ratom/Reaction`, built deliberately without `:auto-run`, and a
 Reaction learns its sources ONLY through `deref-capture`; a plain deref
 taken outside `*ratom-context*` runs the body raw and leaves the

@@ -16,7 +16,7 @@ The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent view
 - M-15 — top-level `app-db` seeding
 - M-15b — wholesale `app-db` replace + the retired `:rf/runtime` root
 - M-34 — spawn-id tracking moved to runtime-owned slot
-- M-42 — React-19-removed Reagent surfaces (bridge and slim: the mount rewrite, `dom-node`, raw HTML)
+- M-42 — React-19-removed Reagent surfaces (the mount rewrite, `dom-node`, raw HTML)
 
 ---
 
@@ -198,20 +198,20 @@ Present the categorisation per site; confirm with the author; only then apply. F
 
 ---
 
-## M-42 — React-19-removed Reagent surfaces (bridge *and* slim)
+## M-42 — React-19-removed Reagent surfaces
 
-What breaks on each adapter target, the Type of each symbol, the mount rewrite — the adapter's own `client-root` handle, one boot namespace for both coordinates, and the pre-publish slim namespace — `dom-node`'s removal from the bridge's stock floor, and the bridge's raw-HTML filter are [`MIGRATION.md` §M-42](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-are-absent-under-day8reagent-slim-compile-time-unresolved-var); its [`#legacy-mount-path`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path) worked recipe is the mount rewrite. This section is how to find the sites, apply the mechanical half and prove the raw-HTML producers.
+What breaks, the Type of each symbol, the mount rewrite — the adapter's own `client-root` handle — `dom-node`'s removal from the bridge's stock floor, and the bridge's raw-HTML filter are [`MIGRATION.md` §M-42](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-rewrite-the-mount-sweep-dom-node-tag-raw-html); its [`#legacy-mount-path`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path) worked recipe is the mount rewrite. This section is how to find the sites, apply the mechanical half and prove the raw-HTML producers.
 
-**Identify**, on **both** adapter targets and before the first compile: the mount call sites and raw-HTML producers by the scans in [`floor-gate.md` Check 3](floor-gate.md#check-3--legacy-react-api-and-raw-html-scan); `dom-node` under the qualified `reagent.dom/dom-node` and the alias spellings the corpus lists; and, on slim only, `force-update-all`.
+**Identify**, before the first compile: the mount call sites and raw-HTML producers by the scans in [`floor-gate.md` Check 3](floor-gate.md#check-3--legacy-react-api-and-raw-html-scan); `dom-node` under the qualified `reagent.dom/dom-node` and the alias spellings the corpus lists; and `force-update-all`.
 
 **Apply, symbol by symbol:**
 
-1. **`render` / `unmount-component-at-node`** — Type A on both targets once the caller's `container` reference is identified: the corpus's mount recipe, applied in the Type A sweep under the sweep-level announcement (Cardinal rule 4).
-2. **`dom-node`** — Type B on both targets. Report every site before the first compile, since an unswept site breaks the bridge build as well as slim's; the author supplies the parent's `:ref` ownership.
-3. **`force-update-all`** — Type B on slim. Ask whether the call can be removed; if not, file an issue ([`issue-filing.md`](issue-filing.md)) rather than inventing a replacement.
-4. **Raw-HTML producers** — on the bridge, wrap a producer's value in `reagent.core/unsafe-html` only where the code shows its string escaped, sanitized or application-owned, and change nothing else (not the sanitizer policy, the callback timing or a server API); hold every other producer for the author's ownership decision. On slim, record the trust contract and leave the plain map. Never tag a site to bring its content back, and never tag every hit in one sweep: that turns a silent loss into an injection.
+1. **`render` / `unmount-component-at-node`** — Type A once the caller's `container` reference is identified: the corpus's mount recipe, applied in the Type A sweep under the sweep-level announcement (Cardinal rule 4).
+2. **`dom-node`** — Type B. Report every site before the first compile, since an unswept site breaks the build; the author supplies the parent's `:ref` ownership.
+3. **`force-update-all`** — Type B. It re-renders only roots the legacy mount made, so once the mount is rewritten it does nothing; ask whether the call can be removed; if not, file an issue ([`issue-filing.md`](issue-filing.md)) rather than inventing a replacement.
+4. **Raw-HTML producers** — wrap a producer's value in `reagent.core/unsafe-html` only where the code shows its string escaped, sanitized or application-owned, and change nothing else (not the sanitizer policy, the callback timing or a server API); hold every other producer for the author's ownership decision. Never tag a site to bring its content back, and never tag every hit in one sweep: that turns a silent loss into an injection.
 
-**Evidence, per preserved raw-HTML producer — the loss reports nothing, so a clean compile and a clean boot console prove nothing.** Assert the real rendered output — the mounted element's markup, or the static string — never the sanitizer's return value, beside two controls: ordinary text that still renders as escaped text, and hostile input (`<img src=x onerror=…>`, a `<script>`) that comes out sanitized or escaped. On the bridge, remove only the tag and watch exactly that producer's assertions go red, then restore it and watch them go green.
+**Evidence, per preserved raw-HTML producer — the loss reports nothing, so a clean compile and a clean boot console prove nothing.** Assert the real rendered output — the mounted element's markup, or the static string — never the sanitizer's return value, beside two controls: ordinary text that still renders as escaped text, and hostile input (`<img src=x onerror=…>`, a `<script>`) that comes out sanitized or escaped. Remove only the tag and watch exactly that producer's assertions go red, then restore it and watch them go green.
 
 Flag the held `dom-node`, `force-update-all` and raw-HTML sites in the end-of-sweep batch and wait for the author.
 
