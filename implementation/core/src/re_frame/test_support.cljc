@@ -486,8 +486,9 @@
   (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
   standards (`:rf.interceptor/path`, `:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
-  loaded), apply `:clear-kinds`, and LAST reinstate the `:app-ns` rows the
-  fixture removed at build time. Establishes everything EXCEPT the
+  loaded), apply `:clear-kinds`, reinstate the `:app-ns` rows the fixture
+  removed at build time, and LAST clear every app-db schema registration.
+  Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
   the section comment above).
 
@@ -518,14 +519,19 @@
   (doseq [k clear-kinds]
     (rf.registrar/clear-kind! k))
   (when app-ns
-    (reinstate-app-ns-rows! app-ns)))
+    (reinstate-app-ns-rows! app-ns))
+  ;; App-db schemas are development assertions a test opts into: clear every
+  ;; one — ns-load and `:app-ns` registrations included — so a test validates
+  ;; only against the schemas it registers, and a schema one co-loaded app
+  ;; registers never checks another app's frames.
+  (rf.registrar/clear-kind! :app-schema))
 
 (defn- finish-runtime-reset!
   "The post-test finally body shared by both fixture shapes. Restore the
-  registration table to `:snap` (app-db schemas included — they are
-  registrar state), clear the generation cache, then reset the frames + flows
-  registries so nothing a test body seated survives into the next fixture
-  run."
+  registration table to `:snap` (the app-db schemas step 8 of
+  `make-reset-runtime-fixture` cleared included), clear the generation
+  cache, then reset the frames + flows registries so nothing a test body
+  seated survives into the next fixture run."
   [{:keys [snap]}]
   (restore-registrar! snap)
   (rf.image-assembly/clear-generation-cache!)
@@ -576,8 +582,8 @@
        (run-order independence — see above) and clears the
        resolved-generation cache (EP-0026 — see above).
     1. Captures the current (baseline-reinstated) table (so user-test
-       registrations — app-db schemas among them — can be rolled back
-       without losing ns-load-time framework / example registrations).
+       registrations can be rolled back without losing ns-load-time
+       framework / example registrations, app-db schemas among them).
     2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
        `flows/reset-flows!` — atoms are private behind
        an accessor seam) when that artefact is loaded — reset is
@@ -594,17 +600,21 @@
     7. If an `:app-ns` was supplied, reinstates the app rows it removed at
        fixture-build time — so this suite sees its own app, and no other
        suite's baseline ever did.
-    8. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
+    8. Clears every app-db schema registration, ns-load and `:app-ns` ones
+       included: a test validates only against the schemas it registers
+       (in its body or `:init-fn`), so one co-loaded app's schemas never
+       check another app's frames.
+    9. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter
        live — e.g. seeding test data into the just-installed adapter's
        app-db.
-    9. Runs the test.
-   10. Restores the registration table to the captured snapshot.
-   11. Resets `rf.frame/frames` back to `{}` for symmetry, and the flows
+   10. Runs the test.
+   11. Restores the registration table to the captured snapshot.
+   12. Resets `rf.frame/frames` back to `{}` for symmetry, and the flows
        registry (via the `:flows/reset-flows!` late-bind hook, when flows
        is loaded).
 
-  Steps 10–11 run in a `finally` block so they fire even on test
+  Steps 11–12 run in a `finally` block so they fire even on test
   exceptions. The table restore they carry is also what takes the
   `:app-ns` rows of step 7 back out — the snapshot they restore to never
   held them — so an exceptional teardown leaves no app row behind.

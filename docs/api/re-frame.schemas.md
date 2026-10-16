@@ -252,7 +252,7 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
 - **Description**: Returns the installed validator, explainer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
     - `(set-schema-fns! (schema-fns))` changes nothing.
     - `:validate` and `:explain` may be `nil`; `:print` never is.
-    - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. Registered schemas are registrar state, so `re-frame.test-support`'s registrar snapshot and restore cover them.
+    - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. Registered schemas are registrar state, so `re-frame.test-support`'s registrar snapshot restores them after each test, and its reset clears them for the test's length.
 - **Example**:
   ```clojure
   ;; capture / stub / restore is an ordinary let + finally over a value
@@ -493,7 +493,7 @@ A compiled `m/schema` value is opaque to the walkers, so register the vector for
 
 ### Test support
 
-These functions reset the artefact's once-per-process latches between tests, so each test case starts with no remembered warnings. Registered schemas need no reset of their own: they are registrar state, so [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture)'s registrar snapshot and restore cover them, and a schema registered in a test body is rolled back after it like any other registration.
+These functions reset the artefact's once-per-process latches between tests, so each test case starts with no remembered warnings. Registered schemas need no reset of their own: [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) clears every one before each test and its registrar snapshot restores them afterwards, so a test checks only the schemas it registers, and a schema registered in a test body is rolled back after it like any other registration.
 
 #### `clear-validator-unavailable-warned!`
 

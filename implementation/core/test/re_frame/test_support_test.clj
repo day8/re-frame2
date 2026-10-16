@@ -117,6 +117,16 @@
         "a schema is registrar state: present in the body that registered it,
          rolled back with the rest of the table afterwards")))
 
+(deftest make-reset-runtime-fixture-clears-load-time-schemas-for-the-body
+  (rf/reg-app-schema [:loaded] :int)
+  (let [present? #(some? (rf.schemas/app-schema-meta {:frame :rf/default :path [:loaded]}))
+        built    (fixture)
+        in-body  (atom :unset)]
+    (built (fn [] (reset! in-body (present?))))
+    (is (= [false true] [@in-body (present?)])
+        "a schema in the fixture's baseline is cleared for the body and back
+         afterwards, so a test checks only the schemas it registers")))
+
 (deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
   ;; :pre-dispose (flows) runs before :post-dispose (epoch); the finally-block
   ;; flows reset is third
@@ -187,8 +197,8 @@
 
 ;; ---- `:init-fn` runs under the body's ambient frame -----------------------
 ;;
-;; App setup thunks run context-required frame-local ops (`reg-app-schema`,
-;; a bare `dispatch`); run frameless they raise :rf.error/no-frame-context.
+;; App setup thunks run frame-scoped ops (a bare `dispatch`); run frameless
+;; they raise :rf.error/no-frame-context.
 ;; Each test unbinds the outer fixture's ambient frame, as under cljs.test.
 
 (deftest make-reset-runtime-fixture-runs-init-fn-under-ambient-frame
@@ -198,12 +208,10 @@
                  ((rf.test-support/make-reset-runtime-fixture
                     (merge {:adapter rf.substrate.plain-atom/adapter :init-fn init-fn} opts))
                   (fn [] :ran)))]
-      (run {} (fn []
-                (swap! seen conj (rf.frame/current-frame))
-                (rf/reg-app-schema [:counter] :int)))
+      (run {} #(swap! seen conj (rf.frame/current-frame)))
       (run {:ambient-frame nil} #(swap! seen conj (rf.frame/current-frame)))
       (is (= [:rf/default nil] @seen)
-          "the bare reg-app-schema ran under the ambient :rf/default; `:ambient-frame nil` keeps :init-fn frameless"))))
+          ":init-fn ran under the ambient :rf/default; `:ambient-frame nil` keeps it frameless"))))
 
 ;; ---- snapshot-registrar / restore-registrar! -------------------------------
 ;;
