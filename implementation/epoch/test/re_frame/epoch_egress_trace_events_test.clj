@@ -19,7 +19,7 @@
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -47,7 +47,7 @@
       (fn [{:keys [db]} _] {:db (assoc db :password (str secret "-rotated"))}))
     (rf/dispatch-sync [:seed] {:frame :test/eg})
     (rf/dispatch-sync [:rotate] {:frame :test/eg})
-    (let [raw     (last (rf/epoch-history :test/eg))
+    (let [raw     (last (rf.epoch/epoch-history :test/eg))
           run-end (first (filter #(= :rf.event/run-end (:operation %)) (:trace-events raw)))]
       (is (= [:rf.interceptor/path]
              (mapv :rf.interceptor.delta/id (get-in run-end [:tags :rf.event/after-deltas])))

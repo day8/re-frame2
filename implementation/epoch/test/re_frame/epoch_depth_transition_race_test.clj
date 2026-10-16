@@ -26,7 +26,7 @@
             [re-frame.core :as rf]
             ;; Side-effect require: publishes the `:epoch/*` late-bind hooks
             ;; the core facade's epoch surface resolves through.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -89,7 +89,7 @@
                            :configured)
         published? (fn []
                      (and (= depth (rf.epoch.state/depth))
-                          (<= (count (rf/epoch-history frame-id)) depth)))]
+                          (<= (count (rf.epoch/epoch-history frame-id)) depth)))]
     (loop [remaining 60]
       (when (and (pos? remaining) (not (published?)))
         (Thread/sleep 5)
@@ -117,7 +117,7 @@
       (is (= [:committed :configured]
              [(deref writer join-ms :timeout) (deref configurer join-ms :timeout)])
           "the writer and configure! both finished")
-      (is (= [] (rf/epoch-history :test/main))
+      (is (= [] (rf.epoch/epoch-history :test/main))
           "the parked append did not escape the transition")
       (is (nil? (rf.epoch.state/last-settled-epoch-id :test/main))
           "no back-fill anchor survives naming a record the ring does not hold"))))
@@ -145,7 +145,7 @@
       (is (= [:committed :configured]
              [(deref writer join-ms :timeout) (deref configurer join-ms :timeout)])
           "the writer and configure! both finished")
-      (let [history (rf/epoch-history :test/main)]
+      (let [history (rf.epoch/epoch-history :test/main)]
         (is (= [{:n 3}] (mapv :db-after history))
             "the ring holds the accepted depth, and what it holds is the NEWEST
              record — the one that raced in")

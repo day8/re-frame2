@@ -496,7 +496,7 @@ to `{}`, clears the subscription cache and queue, and runs `:initial-events` aga
 Tests and Story "reset" buttons use it. For a frame built from images, pass the same
 `:images` again. The two calls are not atomic, so run them outside any handler. To
 reset only app-db, dispatch `[:rf/set-db {}]` to the frame, or, with
-`day8/re-frame2-epoch` loaded, call `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
+`day8/re-frame2-epoch` loaded, call `(rf.epoch/replace-frame-state! frame-id {:rf.db/app {}})`.
 
 Creating a frame inside an event handler throws
 `:rf.error/frame-construction-in-handler`, which the error stream reports as a

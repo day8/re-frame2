@@ -1110,7 +1110,7 @@
 ;;
 ;; Per spec/017 §Run-result evidence projection — the single boundary from
 ;; the retained epoch tape to the API-stable run-result evidence slots. The
-;; runner reads the tape via `re-frame.core/epoch-history` and merges this
+;; runner reads the tape via `re-frame.epoch/epoch-history` and merges this
 ;; projection into the run-result, so `:schema-violations` / `:warnings` /
 ;; `:effects` / `:sub-runs` / `:renders` / `:narrative` all derive from ONE
 ;; tape — no parallel accumulator can drift from the tape evidence.
@@ -1118,7 +1118,7 @@
 (defn project-evidence
   "Per spec/017 §Run-result evidence projection — project a retained
   `epoch-tape` (the `:rf/epoch-record` vector from
-  `re-frame.core/epoch-history`) into the run-result evidence slots. Pure
+  `re-frame.epoch/epoch-history`) into the run-result evidence slots. Pure
   data → data. `opts` may carry `:script` for the two-level `:narrative`.
   Every evidential slot agrees with the tape by construction."
   ([epoch-tape]      (rf.story.play.evidence/project-evidence epoch-tape))

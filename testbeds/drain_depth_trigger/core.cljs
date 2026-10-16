@@ -20,7 +20,7 @@
       `:halted-depth` per [Spec-Schemas §`:rf/epoch-record` Outcomes].
       Because that event never ran, its `:db-before` and
       `:db-after` both equal the durable last-settled `app-db`.
-      Consumers read this record off `rf/epoch-history`.
+      Consumers read this record off `rf.epoch/epoch-history`.
 
   Two buttons drive the surface:
 
@@ -119,7 +119,7 @@
 ;; substrate `register-error-listener!` subscribes to), so an error-emit
 ;; listener would never see `:rf.error/drain-depth-exceeded`. The
 ;; framework-side observables (`:depth-reached`, the `:halted-depth`
-;; epoch record on `rf/epoch-history`) cover the contract under test and
+;; epoch record on `rf.epoch/epoch-history`) cover the contract under test and
 ;; are what the cross-cutting scenario asserts on.
 
 (rf/reg-event ::reset

@@ -12,7 +12,7 @@
   platform pure assertions on `assertion-row :row-key` live in
   `re-frame.story-ui-test` (JVM)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
+            [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -33,8 +33,8 @@
           restored   (atom [])]
       (swap! rf.story.ui.test-mode.state/results-atom assoc variant-id
              {:running? true :epoch-ids [:epoch/a :epoch/b :epoch/c]})
-      (with-redefs [rf/restore-epoch! (fn [vid eid]
-                                       (swap! restored conj [vid eid]))]
+      (with-redefs [rf.story.runtime/restore-epoch! (fn [vid eid]
+                                                    (swap! restored conj [vid eid]))]
         (rf.story.ui.test-mode.state/select-step! variant-id 1))
       (is (= [] @restored))
       (is (nil? (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step]))))))
@@ -44,8 +44,8 @@
         restored   (atom [])]
     (swap! rf.story.ui.test-mode.state/results-atom assoc variant-id
            {:running? false :epoch-ids [:epoch/a :epoch/b :epoch/c]})
-    (with-redefs [rf/restore-epoch! (fn [vid eid]
-                                     (swap! restored conj [vid eid]))]
+    (with-redefs [rf.story.runtime/restore-epoch! (fn [vid eid]
+                                                  (swap! restored conj [vid eid]))]
       (rf.story.ui.test-mode.state/select-step! variant-id 1))
     (is (= [[variant-id :epoch/b]] @restored))
     (is (= 1 (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step])))))

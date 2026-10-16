@@ -16,7 +16,7 @@
 
   This ns makes the epoch tape the evidence boundary. Given the vector of
   `:rf/epoch-record` maps the framework retains for a frame
-  (`re-frame.core/epoch-history`), it derives every evidential run-result
+  (`re-frame.epoch/epoch-history`), it derives every evidential run-result
   slot by pure projection:
 
   - `schema-violations` — every `:rf.error/schema-validation-failure`
@@ -77,7 +77,7 @@
   This ns is `.cljc` and entirely PURE: epoch records (data) in, run-result
   slots (data) out. It requires nothing from `re-frame.core` / the DOM, so
   the full projection runs under `clojure -M:test`. The runner reads the
-  retained tape via `re-frame.core/epoch-history` and hands the vector
+  retained tape via `rf.story.assertions/epoch-history` and hands the vector
   here; the projection itself never touches the runtime.")
 
 ;; ===========================================================================
@@ -966,7 +966,7 @@
   Pure data → data.
 
   `full-ring` is the frame's COMPLETE retained ring (oldest-first — the raw
-  `re-frame.core/epoch-history`, NOT the baseline-filtered run tape);
+  `re-frame.epoch/epoch-history`, NOT the baseline-filtered run tape);
   `baseline` is the last-committed `:epoch-id` at run start
   (`record-result-map`'s `:epoch-baseline`), which is the ring-newest record
   at that moment.

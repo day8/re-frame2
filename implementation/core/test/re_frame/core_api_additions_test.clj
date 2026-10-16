@@ -19,7 +19,7 @@
             ;; `replace-frame-state!` (synthetic-epoch recording) through the
             ;; `:epoch/replace-frame-state!` hook; load it so the mutator
             ;; round-trip below resolves a live hook.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -109,11 +109,11 @@
   (rf/make-frame {:id :pp/reset-app :doc "reset-app"})
   (rf/reg-event :pp/seed (fn [_ [_ db]] {:db db}))
   (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/reset-app})
-  (rf/replace-frame-state! :pp/reset-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
+  (rf.epoch/replace-frame-state! :pp/reset-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
   (is (= {:rf.db/app {:k 1} :rf.db/runtime {:rf.runtime/machines {:m 1}}}
          (rf/frame-state-value :pp/reset-app))
       "a runtime-only map leaves the absent app partition untouched")
-  (is (:ok? (rf/replace-frame-state! :pp/reset-app {:rf.db/app {}})))
+  (is (:ok? (rf.epoch/replace-frame-state! :pp/reset-app {:rf.db/app {}})))
   (is (= {:rf.db/app {} :rf.db/runtime {:rf.runtime/machines {:m 1}}}
          (rf/frame-state-value :pp/reset-app))
       "an app-only map leaves the absent runtime partition untouched"))
@@ -123,7 +123,7 @@
 
 (deftest ^:requires-debug replace-frame-state-writes-both-partitions
   (rf/make-frame {:id :pp/fsm :doc "frame-state-mutate"})
-  (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
+  (rf.epoch/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
   (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
          (rf/frame-state-value :pp/fsm))))
 
@@ -137,8 +137,8 @@
                :frame :pp/bad-keys-empty :cause :no-recognized-keys :keys []}
               {:ok? false :reason :rf.error/replace-frame-state-bad-keys
                :frame :pp/bad-keys-empty :cause :unknown-keys :keys [:unrelated]}]
-             [(rf/replace-frame-state! :pp/bad-keys-empty {})
-              (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1})])
+             [(rf.epoch/replace-frame-state! :pp/bad-keys-empty {})
+              (rf.epoch/replace-frame-state! :pp/bad-keys-empty {:unrelated 1})])
           "the op is the envelope's :reason; the bad-keys diagnostic rides as :cause")
       (finally (rf/unregister-listener! :trace ::bad-keys)))
     ;; the unknown-keys check runs first, so only-unrelated keys report :unknown-keys
@@ -148,7 +148,7 @@
 
 (deftest ^:requires-debug replace-frame-state-rejects-unknown-keys
   (rf/make-frame {:id :pp/bad-keys-typo :doc "bad-keys-typo"})
-  (is (false? (:ok? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}})))
+  (is (false? (:ok? (rf.epoch/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}})))
       "an unrecognized key beside a recognized one rejects the whole write")
   (is (= {} (rf/app-db-value :pp/bad-keys-typo))))
 

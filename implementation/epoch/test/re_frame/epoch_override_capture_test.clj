@@ -19,7 +19,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Without it nothing records an epoch and the assertion reads nil.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -32,4 +32,4 @@
   (rf/dispatch-sync [:probe/noop] {:frame :test/main})
   (is (= [:probe/noop {}]
          ((juxt :event-id #(select-keys % [:fx-overrides :interceptor-overrides]))
-          (last (rf/epoch-history :test/main))))))
+          (last (rf.epoch/epoch-history :test/main))))))

@@ -41,7 +41,7 @@
 
 (def ^:private frame-id :epoch-replay/main)
 
-(defn- history [] (rf/epoch-history frame-id))
+(defn- history [] (rf.epoch/epoch-history frame-id))
 (defn- last-record [] (last (history)))
 (defn- items [] (:items (rf/app-db-value frame-id)))
 
@@ -98,7 +98,7 @@
             "the record retains the raw trigger, the minted fact and both override maps")
 
         (doseq [a [gen-calls stub-fired real-fired audited]] (reset! a 0))
-        (let [res   (rf/replay-epoch! frame-id (:epoch-id r))
+        (let [res   (rf.epoch/replay-epoch! frame-id (:epoch-id r))
               new-r (last-record)]
           (is (= {:ok? true :frame frame-id :source-epoch-id (:epoch-id r)
                   :event-id :replay/add :epoch-id (:epoch-id new-r)}
@@ -124,7 +124,7 @@
                       {:frame        frame-id
                        :rf.cofx      {:rf/time-ms 42}
                        :fx-overrides {:replay/real-fx :replay/stub-fx}})
-    (rf/replay-epoch! frame-id (:epoch-id (last-record))
+    (rf.epoch/replay-epoch! frame-id (:epoch-id (last-record))
                       {:origin       :pair
                        :frame        :some/other-frame
                        :rf.cofx      {:rf/time-ms 99}
@@ -159,7 +159,7 @@
           (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
         (reset! calls 0)
         (is (= :rf.error/missing-required-cofx
-               (ex-id #(rf/replay-epoch! frame-id epoch-id))))
+               (ex-id #(rf.epoch/replay-epoch! frame-id epoch-id))))
         (is (zero? @calls)
             "neither generator ran (the present fact re-presented, the absent one
              refused under :strict) and the handler did not run")))))
@@ -183,18 +183,18 @@
       (testing "unknown / aged-out id"
         (is (= {:ok? false :reason :rf.epoch/replay-unknown-epoch
                 :frame frame-id :epoch-id ::never-recorded :history-size n-before}
-               (rf/replay-epoch! frame-id ::never-recorded))))
+               (rf.epoch/replay-epoch! frame-id ::never-recorded))))
 
       (testing "unknown frame"
         (is (= {:ok? false :reason :rf.error/no-such-handler :kind :frame}
-               (select-keys (rf/replay-epoch! :replay/no-such-frame probe-id)
+               (select-keys (rf.epoch/replay-epoch! :replay/no-such-frame probe-id)
                             [:ok? :reason :kind]))))
 
       (testing "synthetic record (replace-frame-state!)"
-        (rf/replace-frame-state! frame-id {:rf.db/app {:injected true}})
+        (rf.epoch/replace-frame-state! frame-id {:rf.db/app {:injected true}})
         (is (= [:rf.epoch/replay-non-replayable-record :synthetic]
                ((juxt :reason :cause)
-                (rf/replay-epoch! frame-id (:epoch-id (last-record)))))))
+                (rf.epoch/replay-epoch! frame-id (:epoch-id (last-record)))))))
 
       (testing "recorded :rf/fn-override"
         (rf/dispatch-sync [:replay/probe]
@@ -202,13 +202,13 @@
                            :fx-overrides {:replay/real-fx (fn [_ _] :cljs-only)}})
         (let [fn-r (last-record)]
           (is (= [:rf.epoch/replay-unreplayable-fx-override [:replay/real-fx]]
-                 ((juxt :reason :fx-ids) (rf/replay-epoch! frame-id (:epoch-id fn-r)))))))
+                 ((juxt :reason :fx-ids) (rf.epoch/replay-epoch! frame-id (:epoch-id fn-r)))))))
 
       (testing "called from inside a drain"
         (let [attempt (atom ::unset)]
           (rf/reg-event :replay/reentrant
             (fn [{:keys [db]} _]
-              (reset! attempt (rf/replay-epoch! frame-id probe-id))
+              (reset! attempt (rf.epoch/replay-epoch! frame-id probe-id))
               {:db db}))
           (rf/dispatch-sync [:replay/reentrant] {:frame frame-id})
           (is (= [false :rf.epoch/replay-during-drain] ((juxt :ok? :reason) @attempt)))))
@@ -226,9 +226,9 @@
         {:db (update db :n (fnil inc 0))
          :fx [[:dispatch [:replay/loop]]]}))
     (rf/dispatch-sync [:replay/loop] {:frame :epoch-replay/halt})
-    (let [halted (last (rf/epoch-history :epoch-replay/halt))
+    (let [halted (last (rf.epoch/epoch-history :epoch-replay/halt))
           n      (:n (rf/app-db-value :epoch-replay/halt))
-          res    (rf/replay-epoch! :epoch-replay/halt (:epoch-id halted))]
+          res    (rf.epoch/replay-epoch! :epoch-replay/halt (:epoch-id halted))]
       (is (= [:rf.epoch/replay-non-replayable-record :halted :halted-depth
               (:halt-reason halted)]
              ((juxt :reason :cause :outcome :halt-reason) res))
@@ -279,12 +279,12 @@
         (let [r (last-record)]
           (is (= [100 :done] [(:replay/gen (:rf.cofx r)) (machine-state :replay/mint)])
               "the live run reached :done and its replay token captured the MID-RUN fact")
-          (is (:ok? (rf/restore-epoch! frame-id anchor-id)))
+          (is (:ok? (rf.epoch/restore-epoch! frame-id anchor-id)))
           (is (not= :done (machine-state :replay/mint))
               "restore rewound the machine to its pre-run snapshot")
           (reset! calls 0)
           (reset! seen ::unset)
-          (let [res (rf/replay-epoch! frame-id (:epoch-id r))]
+          (let [res (rf.epoch/replay-epoch! frame-id (:epoch-id r))]
             (is (= [true 100 0 :done]
                    [(:ok? res) @seen @calls (machine-state :replay/mint)])
                 "the guard read the RECORDED fact, the generator was not
@@ -325,7 +325,7 @@
       (rf/dispatch-sync [:replay/save {:password "topsecret"
                                        :blob     (apply str (repeat 600 "X"))}]
                         {:frame frame-id})
-      (let [res (rf/replay-epoch! frame-id (:epoch-id (last-record)))]
+      (let [res (rf.epoch/replay-epoch! frame-id (:epoch-id (last-record)))]
         (is (= {:ok?    false
                 :reason :rf.epoch/replay-non-replayable-record
                 :cause  :incomplete-inputs
@@ -364,9 +364,9 @@
     (rf/make-frame {:id evict-frame-id})
     (register-parent-and-child!)
     (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
-    (let [source (last (rf/epoch-history evict-frame-id))
-          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))]
-      (is (= [:review/child] (mapv :event-id (rf/epoch-history evict-frame-id)))
+    (let [source (last (rf.epoch/epoch-history evict-frame-id))
+          res    (rf.epoch/replay-epoch! evict-frame-id (:epoch-id source))]
+      (is (= [:review/child] (mapv :event-id (rf.epoch/epoch-history evict-frame-id)))
           "the replayed parent ran and its child evicted the parent's record")
       (is (= {:ok? true :frame evict-frame-id :source-epoch-id (:epoch-id source)
               :event-id :review/parent :epoch-id nil}
@@ -407,11 +407,11 @@
     (rf/make-frame {:id interleave-frame-id})
     (rf/reg-event :review/add add-handler)
     (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-    (let [source (last (rf/epoch-history interleave-frame-id))
+    (let [source (last (rf.epoch/epoch-history interleave-frame-id))
           res    (call-with-interleaving-listener
                    [:review/add 100]
-                   #(rf/replay-epoch! interleave-frame-id (:epoch-id source)))
-          after  (rf/epoch-history interleave-frame-id)]
+                   #(rf.epoch/replay-epoch! interleave-frame-id (:epoch-id source)))
+          after  (rf.epoch/epoch-history interleave-frame-id)]
       (is (= [[:review/add 1] [:review/add 100] [:review/add 1]]
              (mapv :trigger-event after))
           "the callback's dispatch committed inside the window, before the replay's")
@@ -449,7 +449,7 @@
                                (when (= :after park) (hold!))
                                dispatch-id))
                          (real event opts)))]
-         (let [replay (future (rf/replay-epoch! fid source-epoch-id))]
+         (let [replay (future (rf.epoch/replay-epoch! fid source-epoch-id))]
            (try
              (is (.await parked 10 TimeUnit/SECONDS)
                  "the replay thread reached its dispatch and parked")
@@ -467,12 +467,12 @@
        (rf/make-frame {:id interleave-frame-id})
        (rf/reg-event :review/add add-handler)
        (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-       (let [source-id (:epoch-id (last (rf/epoch-history interleave-frame-id)))
+       (let [source-id (:epoch-id (last (rf.epoch/epoch-history interleave-frame-id)))
              before    (replay-with-foreign-dispatch
                          interleave-frame-id source-id [:review/add 100] :before)
              after     (replay-with-foreign-dispatch
                          interleave-frame-id source-id [:review/add 100] :after)
-             history   (rf/epoch-history interleave-frame-id)]
+             history   (rf.epoch/epoch-history interleave-frame-id)]
          (is (= [[:review/add 1]
                  [:review/add 100] [:review/add 1]
                  [:review/add 1] [:review/add 100]]
@@ -499,9 +499,9 @@
           (do (rf/destroy-frame! doomed-frame-id) {})
           {:db (assoc db :ran true)})))
     (rf/dispatch-sync [:review/destroy-on-rerun] {:frame doomed-frame-id})
-    (let [source-id (:epoch-id (last (rf/epoch-history doomed-frame-id)))
-          res       (rf/replay-epoch! doomed-frame-id source-id)]
-      (is (= [] (rf/epoch-history doomed-frame-id))
+    (let [source-id (:epoch-id (last (rf.epoch/epoch-history doomed-frame-id)))
+          res       (rf.epoch/replay-epoch! doomed-frame-id source-id)]
+      (is (= [] (rf.epoch/epoch-history doomed-frame-id))
           "the frame, and its ring, went with the replayed event")
       (is (= {:ok? true :epoch-id nil} (select-keys res [:ok? :epoch-id]))))))
 
@@ -538,11 +538,11 @@
     (rf/make-frame {:id evict-frame-id})
     (register-three-generations!)
     (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
-    (let [source-id (:epoch-id (last (rf/epoch-history evict-frame-id)))
-          traced    (rf/replay-epoch! evict-frame-id source-id)
+    (let [source-id (:epoch-id (last (rf.epoch/epoch-history evict-frame-id)))
+          traced    (rf.epoch/replay-epoch! evict-frame-id source-id)
           _         (reg-quiet! :review/parent parent-handler)
-          quiet     (rf/replay-epoch! evict-frame-id source-id)
-          after     (rf/epoch-history evict-frame-id)]
+          quiet     (rf.epoch/replay-epoch! evict-frame-id source-id)
+          after     (rf.epoch/epoch-history evict-frame-id)]
       (is (= [:review/parent
               :review/parent :review/child :review/grandchild
               :review/child :review/grandchild]

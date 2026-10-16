@@ -51,7 +51,7 @@
    There is no non-route blocking-drain surface to reach for instead (Spec
    016 §SSR and hydration ties blocking to the route resource plan), so this
    example polls the one resource it cares about directly via the public
-   `rf/resource-state` introspection read — see `await-resource-loaded!`
+   `rf.resources/resource-state` introspection read — see `await-resource-loaded!`
    below.
 
    For the full picture see [Resources: SSR and hydration](../../../../docs/resources/concepts.md#ssr-and-hydration)
@@ -66,8 +66,10 @@
             ;; Managed HTTP — how the resource actually fetches.
             [re-frame.http.managed]
             ;; The resources artefact. Loading it boots the registrations and
-            ;; the SSR projection hook the ssr artefact reaches for.
-            [re-frame.resources]
+            ;; the SSR projection hook the ssr artefact reaches for; the server
+            ;; also reads `resource-state` from it.
+            #?(:clj  [re-frame.resources :as rf.resources]
+               :cljs [re-frame.resources])
             ;; SSR: render-to-string, the `:rf/hydrate` event, and the
             ;; per-request server effects.
             [re-frame.ssr :as rf.ssr]
@@ -300,7 +302,7 @@
 ;; For a route-free SSR page there is no non-route blocking-drain surface to
 ;; reach for instead (Spec 016 §SSR and hydration ties blocking to the route
 ;; resource plan). So `await-resource-loaded!` polls the ONE resource this
-;; page cares about directly, via the public `rf/resource-state`
+;; page cares about directly, via the public `rf.resources/resource-state`
 ;; introspection read — the same bounded-yield-then-recheck shape the
 ;; framework's own drain loop uses internally (`re-frame.ssr`'s
 ;; `default-blocking-pump!`), just keyed on a single scoped resource instead
@@ -318,7 +320,7 @@
 
 #?(:clj
    (defn- await-resource-loaded!
-     "Poll a resource's runtime entry (`rf/resource-state`) until its
+     "Poll a resource's runtime entry (`rf.resources/resource-state`) until its
       `:status` reaches a terminal `:loaded` / `:error`, or
       `preload-deadline-ms` elapses. Yields the JVM thread between checks
       (`Thread/sleep`) so the managed-HTTP transport's async reply lands and
@@ -326,12 +328,12 @@
       `HttpClient/sendAsync`, so nothing settles the entry synchronously
       inside the `:rf.resource/ensure` dispatch itself.
 
-      `:frame` is the frame ID — `rf/resource-state`'s introspection target
+      `:frame` is the frame ID — `rf.resources/resource-state`'s introspection target
       keys the frame registry directly. See the call site."
      [{:keys [resource scope params frame]}]
      (let [deadline (+ (System/currentTimeMillis) preload-deadline-ms)]
        (loop []
-         (let [entry (rf/resource-state {:resource resource :scope scope
+         (let [entry (rf.resources/resource-state {:resource resource :scope scope
                                           :params params :frame frame})]
            (if (or (contains? #{:loaded :error} (:status entry))
                    (>= (System/currentTimeMillis) deadline))
@@ -384,7 +386,7 @@
            ;;
            ;; `:frame fid`, not `:frame f`. Most of the public surface takes a
            ;; frame VALUE or a frame-id keyword interchangeably — `app-db-value`
-           ;; just below is handed `f` — but `rf/resource-state`'s introspection
+           ;; just below is handed `f` — but `rf.resources/resource-state`'s introspection
            ;; target is the frame ID, which is what the runtime-db read keys the
            ;; registry by. Hand it the value and every poll reads nil: no entry
            ;; under that key, no terminal status, and the loop burns the whole

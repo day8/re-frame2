@@ -332,7 +332,7 @@ The value is a map `{interceptor-ref replacement}`:
 - Events queued with `[:dispatch …]` or `[:dispatch-later …]` inherit the dispatch's map.
 - The `{:boundary? true}` schema check of [`reg-event`](#reg-event) runs before the chain, so no override can remove it.
 - In development builds the run's `:rf.event/run-start` trace event carries `:rf.interceptor/override-summary`: `{:matched […] :replaced […] :removed […] :count n}`, naming the keys that matched an entry. A key that matched nothing is not listed.
-- An epoch record carries the dispatch's map as `:interceptor-overrides`, never the frame's, so [`replay-epoch!`](#replay-epoch) supplies the recorded map and the frame's own config applies as it stands at replay.
+- An epoch record carries the dispatch's map as `:interceptor-overrides`, never the frame's, so [`replay-epoch!`](re-frame.epoch.md#replay-epoch) supplies the recorded map and the frame's own config applies as it stands at replay.
 
 ```clojure
 (rf/reg-interceptor :app/audit
@@ -782,7 +782,7 @@ Any other top-level key rejects the event before anything commits, so a valid `:
   ```
 - **Description**: `overrides` is a map `{fx-id override}`. Replaces effect handlers for every `dispatch` and `dispatch-sync` inside `body`, usually to stub an effect in a test. Each such call merges the map under its own `:fx-overrides`, so a per-call key wins. The overrides apply for the dynamic extent of `body` and compose with `with-frame`.
     - Precedence, highest first: per call (`(rf/dispatch event {:fx-overrides {...}})`), then scoped (`with-fx-overrides`), then per frame (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
-    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](#replay-epoch).
+    - An override value is the id of another registered fx, which runs in place of the original. An override may also be a function, called like a `reg-fx` handler with `ctx` and `args`, for test wiring; an epoch recorded under a function override cannot be replayed with [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
     - `nil` or `false` means no override, so `{:app/save (when stub? :app/save-stub)}` is safe. An unregistered id or any other value emits `:rf.error/override-fallthrough`, and the original effect runs.
     - `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` and `:rf.route/with-nav-token` cannot be overridden: the override is ignored, the real effect runs, and `:rf.error/reserved-fx-override` is emitted.
     - Events queued with `:dispatch` or `:dispatch-later` from inside the scope keep the overrides.
@@ -957,7 +957,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
 - The new frame starts with an empty `app-db` and `runtime-db` and runs its `:initial-events` again; a machine's snapshot stays `nil` until the machine next handles an event.
 - For a frame built from images, pass the same `:images` vector again; otherwise the new frame gets the default image, which runs every registration.
 - Flows are not part of the config. `destroy-frame!` removes the frame's flows, so register them again after `make-frame`, or register them from `:initial-events` with [`:rf.fx/reg-flow`](re-frame.flows.md#rffxreg-flow).
-- To empty `app-db` and keep `runtime-db`, dispatch `[:rf/set-db {}]` instead. Development tools can also call `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
+- To empty `app-db` and keep `runtime-db`, dispatch `[:rf/set-db {}]` instead. Development tools can also call `(rf.epoch/replace-frame-state! frame-id {:rf.db/app {}})`.
 - The pair is not atomic. `destroy-frame!` has no handler-scope guard, so called from inside a handler it destroys the frame, and the following `make-frame` throws because frames cannot be created inside a handler, leaving the frame destroyed. Frame creation and destruction belong outside handlers anyway.
 - See [Ending and resetting a frame](../core/frames.md#ending-and-resetting-a-frame).
 
@@ -1417,17 +1417,9 @@ Resources are cached server-state reads, and mutations are the writes that updat
 - **Signature**: `(resolve-resource-scope db scope-id) → scope or nil`
 - **Description**: Resolves the named scope resolver against `db`. See [`resolve-resource-scope`](re-frame.resources.md#resolve-resource-scope).
 
-#### `resource-state`
+#### Reading a resource's or mutation's runtime state
 
-- **Kind**: function
-- **Signature**: `(resource-state {:resource … :scope … :params … :frame …}) → entry or nil`
-- **Description**: Returns a resource instance's durable runtime entry in an explicit frame, resolving the scoped key as a subscription would. For tools and tests. See [`resource-state`](re-frame.resources.md#resource-state).
-
-#### `mutation-state`
-
-- **Kind**: function
-- **Signature**: `(mutation-state {:instance … :frame …}) → row or nil`
-- **Description**: Returns a mutation instance's durable runtime row (`{:status :result :error …}`) in an explicit frame. For tools and tests. See [`mutation-state`](re-frame.resources.md#mutation-state).
+These reads are inspection for tools and tests, so they are called in `re-frame.resources` rather than through `rf/`: [`resource-state`](re-frame.resources.md#resource-state) and [`mutation-state`](re-frame.resources.md#mutation-state).
 
 #### Reading a registered resource's or mutation's spec
 
@@ -1590,7 +1582,7 @@ See [Observability](../core/observability.md).
 - **Description**: Returns a record or value prepared for sending off-box: the paths the frame classifies as sensitive are redacted and large values elided, as the chosen egress profile (a named policy for one kind of destination) directs. Call it before handing anything to an off-box destination yourself, or to check what a sink will receive; sinks registered with [`register-observability-sink!`](#register-observability-sink) are handed records already projected. It is the only record-level egress function.
     - It recognises four record kinds by `:kind`: `:rf.observe/handled-event`, `:rf.observe/error`, `:rf.observe/derived-tree` and `:rf/epoch-record`. An input without a recognised `:kind` is walked as a plain value against the frame's classification.
     - Projecting an `:rf/epoch-record` needs the optional `day8/re-frame2-epoch` artefact. Without it the call throws `:rf.error/epoch-artefact-missing`, naming the kind, rather than walking the record as a plain value, which would ship its `app-db` slots raw.
-    - To project a whole epoch ring, map over it: `(mapv #(rf/project-egress % opts) (rf/epoch-history frame-id))`. The ring and its listeners always hold the raw record, so projecting never affects `restore-epoch!`. See [re-frame.epoch](re-frame.epoch.md).
+    - To project a whole epoch ring, map over it: `(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))`. The ring and its listeners always hold the raw record, so projecting never affects `restore-epoch!`. See [re-frame.epoch](re-frame.epoch.md).
     - See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md), and [Choosing a profile](../core/how-to/keep-secrets-out-of-traces.md#choosing-a-profile).
 - **Options**: `opts` is closed; an unknown key throws `:rf.error/bad-egress-opts`, naming it.
 
@@ -1674,36 +1666,9 @@ See [Observability](../core/observability.md).
   ```clojure
   (epoch-history frame-target) → vector of epoch records
   ```
-- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds. See [`epoch-history`](re-frame.epoch.md#epoch-history) for the full contract.
+- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds, and `[]` without the `day8/re-frame2-epoch` artefact. It is the same read as [`re-frame.epoch/epoch-history`](re-frame.epoch.md#epoch-history), which new code calls.
 
-### `restore-epoch!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (restore-epoch! frame-target epoch-id)      → envelope map (false when elided / artefact absent)
-  (restore-epoch! frame-target epoch-id opts) → envelope map (false when elided / artefact absent)
-  ```
-- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `{:ok? true …}`, or `{:ok? false :reason …}` when it refuses. With `opts` `{:to :before}` it installs the state from before the epoch's event instead. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
-
-### `replay-epoch!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replay-epoch! frame-target epoch-id)      → envelope map (false when elided / artefact absent)
-  (replay-epoch! frame-target epoch-id opts) → envelope map (false when elided / artefact absent)
-  ```
-- **Description**: Development builds only: runs a retained epoch's event again in `frame-target`, a frame id or a live frame value, with the coeffect values and overrides it recorded, and returns a `{:ok? …}` envelope. See [`replay-epoch!`](re-frame.epoch.md#replay-epoch) for the full contract.
-
-### `replace-frame-state!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replace-frame-state! frame-target frame-state) → envelope map
-  ```
-- **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, records a synthetic epoch so `restore-epoch!` can rewind it, and returns a `{:ok? …}` envelope. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
+Rewinding a frame, replaying an epoch and writing frame state outside the event pipeline are tools, so they are called in `re-frame.epoch` rather than through `rf/`: [`restore-epoch!`](re-frame.epoch.md#restore-epoch), [`replay-epoch!`](re-frame.epoch.md#replay-epoch) and [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state).
 
 ## Registrar queries
 

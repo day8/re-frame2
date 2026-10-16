@@ -26,6 +26,7 @@
   intent visible: the slot is `:rf/xray`-frame state shared across every
   panel that cares about time, not any one panel's private surface."
   (:require [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]))
 
@@ -131,7 +132,7 @@
       (get db :epoch-history [])))
 
   ;; Transient `reset-to-event` failure flash. Holds a short
-  ;; message string when a `rf/restore-epoch!` rewind fails (epoch aged
+  ;; message string when a `rf.epoch/restore-epoch!` rewind fails (epoch aged
   ;; out of the buffer, or a restore-during-drain rejection). nil =
   ;; nothing to show. The flash is INLINE on the tab ribbon — never a
   ;; modal — and clears on the next reset attempt (`:rf.xray/reset-to-
@@ -145,7 +146,7 @@
 
   ;; `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
-  ;; so it lives in an fx, not a plain `reg-event` `:db` reducer. `rf/restore-epoch!`
+  ;; so it lives in an fx, not a plain `reg-event` `:db` reducer. `rf.epoch/restore-epoch!`
   ;; returns `{:ok? false :reason <op> …}` on any of the seven documented
   ;; failure modes (per Tool-Pair §Time-travel — Restore, including
   ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged, and
@@ -158,7 +159,7 @@
   (rf/reg-fx :rf.xray.fx/restore-epoch
     (fn [_ctx {:keys [frame epoch-id]}]
       (when (and frame epoch-id)
-        (let [r (rf/restore-epoch! frame epoch-id)]
+        (let [r (rf.epoch/restore-epoch! frame epoch-id)]
           (when-not (:ok? r)
             (rf/dispatch [:rf.xray/reset-flash-failed (:reason r)]))))))
 
@@ -171,7 +172,7 @@
   ;; ordinary `:rf/default` id (Spec 002 §Frame target resolution). A known
   ;; frame-id seeds `:epoch-history` from the framework's per-frame epoch
   ;; ring so the immediate subscribe-after-dispatch read sees a hydrated
-  ;; slot; a nil resets the history to `[]` (`rf/epoch-history nil` → `[]`).
+  ;; slot; a nil resets the history to `[]` (`rf.epoch/epoch-history nil` → `[]`).
   ;;
   ;; The reducer ALSO aligns `[:focus :frame]` to the same target. The
   ;; two axes encode the same gesture (the user is observing this host
@@ -192,7 +193,7 @@
   (rf/reg-event :rf.xray/set-target-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (let [target (or frame-id defaults/default-target-frame)]
-        (cond-> (assoc db :epoch-history (redact-history (rf/epoch-history target)))
+        (cond-> (assoc db :epoch-history (redact-history (rf.epoch/epoch-history target)))
           (nil? frame-id)  (dissoc :target-frame)
           (nil? frame-id)  (update :focus (fnil dissoc {}) :frame)
           (some? frame-id) (assoc :target-frame frame-id)
@@ -257,10 +258,10 @@
           (-> db
               (assoc :target-frame frame-id)
               (assoc-in [:focus :frame] frame-id)
-              (assoc :epoch-history (redact-history (rf/epoch-history frame-id))))
+              (assoc :epoch-history (redact-history (rf.epoch/epoch-history frame-id))))
 
           (= frame-id target)
-          (assoc db :epoch-history (redact-history (rf/epoch-history target)))
+          (assoc db :epoch-history (redact-history (rf.epoch/epoch-history target)))
 
           :else db))}))
 
@@ -330,7 +331,7 @@
   ;; epoch-id. The view supplies both from `:rf.xray/observed-frame` +
   ;; `:rf.xray/focus-epoch-id` so this event stays a thin trampoline into
   ;; the `:rf.xray.fx/restore-epoch` effect (which calls the framework's
-  ;; `rf/restore-epoch!`, reinstalling the epoch's WHOLE `:frame-state-after`
+  ;; `rf.epoch/restore-epoch!`, reinstalling the epoch's WHOLE `:frame-state-after`
   ;; — app-db AND runtime-db in one atomic write, per epoch ·
   ;; `restore-epoch!`; the retained `:db-after` is only an app-db projection
   ;; for diffs, never the restore source — "if the event still exists, app
@@ -358,7 +359,7 @@
 
   ;; `:rf.xray/reset-flash-failed` — set the inline failure
   ;; flash, naming the refusal's `:reason`. Dispatched from
-  ;; `:rf.xray.fx/restore-epoch` when `rf/restore-epoch!` refuses; a nil
+  ;; `:rf.xray.fx/restore-epoch` when `rf.epoch/restore-epoch!` refuses; a nil
   ;; reason means the epoch surface itself is unavailable (elided).
   ;; `:rf.trace/no-emit? true` keeps Xray's own chrome event off the trace
   ;; bus it is inspecting.

@@ -24,7 +24,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
             [re-frame.elision]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             ;; Publishes the validator a sub's `:schema` check runs through;
             ;; inv-10's recompute emits no failure without it.
@@ -95,9 +95,9 @@
   "Re-read `epoch`'s record from the ring; back-fills replace it in place."
   [frame-id epoch]
   (some #(when (= (:epoch-id epoch) (:epoch-id %)) %)
-        (rf/epoch-history frame-id)))
+        (rf.epoch/epoch-history frame-id)))
 
-(defn- last-epoch [frame-id] (last (rf/epoch-history frame-id)))
+(defn- last-epoch [frame-id] (last (rf.epoch/epoch-history frame-id)))
 
 (defn- rendered-view-ids [record]
   (->> (:renders record) (map (comp first :render-key)) set))
@@ -267,7 +267,7 @@
   (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
   (rf/dispatch-sync [:inc] {:frame :test/main})
-  (let [history (rf/epoch-history :test/main)]
+  (let [history (rf.epoch/epoch-history :test/main)]
     (is (= [:app/init :inc] (mapv :event-id history))
         ":rf.frame/created is not an epoch of its own")
     (is (not-any? #{[:rf.frame :rf.frame/created]} (mapcat trace-ops history))
@@ -418,7 +418,7 @@
   (rf/dispatch-sync [:seed]        {:frame :test/main})
   (rf/dispatch-sync [:counter-inc] {:frame :test/main})
   (let [live (last-epoch :test/main)]
-    (is (false? (:ok? (rf/restore-epoch! :test/main :no-such-epoch))))
+    (is (false? (:ok? (rf.epoch/restore-epoch! :test/main :no-such-epoch))))
     (emit-render! :test/main :counter-view)
     (is (contains? (rendered-view-ids (epoch-by-id :test/main live)) :counter-view)
         "the re-anchor is success-only: later activity still lands on the live epoch")))
@@ -442,7 +442,7 @@
                [(contains? (rf.epoch.state/render-deps-for :test/main render-key) :counter)
                 (contains? (sub-run-ids (epoch-by-id :test/main stale)) :counter)])
             "premise: the read-set is learned and the stale epoch carries the evidence")
-        (is (:ok? (rf/restore-epoch! :test/main (:epoch-id target))))
+        (is (:ok? (rf.epoch/restore-epoch! :test/main (:epoch-id target))))
         (emit-render! :test/main render-key)
         (is (= [#{} #{:counter-view}]
                (map (comp rendered-view-ids #(epoch-by-id :test/main %)) [stale target]))
@@ -509,7 +509,7 @@
         "a first run, with no previous run retained, reaches back to the oldest epoch")
     (rf/dispatch-sync [:runner/inc] {:frame :test/main})
     (rf/dispatch-sync [:runner/inc] {:frame :test/main})
-    (let [[a b] (map :epoch-id (take-last 2 (rf/epoch-history :test/main)))]
+    (let [[a b] (map :epoch-id (take-last 2 (rf.epoch/epoch-history :test/main)))]
       @count-sub
       (is (= [[a b] [a b]] (window-of (last-epoch :test/main) :runner/count))
           "both epochs since the previous post-settle run, and not that run's own"))))

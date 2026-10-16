@@ -434,7 +434,7 @@
                      ;; the user sees on every variant switch. The
                      ;; `:rf.xray/set-target-frame` handler writes both
                      ;; `:target-frame` AND re-seeds `:epoch-history`
-                     ;; from `(rf/epoch-history variant-id)` in lockstep
+                     ;; from `(rf.epoch/epoch-history variant-id)` in lockstep
                      ;; (per Xray's `epoch.cljs` reducer), so the L2
                      ;; list, App-DB diff and downstream subs all flip
                      ;; in one frame.

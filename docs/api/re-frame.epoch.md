@@ -4,27 +4,27 @@ In development builds, re-frame records an epoch for every event a frame handles
 
 Most of the time you use epochs through a tool: Xray's time-travel view, re-frame2-pair and Story read the history and call these functions for you. At a REPL the usual loop is the one below: find the event that went wrong, rewind to just before it, fix and reload its handler, and replay it.
 
-Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it. Without it, `rf/epoch-history` returns `[]`, `rf/restore-epoch!` and `rf/replay-epoch!` return `false`, and `rf/replace-frame-state!` throws `:rf.error/epoch-artefact-missing`.
+Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it, and call the functions on this page there, as `rf.epoch/…`. A tool that must also run without the artefact reads the history through `rf/epoch-history`, which returns `[]` when it is absent.
 
 ```clojure
 (:require [re-frame.core  :as rf]
-          [re-frame.epoch :as epoch])
+          [re-frame.epoch :as rf.epoch])
 ```
 
 ```clojure
 ;; What did the recent events do? History is oldest-first.
-(def history (rf/epoch-history :app/main))
+(def history (rf.epoch/epoch-history :app/main))
 (map :event-id history)                  ;; => (:cart/add :cart/add :cart/checkout)
 (select-keys (peek history) [:trigger-event :db-before :db-after])
 
 ;; :cart/checkout went wrong. Rewind to the state just before it,
 ;; which is the previous epoch's after-state.
-(rf/restore-epoch! :app/main (:epoch-id (nth history 1)))
+(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history 1)))
 ;; => {:ok? true :frame :app/main :epoch-id … :to :after}
 
 ;; Fix and reload the :cart/checkout handler, then run the recorded event
 ;; again. Its effects, such as an HTTP request, run again too.
-(rf/replay-epoch! :app/main (:epoch-id (nth history 2)))
+(rf.epoch/replay-epoch! :app/main (:epoch-id (nth history 2)))
 ;; => {:ok? true :frame :app/main :event-id :cart/checkout …}
 ```
 
@@ -34,7 +34,7 @@ last event and checkout runs again, recording a new epoch.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
-         '[re-frame.epoch])
+         '[re-frame.epoch :as rf.epoch])
 
 (rf/reg-event :cart/add
   (fn [{:keys [db]} [_ item]]
@@ -51,7 +51,7 @@ last event and checkout runs again, recording a new epoch.
   (let [items   @(subscribe [:cart/items])
         ordered @(subscribe [:cart/ordered])
         ;; Not a subscription: read again whenever the cart changes.
-        history (rf/epoch-history :app/main)
+        history (rf.epoch/epoch-history :app/main)
         n       (count history)]
     [:div
      [:button {:on-click #(dispatch [:cart/add "apple"])} "Add an apple"]
@@ -60,18 +60,18 @@ last event and checkout runs again, recording a new epoch.
      [:p "Cart: " (pr-str items) ", ordered: " (pr-str ordered)]
      [:p "History: " (pr-str (map :event-id history))]
      [:button {:disabled (< n 2)
-               :on-click #(rf/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
+               :on-click #(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
       "Rewind to before the last event"]
      " "
      [:button {:disabled (zero? n)
-               :on-click #(rf/replay-epoch! :app/main (:epoch-id (peek history)))}
+               :on-click #(rf.epoch/replay-epoch! :app/main (:epoch-id (peek history)))}
       "Replay the last event"]]))
 
 [rf/frame-root {:id :app/main}
  [cart-history]]
 ```
 
-You call everything on this page through `rf/`, including listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`). The same-named `re-frame.epoch` vars are the implementations behind the facade; a test calls only the teardown functions `clear-history!` and `clear-epoch-listeners!` on `epoch/`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
+Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`) go through `rf/`; everything else on this page is called on `rf.epoch/`, including the teardown functions a test calls, `clear-history!` and `clear-epoch-listeners!`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
 
 ## Epoch history
 
@@ -91,8 +91,8 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; All recorded epochs for a frame, oldest-first; peek the latest.
-  (rf/epoch-history :app/main)
-  (last (rf/epoch-history :app/main))
+  (rf.epoch/epoch-history :app/main)
+  (last (rf.epoch/epoch-history :app/main))
   ```
 
 ## The epoch record
@@ -159,8 +159,8 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
     - `:rf.epoch/restore-version-mismatch`: a machine snapshot's version differs from the current definition.
 - **Example**:
   ```clojure
-  (let [target (last (rf/epoch-history :app/main))
-        r      (rf/restore-epoch! :app/main (:epoch-id target))]
+  (let [target (last (rf.epoch/epoch-history :app/main))
+        r      (rf.epoch/restore-epoch! :app/main (:epoch-id target))]
     (when-not (:ok? r)
       (println "restore refused:" (:reason r))))
   ```
@@ -192,8 +192,8 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; Replay the most recent epoch through the app's own handlers, strictly.
-  (let [source (last (rf/epoch-history :app/main))]
-    (rf/replay-epoch! :app/main (:epoch-id source)))
+  (let [source (last (rf.epoch/epoch-history :app/main))]
+    (rf.epoch/replay-epoch! :app/main (:epoch-id source)))
   ;; => {:ok? true :frame :app/main :source-epoch-id 41 :event-id :cart/add :epoch-id 42}
   ```
 
@@ -222,16 +222,16 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; Replace app-db only; runtime-db is kept.
-  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
 
   ;; Empty app-db while keeping machines and routes alive.
-  (rf/replace-frame-state! :app/main {:rf.db/app {}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {}})
 
   ;; Replace runtime-db only; app-db is kept.
-  (rf/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
 
   ;; Replace both partitions atomically.
-  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
   ```
 
 ## Epoch listeners
@@ -276,11 +276,11 @@ The ring and the `:epoch` listeners always hold the raw record, so on-box tools 
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).
-(rf/project-egress (last (rf/epoch-history :app/main)))
+(rf/project-egress (last (rf.epoch/epoch-history :app/main)))
 ;; Tool wire: elided slots carry the marker's structural fields, no digest.
 (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
 ;; The whole ring.
-(mapv #(rf/project-egress % opts) (rf/epoch-history :app/main))
+(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history :app/main))
 ```
 
 ## Configuration
@@ -347,7 +347,7 @@ Not for application code — used by adapters, tools and the test harness.
 - **Example**:
   ```clojure
   ;; Reset epoch state between test fixtures.
-  (epoch/clear-history!)
+  (rf.epoch/clear-history!)
   ```
 
 ### `clear-epoch-listeners!`

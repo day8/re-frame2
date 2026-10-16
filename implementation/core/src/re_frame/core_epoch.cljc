@@ -5,12 +5,9 @@
 
   The entire epoch surface is gated on `interop/debug-enabled?` (Tool-
   Pair §Time-travel §Production elision). Absent-artefact wrappers
-  degrade silently (empty vector / `false` / no-op) so a release build
-  that omits the artefact does not raise. The partial-map partition-aware
-  injection mutator (`replace-frame-state!`, the ONE frame-state write
-  surface) is the exception — it records a synthetic epoch, so it
-  cannot degrade silently (the caller's invariant is 'undo works after
-  this call'); it raises `:rf.error/epoch-artefact-missing`.
+  degrade silently (empty vector / no-op) so a release build that omits
+  the artefact does not raise. The restore, replay and frame-state write
+  surfaces have no wrapper here: they live at home in `re-frame.epoch`.
 
   Every wrapper that names a frame takes its id or the frame value
   `rf/make-frame` returns."
@@ -30,63 +27,6 @@
   via `:epoch/epoch-history`."
   {:hook :epoch/epoch-history :artefact epoch-artefact :on-absent :empty-vec}
   ([frame-id] :delegate))
-
-(defwrapper restore-epoch!
-  "Rewind the named frame's WHOLE frame-state — BOTH the app-db AND
-  runtime-db partitions — to the named epoch's `:frame-state-after`, or with
-  `opts` `{:to :before}` to its `:frame-state-before`, via
-  `replace-frame-state!` (EP-0001). This
-  revives machine snapshots, the route slice, elision declarations, and SSR
-  metadata (runtime-db state) alongside app-db — not just the app-db
-  partition. Those two canonical snapshots are the ONLY restore sources:
-  the `:db-after` slot is a retained app-db PROJECTION for tool diffs, never
-  a restore source (there is no db-only fallback). Restoring the synthetic
-  record `replace-frame-state!` leaves `{:to :before}` undoes the injection,
-  even when it is the only record retained. A `:to` other than `:after` or
-  `:before` throws. Per Tool-Pair §Time-travel: returns the
-  `{:ok? true :frame … :epoch-id … :to …}` envelope on success and
-  `{:ok? false :reason <op> :frame … …tags}` on any of the seven documented
-  failure modes (each also emits a structured `:rf.epoch/*` error trace and
-  leaves `app-db` unchanged), and `false` when the `day8/re-frame2-epoch`
-  artefact is not on the classpath. The seven modes are `:rf.error/no-such-handler` (frame not registered),
-  `:rf.epoch/restore-during-drain`, `:rf.epoch/restore-unknown-epoch`,
-  `:rf.epoch/restore-non-ok-record` (target epoch's `:outcome` is not
-  `:ok`), `:rf.epoch/restore-schema-mismatch`,
-  `:rf.epoch/restore-missing-handler`, and
-  `:rf.epoch/restore-version-mismatch`.
-  Late-bound via `:epoch/restore-epoch!`."
-  {:hook :epoch/restore-epoch! :artefact epoch-artefact :on-absent :false}
-  ([frame-id epoch-id] :delegate)
-  ([frame-id epoch-id opts] :delegate))
-
-(defwrapper replay-epoch!
-  "Re-drive the named retained epoch's recorded event through the frame's
-  own handlers in ONE call, as a strict replay (Tool-Pair §Replay): the raw
-  argument-bearing `:trigger-event`, the recorded post-generation `:rf.cofx`
-  token under `:rf.cofx/mint-policy :strict`, and the record's own
-  `:fx-overrides` / `:interceptor-overrides` are resolved in-process and
-  folded into the dispatch opts — nothing is exported or copied by hand.
-  Same frame in and out; replay runs against the frame's CURRENT state and
-  code (it does not restore first — compose with `restore-epoch!` for
-  that), any external effect the handler emits fires again, and the
-  replayed dispatch records a new ordinary epoch.
-
-  Returns a structured `{:ok? …}` envelope: on success `:epoch-id` is the
-  new epoch and `:source-epoch-id` the replayed one; a refusal (`:reason` —
-  `:rf.error/no-such-handler` for an unknown frame, or one of
-  `:rf.epoch/replay-during-drain` / `:rf.epoch/replay-unknown-epoch` /
-  `:rf.epoch/replay-non-replayable-record` /
-  `:rf.epoch/replay-unreplayable-fx-override`) is decided BEFORE anything
-  dispatches. A declared recordable fact absent from the recorded token is
-  the canonical `:rf.error/missing-required-cofx` hard error out of the
-  dispatch, never a mint. The 3-arity threads an ordinary dispatch-opts map
-  for the slots replay does not own (`:origin` / `:source` / `:trace-id`).
-  Returns `false` when the epoch surface is elided, or when the
-  `day8/re-frame2-epoch` artefact is not on the classpath — the same inert
-  value `restore-epoch!` returns. Late-bound via `:epoch/replay-epoch!`."
-  {:hook :epoch/replay-epoch! :artefact epoch-artefact :on-absent :false}
-  ([frame-id epoch-id] :delegate)
-  ([frame-id epoch-id opts] :delegate))
 
 (defwrapper register-epoch-listener!
   "Register a callback fired for each assembled
@@ -112,58 +52,3 @@
   {:hook :epoch/clear-epoch-listeners! :artefact epoch-artefact :on-absent :nil}
   ([] :delegate))
 
-(defwrapper replace-frame-state!
-  "Atomically install `frame-state` — a PARTIAL frame-state map (any
-  subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
-  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
-  partition, an ABSENT key is preserved unchanged (the ONE frame-state
-  write surface). A db-shaped key never silently touches the other
-  partition — the partition is named explicitly at every call site.
-  Per Tool-Pair §Pair-tool writes.
-
-  The canonical Tool-Pair write surface for state injection — pair tools
-  use it for evolved-state-shape probes after a handler hot-swap,
-  story-tool fixture setup, conformance-harness state seeding, and
-  time-travel from JSON-loaded bug repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch!` can rewind the previous state —
-  restoring that record `{:to :before}` undoes the injection; emits
-  `:rf.epoch/db-replaced` on success.
-
-  App-only injection: `(replace-frame-state! frame-id {:rf.db/app v})`;
-  an app-only reset is `(replace-frame-state! frame-id
-  {:rf.db/app {}})`. Runtime-only injection:
-  `(replace-frame-state! frame-id {:rf.db/runtime v})`.
-  Both-partition install supplies both keys.
-
-  Failure modes (each is a no-op on the frame-state and emits a structured
-  error trace):
-
-    :rf.error/replace-frame-state-bad-keys — `frame-state` carries no
-                                                   recognized partition key
-                                                   (`:rf.db/app` /
-                                                   `:rf.db/runtime`), or an
-                                                   unrecognized key — checked
-                                                   BEFORE frame resolution
-    :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — a PRESENT app-db partition fails
-                                                   the frame's app-schema set,
-                                                   OR a PRESENT runtime-db
-                                                   partition fails the
-                                                   framework-owned runtime-db
-                                                   validator
-    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
-                                                   the synthetic undo-anchor
-                                                   cannot land
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds
-  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/replace-frame-state!`; raises
-  `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch`
-  artefact is not on the classpath (it records an epoch and so cannot
-  degrade silently).
-
-  Returns `{:ok? true :frame … :epoch-id …}` on success and
-  `{:ok? false :reason <op> :frame … …tags}` on any failure."
-  {:hook :epoch/replace-frame-state! :artefact epoch-artefact :on-absent :throw}
-  ([frame-id frame-state] :delegate))

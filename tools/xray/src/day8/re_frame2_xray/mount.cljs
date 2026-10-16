@@ -643,7 +643,7 @@
     **nil = UNSELECTED**: the target stays unselected (the frame picker
     prompts a choice) rather than defaulting to `:rf/default`. The
     `:rf.xray/set-target-frame` event writes `:target-frame` and
-    re-seeds `:epoch-history` from `(rf/epoch-history seed-frame)`
+    re-seeds `:epoch-history` from `(rf.epoch/epoch-history seed-frame)`
     in lockstep — symmetric with the picker path and the public
     `core/set-target-frame!` API.
 
@@ -768,7 +768,7 @@
         ;;
         ;; Re-dispatching a PRESERVED target is deliberate rather than a
         ;; skippable no-op: `:epoch-history` re-seeds from
-        ;; `(rf/epoch-history seed-frame)` on every write, so routing the
+        ;; `(rf.epoch/epoch-history seed-frame)` on every write, so routing the
         ;; preserved target through the same event harvests the epochs the
         ;; host recorded between its call and first open. Skipping the
         ;; dispatch would keep the target and strand the history at the

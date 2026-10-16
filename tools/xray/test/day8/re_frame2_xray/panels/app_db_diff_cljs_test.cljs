@@ -9,6 +9,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.egress :as egress]
@@ -70,7 +71,7 @@
   derefs the host frame via :rf.xray/target-frame-db."
   [db-value]
   (rf/make-frame {:id :rf/default})
-  (rf/replace-frame-state! :rf/default {:rf.db/app db-value}))
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/app db-value}))
 
 (defn- seed-host-runtime-db!
   "Install `runtime-db-value` into the host (:rf/default) frame's
@@ -279,8 +280,8 @@
       (is (nil? @(rf/subscribe [:rf.xray/observed-frame]))
           "cold start: no frame is observed until the picker selects one"))
     ;; Give the two frames distinguishable values.
-    (rf/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
-    (rf/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
+    (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
+    (rf.epoch/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
       (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))

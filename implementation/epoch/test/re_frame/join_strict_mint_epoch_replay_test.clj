@@ -1,7 +1,7 @@
 (ns ^:requires-debug re-frame.join-strict-mint-epoch-replay-test
   "A `:spawn-all` join's strict-mint replay through the REAL epoch seams: the
-  `:rf/epoch-record` read off `rf/epoch-history`, an EDN round-trip of its
-  replay material, and `rf/restore-epoch!`.
+  `:rf/epoch-record` read off `rf.epoch/epoch-history`, an EDN round-trip of its
+  replay material, and `rf.epoch/restore-epoch!`.
 
   `re-frame.join-strict-mint-cljs-test` (machines) proves the join's strict
   and live logic against a hand-built token and a test-only runtime-db
@@ -48,7 +48,7 @@
   "The newest record in `:rf/default`'s ring whose `:trigger-event` is `trigger`."
   [trigger]
   (some #(when (= trigger (:trigger-event %)) %)
-        (reverse (rf/epoch-history :rf/default))))
+        (reverse (rf.epoch/epoch-history :rf/default))))
 
 (defn- completing-child
   "Completes on `:go`, and the action entering `:final?` requires the
@@ -88,7 +88,7 @@
                                       :on-all-complete [:all/done]}
                           :on {:abort :idle}}}})
     (rf/dispatch-sync [:j1/rp [:start]])
-    (let [pre-epoch-id (:epoch-id (last (rf/epoch-history :rf/default)))
+    (let [pre-epoch-id (:epoch-id (last (rf.epoch/epoch-history :rf/default)))
           a            (get-in (join-state :j1/rp) [:children :a])]
       ;; An external :rf.cofx makes run-start pin a token the mid-run mint folds into.
       (rf/dispatch-sync [a [:go]] {:rf.cofx {:rf/time-ms 1}})
@@ -99,7 +99,7 @@
                (select-keys (:rf.cofx rec) [:strictmint/roll :rf/time-ms]))
             "the record's token captured the mid-run mint beside the external fact")
         (is (= durable [ev cofx]) "the replay material survives an EDN round-trip")
-        (is (:ok? (rf/restore-epoch! :rf/default pre-epoch-id)))
+        (is (:ok? (rf.epoch/restore-epoch! :rf/default pre-epoch-id)))
         (is (= [#{} :running] [(:done (join-state :j1/rp)) (machine-state a)])
             "restore rewound the join slot and the child's snapshot")
         (reset! calls 0)

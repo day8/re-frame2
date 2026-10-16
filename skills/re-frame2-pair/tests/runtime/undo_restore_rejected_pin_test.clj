@@ -1,5 +1,5 @@
 ;;;; tests/runtime/undo_restore_rejected_pin_test.clj — when
-;;;; `rf/restore-epoch!` refuses a restore, `undo-step-back` and
+;;;; `rf.epoch/restore-epoch!` refuses a restore, `undo-step-back` and
 ;;;; `undo-to-epoch` must return the framework's refusal with `:ok? false
 ;;;; :restored? false`. The skill trains the agent to read `:ok?` first and
 ;;;; these sugars are reached through raw `eval-cljs`, so an `:ok? true`
@@ -17,7 +17,7 @@
 
 (defn- rejected-arm
   "The rejected arm of the `(if (:ok? r) <success> <rejected>)` node that
-   branches on `rf/restore-epoch!`'s envelope."
+   branches on `rf.epoch/restore-epoch!`'s envelope."
   [form]
   (let [found (atom nil)]
     (walk/postwalk (fn [node]

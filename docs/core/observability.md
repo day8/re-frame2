@@ -230,12 +230,12 @@ an error, just as `(rf/app-db-value <unknown>)` returns `nil`.
 Next to the trace buffer (what the app did) is the **epoch history** (what the app
 was): one record per run with `:db-before` and `:db-after` snapshots, plus
 `:sub-runs`, `:renders` and `:effects` summaries. Read it with
-`(rf/epoch-history :app)`. Load the optional `day8/re-frame2-epoch` artefact
+`(rf.epoch/epoch-history :app)`. Load the optional `day8/re-frame2-epoch` artefact
 and require `[re-frame.epoch]` first; without it the history call returns `[]`.
 
 Because each record holds real before-and-after state,
 [time travel](glossary.md#time-travel) needs no replay:
-`(rf/restore-epoch! frame-id epoch-id)` puts a frame back in the state it held after
+`(rf.epoch/restore-epoch! frame-id epoch-id)` puts a frame back in the state it held after
 that epoch, both [app-db](glossary.md#app-db) and
 [runtime-db](glossary.md#runtime-db) (machine snapshots, the route), in one atomic
 write. It refuses an epoch whose `:outcome` is not `:ok`, because a halted run has no
@@ -246,7 +246,7 @@ Each click in this cell is an event, so each adds an epoch. The buttons under
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
-         '[re-frame.epoch])
+         '[re-frame.epoch :as rf.epoch])
 
 (rf/reg-event :todo/initialise
   (fn [_ _] {:db {:todos {}}}))
@@ -269,9 +269,9 @@ Each click in this cell is an event, so each adds an epoch. The buttons under
         ^{:key id} [:li title])]
      [:p "History:"]
      ;; the new idea: one record per run, each holding the state after it
-     (for [{:keys [epoch-id trigger-event]} (rf/epoch-history :app)]
+     (for [{:keys [epoch-id trigger-event]} (rf.epoch/epoch-history :app)]
        ^{:key epoch-id}
-       [:button {:on-click #(rf/restore-epoch! :app epoch-id)}
+       [:button {:on-click #(rf.epoch/restore-epoch! :app epoch-id)}
         (pr-str trigger-event)])]))
 
 [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}

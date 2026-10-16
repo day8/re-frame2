@@ -48,15 +48,6 @@
 ;; documented `:rf/resource` inner-key projection:
 ;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
 
-(defwrapper resource-state
-  "Per Spec 016 §Introspection. Return a resource instance's runtime
-  state for an explicit-frame target `{:resource :scope :params :frame}`.
-  Per EP-0002 the frame is carried explicitly — a frameless call with no
-  resolvable context fails closed rather than inspecting the wrong frame.
-  Late-bound via `:resources/resource-state`."
-  {:hook :resources/resource-state :artefact resources-artefact :on-absent :throw}
-  ([opts] :delegate))
-
 ;; ---- Mutations (EP-0003 §Mutations) ---------------------------------------
 
 (defwrapper reg-mutation
@@ -90,14 +81,6 @@
 
 ;; There is no `mutation-meta` wrapper —
 ;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
-
-(defwrapper mutation-state
-  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return a mutation
-  INSTANCE's durable runtime row (`{:status :result :error …}`) for an
-  explicit-frame target `{:instance … :frame …}`, or nil. Per EP-0002 the
-  frame is carried explicitly. Late-bound via `:resources/mutation-state`."
-  {:hook :resources/mutation-state :artefact resources-artefact :on-absent :throw}
-  ([opts] :delegate))
 
 ;; ---- Named resource-scope resolvers (EP-0016 D3) --------------------------
 

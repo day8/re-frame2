@@ -8,7 +8,7 @@ assert the same subscriptions a view reads. These JVM tests need no live server.
 
 A test reads the `:rf/resource` and `:rf/mutation` subscriptions without the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only in those subscriptions.
 
-`rf/resource-state` and `rf/mutation-state` return the raw runtime row instead: facts such as `:status`, `:data` and `:error`, with no derived booleans, so a boolean read off them is `nil`. Prefer the subscriptions.
+`rf.resources/resource-state` and `rf.resources/mutation-state` return the raw runtime row instead: facts such as `:status`, `:data` and `:error`, with no derived booleans, so a boolean read off them is `nil`. Prefer the subscriptions.
 
 The setup every test below shares:
 

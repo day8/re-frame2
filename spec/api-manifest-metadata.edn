@@ -882,31 +882,26 @@
   ;; 016, EP-0003). The `re-frame.core` façade exports delegate
   ;; through the late-bind table to `day8/re-frame2-resources`; an app
   ;; that omits the artefact sees a clean
-  ;; `:rf.error/resources-artefact-missing`. Registration (`reg-resource`)
-  ;; + registration-lifecycle (`clear-resource`) + introspection
-  ;; (`resource-state`; the registered SPEC has no dedicated accessor — it is
-  ;; the generic `rf/handler-meta` query plus the
-  ;; documented `:rf/resource` inner-key projection).
+  ;; `:rf.error/resources-artefact-missing`. Registration (`reg-resource`);
+  ;; the registered SPEC has no dedicated accessor — it is the generic
+  ;; `rf/handler-meta` query plus the documented `:rf/resource` inner-key
+  ;; projection. Live-state inspection (`resource-state`) is not on the
+  ;; facade: it is rowed at home in `re-frame.resources` (spec/API.md
+  ;; §Conventions, the facade rule by role).
   ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Resource registration is the everyday half of the Spec 016 surface."}
-  ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-resource."}
   ;; Mutations — the causal-write counterpart of the resource registration
   ;; surface (Spec 016, EP-0003 §Mutations). Same optional-artefact wrapper
   ;; posture as
   ;; reg-resource (delegate through the late-bind table; clean
   ;; :rf.error/resources-artefact-missing when the artefact is absent).
-  ;; Registration (`reg-mutation`) + registration-lifecycle (`clear-mutation`)
-  ;; + introspection (`mutation-state`; the registered SPEC is the generic
-  ;; query plus the `:rf/mutation` projection).
+  ;; Registration (`reg-mutation`); the registered SPEC is the generic query
+  ;; plus the `:rf/mutation` projection, and live-state inspection
+  ;; (`mutation-state`) is rowed at home in `re-frame.resources`.
   ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
-  ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
-                                          :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-mutation."}
   ;; There are no `sub-mutation` / `sub-resource` reactive-read sugar fns: a
   ;; resource / mutation state read is
   ;; the `[:rf/resource <query>]` / `[:rf/mutation {:instance …}]`
@@ -1272,43 +1267,16 @@
   ;; The event-bundle projection pair (group-by-event / domino-bucket) is not on
   ;; the facade; it is rowed at its producing home — see the
   ;; re-frame.trace.projection section below.
-  ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
-  ;;
-  ;; WHY THE EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR
-  ;; optional-artefact siblings above. Epoch is the ONE optional artefact whose
-  ;; facade wrappers do NOT
-  ;; raise `:rf.error/<feature>-artefact-missing` when the artefact is absent:
-  ;; `core_epoch.cljc` gives `epoch-history` `:on-absent :empty-vec`,
-  ;; `restore-epoch!` / `replay-epoch!` `:on-absent :false`.
-  ;; Only the WRITE surface `replace-frame-state!` carries
-  ;; `:on-absent :throw`, because a silent no-op would lie about its caller's
-  ;; "undo works after this call" invariant. The split is normative in three
-  ;; places — Tool-Pair §Time-travel "Artefact home", the
-  ;; `:rf.error/epoch-artefact-missing` row of the Spec 009 error catalogue,
-  ;; and Conventions §Adapter shipping convention "Dependency direction" — so
-  ;; the three read-shaped rows justify their `:keep` on the silent-degrade /
-  ;; release-DCE seam rather than on a guided exception they do not throw.
+  ;; Epoch history (canonical home: re-frame.epoch, rowed there) — §Tool-Pair.
+  ;; The epoch surface is inspection, history and tooling, so under the facade
+  ;; rule by role (spec/API.md §Conventions) `restore-epoch!`,
+  ;; `replay-epoch!` and `replace-frame-state!` have no facade door. The one
+  ;; epoch read left here is `epoch-history`, a forwarder that does NOT raise
+  ;; `:rf.error/<feature>-artefact-missing` when the artefact is absent:
+  ;; `core_epoch.cljc` gives it `:on-absent :empty-vec`.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
-                                                 :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :empty-vec, so an absent day8/re-frame2-epoch artefact returns the empty vector rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The epoch query surface is standing-classified tooling at its re-frame.core home row by API.md Tiering of cross-tool surfaces."}
-  ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The restore verb of the same epoch surface, taken from the same door as the history read that selects the epoch."}
-  ;; The one-call strict replay from a retained epoch id
-  ;; (Tool-Pair §Replay), the dispatch-shaped sibling of `restore-epoch!`.
-  ["re-frame.core" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The one-call strict replay (Tool-Pair, Replay) and the dispatch-shaped sibling of restore-epoch!, on the same door."}
-  ;; EP-0001 two-partition mutator: ONE partial-map surface,
-  ;; replace-frame-state!: a present key replaces
-  ;; that partition, an absent key is preserved. There are no per-partition
-  ;; siblings (replace-app-db! / reset-app-db! / replace-runtime-db!), which
-  ;; would share identical machinery and differ only in which partition keys
-  ;; they touch. It installs into the one physical
-  ;; frame-state container via frame/commit-frame-transition!.
-  ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
-                                                 :action :keep
-                                                 :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-epoch artefact, and the wrapper raises a documented :rf.error/epoch-artefact-missing when that artefact is absent. Moving the export to re-frame.epoch would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The one partial-map frame-state mutator; Tool-Pair's restore path calls it on the same door as restore-epoch!."}
+                                                 :justification "Forwarder to re-frame.epoch/epoch-history, which new code calls (API.md Conventions, the facade rule by role). It stays on the facade for a tool that must also run without day8/re-frame2-epoch: core_epoch.cljc gives it :on-absent :empty-vec, so an absent artefact reads as an empty history (Tool-Pair Time-travel Artefact home), which is only expressible from the ALWAYS-LOADED facade -- a call to the home var would be a hard require failure in a build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision)."}
   ;; There is no façade `register-epoch-listener!` / `unregister-epoch-listener!`
   ;; pair: the epoch stream is
   ;; registered through the single stream-parameterized verb,
@@ -1639,9 +1607,9 @@
   ;;
   ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
   ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
-  ;;       carries the SAME classification. Precedent: `epoch-history` /
-  ;;       `replay-epoch!` / `restore-epoch!` are `:tooling` on BOTH
-  ;;       `re-frame.core` and `re-frame.epoch`. One capability, one tier — the
+  ;;       carries the SAME classification. Precedent: `epoch-history` is
+  ;;       `:tooling` on BOTH `re-frame.core` and `re-frame.epoch`. One
+  ;;       capability, one tier — the
   ;;       manifest must not classify the same var `:advanced` through the
   ;;       facade door and something else through its home door. Every one
   ;;       is `:advanced :owner "016" :status "v1 (optional capability)"` on
@@ -1664,9 +1632,12 @@
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — mutations (Spec 016 §Mutations).
   ["re-frame.resources" "reg-mutation"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; Home-only inspection: the live-state reads have no facade door (spec/API.md
+  ;; §Conventions, the facade rule by role), so these rows are their only
+  ;; classification. They keep the tier the resource surface carries.
+  ["re-frame.resources" "resource-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "mutation-state"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (a) Facade-mirrored — named resource-scope resolvers (Spec 016 §Named
   ;; resource-scope resolvers). `resolve-resource-scope` is PURE over the
@@ -1855,24 +1826,16 @@
   ;; =========================================================================
   ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.
   ;;
-  ;; ONE GRAMMAR FOR THE EPOCH RING. Every var in this namespace is an
-  ;; implementation seam —
-  ;; a late-bind hook target `re-frame.core` reaches through
-  ;; `re-frame.core-epoch`'s defwrappers. Tool code reads and writes the
-  ;; ring through the facade. The namespace therefore rows only what
-  ;; the facade does NOT already name:
+  ;; ONE GRAMMAR FOR THE EPOCH RING. The epoch surface is inspection,
+  ;; history and tooling, so it lives here, in its feature namespace, rather
+  ;; than on the facade (spec/API.md §Conventions, the facade rule by role):
   ;;
-  ;;   * FOUR vars the facade re-exports under the SAME name —
-  ;;     epoch-history,
-  ;;     replace-frame-state!, replay-epoch!,
-  ;;     restore-epoch! — are `^:no-doc` in epoch.cljc and therefore NOT
-  ;;     rowed here at all (spec/API.md §Not-rowed internal carve-outs).
-  ;;     Their `re-frame.core` rows above carry the classification, so one
-  ;;     public name has exactly one row. Do not re-add entries for them
-  ;;     without removing the `^:no-doc`: the generator drops `^:no-doc`
-  ;;     vars from `ns-publics`, so a classification entry for one is dead
-  ;;     text.
-  ;;   * FIVE doors with no same-named facade twin keep a row, tiered
+  ;;   * FOUR public tooling vars — epoch-history, restore-epoch!,
+  ;;     replay-epoch!, replace-frame-state! — are called here, tiered
+  ;;     :tooling. Only `epoch-history` also has a facade forwarder
+  ;;     (`re-frame.core` row above, the same tier).
+  ;;   * FIVE implementation seams — hook targets `re-frame.core` reaches
+  ;;     through `re-frame.core-epoch`'s defwrappers — keep a row, tiered
   ;;     :implementation, following `settle!` rather than `^:no-doc` —
   ;;     the row is the only record they have, and this repo tiers a seam
   ;;     honestly rather than quieting it (see the note at the head of this
@@ -1891,6 +1854,19 @@
   ;; facade reaches the producer through a late-bind hook an unloaded namespace
   ;; never populates. See spec/Tool-Pair.md §"Facade vs home-namespace verb —
   ;; one public spelling".
+  ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; The one-call strict replay from a retained epoch id
+  ;; (Tool-Pair §Replay), the dispatch-shaped sibling of `restore-epoch!`.
+  ["re-frame.epoch" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; EP-0001 two-partition mutator: ONE partial-map surface,
+  ;; replace-frame-state!: a present key replaces
+  ;; that partition, an absent key is preserved. There are no per-partition
+  ;; siblings (replace-app-db! / reset-app-db! / replace-runtime-db!), which
+  ;; would share identical machinery and differ only in which partition keys
+  ;; they touch. It installs into the one physical
+  ;; frame-state container via frame/commit-frame-transition!.
+  ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "register-epoch-listener!"]   {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/register-epoch-listener!; the public door is rf/register-listener! :epoch)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/unregister-epoch-listener!; the public door is rf/unregister-listener! :epoch)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only; hook target for :epoch/clear-epoch-listeners!; fixture-grade teardown, no facade door)"}

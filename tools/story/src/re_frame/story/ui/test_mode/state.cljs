@@ -45,7 +45,6 @@
     and the top-level `test-view` component (the sole consumer of the
     helpers below)."
   (:require [reagent.core                 :as r]
-            [re-frame.core                :as rf]
             [re-frame.interop             :as rf.interop]
             [re-frame.story.async         :as rf.story.async]
             [re-frame.story.config        :as rf.story.config]
@@ -180,7 +179,7 @@
     (when-not (:running? s)
       (swap! results-atom assoc-in [variant-id :selected-step] idx)
       (when target-id
-        (rf/restore-epoch! variant-id target-id)))))
+        (rf.story.runtime/restore-epoch! variant-id target-id)))))
 
 (defn toggle-expanded!
   "Toggle the expand state of an assertion row, keyed by stable

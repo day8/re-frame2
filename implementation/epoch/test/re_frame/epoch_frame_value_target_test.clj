@@ -10,7 +10,7 @@
   the epoch surface records and changes nothing."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -23,14 +23,14 @@
     (rf/reg-event ::inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [::seed] {:frame ::counter})
     (rf/dispatch-sync [::inc]  {:frame ::counter})
-    (let [[seed-id inc-id] (mapv :epoch-id (rf/epoch-history frame))]
-      (is (= (rf/epoch-history ::counter) (rf/epoch-history frame))
+    (let [[seed-id inc-id] (mapv :epoch-id (rf.epoch/epoch-history frame))]
+      (is (= (rf.epoch/epoch-history ::counter) (rf.epoch/epoch-history frame))
           "the value reads the same history as the id")
-      (is (:ok? (rf/restore-epoch! frame seed-id)))
+      (is (:ok? (rf.epoch/restore-epoch! frame seed-id)))
       (is (= {:n 0} (rf/app-db-value ::counter)) "the frame rewound to the seed epoch")
-      (let [result (rf/replay-epoch! frame inc-id)]
+      (let [result (rf.epoch/replay-epoch! frame inc-id)]
         (is (true? (:ok? result)) (pr-str result))
         (is (= ::counter (:frame result)) "the envelope names the frame by its id"))
       (is (= {:n 1} (rf/app-db-value ::counter)) "the inc ran again on the same frame")
-      (is (:ok? (rf/replace-frame-state! frame {:rf.db/app {:n 41}})))
+      (is (:ok? (rf.epoch/replace-frame-state! frame {:rf.db/app {:n 41}})))
       (is (= {:n 41} (rf/app-db-value ::counter))))))

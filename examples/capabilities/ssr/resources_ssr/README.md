@@ -68,7 +68,7 @@ per-request, and the wire payload stays minimal.
   current nav-token, and a route-free `[:ssr …]`-owned ensure never
   registers there. Instead `handle-request` calls `await-resource-loaded!`
   (defined alongside it), which polls the resource's own runtime entry
-  directly via the public `rf/resource-state` introspection read until it
+  directly via the public `rf.resources/resource-state` introspection read until it
   reaches `:loaded` / `:error`, or a render-deadline budget elapses. Only
   `:loaded` proceeds to render; a failed fetch or exhausted deadline returns
   HTTP 503 with `Cache-Control: no-store` and no hydration payload. The

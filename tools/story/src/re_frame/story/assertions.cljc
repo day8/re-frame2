@@ -95,7 +95,7 @@
 ;;   - `:rf.assert/dispatched?`   — which event vectors were dispatched.
 ;;
 ;; Single source of truth. The framework RETAINS exactly these facts in
-;; the epoch tape (`re-frame.core/epoch-history`), and
+;; the epoch tape (`re-frame.epoch/epoch-history`), and
 ;; `re-frame.story.play.evidence` PROJECTS them as the run-result
 ;; `:warnings` / `:effects` evidence slots. All eight assertions —
 ;; including schema-error and the causal/cascade pair (tape-evaluated in
@@ -105,9 +105,9 @@
 ;; (no parallel accumulator) means no drift and no "false GREEN".
 ;;
 ;; The projections are PURE (tape data → fact), so the handlers stay pure
-;; data → data; the handler shell reads `rf/epoch-history` once and threads
-;; the projected facts in. A host without the epoch artefact has no tape
-;; (the late-bound `epoch-history` facade degrades to `[]`), and an empty
+;; data → data; the handler shell reads `epoch-history` (below) once and
+;; threads the projected facts in. A host without the epoch artefact has no
+;; tape (`epoch-history` reads `[]` there), and an empty
 ;; projection there says nothing about behaviour: `dispatched?` would fail,
 ;; `no-warnings` would pass. So on such a host every tape-projected
 ;; assertion records `:cannot-run` naming the missing artefact
@@ -129,10 +129,19 @@
 
 (defn epoch-tape-available?
   "True iff the epoch artefact (`re-frame.epoch`, the `day8/re-frame2-epoch`
-  jar) is loaded, so `rf/epoch-history` returns a live tape rather than the
-  facade's `[]`."
+  jar) is loaded, so `epoch-history` returns a live tape rather than `[]`."
   []
   (some? (rf.late-bind/get-fn :epoch/epoch-history)))
+
+(defn epoch-history
+  "`frame-id`'s retained epoch records, oldest-first — `re-frame.epoch/
+  epoch-history`, read through its `:epoch/epoch-history` late-bind hook so
+  Story carries no hard dependency on the epoch artefact (a published Story
+  jar has none). `[]` when the artefact is not loaded."
+  [frame-id]
+  (if-let [read-history (rf.late-bind/get-fn :epoch/epoch-history)]
+    (read-history frame-id)
+    []))
 
 (def epoch-missing-reason
   "The `:reason` a tape-projected assertion records when the epoch artefact
@@ -202,7 +211,7 @@
 
 (defn- frame-tape
   "The CURRENT RUN's slice of the retained epoch tape for `frame-id`, via
-  the late-bound `re-frame.core/epoch-history` facade (the SSOT the
+  the late-bound `epoch-history` read above (the SSOT the
   run-result evidence slots read) scoped by the frame's run baseline
   (`run-slice`). A frame no run has prepared carries no baseline and reads
   its whole ring. Degrades to `[]` on a host without the epoch artefact
@@ -210,7 +219,7 @@
   Tolerant: any read error returns `[]`."
   [frame-id]
   (try
-    (run-slice (get @run-epoch-baselines frame-id) (rf/epoch-history frame-id))
+    (run-slice (get @run-epoch-baselines frame-id) (epoch-history frame-id))
     (catch #?(:clj Throwable :cljs :default) _ [])))
 
 (defn dispatched-events

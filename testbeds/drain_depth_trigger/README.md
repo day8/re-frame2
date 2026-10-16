@@ -32,7 +32,7 @@ halts via the runtime's ceiling. After the halt:
   `:halted-depth` (per [Spec-Schemas §`:rf/epoch-record` Outcomes],
   rf2-v0jwt). Because that event never ran, its `:db-before` and
   `:db-after` both equal the durable last-settled `app-db`. Consumers
-  read this record off `rf/epoch-history`.
+  read this record off `rf.epoch/epoch-history`.
 
 ## Controls
 
@@ -49,7 +49,7 @@ halts via the runtime's ceiling. After the halt:
 | `depth-reached` | Reads back to the **ceiling** after a halt (the count of settled events) — the durable per-event writes are kept; there is no whole-drain rollback. |
 | `drain-depth-mirror` | The current ceiling — useful for confirming the input edit propagated to the frame's meta. |
 
-The halt itself is observable on the framework side via `rf/epoch-history`
+The halt itself is observable on the framework side via `rf.epoch/epoch-history`
 (the trailing `:halted-depth` epoch record for the halting event, see
 [Spec-Schemas §`:rf/epoch-record` Outcomes]) — no DOM mirror is required
 for the halt observable.

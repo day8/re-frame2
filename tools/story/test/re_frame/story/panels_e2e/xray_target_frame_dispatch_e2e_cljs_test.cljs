@@ -7,7 +7,7 @@
   and tells Xray which frame to OBSERVE by dispatching
   `[:rf.xray/set-target-frame <variant-id>]` into `:rf/xray`, which
   writes both `:target-frame` AND re-seeds `:epoch-history` from
-  `(rf/epoch-history variant-id)` in lockstep. Without that dispatch
+  `(rf.epoch/epoch-history variant-id)` in lockstep. Without that dispatch
   Xray would stay anchored on whatever its first-mount seed picked
   (commonly the boot `:rf/default` or the previously-focused variant),
   and the App-DB diff + Event tab would render against a frame the
