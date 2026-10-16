@@ -34,7 +34,7 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **Frame as isolated runtime boundary** | `{state, queue, sub-cache, id}`; multi-instance | [002](002-Frames.md) |
 | **Run-to-completion drain semantics** | Per frame; pipeline run settles before next event | [002](002-Frames.md) |
 | **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [000 §Pointers to per-area Specs](000-Vision.md#pointers-to-per-area-specs), [§V1](#v1-render-tree-shape) |
-| **Flows** | Registered, runtime-toggleable computed-state declarations that materialise their output into `app-db` — the v2 form of v1's `on-changes`, toggled by two reserved fx-ids. Fixture family `:flow/*` | [013](013-Flows.md) |
+| **Flows** | Computed-state declarations that materialise their output into `app-db` — the v2 form of v1's `on-changes`. Each is registered once at the top level, and a frame runs exactly the flows its `:flows` config names. Fixture family `:flow/*` | [013](013-Flows.md), [013 §Activation](013-Flows.md#activation) |
 | **Data classification** | `:sensitive` / `:large` classification of durable paths (four commit-plane effects) and of transient payload shapes (registration metadata), redacted at the framework's mediated-egress boundaries. Fail-open hygiene, not a security boundary. Fixture family `:data-classification/*` | [015](015-Data-Classification.md) |
 | **Trace event stream** | Structured events from well-defined emit sites | [009](009-Instrumentation.md) |
 | **Error contract** | Structured trace events for runtime failures (handler exceptions, schema validation, drain depth, no-such-handler, ...) | [009 §Error contract](009-Instrumentation.md#error-contract) |
