@@ -80,10 +80,10 @@
                  ;; separately.
                  ;;
                  ;; `test_kit/src` is the supported L0–L2 testing surface.
-                 ;; It sits deliberately OUTSIDE the artefact's `:paths`, so
-                 ;; the `:local/root` dep above does not carry it; Fresco's
-                 ;; own `:test` alias names it as an `:extra-path` and this
-                 ;; aggregate does the same to match it.
+                 ;; It is on the artefact's `:paths`, so the `:local/root`
+                 ;; dep above already carries it and this entry is
+                 ;; redundant but harmless. It stays dev-only by
+                 ;; reachability: no shipping namespace requires the kit.
                  "fresco/test"
                  "fresco/test_kit/src"
                  ;; examples are organised by concept; each bucket is a

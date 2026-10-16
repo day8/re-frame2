@@ -120,10 +120,10 @@
                 "fresco/test"
                 ;; `re-frame.fresco.test`, the supported L0–L2
                 ;; testing surface. Its OWN source root, deliberately outside
-                ;; `fresco/src` and outside the artefact's published :paths:
-                ;; the kit is reachable when a test uses it and unreachable
-                ;; otherwise, so bundle-isolation holds by construction rather
-                ;; than by review. No namespace under it is `*-cljs-test`, so
+                ;; `fresco/src`. No shipping namespace requires the kit, so it
+                ;; is reachable when a test uses it and unreachable otherwise,
+                ;; and bundle-isolation holds by reachability rather than by
+                ;; review. No namespace under it is `*-cljs-test`, so
                 ;; no test-selecting ns-regexp matches the KIT itself.
                 "fresco/test_kit/src"
                 ;; The kit's own witnesses. Most of them live under
