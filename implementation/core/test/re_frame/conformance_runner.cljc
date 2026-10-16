@@ -20,8 +20,8 @@
       grading)
     - the `:fixture/clock` controlled host clock (`run-clock-steps!`)
     - all `:fixture/expect` matchers (app-db, runtime-db, subs, traces,
-      effects-routed, error-emit-records, epoch-records, absent-paths,
-      SSR public-error)
+      traces-not-emitted, effects-routed, error-emit-records, epoch-records,
+      absent-paths, SSR public-error, and the frame-destroy window)
     - `run-fixture` orchestration
     - the corpus body (`run-corpus`) with three-way capability
       classification, TOP-LEVEL-KEY and EXPECTATION-KEY fail-loud,
@@ -48,9 +48,9 @@
   ## Fail-loud expectation keys
 
   The core corpus runner OWNS a fixed set of `:fixture/expect` matchers
-  (`corpus-checked-expect-keys`). Sibling conformance runners (flow / SSR /
-  frame-lifecycle) own additional expectation keys on the SAME fixtures
-  (`sibling-owned-expect-keys`, the delegated allowlist). A runnable
+  (`corpus-checked-expect-keys`). The flow and SSR conformance runners own
+  additional expectation keys (`sibling-owned-expect-keys`, the delegated
+  allowlist), and each loads every fixture that carries one. A runnable
   fixture whose `:fixture/expect` names a key in NEITHER set is a typo /
   drift — the suite FAILS rather than silently ignoring it. This is the
   capability-allowlist discipline (`known-skipped-capabilities`) applied to
@@ -233,36 +233,33 @@
     :final-runtime-dbs
     :sub-values
     :trace-emissions
+    :trace-not-emitted
     :error-emit-records
     :epoch-records
     :effects-routed
+    :on-destroy-emissions
+    :on-destroy-effects
     :ssr/public-error})
 
 (def sibling-owned-expect-keys
   "`:fixture/expect` keys the core corpus runner intentionally does NOT
-  check because a DEDICATED sibling conformance runner owns them on the same
-  fixture — flow-conformance (`:flow-*`, `:expect-trace-stream`,
-  `:trace-absent`), ssr-conformance (`:ssr/request-result`, `:ssr/active-head`,
-  `:ssr/rendered-head-contains`, `:ssr/html-attr-present`), and the
-  frame-lifecycle / destroy runners (`:on-destroy-*`, `:sub-graph-topology`,
-  `:trace-not-emitted`, `:registrar-flow-slots-after`). Every key here was
-  observed on a runnable corpus fixture whose OTHER (core-owned)
-  expectations this runner grades; the key is delegated, NOT ignored. A
-  fixture may only carry a key here or in `corpus-checked-expect-keys` —
-  anything else fails loud."
+  check because a DEDICATED sibling conformance runner grades them —
+  flow-conformance (`:flow-*`, `:expect-trace-stream`, `:trace-absent`,
+  `:registrar-flow-slots-after`), which loads every `flow-*.edn`, and
+  ssr-conformance (`:ssr/request-result`, `:ssr/active-head`,
+  `:ssr/rendered-head-contains`), which loads every `ssr-*.edn`. Those
+  runners pick fixtures by FILENAME, so a key belongs here only while every
+  fixture carrying it has the matching prefix; a key on any other fixture
+  needs a matcher in this runner instead. A fixture may only carry a key
+  here or in `corpus-checked-expect-keys` — anything else fails loud."
   #{:expect-trace-stream
     :flow-graph-topology
     :flow-last-inputs-after
     :flow-recompute-counts
     :flow-registry-after
     :registrar-flow-slots-after
-    :on-destroy-effects
-    :on-destroy-emissions
-    :sub-graph-topology
     :trace-absent
-    :trace-not-emitted
     :ssr/active-head
-    :ssr/html-attr-present
     :ssr/rendered-head-contains
     :ssr/request-result})
 
@@ -329,12 +326,15 @@
 
 (def dev-posture-expect-keys
   "The `:fixture/expect` keys whose matchers read a surface that exists only
-  in the debug build: trace emissions and the effects routed off them, the
-  SSR public error projected from the dev trace's last error event, and
-  epoch records from the trace-fed epoch ring. Under
-  `-Dre-frame.debug=false` none of them is emitted, so a fixture asserting
-  one fails there by design."
-  #{:trace-emissions :effects-routed :ssr/public-error :epoch-records})
+  in the debug build: trace emissions (present, absent, or in the
+  frame-destroy window) and the effects routed off them, the SSR public
+  error projected from the dev trace's last error event, and epoch records
+  from the trace-fed epoch ring. Under `-Dre-frame.debug=false` none of them
+  is emitted, so a fixture asserting a present one fails there by design,
+  and `:trace-not-emitted` would pass over an empty trace stream whatever
+  the runtime did."
+  #{:trace-emissions :trace-not-emitted :effects-routed :ssr/public-error
+    :epoch-records :on-destroy-emissions :on-destroy-effects})
 
 (def dev-posture-capabilities
   "Capabilities whose fixtures read a dev-only surface through
@@ -726,6 +726,17 @@
           (recur (drop (inc match-idx) actual) (rest expected) failures)
           (recur actual (rest expected)
                  (conj failures (str "expected effect not routed: " (pr-str exp)))))))))
+
+(defn- check-trace-not-emitted
+  "`:trace-not-emitted` — no captured trace may match any of the fixture's
+  shapes, each matched by `submap?` exactly as `:trace-emissions` matches
+  its rows. Returns a vector of failure strings."
+  [actual-traces not-traces]
+  (vec
+    (keep (fn [nt]
+            (when (some #(rf.conformance/submap? nt %) actual-traces)
+              (str "trace that should NOT have fired did: " (pr-str nt))))
+          not-traces)))
 
 (defn- check-epoch-records
   "`:epoch-records` asserts against the recorded
@@ -1782,7 +1793,29 @@
                      :passed?  (= expected-public-error actual)})
                   {:expected expected-public-error
                    :actual   nil
-                   :passed?  false})))]
+                   :passed?  false})))
+            not-emitted-failures (when (contains? expect :trace-not-emitted)
+                                   (check-trace-not-emitted
+                                     @traces (:trace-not-emitted expect)))
+            ;; `:on-destroy-emissions` / `:on-destroy-effects` grade the
+            ;; traces the runner's own destroy of the fixture's frame adds.
+            ;; It runs LAST, so every expectation above has read the live
+            ;; frame, and only that window is matched, so creation-time
+            ;; traces cannot satisfy a destroy-time claim.
+            destroy-traces (when (or (contains? expect :on-destroy-emissions)
+                                     (contains? expect :on-destroy-effects))
+                             (let [before (count @traces)]
+                               (rf/destroy-frame! scope-frame)
+                               (subvec @traces before)))
+            destroy-emission-failures
+            (when (contains? expect :on-destroy-emissions)
+              (rf.conformance/check-trace-emissions
+                destroy-traces (:on-destroy-emissions expect)))
+            destroy-effects-failures
+            (when (contains? expect :on-destroy-effects)
+              (check-effects-routed
+                (effects-routed-from-traces destroy-traces)
+                (normalise-effects-routed (:on-destroy-effects expect))))]
         ;; Drop just this fixture's trace listener (host-specific registry).
         ((:unregister-trace-listener! host) fid)
         ;; Drop just this fixture's error-emit recorder.
@@ -1801,9 +1834,12 @@
                             (empty? compute-sub-failures)
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
+                            (empty? not-emitted-failures)
                             (empty? effects-failures)
                             (empty? epoch-failures)
                             (empty? error-emit-failures)
+                            (empty? destroy-emission-failures)
+                            (empty? destroy-effects-failures)
                             (or (nil? public-error-check)
                                 (:passed? public-error-check)))
          :absent-failures         absent-failures
@@ -1819,6 +1855,9 @@
          :compute-sub-failures compute-sub-failures
          :sub-checks   sub-checks
          :trace-failures     trace-failures
+         :not-emitted-failures not-emitted-failures
+         :destroy-emission-failures destroy-emission-failures
+         :destroy-effects-failures  destroy-effects-failures
          :effects-failures   effects-failures
          :actual-effects     actual-effects
          :expected-effects   expected-effects
@@ -1882,6 +1921,10 @@
     (when (seq (:trace-failures f))
       (doseq [tf (:trace-failures f)]
         (println "    trace:" tf)))
+    (doseq [nf (:not-emitted-failures f)]
+      (println "    not-emitted:" nf))
+    (doseq [df (concat (:destroy-emission-failures f) (:destroy-effects-failures f))]
+      (println "    on-destroy:" df))
     (when (seq (:effects-failures f))
       (doseq [ef (:effects-failures f)]
         (println "    fx:" ef))

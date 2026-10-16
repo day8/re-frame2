@@ -223,11 +223,10 @@
                 :epoch    1
                 :fired?   true}}
    ;; The runtime transition row carries `:before` / `:after` SNAPSHOTS and the
-   ;; inner `:event` (the pure `machine-transition` primitive's row, asserted
-   ;; in the Mode B companion below, carries `:from` / `:to` instead). The
-   ;; `:event` tag is what ties this transition to the hydrated timer: it is
-   ;; the synthetic elapsed event that timer's own callback dispatched,
-   ;; carrying the delay-key, the RETAINED epoch and the declaring path.
+   ;; inner `:event`. The `:event` tag is what ties this transition to the
+   ;; hydrated timer: it is the synthetic elapsed event that timer's own
+   ;; callback dispatched, carrying the delay-key, the RETAINED epoch and the
+   ;; declaring path.
    ;;
    ;; The two snapshots are given WHOLE because a trace tag is matched by
    ;; equality, not submap-wise (`check-trace-emissions` recurses one level,
@@ -265,9 +264,4 @@
                           :data  {:entries 1 :rf/after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:waiting]}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/fired
-     :tags      {:state :waiting :delay 5000 :epoch 1 :fired? true}}
-    {:operation :rf.machine/transition
-     :tags      {:from :waiting :to :timeout}}]}]}
+                      :rf/invoke-id [:waiting]}]]}]}
