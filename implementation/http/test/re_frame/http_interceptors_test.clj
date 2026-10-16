@@ -465,7 +465,14 @@
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
         (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))
-            (pr-str interceptor-map))))))
+            (pr-str interceptor-map)))))
+  (testing "make-frame rejects an :http-interceptors that is not a vector of
+            keyword ids"
+    (doseq [ids [:shop/auth [:shop/auth "x"] '(:shop/auth)]]
+      (let [thrown (try (name-chain! :bad/app ids) nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))
+            (pr-str ids))))))
 
 ;; ---- what the :before chain sees and leaves behind ------------------------
 
