@@ -672,6 +672,7 @@ This section is the **canonical grammar** for the frame config map. Subsequent s
    :interceptors [:my-app/recorder              ;; interceptor REFS prepended to every event in this frame
                   :my-app/validator]            ;;   (refs, never inline interceptor values — EP-0022)
    :flows        [:todo/visible-count]          ;; flow ids this frame runs (none by default) — per 013 §Activation
+   :http-interceptors [:my-app/auth]            ;; HTTP interceptor ids its managed requests run, in order — per 014 §Middleware
    :drain-depth  1000                           ;; per-family event budget for run-to-completion
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
    :rf.trace/events-retained 200                ;; per-frame trace-ring retention: one slot per EVENT/pipeline run (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
@@ -684,6 +685,8 @@ The full set of config keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-o
 
 - `:url-bound?` and `:url-strategy` — browser URL ownership and the strategy that encodes it, per [012 §Multi-frame routing](012-Routing.md#multi-frame-routing) and [012 §URL strategies](012-Routing.md#url-strategies).
 - `:revalidate-on` — a **set** drawn from the closed enum `#{:focus :reconnect}` naming the host signals that revalidate the frame's active-stale resource reads (`:focus` is one setting covering window focus *and* document `visibilitychange`-to-visible; `:reconnect` is window `online`). An absent key, or an explicit `#{}`, installs nothing. Normative in [016 §Revalidation is a frame property](016-Resources.md#revalidation-is-a-frame-property-revalidate-on).
+
+`:http-interceptors` belongs to the http artefact as well, but installs nothing: it is a vector of `reg-http-interceptor` ids naming the frame's HTTP interceptor chain, in order, resolved through the frame's own view each time a request is issued ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)). A frame that names no chain runs none. It needs no lifecycle hook, and declaring it before the artefact loads is harmless; a value that is not a vector of keywords fails at construction with `:rf.error/http-bad-interceptor`.
 
 **Frame-owned policy (`:observability`).** A frame owns its production observability sinks (EP-0015 §9; the full model is normative in [015 §Data Classification](015-Data-Classification.md)). The key, summarised here for the grammar:
 
@@ -2519,7 +2522,7 @@ Use cases:
 - **Tracing decorator** — emit fine-grained trace events scoped to a particular frame.
 - **Effect recorder** — capture but don't fire effects, for dry-run/documentation modes (often combined with `:fx-overrides` to also disable real firing).
 
-Each behaviour is registered once with `reg-interceptor` ([001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)) and referenced here by id.
+Each behaviour is registered once with `reg-interceptor` ([001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)) and referenced here by id. Managed HTTP has the same split for its request- and response-side transforms: each is registered once with `reg-http-interceptor`, and the frame names its ordered chain under `:http-interceptors` ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)).
 
 **Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame or process-global interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](../migration/from-re-frame-v1/README.md)). For cross-frame *observation* in development (performance instrumentation, schema-validation-via-trace) use `register-listener!` per [009-Instrumentation](009-Instrumentation.md). The trace stream it listens to is dev-only and elides in production, so production audit logging goes through the frame-owned `:observability` sink ([015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor ref on each frame's `:interceptors` vector explicitly. Single-frame apps recover v1's global feel by adding the interceptor ref to their one frame's `:interceptors`.
 

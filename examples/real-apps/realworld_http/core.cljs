@@ -328,6 +328,15 @@
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))
 
+;; Register it once, at the top level, like any other `reg-*`. The definition
+;; is frame-agnostic: it runs for a frame that names it in its
+;; `:http-interceptors` config, which the app frame does in `mount!` below. See
+;; the auth how-to:
+;; ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary
+(rf/reg-http-interceptor :realworld/bearer-auth
+  {:doc    "Stamp the session's Bearer token onto every outbound managed request."
+   :before bearer-auth-interceptor})
+
 ;; ============================================================================
 ;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE
 ;; ============================================================================
@@ -375,6 +384,10 @@
     ;;     `:requires-auth` tags on settings / new / edit teeth — declaratively
     ;;     on the route, fail-closed through every door, not as a hand-rolled
     ;;     interceptor.
+    ;;   - `:http-interceptors [:realworld/bearer-auth]` — run the Bearer-auth
+    ;;     interceptor (registered above) on every managed request this frame
+    ;;     issues. Naming it here, before `:initial-events` run, is what puts it
+    ;;     on duty for session-restore's first authenticated request.
     ;;   - `:fx-overrides {:rf.http/managed …}` — point managed HTTP at the
     ;;     demo stub so the whole thing runs without a backend.
     ;; First mount also runs `:initial-events` once. A hot reload reuses the
@@ -411,13 +424,14 @@
     ;; WINDOW has the full sequence).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
     (rf.adapter.reagent/render! app-root
-      [rf/frame-root {:id              :rf/default
-                      :doc             "Realworld demo frame."
-                      :url-bound?      true
-                      :initial-events  [[:auth/classify-token]
-                                            [:auth/initialise]
-                                            [:app/initialise]]
-                          :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
+      [rf/frame-root {:id                :rf/default
+                      :doc               "Realworld demo frame."
+                      :url-bound?        true
+                      :http-interceptors [:realworld/bearer-auth]
+                      :initial-events    [[:auth/classify-token]
+                                          [:auth/initialise]
+                                          [:app/initialise]]
+                      :fx-overrides      {:rf.http/managed :realworld.demo/http-stub}}
        [root-view]]
       el)))
 
@@ -426,24 +440,6 @@
   ;; frameworky step, and it has to come before any frame mounts; everything
   ;; below it is just this app wiring itself up.
   (rf/init! rf.adapter.reagent/adapter)
-  ;; Register the Bearer-auth interceptor (defined above) so it stamps the
-  ;; `Authorization` header onto outbound managed requests. Order matters:
-  ;; register it before the frame's `:initial-events` run, so it's already on
-  ;; duty when session-restore fires its first authenticated request.
-  ;;
-  ;; HTTP-interceptor registration is context-required frame-local (EP-0002 /
-  ;; Spec 014 §Middleware): each frame owns its own middleware chain, so the
-  ;; registration has to name the frame it belongs to. A bare top-level
-  ;; `reg-http-interceptor` under no frame scope raises the always-on
-  ;; `:rf.error/no-frame-context` and installs nothing. We scope it to the app
-  ;; frame (`:rf/default` — the same id the `frame-root` in `mount!` ensures)
-  ;; with `with-frame`, so the interceptor lands on the chain the app's managed
-  ;; requests actually run under. The frame need not exist yet — the chain is
-  ;; keyed by frame-id and consulted when the first request fires. See the auth
-  ;; how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary
-  (rf/with-frame :rf/default
-    (rf/reg-http-interceptor :realworld/bearer-auth
-                             {:before bearer-auth-interceptor}))
   ;; Hang the conformance accessor on the window for the external RealWorld
   ;; suite. Test seam, not a pattern — see install-conduit-debug! above.
   (install-conduit-debug! :rf/default)

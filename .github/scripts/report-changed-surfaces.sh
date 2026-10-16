@@ -1863,14 +1863,17 @@ else
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # adapter_testbed_smokes and story_xray_browser are NOT fired
-        # here. The Playwright gates are triggered ONLY by direct
+        # here by shadow-cljs.edn, the lockfile or implementation/
+        # scripts/*. The Playwright gates are triggered by direct
         # source-tree changes (adapter source for adapter-testbed-
         # smokes; tools/{story,xray}/{src,testbeds}/** for the Story/
-        # Xray browser gate). A shadow-cljs.edn or implementation/
-        # scripts/ change that breaks the build is caught by the
-        # nightly cron + post-merge gate (both run the full matrix on
-        # main). shadow-cljs.edn + package-lock.json directly determine
-        # the :node-test build, so cljs_node_test fires here too.
+        # Xray browser gate), and by implementation/package.json, which
+        # defines their entry scripts (the npm-entry case below). A
+        # shadow-cljs.edn or implementation/scripts/ change that breaks
+        # the build is caught by the nightly cron + post-merge gate (both
+        # run the full matrix on main). shadow-cljs.edn + package-lock.json
+        # directly determine the :node-test build, so cljs_node_test fires
+        # here too.
         # That nightly sentence holds for every tier
         # except one: shadow-cljs.edn also arms story_static_gate at
         # PR time, through the nested case below, because the static
@@ -1947,25 +1950,42 @@ else
         # makes it a static build at all. A rename or an edit to either can
         # stop the export building with no Story or Xray source change, and
         # the nightly would be the first to say so. Scoped to shadow-cljs.edn
-        # ALONE: package.json and package-lock.json are deliberately off it,
-        # and setting this at the arm's top level would arm every
-        # implementation/scripts/* file and red the negative control that
-        # keeps the expensive job off them.
+        # here (package.json arms it in the npm-entry case below, as the file
+        # defining its script; package-lock.json stays off it): setting this
+        # at the arm's top level would arm every implementation/scripts/*
+        # file and red the negative control that keeps the expensive job off
+        # them.
         case "$file" in
           implementation/shadow-cljs.edn)
             story_static_gate=true ;;
         esac
-        # ssr_node: package.json ALONE, the narrowest scoping in this arm.
-        # `test:ssr-node` is defined there and nowhere else, so an edit that
-        # renamed or emptied it would otherwise stop the gate running with no
-        # job going red. shadow-cljs.edn is off it because no build id reaches
-        # this package; package-lock.json is off it because the package declares
-        # no npm dependency and the job does no `npm ci`, so a lockfile change
+        # THE NPM-ENTRY LANES. implementation/package.json defines the entry
+        # script of every job that runs `npm run <script>` in implementation/,
+        # and nothing else defines it, so an edit there — a script renamed,
+        # emptied or rerouted — can stop a lane running, or run something
+        # else, with no other path changing. A lane this file left unarmed
+        # would merge that edit green. So it arms EVERY such lane: the outputs
+        # below, plus those the arm above already set. A script-level diff
+        # would be narrower, but this classifier reads paths, never contents.
+        # _changed-surfaces.test.cjs derives the lanes from test.yml and holds
+        # this list to them.
+        #
+        # ssr_node is armed by package.json ALONE, the narrowest scoping in
+        # this arm. shadow-cljs.edn is off it because no build id reaches its
+        # package; package-lock.json is off it because the package declares no
+        # npm dependency and the job does no `npm ci`, so a lockfile change
         # cannot alter what it executes; `implementation/scripts/*` is off it
         # because the gate's whole body lives under implementation/ssr-node/,
         # which has its own arm above.
         case "$file" in
           implementation/package.json)
+            adapter_testbed_smokes=true
+            story_xray_browser=true
+            story_full_gate=true
+            story_static_gate=true
+            tenant_switcher_smoke=true
+            tools_cljs_machines_viz=true
+            machines_viz_viewer_page=true
             ssr_node=true ;;
         esac
         ;;

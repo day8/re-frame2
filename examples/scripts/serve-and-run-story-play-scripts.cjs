@@ -77,6 +77,7 @@ const {
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
 const { cleanStageDirs } = require('./examples-staging.cjs');
 const { navigate, reloadPage } = require('./spec-helpers.cjs');
+const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
@@ -126,23 +127,6 @@ function httpServerBin() {
 function loadChromium() {
   return require(require.resolve('playwright', { paths: [IMPL_ROOT] })).chromium;
 }
-// Resolve shadow-cljs's JS entry-point lazily (inside compileTestbed)
-// for the same reason as httpServerBin/loadChromium: the script-policy
-// unit test require()s this module for its pure helpers without the
-// browser/build toolchain installed. compileTestbed() spawns the
-// resolved runner shell-free under process.execPath — never
-// npx/npx.cmd/cmd.exe (the Windows command-hijack accident class).
-// Matches story-build.cjs / dev-testbed.cjs.
-function shadowCljsRunner() {
-  try {
-    return require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
-  } catch {
-    throw new Error(
-      'serve-and-run-story-play-scripts: could not resolve shadow-cljs. ' +
-        `Run \`npm install\` in ${IMPL_ROOT} first.`,
-    );
-  }
-}
 
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -167,16 +151,20 @@ function cleanTestbedOutDirs() {
 }
 
 function compileTestbeds() {
-  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free. Quiet-on-success: capture output and surface
-  // it only on failure (or under RF2_VERBOSE_TESTS). ONE invocation for the
-  // whole roster — shadow-cljs compiles the builds against a single JVM, so
-  // the second testbed costs a fraction of the first.
+  // The shared shadow-cljs launcher (build lane, owned process tree) under
+  // THIS node binary, shell-free — never npx/npx.cmd/cmd.exe (the Windows
+  // command-hijack accident class). Quiet-on-success: the compiler's stdout is
+  // captured and surfaced only on failure (or under RF2_VERBOSE_TESTS);
+  // stderr passes through, so a `waiting for build lane` line shows while it
+  // waits. ONE invocation for the whole roster — shadow-cljs compiles the
+  // builds against a single JVM, so the second testbed costs a fraction of
+  // the first.
   const builds = TESTBEDS.map((t) => t.build);
-  const args = [shadowCljsRunner(), 'compile', ...builds];
+  const args = [SHADOW_CLI, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
   });
   const output = `${result.stdout || ''}${result.stderr || ''}`;
   if (VERBOSE || result.status !== 0) {

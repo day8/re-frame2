@@ -44,25 +44,11 @@
                 [#"`frame-provider`\s*\(SCOPE\) or a `frame-root` \(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
 
-   {:file      "implementation/core/src/re_frame/core_http.cljc"
-    :why       "clear-http-interceptor's carried-invariant scope chain"
-    :forbidden [[stale-token "a provider-only scope-chain inventory"]]
-    :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
-                 "the SCOPE/ENSURE boundary pair"]]}
-
    {:file      "implementation/core/src/re_frame/router.cljc"
     :why       "the dispatch envelope's frame-resolution inventory (x2)"
     :forbidden [[stale-token "a provider-only scope-chain inventory"]]
     :required  [[#"`frame-provider`\s*\(SCOPE\) or a `frame-root`\s*\(ENSURE\)"
                  "the SCOPE/ENSURE boundary pair"]]}
-
-   {:file      "implementation/http/src/re_frame/http/middleware.cljc"
-    :why       "HTTP interceptor registration + clear (x2)"
-    :forbidden [[stale-token "a provider-only scope-chain inventory"]]
-    :required  [[#"`frame-provider`\s*\(SCOPE\)"
-                 "the SCOPE boundary named as SCOPE"]
-                [#"`frame-root`\s*\(ENSURE\)"
-                 "the ENSURE boundary named as ENSURE"]]}
 
    {:file      "spec/013-Flows.md"
     :why       "reg-flow's frame resolution (x2)"

@@ -63,7 +63,7 @@ What happens next depends on whether anything is still using the entry. An entry
 
 `:invalidates` is a function of `(params result)`: the accepted params and the decoded reply. It gets no `db`. When a plan needs a value from [app-db](../../core/glossary.md#app-db), such as the current user's scope, it names a resolver (the `{:from-db …}` form in [the scope section](#the-scope-footgun-and-how-to-disarm-it)), which keeps the plan plain data that tools can inspect.
 
-The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when the managed-HTTP args returned by its request function declare `:retry` beside `:request`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request, rather than in each mutation's `:request`. If that interceptor makes a read viewer-dependent, give the read and mutation the same viewer scope.
+The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when the managed-HTTP args returned by its request function declare `:retry` beside `:request`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request from the frames that name it, rather than in each mutation's `:request`. If that interceptor makes a read viewer-dependent, give the read and mutation the same viewer scope.
 
 A write whose params carry a secret — a password, a card number — names the path on the registration, `:sensitive [[:params :password]]`, so the value leaves the app as a redaction marker ([data classification](../../core/glossary.md#data-classification)). A read is different: its params and scope are its identity, so `reg-resource` refuses a `[:params …]` or `[:scope …]` path. Off-box tools always see a read's scope as a redaction marker; keep its params to identifiers, or mark the whole resource `:sensitive? true`.
 
@@ -119,11 +119,11 @@ stale it refetches; a second click is a cache hit.
    [:get "/api/articles"]         {:reply {:ok {:articles [welcome]}}}
    [:put "/api/articles/welcome"] {:reply {:ok {:article welcome}}}})
 
-;; Log each request that reaches the stubbed API.
+;; Log each request that reaches the stubbed API. The frame below names it
+;; in :http-interceptors.
 (def requests (r/atom []))
 (rf/reg-http-interceptor :demo/request-log
-  {:frame  :writes
-   :before (fn [ctx]
+  {:before (fn [ctx]
              (let [{:keys [method url]} (:request ctx)]
                (swap! requests conj (str (str/upper-case (name method)) " " url))
                ctx))})
@@ -188,6 +188,7 @@ stale it refetches; a second click is a cache hit.
      (into [:ol] (for [r @requests] [:li r]))]))
 
 [rf/frame-root {:id :writes
+                :http-interceptors [:demo/request-log]
                 :initial-events [[:rf.resource/ensure (assoc detail :owner [:demo/detail-panel])]
                                  [:rf.resource/ensure (assoc article-list :cause [:demo/warm])]]
                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}

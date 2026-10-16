@@ -36,8 +36,7 @@
 
   ;; Step 2: the reply settles :loaded with the data (generation 1).
   [:rf.resource.internal/succeeded
-   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+   {:work/id      [:rf.work/resource :res/article 1]
     :generation   1
     :data         {:title "Welcome"}}]
 
@@ -50,8 +49,7 @@
   ;; a refresh-class failure: return to :loaded, KEEP the data, record
   ;; :refresh-error — :error stays nil.
   [:rf.resource.internal/failed
-   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 2]
+   {:work/id      [:rf.work/resource :res/article 2]
     :generation   2
     :error        {:kind :rf.http/http-5xx :status 503}}]]
 

@@ -419,7 +419,7 @@ branch on the failure's `:kind`; do not leave the shell waiting indefinitely.
 
 ### The header — one interceptor for every request
 
-Every authenticated request needs `Authorization: Token <jwt>`. Rather than add it to every request map, register one HTTP [interceptor](../../core/glossary.md#interceptor) on the [frame](../../core/glossary.md#frame) that decorates every managed request — including the `/user` restore above, because `:db` [commits](../../core/glossary.md#commit) before `:fx` runs, so the token is in app-db when the request leaves.
+Every authenticated request needs `Authorization: Token <jwt>`. Rather than add it to every request map, register one HTTP [interceptor](../../core/glossary.md#interceptor) and name it in the [frame](../../core/glossary.md#frame)'s config, so it decorates every managed request the frame sends — including the `/user` restore above, because `:db` [commits](../../core/glossary.md#commit) before `:fx` runs, so the token is in app-db when the request leaves.
 
 The interceptor is a plain function. It reads the current token with `rf/app-db-value` — a non-reactive snapshot of app-db, for use inside an fx or interceptor; a pure event handler uses its `:db` coeffect — and stamps the header on:
 
@@ -437,7 +437,7 @@ The interceptor is a plain function. It reads the current token with `rf/app-db-
       ctx)))
 ```
 
-Wire it at boot with `reg-http-interceptor` (below). Because it reads app-db on every request, it always sees the current token, and logout disarms it with nothing to detach.
+Register it with `reg-http-interceptor` and name it in the frame's `:http-interceptors` (below). Because it reads app-db on every request, it always sees the current token, and logout disarms it with nothing to detach.
 
 <a id="keeping-the-jwt-redacted-on-both-surfaces"></a>
 
@@ -503,17 +503,19 @@ Then rewrite `core.cljs`. The header shows the user, the root view gains the log
      :rf.route/not-found    [not-found-page]
      [not-found-page])])
 
+;; Top level, like every reg-*; the frame below names it.
+(rf/reg-http-interceptor :conduit/bearer-auth {:before auth/bearer-auth})
+
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/with-frame :rf/default
-    (rf/reg-http-interceptor :conduit/bearer-auth {:before auth/bearer-auth}))
   (rf/make-frame
-    {:id             :rf/default
-     :doc            "The Conduit app frame."
-     :url-bound?     true
+    {:id                :rf/default
+     :doc               "The Conduit app frame."
+     :url-bound?        true
+     :http-interceptors [:conduit/bearer-auth]
      ;; Runs in order, synchronously, before the frame's first URL→route sync.
-     :initial-events [[:app/initialise]
-                      [:auth/initialise]]})
+     :initial-events    [[:app/initialise]
+                         [:auth/initialise]]})
   (reagent-adapter/render! app-root
     [rf/frame-provider {:frame :rf/default}
      [root-view]]
@@ -522,7 +524,7 @@ Then rewrite `core.cljs`. The header shows the user, the root view gains the log
 
 `not-found-page` and `app-root` are Part 1's, unchanged. The Part 1 `with-frame` / `dispatch-sync` seed is gone: `:app/initialise` is the first `:initial-events` step now. Mind the double brackets: the value is a vector *of* event vectors, and a bare `[:app/initialise]` raises an error that names the fix.
 
-The bearer interceptor is registered *before* `make-frame`, because `:auth/initialise` fires an authenticated `GET /user` straight away. Registration is keyed by frame id, so the frame needn't exist yet.
+The frame names the bearer interceptor in its own config, so the authenticated `GET /user` that `:auth/initialise` fires straight away already carries the header. The registration belongs to no frame: the frame looks each id up when a request is issued, so load order doesn't matter.
 
 The ordering that matters: **a `:url-bound? true` frame resolves the first URL after all `:initial-events` steps, so the token is in app-db before any route is judged.** Dispatch the boot events after `make-frame` returns instead, and the first URL is resolved against an empty auth slice — once [Part 4](04-scopes-and-guards.md#the-guard) adds a route guard, a signed-in reader who reloads `/settings` would be bounced to login.
 
@@ -550,7 +552,8 @@ Nothing else needs unhooking. The bearer interceptor reads app-db per request, s
 A JWT that was valid at boot can expire while the reader is still using the app. Nothing in app-db notices — the auth slice still says signed in — so the next authenticated request is where it shows up. Catch it with an `:after` hook in the same HTTP interceptor chain as `bearer-auth`:
 
 ```clojure
-;; core.cljs, in run — inside the same with-frame as :conduit/bearer-auth
+;; core.cljs, top level beside :conduit/bearer-auth. The frame names both:
+;;   :http-interceptors [:conduit/bearer-auth :conduit/expired-session]
 (rf/reg-http-interceptor :conduit/expired-session
   {:after (fn [ctx response]
             (when (and (some? (:auth/generation ctx))

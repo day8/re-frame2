@@ -4,8 +4,8 @@
   "private": true,
   "description": "SCI engine for the docs' re-frame2 cells: a shadow-cljs build of re-frame2 and Reagent that installs window.rf2sci, emitted to docs/cljs/playground-rf2.js.",
   "scripts": {
-    "build": "shadow-cljs release rf2 && node scripts/copy-bundle.mjs",
-    "build:dev": "shadow-cljs compile rf2 && node scripts/copy-bundle.mjs"
+    "build": "node ../../../../implementation/scripts/lib/shadow.cjs release rf2 && node scripts/copy-bundle.mjs",
+    "build:dev": "node ../../../../implementation/scripts/lib/shadow.cjs compile rf2 && node scripts/copy-bundle.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

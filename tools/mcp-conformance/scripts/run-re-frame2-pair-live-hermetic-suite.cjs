@@ -17,6 +17,9 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const crossSpawn = require('cross-spawn');
+// The shared shadow-cljs launcher: the machine-wide build lane, and the
+// compiler's process tree owned.
+const { SHADOW_CLI } = require('../../../implementation/scripts/lib/shadow.cjs');
 const {
   resolveTrustedExe,
   safeUnlinkInside,
@@ -179,13 +182,13 @@ function waitForChildExit(child, hasExited) {
 // ---------------------------------------------------------------------------
 // Owned-process-tree teardown
 //
-// On Windows the handle `crossSpawn` returns is NOT shadow-cljs. cross-spawn 7.0.6 rewrites the trusted absolute `npx`
-// into `C:\Windows\system32\cmd.exe /d /s /c "...npx.CMD shadow-cljs watch
-// app"`, so the child we hold — and whose `exit` event drives
-// `hasShadowExited()` — is the COMMAND WRAPPER. The shadow-cljs Node process
-// and the JVM it boots are its DESCENDANTS. Node's own child_process docs are
-// explicit that killing a shell child does not terminate the processes it
-// launched, and `child.kill()` on Windows terminates only the direct child.
+// The handle the runner holds is NOT shadow-cljs: it is the shared build-lane
+// launcher (`implementation/scripts/lib/shadow.cjs` under node), so the child
+// whose `exit` event drives `hasShadowExited()` is a WRAPPER. The shadow-cljs
+// Node process and the JVM it boots are its DESCENDANTS. Node's own
+// child_process docs are explicit that killing a child does not terminate the
+// processes it launched, and `child.kill()` on Windows terminates only the
+// direct child, giving the launcher no chance to reap its own tree.
 //
 // So `hasShadowExited() === true` proves the WRAPPER is gone and says nothing
 // about the JVM still holding the fixture's port 8030. Grading teardown on
@@ -203,10 +206,10 @@ function waitForChildExit(child, hasExited) {
 // claim that the row wearing that number IS still ours. Fencing the
 // DESCENDANTS on creation time while letting the ROOT in on the number alone
 // (`if (byPid.has(rootPid)) owned.push(rootPid)`), then handing that number
-// to `taskkill /T /F`, would be unsafe. The wrapper above is short-lived by
-// construction — it exits the moment it has launched the JVM — so its PID is
-// exactly the kind Windows recycles soonest, and cleanup would then tree-kill
-// a STRANGER and everything below it. That is the wrapper/resource confusion
+// to `taskkill /T /F`, would be unsafe. Once the wrapper has exited — killed
+// outright, or crashed — its PID is free for Windows to recycle, and cleanup
+// would then tree-kill a STRANGER and everything below it. That is the
+// wrapper/resource confusion
 // again, wearing a PID instead of a handle: an identity check that inspects a
 // name.
 //
@@ -457,8 +460,9 @@ function ownedDescendants(table, rootPid, notBeforeMs, opts = {}) {
 // `reapShadowTree()` resolving to:
 //   { supported, owned, survivors, error }
 // `supported:false` (non-Windows) is the identity: no owned set, no
-// survivors, no error — POSIX needs no owned-descendant reap, because a POSIX
-// `npx` is exec'd directly, not behind a `cmd.exe` shim.
+// survivors, no error — POSIX needs no owned-descendant reap, because the
+// launcher starts shadow-cljs as a process-group leader and reaps that whole
+// group when it is signalled.
 function makeShadowTreeReaper({
   rootPid,
   spawnedAtMs,
@@ -773,7 +777,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
 //   hasShadowExited() -> boolean: has the shadow child already emitted `exit`
 //   reapShadowTree()  -> async: terminate the OWNED descendant subtree and
 //                        report `{ supported, owned, survivors, error }`.
-//                        On Windows `getShadow()` is the `cmd.exe`/npx WRAPPER,
+//                        `getShadow()` is the launcher WRAPPER,
 //                        not shadow-cljs, so its `exit` says nothing about the
 //                        JVM below it. Defaults to an inert reaper.
 //   log / logErr      -> structured loggers (default to the module ones)
@@ -917,7 +921,7 @@ function makeCleanup(deps) {
       }
 
       // (3b) OWNED DESCENDANTS. The wrapper's `exit` proves only
-      //      that the `cmd.exe`/npx shim is gone. On Windows the shadow-cljs
+      //      that the launcher is gone. On Windows the shadow-cljs
       //      Node process and its JVM are GRANDCHILDREN that outlive it and
       //      keep holding the fixture's port. Reap and grade the subtree
       //      rooted at the pid we spawned; a survivor — or an inability to
@@ -1490,7 +1494,7 @@ async function main() {
   if (!exists(path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js'))) {
     throw new Error(
       `re-frame2-pair-mcp server bundle missing: ${path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js')}. ` +
-        'Compile with `npx shadow-cljs compile server` in tools/re-frame2-pair-mcp first.',
+        'Compile with `npm run build` in tools/re-frame2-pair-mcp first.',
     );
   }
 
@@ -1540,24 +1544,22 @@ async function main() {
   }
 
   // ---- Boot shadow-cljs watch ------------------------------------------
-  // Resolve `npx` to a trusted absolute path (rejected if it lives
-  // inside REPO_ROOT) and route the spawn through cross-spawn so the
-  // `.cmd`-on-Windows shape works without re-introducing the shell.
-  // Passing the trusted absolute path (rather than a bare `npx.cmd` with
-  // `shell: true` + `cwd = FIXTURE_DIR`) means a fixture-local `npx.cmd`
-  // that ever landed in the checkout can never be executed.
-  const npxBin = trustedExe('npx');
-  log(`spawning shadow-cljs watch app in ${FIXTURE_DIR} (npx=${npxBin})`);
+  // Through the shared launcher, under THIS node binary: an absolute `.exe`
+  // running a tracked script, with no shell, so a fixture-local `npx.cmd` that
+  // ever landed in the checkout can never be executed. The launcher resolves
+  // the fixture's own shadow-cljs install and holds the machine-wide build
+  // lane until the watch's first build reports.
+  log(`spawning shadow-cljs watch app in ${FIXTURE_DIR} (launcher=${SHADOW_CLI})`);
   // Record the spawn instant BEFORE the spawn: it is the ownership floor for
   // the descendant walk, so it must not be later than our own root's creation.
   const shadowSpawnedAtMs = Date.now();
-  const shadow = crossSpawn(npxBin, ['shadow-cljs', 'watch', 'app'], {
+  const shadow = crossSpawn(process.execPath, [SHADOW_CLI, 'watch', 'app'], {
     cwd: FIXTURE_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, FORCE_COLOR: '0' },
   });
-  // On Windows `shadow.pid` is the `cmd.exe` wrapper cross-spawn interposed;
-  // shadow-cljs and its JVM hang below it. This is the root of the subtree we
+  // `shadow.pid` is the launcher; shadow-cljs and its JVM hang below it.
+  // This is the root of the subtree we
   // own, and the ONLY subtree teardown is allowed to touch.
   const shadowRootPid = shadow.pid;
   let shadowExited = false;

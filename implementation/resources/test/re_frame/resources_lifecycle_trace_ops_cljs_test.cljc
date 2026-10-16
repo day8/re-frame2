@@ -153,10 +153,12 @@
                                         {:resource/key k :work/id wid1 :generation 1
                                          :data {:stale "data"}}])))
           tags   (first (tags-of traces :rf.resource/stale-suppressed))]
-      (is (= {:resource/key k :outcome :success :rf.reply/status :stale :rf.reply/work-status :suppressed
-              :rf.reply/stale-reason :rf.resource/superseded :rf.reply/work-id wid1}
-             (select-keys tags [:resource/key :outcome :rf.reply/status :rf.reply/work-status
+      (is (= {:resource/id :rev/article :outcome :success :rf.reply/status :stale
+              :rf.reply/work-status :suppressed :rf.reply/stale-reason :rf.resource/superseded
+              :rf.reply/work-id wid1}
+             (select-keys tags [:resource/id :outcome :rf.reply/status :rf.reply/work-status
                                 :rf.reply/stale-reason :rf.reply/work-id])))
+      (is (not (contains? tags :resource/key)) "the attempt row names no scoped key")
       (is (= [1 2 k] ((juxt (comp :carried :generation) (comp :current :generation) :resource/key)
                       (:rf.reply/correlation tags)))
           "the carried-vs-current generation pair")
@@ -164,6 +166,41 @@
              [(:generation (entry k)) (= {:stale "data"} (:data (entry k)))
               (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))])
           "the stale reply wrote nothing and its work row settled :suppressed"))))
+
+(def ^:private attempt-ops
+  "Attempt-scoped ops this test drives: they name the attempt, not its key."
+  [:rf.resource/fetch-started :rf.resource/work-completed :rf.resource/succeeded
+   :rf.resource/refresh-failed])
+
+(deftest attempt-rows-name-the-attempt-not-its-scoped-key
+  ;; Only :rf.resource/work-started states which key an attempt serves. Every
+  ;; other attempt row names the attempt by :work/id + :resource/id, and the
+  ;; entry rows keep the key.
+  (rf/reg-resource :at/article (article-spec) article-spec-request)
+  (let [k      (k-of :at/article)
+        traces (record-resource-traces!
+                 (fn []
+                   (ensure! :at/article [:app :at 1])
+                   (rf/dispatch-sync [:rf.resource.internal/succeeded
+                                      {:work/id (:current-work (entry k)) :generation 1}
+                                      {:status :ok :value {:title "W"}}])
+                   ;; fresh, so a cache hit: an entry row
+                   (ensure! :at/article [:app :at 2])
+                   (rf/dispatch-sync [:rf.resource/refetch {:resource :at/article :scope :rf.scope/global
+                                                            :params {:slug "w"}}])
+                   (rf/dispatch-sync [:rf.resource.internal/failed
+                                      {:work/id (:current-work (entry k)) :generation 2}
+                                      {:status :error :error {:kind :rf.http/http-5xx :status 503}}])))
+        rows   (fn [op] (tags-of traces op))]
+    (is (every? #(seq (rows %)) attempt-ops) "precondition: every attempt op under test was emitted")
+    (doseq [op attempt-ops
+            tags (rows op)]
+      (is (= [:at/article true false]
+             [(:resource/id tags) (vector? (:work/id tags)) (contains? tags :resource/key)])
+          (str op)))
+    (is (= [k k] (mapv :resource/key (rows :rf.resource/work-started)))
+        "work-started states the key each attempt serves")
+    (is (= [k] (mapv :resource/key (rows :rf.resource/cache-hit))) "entry rows keep the key")))
 
 (deftest cache-hit-emitted-on-fresh-ensure
   ;; no :stale-after-ms, so the loaded entry stays fresh

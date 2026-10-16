@@ -408,6 +408,25 @@ test('a one-shot compile deletes its declared output first, and the verdict is t
   assert.equal(watchClean.code, 2, 'a watch has no disposable output to declare');
 });
 
+test('a runner that cannot resolve still clears the declared output, and the lane is released', { timeout: TIMEOUT_MS }, async () => {
+  // An install with no shadow-cljs in it, so the runner's `.js` does not resolve.
+  const bare = path.join(lane, 'bare-project');
+  fs.mkdirSync(path.join(bare, 'node_modules'), { recursive: true });
+  const out = path.join(lane, 'out', 'bare.js');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, '// stale bundle from an earlier compile\n');
+  const lock = freshLock();
+  const p = start(
+    ['run', JSON.stringify(['compile', 'app']), JSON.stringify({ cwd: bare, clean: [out] })],
+    { RF2_SHADOW_LANE_LOCK: lock },
+  );
+  await p.exited;
+  assert.match(p.err, /could not resolve shadow-cljs/);
+  assert.equal(p.code, 1, 'a runner that cannot resolve is a failed compile');
+  assert.equal(fs.existsSync(out), false, 'the stale bundle survived a compile that never started');
+  assert.equal(fs.existsSync(lock), false, 'the lane was left held');
+});
+
 test('a watch releases the lane after its first build and runs on', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const pidfile = path.join(lane, 'pids-watch.json');

@@ -158,10 +158,12 @@
     (is (= [true :rf.resource.internal/succeeded :rf.resource.internal/failed]
            [(some? (:request-id args)) (first (:on-success args)) (first (:on-failure args))])
         "the runtime supplies the request id and the internal reply targets")
-    (is (= {:resource/key k :work/id (:current-work (entry k)) :generation 1
-            :scope :rf.scope/global :rf.frame/id :rf/default}
-           (select-keys vp [:resource/key :work/id :generation :scope :rf.frame/id]))
-        "the reply payload carries the frame + work-id + generation verification identity")
+    (is (= {:work/id (:current-work (entry k)) :generation 1 :rf.frame/id :rf/default}
+           vp
+           (nth (:on-failure args) 1))
+        "the reply payload is exactly the frame + work-id + generation verification identity — no scoped key, no scope")
+    (is (= [:rf.req :rf/default (:current-work (entry k))] (:request-id args))
+        "the transport request id is the frame-qualified work id")
     (is (= [:app/article true {:on #{:rf.http/http-5xx} :max-attempts 3} {:method :get :url "/a/w"}]
            [(:decode args) (fn? (:accept args)) (:retry args) (:request args)])
         "Spec 014's :decode / :accept / :retry ride the top level unchanged")))

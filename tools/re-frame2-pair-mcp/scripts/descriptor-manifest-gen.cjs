@@ -28,34 +28,34 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { SHADOW_CLI } = require('../../../implementation/scripts/lib/shadow.cjs');
 
 const HERE = __dirname;
 const ROOT = path.resolve(HERE, '..');
 const COMPILED = path.join(ROOT, 'out', 'descriptor-gen.js');
 const passthrough = process.argv.slice(2);
 
-function run(command, args, useShell) {
-  const child = spawnSync(command, args, {
+// No shell anywhere: `process.execPath` can contain spaces (e.g.
+// `C:\Program Files\nodejs\node.exe`) which a shell would split — spawn the
+// binary directly with the args array instead.
+function run(args) {
+  const child = spawnSync(process.execPath, args, {
     cwd: ROOT,
     stdio: 'inherit',
-    shell: useShell,
     env: process.env,
   });
   return child.status === null ? 1 : child.status;
 }
 
-// 1. Compile the generator build. `shell: true` lets the OS shell
-// resolve `npx`/`shadow-cljs` (a `.cmd` shim on Windows, a plain binary
-// on POSIX) without per-platform branching — same posture as
-// scripts/test-mcp-conformance.cjs.
-const compileStatus = run('npx', ['shadow-cljs', 'compile', 'descriptor-gen'], true);
+// 1. Compile the generator build through the shared shadow-cljs launcher,
+// which takes the machine-wide build lane and deletes the previous bundle
+// first, so a failed compile cannot leave a stale generator to run.
+const compileStatus = run([SHADOW_CLI, '--clean', 'out/descriptor-gen.js', 'compile', 'descriptor-gen']);
 if (compileStatus !== 0) {
   process.stderr.write('FAIL: shadow-cljs compile descriptor-gen exited ' + compileStatus + '\n');
   process.exit(compileStatus);
 }
 
-// 2. Run it, forwarding args (e.g. --check). NO shell here: `process.execPath`
-// can contain spaces (e.g. `C:\Program Files\nodejs\node.exe`) which a shell
-// would split — spawn the binary directly with the args array instead.
-const runStatus = run(process.execPath, [COMPILED, ...passthrough], false);
+// 2. Run it, forwarding args (e.g. --check).
+const runStatus = run([COMPILED, ...passthrough]);
 process.exit(runStatus);

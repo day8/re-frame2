@@ -91,7 +91,8 @@
                                       indexes, supersede semantics,
                                       actor-destroy cancellation,
                                       spawned-actor detection.
-   - `re-frame.http.middleware`     — per-frame request-side interceptor
+   - `re-frame.http.middleware`     — HTTP interceptor definitions and
+                                      each frame's `:http-interceptors`
                                       chain.
    - `re-frame.http.transport`     — shared Fetch (CLJS) + HttpClient
                                       (JVM) transport + attempt loop;
@@ -140,11 +141,10 @@
 (def seed-in-flight-for-test!    rf.http.registry/seed-in-flight-for-test!)
 (def abort-on-actor-destroy      rf.http.registry/abort-on-actor-destroy)
 
-;; The per-frame interceptor chain is
-;; internal storage; tests observe it through the immutable
-;; `interceptors-snapshot` helper rather than deref'ing the `interceptors`
-;; atom. Registration and clearing
-;; route through `reg-http-interceptor` / `clear-http-interceptor`.
+;; HTTP interceptor definitions are registrar rows under `:http-interceptor`;
+;; a frame activates them through its `:http-interceptors` config vector.
+;; Tests observe definitions and a frame's resolved chain through
+;; `interceptors-snapshot`.
 (def reg-http-interceptor        rf.http.middleware/reg-http-interceptor)
 (def clear-http-interceptor      rf.http.middleware/clear-http-interceptor)
 (def clear-all-http-interceptors! rf.http.middleware/clear-all-http-interceptors!)
@@ -205,14 +205,14 @@
 
 ;; ---- middleware registration ----------------------------------------------
 ;;
-;; `reg-http-interceptor` / `clear-http-interceptor` are the fn-call APIs —
-;; load-time registration of cross-cutting HTTP interceptors (Spec 014
-;; §Middleware). Apps register at bootstrap and never call again.
+;; `reg-http-interceptor` is the fn-call API — top-level registration of
+;; cross-cutting HTTP interceptor definitions (Spec 014 §Middleware), which a
+;; frame activates by naming them in its `:http-interceptors` config.
 ;;
 ;; There is deliberately NO fx form: an interceptor's
 ;; payload is a fn, so putting it inside an fx vector makes it less
 ;; data-shaped rather than more. An fx form earns its place only
-;; when a shipped handler must change the interceptor chain ITSELF from inside
+;; when a shipped handler must change a definition ITSELF from inside
 ;; an event; its shape is then positional per Conventions §When a
 ;; registrar has an fx form — `[:rf.fx/reg-http-interceptor [id
 ;; interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never a map

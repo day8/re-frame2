@@ -7,6 +7,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.frame :as rf.frame]
    [re-frame.fx :as rf.fx]
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
@@ -117,7 +118,11 @@
                         :cause [:route-entry :route/article 1]}])
     (let [wid (:current-work (entry k))
           r   (record wid)]
-      (is (= [:rf.work/resource k 1] wid))
+      (is (= [:rf.work/resource :wl/article 1] wid)
+          "the work id names the resource id and generation, never the scoped key")
+      (is (= [:rf.req :rf/default [:rf.work/resource :wl/article 1]]
+             (:request-id @last-managed-args))
+          "the transport request id keeps its frame")
       (is (= {:work/id wid :work/kind :resource :work/frame :rf/default :resource/key k
               :generation 1 :status :running :owners #{[:route :r 1]}
               :causes [[:route-entry :route/article 1]]}
@@ -316,6 +321,70 @@
       (is (= :running (:status (record fb wid))))
       (is (not= :loaded (:status (entry fb k)))))))
 
+;; ---- a reply resolves its key through the ledger row ------------------------
+;; The internal reply payload names only the attempt (work id + generation +
+;; frame); the receiving frame's ledger row is the one place that says which
+;; scoped key that attempt serves.
+
+(deftest a-reply-resolves-its-entry-through-the-ledger-row
+  (rf/reg-resource :rk/article (article-spec) article-spec-request)
+  (let [k (gkey :rk/article)]
+    (ensure! :rk/article [:app :rk 1])
+    (let [wid (:current-work (entry k))]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:work/id wid :generation 1 :rf.frame/id :rf/default}
+                         {:status :ok :value {:title "W"}}])
+      (is (= [:loaded {:title "W"}] [(:status (entry k)) (:data (entry k))])
+          "a payload with no key settles the entry its ledger row names")
+      (is (= :completed (:status (record wid)))))))
+
+(deftest a-reply-whose-ledger-row-is-gone-is-suppressed
+  ;; The entry still points at the attempt but its row is gone, so the reply has
+  ;; nothing to resolve a key through — and a key the payload names itself is
+  ;; not trusted.
+  (rf/reg-resource :rk/article (article-spec) article-spec-request)
+  (let [k (gkey :rk/article)]
+    (ensure! :rk/article [:app :rk 1])
+    (let [wid        (:current-work (entry k))
+          suppressed (atom [])]
+      (rf.frame/replace-runtime-db!
+        :rf/default
+        (update (runtime-db) :rf.runtime/work-ledger dissoc (rf.resources.work-ledger/work-id-id wid)))
+      (rf/register-listener! :trace ::stale
+                             (fn [ev] (when (= :rf.resource/stale-suppressed (:operation ev))
+                                        (swap! suppressed conj ev))))
+      (try
+        (rf/dispatch-sync [:rf.resource.internal/succeeded
+                           {:work/id wid :resource/key k :scope :rf.scope/global
+                            :generation 1 :rf.frame/id :rf/default}
+                           {:status :ok :value {:title "W"}}])
+        (finally (rf/unregister-listener! :trace ::stale)))
+      (is (= [:loading wid nil] [(:status (entry k)) (:current-work (entry k)) (:data (entry k))])
+          "the reply never settles the entry")
+      (is (= 1 (count @suppressed)) "it is recorded as a suppressed stale reply"))))
+
+(deftest two-live-attempts-of-one-resource-settle-their-own-entries
+  ;; Same resource, different params, both in flight in one frame: the work ids
+  ;; differ by generation, and each reply settles only the entry its row names.
+  (rf/reg-resource :rk/article (article-spec) article-spec-request)
+  (let [ka      (rf.resources.state/scoped-resource-key :rf.scope/global :rk/article {:slug "a"})
+        kb      (rf.resources.state/scoped-resource-key :rf.scope/global :rk/article {:slug "b"})
+        replies (atom {})]
+    (doseq [slug ["a" "b"]]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :rk/article :scope :rf.scope/global
+                                              :params {:slug slug} :owner [:app :rk slug]}])
+      (swap! replies assoc slug (:on-success @last-managed-args)))
+    (let [wa (:current-work (entry ka))
+          wb (:current-work (entry kb))]
+      (is (not= wa wb))
+      (is (= [:rk/article :rk/article] [(second wa) (second wb)]))
+      (rf/dispatch-sync (conj (get @replies "b") {:status :ok :value {:title "B"}}))
+      (is (= [:loading :loaded {:title "B"}]
+             [(:status (entry ka)) (:status (entry kb)) (:data (entry kb))])
+          "b's reply settles b alone")
+      (rf/dispatch-sync (conj (get @replies "a") {:status :ok :value {:title "A"}}))
+      (is (= [{:title "A"} {:title "B"}] [(:data (entry ka)) (:data (entry kb))])))))
+
 ;; ---- the key -> work inverse index ------------------------------------------
 ;; The prune visits only the settling key's rows through the index; these pin
 ;; it against a full-scan reference, and the index against a full rebuild.
@@ -334,7 +403,7 @@
     (update runtime-db :rf.runtime/work-ledger (fn [l] (reduce dissoc l drop-ids)))))
 
 (defn- record-for [scoped-key generation status started-at]
-  {:work/id      [:rf.work/resource scoped-key generation]
+  {:work/id      [:rf.work/resource (second scoped-key) generation]
    :work/kind    :resource
    :resource/key scoped-key
    :generation   generation
@@ -389,7 +458,7 @@
                                                        (nth [:running :completed :failed :cancelled]
                                                             (nextint 4))
                                                        (nextint 1000))]
-                                     (rf.resources.work-ledger/put-record rdb [:rf.work/resource k g] r))
+                                     (rf.resources.work-ledger/put-record rdb (:work/id r) r))
                                  1 (rf.resources.work-ledger/prune-terminal-for-key rdb k (nextint 3)))]
                       (recur (inc step) rdb' (if (zero? op) (inc gen) gen)
                              (cond-> drift (index-drift rdb') (conj [step op]))))))]

@@ -377,17 +377,13 @@
                                        is absent (production builds).
     :http/clear-all-in-flight!       — drop the in-flight managed-request
                                        registry.
-    :http/clear-all-http-interceptors! — clear the per-frame request-side
-                                       HTTP interceptor chain registry
-                                       (internal to `re-frame.http.middleware`),
-                                       which lives OUTSIDE the registrar the
-                                       snapshot/restore covers. A `:before` /
-                                       `:after` interceptor registered in one
-                                       test would otherwise mutate every
-                                       subsequent test's outgoing request /
-                                       reply payload. Published
-                                       for test isolation alongside
-                                       `:http/clear-all-in-flight!`; the row
+    :http/clear-all-http-interceptors! — remove every `:http-interceptor`
+                                       definition before the test body (the
+                                       `:app-ns` rows are reinstated after
+                                       it), so a frame's `:http-interceptors`
+                                       resolves only definitions the test
+                                       registers; the registrar snapshot
+                                       restores the rest afterwards. The row
                                        no-ops when the http artefact is absent.
     :epoch/clear-history!            — drop the per-frame epoch ring buffer.
     :epoch/clear-epoch-listeners!          — drop the epoch-settled callback

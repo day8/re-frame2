@@ -49,16 +49,16 @@
   "Mirrors `re-frame.resources.events`'s `:rf.resource/stale-suppressed`
   emit — the bespoke resource facts PLUS the additive reply vocabulary."
   {:rf.frame/id           :app/main
-   :resource/key          [:rf.scope/global :article/by-slug {:slug "w"}]
+   :resource/id           :article/by-slug
    :generation            4
    :outcome               :superseded
    :rf.reply/status       :stale
    :rf.reply/work-status  :suppressed
-   :rf.reply/work-id      [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4]
+   :rf.reply/work-id      [:rf.work/resource :article/by-slug 4]
    :rf.reply/stale-reason :resource/generation-mismatch
    :rf.reply/correlation  {:generation {:carried 4 :current 5}}
-   :rf.reply/carried      {:work/id [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4] :generation 4}
-   :rf.reply/current      {:work/id [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 5] :generation 5}})
+   :rf.reply/carried      {:work/id [:rf.work/resource :article/by-slug 4] :generation 4}
+   :rf.reply/current      {:work/id [:rf.work/resource :article/by-slug 5] :generation 5}})
 
 (def ^:private machine-stale-suppressed-fixture
   "Mirrors `re-frame.machines.lifecycle-fx.finalize`'s `:rf.machine/done` emit

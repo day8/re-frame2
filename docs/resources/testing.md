@@ -183,9 +183,16 @@ A mutation that `:populates` asserts the other consequence — the target key re
 
 ## 4. Exactly these requests
 
-The stub table answers requests; it doesn't count them. When the claim is about *reach* — a favorite costs one POST plus the refetch its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
+The stub table answers requests; it doesn't count them. When the claim is about *reach* — a favorite costs one POST plus the refetch its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request, and name it in the test frame's `:http-interceptors`: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
 
 ```clojure
+(def issued (atom []))
+
+(rf/reg-http-interceptor :test/issued
+  {:before (fn [ctx]
+             (swap! issued conj ((juxt :method :url) (:request ctx)))
+             ctx)})
+
 (deftest favorite-issues-exactly-these-requests
   (http-test-support/with-request-stubs
     {[:get  "/api/articles"]                {:reply {:ok {:articles [{:slug "intro"}]}}}
@@ -193,25 +200,22 @@ The stub table answers requests; it doesn't count them. When the claim is about 
      [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
     (fn []
       (rf/with-new-frame [f (rf/make-frame
-                              {:initial-events
+                              {:http-interceptors [:test/issued]
+                               :initial-events
                                (mapv (fn [[resource params]]
                                        [:rf.resource/ensure
                                         {:resource resource :params params
                                          :owner [:test :page] :cause [:manual :test/setup]}])
                                      [[:test/articles {}]
                                       [:test/article {:slug "intro"}]])})]
-        (let [issued (atom [])]
-          ;; Count only the write and its consequences, after setup has loaded.
-          (rf/reg-http-interceptor :test/issued
-            {:before (fn [ctx]
-                       (swap! issued conj ((juxt :method :url) (:request ctx)))
-                       ctx)})
-          (rf/dispatch-sync [:rf.mutation/execute
-                             {:mutation :test/favorite :params {:slug "intro"}
-                              :instance [:favorite "intro"] :cause [:manual :test/favorite]}])
-          (is (= {[:post "/api/articles/intro/favorite"] 1
-                  [:get "/api/articles"] 1}
-                 (frequencies @issued))))))))
+        ;; Count only the write and its consequences, after setup has loaded.
+        (reset! issued [])
+        (rf/dispatch-sync [:rf.mutation/execute
+                           {:mutation :test/favorite :params {:slug "intro"}
+                            :instance [:favorite "intro"] :cause [:manual :test/favorite]}])
+        (is (= {[:post "/api/articles/intro/favorite"] 1
+                [:get "/api/articles"] 1}
+               (frequencies @issued)))))))
 ```
 
 The answer is one POST and one GET. The detail is absent from the ledger because

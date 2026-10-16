@@ -10,8 +10,8 @@
   its consumers delegate to it: the named first-consumer Xray call site
   (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`,
   a thin alias) and the derivation-conformance suite, which tests THIS
-  namespace directly. Two independent copies would drift: a fix (say, the
-  canonical work-id / host-transient projection) would have to land in both.
+  namespace directly. Two independent copies would drift: a fix (say, to the
+  scoped-key handle projection) would have to land in both.
 
   It sits in core/src beside the graph COMPOSER (`re-frame.derivation.graph`)
   because it is built ENTIRELY from `implementation/`-resident primitives —
@@ -59,9 +59,11 @@
       borrowing an ambient dynamically-bound frame and shipping raw;
     - **identity-embedded scoped keys** — the positions the value-path walk
       is structurally blind to (node KEY, `:id`, `:output`, realized
-      `:inputs`, `:work-ledger` work-id + `:resource/key`, `:host-transient`
-      in-flight handle, and every edge endpoint) projected into STABLE OPAQUE
-      HANDLES; and
+      `:inputs`, the `:work-ledger` record's `:resource/key`, and every edge
+      endpoint) projected into STABLE OPAQUE HANDLES. A resource work-id
+      (`:work-ledger :work/id`, the `:host-transient` in-flight address)
+      names its attempt by resource id and generation, so it carries no
+      scope or params and rides as-is; and
     - **STRUCTURE PRESERVED** — a redacted value / param is still an edge;
       the node is still present + classified; the projection is idempotent.
 
@@ -289,45 +291,16 @@
           inputs)
     inputs))
 
-(defn- project-work-id
-  "Project the scoped key embedded in a resource work-id
-  `[:rf.work/resource <scoped-key> <generation>]` — a work-id of another
-  shape (e.g. a non-resource family's work-id, or a bare scalar) rides
-  through unchanged. Idempotent by
-  delegation: `project-scoped-key` already returns an already-projected
-  handle unchanged, regardless of whether the embedded key still LOOKS like
-  a raw `scoped-resource-key?` shape (an opaqued key's tail is a vector, not
-  a map)."
-  [work-id]
-  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
-    (update work-id 1 project-scoped-key)
-    work-id))
-
-(defn- project-host-transient
-  "Project the work-id embedded in a `:host-transient`
-  `[[:rf.http/in-flight <work-id>]]` in-flight handle address
-  — the abortable-handle address names the SAME work-id the work-ledger
-  link carries, so it must not leak the raw scoped key either. Other
-  shapes ride through untouched."
-  [host-transient]
-  (if (sequential? host-transient)
-    (mapv (fn [entry]
-            (if (and (vector? entry) (= 2 (count entry)) (= :rf.http/in-flight (first entry)))
-              (update entry 1 project-work-id)
-              entry))
-          host-transient)
-    host-transient))
-
 (defn- project-resource-node-identity
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
-  path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
+  path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads, and
   `:work-ledger :record :resource/key` (the scoped key on the work-ledger
-  summary), the resource work-id embedded in BOTH `:work-ledger :work/id`
-  and `:work-ledger :record :work/id` (a THIRD identity
-  position, independent of `:resource/key`), and the `:host-transient`
-  in-flight handle address (which names that SAME work-id). Structure /
-  classification fields are untouched."
+  summary). The work-ledger `:work/id` and the `:host-transient` in-flight
+  address `[[:rf.http/in-flight <work-id>]]` name the attempt by resource id
+  and generation (`[:rf.work/resource <resource-id> <generation>]`), so they
+  carry no scope or params and ride as-is. Structure / classification fields
+  are untouched."
   [node]
   (cond-> node
     (scoped-resource-key? (:id node))
@@ -340,16 +313,7 @@
     (update :inputs project-resource-inputs)
 
     (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)
-
-    (contains? (:work-ledger node) :work/id)
-    (update-in [:work-ledger :work/id] project-work-id)
-
-    (contains? (get-in node [:work-ledger :record]) :work/id)
-    (update-in [:work-ledger :record :work/id] project-work-id)
-
-    (contains? node :host-transient)
-    (update :host-transient project-host-transient)))
+    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
 
 (defn- resource-node-key?
   "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
@@ -441,11 +405,10 @@
   `[cache-scope resource-id canonical-params]` that is the node KEY
   (`[:resource <scoped-key>]`), the node's `:id`, and is embedded in the
   `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`
-  edges, `:work-ledger :record :resource/key`, the resource work-id
-  embedded in BOTH `:work-ledger :work/id` and `:work-ledger :record
-  :work/id` (a THIRD identity position, independent of `:resource/key`),
-  and the `:host-transient` in-flight handle address (which names that
-  SAME work-id). The `elide-wire-value` value-path walk is structurally
+  edges, and `:work-ledger :record :resource/key`. (The resource work-id
+  under `:work-ledger` and in the `:host-transient` in-flight address names
+  its attempt by resource id and generation, so it carries neither scope nor
+  params.) The `elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
   each scoped key's secret-bearing scope + params with STABLE OPAQUE HANDLES
   (a keyed digest of the `rf.identity/canonical-bytes` token, stable within one

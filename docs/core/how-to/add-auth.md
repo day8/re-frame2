@@ -133,7 +133,7 @@ The failure handler is unchanged from the form recipe. Don't add a `:retry` bloc
 
 Every authenticated request needs the token in an `Authorization` header. Threading it through each request builder means one forgotten call site ships an unauthenticated request.
 
-Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../async/http.md) and are separate from event interceptors. Its `:before` receives a context map (`ctx`) holding the in-flight request and returns it, edited. This one reads the token from the frame's app-db and adds the header to every managed request that frame sends:
+Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../async/http.md) and are separate from event interceptors. Its `:before` receives a context map (`ctx`) holding the in-flight request and returns it, edited. This one reads the token from the frame's app-db and adds the header to every managed request sent by a frame that names it:
 
 ```clojure
 ;; cf. examples/real-apps/realworld_http/core.cljs
@@ -145,17 +145,16 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))  ;; "Token" is RealWorld's scheme; yours may be "Bearer"
 
-;; Register at boot, before the first authenticated request. Registration is
-;; per frame; a bare top-level call raises :rf.error/no-frame-context.
-(rf/with-frame :rf/default
-  (rf/reg-http-interceptor :my-app/bearer-auth
-    {:before bearer-auth}))
+;; A top-level definition, like any reg-*. It runs only in a frame that names
+;; it in :http-interceptors, as step 4's frame does.
+(rf/reg-http-interceptor :my-app/bearer-auth
+  {:before bearer-auth})
 ```
 
 - It reads `(:frame ctx)`, the frame this request runs under, so it keeps working on multi-frame pages ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
 - It returns `ctx` unchanged when there's no token, so login and public reads are untouched.
 - `Authorization` is on the framework's built-in header denylist, so the live request carries it while traces show it redacted.
-- It never fires for another frame's requests.
+- It never fires for a frame that doesn't name it.
 
 This is the same move as registering one `axios` request interceptor instead of passing a config object to every call.
 
@@ -166,19 +165,18 @@ The same chain has a response side, which is where you catch an expired token:
 ;; `:after` receives the reply envelope:
 ;;   {:status :ok :value …}
 ;;   {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}
-(rf/with-frame :rf/default
-  (rf/reg-http-interceptor :my-app/expired-session
-    {:after (fn [ctx response]
-              (when (and (contains? ctx :auth/generation)
-                         (= :error (:status response))
-                         (= :rf.http/http-4xx (get-in response [:error :kind]))
-                         (= 401 (get-in response [:error :status])))
-                ;; The reply runs in a transport callback with no frame in
-                ;; scope, so a bare (rf/dispatch …) would raise
-                ;; :rf.error/no-frame-context. Dispatch into this request's frame.
-                (rf/dispatch [:auth/expired {:generation (:auth/generation ctx)}]
-                             {:frame (:frame ctx)}))
-              response)}))                       ;; :after must return the response
+(rf/reg-http-interceptor :my-app/expired-session
+  {:after (fn [ctx response]
+            (when (and (contains? ctx :auth/generation)
+                       (= :error (:status response))
+                       (= :rf.http/http-4xx (get-in response [:error :kind]))
+                       (= 401 (get-in response [:error :status])))
+              ;; The reply runs in a transport callback with no frame in
+              ;; scope, so a bare (rf/dispatch …) would raise
+              ;; :rf.error/no-frame-context. Dispatch into this request's frame.
+              (rf/dispatch [:auth/expired {:generation (:auth/generation ctx)}]
+                           {:frame (:frame ctx)}))
+            response)})                          ;; :after must return the response
 ```
 
 The post-`:before` context reaches `:after` unchanged, including `:auth/generation`. Anonymous requests carry no generation, so a rejected login does not trigger logout. The `:auth/expired` handler in step 6 compares the captured counter with current state when the event runs; checking only in this callback could race a queued login success.
@@ -189,11 +187,11 @@ To refresh the token and retry instead of logging out, drive the request from a 
 
 ??? note "How the chain composes"
 
-    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in registration order, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg.
+    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in the order the frame's `:http-interceptors` vector names them, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg. Load order sets nothing.
 
 !!! warning "Gotcha: hot-reloading the interceptor"
 
-    Re-evaluating `reg-http-interceptor` with the same id replaces it in place and keeps its position in the chain. `(rf/clear :http-interceptor id)` removes it, and a later re-registration appends it to the end of the chain. Don't clear-then-register in hot-reload code unless you want that.
+    Re-evaluating `reg-http-interceptor` with the same id replaces its definition, and every frame naming it runs the new one from its next request; the order stays wherever the frame's `:http-interceptors` puts it. `(rf/clear :http-interceptor id)` removes the definition for every frame, and a frame still naming the id fails each request with `:rf.error/unregistered-interceptor` until the id is registered again.
 
 ## 4. Guard the protected routes
 
@@ -257,13 +255,15 @@ Restore the session from the frame's `:initial-events`. A `:url-bound? true` fra
      :fx        [[:auth.session/load]]}))
 
 (rf/make-frame
-  {:id             :rf/default
-   :doc            "The app frame."
-   :url-bound?     true                            ;; this frame owns the browser URL
-   :initial-events [[:auth/init]]})                ;; runs before the first URL is resolved
+  {:id                :rf/default
+   :doc               "The app frame."
+   :url-bound?        true                         ;; this frame owns the browser URL
+   :http-interceptors [:my-app/bearer-auth         ;; step 3's interceptors, in order
+                       :my-app/expired-session]
+   :initial-events    [[:auth/init]]})             ;; runs before the first URL is resolved
 ```
 
-If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-app.md), put the same `:url-bound? true` and `:initial-events [[:auth/init]]` on its options instead of calling `make-frame`.
+If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-app.md), put the same `:url-bound?`, `:http-interceptors` and `:initial-events` on its options instead of calling `make-frame`.
 
 !!! warning "Gotcha: restoring the session after the frame exists"
 
