@@ -463,19 +463,33 @@
   :correlation)
 
 (defn- row-owner-redacts?
-  "Whether the resource OWNER named by this trace row's `:resource/key`
-  claims the whole entry — classifies non-`:serialize` (sensitive / large, or
-  UNREGISTERED → fail-closed) — i.e. whether the row's owner-local
-  identity-bearing FREE tags (the load-more cursor; and, inside an fx carrier,
-  a read continuation reply's `reply-payload-slot` entries) must tokenize.
-  Reads the SAME `key-params-disposition` the key's params take, so the cursor
-  and the reply body tokenize exactly when the key's params do. Returns false
-  when the row carries no usable `:resource/key` (no owner to read — the cursor
-  then rides verbatim; structural attribution is unaffected). Pure."
+  "Whether the resource OWNER this trace row names claims the whole entry —
+  classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
+  fail-closed) — i.e. whether the row's owner-local identity-bearing FREE tags
+  (the load-more cursor; and, inside an fx carrier, a read continuation reply's
+  `reply-payload-slot` entries) must tokenize.
+
+  An entry row (and a continuation reply) names its owner by `:resource/key`,
+  read through the SAME `key-params-disposition` the key's params take, so the
+  cursor and the reply body tokenize exactly when the key's params do. An
+  ATTEMPT row (`:rf.resource/load-more`, `:rf.resource/page-appended`, …) names
+  the attempt rather than its key, so it names its owner by `:resource/id`,
+  read through the same coarse claim (an unregistered id fails closed). Returns
+  false when the row names no owner at all (the cursor then rides verbatim;
+  structural attribution is unaffected). Pure."
   [tags _frame-id]
-  (let [sk (:resource/key tags)]
-    (when (and (vector? sk) (= 3 (count sk)))
-      (not= :serialize (key-params-disposition sk)))))
+  (let [sk  (:resource/key tags)
+        rid (:resource/id tags)]
+    (cond
+      (and (vector? sk) (= 3 (count sk)))
+      (not= :serialize (key-params-disposition sk))
+
+      (keyword? rid)
+      (not= :serialize (if-let [spec (rf.resources.registry/resource-meta rid)]
+                         (rf.resources.classification/whole-entry-disposition spec)
+                         :redact))
+
+      :else false)))
 
 (def ^:private disposition-rows-slot
   "Tag slots that carry a VECTOR of per-key DISPOSITION maps (each embedding a
@@ -1330,7 +1344,8 @@
                                 (vreset! sensitive-found? true)))
           ;; the load-more cursor (`:page-param` / `:next-page-param`) is a FREE
           ;; tag, not a scoped key, so its classification rides the ROW's owner
-          ;; (named by `:resource/key`): tokenize the cursor iff that owner is
+          ;; (named by `:resource/id` on the attempt rows that carry a cursor,
+          ;; `:resource/key` on an entry row): tokenize the cursor iff that owner is
           ;; non-`:serialize` (sensitive / large / unregistered) —
           ;; computed ONCE here so the per-slot walk just consults it.
           ;; A plain feed's cursor rides verbatim.
@@ -1491,7 +1506,8 @@
   defined tag (an app `:next-page-param` fn over the feed data, so it can carry
   a record id / tenant offset / timestamp), not a scoped key, so it escapes the
   scoped-key slots. It rides the ROW's owner classification (read from the
-  sibling `:resource/key`): tokenized to a content-FREE `{:rf/redacted
+  sibling `:resource/id` — the two cursor rows are attempt rows, which name
+  their resource rather than the attempt's scoped key): tokenized to a content-FREE `{:rf/redacted
   <shape>}` when that owner is non-`:serialize` (sensitive / large /
   unregistered fail-closed), riding verbatim for a plain feed (no
   over-redaction).
