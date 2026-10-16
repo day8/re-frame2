@@ -46,6 +46,7 @@ const {
   IMPL_ROOT,
   REPO_ROOT,
 } = require('./_path-policy.cjs');
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 // The build target the driver compiles. Override via STORY_BUILD_TARGET
 // if the consumer has their own static-export build. The target itself
@@ -103,28 +104,14 @@ const HTML_SRC = enforcePolicy(
 );
 
 function release() {
-  // Spawn shadow-cljs shell-free under THIS node binary:
-  // resolve shadow-cljs's own JS entry-point and run it via
-  // `process.execPath` with `shell:false` — never `npx`/`npx.cmd` under a
-  // shell. This sidesteps both the Windows command-hijack accident class
-  // (a workspace-local `npx.cmd` resolving ahead of PATH under
-  // `shell:true` + a repo-controlled `cwd`) and the
-  // `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation.
-  // Same posture dev-testbed.cjs uses for `shadow-cljs watch`. Resolution
-  // is rooted at IMPL_ROOT so it finds the implementation's local install
-  // regardless of this script's cwd.
-  let shadowRunner;
-  try {
-    shadowRunner = require.resolve('shadow-cljs/cli/runner.js', {
-      paths: [IMPL_ROOT],
-    });
-  } catch {
-    throw new Error(
-      'story-build: could not resolve shadow-cljs. Run `npm install` in ' +
-        `${IMPL_ROOT} first.`,
-    );
-  }
-  const args = [shadowRunner, 'release', BUILD_TARGET];
+  // The shared shadow-cljs launcher (build lane, owned process tree), run
+  // shell-free under THIS node binary via `process.execPath` — never
+  // `npx`/`npx.cmd` under a shell. This sidesteps both the Windows
+  // command-hijack accident class (a workspace-local `npx.cmd` resolving
+  // ahead of PATH under `shell:true` + a repo-controlled `cwd`) and the
+  // `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation. The
+  // cwd is IMPL_ROOT, the shadow-cljs project the launcher resolves from.
+  const args = [SHADOW_CLI, 'release', BUILD_TARGET];
   console.log(`> shadow-cljs release ${BUILD_TARGET}`);
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,

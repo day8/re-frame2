@@ -33,6 +33,11 @@ const IMPL_DIR = path.join(lane, 'implementation');
 const WRAPPER = path.join(IMPL_DIR, 'scripts', 'compile-node-test.cjs');
 for (const [from, to] of [
   [path.join(SCRIPTS_DIR, 'compile-node-test.cjs'), WRAPPER],
+  [path.join(SCRIPTS_DIR, 'lib', 'shadow.cjs'), path.join(IMPL_DIR, 'scripts', 'lib', 'shadow.cjs')],
+  [
+    path.join(SCRIPTS_DIR, 'lib', 'local-browser-harness.cjs'),
+    path.join(IMPL_DIR, 'scripts', 'lib', 'local-browser-harness.cjs'),
+  ],
   [path.join(REAL_IMPL_DIR, LANE_CACHE), path.join(IMPL_DIR, LANE_CACHE)],
 ]) {
   fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -106,7 +111,13 @@ function compile(extraArgs) {
     {
       cwd: IMPL_DIR,
       encoding: 'utf8',
-      env: { ...process.env, RF2_PROOF_STAND_IN: STAND_IN, RF2_PROOF_OUTPUT: BUNDLE },
+      env: {
+        ...process.env,
+        RF2_PROOF_STAND_IN: STAND_IN,
+        RF2_PROOF_OUTPUT: BUNDLE,
+        // A lane of this suite's own, so the proof never queues behind a real build.
+        RF2_SHADOW_LANE_LOCK: path.join(lane, 'build-lane.lock'),
+      },
     },
   );
   assert.equal(result.status, 0, `the compile exited ${result.status}; stderr:\n${result.stderr}`);

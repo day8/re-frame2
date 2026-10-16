@@ -106,9 +106,10 @@ function domTestNamespaces() {
 // DISPOSITIONS entry; this suite holds the executor to that question.
 
 // Whole tokens, so `browser-test` is not read as the executor of `browser-test-bench`.
+// A script reaches shadow-cljs through the shared launcher, `scripts/lib/shadow.cjs`.
 function buildIdsInvokedBy(body) {
   const ids = new Set();
-  for (const m of body.matchAll(/shadow-cljs\s+(?:compile|release|watch)\s+([^&|;<>]*)/g)) {
+  for (const m of body.matchAll(/lib\/shadow\.cjs\s+(?:compile|release|watch)\s+([^&|;<>]*)/g)) {
     for (const token of m[1].trim().split(/\s+/)) {
       if (token && !token.startsWith('-')) ids.add(token);
     }

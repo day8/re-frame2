@@ -36,24 +36,17 @@
  * Non-build flags (anything not starting with `:`) pass through in place
  * and are never treated as builds for URL printing.
  *
- * Launching `npx shadow-cljs watch ...` directly also works, and behaves
- * identically apart from the URL printing.
+ * Launching `npx shadow-cljs watch ...` directly also works, apart from the
+ * URL printing and the build lane, which only the launcher takes.
  *
- * SPAWN FORM. We resolve shadow-cljs's own JS entry-point
- * (`shadow-cljs/cli/runner.js`) and spawn it under THIS `node` binary
- * (`process.execPath`) with `shell:false` — never `npx`/`npx.cmd` under a
- * shell. Two reasons:
- *   1. Passing an args array with `shell:true` triggers Node's DEP0190
- *      DeprecationWarning (args are concatenated, not escaped) — so a
- *      `shell: isWin` form would print a warning on every Windows launch.
- *   2. Simply dropping `shell:true` is NOT a fix on Windows: spawning a
- *      `.cmd` (npx.cmd) without a shell throws `EINVAL` since the
- *      CVE-2024-27980 mitigation. Resolving the runner's `.js` and
- *      spawning `node` on it sidesteps the `.cmd` entirely, so the same
- *      warning-clean, shell-free form works on Windows AND POSIX.
- * The colon-prefixed build-ids and any extra `shadow-cljs watch` flags are
- * just elements of the args array — they pass through unescaped and
- * unconcatenated.
+ * THE WATCH RUNS THROUGH `lib/shadow.cjs`, the launcher every shadow-cljs
+ * entry shares. It holds the machine-wide build lane only until every watched
+ * build has compiled once, so a watch left running all day does not block
+ * other worktrees' compiles; recompiles after that run outside the lane.
+ * Ctrl-C reaps the watch's whole process tree. The launcher spawns shadow
+ * shell-free under THIS `node`, so the colon-prefixed build-ids and any extra
+ * `shadow-cljs watch` flags are just elements of an args array — they pass
+ * through unescaped and unconcatenated.
  *
  * URL DISCOVERABILITY. For every watched build that has a `:dev-http`
  * port, the launcher prints `http://localhost:<port>/` on start (Story
@@ -66,8 +59,8 @@
 
 'use strict';
 
-const { spawn } = require('child_process');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
+const { runShadow } = require('./lib/shadow.cjs');
 
 // ===========================================================================
 // OWNED-RANGE PORT MAP. Single source of truth for who-owns-
@@ -229,23 +222,6 @@ if (require.main === module) {
 
   const builds = resolveArgs(rawArgs);
 
-  // Resolve shadow-cljs's own JS entry-point and run it under THIS node
-  // binary (shell-free, .cmd-free) — see SPAWN FORM in the header comment.
-  // Resolution is rooted at IMPL_ROOT so it finds the
-  // implementation's local install regardless of this launcher's own cwd.
-  let shadowRunner;
-  try {
-    shadowRunner = require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
-  } catch {
-    console.error(
-      'dev: could not resolve shadow-cljs. Run `npm install` in ' +
-        `${IMPL_ROOT} first.`,
-    );
-    process.exit(1);
-  }
-  const cmd = process.execPath;
-  const args = [shadowRunner, 'watch', ...builds];
-
   console.log(`> shadow-cljs watch ${builds.join(' ')}`);
 
   // Print the served URL(s) for every watched build that has a dev-http
@@ -261,16 +237,13 @@ if (require.main === module) {
     for (const line of urlLines) console.log(line);
   }
 
-  const child = spawn(cmd, args, {
-    cwd: IMPL_ROOT,
-    stdio: 'inherit',
-  });
-
-  child.on('exit', (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code == null ? 0 : code);
-  });
+  // Rooted at IMPL_ROOT, so it finds the implementation's shadow-cljs
+  // install whatever this launcher's own cwd.
+  runShadow(['watch', ...builds], { cwd: IMPL_ROOT, label: 'dev' }).then(
+    (code) => process.exit(code),
+    (err) => {
+      console.error(err && err.stack ? err.stack : err);
+      process.exit(1);
+    },
+  );
 }

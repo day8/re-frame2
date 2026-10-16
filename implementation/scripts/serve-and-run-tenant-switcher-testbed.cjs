@@ -65,25 +65,22 @@ const READY_TIMEOUT_MS = 30000;
 const SPEC_TIMEOUT_MS = parseInt(process.env.TESTBED_SPEC_TIMEOUT_MS || '30000', 10);
 const POLL_MS = 200;
 
-// Resolve the shadow-cljs + http-server JS entry-points so they can be
-// spawned shell-free under process.execPath. Rooted at IMPL_ROOT
-// regardless of this script's cwd.
-let SHADOW_CLJS_RUNNER;
+// Resolve the http-server JS entry-point so it can be spawned shell-free
+// under process.execPath. Rooted at IMPL_ROOT regardless of this script's
+// cwd. shadow-cljs runs through the shared launcher, which resolves its own.
 let HTTP_SERVER_BIN;
 try {
-  SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
-    paths: [IMPL_ROOT],
-  });
   HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
     paths: [IMPL_ROOT],
   });
 } catch {
   console.error(
-    'serve-and-run-tenant-switcher-testbed: could not resolve shadow-cljs / ' +
-      `http-server. Run \`npm install\` in ${IMPL_ROOT} first.`,
+    'serve-and-run-tenant-switcher-testbed: could not resolve http-server. ' +
+      `Run \`npm install\` in ${IMPL_ROOT} first.`,
   );
   process.exit(1);
 }
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 const { spawnSync } = require('child_process');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
@@ -92,10 +89,10 @@ const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
 function compile() {
-  // Spawn the resolved shadow-cljs runner under THIS node binary, shell-free.
+  // The shared shadow-cljs launcher, under THIS node binary, shell-free.
   const result = spawnSync(
     process.execPath,
-    [SHADOW_CLJS_RUNNER, 'compile', BUILD_ID],
+    [SHADOW_CLI, 'compile', BUILD_ID],
     { cwd: IMPL_ROOT, stdio: 'inherit' },
   );
   if (result.status !== 0) {
