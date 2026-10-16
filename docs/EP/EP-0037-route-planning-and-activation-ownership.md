@@ -395,9 +395,11 @@ resource planning and activation only after they allow it. Initial load has no
 current leave guard but evaluates target entry policy normally.
 
 The programmatic, link, URL-change, initial-load, and SSR handlers may remain
-separate public events for cause-specific tests and host integration. They must
-call the same resolver, decisions, planner, and commit assembler. No door may
-reimplement guard coverage or leaf-only resource planning.
+separate public events for cause-specific tests and host integration. Each is a
+thin wrapper over one internal pipeline function — the same resolver,
+decisions, planner, and commit assembler — supplying its inputs as data, and
+target resolution forks on the request's source kind, never on the event. No
+door may reimplement guard coverage or leaf-only resource planning.
 
 The existing state-first ordering remains: the frame's committed route facts and
 next plan ownership are established before a client history effect and before
@@ -1124,8 +1126,8 @@ identity-group and contributor/local-id evidence there. The
 > subset of the door vocabulary — it is its **complement**. Every activation
 > planning failure is preceded, in the same drain and the same commit branch, by
 > the `:rf.route/planned` trace, which already carries the door under `:cause`
-> drawn from exactly those five values; `commit-navigation` has only two callers
-> (`routing/navigate.cljc` and `routing/url_change.cljc`) and both emit
+> drawn from exactly those five values; `commit-navigation` has one caller, the
+> navigation pipeline every door runs (`routing/url_change.cljc`), which emits
 > `:rf.route/planned` immediately before consulting the resource plan. Prefetch
 > is the one planning path with **no** `:rf.route/planned` trace at all —
 > warmup is not activation — so it is the one path whose cause is not otherwise
