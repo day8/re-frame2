@@ -161,14 +161,14 @@ python "$repo_root/scripts/check_readme_links.py" --ci \
 assert "N check_readme_links catches broken target" "1" "$?"
 
 # ---- U: `PLAN-JVM` is core plus each touched artefact.  The roster entry
-# `implementation/adapters/reagent` is a string prefix of `…/reagent-slim`, so
-# the match must be on a path boundary. ----
-r="$tmp_root/jvm-slim"; mkrepo "$r"
-mkdir -p "$r/implementation/adapters/reagent-slim/src"
-printf 'x\n' > "$r/implementation/adapters/reagent-slim/src/a.cljs"
-git -C "$r" add -A; git -C "$r" commit -q -m slim
-assert "U reagent-slim does not arm reagent (path boundary)" \
-  "PLAN-JVM implementation/core implementation/adapters/reagent-slim" "$(plan PLAN-JVM "$r")"
+# `implementation/adapters/reagent` is a string prefix of a sibling such as
+# `…/reagent-extra`, so the match must be on a path boundary. ----
+r="$tmp_root/jvm-prefix"; mkrepo "$r"
+mkdir -p "$r/implementation/adapters/reagent-extra/src"
+printf 'x\n' > "$r/implementation/adapters/reagent-extra/src/a.cljs"
+git -C "$r" add -A; git -C "$r" commit -q -m prefix
+assert "U a reagent-prefixed sibling does not arm reagent (path boundary)" \
+  "PLAN-JVM implementation/core" "$(plan PLAN-JVM "$r")"
 
 # ---- Z: the spine's own file matches no runtime and no documentation-content
 # surface, so without its own arm an edit that broke the docs tier would never
