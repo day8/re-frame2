@@ -28,20 +28,21 @@ Use the parsed structure rather than text searches. `:fixture/*` event ids,
 doc strings and comments are not top-level keys; a marker key's presence does
 not establish a true value; multiline capability sets and whitespace around
 operators do not change their values. Feed this inventory into the
-[harness's fail-loud checks](#the-harness).
+[harness's filters and fail-loud checks](#the-harness).
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
 ## The harness
 
-[README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (host-applicability first, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
+[README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (spec version first, then host-applicability, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
 
-Six fail-loud floors the harness owes:
+**Spec version filters; it never fails the run.** The harness declares the set of `:fixture/spec-version` values the port claims and compares each fixture's version with it before anything else ([README §Versioning](https://day8.github.io/re-frame2/spec/conformance/#versioning)): a fixture whose version is in the set runs, a fixture with no version runs as unversioned, and any other is reported SKIPPED with its version — never failed — and counts toward neither the score nor the runnable-fixture floor below. A port that has not moved with a spec change still claims only the old version, so the fixtures that changed with it skip until the port claims the new one.
 
-- **Spec version.** Reject a `:fixture/spec-version` the harness hasn't moved with (README §Versioning) — never silently run a mismatched fixture.
+Five fail-loud floors the harness owes:
+
 - **Unknown capability.** A fixture capability in neither the claim nor the `known-skipped` allowlist FAILS the suite with a diagnostic naming it (§The two out-of-claim flavours below).
 - **Unknown op.** An unrecognised handler-DSL op or Mode-B `:call` op fails with a diagnostic naming it; then either grow the interpreter (the designed path) or file the corpus gap (rules 8–9).
-- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the six and the reason it is here: new setup and expectation keys land in the grammar ahead of any port implementing them, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Take the key set from the grammar file at your pin, and give each expectation key exactly one matcher.
+- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the five and the reason it is here: new setup and expectation keys land in the grammar ahead of any port implementing them, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Take the key set from the grammar file at your pin, and give each expectation key exactly one matcher.
 - **Required-family skip.** A `known-skipped` entry naming any capability in a **v1-required** family — any `:core/…`, `:identity/…`, `:flow/…`, `:data-classification/…` tag — fails the run naming it, before a single fixture is filtered. The allowlist exists to record capabilities the port genuinely does not claim; a v1-required family is never one of them. This floor is what makes the reduced path safe **by construction**: a minimum port cannot shrink its denominator by declaring the omission, so "we skipped it on purpose" stops being a route to `claimed-applicable / claimed-applicable`.
 - **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
 
