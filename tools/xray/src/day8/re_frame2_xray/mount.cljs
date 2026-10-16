@@ -1217,10 +1217,14 @@
   Reads by registration ID, deliberately NOT by `:rf.provenance/ns`: selecting
   by provenance is the image guard's job, so a set that is present but
   mis-stamped still reaches that guard and fails loud. This answers only
-  whether the registrar was cleared since the preload registered Xray."
+  whether the registrar was cleared since the preload registered Xray. An id
+  more than one namespace registers is still registered, so the probe asks both
+  reads rather than the store read that throws for it."
   []
-  (some? (rf/handler-meta {:source :store :kind :event
-                           :id :rf.xray/set-target-frame})))
+  (let [query {:source :store :kind :event}
+        id    :rf.xray/set-target-frame]
+    (or (contains? (rf/registrations query) id)
+        (contains? (rf/ambiguous-registrations query) id))))
 
 (defn boot-on-runtime-ready!
   "Preload entry: wait briefly for the host app to call `rf/init!`, then run
