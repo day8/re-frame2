@@ -18,12 +18,7 @@ const WARMUP = 20;
 /** The tables the `reference` fixture publishes. */
 const REFERENCE_TABLES = {
   buildId: 'reference-build-1',
-  entries: {
-    'app/root': {
-      stateAllowlist: [':todos', ':route', ':delay'],
-      runtimeAllowlist: [':rf.runtime/routing'],
-    },
-  },
+  entries: ['app/root'],
 };
 
 test('judge names every ceiling it breaches, and stays silent when it clears them', () => {

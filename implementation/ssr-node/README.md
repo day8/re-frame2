@@ -35,7 +35,7 @@ them be stated at all.
 | # | Guarantee | Where it lives | Witnessed by |
 |---|---|---|---|
 | 1 | **Per-request state isolation, via immutable snapshots** | `src/worker.cjs`, `src/isolate.cjs` | `test/isolation.test.cjs` |
-| 2 | **Allowlisted request, fail-closed** | `src/protocol.cjs` | `test/protocol.test.cjs` |
+| 2 | **A closed request envelope, fail-closed** | `src/protocol.cjs` | `test/protocol.test.cjs` |
 | 3 | **One in-flight render per isolate** | `src/isolate.cjs`, `src/pool.cjs` | `test/concurrency.test.cjs` |
 | 4 | **Timeout and hard termination** | `src/isolate.cjs`, `src/pool.cjs` | `test/timeout.test.cjs` |
 | 5 | **A pre-registered caller latency envelope** | `test/envelope.cjs` | `test/envelope.test.cjs` |
@@ -78,9 +78,10 @@ has — a `gensym` frame id per request, seeded through `:rf/set-db`,
 destroyed in a `finally`. The split is the honest one: the service owns the
 process boundary, the module owns the framework.
 
-### 2. Allowlisted request, fail-closed
+### 2. A closed request envelope, fail-closed
 
-Three allowlists, and none of them has a permissive default.
+Three closed lists, none with a permissive default, and a shape check and
+a byte ceiling on the state that crosses.
 
 The request's own fields. The protocol names every field a request may
 carry. A field it does not name is a refusal
@@ -90,8 +91,8 @@ posture and it is also a topology one — see
 fields that are refused on purpose, each with its reason attached to the
 refusal so the message teaches instead of merely declining.
 
-The entry id. `entry` must be a key of the table the loaded render
-module publishes. An id the bundle does not carry is refused per request
+The entry id. `entry` must be one of the ids in the table the loaded
+render module publishes. An id the bundle does not carry is refused per request
 (`:rf.ssr-node/unknown-entry`) — the per-request half of the skew detector
 the server-arm pricing named as row B5.
 
@@ -116,23 +117,21 @@ never posts — and checked on the in-process `renderToString()` result
 rather than on the HTTP response, because "the current transport drops
 it" is a fact about `http.cjs` and not a guarantee about this package.
 
-The partition keys. A settled frame is two partitions — app-db and the
-framework's runtime-db — and a request carries both, as `state` and
-`runtime`. Each entry in the table declares its own list for each:
-`stateAllowlist`, the top-level app-db keys a render of that entry may
-read, and `runtimeAllowlist`, the top-level runtime-db keys (the route
-slice, the machine snapshots). A request carrying a key the entry does not
-declare for that partition is refused (`:rf.ssr-node/state-key-not-allowed`,
-`detail.field` naming which). The lists belong to the entry, not to the
-request, so a caller cannot widen its own allowance; an entry that reads
-nothing from a partition declares the empty list for it; and an entry that
-declares no list for either partition cannot be rendered at all.
+The partition shape. A settled frame is two partitions — app-db and the
+framework's runtime-db (the route slice, the machine snapshots) — and a
+request carries both, as `state` and `runtime`. Each maps top-level key
+text (a leading colon, no whitespace) to that key's value as EDN text. A
+key of any other shape, or a value that is not a string, is refused
+(`:rf.ssr-node/bad-request-field`), and the two partitions together share
+one byte ceiling (`:rf.ssr-node/request-too-large`).
 
-This is the render-visibility policy the server-arm pricing recorded as
-absent — its §5, "a second, larger egress with no policy written for
-it". The failure mode it guards is the asymmetric one that dossier names:
-a client payload allowlist that is too narrow costs a recompute, while a
-render projection that is too narrow is a silently wrong page.
+Which keys cross is not decided here. The JVM decides it:
+`re-frame.ssr.render-state/project` projects the settled frame under the
+renderer's `:render-state` policy, which is required at construction,
+fail-closed per partition, and the one render-visibility policy on this
+path — so a key the JVM sends is a key the render may read. A
+`:render-state` given as a `fn` hands that selection, and the frame's
+classification, to the programmer who wrote it.
 
 **Every field is read exactly once.** `validateRequest` takes each field
 off the caller's object one time and returns what it took — the two
@@ -302,7 +301,7 @@ in the refusal message:
 ```jsonc
 {
   "protocol": 1,
-  "entry": "app/root",              // must be a key of the module's entry table
+  "entry": "app/root",              // must be an id in the module's entry table
   "state": {                        // top-level app-db key -> that key's EDN text
     ":todos": "[{:id 1, :done? false}]",
     ":session": "{:user \"u-42\"}"
@@ -319,9 +318,11 @@ in the refusal message:
 ```
 
 `state` and `runtime` are maps of key text to value text, not one EDN
-blob, so the service can enforce the key allowlists without parsing
-application state or carrying an EDN reader — a boundary that has to
-understand what it is guarding is a worse boundary. The two are the two
+blob. Every value is a string, so the worker's shallow freeze of a
+partition is a deep one, and the key-shape check and the byte ceiling have
+keys and values to count without parsing application state or carrying an
+EDN reader — a boundary that has to understand what it is guarding is a
+worse boundary. The two are the two
 partitions of one settled frame — `:rf/app-db` and `:rf/runtime-db`, the
 envelope the hydration payload already uses — projected on the JVM by
 `re-frame.ssr.render-state/project` under the handler's `:render-state`
@@ -338,7 +339,7 @@ covers both.
 The `complete` response's field list is `COMPLETE_FIELDS`, and it is closed
 in the same sense the request's is. Nothing on it but `html` originates in
 the application's render module — see
-[the response leg](#2-allowlisted-request-fail-closed). Over HTTP the body
+[the response leg](#2-a-closed-request-envelope-fail-closed). Over HTTP the body
 is `html` itself and the other fields ride as headers.
 
 or, instead of it:
@@ -363,7 +364,6 @@ leaves, because there is only ever one body and it leaves whole.
 | `:rf.ssr-node/bad-request-field` | a named field of the wrong shape — over HTTP, also a `requestId` no response header can carry |
 | `:rf.ssr-node/request-too-large` | over the body ceiling, or over the one `state` + `runtime` shares |
 | `:rf.ssr-node/unknown-entry` | an id the loaded bundle does not carry |
-| `:rf.ssr-node/state-key-not-allowed` | a `state` or `runtime` key the entry does not declare for that partition |
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
 | `:rf.ssr-node/render-threw` | the render module threw, or returned something other than a string |
@@ -372,9 +372,8 @@ leaves, because there is only ever one body and it leaves whole.
 | `:rf.ssr-node/service-closed` | the service is shutting down |
 | `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot, or its worker never became ready — past the boot deadline, or exiting before it |
 
-The `:rf.ssr-node/*` family is a new reserved-namespace tenant. Cataloguing
-it in `spec/Conventions.md` is a sequenced follow-up; that file is a
-hot-zone file this bead was fenced from.
+The `:rf.ssr-node/*` family is a reserved-namespace tenant, catalogued in
+`spec/Conventions.md`.
 
 ### The runtime partition, and the door the framework decided
 
@@ -401,11 +400,11 @@ partitions in one atomic write, replaying no boot events (the JVM drained
 them; the projection IS the settled result) and running none of the
 client's hydration concerns.
 
-So `runtime` rides beside `state`, in the same shape, gated by the same
-kind of entry-owned list. The invariants did not move: the service still
-never decodes application data, absence of a list is still a refusal, and
-the fail-closed guarantee stays here in Node rather than moving to the
-JVM. A value the projection cannot carry — a fn, a host object, a record,
+So `runtime` rides beside `state`, in the same shape and under the same
+checks, and the service never decodes application data in either. Which
+keys of either partition cross is the JVM's `:render-state` policy, the
+one render-visibility policy on this path. A value the projection cannot
+carry — a fn, a host object, a record,
 a JVM-only number — fails on the JVM at projection with a named error, so
 what reaches this wire is by construction what the far side reads back
 equal.
@@ -429,17 +428,10 @@ module.exports = {
   // expected `buildId` disagrees.
   buildId: process.env.MY_APP_BUILD_ID,
 
-  // The entry table. The JVM knows these ids; only the bundle can resolve
-  // one back into a root form. `stateAllowlist` and `runtimeAllowlist` are
-  // the render-visibility policy for that entry — one list per partition —
-  // and an entry without either cannot be rendered. An entry that reads
-  // nothing from a partition declares `[]`.
-  entries: {
-    'app/root': {
-      stateAllowlist: [':todos', ':session'],
-      runtimeAllowlist: [':rf.runtime/routing', ':rf.runtime/machines'],
-    },
-  },
+  // The entry table: the ids a JVM host may name. Only the bundle can
+  // resolve one back into a root form. Which state a render of it sees is
+  // the JVM's `:render-state` policy, not this table's.
+  entries: ['app/root'],
 
   // Once per isolate, before the first render. Install the substrate here
   // — Spec 006 allows exactly one per process, so it is a boot decision
@@ -463,7 +455,7 @@ promise of any of those. The refusal's wording is this contract's own and
 its `detail` is the entry and the returned value's type tag
 (`"[object Null]"`, say), never its content. That is the response leg's
 fail-closed door rather than fussiness — see
-[the response leg's fields](#2-allowlisted-request-fail-closed) for what
+[the response leg's fields](#2-a-closed-request-envelope-fail-closed) for what
 it is holding. `return { html, meta }` is a module reaching for a second
 way out, and coercing it with `String()` would publish whatever it prints
 as.
@@ -926,14 +918,14 @@ the tree, which is what the PR's quality-gate table records.
 - `rf2-hic-056` — this package. Operator ruling of 12 August 2026
   (`rf2-xpq9`) lifted the dormancy and set V0 scope. Reopened at P2 by the
   merged-PR audit of #8028 for the response-contract escape described
-  under [guarantee 2](#2-allowlisted-request-fail-closed); the remedy is
+  under [guarantee 2](#2-a-closed-request-envelope-fail-closed); the remedy is
   the response-leg field list and `test/egress.test.cjs`.
 - `rf2-hic-046` — the per-surface SSR/hydration witnesses this builds on.
   The client-side hydration contract is that bead's and is already
   mandatory; nothing here waits on this service.
 - `docs/design/fresco/production-server-arm.md` — the Arm A / Arm B
-  pricing. §5 is the contract this package implements; its B1a, B1b, B2
-  and B5 rows are what the entry table, the state allowlist, the isolate
-  pool and the build identity discharge.
+  pricing. §5 is the contract this package implements; its B1a, B2 and B5
+  rows are what the entry table, the isolate pool and the build identity
+  discharge. B1b's render-visibility policy is the JVM's `:render-state`.
 - `docs/design/fresco/studio/ssr-spike-witness.md` — the X1–X5 render
   evidence this package assumes rather than reproduces.

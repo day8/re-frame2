@@ -139,15 +139,7 @@ function boot() {
   postMessage({
     t: 'ready',
     buildId: renderModule.buildId,
-    entries: Object.fromEntries(
-      Object.entries(renderModule.entries).map(([entryId, entryConfig]) => [
-        entryId,
-        {
-          stateAllowlist: [...entryConfig.stateAllowlist],
-          runtimeAllowlist: [...entryConfig.runtimeAllowlist],
-        },
-      ]),
-    ),
+    entries: [...renderModule.entries],
   });
 }
 

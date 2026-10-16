@@ -4,7 +4,7 @@
 // It stands in for an application's compiled server bundle. It renders no
 // React and requires no build, because every guarantee under test is a
 // property of the SERVICE rather than of a renderer — and a suite that
-// needed a shadow-cljs compile to check an allowlist would be a suite
+// needed a shadow-cljs compile to check a fail-closed door would be a suite
 // nobody runs.
 //
 // `'use strict'` is deliberate and load-bearing: a strict module takes a
@@ -69,17 +69,7 @@ function observe({ entry, state, runtime, args }) {
 module.exports = {
   protocol: 1,
   buildId: 'reference-build-1',
-  entries: {
-    'app/root': {
-      // Exactly the keys `observe` reads. An allowlist member this module
-      // never looks at is state it would admit and drop, which is the
-      // opposite of what a fail-closed allowlist is for — the byte-fidelity
-      // rows have their own fixture (`bytes.cjs`).
-      stateAllowlist: [':todos', ':route', ':delay'],
-      runtimeAllowlist: [':rf.runtime/routing'],
-    },
-    'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
-  },
+  entries: ['app/root', 'app/other'],
 
   boot() {
     globalThis[BOOTS] += 1;
