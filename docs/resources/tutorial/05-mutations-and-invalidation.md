@@ -202,7 +202,7 @@ server rejects the second article's favorite, so its button shows the error.
          '[re-frame.http.managed]
          '[re-frame.resources]
          '[re-frame.http.test-support :as http-test-support]
-         '[reagent2.core :as r])
+         '[reagent.core :as r])
 
 (def api-base "https://api.realworld.show/api")
 (defn article [slug title favorited n]

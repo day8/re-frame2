@@ -337,7 +337,7 @@ sends one.
          '[re-frame.resources]
          '[re-frame.routing]
          '[re-frame.http.test-support :as http-test-support]
-         '[reagent2.core :as r])
+         '[reagent.core :as r])
 
 (def api-base "https://api.realworld.show/api")
 

@@ -110,7 +110,7 @@ stale it refetches; a second click is a cache hit.
          '[re-frame.resources]
          '[re-frame.http.managed]
          '[re-frame.http.test-support :as http-test-support]
-         '[reagent2.core :as r])
+         '[reagent.core :as r])
 
 ;; Canned replies for the two reads and the save.
 (def welcome {:slug "welcome" :title "Welcome" :body "The first article."})

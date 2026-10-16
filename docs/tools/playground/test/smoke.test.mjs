@@ -762,7 +762,7 @@ await page.evaluate(() => {
   const cell = document.createElement("pre");
   cell.className = "language-cljs-rf2";
   cell.textContent = [
-    "(require '[reagent2.core :as r] '[re-frame.core :as rf])",
+    "(require '[reagent.core :as r] '[re-frame.core :as rf])",
     "(rf/reg-view ^{:rf/id :interop/root} interop-root [] [:span])",
     "(def typed (r/atom \"\"))",
     "(defn interop-view []",

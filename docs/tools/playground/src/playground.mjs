@@ -10,7 +10,7 @@
  *   ```cljs-rf2  pre.language-cljs-rf2  Evaluates the source against
  *                                       re-frame2's public API and mounts the
  *                                       last form as a component, through
- *                                       reagent2 or Fresco. Runs on load and
+ *                                       Reagent or Fresco. Runs on load and
  *                                       on Mod-Enter.
  *
  * Each engine is a classic <script> injected only on pages that have its

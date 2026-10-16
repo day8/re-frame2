@@ -69,7 +69,7 @@ The bundle carries core, both view layers and every optional artefact:
 |---|---|
 | `re-frame.core` | Everything on the façade, including `reg-view`, `reg-machine`, `reg-flow`, `reg-app-schema`, `reg-resource` and `reg-route` |
 | `re-frame.fresco`, `.forms`, `.overlay`, `.motion` | Fresco views, `h/defview`, `h/sub`, `h/event` |
-| `reagent2.core` (also as `reagent.core`), `reagent2.ratom`, `reagent2.dom.client` | reagent2 |
+| `reagent.core`, `reagent.ratom`, `reagent.dom.client` | Reagent |
 | `re-frame.schemas` | Reading registered schemas |
 | `re-frame.http.managed`, `re-frame.http.test-support` | `:rf.http/managed`, and stubs for it |
 | `re-frame.resources` | Resource events and subs |
@@ -86,12 +86,12 @@ component to wrap.
 
 The last form renders through **Fresco** when it contains a Fresco view
 (`h/defview`), `h/frame-root` or `h/frame-provider`, or a handler written as
-data (`:on-click [:inc]`). Otherwise it renders through **reagent2**. Plain
+data (`:on-click [:inc]`). Otherwise it renders through **Reagent**. Plain
 hiccup such as `[:p "Hello"]` looks the same either way.
 
-One page can mix reagent2 and Fresco cells, and they share frames and
+One page can mix Reagent and Fresco cells, and they share frames and
 registrations. One tree cannot mix them directly: Fresco refuses a plain
-function as a head, and a Fresco view inside a reagent2 tree needs
+function as a head, and a Fresco view inside a Reagent tree needs
 `[:> (h/as-component view)]`.
 
 ### HTTP in a cell
@@ -227,7 +227,7 @@ interpreter with re-frame2 compiled in. It exposes each namespace with
 `sci/copy-ns`, and replaces the JVM-only macros `reg-view`, `reg-machine`,
 `reg-flow`, `h/defview` and `h/event` with SCI macros and runtime fns, so
 cells write the same calls as real code. It installs `window.rf2sci` with
-`renderLast`, `disposePage` and `release`. A reagent2 cell re-renders into
+`renderLast`, `disposePage` and `release`. A Reagent cell re-renders into
 its existing React root; a Fresco cell gets a fresh root on every run,
 because a mounted `h/frame-root` refuses new options. Two build settings
 matter:
@@ -276,6 +276,6 @@ produced a deployed bundle. Nothing gates on it.
 | A plain cell cannot resolve an alias it just required | Plain cells cannot `require` | Make it a ` ```cljs-rf2 ` cell |
 | A cell raises `:rf.error/no-such-handler` for an id another page registered | Navigation clears the previous page's registrations | Register the handler on this page |
 | A re-frame2 cell shows a printed value instead of a component | Its last form is not a vector | End the cell with hiccup or a component vector |
-| A cell raises `:rf.error/fresco-bad-head` | The tree has a Fresco view, so it renders through Fresco, and it also has a plain fn or `reg-view` head | Make the head an `h/defview`, or keep the cell all reagent2 |
+| A cell raises `:rf.error/fresco-bad-head` | The tree has a Fresco view, so it renders through Fresco, and it also has a plain fn or `reg-view` head | Make the head an `h/defview`, or keep the cell all Reagent |
 | An HTTP cell's `:on-failure` gets `no stub matched` | The request's method and URL are not in the stub map | Key the stub on the exact `[method url]` the request sends |
 | The smoke fails with `playground-rf2.js not found` | The engine was not built | `npm run build` |

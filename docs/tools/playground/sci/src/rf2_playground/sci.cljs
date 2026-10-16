@@ -3,7 +3,7 @@
 
   A cell runs in an SCI context that exposes re-frame2's public API, then
   renders its last form. The bundle is a shadow-cljs `:browser` build of SCI,
-  re-frame2 core, reagent-slim, Fresco and every optional artefact (machines,
+  re-frame2 core, Reagent, Fresco and every optional artefact (machines,
   flows, schemas, HTTP, resources, routing, epoch and SSR), with React 19
   bundled in. It installs `window.rf2sci` for the bootstrap
   (`src/playground.mjs`) to call. It is not a Scittle plugin, because
@@ -11,9 +11,9 @@
 
   The last form renders through Fresco when it contains a Fresco head (an
   `h/defview`, an `h/defhost`, or `h/frame-root` / `h/frame-provider`) or a
-  handler written as data (`:on-click [:inc]`), and through reagent2
+  handler written as data (`:on-click [:inc]`), and through Reagent
   otherwise. Plain hiccup renders the same either way. A Fresco view cannot
-  be a child in a reagent2 tree, so one tree uses one renderer; different
+  be a child in a Reagent tree, so one tree uses one renderer; different
   cells may use different ones.
 
   How the API reaches a cell:
@@ -66,10 +66,10 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
-            [reagent2.core :as r]
-            [reagent2.ratom :as ratom]
-            [reagent2.dom.client :as rdc]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [reagent.core :as r]
+            [reagent.ratom :as ratom]
+            [reagent.dom.client :as rdc]))
 
 ;; ---------------------------------------------------------------------------
 ;; SCI namespace configs
@@ -216,14 +216,14 @@
 (def epoch-ns (sci/create-ns 're-frame.epoch nil))
 (def ssr-ns (sci/create-ns 're-frame.ssr nil))
 
-(def r-ns (sci/create-ns 'reagent2.core nil))
-(def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))
+(def r-ns (sci/create-ns 'reagent.core nil))
+(def reagent-core-namespace (sci/copy-ns reagent.core r-ns))
 
-(def ratom-ns (sci/create-ns 'reagent2.ratom nil))
-(def reagent2-ratom-namespace (sci/copy-ns reagent2.ratom ratom-ns))
+(def ratom-ns (sci/create-ns 'reagent.ratom nil))
+(def reagent-ratom-namespace (sci/copy-ns reagent.ratom ratom-ns))
 
-(def rdc-ns (sci/create-ns 'reagent2.dom.client nil))
-(def reagent2-dom-client-namespace (sci/copy-ns reagent2.dom.client rdc-ns))
+(def rdc-ns (sci/create-ns 'reagent.dom.client nil))
+(def reagent-dom-client-namespace (sci/copy-ns reagent.dom.client rdc-ns))
 
 ;; Clojure 1.11 added these to clojure.core, and SCI's ClojureScript core does
 ;; not carry them, so a cell would get `Unable to resolve symbol`.
@@ -242,9 +242,6 @@
 ;; `:classes` opens JS interop: property access, method calls and `js/`
 ;; globals, as in ordinary ClojureScript. A cell runs in the reader's own
 ;; browser on code the reader can see, so there is nothing to sandbox.
-;;
-;; `reagent.core` is an alias for `reagent2.core`, so a cell pasted from stock
-;; reagent code still resolves.
 (def sci-ctx
   (sci/init
    {:classes    {'js js/globalThis :allow :all}
@@ -264,10 +261,9 @@
                  're-frame.fresco.forms   (sci/copy-ns re-frame.fresco.forms fresco-forms-ns)
                  're-frame.fresco.overlay (sci/copy-ns re-frame.fresco.overlay fresco-overlay-ns)
                  're-frame.fresco.motion  (sci/copy-ns re-frame.fresco.motion fresco-motion-ns)
-                 'reagent2.core        reagent2-core-namespace
-                 'reagent2.ratom       reagent2-ratom-namespace
-                 'reagent2.dom.client  reagent2-dom-client-namespace
-                 'reagent.core         reagent2-core-namespace}}))
+                 'reagent.core        reagent-core-namespace
+                 'reagent.ratom       reagent-ratom-namespace
+                 'reagent.dom.client  reagent-dom-client-namespace}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Init
@@ -279,7 +275,7 @@
 
 (defn- ensure-adapter! []
   (when-not @adapter-inited?
-    (rf/init! rf.adapter.reagent-slim/adapter)
+    (rf/init! rf.adapter.reagent/adapter)
     (reset! adapter-inited? true)))
 
 ;; The app frame is page-owned: `disposePage` destroys it on each navigation
@@ -344,7 +340,7 @@
       (rf.fresco.impl.codec/frame-boundary-head? x)))
 
 ;; A handler written as data — an intent vector, a key map or an `h/event`
-;; callback — at an `on-*` prop. Fresco runs these; reagent2 needs a plain fn.
+;; callback — at an `on-*` prop. Fresco runs these; Reagent needs a plain fn.
 (defn- fresco-props? [x]
   (and (map? x)
        (boolean
@@ -392,7 +388,7 @@
   The source is evaluated at the SCI top level, not wrapped in `(do ...)`, so
   a leading `(require ...)`'s aliases reach the forms after it. A tree with a
   Fresco head renders through Fresco; any other vector renders through
-  reagent2, re-rendering in place on a second call for the same element. Any
+  Reagent, re-rendering in place on a second call for the same element. Any
   other value is shown with `pr-str`, so a cell that ends in a `reg-*` call
   shows the registered id."
   [src target-el]

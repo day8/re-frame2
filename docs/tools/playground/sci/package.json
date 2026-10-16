@@ -2,7 +2,7 @@
   "name": "rf2-docs-cljs-playground-sci",
   "version": "0.1.0",
   "private": true,
-  "description": "SCI engine for the docs' re-frame2 cells: a shadow-cljs build of re-frame2 and reagent2 that installs window.rf2sci, emitted to docs/cljs/playground-rf2.js.",
+  "description": "SCI engine for the docs' re-frame2 cells: a shadow-cljs build of re-frame2 and Reagent that installs window.rf2sci, emitted to docs/cljs/playground-rf2.js.",
   "scripts": {
     "build": "shadow-cljs release rf2 && node scripts/copy-bundle.mjs",
     "build:dev": "shadow-cljs compile rf2 && node scripts/copy-bundle.mjs"

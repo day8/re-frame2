@@ -85,12 +85,12 @@ on:
       - 'tools/**/spec/**'
       # The live `cljs-rf2` cells run on docs/cljs/playground-rf2.js,
       # which is not committed: this workflow BUILDS it (below) and ships
-      # what it built. The bundle bakes in re-frame2 core + reagent-slim +
+      # what it built. The bundle bakes in re-frame2 core + Reagent +
       # machines + flows + schemas, so a push touching any of them changes the deployed
       # live-cell engine and must republish. (docs/tools/playground/** — the
       # bundle's own source and build config — is already inside docs/**.)
       - 'implementation/core/**'
-      - 'implementation/adapters/reagent-slim/**'
+      - 'implementation/adapters/reagent/**'
       - 'implementation/machines/**'
       - 'implementation/flows/**'
       - 'implementation/schemas/**'
@@ -162,7 +162,7 @@ jobs:
       #
       # This path set is DELIBERATELY NARROWER than the `push.paths` filter
       # above. push.paths carries the four baked-in implementation
-      # surfaces so a core/reagent-slim/machines/flows merge republishes the
+      # surfaces so a core/reagent/machines/flows merge republishes the
       # regenerated live-cell bundle; this PR-side classifier must NOT, or every
       # core PR would run a duplicate ~15-minute MkDocs build on top of the
       # tools-playground job in test.yml that already builds + smokes the bundle
@@ -228,7 +228,7 @@ jobs:
       # --- SCI-bundle build-on-publish
       #
       # The docs' live `cljs-rf2` cells run on docs/cljs/playground-rf2.js — a
-      # shadow-cljs :advanced bundle that bakes in re-frame2 core + reagent-slim
+      # shadow-cljs :advanced bundle that bakes in re-frame2 core + Reagent
       # + machines + flows + react@19 (the eval engine for every `cljs-rf2`
       # cell). This workflow rebuilds it fresh on every publish, because
       # deploying a committed snapshot verbatim would let the LIVE cells run
@@ -271,7 +271,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
+          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-playground-
             ${{ runner.os }}-cljs-

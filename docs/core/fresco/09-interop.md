@@ -316,7 +316,7 @@ Use `h/as-element` for one subtree returned through a callback. Use
 `h/as-component` when a native parent will mount, key, and re-render the view
 as a component.
 
-In the cell below the parent is a reagent2 `rf/reg-view` under
+In the cell below the parent is a Reagent `rf/reg-view` under
 `rf/frame-root`, and each row is a Fresco view crossing through
 `h/as-component`. The parent passes only an id; the row reads its todo with
 `h/sub` and dispatches its intent to the frame it finds in React context. Tick
@@ -352,7 +352,7 @@ a row to see both work.
 ;; Its React component, created once at top level.
 (def todo-row* (h/as-component todo-row))
 
-;; The reagent2 parent.
+;; The Reagent parent.
 (rf/reg-view todo-list []
   [:ul
    [:> todo-row* {:id 1}]
