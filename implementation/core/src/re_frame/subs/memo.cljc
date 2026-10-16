@@ -563,8 +563,8 @@
   spine, an `r/atom` under Reagent — whose fan-out is not movement-gated
   and which therefore cannot implement the protocol. With nil here the
   guard expression below reduces to the plain `=` memo compare. Reagent
-  `Reaction`s, the plain-atom derived value (JVM and CLJS) and
-  test-react's derived value likewise answer nil, so those substrates get
+  `Reaction`s and the plain-atom derived value (JVM and CLJS) likewise
+  answer nil, so those substrates get
   exactly that compare and pay only two extra pointer compares per
   recompute, zero allocation.
 

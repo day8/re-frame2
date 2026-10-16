@@ -548,7 +548,7 @@
   Activating BEFORE the watch is what keeps the attach itself silent: the first
   capture run may move the value from its uncomputed state, and an observer not
   yet installed cannot be notified of that non-change. Push-based-from-birth
-  substrates (the React-hook spine, plain-atom, test-react) need none of this
+  substrates (the React-hook spine, plain-atom) need none of this
   and use `make-subscribe-container` bare."
   [subscribe-container activate!]
   (fn activating-subscribe-container [container on-change]
@@ -953,8 +953,8 @@
         ;; container gates its own propagation on `moved?` (see `notify`
         ;; above), which implies the `(not (= prev nu))` `re-frame.movement`'s
         ;; W2 requires, so it can publish. A raw `cljs.core/Atom` source, a
-        ;; Reagent `Reaction`, the plain-atom derived value and test-react's
-        ;; derived value all publish NOTHING — and that is the correct
+        ;; Reagent `Reaction` and the plain-atom derived value all publish
+        ;; NOTHING — and that is the correct
         ;; answer for them, not an omission: their propagation is not
         ;; movement-gated (the raw-atom coordinator fans out on every `reset!`)
         ;; or they have no notify step at all. Consumers resolve the
@@ -4423,7 +4423,7 @@
     ;; `re-frame.subs` holds ONE reference per (owning reaction, slot) and
     ;; releases it on that owner's dispose, so it needs the owner itself, not
     ;; merely the fact that there is one. Chain-bottom nil: an adapter that
-    ;; publishes no owner (UIx, plain-atom, test-react) leaves the whole
+    ;; publishes no owner (UIx, plain-atom) leaves the whole
     ;; render-owned path unreached, which is correct — those substrates own
     ;; their references through their own commit cleanup.
     (rf.substrate.adapter/route-hook! adapter :adapter/reactive-owner
@@ -4437,8 +4437,8 @@
     ;; bottom is the `untracked-read-no-opinion` sentinel, NOT a read: a
     ;; routed fallback is a zero-argument thunk and never sees the container,
     ;; so the core reader answers the sentinel with `read-container` itself.
-    ;; That fallback is exact for the React-hook spine, plain-atom and
-    ;; test-react, whose reads capture nothing — so they publish nothing.
+    ;; That fallback is exact for the React-hook spine and plain-atom, whose
+    ;; reads capture nothing — so they publish nothing.
     (rf.substrate.adapter/route-hook! adapter :adapter/read-container-untracked
       read-container-untracked
       (constantly rf.substrate.adapter/untracked-read-no-opinion))

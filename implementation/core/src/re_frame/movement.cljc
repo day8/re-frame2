@@ -61,7 +61,7 @@
   In this repo exactly ONE implementor exists — the React-hook spine's
   `make-derived-value` reify (`re-frame.substrate.spine`), whose `notify`
   fires only when its value moves. The Reagent `Reaction`, the plain-atom
-  derived value (JVM and CLJS), test-react's derived value, and every raw
+  derived value (JVM and CLJS), and every raw
   `cljs.core/Atom` / `clojure.lang.Atom` publish nothing.
 
   See Spec 006 §Movement witness (optional).")
