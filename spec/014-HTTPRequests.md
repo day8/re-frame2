@@ -832,7 +832,7 @@ The public surface is `(reg-http-interceptor id interceptor-map)` — positional
 (rf/reg-http-interceptor
   :auth-header
   {:doc    "Stamp Bearer <token> on every outgoing request."
-   :frame  :app                                  ;; the frame whose requests it decorates
+   :frame  :rf/default                           ;; the frame whose requests it decorates
    :before (fn [ctx]
              (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
@@ -840,7 +840,7 @@ The public surface is `(reg-http-interceptor id interceptor-map)` — positional
                                  (str "Bearer " token)))))})
 ```
 
-Registration names its frame: the explicit `:frame` above, or an enclosing `(rf/with-frame :app …)` around a block of registrations. At namespace load no frame is in scope, so a frameless registration there raises `:rf.error/no-frame-context` and installs nothing. The frame need not exist yet: the chain is keyed by frame id and read each time a request is issued ([§Chain order and frame scope](#chain-order-and-frame-scope)), so an app registers at load, before `(rf/make-frame {:id :app})` creates the frame.
+Registration names its frame: the explicit `:frame` above, or an enclosing `(rf/with-frame :rf/default …)` around a block of registrations. At namespace load no frame is in scope, so a frameless registration there raises `:rf.error/no-frame-context` and installs nothing. The frame need not exist yet: the chain is keyed by frame id and read each time a request is issued ([§Chain order and frame scope](#chain-order-and-frame-scope)), so an app registers at load, before `(rf/make-frame {:id :rf/default})` creates the frame.
 
 ### `:before` — request-side ctx contract
 
@@ -920,14 +920,14 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 ```clojure
 (rf/reg-http-interceptor
   :app/bearer-auth
-  {:frame  :app
+  {:frame  :rf/default
    :before (fn [ctx]
              (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})
 
-;; All subsequent `:rf.http/managed` requests on `:app` carry the
+;; All subsequent `:rf.http/managed` requests on `:rf/default` carry the
 ;; header automatically — no per-call-site threading. The interceptor
 ;; reads the auth slice on every request, so token rotation is picked
 ;; up without re-registration.

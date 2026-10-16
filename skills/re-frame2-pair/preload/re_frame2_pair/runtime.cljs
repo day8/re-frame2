@@ -248,7 +248,7 @@
 ;; So the resolver is RESERVED-FRAME-AWARE: a `:rf/*`-namespaced frame is
 ;; a tool frame and is EXCLUDED from the ambiguity count, with ONE
 ;; deliberate exception — `:rf/default`, which per Conventions.md §Reserved
-;; namespaces is an ordinary app frame id with no framework privilege. It
+;; namespaces is the conventional app-frame id with no framework privilege. It
 ;; is an APP frame, not a tool frame, despite sharing the `:rf/*` root. We
 ;; key off the reserved-namespace RULE (namespace = "rf", minus the
 ;; `:rf/default` carve-out), never a literal `:rf/xray`, so the behaviour
@@ -280,7 +280,7 @@
    §Reserved namespaces — framework-owned ids live under the single `:rf/*`
    root), NOT a hardcoded id, so it holds for every `:rf/*` tool frame any
    project mounts. The SOLE carve-out is `:rf/default`: per Conventions.md
-   §Reserved namespaces it is an ordinary app frame id with no framework
+   §Reserved namespaces it is the conventional app-frame id with no framework
    privilege — it shares the `:rf/*` root but is a normal app frame an app
    may explicitly register, so it is never treated as a tool frame.
 

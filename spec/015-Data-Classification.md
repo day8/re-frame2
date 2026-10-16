@@ -277,7 +277,7 @@ Production observability sink policy belongs on the frame, under the `:observabi
 
 ```clojure
 (rf/make-frame
-  {:id :app/main
+  {:id :rf/default
    :observability
    {:handled-events [{:sink :my-app.sinks/datadog
                       :rf.egress/profile :rf.egress/off-box-observability}]
