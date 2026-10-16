@@ -3,8 +3,8 @@
   REQUESTS a navigation puts on the trace bus: the `:url` of the
   `:rf.route/planned` trace, the URL argument of the
   `[:rf.route/handle-url-change url …]` event vector, and the request of the
-  `[:rf.route/navigate {request}]` / `[:rf.route/url-requested {request}]`
-  event vectors on every event-bearing trace. A request's `:url` projects as a
+  `[:rf.route/navigate {request}]` event vector on every event-bearing
+  trace. A request's `:url` projects as a
   URL; the `:params` / `:query` of a `:to` request carry the `:rf/redacted`
   sentinel for each declared value.
 
@@ -101,13 +101,13 @@
         (is (not-any? #(str/includes? (pr-str events) %) [param-secret query-secret]))))))
 
 (deftest a-url-request-redacts-its-routes-declared-parts
-  (testing "[:rf.route/url-requested {:url …}]: the link door's request projects its URL"
+  (testing "[:rf.route/navigate {:url …}]: a link click's request projects its URL"
     (reg-routes!)
     (let [url    (str "/acct/" param-secret "/visible?token=" query-secret "&page=2")
-          events (capture-traces #(rf/dispatch-sync [:rf.route/url-requested {:url url}]))]
+          events (capture-traces #(rf/dispatch-sync [:rf.route/navigate {:url url}]))]
       (when rf.interop/debug-enabled?
         (is (= #{{:url "/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"}}
-               (set (event-args :rf.route/url-requested events))))))))
+               (set (event-args :rf.route/navigate events))))))))
 
 (deftest an-in-place-request-rides-verbatim-because-it-names-no-route
   (testing "an in-place request edits its frame's CURRENT route, and the

@@ -83,9 +83,9 @@
     (is (rf.fresco.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
       (is (= frame-id frame) "the frame was captured at render, as data")
-      (is (= [:rf.route/url-requested {:url "/profile/jane"}]
+      (is (= [:rf.route/navigate {:url "/profile/jane"}]
              payload)
-          "the payload is routing's own url-requested synthesis, in band")
+          "the payload is routing's own navigate synthesis, in band")
       (is (false? native?))
       (is (nil? veto)))))
 
@@ -114,10 +114,9 @@
          a key routing adds fails here until route-link owns it too")
     (is (= #{:href :on-click :class} (set (keys attrs)))
         "policy keys are navigation, not attributes: none reaches the anchor")
-    (is (= [:rf.route/url-requested (assoc policy :url "/profile/jane")]
+    (is (= [:rf.route/navigate (assoc policy :url "/profile/jane")]
            (:payload (second (:on-click attrs))))
-        "the click's payload carries the policy, which the navigation honours
-         as :rf.route/navigate does")))
+        "the click's payload carries the policy, which the navigation honours")))
 
 (deftest a-native-anchor-is-classified-at-render
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
@@ -304,7 +303,7 @@
       (let [{:keys [veto-fn frame payload native?]} @!seam]
         (is (identical? veto veto-fn) "the fn crossed the seam by identity")
         (is (= frame-id (:frame frame)))
-        (is (= [:rf.route/url-requested {:url "/profile/jane"}]
+        (is (= [:rf.route/navigate {:url "/profile/jane"}]
                payload))
         (is (false? native?))))))
 
@@ -384,7 +383,7 @@
         (let [v (-> trace :tags :rf.event/v)]
           (when (and (= :rf.event/dispatched (:operation trace))
                      (vector? v)
-                     (#{:rf.route/url-requested :rf.route/prefetch} (first v)))
+                     (#{:rf.route/navigate :rf.route/prefetch} (first v)))
             (swap! dispatched conj [(first v) (-> trace :tags :frame)])))))
     (rf.error-emit/register-error-listener!
       error-key
@@ -415,9 +414,9 @@
           [click-a hover-a] (lowered-click-and-hover (rendered props "jane"))]
       (rf/destroy-frame! frame-id)
       (fresh!)
-      (is (= {:dispatched [] :refused [:rf.route/url-requested :rf.route/prefetch]}
+      (is (= {:dispatched [] :refused [:rf.route/navigate :rf.route/prefetch]}
              (observed #(do (click-a (ev {})) (hover-a (ev {}))))))
       (testing "while a link rendered under the successor navigates it"
         (let [[click-b _] (lowered-click-and-hover (rendered props "jane"))]
-          (is (= {:dispatched [[:rf.route/url-requested frame-id]] :refused []}
+          (is (= {:dispatched [[:rf.route/navigate frame-id]] :refused []}
                  (observed #(click-b (ev {}))))))))))

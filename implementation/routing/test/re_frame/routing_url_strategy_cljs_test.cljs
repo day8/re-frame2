@@ -14,9 +14,9 @@
      history app reached at its mount root with a query or fragment lands on
      the root route.
   3. CLJS requires the three browser legs at registration.
-  4. `{:url …}` and `:rf.route/url-requested` resolve an app reference
-     against the navigating frame's route, and hand an origin-bearing
-     reference to the URL owner's `:decode`.
+  4. `{:url …}` resolves an app reference against the navigating frame's
+     route, and hands an origin-bearing reference to the URL owner's
+     `:decode`.
 
   Node has no `window`, so the history/location stub of
   `re-frame.routing-browser-test-support` is installed per test. Per Spec 012
@@ -55,8 +55,8 @@
     (rf/make-frame {:id :rf/default :url-bound?   true
                     :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/completed"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/completed"}])
     (is (= :s/completed (:route-id (slice-of :rf/default))) "on /completed before Back")
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
@@ -76,7 +76,7 @@
                     :url-strategy (rf.routing.strategy/with-base-path
                                     rf.routing.strategy/hash-url-strategy "/demos")})
     (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/active"}])
     (is (= ["/" "/demos#/active"] (:entries @*history-state*)) "push")
     (rf/dispatch-sync [:rf.route/navigate {:to :s/completed :replace? true}])
     (is (= ["/" "/demos#/completed"] (:entries @*history-state*))
@@ -134,25 +134,24 @@
               :missing     [:push! :replace! :install-listener!]}
              (select-keys (ex-data ex) [:rf.error/id :frame :missing]))))))
 
-;; ---- 4. `{:url …}` and :rf.route/url-requested speak app-relative URLs -----
+;; ---- 4. `{:url …}` speaks app-relative URLs -------------------------------
 ;;
 ;; A reference with no origin (`?tab=2`, `#section`, `7`) is an APP reference:
 ;; it resolves against the navigating frame's current app URL. A reference with
 ;; an origin is a BROWSER ADDRESS: the URL owner's `:decode` reduces it. Under a
 ;; base path or a hash strategy an address-bar reading would double the base or
-;; land on the home route. Each test runs BOTH doors.
+;; land on the home route. A `route-link` click hands navigate the same
+;; `{:url …}` request.
 
 (defn- register-user-routes! []
   (rf/reg-route :u/home {} "/")
   (rf/reg-route :u/user {} "/users/:id")
   (rf/reg-route :rf.route/not-found {} "/_404"))
 
-(def ^:private both-doors
-  "The two doors a caller hands a URL string to."
-  [[:navigate      (fn [frame-id url]
-                     (rf/dispatch-sync [:rf.route/navigate {:url url}] {:frame frame-id}))]
-   [:url-requested (fn [frame-id url]
-                     (rf/dispatch-sync [:rf.route/url-requested {:url url}] {:frame frame-id}))]])
+(defn- go!
+  "Hand `url` to `frame-id` as a `{:url …}` navigate."
+  [frame-id url]
+  (rf/dispatch-sync [:rf.route/navigate {:url url}] {:frame frame-id}))
 
 (defn- own-url-at!
   "Put the browser on `href`, then declare `:rf/default` the URL owner (under
@@ -176,13 +175,11 @@
                                    rf.routing.strategy/history-url-strategy "/app"))
     (is (= :u/user (:route-id (slice-of :rf/default)))
         "precondition: the initial sync stripped the base")
-    (doseq [[door go!] both-doors]
-      (to-user! :rf/default "42")
-      (go! :rf/default "?tab=2")
-      (let [s (slice-of :rf/default)]
-        (is (= [:u/user {:id "42"} {"tab" "2"} "/app/users/42?tab=2"]
-               [(:route-id s) (:params s) (:query s) (current-url *history-state*)])
-            (str door))))))
+    (to-user! :rf/default "42")
+    (go! :rf/default "?tab=2")
+    (let [s (slice-of :rf/default)]
+      (is (= [:u/user {:id "42"} {"tab" "2"} "/app/users/42?tab=2"]
+             [(:route-id s) (:params s) (:query s) (current-url *history-state*)])))))
 
 (deftest a-fragment-reference-is-a-fragment-change-under-hash-cljs
   (testing "under hash-url-strategy on user 42, `#section` is a fragment-only
@@ -190,13 +187,11 @@
     (register-user-routes!)
     (own-url-at! "/#/users/42" rf.routing.strategy/hash-url-strategy)
     (is (= :u/user (:route-id (slice-of :rf/default))) "precondition: on user 42")
-    (doseq [[door go!] both-doors]
-      (to-user! :rf/default "42")
-      (go! :rf/default "#section")
-      (let [s (slice-of :rf/default)]
-        (is (= [:u/user {:id "42"} "section" "#/users/42#section"]
-               [(:route-id s) (:params s) (:fragment s) (current-url *history-state*)])
-            (str door))))))
+    (to-user! :rf/default "42")
+    (go! :rf/default "#section")
+    (let [s (slice-of :rf/default)]
+      (is (= [:u/user {:id "42"} "section" "#/users/42#section"]
+             [(:route-id s) (:params s) (:fragment s) (current-url *history-state*)])))))
 
 (deftest a-custom-strategy-decodes-with-its-own-decode-cljs
   (testing "an origin-bearing reference goes through WHATEVER `:decode` the
@@ -210,12 +205,10 @@
       (own-url-at! "/#!/users/42" (merge rf.routing.strategy/hash-url-strategy bang))
       (is (= :u/user (:route-id (slice-of :rf/default)))
           "precondition: the initial sync decoded the #! address")
-      (doseq [[door go!] both-doors]
-        (to-user! :rf/default "42")
-        (go! :rf/default (str (doc-origin) "/#!/users/7"))
-        (is (= [{:id "7"} "#!/users/7"]
-               [(:params (slice-of :rf/default)) (current-url *history-state*)])
-            (str door))))))
+      (to-user! :rf/default "42")
+      (go! :rf/default (str (doc-origin) "/#!/users/7"))
+      (is (= [{:id "7"} "#!/users/7"]
+             [(:params (slice-of :rf/default)) (current-url *history-state*)])))))
 
 (deftest an-app-reference-resolves-against-the-navigating-frame-cljs
   (testing "a frame that is not the URL owner resolves `?tab=2` against ITS
@@ -223,13 +216,12 @@
     (register-user-routes!)
     (own-url-at! "/users/42" nil)
     (rf/make-frame {:id :u/story})
-    (doseq [[door go!] both-doors]
-      (to-user! :u/story "5")
-      (go! :u/story "?tab=2")
-      (is (= [{:id "5"} {"tab" "2"}] ((juxt :params :query) (slice-of :u/story)))
-          (str door ": the story frame's own user, with the query"))
-      (is (= [:u/user {:id "42"}] ((juxt :route-id :params) (slice-of :rf/default)))
-          (str door ": the URL owner is untouched")))))
+    (to-user! :u/story "5")
+    (go! :u/story "?tab=2")
+    (is (= [{:id "5"} {"tab" "2"}] ((juxt :params :query) (slice-of :u/story)))
+        "the story frame's own user, with the query")
+    (is (= [:u/user {:id "42"}] ((juxt :route-id :params) (slice-of :rf/default)))
+        "the URL owner is untouched")))
 
 (deftest app-reference-bases-cljs
   (register-user-routes!)
@@ -237,22 +229,16 @@
             preserves, which the not-found pattern is not"
     (own-url-at! "/missing/page?old=1" nil)
     (is (= :rf.route/not-found (:route-id (slice-of :rf/default))) "precondition")
-    (doseq [[door go!] both-doors]
-      (rf/dispatch-sync [:rf.route/navigate {:url "/missing/page?old=1"}] {:frame :rf/default})
-      (go! :rf/default "?tab=2")
-      (is (= [:rf.route/not-found "/missing/page?tab=2"]
-             ((juxt :route-id (comp :url :params)) (slice-of :rf/default)))
-          (str door ": the query replaced the missed URL's query, on the missed path"))))
+    (go! :rf/default "?tab=2")
+    (is (= [:rf.route/not-found "/missing/page?tab=2"]
+           ((juxt :route-id (comp :url :params)) (slice-of :rf/default)))
+        "the query replaced the missed URL's query, on the missed path"))
   (testing "a frame with NO location resolves against `/`"
-    (doseq [[door go!] both-doors]
-      (let [frame-id (keyword "u" (str "fresh-" (name door)))]
-        (rf/make-frame {:id frame-id})
-        (go! frame-id "?tab=2")
-        (is (= [:u/home {"tab" "2"}] ((juxt :route-id :query) (slice-of frame-id)))
-            (str door)))))
+    (rf/make-frame {:id :u/fresh})
+    (go! :u/fresh "?tab=2")
+    (is (= [:u/home {"tab" "2"}] ((juxt :route-id :query) (slice-of :u/fresh)))))
   (testing "a bare relative segment resolves against the frame's CANONICAL
             location, so `7` from user 42 is user 7"
-    (doseq [[door go!] both-doors]
-      (to-user! :rf/default "42")
-      (go! :rf/default "7")
-      (is (= {:id "7"} (:params (slice-of :rf/default))) (str door ": user 7")))))
+    (to-user! :rf/default "42")
+    (go! :rf/default "7")
+    (is (= {:id "7"} (:params (slice-of :rf/default))) "user 7")))
