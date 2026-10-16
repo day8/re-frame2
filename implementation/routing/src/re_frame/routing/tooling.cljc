@@ -95,15 +95,17 @@
   runtime-db path the transition installs the slice value at."
   [:runtime [routing-runtime-key :current]])
 
-;; The route transition is driven by the routing nav/url-change causal events
-;; — these are the route fact's declared `:on-route` inputs. Per EP-0014
-;; §Route Fact Input and Derivations §Evaluation policy rule 4 (an `:on-route`
-;; process MUST declare the route fact / nav-token / owner / route lifecycle
-;; boundary it depends on). The set is fixed across routes — the route slice
-;; is materialized by the SAME framework events regardless of which route
-;; matched — so it is the spine, not a per-route axis.
+;; The route transition is driven by the three navigation door events — each
+;; commits the route slice in its own handler — and these are the route
+;; fact's declared `:on-route` inputs. Per EP-0014 §Route Fact Input and
+;; Derivations §Evaluation policy rule 4 (an `:on-route` process MUST declare
+;; the route fact / nav-token / owner / route lifecycle boundary it depends
+;; on). The set is fixed across routes — the route slice is materialized by
+;; the SAME framework events regardless of which route matched — so it is the
+;; spine, not a per-route axis.
 (def ^:private route-transition-inputs
   [[:event :rf.route/navigate]
+   [:event :rf.route/url-requested]
    [:event :rf.route/handle-url-change]])
 
 (defn- resource-activation-edge
@@ -225,8 +227,9 @@
                      §Two superkinds, refinable: tools that understand only
                      the two superkinds classify by `:kind`).
   - `:source-form` — `{:kind :reg-route :id <route-id>}`.
-  - `:inputs`      — the route-transition causal events
-                     (`[:event :rf.route/navigate]` /
+  - `:inputs`      — the route-transition causal events, one per
+                     navigation door (`[:event :rf.route/navigate]` /
+                     `[:event :rf.route/url-requested]` /
                      `[:event :rf.route/handle-url-change]`) — the
                      `:on-route` triggers the route fact depends on
                      (Derivations §Evaluation policy rule 4).

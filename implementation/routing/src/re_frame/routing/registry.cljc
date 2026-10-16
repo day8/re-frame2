@@ -1472,9 +1472,9 @@
 (defn match-url-fail-closed
   "Fail-closed wrapper over `match-url`, reached by every URL-bearing
   navigation door through the ONE URL -> ResolvedTarget extraction
-  (`re-frame.routing.resolve/url-resolution`) — the URL-driven
-  `url-change-fx`, the link door's stage-3 target, and the programmatic
-  `{:url …}` escape hatch alike. It has no direct callers among the doors
+  (`re-frame.routing.resolve/url-resolution`), which the navigation
+  pipeline's raw-URL stage runs for every door. It has no direct callers
+  among the doors
   (a door calling this directly would re-derive the not-found shape and lose
   the `:malformed-url` discriminator). Returns
   `{:match <match-or-nil> :throw-reason <keyword-or-nil>}`.

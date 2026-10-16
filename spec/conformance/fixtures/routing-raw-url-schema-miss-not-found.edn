@@ -1,0 +1,107 @@
+;; Conformance fixture: routing/raw-url-schema-miss-not-found
+;;
+;; Per Spec 012 §Validation-error surfacing across the three paths and
+;; §The one planning pipeline: a raw URL is USER INPUT whichever event carries
+;; it. A URL that MATCHES a route but fails that route's `:params` schema
+;; renders `:rf.route/not-found` with `:reason :validation` — through the
+;; programmatic `[:rf.route/navigate {:url …}]` exactly as through the
+;; URL-driven `:rf.route/handle-url-change`. Only a named address (`{:to …}`)
+;; is a caller bug that rejects.
+;;
+;; `/items/:id` declares `[:map [:id :int]]`, so `/items/abc` and `/items/xyz`
+;; each match the pattern and fail the schema (the strict `:int` coercion
+;; leaves a non-integer segment a string).
+;;
+;; EACH DOOR LEAVES A POSITIVE FOOTPRINT, as in routing-door-parity.edn — the
+;; effect matchers are order-preserving SUBSET matchers, so each door drives a
+;; distinct URL and is asserted by the presence of what it produced:
+;;
+;;   1. PROGRAMMATIC door — `{:url "/items/abc"}` commits the not-found target
+;;      with `:reason :validation`, PUSHES the requested URL, scrolls `:top`
+;;      onto that target, and reports the route miss
+;;      (`:rf.error/no-such-handler`, `:kind :route`) the URL-driven door
+;;      reports. A rejection would push nothing, scroll nowhere and leave
+;;      door 2's `:from` on `:route/home`.
+;;   2. URL-DRIVEN door — `/items/xyz` commits the same target shape, pushes
+;;      nothing, and carries its `:restore` default scroll FROM door 1's
+;;      committed not-found target — which pins that door 1 committed it.
+;;
+;; `:trace-not-emitted` pins that the raw URL is not graded as a caller bug:
+;; no `:rf.error/schema-validation-failure` fires.
+;;
+;; Per [012 §Validation-error surfacing across the three paths]
+;; (../../012-Routing.md#validation-error-surfacing-across-the-three-paths).
+
+{:fixture/id           :routing/raw-url-schema-miss-not-found
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :core/trace :core/error}
+ :fixture/doc          "A raw URL that matches a route but fails its :params schema renders :rf.route/not-found with :reason :validation at every door. The programmatic [:rf.route/navigate {:url ...}] commits that target, pushes the requested URL and reports the :rf.error/no-such-handler :kind :route miss, exactly as :rf.route/handle-url-change resolves the same kind of URL (without a push). No :rf.error/schema-validation-failure fires: a raw URL is user input, not a caller bug."
+
+ :fixture/registry
+ {:event {:rf/init                    {:doc "Seed the current route."}
+          :rf.route/navigate          {:doc "Programmatic navigation door."}
+          :rf.route/handle-url-change {:doc "URL-driven door (popstate / initial / SSR)."}}
+  :route {:route/home         {:path "/"}
+          :route/item         {:path   "/items/:id"
+                               :params [:map [:id :int]]}
+          :rf.route/not-found {:path "/404"}}
+  :fx    {:rf.nav/push-url    {:platforms #{:client}}
+          :rf.nav/replace-url {:platforms #{:client}}
+          :rf.nav/scroll      {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:route-id :route/home :params {}}]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]
+          :rf.nav/scroll      [[:noop]]}}
+
+ :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
+
+ :fixture/dispatches
+ [;; (1) Programmatic raw-URL door — matched, schema-invalid.
+  [:rf.route/navigate {:url "/items/abc"}]
+
+  ;; (2) URL-driven door — matched, schema-invalid, already on the address bar.
+  [:rf.route/handle-url-change "/items/xyz"]]
+
+ :fixture/calls
+ ;; The pattern matches and the schema rejects: a validation miss, not a
+ ;; route miss.
+ [{:call :match-url :url "/items/abc"
+   :expect {:route-id :route/item :params {:id "abc"} :query {} :fragment nil :validation-failed? true}}]
+
+ :fixture/expect
+ {:final-runtime-db
+  {:rf.runtime/routing
+   {:current {:route-id :rf.route/not-found
+              :params   {:url "/items/xyz" :reason :validation}
+              :query    {}
+              :fragment nil}}}
+
+  :effects-routed
+  [;; (1) programmatic door — commits the not-found target, then pushes
+   {:fx-id :rf.nav/push-url :args "/items/abc"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :top
+            :from     {:id :route/home}
+            :to       {:id :rf.route/not-found :params {:url "/items/abc" :reason :validation}}}}
+   ;; (2) URL-driven door — no push; its :from is door 1's committed target
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :restore
+            :from     {:id :rf.route/not-found :params {:url "/items/abc" :reason :validation}}
+            :to       {:id :rf.route/not-found :params {:url "/items/xyz" :reason :validation}}}}]
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/navigate}}
+   {:operation :rf.error/no-such-handler
+    :op-type   :error
+    :recovery  :replaced-with-default
+    :tags      {:url "/items/abc" :kind :route}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/handle-url-change}}
+   {:operation :rf.error/no-such-handler
+    :op-type   :error
+    :recovery  :replaced-with-default
+    :tags      {:url "/items/xyz" :kind :route}}]
+
+  :trace-not-emitted
+  [{:operation :rf.error/schema-validation-failure}]}}
