@@ -96,18 +96,21 @@
 ;;  - `work-bearing-path` — the `:spawn`-bearing node's declaring path
 ;;                         (the invocation path `:rf/invoke-id` the runtime
 ;;                         stamped on the child's `:data` at spawn time);
-;;  - `generation`       — the monotonic spawn discriminator; for the
-;;                         `<type>#<n>` instance-id form it is `n` (the
-;;                         spawn-counter reading that minted this instance),
-;;                         so a re-spawn under the same declaring path lands
-;;                         on a fresh work id (one ATTEMPT, one `:rf.reply/work-id`,
-;;                         per EP-0007). An explicit `:fixed-actor-id` actor
-;;                         with no `#n` suffix carries generation 1 for an
-;;                         ordinary `:spawn`; a `:spawn-all` child reuses this
-;;                         SAME slot for its runtime-minted join-attempt token,
-;;                         because that exact-attempt coordinate distinguishes
-;;                         reuse of the fixed address without inventing another
-;;                         identity.
+;;  - `generation`       — the monotonic spawn discriminator, so a re-spawn
+;;                         under the same declaring path lands on a fresh work
+;;                         id (one ATTEMPT, one `:rf.reply/work-id`, per
+;;                         EP-0007). One rule covers both spawn kinds: a
+;;                         generated `<type>#<n>` actor carries `n` (the
+;;                         spawn-counter reading that minted this instance);
+;;                         an explicit `:fixed-actor-id` names the SAME address
+;;                         on every attempt, so it carries its spawn's
+;;                         runtime-minted attempt instead — a single `:spawn`
+;;                         child's `:rf/invoke-attempt`, a `:spawn-all` child's
+;;                         join-attempt token. The attempt distinguishes reuse
+;;                         of the fixed address without inventing another
+;;                         identity. Where no attempt is in hand (a
+;;                         hand-emitted `:rf.machine/spawn` mints none), a
+;;                         fixed actor carries 1.
 ;; ---------------------------------------------------------------------------
 
 (defn- generated-actor-generation
@@ -139,20 +142,32 @@
   (when (some? actor-id)
     (or (generated-actor-generation actor-id) 1)))
 
+(defn spawn-attempt-generation
+  "The exact work-id generation of one single-`:spawn` attempt, given the
+  `attempt` its spawn stamped on the child as `:rf/invoke-attempt`: the
+  `<type>#<n>` suffix `n` of a generated actor, else `attempt`. A
+  `:fixed-actor-id` names the same address on every attempt, so the attempt
+  is what tells two of them apart, as a fixed `:spawn-all` child's join
+  attempt token does. A single `:spawn` records no fixed-vs-generated
+  provenance, so a fixed literal that itself ends in `#<digits>` reads as
+  generated here."
+  [actor-id attempt]
+  (or (generated-actor-generation actor-id) attempt))
+
 (defn spawn-work-id
   "Build the machine work-id for one spawned-actor attempt:
   `[:rf.work/machine actor-id work-bearing-path generation]`
   (Managed-Effects §Work-id correlation; EP-0011 §Machine Completion).
   `actor-id` is the finishing actor's INSTANCE id; `work-bearing-path` is
   the `:spawn`-bearing node's declaring path (the child's stamped
-  invocation path `:rf/invoke-id`). `generation` is parsed off the
-  `<type>#<n>` instance id (or 1 for an ordinary explicit `:fixed-actor-id`).
-  The 3-arity accepts the runtime-owned exact generation carried by a
-  `:spawn-all` child's private membership: the allocator counter for a known
-  generated actor, or the join attempt for an explicitly fixed actor.
-  Consequently the join path never decides provenance by parsing the actor
-  keyword. Ordinary `:spawn` uses the 2-arity and its actor-id convention.
-  `=`-comparable and EDN-serializable."
+  invocation path `:rf/invoke-id`). The 3-arity takes the runtime-owned
+  exact generation: a `:spawn-all` child's private membership carries it
+  (the allocator counter for a known generated actor, or the join attempt
+  for an explicitly fixed actor, so the join path never decides provenance
+  by parsing the actor keyword), and a single `:spawn` child's comes from
+  `spawn-attempt-generation`. The 2-arity, for a caller with no attempt in
+  hand, parses `generation` off the `<type>#<n>` instance id, or 1 for an id
+  with no such suffix. `=`-comparable and EDN-serializable."
   ([actor-id work-bearing-path]
    [:rf.work/machine actor-id (vec work-bearing-path)
     (actor-generation actor-id)])
@@ -196,8 +211,8 @@
   Completion). `value` is the child's `:output-key` result (nil when the
   final leaf declares no `:output-key`). `:rf.reply/work-status :completed`.
 
-  `ctx` keys: `:actor-id`, `:parent-id`, `:work-bearing-path`, optional private
-  join `:work-generation`, `:frame`, `:completed-at`."
+  `ctx` keys: `:actor-id`, `:parent-id`, `:work-bearing-path`, optional exact
+  `:work-generation`, `:frame`, `:completed-at`."
   [ctx value]
   (assoc (base-reply ctx)
          :status      :ok
@@ -244,7 +259,7 @@
   `:rf.reply/work-status :suppressed`.
 
   `ctx` keys mirror `success-reply`'s (`:actor-id`, `:parent-id`,
-  `:work-bearing-path`, optional private join `:work-generation`, `:frame`,
+  `:work-bearing-path`, optional exact `:work-generation`, `:frame`,
   `:completed-at`) plus an optional
   `:current-generation` — the generation currently occupying the spawn
   slot at completion (the LIVE counterpart), or nil when the slot is gone
@@ -252,8 +267,9 @@
   `:after` path's carried/current gate, the correlation carries the
   carried-vs-current generation pair under
   `:generation {:carried <n> :current <m-or-nil>}` — `:carried` is the
-  generated actor's `<type>#<n>` suffix, or a fixed join child's private
-  attempt token; `:current` is `:current-generation`. The pair is the data-only
+  finishing attempt's work-id generation (the generated actor's `<type>#<n>`
+  suffix, or a fixed actor's spawn attempt); `:current` is
+  `:current-generation`. The pair is the data-only
   supersession gate: `:carried` != `:current` (including a nil `:current`
   — no live counterpart) is exactly why the completion is stale. The
   whole correlation map elides through the shared trace summary
