@@ -56,7 +56,7 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
       (let [token-A (get-in (routing-runtime) [:current :nav-token])]
         (rf/reg-sub :editor/can-leave? (fn [_ _] false))
-        (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/B"}])
+        (rf/dispatch-sync [:rf.route/navigate {:url "/articles/B"}])
         (rf/dispatch-sync [:rf.route/continue (:id (:pending-navigation (routing-runtime)))])
         (let [token-after (get-in (routing-runtime) [:current :nav-token])]
           (is (not= token-A token-after) "the nav-token advanced past the pending cycle")

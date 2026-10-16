@@ -152,7 +152,7 @@
     (rf/reg-sub :always-block (fn [_ _] false))
     (rf/reg-route :nav/blocker {:can-leave :always-block} "/blockable")
     (rf/dispatch-sync [:rf.route/handle-url-change "/blockable" {:rf.route/cause :link}] {:frame :test/main})
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/users/42"}] {:frame :test/main})
+    (rf/dispatch-sync [:rf.route/navigate {:url "/users/42"}] {:frame :test/main})
     (rf/dispatch-sync [:rf.route/handle-url-change "/users/7" {:rf.route/cause :link}] {:frame :test/main})
     (rf/dispatch-sync [:rf.test/simulate-http-resolution
                        {:carried-nav-token :stale/token :on-success-event [:noop]}]

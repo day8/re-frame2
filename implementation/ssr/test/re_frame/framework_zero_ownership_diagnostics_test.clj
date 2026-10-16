@@ -67,7 +67,7 @@
       (assert-no-diagnostic! diags))))
 
 (deftest can-leave-pending-nav-fires-no-ownership-diagnostic
-  (testing "url-requested / cancel / continue"
+  (testing "navigate / cancel / continue"
     (rf/reg-route :editor/article
                   {:params [:map [:id :string]] :can-leave :editor/can-leave?}
                   "/editor/articles/:id")
@@ -80,9 +80,9 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
       (is (= [true nil :route/cart]
-             [(do (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}]) (some? (pending)))
+             [(do (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}]) (some? (pending)))
               (do (rf/dispatch-sync [:rf.route/cancel "pn-1"]) (pending))
-              (do (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+              (do (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
                   (rf/dispatch-sync [:rf.route/continue "pn-2"])
                   (current-route))])
           "blocked, cancelled, then continued")

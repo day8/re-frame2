@@ -77,12 +77,12 @@
             continue clears it and completes the navigation"
     (editor! :editor/can-leave?)
     (dirty-editor!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (is (= [true :editor/article] [(some? (pending)) (current-id)])
         "blocked: the slot is populated and the route does not change")
     (rf/dispatch-sync [:rf.route/cancel "pn-1"])
     (is (= [nil :editor/article] [(pending) (current-id)]) "cancel clears; no navigation")
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (is (some? (pending)) "a second blocked request reseats the slot")
     (rf/dispatch-sync [:rf.route/continue "pn-2"])
     (is (= [nil :route/cart] [(pending) (current-id)])
@@ -103,14 +103,14 @@
   (let [seen (atom nil)]
     (rf/reg-event :rf.route/navigation-blocked (fn [_ [_ pending-nav]] (reset! seen pending-nav) {}))
     (dirty-editor!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (let [p (pending)]
       (is (= {:requested-url   "/cart"
               :rejecting-route :editor/article
               :rejecting-guard :editor/can-leave?
               :destination     {:to :route/cart}
               :target          {:route-id :route/cart :params {} :query {} :fragment nil :url "/cart"}
-              :cause           :link
+              :cause           :navigate
               :policy          {}}
              (select-keys p [:requested-url :rejecting-route :rejecting-guard
                              :destination :target :cause :policy])))
@@ -141,7 +141,7 @@
   (testing ":rf.route/continue and :rf.route/cancel ignore stale pending-nav ids"
     (editor! [:editor/can-leave?])
     (dirty-editor!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (let [pending-id (:id (pending))]
       (rf/dispatch-sync [:rf.route/cancel "stale-id"])
       (is (= pending-id (:id (pending))) "cancel with the wrong id leaves the slot intact")
@@ -230,7 +230,7 @@
   (two-frames!)
   (editor! :editor/can-leave?)
   (dirty-editor! :route/owner true)
-  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner}))]
+  (let [traces (traced (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}] {:frame :route/owner}))]
     ;; SEMANTIC, posture-independent: the block landed in the NON-DEFAULT
     ;; frame and nowhere else.
     (is (= :editor/can-leave? (:rejecting-guard (pending :route/owner))))
@@ -250,7 +250,7 @@
   ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
   (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
   (dirty-editor! :route/owner 42)
-  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner}))]
+  (let [traces (traced (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}] {:frame :route/owner}))]
     ;; SEMANTIC, posture-independent: the non-boolean guard failed CLOSED
     ;; against the NON-DEFAULT frame, and :rejecting-route is the route-id
     ;; KEYWORD, not the "/editor/articles/:id" path string.
@@ -279,7 +279,7 @@
   (let [prior (rf.late-bind/get-fn :subs/subscribe-once)]
     (try
       (rf.late-bind/set-fn! :subs/subscribe-once nil)
-      (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}]
+      (let [traces (traced (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}]
                                              {:frame :route/owner}))]
         ;; SEMANTIC, posture-independent: the unevaluable guard degrades to
         ;; ALLOW — :route/owner navigated and nothing was left pending.
@@ -299,7 +299,7 @@
   (rf/reg-route :route/home {} "/")
   (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}] {:frame :route/owner})
-  (let [traces (traced (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
+  (let [traces (traced (rf/dispatch-sync [:rf.route/navigate {:url "https://example.invalid/cart"}]
                                          {:frame :route/owner}))]
     ;; SEMANTIC, posture-independent: an EXTERNAL URL is not an in-app
     ;; navigation — :route/owner stays on `/` with nothing pending.
@@ -332,11 +332,11 @@
     (testing "only the TARGET derived from the hostile URL degrades to a miss; a
               declared dirty-form :can-leave still runs against the CURRENT route
               and blocks the attempt"
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/hostile"}])
       (is (= [true :editor/article] [(some? (pending)) (current-id)])))
     (testing "with the guard clean, the throwing URL fails closed to
               :rf.route/not-found rather than crashing the event drain"
       (rf/dispatch-sync [:rf.route/cancel (:id (pending))])
       (rf/dispatch-sync [:editor/dirty false])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/hostile"}])
       (is (= :rf.route/not-found (current-id))))))

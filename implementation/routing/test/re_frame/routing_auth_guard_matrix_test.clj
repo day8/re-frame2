@@ -13,12 +13,12 @@
   suite pins is why: an interceptor must cover every door ITSELF, and the matrix
   below is the enumeration that proves how easily one is missed.
 
-  The matrix runs across ALL FOUR navigation entry doors — route-id
-  `:rf.route/navigate`, the raw-URL `{:url ...}` navigate escape hatch, a
-  `route-link` click (`:rf.route/url-requested`), and a URL-bar / popstate /
-  deep-link (`:rf.route/handle-url-change`) — AND all THREE navigate request
-  forms: a route-id destination (`:to`), the `{:url ...}` escape hatch, and an
-  in-place request (no `:to` / `:url`, patching the current route's query).
+  The matrix runs across every navigation entry door — route-id
+  `:rf.route/navigate`, the raw-URL `{:url ...}` navigate (which a `route-link`
+  click dispatches too), and a URL-bar / popstate / deep-link
+  (`:rf.route/handle-url-change`) — AND all THREE navigate request forms: a
+  route-id destination (`:to`), the `{:url ...}` escape hatch, and an in-place
+  request (no `:to` / `:url`, patching the current route's query).
 
   The guard body below is the SINGLE executable seam the suite drives — it is
   registered as `:app/auth-guard` and the test runs THAT interceptor (its
@@ -89,7 +89,6 @@
         {:id (:route-id current) :params (or (:params current) {})}
         :else nil))     ;; malformed: the runtime rejects it with :rf.error/navigate-bad-request
 
-    :rf.route/url-requested     (matched-id (:url a))
     :rf.route/handle-url-change (matched-id a)
     nil))
 
@@ -170,7 +169,7 @@
         (is (= ctx (auth-guard-before ctx))
             "public route-id navigate passes through untouched (normal delivery)")))
 
-    (testing "raw-URL {:url ...} :rf.route/navigate"
+    (testing "raw-URL {:url ...} :rf.route/navigate — a route-link click's request too"
       (is (skipped? (ctx-for [:rf.route/navigate {:url "/settings"}]))
           "a {:url ...} navigate to a protected route is skipped")
       (is (skipped? (ctx-for [:rf.route/navigate {:url "/settings?tab=x"}]))
@@ -197,15 +196,6 @@
                              settings-slice {:id 1})]
             (= ctx (auth-guard-before ctx)))
           "a self-nav from a protected route while SIGNED IN is delivered normally"))
-
-    (testing "route-link click (:rf.route/url-requested, whose payload is {:url ...})"
-      (is (skipped? (ctx-for [:rf.route/url-requested {:url "/settings"}]))
-          "a link click whose href resolves to a protected route is gated")
-      (is (= login-redirect (redirect (ctx-for [:rf.route/url-requested {:url "/settings"}])))
-          "and redirected to login")
-      (let [ctx (ctx-for [:rf.route/url-requested {:url "/"}])]
-        (is (= ctx (auth-guard-before ctx))
-            "a link click to a public route is delivered normally")))
 
     (testing "URL-bar / popstate / deep-link (:rf.route/handle-url-change)"
       (is (skipped? (ctx-for [:rf.route/handle-url-change "/settings"]))

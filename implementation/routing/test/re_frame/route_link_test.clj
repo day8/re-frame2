@@ -1,9 +1,10 @@
 (ns re-frame.route-link-test
   "JVM tests for the `:route/link` registered view: the SSR shell's anchor
   (policy keys stripped, html attrs and children passed through), the
-  server frame's `:url-strategy` reaching the emitted href, and the
-  `:rf.route/url-requested` payload a click carries honouring the link's
-  `:replace?` / `:scroll` / `:bypass-leave?` policy. The click handler's
+  server frame's `:url-strategy` reaching the emitted href, the
+  `[:rf.route/navigate {:url …}]` payload a click carries honouring the link's
+  `:replace?` / `:scroll` / `:bypass-leave?` policy, and a click landing on the
+  route its href lands on. The click handler's
   modifier-key branching is CLJS-only (`route_link_cljs_test.cljs`); the
   cross-host href table is `route_link_ssr_parity_cljs_test.cljc`.
 
@@ -73,8 +74,8 @@
     (testing "the policy keys never reach the <a>; html attrs and children pass through"
       (is (= [:a {:href "/cart#top" :class "nav"} "Cart"]
              (rf.routing/route-link-render-ssr props "Cart"))))
-    (testing "the click's :rf.route/url-requested carries each policy key written"
-      (is (= [:rf.route/url-requested
+    (testing "the click's :rf.route/navigate carries each policy key written"
+      (is (= [:rf.route/navigate
               {:url "/cart#top" :replace? true :scroll :preserve :bypass-leave? true}]
              (click-payload props))))))
 
@@ -117,3 +118,31 @@
     (rf/dispatch-sync (click-payload {:to :route/cart :bypass-leave? true}))
     (is (= [:route/cart nil] [(:route-id (:current (routing))) (:pending-navigation (routing))])
         "with :bypass-leave? true the link leaves, creating no pending navigation")))
+
+;; ---- a click lands where its href lands ------------------------------------
+;;
+;; A link navigates by its URL, so route ranking resolves the click exactly as
+;; it resolves a reload of the href. `/users/me` outranks `/users/:id`, so a
+;; link authored for `:route/user` with id "me" renders `/users/me` and must
+;; land on `:route/me` — a `{:to … :params …}` navigate would land on
+;; `:route/user`, and the click and the reload would disagree.
+
+(deftest a-link-click-lands-where-its-href-lands-on-reload
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :route/user {} "/users/:id")
+  (rf/reg-route :route/me {} "/users/me")
+  (record-nav-fx!)
+  (let [props   {:to :route/user :params {:id "me"}}
+        href    (:href (rf.routing.link/link-model props :rf/default))
+        landed  #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                         [:rf.runtime/routing :current :route-id])
+        land-at #(rf/dispatch-sync [:rf.route/handle-url-change % {:rf.route/cause :initial}])]
+    (is (= ["/users/me" [:rf.route/navigate {:url "/users/me"}]] [href (click-payload props)])
+        "the link renders the href and navigates by it")
+    (land-at "/")
+    (rf/dispatch-sync (click-payload props))
+    (let [clicked (landed)]
+      (land-at "/")
+      (land-at href)
+      (is (= [:route/me :route/me] [clicked (landed)])
+          "the click and a reload of its href both land on the higher-ranked static route"))))

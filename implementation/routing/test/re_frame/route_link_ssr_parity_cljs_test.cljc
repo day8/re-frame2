@@ -107,7 +107,7 @@
     (is (= [[:a active]
             [:a punct]
             {:href          active
-             :payload       [:rf.route/url-requested {:url "/active"}]
+             :payload       [:rf.route/navigate {:url "/active"}]
              :native?       false
              :prefetch      nil
              :prefetch-keys rf.routing.link/prefetch-intent-keys}
