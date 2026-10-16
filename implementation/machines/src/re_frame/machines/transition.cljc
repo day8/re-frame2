@@ -3355,25 +3355,30 @@
         ;; configuration that same exit records. The resolved leaf is what the
         ;; entry cascade enters and what the snapshot's `:state` records — the
         ;; pseudo-state is never a configuration member.
-        hist-node     (when (and (not targetless?) target-base)
-                        (let [n (node-at machine target-base)]
-                          (when (history-node? n) n)))
+        domain-leaf   (some->> target-base (initial-cascade machine))
+        ;; The history target is the pseudo-state the target names, or the
+        ;; one the target's own `:initial` chain descends into (a compound
+        ;; whose `:initial` names its history pseudo-state — Spec 005
+        ;; §Restoring): entering the compound restores either way.
+        hist-path     (when-not targetless?
+                        (some (fn [p] (when (and p (history-node? (node-at machine p))) p))
+                              [target-base domain-leaf]))
+        hist-node     (some->> hist-path (node-at machine))
         restore-from  (fn [snap]
                         (let [{:keys [leaf source restored-config fallback]}
                               (resolve-history-target machine snap
-                                                      target-base hist-node)]
+                                                      hist-path hist-node)]
                           ;; The spec/009 `:rf.machine.history/restored` tag
                           ;; bag, threaded to `apply-transition-once`'s emit.
                           ;; `:restored-config` rides only on `:recorded`;
                           ;; `:fallback` only on `:default` (mirrors the emit's
                           ;; cond->). `:kind` maps the grammar `:deep?`.
-                          (cond-> {:compound-path (history-key machine (vec (drop-last target-base)))
+                          (cond-> {:compound-path (history-key machine (vec (drop-last hist-path)))
                                    :resolved-leaf leaf
                                    :source        source
                                    :kind          (if (true? (:deep? hist-node)) :deep :shallow)}
                             (= :recorded source) (assoc :restored-config restored-config)
                             (= :default source)  (assoc :fallback fallback))))
-        domain-leaf   (some->> target-base (initial-cascade machine))
         ;; ---- Exit-set boundary: the true LCCA ----------------------------
         ;; Per Spec 005 §Entry/exit cascading and SCXML §3.13: the exit set
         ;; of an EXTERNAL transition is bounded by the LEAST COMMON COMPOUND
