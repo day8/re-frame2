@@ -550,9 +550,15 @@
      [:call [:= :canonical-bytes]]
      [:value :any]
      [:expect
-      {:observe "the CEDN-1 canonical byte token of :value"
-       :law     :equal}
-      :string]]]
+      {:optional true
+       :observe  "the CEDN-1 canonical byte token of :value"
+       :law      :equal}
+      :string]
+     [:expect-error
+      {:optional true
+       :observe  "the error canonical-bytes throws for :value"
+       :law      :thrown-error-id}
+      :keyword]]]
 
    [:canonical-value
     [:map {:closed true}
