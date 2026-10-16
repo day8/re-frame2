@@ -480,7 +480,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **The full attachment surface.** Per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach):
     - **Trace listener** — `(rf/register-listener! key callback)` for live events.
     - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
-    - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch! frame-id epoch-id)`, `(rf/configure! {:epoch-history {:depth N}})`.
+    - **Epoch history** — `(re-frame.epoch/epoch-history frame-id)`, `(re-frame.epoch/restore-epoch! frame-id epoch-id)`, `(rf/configure! {:epoch-history {:depth N}})`.
     - **Registrar query** — `(rf/registrations {:source :store :kind kind})`, `(rf/handler-meta {:source :store :kind kind :id id})`, the `:rf/machine?` filter over the `:event` registrations, the per-id `:rf/machine` projection off `handler-meta`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
     - **App-db query** — `(rf/app-db-value frame-id)`, `(get-in (rf/app-db-value frame-id) path)`.
     - **Sub-cache (CLJS-only)** — `(re-frame.subs.tooling/sub-cache-snapshot frame-id)`.
