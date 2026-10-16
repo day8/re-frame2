@@ -1,8 +1,7 @@
 (ns re-frame.ssr.ring.renderer-seam-test
   "The `:renderer` render-body seam (Spec 011 §HTTP response contract). The
-  renderer returns body markup and an optional hash; the JVM keeps the
-  request frame, head, `__rf_payload`, shell, status, headers, error
-  projection and teardown."
+  renderer returns body markup; the JVM keeps the request frame, head,
+  `__rf_payload`, shell, status, headers, error projection and teardown."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -14,19 +13,6 @@
 (defn- payload-edn-of [body]
   (second (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)))
 
-(defn- payload-render-hash [body]
-  (some->> (payload-edn-of body)
-           (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"")
-           second))
-
-(defn- payload-head-hash [body]
-  (some->> (payload-edn-of body)
-           (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\"")
-           second))
-
-(defn- wire-render-hash [body]
-  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body)))
-
 (def ^:private request
   {:uri "/seam" :request-method :get :headers {"x-seam-probe" "yes"}})
 
@@ -34,7 +20,7 @@
   "<main id=\"native\"><h1>Rendered elsewhere</h1></main>")
 
 (defn- fixed-renderer [_]
-  {:body-html fixed-body :render-hash nil})
+  {:body-html fixed-body})
 
 (defn- serve
   "Register the app and serve `request` through an `ssr-handler` built from `opts`."
@@ -58,9 +44,6 @@
     (is (str/includes? body "<div id=\"app\""))
     (is (str/includes? (payload-edn-of body) "\"Seam\"")
         "the payload is built from the post-drain app-db")
-    (is (some? (payload-head-hash body)) "the head is JVM-resolved")
-    (is (not (str/includes? body "render-hash"))
-        "a nil hash under `:emit-hash? true` stamps nothing and omits the payload key")
     (is (= body (:body (serve {:renderer  fixed-renderer
                                :root-view [(rf/view :seam/root)]}))))))
 
@@ -82,18 +65,17 @@
                                       :app-db  (rf/app-db-value frame-id)
                                       :scoped  (rf/subscribe-once [:seam/heading])
                                       :request request
-                                      :opts    (select-keys opts [:initial-events :emit-hash?])})
-                        {:body-html "<p>seen</p>" :render-hash nil})})
+                                      :opts    (select-keys opts [:initial-events :payload])})
+                        {:body-html "<p>seen</p>"})})
     (is (= {:keys    #{:frame-id :request :opts}
             :app-db  {:heading "Seam"}
             :scoped  "Seam"
             :request request
-            :opts    {:initial-events [[:rf.test.seam/init]] :emit-hash? true}}
+            :opts    {:initial-events [[:rf.test.seam/init]]
+                      :payload        :rf.ssr.payload/whole-app-db}}
            @seen))))
 
-(deftest a-custom-render-hash-feeds-the-payload-and-the-body-is-never-rewritten
-  (let [body (:body (serve {:renderer (fn [_] {:body-html   "<div>bare</div>"
-                                               :render-hash "0badf00d"})}))]
-    (is (= "0badf00d" (payload-render-hash body)))
-    (is (str/includes? body "<div>bare</div>"))
-    (is (nil? (wire-render-hash body)) "the pipeline stamps no marker into the body")))
+(deftest the-body-is-never-rewritten
+  (let [body (:body (serve {:renderer (fn [_] {:body-html "<div>bare</div>"})}))]
+    (is (str/includes? body "<div id=\"app\"><div>bare</div></div>")
+        "the pipeline wraps the renderer's bytes and adds nothing to them")))

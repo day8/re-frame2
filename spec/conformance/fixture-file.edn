@@ -97,7 +97,6 @@
      :observe  "whether each query vector names a registered sub; each is then subscribed once against :rf/default before grading, so a sub that throws surfaces in the trace stream rather than as an absent value"
      :law      :holds}
     [:vector [:vector :any]]]
-   [:fixture/render-after-hydrate {:optional true} :conformance/render-after-hydrate]
    [:fixture/expect {:optional true} :conformance/expect]]
 
   ;; The capability tags a fixture may claim. A port runs a fixture only when
@@ -120,7 +119,7 @@
    :routing/pattern-validation :routing/ranking
    :schemas/cofx :schemas/event-payload :schemas/runtime :schemas/sub-return
    :ssr/error-projection :ssr/head-contract :ssr/hydration :ssr/render-to-string
-   :ssr/render-tree-hash :ssr/response-contract]
+   :ssr/response-contract]
 
   ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas`
   ;; carries the registrar kind `:app-schema`, keyed by app-db path: each entry
@@ -142,14 +141,6 @@
    [:error-projector {:optional true} [:map-of :keyword :map]]
    [:head            {:optional true} [:map-of :keyword :map]]
    [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]]
-
-  ;; Simulates the client's first render after `:rf/hydrate`: the runner hands
-  ;; the simulated client hash to the hydration-mismatch check, against the
-  ;; server hash in the hydrate payload.
-  :conformance/render-after-hydrate
-  [:map {:closed true}
-   [:simulated-client-render-hash :string]
-   [:first-diff-path {:optional true} [:vector :any]]]
 
   ;; One commit-plane classification, applied in order after the frame exists.
   ;; Each op carries EXACTLY ONE of the four effect keys: the harness applies
@@ -504,15 +495,6 @@
      [:opts {:optional true} :map]
      [:expect
       {:observe "the HTML render-to-string emits for :input under :opts"
-       :law     :equal}
-      :string]]]
-
-   [:render-tree-hash
-    [:map {:closed true}
-     [:call [:= :render-tree-hash]]
-     [:input :conformance/value]
-     [:expect
-      {:observe "the render-tree hash of :input, as 8 lowercase hex digits"
        :law     :equal}
       :string]]]
 

@@ -213,9 +213,9 @@
 (def known-skipped-capabilities
   "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
   capabilities fall here are reported as out-of-claim skips but do not block
-  the suite. The render-tree hash is graded by the ssr artefact's own
-  conformance runner (see `sibling-graded`)."
-  #{:ssr/render-tree-hash})
+  the suite. Empty: this build claims every capability the corpus
+  references."
+  #{})
 
 ;; ---- fixture classification -----------------------------------------------
 
@@ -1327,8 +1327,9 @@
   fixture carrying one claims a capability in `known-skipped-capabilities`:
   `[op key]` → the family runner that grades them and the filename prefix of
   the fixtures it loads. `re-frame.conformance-test` proves every fixture
-  carrying one has that prefix."
-  {[:render-tree-hash :expect] {:runner 're-frame.ssr-conformance-test :prefix "ssr-"}})
+  carrying one has that prefix. Empty while this runner grades every call
+  op."
+  {})
 
 (defn- describe-call
   "The record's inputs — everything but `:call` and its expectation keys —
@@ -1654,21 +1655,6 @@
           (rf/with-frame scope-frame
             (run-clock-steps! clock-steps clock)))
         (run-dispatches!))
-      ;; :fixture/render-after-hydrate — simulate the client-side first render
-      ;; so `verify-hydration!` can compare hashes.
-      (when-let [render-spec (:fixture/render-after-hydrate fixture)]
-        (let [client-hash     (:simulated-client-render-hash render-spec)
-              first-diff-path (:first-diff-path render-spec)
-              hydrate-ev      (some (fn [e]
-                                      (when (and (vector? e) (= :rf/hydrate (first e))) e))
-                                    dispatches)
-              payload         (when hydrate-ev (second hydrate-ev))
-              server-hash     (:rf/render-hash payload)
-              frame-id        (:rf/frame-id payload :rf/default)]
-          (when (and client-hash server-hash)
-            (rf.ssr/verify-hydration! frame-id client-hash
-                                   {:first-diff-path first-diff-path
-                                    :server-hash     server-hash}))))
       ;; :fixture/calls — pure-function assertions, run AFTER dispatches.
       (let [machines      (realise-machine-handlers fixture)
             calls         (or (:fixture/calls fixture) [])

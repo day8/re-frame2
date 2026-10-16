@@ -50,7 +50,7 @@
   (rf/init! rf.adapter.reagent/adapter)
   (rf/make-frame {:id app-frame :platform :client})
   (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-        payload (rf.ssr/hydrate! {:frame app-frame :render-tree-fn (fn [] [recipe-view])})
+        payload (rf.ssr/hydrate! {:frame app-frame})
         tree    [rf/frame-provider {:frame app-frame} [recipe-view]]]
     (mount/mount! handle el tree payload)
     payload))

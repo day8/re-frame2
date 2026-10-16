@@ -214,8 +214,7 @@ function bake(api) {
       documentBytes,
       bodyBytes,
       payloadBytes,
-      // No renderHash column — an adoption-tier root's wire carries no
-      // hash, and it would be the same constant for every row here anyway. sha256 is the column that separates fixtures.
+      // sha256 is the column that separates fixtures.
       sha256: a,
       frames: [r.first.frameId, r.second.frameId],
     });

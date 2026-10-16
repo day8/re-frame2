@@ -154,7 +154,7 @@
                        :headers        {"user-agent" "load-test"}})
     (let [tree [(rf/view :load-test/page)]
           html (rf/with-frame server-frame
-                 (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)}))]
+                 (rf.ssr/render-to-string tree))]
       ;; Step 4 — settle the response accumulator (drains any pending
       ;; error trace).
       (rf.ssr/flush-response-result! server-frame)

@@ -1,9 +1,9 @@
 (ns re-frame.ssr.ring.payload
   "Hydration payload construction for the Ring host adapter.
 
-  Per Spec 011 §The hydration payload — emit the four canonical keys
-  (`:rf/version`, `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`)
-  plus the optional `:rf/runtime-db` and `:rf/schema-digest`.
+  Per Spec 011 §The hydration payload — emit `:rf/version` and
+  `:rf/app-db`, plus the optional `:rf/frame-id`, `:rf/runtime-db` and
+  `:rf/schema-digest`.
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy` —
@@ -22,12 +22,9 @@
 (set! *warn-on-reflection* true)
 
 (defn build-payload
-  "Per Spec 011 §The hydration payload — emit the four canonical keys
-  (`:rf/version`, `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`)
-  plus the optional `:rf/runtime-db`, `:rf/schema-digest`, and
-  `:rf/head-hash`, the separately client-reconstructible head-model hash.
-  Pass it through `policy-opts`; nil omits the key. Schema-digest is supplied
-  by the caller when their app participates in the schema-digest
+  "Per Spec 011 §The hydration payload — emit `:rf/version` and
+  `:rf/app-db`, plus the optional `:rf/frame-id`, `:rf/runtime-db` and
+  `:rf/schema-digest`. Schema-digest is supplied by the caller when their app participates in the schema-digest
   check; nil otherwise. Version source-of-truth:
   `re-frame.ssr.payload-policy/resolve-version` — caller opt wins,
   falling back to the SSR-owned `payload-policy/pattern-protocol-version`
@@ -66,9 +63,9 @@
   `runtime-db` directly, projects them under the explicit `frame-id`, then
   assembles
   the canonical payload."
-  ([frame-id app-db render-hash policy-opts]
-   (build-payload frame-id app-db nil render-hash policy-opts))
-  ([frame-id app-db runtime-db render-hash {:as policy-opts}]
+  ([frame-id app-db policy-opts]
+   (build-payload frame-id app-db nil policy-opts))
+  ([frame-id app-db runtime-db {:as policy-opts}]
    (rf.ssr.payload-policy/build-payload
     ;; WIRE :rf/frame-id — the stable, ahead-of-time client id, or nil to omit
     ;; (never the per-request projection gensym).
@@ -81,7 +78,6 @@
      (rf.ssr.payload-policy/apply-policy app-db policy-opts)
      frame-id
      (:payload-include-sensitive policy-opts))
-    render-hash
     ;; Project the runtime-db under the EXPLICIT carried `frame-id`
     ;; (the same target the `project-app-db-egress` above uses), NOT an ambient
     ;; one: the wrapper must not rely on a MATCHING

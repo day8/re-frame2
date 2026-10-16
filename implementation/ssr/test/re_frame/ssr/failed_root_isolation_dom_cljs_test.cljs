@@ -42,7 +42,7 @@
     fid))
 
 (defn- payload-for [db]
-  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db {}))
 
 ;; Registered inside the test: in the shared process a sibling's
 ;; `registrar/clear-all!` wipes ns-load registrations.

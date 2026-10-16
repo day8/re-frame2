@@ -70,8 +70,7 @@
                                  {:auth.session/abc
                                   {:state :authenticated
                                    :data  {:user {:id "u-1" :name "Server-Settled"}
-                                           :rf/after-epoch {[:authenticated] 3}}}}}}
-                :rf/render-hash "h1"}]
+                                           :rf/after-epoch {[:authenticated] 3}}}}}}}]
   ;; A regular event after hydrate reads the machine snapshot.
   [:auth/poll-status]]
 

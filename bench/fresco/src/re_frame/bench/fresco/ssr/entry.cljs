@@ -83,66 +83,12 @@
   `:client-frame-id` or is omitted. An absent `:rf/frame-id` is no
   conflict, which is precisely the anonymous-server-frame shape.
 
-  ## THE RENDER HASH: THIS ROOT DOES NOT GET ONE
+  ## Hydration mismatches
 
-  The payload carries NO `:rf/render-hash` and the document stamps NO
-  `data-rf-render-hash`, and that is Spec 011's own answer for this tier
-  rather than a gap.
-
-  §Hydration-mismatch detection tiers detection **by render-tree
-  representation, not by adapter brand**. The hash channel belongs to the
-  HICCUP tier — Reagent, whose views are pure fns
-  returning a hashable data tree, so the server hashes its tree and the
-  client re-hashes its first render and the two compare. Every root that
-  reaches React as an ELEMENT is in the other tier, a native UIx root
-  among them. Those verify by **React-native adoption** — React diffs the client's first render against the server
-  DOM and reports what it recovers from through the root's
-  `onRecoverableError`, which the framework surfaces as the same
-  `:rf.ssr/hydration-mismatch` diagnostic. 011 says of that tier, in as
-  many words, that it \"deliberately carries **no** such hash\".
-
-  This entry is that tier. `rf.bench.fresco.front.codec/root-element` hands React an element
-  and the tree is walked INSIDE `renderToString`, so at no point does a
-  data tree describing the page exist for anything to hash.
-
-  **Why a degenerate hash is worse than none.** The only hash this entry
-  could ship is `render-tree-hash` over the root hiccup as handed in.
-  That form is `[<minted head> {props}]` — ONE vector whose head is a
-  function — and `canonical-edn` renders every function as the
-  identity-free token `#fn[]` (a required rule: no fn `.toString` is
-  stable across JVM and CLJS, so dropping the identity is the only thing
-  that keeps a hiccup-tier hash from firing a spurious mismatch on every
-  page). So the whole canonical form is `[#fn[] {}]`, and MEASURED: the
-  dogfood screen and the ~1,200-element Conduit feed page both hash
-  `83b865f8`, while a root whose hiccup is ordinary markup hashes
-  differently. The value is a function of the root's SHAPE and carries
-  no information about the page.
-
-  Shipping that is strictly worse than shipping nothing. An absent key
-  cannot be mistaken for evidence; a present one that always agrees is a
-  fail-open gate wearing the shape of a check — the client would compare
-  two different pages and find them equal. Absence is also the
-  shape the wire contract already wants: `:rf/render-hash` is
-  `{:optional true} :string` in Spec-Schemas, and
-  `rf.ssr.payload-policy/build-payload` omits the key on a nil hash, so nothing
-  Fresco-specific touches the payload path (R0 holds — this namespace
-  supplies the app-db and gets out of the way).
-
-  **Why not a better hash.** The two candidates both fail on the same
-  fact. Normalising the minted head to its displayName reverses the
-  identity-free-token rule for one substrate and still only says WHICH
-  screen rendered — every divergence WITHIN a screen, which is the entire
-  class hydration mismatch exists to catch, would still compare equal.
-  Accumulating the walked tree server-side would need the client to
-  reproduce the same accumulation byte-for-byte, which is re-deriving the
-  hiccup tier under a substrate built not to have one — and 011 routes
-  this tier to the adoption channel.
-
-  The exclusion is pinned by `the-interpreted-root-ships-no-render-hash`
-  in `ssr/entry_cljs_test`, and the measurement above is kept live (over
-  `ssr-hash/render-tree-hash` directly, where it is a fact about the hash
-  fn rather than about this entry) by the witness row in
-  `ssr/spike_cljs_test` that chose byte digests over it.
+  The payload carries no render fingerprint. A divergence between this
+  document and the client's first render is reported by the hydrating
+  root's adoption reporter, which surfaces the recoveries React makes as
+  `:rf.ssr/hydration-mismatch` (Spec 011 §Hydration-mismatch detection).
 
   ## Determinism
 
@@ -262,14 +208,6 @@
   shell writes, so a fixture baked here is recognisable to anyone who has
   read that one.
 
-  **No `data-rf-render-hash` on the app root**. That marker
-  is the hiccup tier's, and this is an adoption-tier root — see [[render]]'s
-  §The render hash. `ssr-ring`'s shell stamps it because a Reagent root
-  hands the server the same data tree the client will re-hash; a root React
-  walks hands it no such tree, so the marker here could only ever carry the
-  constant, and a constant on the root element is a fail-open check wearing
-  the shape of a real one.
-
   Deliberately minimal: no head model, no `:html-attrs`/`:body-attrs`
   bags, no `:body-end` hook. Those are the production host's surface, and
   this is not the production host."
@@ -366,9 +304,6 @@
                             (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                             ;; PROJECTION frame — the real per-request one.
                             frame-id)
-                          ;; NO RENDER HASH — nil, and `build-payload` omits the
-                          ;; key. See the namespace docstring's §The render hash.
-                          nil
                           policy-opts)
             payload-edn (pr-str payload-map)
             script      (payload-script payload-edn)]

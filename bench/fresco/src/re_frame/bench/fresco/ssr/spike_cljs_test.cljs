@@ -1,12 +1,11 @@
 (ns re-frame.bench.fresco.ssr.spike-cljs-test
-  "The spike records byte-identical renders and distinguishes page bytes that the interpreted-root hash cannot."
+  "The spike records byte-identical renders."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.fresco.ssr.entry :as rf.bench.fresco.ssr.entry]
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
-            [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -47,22 +46,9 @@
                                :sha256       ha
                                ;; Bytes, not `count`'s UTF-16 code units: every
                                ;; corpus title carries an em dash.
-                               :bytes        (rf.bench.fresco.lane/utf8-bytes (:document a))
-                               :render-hash  (str (rf.ssr.hash/render-tree-hash (:hiccup row)))})))))
+                               :bytes        (rf.bench.fresco.lane/utf8-bytes (:document a))})))))
           ;; Never finishes after `done`: `done` runs the rest of the run
           ;; synchronously, so a `.catch` downstream of it would claim a
           ;; later namespace's throw as this row's.
           (.catch (fn [e] (is false (str "X1(a) threw: " e)) nil))
           (.then (fn [_] (done)))))))
-
-(deftest the-byte-digest-separates-the-two-pages-render-hash-cannot
-  ;; The entry ships no `:rf/render-hash` for an adoption-tier root, and the
-  ;; value it would have shipped cannot tell the two pages apart; the
-  ;; emitted documents can.
-  (let [dog     (rf.bench.fresco.ssr.fixtures/row dogfood-row-id)
-        conduit (rf.bench.fresco.ssr.fixtures/row "conduit-feed")
-        dog-r   (rf.bench.fresco.ssr.entry/render dog)]
-    (is (= [false true true]
-           [(contains? (:payload dog-r) :rf/render-hash)
-            (= (rf.ssr.hash/render-tree-hash (:hiccup dog)) (rf.ssr.hash/render-tree-hash (:hiccup conduit)))
-            (not= (:document dog-r) (:document (rf.bench.fresco.ssr.entry/render conduit)))]))))

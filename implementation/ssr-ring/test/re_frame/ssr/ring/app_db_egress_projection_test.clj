@@ -31,7 +31,7 @@
     (doseq [[policy expected] [[:rf.ssr.payload/whole-app-db {:session session
                                                               :secrets {:api-key "internal-only"}}]
                                [[:session]                   {:session session}]]]
-      (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/server db nil {:payload policy})]
+      (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/server db {:payload policy})]
         (is (= expected (:rf/app-db out)) (pr-str policy))
         (is (not (str/includes? (pr-str out) "secret-jwt")) (pr-str policy))))))
 
@@ -64,18 +64,18 @@
   (reg-session-app!)
   (let [handler (rf.ssr.ring/ssr-handler
                   (assoc handler-opts :root-view (fn [] ((rf/view :rf.hjz4r/root)))))
-        payload (payload-of (:body (handler {:uri "/login" :request-method :get})))
-        client  (rf.frame/make-anon-frame-record! {:doc      "hash client frame"
-                                                   :platform :client
-                                                   :ssr      {:on-mismatch :hard-error}})]
+        body    (:body (handler {:uri "/login" :request-method :get}))
+        payload (payload-of body)
+        client  (rf.frame/make-anon-frame-record! {:doc      "hydrating client frame"
+                                                   :platform :client})]
     (is (= permitted-session (:rf/app-db payload)))
     (is (not (str/includes? (pr-str payload) "sk-server-only")))
+    (is (= payload (rf.ssr/hydrate! {:frame client :payload payload})))
     ;; The server HTML carries the raw token, so the client's first render
-    ;; hashes the same only because the payload does too.
-    (is (some? (:rf/render-hash payload)) "the hash channel the hydrate check reads")
-    (is (= payload (rf.ssr/hydrate! {:frame          client
-                                     :payload        payload
-                                     :render-tree-fn #((rf/view :rf.hjz4r/root))})))))
+    ;; agrees with it only because the payload does too.
+    (is (= (second (re-find #"(?s)<div id=\"app\">(.*?)</div><script id=\"__rf_payload\"" body))
+           (rf/with-frame client (rf.ssr/render-to-string [(rf/view :rf.hjz4r/root)])))
+        "the hydrated client frame renders the server's markup")))
 
 (deftest a-malformed-permit-fails-at-handler-construction
   (let [data (try (rf.ssr.ring/ssr-handler

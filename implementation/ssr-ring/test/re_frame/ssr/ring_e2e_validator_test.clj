@@ -68,7 +68,7 @@
        on the wire.
     4. `e2e-valid-render-path-returns-200` — sanity: the host wiring is
        not broken; a clean view produces a 200 with the expected HTML
-       and a `data-rf-render-hash` on the root element.
+       and the hydration payload.
 
   ## Server lifecycle
 
@@ -320,7 +320,7 @@
 ;; observe bytes-on-wire rather than the Ring map return value.
 
 (deftest e2e-valid-render-path-returns-200
-  (testing "sanity: a clean view → 200 + HTML + render-hash on the wire"
+  (testing "sanity: a clean view → 200 + HTML + payload on the wire"
     (rf/reg-event :init/ok
       {:platforms #{:server}}
       (fn [_ _] {:db {:title "Greetings from JVM SSR"}}))
@@ -336,10 +336,6 @@
 
     (let [handler (rf.ssr.ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     ;; The RESOLVING root-view form. The
-                     ;; data-rf-render-hash assertion below is what forces
-                     ;; it: `[(rf/view :pages/greeting)]` renders the same
-                     ;; bytes but carries no hash on either channel.
                      :root-view (fn [] ((rf/view :pages/greeting)))
                      :payload :rf.ssr.payload/whole-app-db})]
       (rf.ssr.ring.test-support/with-jetty [port handler]
@@ -353,9 +349,6 @@
           (is (str/includes? body "<!DOCTYPE html>"))
           (is (str/includes? body "Greetings from JVM SSR"))
           (is (str/includes? body "Bytes-on-wire e2e proof."))
-          (is (re-find #"data-rf-render-hash=\"[0-9a-f]{8}\"" body)
-              "the root element carries the render hash — the structural
-               anchor for client-side hydration mismatch detection")
           (is (str/includes? body "<script id=\"__rf_payload\"")
               "the hydration payload is present on the wire")
           (is (not (any-header-contains-crlf? headers))

@@ -54,10 +54,6 @@
   size and makes the recorded evidence small enough to ride an error's
   `ex-data` without dragging a whole app-db into a diagnostic.
 
-  It is deliberately NOT the render-tree hash, whose nil-pruning is right
-  for a render tree and wrong for a data-identity test — see
-  `payload-content-digest`.
-
   ## What this namespace deliberately does NOT do
 
   No reconciliation, no retry, no re-render. A conflicting root fails and
@@ -84,24 +80,19 @@
   "-> the content digest of a hydration `payload`: the canonical-DATA
   structural hash (`re-frame.ssr.hash/data-hash`), lowercase hex.
 
-  Cross-host stable by construction — canonical EDN through the same
-  FNV-1a step and the same cross-runtime numeric print form the
-  render-tree hash uses. Two roots reading the SAME `__rf_payload` script
-  therefore compute the same digest on either host, which is what makes
-  `:already-installed` a reliable verdict rather than a hopeful one.
+  Cross-host stable by construction — canonical EDN through FNV-1a and
+  the cross-runtime numeric print form. Two roots reading the SAME
+  `__rf_payload` script therefore compute the same digest on either host,
+  which is what makes `:already-installed` a reliable verdict rather than
+  a hopeful one.
 
-  **Not the render-tree hash.** That hash PRUNES NIL, because
-  for a render tree `[:div {:class nil}]` and `[:div {}]` emit the same
-  HTML and must not manufacture a mismatch. A payload is not a render
-  tree: `{:x nil}` is not `{}`, `[nil 7]` is not `[7]`, and `#{nil 1}` is
-  not `#{1}`. Digesting payloads through the render-tree rules would alias
-  all three pairs DETERMINISTICALLY — not by hash accident — so a second
-  root carrying a genuinely different server slice would be waved through
-  as `:already-installed` instead of raising
+  **Nil is content.** `{:x nil}` is not `{}`, `[nil 7]` is not `[7]`, and
+  `#{nil 1}` is not `#{1}`. A digest that pruned nil would alias all three
+  pairs DETERMINISTICALLY — not by hash accident — so a second root
+  carrying a genuinely different server slice would be waved through as
+  `:already-installed` instead of raising
   `:rf.error/frame-payload-conflict`, and hydrate against data it never
-  received. The render-tree rules are right for their
-  own job; this asks a different question, so it uses a different
-  canonicalisation."
+  received."
   [payload]
   (rf.ssr.hash/data-hash payload))
 

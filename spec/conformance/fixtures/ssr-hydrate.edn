@@ -25,8 +25,7 @@
  [;; Hydrate from server-supplied payload.
   [:rf/hydrate {:rf/version    "1.0"
                 :rf/frame-id   :rf/default
-                :rf/app-db     {:count 42 :user {:id "u-1" :name "Hydrated"}}
-                :rf/render-hash "h1"}]
+                :rf/app-db     {:count 42 :user {:id "u-1" :name "Hydrated"}}}]
   ;; Then a regular event.
   [:counter/inc]]
 

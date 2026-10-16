@@ -74,15 +74,6 @@
   across the only part that can complain (measured: 1 complaint across
   the adoption, 0 at the return).
 
-  ## `:rf/render-hash` is not load-bearing anywhere in this file
-
-  It cannot be, and it is not even present: an adoption-tier root
-  carries no hash at either end (Spec 011 §Hydration-mismatch
-  detection), so the entry emits none. It could not carry a claim anyway
-  — a hash of the unresolved `[<minted head> {props}]` root, with
-  `canonical-edn` rendering every fn identically, takes the same value on
-  every such root, as `ssr/entry-cljs-test` measures.
-
   Runtime: a browser, for a real React DOM. The payload-shape row needs
   no DOM; without one, every DOM claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]

@@ -28,7 +28,7 @@
          (assoc (ex-data e) ::message (ex-message e)))))
 
 (defn- app-db-refusal [db]
-  (refusal #(rf.ssr.payload-policy/build-payload nil db nil {})))
+  (refusal #(rf.ssr.payload-policy/build-payload nil db {})))
 
 (deftest a-jvm-only-number-is-refused-in-the-app-db-slice
   (let [data (app-db-refusal {:ok 1 :price 10.50M})]
@@ -65,7 +65,7 @@
           :partition   :rf/runtime-db
           :path        [:rf.runtime/machines :m :data :total]}
          (select-keys (refusal #(rf.ssr.payload-policy/build-payload
-                                  nil {} nil
+                                  nil {}
                                   {:runtime-db {:rf.runtime/machines {:m {:data {:total 1.5M}}}}}))
                       [:rf.error/id :partition :path]))))
 
@@ -81,7 +81,7 @@
                  :tags   #{1 2}
                  :rows   [1 2.5 "3"]
                  :nested (list {:a 1})}
-        payload (rf.ssr.payload-policy/build-payload nil db nil {:runtime-db {:n 1}})]
+        payload (rf.ssr.payload-policy/build-payload nil db {:runtime-db {:n 1}})]
     ;; `identical?`, because NaN is not `=` to itself.
     (is (identical? db (:rf/app-db payload)))
     (is (= {:n 1} (:rf/runtime-db payload)))))
@@ -111,7 +111,7 @@
   (testing "at any depth, in the runtime-db partition too"
     (is (= {:partition :rf/runtime-db :path [:rf.runtime/machines :m :data :rows 0]}
            (select-keys (refusal #(rf.ssr.payload-policy/build-payload
-                                    nil {} nil
+                                    nil {}
                                     {:runtime-db {:rf.runtime/machines
                                                   {:m {:data {:rows [{0 :a -0.0 :b}]}}}}}))
                         [:partition :path])))))
@@ -120,7 +120,7 @@
   (let [db      {:lookup {1 :i 2 :d}
                  :tags   #{0 1.5}
                  :grid   {[1] :a [2.0] :b}}
-        payload (rf.ssr.payload-policy/build-payload nil db nil {})]
+        payload (rf.ssr.payload-policy/build-payload nil db {})]
     (is (identical? db (:rf/app-db payload)))
     (is (= payload (edn/read-string (pr-str payload)))
         "the emitted bytes read back equal")))

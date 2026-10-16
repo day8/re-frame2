@@ -105,9 +105,8 @@
 
 (defn resolve-root-view
   "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
-  either a hiccup vector directly OR a 0-arity fn that returns hiccup.
-  Resolve once per request so a non-idempotent function cannot make rendered
-  HTML and payload hashes describe different trees.
+  either a hiccup vector directly OR a 0-arity fn that returns hiccup,
+  resolved once per request.
 
   The hiccup vector's HEAD must be a callable — the Var `reg-view` defs,
   or `(rf/view :id)`. A keyword head is an HTML element on every host,
@@ -115,29 +114,8 @@
   lookup), so `:root-view [:app/root]` renders an empty `<root>` element
   rather than the application. Prefer the 0-arity fn form when the opts
   map is built before the view is registered, since `(rf/view :id)`
-  resolves where it is written.
-
-  **The shape you pick decides whether this request gets a render hash at
-  all**, and that consequence is sharper than the
-  registration-order one above. `render-document-hash` is a PURE
-  structural walk that never expands a callable head, so a root-view that
-  RESOLVES to the callable-headed form — `[(rf/view :id)]`, `[#'app/root]`,
-  `[app {props}]` — hands the hash channel a reference to the page rather
-  than the page. Such a root carries NO hash (see
-  `unresolved-root-form?` / `render-document-hash`). A host that wants the
-  hiccup-tier hash channel must hand over a root that resolves to a DOM-
-  rooted tree, which is the OUTER-CALL fn form:
-
-      :root-view (fn [] ((rf/view :app/root)))   ;; hashable — note the
-                                                 ;; outer call
-      :root-view [(rf/view :app/root)]           ;; renders identically,
-                                                 ;; carries no hash
-
-  Both spellings emit byte-identical HTML; only the first is symmetric
-  with the documented client `:render-tree-fn #((rf/view :app/root))`
-  (Spec 011 §Default flow step 3 — note ITS outer call too). That pairing
-  is pinned by
-  `render_hash_tier_test/the-surviving-hash-matches-the-documented-client-tree`."
+  resolves where it is written. `[(rf/view :app/root)]` and
+  `(fn [] ((rf/view :app/root)))` emit byte-identical HTML."
   [root-view]
   (cond
     (vector? root-view) root-view
@@ -157,16 +135,12 @@
 
     {:head-html  \"<title>…</title><meta …>…\"   ;; inner-head fragment
      :html-attrs {…} or nil                       ;; stamped on <html>
-     :body-attrs {…} or nil                       ;; stamped on <body>
-     :head-model {…} or nil}                      ;; raw reconstructible model
+     :body-attrs {…} or nil}                      ;; stamped on <body>
 
   The two attribute bags ride alongside the rendered fragment because
   `head-model->html` deliberately drops them (Spec 011 §Default flow
   step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
   `<body>` — the host shell stamps them, not the head emitter).
-
-  `:head-model` is the raw `rf.ssr/head-model` value used by the separately
-  client-reconstructible head hash; emitted HTML is not a stable shared input.
 
   Exceptions during resolution degrade gracefully — empty fragment,
   no attrs — so a buggy head fn can't take down the request. The trace
@@ -178,8 +152,7 @@
     (let [model (rf.ssr/head-model frame-id)]
       {:head-html  (rf.ssr/head-model->html model)
        :html-attrs (:html-attrs model)
-       :body-attrs (:body-attrs model)
-       :head-model model})
+       :body-attrs (:body-attrs model)})
     (catch Throwable t
       (rf.trace/emit-error! :rf.error/ssr-head-resolution-failed
                          {:frame     frame-id
@@ -193,104 +166,7 @@
          :time      (rf.interop/now-ms)
          :exception t
          :recovery  :no-recovery})
-      {:head-html "" :html-attrs nil :body-attrs nil :head-model nil})))
-
-(defn unresolved-root-form?
-  "True when `root` is the **unresolved root form** — a vector whose head is
-  a CALLABLE (a raw fn, or a Var reference) rather than a DOM-tag keyword.
-  `[(rf/view :app/root)]`, `[#'app/root]` and the adoption tier's
-  `[<component> {props}]` are all this shape.
-
-  Head grammar mirrors the emitter's own dispatch
-  (`re-frame.ssr.emit/emit-element`): a keyword head is a DOM / custom
-  element on every host, so keywords are excluded FIRST; what
-  is left under `ifn?` is exactly fns and Var references, which is how
-  views are referenced. A Var is `ifn?` but NOT `fn?` on the JVM, so the
-  test has to be `ifn?`, as it is in the emitter."
-  [root]
-  (boolean
-    (and (vector? root)
-         (let [head (first root)]
-           (and (not (keyword? head)) (ifn? head))))))
-
-(defn render-document-hash
-  "The canonical structural hash for the SSR **body** render tree — the
-  wire hash carried as the root element's `data-rf-render-hash` marker and
-  the payload's `:rf/render-hash` (Spec 011 §Hydration-mismatch detection).
-
-  This channel is body-only because the client hashes the body tree returned
-  by its render function. Head divergence uses the separate, reconstructible
-  `:rf/head-hash` channel.
-
-  **Returns nil — the channel is OMITTED — for the unresolved root form**
-  the same way `render-head-hash` below omits a head the
-  client cannot reconstruct. `rf.ssr/render-tree-hash` is a PURE structural
-  FNV-1a over canonical EDN: it never expands a callable head, and every
-  raw fn serialises to the identity-free token `#fn[]` (a
-  requirement — no fn `.toString` is stable across JVM and CLJS). So the hash of a callable-headed root describes the
-  REFERENCE, not the page, and measurably so:
-
-  | resolved root                | canonical EDN     | hash       |
-  |------------------------------|-------------------|------------|
-  | `[(rf/view :anything)]`      | `[#fn[]]`         | `f1d63f7e` |
-  | `[<any component> {}]`       | `[#fn[] {}]`      | `83b865f8` |
-
-  — one constant per arity, identical for every application on earth.
-  Emitting it is worse than emitting nothing, because an absent key cannot
-  be mistaken for evidence while a constant one is a fail-open gate wearing
-  the shape of a check (Spec 011 §Hydration-mismatch detection, \"The
-  server end of the tier rule\"). The client applies the same rule to the
-  same key.
-
-  **This is the tier discriminator, and it is structural rather than
-  brand-based** — which is what Spec 011 asks for (\"two tiers, keyed by
-  render-tree representation, not by adapter brand\"). The server cannot
-  see which substrate will hydrate its markup, and it does not need to: an
-  adoption-tier root (a native UIx root, a Fresco root) can
-  only ever hand the server the unresolved form, because the tree is walked
-  inside React and no data tree describing the page ever exists on this
-  side. Asking instead whether a hashable data tree is PRESENT answers the
-  tier question wherever the tier question has an answer, and needs no
-  opt for the host to declare.
-
-  The hiccup tier is bound by the same rule and is the reason it must be a
-  silent omission rather than a thrown error: `[(rf/view :app/root)]` is
-  structurally identical to an adoption-tier root, so nothing here can tell
-  a Reagent host that meant to opt in from an adoption-tier host that must
-  carry nothing. A hiccup-tier host keeps the channel by handing over a root that
-  RESOLVES — `(fn [] ((rf/view :app/root)))` — which is also the only
-  spelling symmetric with the documented client `:render-tree-fn
-  #((rf/view :app/root))`. See `resolve-root-view`."
-  [body-hiccup]
-  (when-not (unresolved-root-form? body-hiccup)
-    (rf.ssr/render-tree-hash body-hiccup)))
-
-(defn render-head-hash
-  "The canonical structural hash for the CLIENT-RECONSTRUCTIBLE head
-  model — a SEPARATE channel from the body's `render-document-hash`
-  and carried as the `<head>` element's
-  `data-rf-head-hash` wire marker and the payload's optional
-  `:rf/head-hash` key.
-
-  `head-model` is the RAW model `resolve-head` attaches under
-  `:head-model` — the map `rf.ssr/head-model` (or a registered `reg-head` fn)
-  returns (`{:title :meta :link :script :json-ld :html-attrs
-  :body-attrs}`), NOT the rendered `:head-html` string. Hashing the model
-  (not emitted HTML) is what makes the channel client-reconstructible at
-  all: the client calls the SAME `(rf.ssr/head-model frame-id)` against the
-  just-hydrated app-db + the route slice carried in `:rf/runtime-db`
-  (Spec 011 §Default flow step 5) and hashes the resulting model identically.
-
-  Returns nil when `head-model` is nil — the explicit-`:head`-STRING
-  request shape (the caller-supplied-string branch, and the
-  degraded-empty-head fallback on a throwing head fn). In both cases the
-  server knows the head is NOT client-reconstructible (an explicit string
-  has no model to recompute; a degraded head's model was never produced),
-  so the channel is OMITTED rather than shipping a hash the client could
-  never match."
-  [head-model]
-  (when head-model
-    (rf.ssr/render-tree-hash head-model)))
+      {:head-html "" :html-attrs nil :body-attrs nil})))
 
 (defn resolve-initial-events!
   "Resolve the caller's `:initial-events` opt to the setup vector
