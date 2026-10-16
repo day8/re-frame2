@@ -5,7 +5,7 @@
 ;; at bundle load:
 ;;   - org.babashka/sci   the interpreter
 ;;   - day8/re-frame2     re-frame.core, the API cells call
-;;   - day8/reagent-slim  reagent2 and its re-frame2 adapter
+;;   - day8/re-frame2-reagent  Reagent and its re-frame2 adapter
 ;;   - machines, flows,   reg-machine, reg-flow and reg-app-schema
 ;;     schemas            (schemas brings Malli)
 ;;   - fresco             re-frame.fresco and its forms, overlay and motion
@@ -22,7 +22,7 @@
          org.babashka/sci {:git/url "https://github.com/babashka/sci"
                            :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
          day8/re-frame2          {:local/root "../../../../implementation/core"}
-         day8/reagent-slim       {:local/root "../../../../implementation/adapters/reagent-slim"}
+         day8/re-frame2-reagent  {:local/root "../../../../implementation/adapters/reagent"}
          day8/re-frame2-machines {:local/root "../../../../implementation/machines"}
          day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}
          day8/re-frame2-schemas  {:local/root "../../../../implementation/schemas"}

@@ -65,9 +65,10 @@ export const ROSTER = [
   // --- core: re-frame.core / router / subs / registrar / views + adapter iface
   "implementation/core/src",
   "implementation/core/deps.edn",
-  // --- reagent-slim: reagent2.* + re-frame.adapter.reagent-slim (the substrate)
-  "implementation/adapters/reagent-slim/src",
-  "implementation/adapters/reagent-slim/deps.edn",
+  // --- reagent: re-frame.adapter.reagent (the substrate; reagent.* itself is a
+  // Maven dependency that deps.edn pins)
+  "implementation/adapters/reagent/src",
+  "implementation/adapters/reagent/deps.edn",
   // --- machines: re-frame.machines (Spec 005), :require'd at bundle init
   "implementation/machines/src",
   "implementation/machines/deps.edn",
