@@ -2908,12 +2908,12 @@ jobs:
     # test_quiet_runner_contract_test.clj (subprocess deftests that
     # relaunch a fresh JVM against throwaway fixtures) plus the
     # stdout-line-count pins (test_quiet_pin_test.clj /
-    # ..._pin_passing_test.clj). It pins the JVM RED/ERROR/exit-code paths,
-    # the discovery-banner overdrop guards, nested-run banner+tally,
-    # the test-ns-hook fallback, the
-    # central stderr buffer + red-replay, exit-code integrity
-    # for counter-escaping failures, and subprocess
-    # deadlock/timeout.
+    # ..._pin_passing_test.clj). It pins the green shape and the JVM
+    # RED/ERROR/exit-code paths, the verbose per-namespace banners, the
+    # coverage floor and `--probe` lanes, discovery and fixture integrity,
+    # namespace-level tag selection, a nested `run-tests` that reaches
+    # neither the outer verdict nor the JVM, the central stderr buffer +
+    # red-replay, and partial output surviving exit.
     #
     # Without this job the suite would run in NO automated gate: the
     # classifier's implementation_jvm=true (armed for test-quiet/** by

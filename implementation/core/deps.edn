@@ -174,23 +174,22 @@
   ;; to close. So they declare the posture they need instead, per deftest, and
   ;; this lane skips the tag.
   ;;
-  ;; THE TAG IS VAR-LEVEL, AND THAT IS THE WHOLE POINT. cognitect-test-runner's
-  ;; `-e` reads VAR metadata (`var-filter` calls `(meta v)` on each interned
-  ;; test var); it never consults namespace metadata, so a marker on the `(ns
-  ;; …)` form would be silently INERT — a suppression that suppresses nothing,
-  ;; or, read the other way, an exclusion nobody can see the effect of. Var
-  ;; granularity also keeps this lane's polarity: a new deftest added to a
-  ;; tagged namespace is UNTAGGED, so it joins the gate lane by default and has
-  ;; to be excluded deliberately. A namespace-level marker would swallow it.
+  ;; THE TAG SELECTS AT EITHER LEVEL; MIXED SUITES TAG PER DEFTEST.
+  ;; cognitect-test-runner's `-e` reads VAR metadata, and the quiet runner
+  ;; widens each keyword to the var's namespace, so a `^:requires-debug` on
+  ;; the `(ns …)` form takes the whole namespace out of this lane. That fits a
+  ;; namespace that is dev-only throughout. A MIXED suite tags each deftest
+  ;; instead, because var granularity keeps this lane's polarity: a new
+  ;; deftest added there is UNTAGGED, so it joins the gate lane by default and
+  ;; has to be excluded deliberately. A namespace-level tag would swallow it.
   ;;
-  ;; AND THE NAMESPACE STILL RUNS SOMETHING. cognitect `require`s every
-  ;; namespace it discovers BEFORE it filters vars, so a tagged namespace is
-  ;; still LOADED under `-Dre-frame.debug=false` and a load-time failure there
-  ;; still reddens this job — strictly more than leaving the namespace out of
-  ;; the run altogether. What the tag does NOT do is claim the
-  ;; tests ran: `contains-tests?` drops a fully-tagged namespace before
-  ;; `run-tests` sees it, so it contributes no test and no assertion to the
-  ;; tally, and nothing green is reported for work that did not happen.
+  ;; AND THE NAMESPACE STILL RUNS SOMETHING. A tagged namespace, at either
+  ;; level, is still selected and REQUIRED under `-Dre-frame.debug=false`, so
+  ;; a load-time failure there still reddens this job — strictly more than
+  ;; leaving the namespace out of the run altogether. What the tag does NOT
+  ;; do is claim the tests ran: a fully-tagged namespace contributes no test
+  ;; and no assertion to the tally, so nothing green is reported for work
+  ;; that did not happen.
   ;;
   ;; The tag is DEV-LANE-NEUTRAL. It appears in no other `:main-opts` in this
   ;; file, so `clojure -M:test` runs every tagged deftest; the tag narrows
