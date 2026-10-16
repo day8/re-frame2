@@ -53,7 +53,7 @@
 
    ;; Rule 6 — registration order final-tiebreak (also: warning on equal scores).
    ;; Routes register in ascending id order, so `.first` registers before `.second`.
-   :rf.route/equal.first    {:path "/equal-score/:x" :params [:map [:x :string]]}
+   :rf.route/equal.first     {:path "/equal-score/:x" :params [:map [:x :string]]}
    :rf.route/equal.second    {:path "/equal-score/:y" :params [:map [:y :string]]}}}
 
  :fixture/calls
