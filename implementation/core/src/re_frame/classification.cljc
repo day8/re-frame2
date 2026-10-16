@@ -1315,19 +1315,32 @@
           (contains? tags :input)    (assoc :input    (project-input (:input tags)))
           (contains? tags :cascade)  (assoc :cascade  (project-cascade (:cascade tags))))))))
 
-(defn- redact-exception-data-slot
+(def ^:private exception-text-slots
+  "The exception slots that carry the thrown value's TEXT: `:exception-message`,
+  the machine row's `:reason`, and the machine row's raw `:exception`, whose
+  printed form carries its message and its `ex-data`."
+  [:exception-message :reason :exception])
+
+(defn- redact-exception-slots
   "Fail-closed whole-slot redaction tail shared by the two exception-payload
-  projectors: replace the WHOLE `:exception-data` slot with the `:rf/redacted`
-  sentinel and stamp `:sensitive? true`."
+  projectors: replace the WHOLE `:exception-data` slot, and each PRESENT
+  exception-text slot, with the `:rf/redacted` sentinel and stamp
+  `:sensitive? true`. A message routinely quotes the value that failed, so a row
+  judged sensitive for its `ex-data` is judged sensitive for its text too."
   [tags]
-  (assoc tags :exception-data rf.privacy/redacted-sentinel :sensitive? true))
+  (reduce (fn [tags slot]
+            (cond-> tags
+              (contains? tags slot) (assoc slot rf.privacy/redacted-sentinel)))
+          (assoc tags :exception-data rf.privacy/redacted-sentinel :sensitive? true)
+          exception-text-slots))
 
 (defn- project-machine-error-tags
   "Walk the `:rf.error/machine-action-exception` tag shape. The trace carries
   `:exception-data` — the `ex-data` of a thrown machine action — which could
-  embed the same app secrets the machine's `:data` classification gates. The
+  embed the same app secrets the machine's `:data` classification gates, and
+  `:exception-message` / `:reason` / `:exception`, which can quote them. The
   conservative, footgun-prevention posture: when the machine declares ANY
-  `:sensitive` classification, elide the WHOLE `:exception-data` slot.
+  `:sensitive` classification, elide each of those slots WHOLE.
 
   EP-0025: the \"machine declares ANY `:sensitive`\" decision
   consults the FRAME's snapshot-path classification (the sole app-db mechanism)
@@ -1335,8 +1348,9 @@
 
   A nil / unresolvable frame FAILS CLOSED (redacts) — matching the sibling
   `project-flow-failed-tags` and Spec 015 §Failure-posture (unknown frame =>
-  fail closed). `:exception-data` is author-shaped `ex-data` that cannot be
-  path-walked safely, so a nil frame redacts the WHOLE slot."
+  fail closed). `:exception-data` is author-shaped `ex-data` and the text slots
+  are free prose, none of which can be path-walked safely, so a nil frame
+  redacts each WHOLE slot."
   [tags frame-id]
   (let [machine-id (or (:actor-id tags) (:machine-id tags))
         author     (classification-when :event machine-id)
@@ -1344,7 +1358,7 @@
     (if (and (contains? tags :exception-data)
              (or (nil? frame-id)
                  (seq (:sensitive author)) (seq (:sensitive frame-mk))))
-      (redact-exception-data-slot tags)
+      (redact-exception-slots tags)
       tags)))
 
 (defn- project-flow-failed-tags
@@ -1352,16 +1366,16 @@
   structured exception summary — `:exception-message` (plain string) +
   `:exception-data` (the ex-info `ex-data` map). The `:inputs` slot already rode
   the wire-elision walker at emit time; the `:exception-data` map is the
-  developer's arbitrary author-keyed payload. When the flow's FRAME declares ANY
-  sensitive elision declaration, elide the WHOLE `:exception-data` slot. A nil /
-  unresolvable frame FAILS CLOSED (redacts)."
+  developer's arbitrary author-keyed payload, and the message can quote the same
+  values. When the flow's FRAME declares ANY sensitive elision declaration,
+  elide both slots WHOLE. A nil / unresolvable frame FAILS CLOSED (redacts)."
   [tags]
   (let [frame-id (:frame tags)]
     (if (and (contains? tags :exception-data)
              (some? (:exception-data tags))
              (or (nil? frame-id)
                  (seq (rf.elision/sensitive-declarations frame-id))))
-      (redact-exception-data-slot tags)
+      (redact-exception-slots tags)
       tags)))
 
 (defn- project-machine-wrote-db-tags

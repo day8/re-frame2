@@ -349,3 +349,46 @@
         (is (= [#{:machine} :rf/redacted false]
                [(sources) (get-in out [:tags :after :data :token]) (.contains (pr-str out) "secret-jwt")])
             "the machine's surviving claim keeps the value redacted after the effect cleared")))))
+
+;; ---- (7) a thrown action's exception row ---------------------------------
+;; A message routinely quotes the value that failed, so once a machine declares
+;; any `:sensitive` path its exception row redacts the text and the raw
+;; exception together with the `:exception-data`.
+
+(def ^:private thrown-secret "S3CR3T-thrown-action")
+
+(defn- thrown-action-row
+  "Boot machine `mid` (its `spec` merged over a one-transition body), dispatch an
+  event whose action throws an ex-info quoting `thrown-secret` in its message
+  and its data, and return the `:rf.error/machine-action-exception` trace."
+  [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :actions {:reject (fn [_] (throw (ex-info (str "rejected " thrown-secret)
+                                                      {:k thrown-secret})))}
+            :states  {:idle {:on {:submit {:target :done :action :reject}}} :done {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (rf.machines.test-support/with-trace-capture traces
+    (rf/dispatch-sync [mid [:submit]])
+    (first (filter #(= :rf.error/machine-action-exception (:operation %)) @traces))))
+
+(deftest thrown-action-exception-slots-redacted-when-machine-sensitive
+  (let [row (thrown-action-row :rf.machine-redaction/sensitive-thrower
+                               {:sensitive [[:data :token]]})]
+    (is (= [{:exception-data    :rf/redacted
+             :exception-message :rf/redacted
+             :reason            :rf/redacted
+             :exception         :rf/redacted}
+            true false]
+           [(select-keys (:tags row) [:exception-data :exception-message :reason :exception])
+            (:sensitive? row)
+            (.contains (pr-str row) thrown-secret)]))))
+
+(deftest thrown-action-exception-text-kept-when-machine-unclassified
+  (let [tags (:tags (thrown-action-row :rf.machine-redaction/plain-thrower {}))]
+    (is (= [{:k thrown-secret} (str "rejected " thrown-secret) "Machine action threw."]
+           ((juxt :exception-data :exception-message :reason) tags)))
+    (is (.contains (pr-str (:exception tags)) (str "rejected " thrown-secret))
+        "the raw :exception prints its message onto the wire")))
