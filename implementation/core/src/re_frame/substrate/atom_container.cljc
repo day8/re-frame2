@@ -1,19 +1,17 @@
 (ns re-frame.substrate.atom-container
-  "Shared `clojure.core/atom`-backed container primitives for the
-  non-reactive substrate adapters (plain-atom, test-react).
+  "`clojure.core/atom`-backed container primitives for the non-reactive
+  plain-atom substrate adapter.
 
   Per Spec 006 §The adapter API contract the container quartet
   (`make-state-container` / `read-container` / `replace-container!` /
   `subscribe-container`) is identical for any adapter whose state slot is
-  a bare atom — there is no React-shaped reactivity to layer in. Both the
-  plain-atom (JVM / SSR) and test-react (unit-test) adapters reference
-  these directly in their adapter maps so the byte-identical quartet lives
-  in one place.
+  a bare atom — there is no React-shaped reactivity to layer in. The
+  plain-atom (JVM / SSR) adapter references these directly in its adapter
+  map.
 
-  Note `make-derived-value` is NOT shared — plain-atom reifies
-  `IDisposable` under CLJS for sub-cache ref-count symmetry, while
-  test-react deliberately does not. That divergence is real
-  and stays per-adapter.")
+  `make-derived-value` is NOT here: what a derived value implements is
+  per-adapter — plain-atom reifies `IDisposable` under CLJS for sub-cache
+  ref-count symmetry.")
 
 (defn make-state-container [initial-value]
   (atom initial-value))

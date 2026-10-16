@@ -520,8 +520,8 @@
   This is the per-process counterpart to `clear-sub-cache!` (one frame) —
   the externally-visible equal of `re-frame.substrate.spine/dispose-frame-
   sub-caches!` (the CLJS-only walk wired into the React-shaped adapters'
-  `dispose-adapter!`), lifted into this CLJC ns so the CLJC adapters
-  (`test-react`, `plain-atom`) can satisfy Spec 006 §Adapter disposal
+  `dispose-adapter!`), lifted into this CLJC ns so the CLJC `plain-atom`
+  adapter can satisfy Spec 006 §Adapter disposal
   lifecycle MUST 1 (`dispose-adapter!` cancels all in-flight reactive
   subscriptions across every live frame's sub-cache) without taking a
   static dependency on the CLJS-only spine. Per Spec 006 §Lifetime

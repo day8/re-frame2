@@ -1604,7 +1604,7 @@
 ;; the other.
 ;;
 ;; TOTAL AND OPT-IN. `:adapter/reactive-owner` is published by the ratom family
-;; alone. UIx, plain-atom and test-react publish nothing, the hook resolves nil,
+;; alone. UIx and plain-atom publish nothing, the hook resolves nil,
 ;; and every line below is skipped on their paths.
 
 (def ^:dynamic ^:no-doc *render-owned-acquisition?*

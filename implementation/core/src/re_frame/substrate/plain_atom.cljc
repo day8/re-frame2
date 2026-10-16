@@ -38,10 +38,9 @@
       releases inputs symmetrically on slot evict.
 
   The atom-backed container quartet (`make-state-container` /
-  `read-container` / `replace-container!` / `subscribe-container`) is
-  shared with the test-react adapter via `re-frame.substrate.atom-container`
-  — see that ns for the rationale on why only the container quartet (not
-  `make-derived-value`) is shared."
+  `read-container` / `replace-container!` / `subscribe-container`) lives in
+  `re-frame.substrate.atom-container` — see that ns for why only the
+  container quartet (not `make-derived-value`) lives there."
   (:require [re-frame.error :as rf.error]
             [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.atom-container :as rf.substrate.atom-container]

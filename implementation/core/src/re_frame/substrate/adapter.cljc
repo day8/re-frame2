@@ -114,9 +114,9 @@
   cannot overwrite a replacement generation's slot with a disposed generation's
   emitter. A no-op when re-frame.ssr is not loaded (the durable slot is unset) —
   `render-to-string` then throws the honest `:rf.error/no-hiccup-emitter-bound`
-  — and on hosts whose adapters do not publish the hook (the JVM/plain-atom and
-  test-react emitters are retained across their no-op dispose, so no re-arm is
-  required). Raising is the caller's contract: `install-adapter!` runs this
+  — and on hosts whose adapters do not publish the hook (the JVM/plain-atom
+  emitter is retained across its no-op dispose, so no re-arm is required).
+  Raising is the caller's contract: `install-adapter!` runs this
   inside its failure-atomic transaction, so a throwing arm rolls the install
   back rather than half-installing."
   []
@@ -525,9 +525,9 @@
   `IAtom` reliably marks a base atom on both hosts.
 
   Sound ONLY for adapters whose base container IS atom-shaped (plain-atom,
-  test-react, UIx): their base container is a `clojure.core/atom`
+  UIx): their base container is a `clojure.core/atom`
   (an `IAtom`) and their derived value is an `IDeref`-only reify (plain-atom
-  JVM / test-react), an `IDeref`+`IDisposable` reify (plain-atom CLJS), or
+  JVM), an `IDeref`+`IDisposable` reify (plain-atom CLJS), or
   an `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
   which is an `IAtom`. NOT sound for the Reagent family (a Reagent
   `Reaction` reifies `IAtom` too) NOR for a custom adapter whose base
@@ -573,12 +573,12 @@
     * hook returns the `container-class-unknown` sentinel, or no adapter
       published the hook (`nil`) → the installed adapter has NO opinion;
       fall back to the host atom-marker heuristic (sound only for adapters
-      whose base container IS atom-shaped — plain-atom / test-react / UIx /
+      whose base container IS atom-shaped — plain-atom / UIx /
       whose derived values are NOT atom-shaped).
 
   For the ratom family the hook is decisive (truthy for a `Reaction`,
   `false` for a base `r/atom`), so the heuristic is never reached for their
-  containers. For plain-atom / test-react / UIx the routed hook is
+  containers. For plain-atom / UIx the routed hook is
   absent or returns the sentinel (chain fallback), so the atom-marker arm
   decides — exactly where it is sound.
 
@@ -754,11 +754,8 @@
   from `spine/make-react-adapter`, which wires the React spine's slot
   unconditionally. The other two omit it for one shared reason: plain-atom
   and SSR render without a live React commit, so there is nothing to flush.
-  The test-react fixture is NOT one of the five shipped kinds (it has no
-  `:kind` in the shipped set — Spec 006 §CLJS reference scope) and provides
-  none either: it hands the render clock to the test through
-  `trigger-update!`, by design. Calling it
-  before `(rf/init! ...)` raises `:rf.error/no-adapter-installed` — the
+  Calling it before `(rf/init! ...)` raises
+  `:rf.error/no-adapter-installed` — the
   optional-fn nil return is reserved for `adapter installed, fn absent`,
   not for `no adapter installed at all`."
   ([] (flush-render! (fn [] nil)))
@@ -797,9 +794,8 @@
 
 ;; ---- adapter routing token ------------------------------------------------
 ;;
-;; Hook routing (below) and the public test-react `mount!` guard must answer
-;; one question: "is the adapter THIS hook/driver belongs to the one
-;; (rf/init!)-installed right now?" Raw object identity —
+;; Hook routing (below) must answer one question: "is the adapter THIS hook
+;; belongs to the one (rf/init!)-installed right now?" Raw object identity —
 ;; `(identical? adapter-spec (current-adapter))` — is the WRONG answer
 ;; against a copied or wrapped canonical adapter map: a user (or the
 ;; adapter-swap pattern in `boot_test`) that `assoc`/`merge`/`update`s a
@@ -809,8 +805,7 @@
 ;; would lose `:adapter/current-frame` React-context resolution, view
 ;; source/view-id wrapping, after-render, and derived-value disposal;
 ;; Reagent would lose the ratom-family hooks including the
-;; `:adapter/derived-container?` guard; test-react `mount!` would throw even
-;; though a test-react-shaped map is installed. Spec 006
+;; `:adapter/derived-container?` guard. Spec 006
 ;; §Frame-provider via React context requires the `:adapter/current-frame`
 ;; hook to resolve to the LIVE routed impl, so a frozen-identity guard that
 ;; serves stale (inert) hooks for a copied map is a correctness bug.
@@ -834,8 +829,8 @@
   (and (keyword? kind) (= "rf.adapter" (namespace kind))))
 
 (defn same-adapter?
-  "True when adapter spec map `a` is, for hook-routing / driver-guard
-  purposes, the SAME adapter as `b`. Stable-token comparison:
+  "True when adapter spec map `a` is, for hook-routing and installed-adapter
+  checks, the SAME adapter as `b`. Stable-token comparison:
   when both maps carry the same canonical `:rf.adapter/*` `:kind`, they are
   the same adapter even across a copy/`assoc`/`merge` (the token survives
   structural edits), so a copied canonical adapter map still routes to its
@@ -844,10 +839,11 @@
   adapters are never conflated. Nil-safe: a
   nil `b` (no adapter installed) is never the same as a non-nil `a`.
 
-  Public so adapter-side driver guards that gate on \"is MY adapter the
-  installed one?\" (e.g. the Test-React `mount!` driver) share the one
-  stable-token predicate `route-hook!` uses, rather than re-deriving an
-  object-identity check that would reject a copied canonical map.
+  Public so the installed-adapter checks outside this ns — `init!`'s
+  idempotence guard and the view and subscription caches' built-under
+  checks — share the one stable-token predicate `route-hook!` uses, rather
+  than re-deriving an object-identity check that would reject a copied
+  canonical map.
 
   SPELLING IS LOAD-BEARING, and the flat nest of `if`s below is deliberate.
   The obvious spelling — `(boolean (and a b (let [ka (:kind a)]
