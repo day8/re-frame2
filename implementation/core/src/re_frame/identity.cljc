@@ -321,9 +321,10 @@
 
 ;; ---- canonical token encoding (CEDN-1) -----------------------------------
 ;;
-;; Encode into a UTF-8 token string. Strings/keywords/symbols use the EDN
-;; literal via `pr-str` (portable across CLJ/CLJS readers); the type tag
-;; preceding each value keeps distinct EDN kinds distinct.
+;; Encode into a UTF-8 token string. A string is its EDN literal via `pr-str`;
+;; a keyword or symbol is its EDN token when plain and a quoted form otherwise
+;; (below); the type tag preceding each value keeps distinct EDN kinds
+;; distinct.
 
 (declare encode)
 
@@ -333,14 +334,53 @@
   ;; §Canonical byte encoding).
   (str "s:" (pr-str (well-formed-text s))))
 
+;; A keyword or symbol token has no closing delimiter, and the element
+;; separator is a space, so a name printed raw must never hold a character a
+;; reader ends a token on: `(keyword "a b:1")` raw is `k::a b:1`, and a vector
+;; of it would share its bytes with `[:a true]`. A PLAIN keyword or symbol is
+;; written as its EDN token, which reads back as the same value on both hosts;
+;; any other is QUOTED, its namespace and name each as a string literal, so
+;; every keyword and symbol has one token and no two share one. The plain
+;; grammar is ASCII because the two hosts' readers disagree about which
+;; non-ASCII characters end a token (Conventions §Canonical byte encoding).
+
+(def ^:private plain-part-re
+  "One plain namespace or name: ASCII letters, digits and
+  `* ! _ ? $ % & = < > + - . #`, beginning with neither a digit nor `#`, nor
+  with `+`, `-` or `.` followed by a digit."
+  #"(?:[A-Za-z*!_?$%&=<>]|[-+.](?![0-9]))[A-Za-z0-9*!_?$%&=<>+.#-]*")
+
+(defn- plain-part? [s]
+  (some? (re-matches plain-part-re s)))
+
+(defn- plain-ident?
+  "True iff keyword or symbol `x` is plain: its namespace, if any, and its name
+  are plain parts, and it is not a bare symbol a reader takes for a literal
+  (`nil`, `true`, `false`)."
+  [x]
+  (let [ns (namespace x)
+        n  (name x)]
+    (and (plain-part? n)
+         (or (nil? ns) (plain-part? ns))
+         (not (and (nil? ns) (symbol? x) (contains? #{"nil" "true" "false"} n))))))
+
+(defn- ident-token
+  "The token of keyword or symbol `x` after its type tag. Plain: the EDN token,
+  which `pr-str` prints for a keyword in its single-colon fully-qualified
+  form, never `::` shorthand. Otherwise quoted: the namespace's string literal
+  and `/`, when there is a namespace, then the name's string literal."
+  [x]
+  (if (plain-ident? x)
+    (pr-str x)
+    (let [x (well-formed-text x)]
+      (str (when-let [ns (namespace x)] (str (pr-str ns) "/"))
+           (pr-str (name x))))))
+
 (defn- encode-keyword [k]
-  ;; The canonical EDN keyword token, never auto-resolved `::` shorthand.
-  ;; `pr-str` on a keyword always prints the single-colon fully-qualified
-  ;; form.
-  (str "k:" (pr-str (well-formed-text k))))
+  (str "k:" (ident-token k)))
 
 (defn- encode-symbol [y]
-  (str "y:" (pr-str (well-formed-text y))))
+  (str "y:" (ident-token y)))
 
 (defn- encode-elements
   "Encode a sequence of already-canonical-ordered elements, space-joined.

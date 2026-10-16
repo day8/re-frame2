@@ -152,7 +152,7 @@
 
 (deftest utf8-byte-order-of-map-keys-and-set-elements
   (testing "keyword and composite tokens follow the same byte order"
-    (is (= (str "q#{k::" high-bmp " k::" astral "}")
+    (is (= (str "q#{k:\"" high-bmp "\" k:\"" astral "\"}")
            (rf.identity/canonical-bytes #{(keyword astral) (keyword high-bmp)})))
     (is (= (str "m{v[s:\"" high-bmp "\"] i:2 v[s:\"" astral "\"] i:1}")
            (rf.identity/canonical-bytes {[astral] 1, [high-bmp] 2}))))
@@ -265,6 +265,34 @@
     (testing "a well-formed pair is one supplementary character, emitted raw"
       (is (= (str "s:\"" high low "\"") (rf.identity/canonical-bytes (str high low))))
       (is (= (str high low) (rf.identity/canonical (str high low)))))))
+
+;; ---- keyword and symbol tokens: plain, or quoted -------------------------
+;;
+;; A keyword or symbol token has no closing delimiter and the element separator
+;; is a space, so a name printed raw can end early. A name outside the plain
+;; grammar is quoted instead (Conventions §Canonical byte encoding).
+
+(deftest unreadable-names-encode-unambiguously
+  (testing "values whose raw tokens collided are distinct identities"
+    (is (not= (rf.identity/canonical-bytes [(keyword "a b:1")]) (rf.identity/canonical-bytes [:a true]))
+        "raw, both were v[k::a b:1]")
+    (is (not= (rf.identity/canonical-bytes [(keyword "a n")]) (rf.identity/canonical-bytes [:a nil]))
+        "raw, both were v[k::a n]")
+    (is (not (rf.identity/identical-identity? [(symbol "a k::b")] [(symbol "a") :b]))
+        "raw, both were v[y:a k::b]")
+    (is (not (rf.identity/identical-identity? (keyword nil "a/b") :a/b))
+        "raw, both were k::a/b"))
+  (testing "a name outside the plain grammar takes the quoted form"
+    (is (= ["k:\"a b:1\"" "k:\"a\"/\"b c\"" "k:\"a/b\"" "k:\"42\"" (str "k:\"caf" (char 0xE9) "\"")
+            "y:\"a k::b\"" "y:\"nil\"" "y:\"/\""]
+           (map rf.identity/canonical-bytes
+                [(keyword "a b:1") (keyword "a" "b c") (keyword nil "a/b") (keyword "42")
+                 (keyword (str "caf" (char 0xE9)))
+                 (symbol "a k::b") (symbol "nil") (symbol "/")]))))
+  (testing "a plain name keeps its EDN token"
+    (is (= ["k::a" "k::rf.path/param" "k::->x" "k::nil" "y:a.b/c-d?" "y:-" "y:+a" "y:x#"]
+           (map rf.identity/canonical-bytes
+                [:a :rf.path/param :->x :nil 'a.b/c-d? '- '+a (symbol "x#")])))))
 
 ;; ---- canonical projection: ordering is owned by canonical-bytes ----------
 ;;
