@@ -168,10 +168,10 @@ Every hook has the same two-arity contract:
 
 - **Collect** is called while the policy is built, inside the frame-resolution seam. It returns the declarations of its family's registrations that declare any, keyed by registration id, and the policy stores the result under the hook's root.
 - **Apply** is called at egress. `root-value` is the value under that root in the runtime-db being projected: the live partition for a direct read, or the recorded one for an epoch. `decls` is the policy's map for that root. The hook names each instance's registration from the value itself, then re-roots that registration's declaration onto the instance, exactly as the lowering re-roots it today. Each instance names its registration by:
-  - a machine snapshot: its `:rf/machine-type`, or its own id for a singleton;
-  - a resource entry: its `:resource/key`;
-  - a mutation instance: its `:mutation/id`;
-  - the current route slice: its `:id`.
+    - a machine snapshot: its `:rf/machine-type`, or its own id for a singleton;
+    - a resource entry: its `:resource/key`;
+    - a mutation instance: its `:mutation/id`;
+    - the current route slice: its `:id`.
 - **Purity.** Apply is pure: no registry write, no frame lookup and no container read. It returns runtime-db-absolute paths, which core walks with the ordinary matcher. A consumer projecting a single instance hands the hook a root value holding just that instance.
 
 Core keeps the table that maps each root to its hook key. A root whose hook is unbound has no classification, which is safe for the same reason it is safe for the `:machines/project-ssr-runtime-db` hook: without its artefact, a runtime-db carries no instances under that root. A new runtime-db root publishes its hook the same way.
@@ -265,20 +265,20 @@ EP-0025 rejected a "per-egress resolver", but what it rejected was a global regi
 Pre-alpha, so there is no shim. The migration runs in four steps. Each step is its own bead, and each leaves the tree green.
 
 1. **Vertical slice (rf2-o5rtr).** Build `reg-classification`, the policy, and its capture on epoch records and sub memos. Prove them end to end on one fixed path, the login draft password:
-   - **first egress**, with no classification event;
-   - **SSR**: the server's payload permit and the client's classification agree;
-   - **history** after the declaration is replaced — the two historical tests above stay green, and a new test covers the slice's own path;
-   - **resolution** through the target frame's image.
+    - **first egress**, with no classification event;
+    - **SSR**: the server's payload permit and the client's classification agree;
+    - **history** after the declaration is replaced — the two historical tests above stay green, and a new test covers the slice's own path;
+    - **resolution** through the target frame's image.
 
-   The registry still serves everything else. The slice measures what it deletes, or would let a later stage delete, against what it adds. If the per-root hooks prove harder to reason about than the lowering they replace, the slice stops and reports to the operator instead of continuing.
+    The registry still serves everything else. The slice measures what it deletes, or would let a later stage delete, against what it adds. If the per-root hooks prove harder to reason about than the lowering they replace, the slice stops and reports to the operator instead of continuing.
 2. **Stage 1 — subsystems at egress.** Publish the four root hooks. Then delete lowering, dropping, re-lowering, `reconcile-registry`, `reconcile-mutation-registry` and the route replace. App-db still uses the effects at this point: this is option D, as a stage.
 3. **Stage 2 — the app-db registration.** Move every app-db classification to `reg-classification`, and flow outputs to the flows hook. Then remove the four effects, `[:rf.runtime/elision]`, the owner sets, the candidate projection, `reconcile-runtime-db-effect` and the SSR carve-out.
 4. **Propagation.** Update the remaining surfaces:
-   - the examples, including the three ceremony sites above;
-   - the how-to and the glossary;
-   - the classification skill (`skills/re-frame2/references/cross-cutting/privacy-and-elision.md`);
-   - Story's variant classification: a variant's `[:world :sensitive]` / `[:world :large]`, which `apply-variant-classification!` applies today as effects;
-   - the tools that read the registry to show what is classified, which read the policy instead.
+    - the examples, including the three ceremony sites above;
+    - the how-to and the glossary;
+    - the classification skill (`skills/re-frame2/references/cross-cutting/privacy-and-elision.md`);
+    - Story's variant classification: a variant's `[:world :sensitive]` / `[:world :large]`, which `apply-variant-classification!` applies today as effects;
+    - the tools that read the registry to show what is classified, which read the policy instead.
 
 ## Resolved Decisions
 
@@ -298,15 +298,15 @@ None. The vertical slice's measurement decides whether stages 1 and 2 proceed. I
 - [Spec 010 §Schemas resolve through the frame's images](../../spec/010-Schemas.md#schemas-resolve-through-the-frames-images): the `reg-app-schema` precedent for a frame-resolved app-db registration.
 - [EP-0012](EP-0012-path-optics-and-canonical-forms.md): the `:rf/path` vocabulary.
 - Tracker:
-  - rf2-0iyzr, this EP;
-  - rf2-o5rtr, the vertical slice;
-  - rf2-mn2ht, the adversarial architecture review that raised it;
-  - rf2-by79j, the collection matcher;
-  - rf2-3x7nj.4.3, rf2-gko6q, rf2-kuyza, rf2-hakdt and rf2-03jei, the defects cited above.
+    - rf2-0iyzr, this EP;
+    - rf2-o5rtr, the vertical slice;
+    - rf2-mn2ht, the adversarial architecture review that raised it;
+    - rf2-by79j, the collection matcher;
+    - rf2-3x7nj.4.3, rf2-gko6q, rf2-kuyza, rf2-hakdt and rf2-03jei, the defects cited above.
 - Source, cited by symbol:
-  - `re-frame.live-frame`: `call-with-frame-resolution`, `call-with-record-resolution`;
-  - `re-frame.elision`: `fork-decl-paths`, `reconcile-runtime-db-effect`, `elide-pending-db`;
-  - `re-frame.machines.classification`: `lower-at-spawn!`, `drop-at-destroy!`;
-  - `re-frame.resources.classification`: `reconcile-registry`;
-  - `re-frame.routing.classification`: `slice-classification`;
-  - `re-frame.epoch.tool-pair`: `redact-by-recorded-registry`.
+    - `re-frame.live-frame`: `call-with-frame-resolution`, `call-with-record-resolution`;
+    - `re-frame.elision`: `fork-decl-paths`, `reconcile-runtime-db-effect`, `elide-pending-db`;
+    - `re-frame.machines.classification`: `lower-at-spawn!`, `drop-at-destroy!`;
+    - `re-frame.resources.classification`: `reconcile-registry`;
+    - `re-frame.routing.classification`: `slice-classification`;
+    - `re-frame.epoch.tool-pair`: `redact-by-recorded-registry`.
