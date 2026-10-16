@@ -4,15 +4,14 @@ Load an article when its URL opens, show loading and failure states, and discard
 late replies after the reader leaves. Declare the read on the route with
 `:resources`; the view reads the cache and never starts a request.
 
-Extend the tutorial's `app.core` namespace with the Resources and managed HTTP
-packages, `day8/re-frame2-resources` and `day8/re-frame2-http`:
+Extend the tutorial's `app.core` namespace with the Resources package,
+`day8/re-frame2-resources`, which brings managed HTTP with it:
 
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]
             [re-frame.resources]
-            [re-frame.http.managed]
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 (rf/reg-event :article/remember
@@ -207,7 +206,6 @@ way; guards and `:on-match` remain specific to each route. The root view still
 |---|---|---|
 | `reg-route` rejects `:resources` | The Resources package is not loaded | Require `re-frame.resources` before registering routes |
 | First page reports `:rf.error/resource-route-plan` | A resource or parent route is not registered, or its params or scope cannot resolve | Read `:rf.route/error`; register dependencies before creating the frame |
-| First request throws `:rf.error/http-artefact-missing` | The managed HTTP transport is not loaded | Require `re-frame.http.managed` |
 | Data loads but the article view stays empty | Route and view use different resource params | Build the view's params from the same route values |
 | An `:on-match` failure does not show in the route's error view | Activation events report through the ordinary event error channel | Use resources for page data; handle other event failures where they occur |
 

@@ -140,8 +140,9 @@ nothing at all is registered.
 > **algebra-view projection** (`resource-algebra-view` /
 > `machine-algebra-view` + their live counterparts and the
 > `machine-selector-targets` extractor), which lives in the resources /
-> machines **tooling siblings**, so it `:require`s them. The machines /
-> resources artefacts depend only on core; their tooling-sibling bodies are
+> machines **tooling siblings**, so it `:require`s them. The machines
+> artefact depends only on core and the resources artefact on core and
+> http; their tooling-sibling bodies are
 > dev-gated (`interop/debug-enabled?`) + bundle-isolated, and Xray's
 > canonical install is `:devtools/preloads` (dev build config) — so a host
 > that keeps Xray out of its release build carries none of this.
