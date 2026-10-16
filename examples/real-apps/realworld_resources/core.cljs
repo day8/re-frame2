@@ -207,6 +207,15 @@
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))
 
+;; Register it once, at the top level, like any other `reg-*`. The definition
+;; is frame-agnostic: it runs for a frame that names it in its
+;; `:http-interceptors` config, which the app frame does in `mount!` below. See
+;; the auth how-to:
+;; ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary
+(rf/reg-http-interceptor :realworld/bearer-auth
+  {:doc    "Stamp the session's Bearer token onto every outbound managed request."
+   :before bearer-auth-interceptor})
+
 ;; ============================================================================
 ;; PRODUCTION ERROR REPORTING  —  the frame `:observability` sink
 ;; ============================================================================
@@ -395,6 +404,12 @@
     ;; is already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
     ;;
+    ;; `:http-interceptors [:realworld/bearer-auth]` is what puts that
+    ;; interceptor (registered above) on this frame's managed requests —
+    ;; resource reads, mutations and the auth machine's calls alike. It is
+    ;; frame config, so it is in force before `:initial-events` fire
+    ;; session-restore's authenticated `GET /user`.
+    ;;
     ;; `:revalidate-on #{:focus :reconnect}` is the same idea one key over:
     ;; when the tab comes back or the network reconnects, refetch the reads
     ;; that are both active and stale. The frame lifecycle installs those host
@@ -409,6 +424,7 @@
                       ;; may travel. Declared unconditionally; see PRODUCTION
                       ;; ERROR REPORTING above.
                       :observability   observability
+                      :http-interceptors [:realworld/bearer-auth]
                       :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                       :initial-events  [[:auth/classify-token]
                                             [:auth/initialise]
@@ -424,24 +440,6 @@
 
 (defn run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; Register the bearer-auth interceptor at boot, before the frame's
-  ;; `:initial-events` dispatch. Timing matters: session-restore fires an
-  ;; authenticated `GET /user` the moment the JWT is hydrated, so the header has
-  ;; to be wired up before `:auth/initialise` runs at frame creation (in `mount!`).
-  ;;
-  ;; HTTP-interceptor registration is context-required frame-local (EP-0002 /
-  ;; Spec 014 §Middleware): each frame owns its own middleware chain, so the
-  ;; registration must name the frame it belongs to. A bare top-level
-  ;; `reg-http-interceptor` under no frame scope raises the always-on
-  ;; `:rf.error/no-frame-context` and installs nothing. We scope it to
-  ;; `app-frame` (the same id the `frame-root` in `mount!` ensures) with
-  ;; `with-frame`, so the interceptor lands on the chain this app's resources /
-  ;; mutations actually lower onto. The frame need not exist yet — the chain is
-  ;; keyed by frame-id and consulted when the first managed request fires. See
-  ;; the auth how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary
-  (rf/with-frame app-frame
-    (rf/reg-http-interceptor :realworld/bearer-auth
-                             {:before bearer-auth-interceptor}))
   ;; The gated half of the error-reporting pair (the frame declares the policy
   ;; unconditionally, in `mount!`). Registering before the frame exists is fine
   ;; and is the safer order: the sink registry is keyed by id and consulted
