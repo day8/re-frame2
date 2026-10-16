@@ -464,13 +464,13 @@
      [:query {:optional true} :map]
      [:fragment {:optional true} [:maybe :string]]
      [:expect
-      {:observe "the URL route-url builds from :route-id, :params and, when present, :query and :fragment"
+      {:observe "the URL route-url builds from the address {:to <:route-id> :params <:params>}, with :query and :fragment when the record carries them"
        :law     :equal}
       :string]]]
 
    [:round-trip
     [:map {:closed true
-           :observe "that route-url, applied to match-url's result for :url, rebuilds :url exactly"
+           :observe "that route-url rebuilds :url exactly from match-url's result for :url, projected into route-url's closed address: :route-id becomes :to, :params, :query and :fragment carry over, and :validation-failed? and :validation-error are dropped"
            :law     :holds}
      [:call [:= :round-trip]]
      [:url :string]]]
