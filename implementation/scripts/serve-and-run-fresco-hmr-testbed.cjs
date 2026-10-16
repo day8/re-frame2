@@ -181,6 +181,7 @@ const {
   createHarnessCleanup,
   spawnHarnessProcess,
 } = require('./lib/local-browser-harness.cjs');
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const BUILD_ID = ':fresco/hmr-testbed';
@@ -1239,7 +1240,6 @@ async function waitForBuild(baseUrl, watchLog, deadline) {
 }
 
 function startWatch(cleanup) {
-  const runner = require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
   const lines = [];
   // shadow prints one line per build outcome, prefixed with the build id.
   // Matching on the id keeps a sibling build in the same JVM from
@@ -1267,8 +1267,12 @@ function startWatch(cleanup) {
   // this posture because it is the only one its teardown sweep reaps
   // cross-platform. A `shadow-cljs watch` left orphaned holds a JVM, a
   // dev-http port and worktree file locks.
+  //
+  // `--hold-lane`: every save in this gate is a recompile, so the whole run is
+  // one bounded build, and the launcher keeps the build lane until the watch
+  // is torn down rather than releasing it after the first compile.
   const child = cleanup.trackProcess(
-    spawnHarnessProcess(process.execPath, [runner, 'watch', BUILD_ID], {
+    spawnHarnessProcess(process.execPath, [SHADOW_CLI, '--hold-lane', 'watch', BUILD_ID], {
       cwd: IMPL_ROOT, env: process.env, shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     }));

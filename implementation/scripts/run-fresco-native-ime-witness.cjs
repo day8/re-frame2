@@ -124,6 +124,7 @@ const {
   startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 const W = require(path.join(__dirname, '..', 'fresco', 'testbed', 'native-ime-witness.cjs'));
 
@@ -674,9 +675,8 @@ function runMutationTeeth() {
 // ---------------------------------------------------------------------------
 
 function compile() {
-  const runner = require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
   console.log(`> shadow-cljs compile ${BUILD_ID}`);
-  const result = spawnSync(process.execPath, [runner, 'compile', BUILD_ID], {
+  const result = spawnSync(process.execPath, [SHADOW_CLI, 'compile', BUILD_ID], {
     cwd: IMPL_ROOT, env: process.env, shell: false, stdio: 'inherit',
   });
   if (result.error) throw result.error;

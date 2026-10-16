@@ -72,12 +72,12 @@
  * declared build cannot compile its warnings green. Every swept build
  * compiles with zero warnings, so the flag is a clean bar, not a noisy one.
  *
- * SPAWN FORM: resolve shadow-cljs's own JS
- * entry-point (`shadow-cljs/cli/runner.js`) and run it under THIS node
- * binary (`process.execPath`) with `shell:false` — never `npx`/`npx.cmd`
- * under a shell. Same hardened posture as story-build.cjs /
- * serve-and-run-xray-feature-gate.cjs; required by the
- * `_script-spawn-policy.test.cjs` source-policy gate.
+ * SPAWN FORM: the shared shadow-cljs launcher (`lib/shadow.cjs`), run under
+ * THIS node binary (`process.execPath`) with `shell:false` — never
+ * `npx`/`npx.cmd` under a shell. It takes the machine-wide build lane, owns
+ * the compiler's process tree, and passes shadow's output straight through to
+ * the tee below. Required by `_script-spawn-policy.test.cjs` and
+ * `_shadow-spawn-policy.test.cjs`.
  *
  * CLI
  * ---
@@ -96,6 +96,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 // ---------------------------------------------------------------------------
 // shadow-cljs.edn enumeration. We hand-roll a focused scan rather than pull
@@ -378,22 +379,8 @@ if (require.main === module) {
     process.exit(0);
   }
 
-  // Resolve shadow-cljs's own JS entry-point and run it under THIS node
-  // binary (shell-free, .cmd-free) — see SPAWN FORM in the header.
-  let shadowRunner;
-  try {
-    shadowRunner = require.resolve('shadow-cljs/cli/runner.js', {
-      paths: [IMPL_ROOT],
-    });
-  } catch {
-    console.error(
-      'check-examples-compile: could not resolve shadow-cljs. Run ' +
-        `\`npm install\` in ${IMPL_ROOT} first.`,
-    );
-    process.exit(1);
-  }
-
-  const args = [shadowRunner, 'compile', ...builds];
+  // Through the shared launcher, shell-free — see SPAWN FORM in the header.
+  const args = [SHADOW_CLI, 'compile', ...builds];
   console.log(
     `check-examples-compile: compiling ${builds.length} declared ` +
       `${Object.keys(COMPILED_BUILD_PREFIXES)
