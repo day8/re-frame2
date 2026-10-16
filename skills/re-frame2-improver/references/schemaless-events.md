@@ -60,7 +60,7 @@ Greppable signals — flag when **any** match AND no production gate is wired:
    [:body    :string]
    [:authors [:vector [:map [:id :uuid] [:name :string]]]]])
 
-(rf/reg-app-schema [:article :data] [:maybe Article]) ;; dev-only — no payload before the first successful reply
+(rf/reg-app-schema [:article :data] Article) ;; dev-only — unchecked until the first successful reply writes it
 
 (rf/reg-event :article/load
   {:doc    "Load one article by slug; address its reply to :article/loaded."
@@ -89,7 +89,7 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 
 **Both reply handlers settle `[:article :status]`, and that is part of the fix, not decoration.** A completion handler that writes only `:data` — or only `:error` — leaves the `:loading` sentinel up for ever on a page that reads status, which is the missing-terminator defect [`manual-loading-flags.md`](manual-loading-flags.md) exists to diagnose. `:decode` cannot repair it: the payload arrived and validated fine, the lifecycle simply never closed. Status and error stay off `[:article :data]`; the full lifecycle slice is [`skills/re-frame2/patterns/remote-data.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/remote-data.md).
 
-The stored payload is `[:maybe Article]` because it is absent during the initial load and after a first-request failure. A strict `Article` app schema rejects those candidate transitions in development, preventing even the HTTP effect from running. Keep `:decode Article` strict: an absent stored value is valid lifecycle state, while a successful response still has to contain an article. Register the app schema in the owning frame's scope (`rf/with-frame`), or supply its explicit `:frame` metadata.
+The stored payload's app schema is a strict `Article`. `[:article :data]` is absent during the initial load and after a first-request failure, and an absent path is unchecked, so those transitions commit and the HTTP effect runs; the schema checks the payload once `:article/loaded` writes it. Wrap it in `[:maybe Article]` only if a handler writes `nil` there, which none here does. Keep `:decode Article` strict too: a successful response still has to contain an article. Register the app schema in the owning frame's scope (`rf/with-frame`), or supply its explicit `:frame` metadata.
 
 ## Regression example — body-read boundaries need the value validated, not the event
 

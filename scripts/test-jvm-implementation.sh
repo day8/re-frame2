@@ -92,8 +92,9 @@ artefacts=(
   # alias whose test tree is the ADVERSARIAL CONTRACT suite for the JVM
   # runner itself (test_quiet_runner_contract_test.clj — subprocess
   # deftests — plus test_quiet_pin_test.clj / ..._pin_passing_test.clj).
-  # It pins the JVM RED/ERROR/exit-code paths, the discovery-banner
-  # overdrop guards, nested-run banner+tally, the test-ns-hook fallback,
+  # It pins the JVM RED/ERROR/exit-code paths, the green output shape,
+  # nested-run banner+tally and isolation, the test-ns-hook fallback,
+  # namespace-level tags, the fixture audit over the selected namespaces,
   # and the central stderr buffer + red-replay. Every OTHER artefact's
   # `:test` alias merely ROUTES THROUGH the quiet runner (green
   # happy-path), so without this line and its CI twin a regression in the

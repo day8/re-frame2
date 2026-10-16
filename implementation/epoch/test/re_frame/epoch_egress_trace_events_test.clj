@@ -1,11 +1,21 @@
-(ns re-frame.epoch-egress-trace-events-test
+(ns ^:requires-debug re-frame.epoch-egress-trace-events-test
   "Off-box projection of an epoch record's `:trace-events` slot: the focused
   slices a path interceptor stamps into `:rf.event/after-deltas`, and the
   fail-closed rule for HTTP response bodies. The HTTP emit site stamps each
   body's off-box disposition forward under `:tags :rf.http/off-box-body`
   (`:omit` for an unschematized body, `:classify` for one already marked
   on-box) and `omit-off-box-http-bodies` enforces it; the records here are
-  hand-built carrying that stamp, so no HTTP artefact is loaded."
+  hand-built carrying that stamp, so no HTTP artefact is loaded.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]

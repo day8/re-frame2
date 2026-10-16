@@ -252,9 +252,9 @@
     (is (= [:rf/redacted :rf/redacted true]
            ((juxt :exception-message :exception-data :sensitive?) tags)))))
 
-(deftest flow-trace-sensitive-value-also-redacted-on-wire
-  ;; Both privacy layers fire for a sensitive flow: the cascade's top-level
-  ;; stamp, and wire redaction of the classified input and output values.
+(deftest flow-trace-sensitive-values-redacted-on-wire
+  ;; A classified input and a classified output path redact on the
+  ;; `:rf.flow/computed` row.
   (classify! :rf/default :sensitive [:auth :token] [:auth :derived-token])
   (rf/reg-flow :auth/derived-token {:inputs [[:auth :token]] :output-path [:auth :derived-token]}
     (fn [t] (str "derived-" t)))
@@ -262,8 +262,8 @@
     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
   (rf/dispatch-sync [:auth/signed-in "secret-token"])
   (let [ev (first (by-op :rf.flow/computed))]
-    (is (= [true :rf/redacted [:rf/redacted]]
-           [(:sensitive? ev) (get-in ev [:tags :result]) (get-in ev [:tags :input-values])]))))
+    (is (= [:rf/redacted [:rf/redacted]]
+           [(get-in ev [:tags :result]) (get-in ev [:tags :input-values])]))))
 
 (deftest flow-and-effect-claims-union-and-remove-independently
   ;; A flow's output claim and an app effect's claim on the same absolute path

@@ -131,7 +131,8 @@
 ;;
 ;; `realise-classification-effects!` refuses a `:fixture/classification-effects`
 ;; op-map that does not carry EXACTLY ONE of the four commit-plane axes, and
-;; the FixtureFile schema in `spec/Spec-Schemas.md` states the same contract.
+;; the fixture grammar in `spec/conformance/fixture-file.edn` states the same
+;; contract.
 ;; Nothing in the corpus exercises the refusal: every live op is a valid
 ;; single-axis map, so deleting the guard leaves the corpus green.
 

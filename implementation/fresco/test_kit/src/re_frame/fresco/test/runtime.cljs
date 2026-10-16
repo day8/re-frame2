@@ -10,8 +10,8 @@
   witness reading the runtime reaches it through the kit, as
   `re-frame.fresco.test` and `re-frame.fresco.test.mounted` do. This
   namespace lives in the kit's own source root (`fresco/test_kit/src`),
-  outside the artefact's `:paths`, so nothing a shipped page runs can
-  require it.
+  and no shipping namespace requires it, so nothing a shipped page runs
+  reaches it.
 
   Three kinds of door:
 

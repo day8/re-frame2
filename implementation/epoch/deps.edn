@@ -83,12 +83,20 @@
   ;; right rather than a `(when interop/debug-enabled? …)` posture arm: an arm
   ;; would leave a deftest with no assertion at all, reporting GREEN for a run
   ;; that executed nothing, which is the false green this lane exists to close.
-  ;; The tag is VAR-level, so a new deftest added to that namespace is UNTAGGED
-  ;; and joins this lane by default.
+  ;; The tag is VAR-level there, so a new deftest added to that namespace is
+  ;; UNTAGGED and joins this lane by default.
   ;;
-  ;; NOT THE WHOLE SUITE. The runnable roster lives in
-  ;; `scripts/test-epoch-prod-gate.sh` as an EXCLUSION list. Do not invoke this
-  ;; alias bare; run the script.
+  ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
+  ;; directory, is the whole production-gate lane, in CI (the
+  ;; `jvm-epoch-prod-gate` job) and on a laptop alike: the runner discovers
+  ;; every `.*-test$` namespace, so a NEW namespace joins the lane by default.
+  ;; Most of epoch's suites are about what the gate erases — a recorded epoch,
+  ;; the ring, a restore or a replay from it — because epoch's production
+  ;; posture is that the artefact is OFF. Those namespaces carry
+  ;; `^:requires-debug` on their `(ns ...)` form, each stating its class in its
+  ;; ns docstring, and the runner applies a namespace's tag to every var in
+  ;; it: the namespace still LOADS here, so a load-time failure reddens the
+  ;; lane, and it contributes no test.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
    :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":requires-debug"]}

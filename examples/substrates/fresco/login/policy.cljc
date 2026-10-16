@@ -1,21 +1,19 @@
 (ns fresco.login.policy
-  "The login arm's RENDER-STATE POLICY — one list, two readers, one file.
+  "The login arm's SHARED NAMESPACE — the entry id both halves name, and
+  the RENDER-STATE POLICY the JVM host projects under.
 
-  `server.cljs` (Node) derives the sidecar entry's per-partition
-  allowlists from it; `host.clj` (JVM) hands it to the Node renderer as
-  `:render-state`. The two processes are deployed separately, so nothing
-  can MAKE them agree at run time — but they cannot DRIFT in source,
-  because there is only one list to edit.
+  `host.clj` (JVM) hands `render-state-policy` to the Node renderer as
+  `:render-state` and names `root-entry` as its `:entry`; `server.cljs`
+  (Node) publishes `root-entry` as its entry table. The policy is the one
+  render-visibility policy on this path: the sidecar checks the shape of
+  what the JVM sends, never which keys, so a key this list names is a key
+  the render receives — and a key it omits renders as `nil`, with no
+  refusal to notice.
 
-  That is the whole reason this is a `.cljc` namespace of its own rather
-  than a `def` in either neighbour. `server.cljs` cannot be read by
-  Clojure and `host.clj` cannot be read by ClojureScript, so a policy
-  written in either is a policy the other has to copy — and a copy that
-  drifts the SAFE way is silent. The sidecar refuses a host that asks for
-  MORE than the entry allows (its state-key-not-allowed refusal); a host
-  that asks for LESS is served a page rendered from incomplete state, with
-  no refusal to notice. The second is the direction a hand-kept copy
-  actually fails in.
+  It is a `.cljc` namespace of its own rather than a `def` in either
+  neighbour because `server.cljs` cannot be read by Clojure and `host.clj`
+  cannot be read by ClojureScript, so an id written in either is an id the
+  other has to copy.
 
   ## What the render is allowed to see
 
@@ -48,14 +46,15 @@
                                  state is TWO partitions and not one.")
 
 (def root-entry
-  "The entry identifier the sidecar's entry table is keyed by and the JVM
+  "The entry identifier the sidecar's entry table publishes and the JVM
   host names in its renderer opts. One root, one entry; a bigger
-  application publishes one per server-rendered route. Here for the same
-  reason the policy is: two processes, one spelling."
+  application publishes one per server-rendered route. Here because two
+  processes need one spelling."
   "fresco.login/root")
 
 (def render-state-policy
   "The one list. `{:app-db [<top-level keys>] :runtime-db [<top-level keys>]}`,
-  the map shape `re-frame.ssr.render-state` validates and both halves read."
+  the map shape `re-frame.ssr.render-state` validates and the JVM host
+  projects under."
   {:app-db     [:auth :auth.login/server-notice]
    :runtime-db [:rf.runtime/machines]})

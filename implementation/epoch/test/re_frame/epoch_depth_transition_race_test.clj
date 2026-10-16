@@ -1,4 +1,4 @@
-(ns re-frame.epoch-depth-transition-race-test
+(ns ^:requires-debug re-frame.epoch-depth-transition-race-test
   "The `:depth` transition is ONE atomic step against the stores it bounds:
   once `(rf/configure! {:epoch-history {:depth N}})` returns, every ring
   respects N (Tool-Pair \"Bounded history\"). The single-threaded half is pinned
@@ -12,7 +12,16 @@
 
   Each test parks a writer inside `record!` at the seam between its depth read
   and its append — `trace-events-keep` is the only call between them — and runs
-  the transition against that held position."
+  the transition against that held position.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. Its subject is a writer parked inside `record!`, and under
+  `-Dre-frame.debug=false` `record!` is never reached, so the park never
+  arms. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect require: publishes the `:epoch/*` late-bind hooks

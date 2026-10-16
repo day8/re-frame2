@@ -423,8 +423,10 @@
   `re-frame.ssr` publishes it as the `:ssr/capture-error-record` late-bind
   hook, which the error-emit fan-out calls for every promoted record beside
   its listener registry. It is a hook rather than an `:errors` listener
-  because a listener owns the dev console fallback and
-  `clear-error-listeners!` removes it; the hook does neither. Survives
+  because `clear-error-listeners!` removes a listener and this capture must
+  outlive it. The fan-out ignores a hook's return value, so the capture
+  never claims a record and an unrouted one still reaches the dev console
+  fallback. Survives
   `interop/debug-enabled? = false` — Spec 011 §Server error projection
   holds when development tracing is disabled."
   [record]

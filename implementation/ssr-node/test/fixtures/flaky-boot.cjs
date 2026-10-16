@@ -47,13 +47,13 @@ if (process.env[FAIL_FLAG] === '1') {
 module.exports = {
   protocol: 1,
   buildId: 'flaky-boot-build-1',
-  entries: {
+  entries: [
     // Synchronous, for the reason `hang.cjs` gives: the deadline has to
     // reach a render no cooperative cancel could, because that is the one
     // that gets the isolate TERMINATED and therefore replaced.
-    'app/hang': { stateAllowlist: [], runtimeAllowlist: [] },
-    'app/root': { stateAllowlist: [], runtimeAllowlist: [] },
-  },
+    'app/hang',
+    'app/root',
+  ],
 
   render({ entry }) {
     if (entry === 'app/hang') {

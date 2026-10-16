@@ -5,7 +5,7 @@
 
   Nothing here is a fixture standing in for the product. The views are
   `examples/substrates/fresco/login/core.cljs`'s, the registrations are the
-  substrate-free `login.model`'s, the entry table and allowlists are
+  substrate-free `login.model`'s, the entry table is
   `fresco.login.server`'s (the module `shadow-cljs compile
   :examples/login-fresco-server` emits), and the request validator is
   `implementation/ssr-node/src/protocol.cjs` itself, required as JavaScript

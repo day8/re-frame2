@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet-runner-contract-test
   "Subprocess contracts for the JVM quiet runner."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
@@ -71,6 +71,14 @@
         (doseq [file (reverse (file-seq dir))]
           (.delete ^java.io.File file))))))
 
+(defn- stdout-lines
+  "`out` split on newlines, keeping the trailing empty string, with
+  cognitect's `Running tests in #{...}` line replaced by `:banner` (its
+  directory set is a temp path)."
+  [out]
+  (mapv #(if (re-matches #"Running tests in #\{.+\}" %) :banner %)
+        (str/split (str/replace out "\r" "") #"\n" -1)))
+
 (deftest green-runner-exact-shape
   (with-fixture-dir
     (fn [dir]
@@ -81,8 +89,9 @@
                            " (is (= 1 1)))"))
       (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
         (is (zero? exit) (str out err))
-        (is (= ["" "Ran 1 tests containing 1 assertions." "0 failures, 0 errors." ""]
-               (str/split (str/replace out "\r" "") #"\n" -1)))
+        (is (= ["" :banner "" "Ran 1 tests containing 1 assertions." "0 failures, 0 errors." ""]
+               (stdout-lines out))
+            out)
         (is (not (str/includes? err "GREEN-STDERR-MARKER")) err)))))
 
 (deftest red-runner-contract
@@ -116,13 +125,14 @@
                       "(deftest a-beta-test (is (= 1 1)))")
       (let [{:keys [exit out err]} (invoke-verbose-runner dir)
             shape (fn [first-ns second-ns]
-                    ["" (str "Testing probe." first-ns)
+                    ["" :banner
+                     "" (str "Testing probe." first-ns)
                      "" (str "Testing probe." second-ns)
                      "" "Ran 2 tests containing 2 assertions." "0 failures, 0 errors." ""])]
         (is (zero? exit) (str out err))
         (is (contains? #{(shape "verbose-alpha-test" "verbose-beta-test")
                          (shape "verbose-beta-test" "verbose-alpha-test")}
-                       (str/split (str/replace out "\r" "") #"\n" -1))
+                       (stdout-lines out))
             out)))))
 
 (deftest verbose-red-run-prints-each-banner-once
@@ -230,8 +240,9 @@
     (fn [dir]
       (let [{:keys [exit out err]} (invoke-quiet-runner dir "--probe")]
         (is (zero? exit) (str out err))
-        (is (= ["Ran 0 tests containing 0 assertions." "0 failures, 0 errors."]
-               (remove str/blank? (str/split-lines out))))))))
+        (is (= [:banner "Ran 0 tests containing 0 assertions." "0 failures, 0 errors."]
+               (remove #{""} (stdout-lines out)))
+            out)))))
 
 (deftest probe-lane-that-gained-tests-is-red
   (with-fixture-dir
@@ -280,3 +291,82 @@
             (is (= 1 exit) (str out err))
             (is (str/includes? err "selected/probe/deep/mixed_test.cljc") err)
             (is (str/includes? err "shadow/probe/deep/mixed_test.clj`") err)))))))
+
+(deftest a-nested-run-tests-reaches-neither-the-outer-verdict-nor-the-jvm
+  ;; The nested run executes zero tests: a verdict read off every `:summary`
+  ;; report would find it below the floor and exit before the second deftest.
+  (with-fixture-dir
+    (fn [dir]
+      (write-deep-fixture! dir "probe/empty_inner.clj" "(ns probe.empty-inner)")
+      (write-fixture! dir "nested_outer_test" "nested-outer-test"
+                      (str "(require 'probe.empty-inner)\n"
+                           "(deftest runs-an-empty-suite-inside"
+                           " (is (zero? (:test (binding [clojure.test/*test-out* (java.io.StringWriter.)]"
+                           " (clojure.test/run-tests 'probe.empty-inner))))))\n"
+                           "(deftest still-runs-after-it (is (= 1 1)))"))
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+        (is (zero? exit) (str out err))
+        (is (str/includes? out "Ran 2 tests containing 2 assertions.") out)))))
+
+(deftest a-loaded-namespace-the-run-did-not-select-cannot-fail-it
+  ;; The support namespace is loaded, because the selected test requires it,
+  ;; but not selected: it has no `-test` suffix. Its data fixture is not this
+  ;; run's to audit.
+  (with-fixture-dir
+    (fn [dir]
+      (write-deep-fixture! dir "probe/data_fixture_support.clj"
+                           (str "(ns probe.data-fixture-support"
+                                " (:require [clojure.test :refer [use-fixtures]]))\n"
+                                "(use-fixtures :each {:before (fn []) :after (fn [])})"))
+      (write-fixture! dir "focused_test" "focused-test"
+                      (str "(require 'probe.data-fixture-support)\n"
+                           "(deftest a-passing-test (is (= 1 1)))"))
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
+        (is (zero? exit) (str out err))
+        (is (not (str/includes? err "probe.data-fixture-support")) err)))))
+
+(defn- write-tagged-fixtures!
+  "A namespace tagged `^:requires-debug` on its `(ns ...)` form, which
+  announces its load on stdout and holds one failing deftest, beside an
+  untagged namespace holding one passing deftest and one var-tagged failing
+  one."
+  [dir]
+  (write-deep-fixture! dir "probe/ns_tagged_test.clj"
+                       (str "(ns ^:requires-debug probe.ns-tagged-test"
+                            " (:require [clojure.test :refer [deftest is]]))\n"
+                            "(println \"NS-TAGGED-LOADED-MARKER\")\n"
+                            "(deftest would-fail (is (= :ns-tagged :ran)))"))
+  (write-fixture! dir "untagged_test" "untagged-test"
+                  (str "(deftest a-passing-test (is (= 1 1)))\n"
+                       "(deftest ^:requires-debug var-tagged-would-fail"
+                       " (is (= :var-tagged :ran)))")))
+
+(deftest a-namespace-level-tag-selects-like-a-var-level-one
+  (with-fixture-dir
+    (fn [dir]
+      (write-tagged-fixtures! dir)
+      (testing "-e loads the tagged namespace and runs none of it"
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir "-e" ":requires-debug")]
+          (is (zero? exit) (str out err))
+          (is (str/includes? out "NS-TAGGED-LOADED-MARKER") out)
+          (is (str/includes? out "Ran 1 tests containing 1 assertions.") out)))
+      (testing "-i takes both tag levels in"
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir "-i" ":requires-debug")]
+          (is (= 1 exit) (str out err))
+          (is (every? #(str/includes? out %)
+                      ["FAIL in (would-fail)" "FAIL in (var-tagged-would-fail)"
+                       "Ran 2 tests containing 2 assertions."])
+              out))))))
+
+(deftest a-load-error-in-a-namespace-level-excluded-namespace-is-red
+  (with-fixture-dir
+    (fn [dir]
+      (write-deep-fixture! dir "probe/ns_tagged_throws_test.clj"
+                           (str "(ns ^:requires-debug probe.ns-tagged-throws-test"
+                                " (:require [clojure.test :refer [deftest is]]))\n"
+                                "(throw (ex-info \"NS-TAGGED-LOAD-THROW-MARKER\" {}))"))
+      (write-fixture! dir "untagged_anchor_test" "untagged-anchor-test"
+                      "(deftest a-passing-test (is (= 1 1)))")
+      (let [{:keys [exit out err]} (invoke-quiet-runner dir "-e" ":requires-debug")]
+        (is (= 1 exit) (str out err))
+        (is (str/includes? (str out err) "NS-TAGGED-LOAD-THROW-MARKER") (str out err))))))

@@ -33,7 +33,6 @@ const STATUS = {
   [CODE.BAD_REQUEST_FIELD]: 400,
   [CODE.REQUEST_TOO_LARGE]: 413,
   [CODE.UNKNOWN_ENTRY]: 400,
-  [CODE.STATE_KEY_NOT_ALLOWED]: 400,
   [CODE.BUILD_IDENTITY_MISMATCH]: 409,
   [CODE.RENDER_TIMEOUT]: 504,
   [CODE.RENDER_THREW]: 500,
@@ -174,7 +173,7 @@ function handleHealth(service, res) {
     status: service.failed ? 'failed' : 'ok',
     protocol: service.protocol,
     buildId: service.buildId,
-    entries: Object.keys(service.entries),
+    entries: service.entries,
     isolates: service.stats(),
   });
   res.writeHead(service.failed ? 503 : 200, {

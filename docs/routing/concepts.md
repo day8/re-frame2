@@ -486,11 +486,10 @@ If `:rf.route/not-found` isn't registered, the runtime emits
 `:rf.warning/no-not-found-route`. Only URLs end up here. A navigate or `route-url`
 with params that fail the schema is a programming error and fails loudly instead.
 
-A miss that arrives from the browser or the server (a link, a typed URL, Back or
-Forward, a request) is also reported as an [error](../core/errors.md),
-`:rf.error/no-such-handler` with `:kind :route`, which
-[server rendering](../ssr/concepts.md#when-the-server-throws) turns into a `404`. A
-`{:url …}` navigate that misses lands on not-found without that error.
+A URL that lands here, whichever way it arrived (a link, a typed URL, Back or
+Forward, a request, or a `{:url …}` navigate), is also reported as an
+[error](../core/errors.md), `:rf.error/no-such-handler` with `:kind :route`, which
+[server rendering](../ssr/concepts.md#when-the-server-throws) turns into a `404`.
 
 ## The browser is an event source
 

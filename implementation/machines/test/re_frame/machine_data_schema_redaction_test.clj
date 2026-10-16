@@ -23,7 +23,8 @@
             ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.subs]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -395,9 +396,10 @@
 
 ;; ---- (8) every row that carries the thrown value -------------------------
 ;; A guard's row, an action's `:rf.machine/action-ran` row, an `:on-done`
-;; callback's row and a destroy-time `:exit` row carry the raw `:exception` (the
-;; `:on-done` row its `:exception-message` too) but no `:exception-data`, so the
-;; condition is asked of every machine row that carries a thrown value.
+;; callback's row, a destroy-time `:exit` row and an `:after` delay resolver's
+;; row carry the raw `:exception` (the `:on-done` row its `:exception-message`
+;; too) but no `:exception-data`, so the condition is asked of every machine
+;; row that carries a thrown value.
 
 (defn- throw-secret!
   "Throw an ex-info quoting `thrown-secret` in its message and its data."
@@ -458,6 +460,36 @@
   (rf/dispatch-sync [mid [:rf.machine/start]])
   (thrown-value-rows #(rf/dispatch-sync [:rf.machine-redaction/destroy mid])))
 
+(defn- after-fn-throw-rows [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :states  {:idle    {:on {:go :running}}
+                      :running {:after {throw-secret! :timeout}}
+                      :timeout {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (thrown-value-rows #(rf/dispatch-sync [mid [:go]])))
+
+(defn- after-sub-throw-rows
+  "A user sub body's throw is caught inside the subscription layer, so the
+  delay reaction's deref throws directly: `subscribe` is stubbed to return one."
+  [mid spec]
+  (let [sub-id (keyword (namespace mid) (str (name mid) "-delay"))]
+    (rf/reg-sub sub-id (fn [_db _] 1000))
+    (rf/reg-machine mid
+      (merge {:initial :idle
+              :data    {:token nil}
+              :states  {:idle    {:on {:go :running}}
+                        :running {:after {[sub-id] :timeout}}
+                        :timeout {}}}
+             spec))
+    (rf/dispatch-sync [mid [:rf.machine/start]])
+    (let [throwing (reify clojure.lang.IDeref (deref [_] (throw-secret! nil)))]
+      (with-redefs [re-frame.subs/subscribe (fn ([_query-v] throwing)
+                                              ([_query-v _opts] throwing))]
+        (thrown-value-rows #(rf/dispatch-sync [mid [:go]]))))))
+
 (def ^:private throw-sites
   "Each place a machine's code throws, with the operations of the rows that then
   carry the thrown value."
@@ -468,7 +500,11 @@
    ["on-done"      on-done-throw-rows
     #{:rf.error/machine-action-exception}]
    ["destroy-exit" destroy-exit-throw-rows
-    #{:rf.machine/action-ran :rf.error/machine-action-exception}]])
+    #{:rf.machine/action-ran :rf.error/machine-action-exception}]
+   ["after-fn"     after-fn-throw-rows
+    #{:rf.error/machine-after-fn-threw}]
+   ["after-sub"    after-sub-throw-rows
+    #{:rf.error/machine-after-sub-threw}]])
 
 (deftest every-thrown-value-row-redacted-when-machine-sensitive
   (doseq [[label rows-of ops] throw-sites]

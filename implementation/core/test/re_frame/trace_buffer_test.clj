@@ -84,7 +84,7 @@
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 5] (rf/dispatch-sync [:ping]))
     (let [target-id (:dispatch-id (nth (rf/trace-buffer :rf/default) 2))]
-      (binding [rf.trace/*handler-scope* (rf.trace/->HandlerScope nil nil target-id false false)]
+      (binding [rf.trace/*handler-scope* (rf.trace/->HandlerScope nil nil target-id false)]
         (dotimes [_ 200]
           (rf.trace/emit! :rf.sub :rf.sub/skip {:rf.sub/id :foo :frame :rf/default})))
       (let [cs (rf/trace-buffer :rf/default)]

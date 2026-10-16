@@ -89,8 +89,10 @@
 
   `serialize` produces the per-key text the Node protocol carries —
   `{:rf/app-db {\":todos\" \"[…]\"} :rf/runtime-db {\":rf.runtime/routing\" \"{…}\"}}`,
-  key text -> EDN text, so the sidecar can enforce its entry-owned
-  allowlists WITHOUT decoding application data. `deserialize` is its
+  key text -> EDN text. Every value is a string, so the sidecar's shallow
+  freeze of a partition is a deep one, and its key-shape check and byte
+  ceiling have keys and values to count WITHOUT decoding application
+  data. `deserialize` is its
   inverse under the bundled safe reader. The adapter (`re-frame.ssr.ring.node`)
   names the JSON fields (`state` / `runtime`); this namespace
   keeps the envelope keys so both ends of the crossing speak the
@@ -378,8 +380,9 @@
   "The wire form of a `project` result: per partition, a map of key text
   -> EDN text, each half `pr-str`'d — `{:rf/app-db {\":todos\" \"[…]\"}
   :rf/runtime-db {\":rf.runtime/routing\" \"{:current …}\"}}`. Per-key
-  rather than one blob so the sidecar can enforce its entry-owned
-  allowlists without decoding application data. Both keys always present.
+  rather than one blob so every value is a string: the sidecar's shallow
+  freeze is then a deep one, and its key-shape check and byte ceiling count
+  without decoding application data. Both keys always present.
 
   Assumes a `project` result (already domain-checked); a hand-built map
   is the caller's to check."

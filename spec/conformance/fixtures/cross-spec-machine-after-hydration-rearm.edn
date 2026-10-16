@@ -122,7 +122,7 @@
  {:machine-action
   ;; Increments on every entry to :waiting. The payload seeds :entries 1
   ;; (the server's one entry); a replayed cascade would read 2.
-  {:waiting/note-entry [[:update [:entries] [:fn :inc]]]}}
+  {:waiting/note-entry [[:set [:entries] [:fn :inc [:get [:entries]]]]]}}
 
  ;; No `:rf/hydrate` handler body: the fixture deliberately drives the
  ;; runtime's OWN hydrate path, so the re-arm is the host's seam and not

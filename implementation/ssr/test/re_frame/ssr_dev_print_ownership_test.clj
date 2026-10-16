@@ -27,7 +27,9 @@
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Both registries are cleared BEFORE the SSR reset, which reloads
-;; `re-frame.ssr`: a listener another namespace left behind owns both prints,
+;; `re-frame.ssr`: a trace listener another namespace left behind stands the
+;; warning print down just by being registered, and a left-behind error
+;; listener that returns `true` claims the record and silences its line,
 ;; while whatever `re-frame.ssr` installs at load is still in place when each
 ;; test runs.
 (use-fixtures :each

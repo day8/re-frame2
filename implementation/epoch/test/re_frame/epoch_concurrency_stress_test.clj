@@ -1,11 +1,20 @@
-(ns re-frame.epoch-concurrency-stress-test
+(ns ^:requires-debug re-frame.epoch-concurrency-stress-test
   "JVM concurrency stress for epoch's recorder, listener registry and ring.
   Deterministic tests cover each contract in isolation; these drive the hot
   paths concurrently and assert the same invariants hold under contention.
   CLJS is single-threaded, so these races cannot arise there.
 
   Stress dial: `n-threads` × `stress-iters` (default 5000, override with
-  `RF2_RD7A7_STRESS_ITERS`)."
+  `RF2_RD7A7_STRESS_ITERS`).
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. Its scenarios wait on records the gate never assembles,
+  so under `-Dre-frame.debug=false` they would time out rather than
+  fail. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.

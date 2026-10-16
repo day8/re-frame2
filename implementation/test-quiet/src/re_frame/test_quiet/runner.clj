@@ -1,16 +1,18 @@
 (ns re-frame.test-quiet.runner
-  "JVM `:main` entry point that installs the quiet reporter then
-  delegates to `cognitect.test-runner`.
+  "JVM `:main` entry point that installs the quiet reporter, runs
+  `cognitect.test-runner/test`, and decides the run's verdict from the
+  summary that call returns.
 
   Each per-artefact `:test` alias names this namespace as its `-m` entry
-  point in place of `cognitect.test-runner`.  Forwarded args are passed
-  verbatim to cognitect-test-runner, so its own flags (`-i`, `-e`,
-  `--dir`, etc.) work here too.
+  point in place of `cognitect.test-runner`. Arguments are parsed with
+  cognitect's own `cli-options`, so its flags (`-d`, `-n`, `-r`, `-v`, `-i`,
+  `-e`, `-H`) mean here what they mean there. A CLI error, and `-H`, are
+  handed to `cognitect.test-runner/-main` whole, so the diagnostics and the
+  usage text are cognitect's own.
 
   Requiring `re-frame.test-quiet` at the top of this namespace is the
   install — the `defmethod`s for `clojure.test/report` install at
-  load time.  By the time cognitect-test-runner discovers tests and
-  starts dispatching reports, the overrides are in place.
+  load time, before cognitect discovers a single test.
 
   ## Quiet contract
 
@@ -19,13 +21,19 @@
   capture scopes differ. Browser diagnostics are owned by the browser
   harness, not this runner.
 
-   - STDOUT is pass-through, NOT summary-only.  The reporter
-     (`re-frame.test-quiet`) makes a green run's stdout the canonical
-     summary, but the runner forwards every OTHER byte a test, fixture,
-     or the runner's own CLI emits — `-H`/`--test-help` usage,
-     CLI parse-error diagnostics, and any bare `(println ...)` a test
-     makes. Only cognitect's own discovery banner is dropped (see below). The CLJS
-     node runner forwards stdout the same way.
+   - STDOUT is pass-through. A green run prints cognitect's one
+     `Running tests in #{...}` line, naming the directories it scanned,
+     and then the reporter's summary:
+
+         Running tests in #{\"test\"}
+
+         Ran N tests containing M assertions.
+         0 failures, 0 errors.
+
+     Every other byte a test, a fixture or the CLI emits reaches stdout
+     too — `-H` usage, CLI parse-error diagnostics, and any bare
+     `(println ...)` a test makes. The CLJS node runner forwards stdout
+     the same way.
    - STDERR/WARNINGS are BUFFERED, replayed on red, dropped on green.
      A green run must not flood stdout/stderr with the expected
      warnings that warning-heavy suites emit (e.g.
@@ -44,45 +52,34 @@
      current-thread `*err*` plus process-global `System.err`. Tests that
      assert on warning text still capture `*err*` locally.
 
-  ## The discovery-banner contract
+  ## The verdict belongs to this invocation
 
-  cognitect-test-runner emits exactly one stdout artefact of its own that
-  we want gone — the `\\nRunning tests in #{...}` banner that
-  `cognitect.test-runner/test` prints via bare `println` before kicking
-  off `run-tests`.  We swallow ONLY that line, by binding `*out*` to a
-  *filtering* writer that drops the discovery banner and passes every
-  other byte straight through to the real stdout.
+  `cognitect.test-runner/test` requires the selected namespaces, runs
+  them, and RETURNS the `run-tests` summary; only cognitect's `-main`
+  calls `System/exit`. So `-main` here calls `test` and owns everything
+  after it — the red stderr replay, the fixture audit, the lane's claim
+  and the exit code — deciding each from the summary `test` returned and
+  from the namespaces this invocation selected. Nothing is installed on
+  `clojure.test/report` for the purpose, so a `run-tests` nested inside a
+  deftest is only a nested run: it prints its own tally and reaches
+  neither the outer verdict nor the JVM.
 
-  This is a line-precise filter, not a global sink. cognitect's help and
-  parse-error paths use the same `*out*` as the banner, so the filter keys
-  on the banner's exact shape and forwards every other line.
-
-  Losing the banner on red costs nothing: it names only the directory
-  set (constant across runs, recoverable from deps.edn).  The diagnostic
-  signal a failing run needs — the per-ns `Testing <ns>` banner, the
-  `FAIL`/`ERROR` block, the summary — is emitted by the
-  `re-frame.test-quiet` reporter via `clojure.test/with-test-out`, which
-  writes to `clojure.test/*test-out*`.  That var is bound to the REAL
-  `*out*` at top level and is untouched by the rebinding below; it would
-  survive even a sink, but with the filter it (and every other write)
-  reaches stdout directly.  The contract is exercised by
-  `re-frame.test-quiet-runner-contract-test`.
+  The exit code is 0 on green and 1 on red — a failure, an error, or a
+  lane claim below that the run did not prove. A malformed `RF2_MIN_TESTS`
+  exits 2 before anything runs, and a CLI error exits 1 from cognitect.
 
   ## What a lane claims, and what it must therefore prove
 
-  Exit code is otherwise owned by cognitect-test-runner: 0 on green, 1 on
-  any failure or error (and 1 on a CLI parse error).  This wrapper adds
-  exactly one exit rule of its own, and which form it takes depends on
-  what the lane claims:
+  Which proof a lane owes depends on what it claims:
 
    - a SUITE lane claims coverage, so it must prove it RAN: fewer than
      `RF2_MIN_TESTS` tests executed (default 1) is red, however clean the
      tally.  `run-tests` over an empty namespace set reports `Ran 0 tests
-     containing 0 assertions. / 0 failures, 0 errors.` and cognitect exits
-     0 from that, so a discovery set that silently collapses to nothing —
-     a `-r`/`-n` selector matching no namespace, a `:test` alias missing
-     its `:extra-paths [\"test\"]`, a renamed test file — would otherwise be
-     indistinguishable from a green suite.  See `parse-min-tests`.
+     containing 0 assertions. / 0 failures, 0 errors.`, so a discovery set
+     that silently collapses to nothing — a `-r`/`-n` selector matching no
+     namespace, a `:test` alias missing its `:extra-paths [\"test\"]`, a
+     renamed test file — would otherwise be indistinguishable from a green
+     suite.  See `parse-min-tests`.
    - a PROBE lane claims only that its deps and classpath RESOLVE, so zero
      tests is its correct outcome and the coverage floor must not apply.
      Such a lane says so explicitly by passing `--probe` in its `:test`
@@ -95,9 +92,8 @@
      and take the floor.
 
   `--probe` is this wrapper's only own flag and is stripped before args are
-  forwarded to cognitect.  Nothing is printed on a green probe: the
-  silent-on-success contract stands, and the probe's proof is the assertion,
-  not an announcement.
+  parsed.  Nothing is printed on a green probe beyond the green run's own
+  output: the probe's proof is the assertion, not an announcement.
 
   ## What the lane will DISCOVER
 
@@ -120,367 +116,51 @@
   five are what `uncallable-fixtures` reports, and reporting them is all it
   claims: applying the thunk is the requirement, it is much wider than `fn?`,
   and the rule refuses a closed set rather than admitting a list.
-  `uncallable-fixtures` is the fourth rule; it fires from `:summary`, the
-  first hook that holds control after every namespace this lane runs has
-  loaded.  See its own docstring."
+  `uncallable-fixtures` is the fourth rule.  It reads the namespaces this
+  invocation SELECTED (`selected-namespaces`) once the run has returned, so
+  a namespace a focused run merely loaded — a helper a selected test
+  requires — cannot fail it.  See its own docstring.
+
+  ## Namespace metadata selects too
+
+  cognitect's `-i` and `-e` read VAR metadata.  This runner widens each
+  keyword to the var's namespace (`with-namespace-tags`): a keyword on the
+  `(ns ...)` form tags every var in it, so `(ns ^:requires-debug
+  my.thing-test ...)` takes the whole namespace out of a lane passing
+  `-e :requires-debug`, and `-i` includes it the same way.  A namespace
+  dropped like that is still selected and REQUIRED, so a load-time failure
+  in it reddens the run; it contributes no test and no assertion to the
+  tally.  Var-level tags are the rule for a namespace whose suites are
+  mixed, because a new untagged deftest there joins the lane by default,
+  where a namespace-level tag would swallow it."
   (:require
     [re-frame.test-quiet]
     [clojure.java.io :as io]
     [clojure.string :as str]
-    [clojure.test]
     [clojure.tools.cli :as cli]
     [clojure.tools.namespace.file :as ns-file]
     [clojure.tools.namespace.find :as ns-find]
     [clojure.tools.namespace.parse :as ns-parse]
     [cognitect.test-runner]))
 
-(def ^:private discovery-banner-prefix
-  "The literal text cognitect-test-runner's `test` fn prints via bare
-  `println` before running tests: `(format \"\\nRunning tests in %s\" dirs)`.
-
-  `dirs` is a set, so the banner renders as `Running tests in #{...}`. We
-  match the prefix up to and including the
-  set-literal opener `#{` rather than the bare `Running tests in ` so that
-  a legitimate diagnostic such as `Running tests in local fixture...`
-  emitted by a test or fixture is forwarded, not silently swallowed: only
-  the runner's own banner opens a set literal here.
-
-  The prefix is necessary but not sufficient: cognitect emits the banner
-  as the whole line, whereas a user/fixture line such as
-  `Running tests in #{:fixture :phase} MARKER` shares the exact prefix but
-  carries trailing content after the closing `}` and is a distinct
-  diagnostic. `banner-filtering-writer` therefore treats a
-  full-prefix match only as a candidate: it buffers the
-  rest of the line and drops it only if the remainder is a balanced set
-  literal followed by nothing but whitespace (`banner-line-remainder?`).
-
-  The banner is `\\nRunning tests in #{...}\\n`, so its leading blank line
-  is part of the banner artefact and is swallowed along
-  with the `Running tests in #{...}` text (see the pending-blank handling
-  in `banner-filtering-writer`); the text we *match* on is the
-  non-blank-line portion below."
-  "Running tests in #{")
-
-(defn- banner-line-remainder?
-  "True iff `remainder`, the text after `discovery-banner-prefix`,
-  completes the cognitect discovery banner and nothing else.
-
-  cognitect prints the banner with `println` as `(format \"Running tests
-  in %s\" dirs)` where `dirs` is the directory set, so the whole line is
-  `Running tests in #{<set-body>}` and stops there.  This confirms that
-  shape: the remainder must contain the set body, the closing `}` that
-  balances the prefix's `#{`, and then only whitespace.  Anything after
-  the closing brace — e.g. the ` MARKER` in a fixture's
-  `Running tests in #{:fixture :phase} MARKER` — means it is NOT the
-  banner and must be forwarded.
-
-  The scan tracks brace depth (the prefix already opened depth 1) and
-  skips over Clojure string literals so a `}` inside a quoted dir name
-  (`#{\"a}b\"}`) does not close the set early.  Returns false if the
-  remainder never balances back to depth 0 (a partial banner that has not
-  yet reached its own newline — handled as a still-open candidate by the
-  caller)."
-  [^String remainder]
-  (let [remainder-length (.length remainder)]
-    (loop [index 0, brace-depth 1, inside-string? false]
-      (if (>= index remainder-length)
-        false ; never closed the set on this line → not a complete banner
-        (let [character (.charAt remainder index)]
-          (cond
-            inside-string?
-            (cond
-              (= character \\) (recur (+ index 2) brace-depth inside-string?)
-              (= character \") (recur (inc index) brace-depth false)
-              :else            (recur (inc index) brace-depth inside-string?))
-
-            (= character \") (recur (inc index) brace-depth true)
-            (= character \{) (recur (inc index) (inc brace-depth) inside-string?)
-            (= character \}) (let [next-depth (dec brace-depth)]
-                                (if (zero? next-depth)
-                                  ;; Set closed — banner iff only whitespace
-                                  ;; (a `\r` before the `\n`, say) follows.
-                                  (str/blank? (subs remainder (inc index)))
-                                  (recur (inc index) next-depth inside-string?)))
-            :else (recur (inc index) brace-depth inside-string?)))))))
-
-(defn- banner-filtering-writer
-  "A `java.io.Writer` that forwards every character to `target` EXCEPT
-  cognitect's discovery banner line, which it drops.
-
-  Forwards eagerly, holding back only as much text as could still become
-  the banner.  At the start of each line we are watching whether the
-  incoming characters spell out `discovery-banner-prefix`:
-
-   - while the buffered run is still a viable prefix of the banner we hold
-     it (the banner candidate);
-   - the moment it diverges from the banner prefix we forward the whole
-     run immediately and pass the rest of the line straight through;
-   - the moment it reaches the full banner prefix the line is a banner
-     candidate, not a confirmed banner: cognitect prints the banner with
-     `println`, so the banner is the WHOLE line and stops at the set
-     literal's closing `}`.  We keep buffering the remainder and decide at
-     the line's newline — drop the line only if the remainder is a
-     balanced set literal followed by nothing but whitespace
-     (`banner-line-remainder?`), this line was preceded by the held
-     leading blank, AND cognitect's one discovery banner has NOT already
-     been dropped (`banner-dropped?`).  cognitect's banner is
-      `(format \"\\nRunning tests in %s\" dirs)`, so the genuine banner is
-      always opened by a blank line; requiring that held blank means an
-     exact-shape user/fixture line such as a bare
-      `(println \"Running tests in #{:fixture}\")` - same text, but no
-      leading blank - is forwarded. cognitect emits the banner exactly
-      once, before any test runs, so the `banner-dropped?` latch means a
-      later blank-led
-     banner-shaped line — a test that prints `(println)` then
-     `(println \"Running tests in #{:fixture}\")` — is forwarded rather
-      than swallowed as a phantom second banner. Otherwise the
-     prefix was shared by a user/fixture diagnostic such as
-     `Running tests in #{:fixture} MARKER` and the whole buffered line is
-      forwarded.
-
-  cognitect's banner opens with a blank line: the format string is
-  `\"\\nRunning tests in %s\"`, so the leading `\\n` renders an empty line
-  immediately before the `Running tests in #{...}` text.  That blank line
-  is part of the same artefact and must vanish too, else a green run leaks
-  one stray leading blank line. We can't know a blank line
-  is the banner's lead-in until the NEXT line proves to be the banner, so
-  an empty line seen while still watching is held as a single pending
-  blank: dropped if the next line is confirmed the banner, emitted
-  otherwise (a divergent line, a short watched line, or a second blank).
-  At most one blank is ever pending — it is resolved at the next line's
-  first character.
-
-  A newline resets the watch for the next line.  The crucial property
-  versus a line-at-a-time buffer: non-banner text is never retained across
-  the runner's `System/exit` (cognitect exits straight from the computed
-  fail/error counts, so neither `flush` nor `close` runs).  An eager
-  forward means a bare `(print ...)` diagnostic with no trailing newline
-  still reaches stdout before exit.  The only text that can sit unflushed
-  at exit is a banner candidate (the full buffered line so far — a strict
-  banner prefix, possibly extended into an as-yet-unterminated banner
-  remainder) or a single pending blank. The JVM shutdown hook `-main`
-  registers flushes those candidates through at exit, so a genuine trailing
-  blank line and a bare
-  `Running tests in #{...`-prefixed partial both survive exit. The real
-  banner completes and is dropped before exit because cognitect prints it
-  with `println` and runs the suite after.
-
-  Help text, parse-error diagnostics, the reporter's failure output, and
-  bare test stdout all pass through untouched; only the banner line is
-  swallowed.
-
-  Clojure's `proxy` dispatches `write` by arity rather than by Java's
-  static overload set, so the single-arg form must itself branch on the
-  argument type (int char, `String`, or char[]).  Each arity feeds the
-  same `consume-character!` watcher, so the banner-detection logic lives in
-  exactly one place."
-  ^java.io.Writer [^java.io.Writer target]
-  (let [banner-prefix-length (.length ^String discovery-banner-prefix)
-        ;; `line-candidate` holds the live candidate for the current line — the
-        ;; banner-prefix run while `:watching`, extended with the
-        ;; post-prefix remainder while `:banner-candidate`. `line-mode` is one
-        ;; of:
-        ;;   :watching         — line-candidate is a viable banner prefix;
-        ;;   :banner-candidate — line-candidate reached the full prefix; buffer
-        ;;                       the remainder, decide drop/forward at the
-        ;;                       line's newline;
-        ;;   :passthrough      — this line diverged; forward chars verbatim.
-        line-candidate (StringBuilder.)
-        line-mode      (volatile! :watching)
-        ;; cognitect emits its discovery banner EXACTLY ONCE, via `println`
-        ;; before any test runs (`cognitect.test-runner/test`), so it is the
-        ;; first — and only — blank-led `Running tests in #{...}` line on the
-        ;; stream.  Once we have dropped it, every later banner-shaped line is
-        ;; genuine test/fixture stdout and must pass through: without this
-        ;; latch, a test that prints a blank line then banner-shaped text
-        ;; would be over-dropped, violating the pass-through contract.
-        banner-dropped? (volatile! false)
-        ;; `pending-blank?` holds back a single empty line that MIGHT be
-        ;; the banner's leading newline (`\nRunning tests in #{...}`). It
-        ;; is resolved at the next line's first character: dropped if that
-        ;; line confirms the banner, emitted otherwise.
-        pending-blank? (volatile! false)
-        emit-text! (fn [^String text]
-                     (when (pos? (.length text)) (.write target text)))
-        flush-pending-blank! (fn []
-                               ;; The held blank was NOT the banner's
-                               ;; lead-in after all — emit it as a real
-                               ;; empty line.
-                               (when @pending-blank?
-                                 (.write target (int \newline))
-                                 (vreset! pending-blank? false)))
-        drop-pending-blank! (fn []
-                              ;; The held blank WAS the banner's lead-in —
-                              ;; discard it with the banner.
-                              (vreset! pending-blank? false))
-        forward-partial! (fn []
-                           ;; Forward any held blank + candidate (the
-                           ;; candidate is only ever a strict banner
-                           ;; prefix). Called on flush/close, which the
-                           ;; JVM shutdown hook triggers, so a genuine
-                           ;; trailing blank line and a bare partial both
-                           ;; survive exit.
-                           (flush-pending-blank!)
-                           (when (pos? (.length line-candidate))
-                             (.write target (.toString line-candidate))
-                             (.setLength line-candidate 0)))
-        reset-line! (fn []
-                      (.setLength line-candidate 0)
-                      (vreset! line-mode :watching))
-        consume-character! (fn [character]
-                        (cond
-                          (= character \newline)
-                          (do (case @line-mode
-                                ;; Empty watched run → a blank line. It may
-                                ;; be the banner's leading newline, so hold
-                                ;; it pending instead of forwarding now. A
-                                ;; blank already pending means the prior
-                                ;; blank was NOT followed by the banner —
-                                ;; flush it and hold this one.
-                                ;; A non-empty watched run is a short line
-                                ;; that never reached the banner prefix —
-                                ;; any pending blank preceded real content,
-                                ;; so flush it, then forward the run.
-                                :watching    (if (zero? (.length line-candidate))
-                                               (do (flush-pending-blank!)
-                                                   (vreset! pending-blank? true))
-                                               (do (flush-pending-blank!)
-                                                   (emit-text! (.toString line-candidate))
-                                                   (.write target (int \newline))))
-                                ;; Reached the full prefix — DECIDE now that
-                                ;; the line is complete. The
-                                ;; remainder is everything buffered after the
-                                ;; prefix; if it is a balanced set literal +
-                                ;; only whitespace AND this line was preceded
-                                ;; by the held leading blank, this IS the
-                                ;; discovery banner → drop the whole line (and
-                                ;; the pending blank that was its leading
-                                ;; newline). Otherwise the prefix was shared
-                                ;; by a real diagnostic → flush the pending
-                                ;; blank and forward the whole buffered line.
-                                ;;
-                                ;; The leading-blank requirement
-                                ;; distinguishes cognitect's banner — printed
-                                ;; via `(format "\nRunning tests in %s" dirs)`,
-                                ;; so ALWAYS opened by a blank line — from a
-                                ;; user/fixture line that exact-matches the
-                                ;; banner shape (`Running tests in #{:fixture}`)
-                                ;; but is emitted by a bare `println` with no
-                                ;; preceding blank. Without this, such a line
-                                ;; was indistinguishable from the banner and
-                                ;; silently overdropped, contradicting the
-                                ;; pass-through stdout contract.
-                                ;; The leading-blank + balanced-set-literal
-                                ;; shape is NECESSARY but, on its own, not
-                                ;; SUFFICIENT: cognitect prints the banner only
-                                ;; once, so once we have dropped it, a later
-                                ;; blank-led banner-shaped line is genuine test
-                                ;; stdout and must be forwarded, not swallowed
-                                ;; as a second "banner". Gate the
-                                ;; drop on `banner-dropped?` and latch it here.
-                                :banner-candidate
-                                (let [remainder (subs (.toString line-candidate)
-                                                      banner-prefix-length)]
-                                  (if (and (not @banner-dropped?)
-                                           @pending-blank?
-                                           (banner-line-remainder? remainder))
-                                    (do (vreset! banner-dropped? true)
-                                        (drop-pending-blank!))
-                                    (do (flush-pending-blank!)
-                                        (.write target (.toString line-candidate))
-                                        (.write target (int \newline)))))
-                                ;; Diverged line — its chars already went
-                                ;; straight through; terminate it.
-                                :passthrough (.write target (int \newline)))
-                              (reset-line!))
-
-                          (= @line-mode :passthrough)
-                          (.write target (int character))
-
-                          ;; A full-prefix candidate keeps accreting its
-                          ;; remainder; the drop/forward call is deferred to
-                          ;; the newline above.
-                          (= @line-mode :banner-candidate)
-                          (.append line-candidate character)
-
-                          :else ; :watching — extend the candidate
-                          (do
-                            (.append line-candidate character)
-                            (let [candidate-text (.toString line-candidate)]
-                              (cond
-                                ;; Reached (or passed) the full prefix AND it
-                                ;; really IS the prefix → banner CANDIDATE
-                                ;; (not yet confirmed; the line might carry
-                                ;; trailing content). Keep the pending blank
-                                ;; held — it stands or falls with this line at
-                                ;; the newline decision.
-                                (and (>= (.length line-candidate)
-                                         banner-prefix-length)
-                                     (.startsWith candidate-text
-                                                  ^String discovery-banner-prefix))
-                                (vreset! line-mode :banner-candidate)
-                                ;; Still a viable prefix of the banner — keep
-                                ;; holding (and keep any pending blank held;
-                                ;; it stands or falls with this line).
-                                (.startsWith ^String discovery-banner-prefix
-                                             candidate-text)
-                                nil
-                                ;; Diverged → this line is not the banner, so
-                                ;; the pending blank preceded real content;
-                                ;; flush it, then forward the diverged run.
-                                :else
-                                (do (flush-pending-blank!)
-                                    (emit-text! candidate-text)
-                                    (.setLength line-candidate 0)
-                                    (vreset! line-mode :passthrough)))))))
-        consume-string! (fn [^String text]
-                          (dotimes [index (.length text)]
-                            (consume-character! (.charAt text index))))]
-    (proxy [java.io.Writer] []
-      (write
-        ([value]
-         (cond
-           (string? value)               (consume-string! value)
-           (integer? value)              (consume-character! (char value))
-           (instance? (Class/forName "[C") value)
-           (consume-string! (String. ^chars value))
-           :else (throw (IllegalArgumentException.
-                          (str "unexpected write arg: " (class value))))))
-        ([char-buffer offset length]
-         (let [text (if (string? char-buffer)
-                      (subs char-buffer offset (+ offset length))
-                      (String. ^chars char-buffer (int offset) (int length)))]
-           (consume-string! text))))
-      (flush []
-        ;; A bare flush with a partial (unterminated) line must not lose
-        ;; it; forward it now. A line that turns out to be the banner is
-        ;; only ever flushed via its terminating newline (cognitect uses
-        ;; `println`), so this never leaks the banner.
-        (forward-partial!)
-        (.flush target))
-      (close []
-        (forward-partial!)
-        (.flush target)))))
-
 ;; ----------------------------------------------------------------------
 ;; Central stderr buffer + red replay.
 ;;
 ;; The symmetric counterpart to the CLJS node runner's `console.warn`
 ;; ring buffer (`re-frame.test-quiet.shadow-node`). The runner buffers
-;; stderr in a bounded ring for the delegated run and:
+;; stderr in a bounded ring for the run and:
 ;;   - GREEN: drop the buffer silently (quiet on success);
-;;   - RED:   replay it to the real stderr from the `:summary` reporter
-;;            hook below, BEFORE cognitect computes its exit code, so a
-;;            failing run keeps the diagnostic context;
-;;   - THREW: replay it from `-main` on the way out, because a namespace
-;;            that throws on load, or a throwing `:once` fixture, never
-;;            reaches `:summary`.
+;;   - RED:   replay it to the real stderr once `cognitect.test-runner/test`
+;;            returns a red summary, so a failing run keeps the
+;;            diagnostic context;
+;;   - THREW: replay it on the way out, because a namespace that throws on
+;;            load, or a throwing `:once` fixture, leaves `test` without a
+;;            summary.
 ;;
 ;; clojure.test routes its assertion / FAIL / ERROR / summary output
 ;; through `clojure.test/*test-out*` (bound to the real `*out*`), NOT
 ;; through `*err*`, so buffering stderr never hides failure diagnostics —
-;; the red FAIL/ERROR blocks reach the real stdout through `*test-out*`,
-;; which `-main`'s `*out*` filter does not rebind.
+;; the red FAIL/ERROR blocks reach the real stdout.
 
 (def ^:private stderr-buffer-cap
   "Bounded stderr ring capacity (characters).  Caps memory + replay
@@ -493,14 +173,14 @@
   "A `java.io.Writer` over the shared `stderr-ring` that captures everything
   written to it (trimming `stderr-ring` to the newest `stderr-buffer-cap`
   characters) and forwards NOTHING to the real stderr.  The runner reads
-  `stderr-ring` back at `:summary` time and replays it only on red
-  (`make-summary-replay-method`); on green the buffer is dropped."
+  `stderr-ring` back once the run returns and replays it only on red
+  (`run-lane!`); on green the buffer is dropped."
   ^java.io.Writer [^StringBuilder stderr-ring]
   (let [append-to-ring! (fn [^String text]
                   ;; Serialize the WHOLE append-plus-front-trim transaction on
                   ;; `stderr-ring`'s monitor. Both JVM stderr channels funnel here —
                   ;; `*err*` via one PrintWriter and raw `System.err` via the
-                  ;; `System/setErr` PrintStream bridge (see `-main`) — and those
+                  ;; `System/setErr` PrintStream bridge (see `run-lane!`) — and those
                   ;; two wrappers serialize only their OWN calls under DISTINCT
                   ;; locks, so without this shared monitor a write from each
                   ;; channel can interleave inside this body: a `.append` racing
@@ -508,8 +188,8 @@
                   ;; count/array and throws ArrayIndexOutOfBoundsException from an
                   ;; otherwise-valid test. StringBuilder (unlike StringBuffer) has
                   ;; no synchronized methods, so nothing else contends for this
-                  ;; monitor; the summary snapshot in
-                  ;; `make-summary-replay-method` locks on the SAME ring, so a
+                  ;; monitor; the replay snapshot in
+                  ;; `replay-captured-stderr!` locks on the SAME ring, so a
                   ;; red replay never reads a half-applied mutation.
                   (locking stderr-ring
                     (.append stderr-ring text)
@@ -1138,224 +818,182 @@
        " {:before f :after g} map is cljs.test-only --"
        " (use-fixtures :each (fn [t] (before) (t) (after))).\n"))
 
-(defn- make-summary-replay-method
-  "Build the `clojure.test/report :summary` method for ONE `-main`
-  invocation. On a RED run it replays `stderr-ring` to `original-err`, then
-  delegates to `prior-summary-method` (the `:summary` method installed
-  before this invocation) so the canonical summary line still prints, and
-  finally enforces this lane's claim — `uncallable-fixtures` first, then the
-  `min-tests` floor for a suite lane or the zero-test expectation for a
-  `--probe` lane (see the ns docstring and `parse-min-tests`).
+;; ----------------------------------------------------------------------
+;; Which namespaces, and which of their vars, this invocation runs.
 
-  `:summary` is where both belong because it is the one place that
-  holds BOTH the executed-test count and control before cognitect exits.
-  clojure.test's `run-tests` computes its summary map, calls `do-report` on
-  it, and RETURNS that same map to cognitect, which derives the process exit
-  code from `(zero? (+ fail error))` — a tally a 0-test run satisfies.  A
-  reporter cannot amend the returned map, so a sub-floor run exits 1 from
-  here directly, mirroring how the CLJS node runner's `:end-run-tests`
-  reporter owns `js/process.exit`.  The floor is checked AFTER the delegate
-  prints, so the operator sees the real `Ran N tests …` tally above the
-  explanation.  The stdout flush hook `-main` registers runs on this exit,
-  so nothing buffered in the banner-filtering writer is lost.
+(defn selected-namespaces
+  "The namespaces `cognitect.test-runner/test` selects for `options`, as
+  symbols: every namespace `find-namespaces-in-dir` reads under the
+  discovery dirs, kept by cognitect's own selector (`-n` / `-r`, or
+  `.*-test$` when neither is given).
 
-  `:summary` is the JVM-side counterpart to the CLJS `:end-run-tests`
-  reporter: it fires once at the end of `run-tests` from the same
-  fail/error counts cognitect reads to compute the exit code, and it runs
-  on the test-driver thread inside the `binding` that rebinds `*err*`, so it
-  runs before cognitect's `System/exit` and can flush the captured context.
-  A run is red iff `(pos? (+ fail error))`, matching cognitect's
-  `(zero? (+ fail error))` green test.
+  Computed the way `test` computes it, from the same functions, because the
+  summary `test` returns does not say which namespaces it ran — and the
+  fixture audit has to be about exactly those, not about whatever else the
+  JVM happens to have loaded."
+  [options]
+  (->> (or (:dir options) #{"test"})
+       (map io/file)
+       (mapcat ns-find/find-namespaces-in-dir)
+       (filter (#'cognitect.test-runner/ns-filter options))))
 
-  `-main` installs it before the delegated run and never restores the prior
-  method, because nothing runs after it: under `clojure -m` the JVM ends
-  with the run, by cognitect's `System/exit` or, on the `-H` help path that
-  returns, straight after `-main` does.
+(defn- namespace-tag
+  "The `-i` / `-e` keyword `tag` as a predicate over a var's metadata that
+  answers for the var's NAMESPACE too: true when the var carries `tag`, or
+  when the `(ns ...)` form that interned it does."
+  [tag]
+  (fn [var-meta]
+    (or (get var-meta tag)
+        (some-> (:ns var-meta) meta (get tag)))))
 
-  The replay is bounded to the test-run red path. cognitect only fires
-  `:summary` once it has reached `run-tests`, so this method replays the
-  buffered stderr only for a red run that actually executed tests; a run
-  that throws before its summary is replayed by `-main`.  The non-test
-  exit-1 path — a CLI parse error (`cognitect.test-runner/-main` prints the
-  parse diagnostics + usage and `System/exit`s 1 BEFORE ever calling
-  `run-tests`) — never fires `:summary`, so its buffer is dropped, not
-  replayed.  That is sound: on the parse-error path the diagnostics cognitect
-  emits go to `*out*` (the banner-filtering writer), NOT `*err*`, so nothing
-  diagnostic is lost — the only thing dropped is whatever incidental
-  `*err*`/`System.err` noise preceded the parse failure (in practice none;
-  arg parsing does not log to stderr).
+(defn- with-namespace-tags
+  "`options` with every `-i` and `-e` keyword widened by `namespace-tag`.
 
-  The replay goes to `original-err` — the ORIGINAL stderr writer captured before
-  the `*err*` ring was bound — so it is never fed back into the buffer. Each
-  captured chunk is written verbatim under a red-run header, mirroring the
-  CLJS replay's `[test-quiet]` prefix.  On green the buffer is dropped."
-  [^StringBuilder stderr-ring
-   ^java.io.Writer original-err
-   prior-summary-method
-   {:keys [probe? min-tests]}]
-  (fn summary-replay [summary]
-    (let [{:keys [fail error]} summary]
-      (when (pos? (+ (or fail 0) (or error 0)))
-        (replay-captured-stderr! stderr-ring original-err "the run was RED")))
-    ;; Delegate to the prior :summary so the canonical
-    ;; "Ran N tests…/K failures, J errors." line still prints.
-    (when prior-summary-method
-      (prior-summary-method summary))
-    ;; Then this lane's own claim. A suite lane claims coverage
-    ;; and must prove it RAN; a probe lane claims resolution and must prove
-    ;; it resolved WITHOUT running. Diagnostics are ASCII only: they go
-    ;; through the platform-default stderr encoding, where an em dash renders
-    ;; as a replacement char on a Windows console.
-    (let [test-count (or (:test summary) 0)
-          fail-run!
-          (fn [message]
-            (.write original-err (str "\n[test-quiet] ERROR: " message))
-            (.flush original-err)
-            (System/exit 1))
-          uncallable (uncallable-fixtures (all-ns))]
-      (cond
-        ;; An uncallable fixture zeroes its whole namespace, so it is read
-        ;; BEFORE the coverage floor: a lane zeroed this way would otherwise
-        ;; be reported as the discovery problem it does not have.
-        (seq uncallable)
-        (fail-run! (uncallable-fixture-complaint uncallable))
+  cognitect's var filter applies these as `((apply some-fn tags) (meta v))`,
+  so a predicate over the var's metadata stands exactly where the keyword
+  did, and every other option reaches `test` untouched."
+  [options]
+  (reduce (fn [opts option-key]
+            (cond-> opts
+              (contains? opts option-key)
+              (update option-key #(set (map namespace-tag %)))))
+          options
+          [:include :exclude]))
 
-        ;; A probe reaching this hook has already proved what it claims:
-        ;; deps resolved and the discovery dirs were scanned. All that is
-        ;; left is that it really is a probe.
-        probe?
-        (when (pos? test-count)
-          (fail-run!
-            (str "this lane is declared a classpath probe (" probe-flag
-                      ") but executed " test-count " test(s).\n"
-                      "A lane with tests claims COVERAGE, not resolution:"
-                      " drop " probe-flag " from its `:test` alias"
-                      " `:main-opts`\n"
-                      "so the test-count floor applies to it.\n")))
+;; ----------------------------------------------------------------------
+;; The verdict.
 
-        (< test-count min-tests)
-        (fail-run!
-          (str "this run executed " test-count
-                    " test(s), below the floor of " min-tests
-                    " (" min-tests-env-var ").\n"
-                    "A suite lane that discovered no tests is a"
-                    " configuration error: a `-r`/`-n` selector matching"
-                    " nothing, a `:test` alias\n"
-                    "missing its `:extra-paths [\"test\"]`, a renamed test"
-                    " file. It is not a pass. Failing the run"
-                    ".\n"
-                    "If this lane claims only that its classpath RESOLVES,"
-                    " declare that with " probe-flag " instead.\n"))))))
+(defn- lane-claim-complaint
+  "Why this run is red beyond its own tally, or nil.
+
+  `uncallable-fixtures` over the `namespaces` this invocation selected is
+  read first: an uncallable fixture zeroes its whole namespace, so a lane
+  zeroed that way would otherwise be reported as the discovery problem it
+  does not have.  Then the lane's claim: a probe lane must have executed no
+  test, and a suite lane at least `min-tests` (see the ns docstring and
+  `parse-min-tests`).  ASCII only: this text goes through the
+  platform-default stderr encoding, where an em dash renders as a
+  replacement character on a Windows console."
+  [{:keys [probe? min-tests]} summary namespaces]
+  (let [test-count (or (:test summary) 0)
+        uncallable (uncallable-fixtures namespaces)]
+    (cond
+      (seq uncallable)
+      (uncallable-fixture-complaint uncallable)
+
+      ;; A probe that reached its summary has already proved what it
+      ;; claims: deps resolved and the discovery dirs were scanned. All
+      ;; that is left is that it really is a probe.
+      probe?
+      (when (pos? test-count)
+        (str "this lane is declared a classpath probe (" probe-flag
+             ") but executed " test-count " test(s).\n"
+             "A lane with tests claims COVERAGE, not resolution:"
+             " drop " probe-flag " from its `:test` alias"
+             " `:main-opts`\n"
+             "so the test-count floor applies to it.\n"))
+
+      (< test-count min-tests)
+      (str "this run executed " test-count
+           " test(s), below the floor of " min-tests
+           " (" min-tests-env-var ").\n"
+           "A suite lane that discovered no tests is a"
+           " configuration error: a `-r`/`-n` selector matching"
+           " nothing, a `:test` alias\n"
+           "missing its `:extra-paths [\"test\"]`, a renamed test"
+           " file. It is not a pass. Failing the run"
+           ".\n"
+           "If this lane claims only that its classpath RESOLVES,"
+           " declare that with " probe-flag " instead.\n"))))
+
+(defn- run-lane!
+  "Run `options` through `cognitect.test-runner/test` with stderr buffered,
+  then decide the verdict and end the JVM with it.
+
+  The test-driver thread's `*err*` is bound to the ring and the
+  process-global `System/err` is swapped to it, so library code logging
+  through either is captured.  The original `*err*` is kept for the replay
+  and for this runner's own diagnostics, so neither is fed back into the
+  ring.  On RED the ring is replayed under a `[test-quiet]` header; on
+  green it is dropped.  cognitect has no catch around its `require` and
+  run, so a namespace that throws on load, or a throwing `:once` fixture,
+  leaves `test` without a summary: the ring is replayed on the way out and
+  the throw rethrown, and `clojure.main` reports it and exits 1.
+
+  stdout is flushed before the exit, because `System/exit` runs no
+  `finally` and a bare `(print ...)` with no trailing newline would
+  otherwise be lost exactly when a run needs it."
+  [options lane-claim]
+  (let [original-err  *err*
+        stderr-ring   (StringBuilder.)
+        stderr-writer (buffering-stderr-writer stderr-ring)
+        ;; Raw `System/err` bytes reach the same ring as `*err*`. Each chunk
+        ;; is decoded to a `String` and appended to the ring (this buffer is
+        ;; the diagnostic/red-replay path only — never the green-run
+        ;; summary). Note the encoding asymmetry between the two `write`
+        ;; proxy arities:
+        ;;   - write(byte[],off,len): a chatty library prints via
+        ;;     `PrintStream.print(...)`/`write(byte[])`, which the autoFlush
+        ;;     UTF-8 `PrintStream` below routes through this multi-byte
+        ;;     arity. The chunk is decoded as one unit using the JVM's
+        ;;     default charset, so non-ASCII fidelity depends on that
+        ;;     default also being UTF-8.
+        ;;   - write(int): the single-byte arity decodes that ONE byte on its
+        ;;     own. A multi-byte UTF-8 sequence delivered one byte at a time
+        ;;     — only a raw `System.err.write(int)` per byte hits this path;
+        ;;     the `PrintStream` itself never splits a code point across
+        ;;     single-byte writes — would decode each byte separately and
+        ;;     mangle the character. This arity is therefore best-effort /
+        ;;     ASCII-only by design. Buffering raw bytes to decode once at
+        ;;     replay is not a clean fit here — the ring is a shared char
+        ;;     `Writer` that `*err*` also writes into directly, so there is
+        ;;     no single byte stream to defer-decode.
+        system-err-bridge
+        (proxy [java.io.OutputStream] []
+          (write
+            ([byte-value]
+             ;; proxy dispatches by arity; the 1-arg form is write(int) —
+             ;; the low 8 bits are the byte (0-255), so use
+             ;; `unchecked-byte` (a plain `byte` cast throws for 128-255).
+             (.write stderr-writer
+                     (String. (byte-array [(unchecked-byte byte-value)]))))
+            ([byte-buffer offset length]
+             (.write stderr-writer
+                     (String. ^bytes byte-buffer (int offset) (int length))))))]
+    (System/setErr (java.io.PrintStream. system-err-bridge true "UTF-8"))
+    (let [summary   (binding [*err* (java.io.PrintWriter. stderr-writer)]
+                      (try
+                        (cognitect.test-runner/test (with-namespace-tags options))
+                        (catch Throwable thrown
+                          (replay-captured-stderr! stderr-ring original-err
+                                                   "the run threw before its summary")
+                          (throw thrown))))
+          red?      (pos? (+ (:fail summary 0) (:error summary 0)))
+          complaint (lane-claim-complaint
+                      lane-claim
+                      summary
+                      (keep find-ns (selected-namespaces options)))]
+      (flush)
+      (when red?
+        (replay-captured-stderr! stderr-ring original-err "the run was RED"))
+      (when complaint
+        (.write original-err (str "\n[test-quiet] ERROR: " complaint))
+        (.flush original-err))
+      (System/exit (if (or red? complaint) 1 0)))))
 
 (defn -main [& args]
-  ;; Bind `*out*` to a line-filtering writer over the real stdout that
-  ;; drops ONLY cognitect's "\nRunning tests in #{...}" discovery banner.
-  ;; Everything else — `-H` usage, parse-error diagnostics, bare test
-  ;; stdout, and the reporter's failure output — passes through.
-  ;;
-  ;; `cognitect.test-runner/-main` calls `System/exit` on the test-run
-  ;; path (from the computed fail/error counts) and on the parse-error
-  ;; path, and the `-H`/help path returns into a `clojure -m` that exits
-  ;; straight after, so every path ends the JVM and nothing here is ever
-  ;; restored. A JVM shutdown hook flushes the filtering writer (and,
-  ;; through it, the real stdout) on the way out.  Without it, a bare
-  ;; `(print ...)` diagnostic with no trailing newline — buffered anywhere
-  ;; between this wrapper and the OS — could be lost exactly when a failing
-  ;; run needs it most.  The hook makes flush-on-exit deterministic rather
-  ;; than relying on the runtime or cognitect to flush before exiting.
-  ;;
-  ;; We also bind the test-driver thread's `*err*` and swap process-global
-  ;; `System/err` to a bounded ring buffer. Expected warnings are captured
-  ;; rather than flooding a green run, and the `:summary` reporter hook
-  ;; replays them to the real stderr only on RED — symmetric with the CLJS
-  ;; node runner's `console.warn` buffer + red replay.  `*err*` is bound on
-  ;; the test-driver thread (cognitect runs single-threaded), so library
-  ;; code that logs via `*err*` is captured; `System/err` is also swapped
-  ;; so a raw `System.err` write is buffered too.  The summary hook reads
-  ;; the buffer and writes any red replay to the REAL stderr captured here.
-  ;; The replay is scoped to the TEST-RUN red path: `:summary` fires only
-  ;; once cognitect reaches `run-tests`, so the non-test exit-1 path (a CLI
-  ;; parse error) drops its buffer rather than replaying it — sound because
-  ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`
-  ;; (see `make-summary-replay-method`). A run that THROWS replays it from
-  ;; the catch at the bottom of this function.
-  (let [;; This lane's claim, resolved BEFORE anything is rebound so a
+  (let [;; This lane's claim, resolved before anything is rebound so a
         ;; malformed floor is a plain stderr diagnostic + exit 2, not a
-        ;; buffered one. `--probe` is ours and is stripped from
-        ;; what cognitect sees.
+        ;; buffered one. `--probe` is ours and is stripped from what
+        ;; cognitect sees.
         [{:keys [probe?]} forwarded-args] (split-runner-args args)
         lane-claim {:probe? probe? :min-tests (resolve-min-tests!)}
-        ;; And what this lane will DISCOVER, resolved from the same args
-        ;; cognitect is about to parse. Also before anything is
-        ;; rebound, and before a single test runs: a file the reader cannot
-        ;; read is invisible to discovery, so no later hook — not the floor,
-        ;; not the summary — has anything left to notice.
+        ;; And what this lane will DISCOVER, before a single test runs: a
+        ;; file the reader cannot read is invisible to discovery, so no
+        ;; later check has anything left to notice.
         _          (verify-discovery! forwarded-args)
-        original-out        *out*
-        original-err        *err*
-        filtered-stdout     (java.io.PrintWriter.
-                              (banner-filtering-writer original-out))
-        stderr-ring         (StringBuilder.)
-        buffered-stderr-writer (buffering-stderr-writer stderr-ring)
-        buffered-stderr     (java.io.PrintWriter. buffered-stderr-writer)
-        ;; THIS invocation's replay method DELEGATES to the `:summary`
-        ;; method installed before it, so the canonical summary still prints.
-        summary-method (make-summary-replay-method
-                         stderr-ring
-                         original-err
-                         (get-method clojure.test/report :summary)
-                         lane-claim)]
-    (.addShutdownHook (Runtime/getRuntime)
-                      (Thread. ^Runnable #(.flush filtered-stdout)))
-    (.addMethod ^clojure.lang.MultiFn clojure.test/report :summary summary-method)
-    ;; Route raw `System/err` bytes into the same ring as `*err*` so a
-    ;; library that writes `System.err` directly is buffered too. Each chunk
-    ;; is decoded to a `String` and appended to the ring (this buffer is the
-    ;; diagnostic/red-replay path only — never the green-run summary). Note
-    ;; the encoding asymmetry between the two `write` proxy arities:
-    ;;   - write(byte[],off,len): a chatty library prints via
-    ;;     `PrintStream.print(...)`/`write(byte[])`, which the autoFlush
-    ;;     UTF-8 `PrintStream` below routes through this multi-byte arity. The
-    ;;     chunk is decoded as one unit using the JVM's default charset, so
-    ;;     non-ASCII fidelity depends on that default also being UTF-8.
-    ;;   - write(int): the single-byte arity decodes that ONE byte on its
-    ;;     own. A multi-byte UTF-8 sequence delivered one byte at a time —
-    ;;     only a raw `System.err.write(int)` per byte hits this path; the
-    ;;     `PrintStream` itself never splits a code point across single-byte
-    ;;     writes — would decode each byte separately and mangle the
-    ;;     character. This arity is therefore best-effort / ASCII-only by
-    ;;     design: it preserves byte fidelity for the common ASCII diagnostic
-    ;;     case and tolerates (does not guarantee) multi-byte text on the
-    ;;     pathological raw per-byte path. Buffering raw bytes to decode once
-    ;;     at replay is not a clean fit here — the ring is a shared char
-    ;;     `Writer` that `*err*` also writes into directly, so there is no
-    ;;     single byte stream to defer-decode.
-    (let [system-err-bridge (proxy [java.io.OutputStream] []
-                       (write
-                         ([byte-value]
-                          ;; proxy dispatches by arity; the 1-arg form is
-                          ;; write(int) — the low 8 bits are the byte (0-255),
-                          ;; so use `unchecked-byte` (a plain `byte` cast
-                          ;; throws for 128-255). Best-effort/ASCII (see above).
-                          (.write buffered-stderr-writer
-                                  (String.
-                                    (byte-array
-                                      [(unchecked-byte byte-value)]))))
-                         ([byte-buffer offset length]
-                          (.write buffered-stderr-writer
-                                  (String. ^bytes byte-buffer
-                                           (int offset)
-                                           (int length))))))]
-      (System/setErr (java.io.PrintStream. system-err-bridge true "UTF-8")))
-    (binding [*out* filtered-stdout
-              *err* buffered-stderr]
-      ;; cognitect has no catch around its `require` and run, so a namespace
-      ;; that throws on load, or a throwing `:once` fixture, leaves from here
-      ;; without reaching `:summary`. Replay the ring on the way out, then
-      ;; rethrow so `clojure.main` still reports the throw and exits 1.
-      (try
-        (apply cognitect.test-runner/-main forwarded-args)
-        (catch Throwable thrown
-          (replay-captured-stderr! stderr-ring original-err
-                                   "the run threw before its summary")
-          (throw thrown))))))
+        {:keys [options errors]} (cli/parse-opts forwarded-args
+                                                 cognitect.test-runner/cli-options)]
+    (if (or errors (:test-help options))
+      (apply cognitect.test-runner/-main forwarded-args)
+      (run-lane! options lane-claim))))

@@ -4,10 +4,7 @@
 module.exports = {
   protocol: 1,
   buildId: 'throws-build-1',
-  entries: {
-    'app/before': { stateAllowlist: [], runtimeAllowlist: [] },
-    'app/silent': { stateAllowlist: [], runtimeAllowlist: [] },
-  },
+  entries: ['app/before', 'app/silent'],
 
   render({ entry }) {
     if (entry === 'app/silent') return; // returns no body at all
