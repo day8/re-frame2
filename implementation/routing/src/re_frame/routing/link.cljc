@@ -2,8 +2,8 @@
   "`:route/link` registered view for re-frame2 routing.
 
   Per Spec 012 §Linking from views. Plain left-click → preventDefault
-  + dispatch `:rf.route/url-requested`; modifier-key / middle-click defers to
-  the browser. CLJS-only render; JVM gets an SSR shell (no DOM events
+  + dispatch `[:rf.route/navigate {:url <href>}]`; modifier-key / middle-click
+  defers to the browser. CLJS-only render; JVM gets an SSR shell (no DOM events
   to intercept).
 
   Internal namespace; the public facade is `re-frame.routing`. The
@@ -104,8 +104,8 @@
   (`/active`); `encode` maps it to the rendered `:href` — one of the four
   strategy consult points. The first return value is the PATH-FORM url
   (unencoded) — it is the behavioural navigation identity carried on the
-  `:rf.route/url-requested` dispatch (the click handler routes through the
-  cascade, which is path-form throughout). The rendered `:href` is the
+  click's `[:rf.route/navigate {:url …}]` dispatch (the click handler routes
+  through the cascade, which is path-form throughout). The rendered `:href` is the
   ENCODED form so copy-link / open-in-new-tab land on the right address
   (`#/active` for a hash app). BOTH render fns pass the RENDERING frame's
   strategy `:encode` — the CLJS render its captured frame's, the SSR render
@@ -172,11 +172,11 @@
          (seq params) (assoc :params params)
          (seq query)  (assoc :query query))])))
 
-(defn- url-requested-payload
-  "The `[:rf.route/url-requested {…}]` dispatch vector a link click carries —
-  the ONE definition, run by `rf/route-link` (`route-link-render`) and by the
-  `link-model` seam a view artefact's route-link consumes, so the navigation
-  the two surfaces dispatch cannot drift.
+(defn- navigate-payload
+  "The `[:rf.route/navigate {:url … & policy}]` dispatch vector a link click
+  carries — the ONE definition, run by `rf/route-link` (`route-link-render`)
+  and by the `link-model` seam a view artefact's route-link consumes, so the
+  navigation the two surfaces dispatch cannot drift.
 
   `path-url` is the PATH-FORM url `route-url` built from the EXTRACTED address
   (`rf.routing.address/extract-address`, never a bespoke destructuring of the
@@ -184,20 +184,26 @@
   `:href` was built from. The cascade is path-form throughout, so a strategy's
   `:encode` touches only the `:href`.
 
+  The link navigates by that URL, never by the address it was built from,
+  because a raw URL resolves through route ranking exactly as a reload or a
+  new tab resolves the href — so a click lands where the href lands. With
+  `/users/me` and `/users/:id` both registered, a link authored for the `:id`
+  route with `\"me\"` renders `/users/me`, which ranks to the static route; a
+  `{:to … :params …}` request would skip that ranking and land on `/users/:id`.
+
   `props` contributes only its navigation POLICY keys (`:replace?`, `:scroll`,
-  `:bypass-leave?`), which the link door honours exactly as `:rf.route/navigate`
-  does; a key the caller did not write is not in the payload. No address key
-  rides beside `:url`, because a raw URL IS the address (Spec 012 §The request
-  grammar): a `:to` / `:params` / `:query` / `:fragment` there would be a
-  second spelling of one destination, and nothing would read it — the link
-  door resolves its target from the URL alone, never from the request.
+  `:bypass-leave?`); a key the caller did not write is not in the payload. No
+  address key rides beside `:url`, because a raw URL IS the address (Spec 012
+  §The request grammar): `:rf.route/navigate` refuses `:params` / `:query`
+  beside `:url`, and a `:fragment` there would be a second spelling of the
+  one the URL already carries.
 
   It is a named definition — rather than an inlined map literal at each of its
   two call sites — because being the ONE synthesiser is the whole of its job:
   `rf/route-link` and the `link-model` seam dispatch the same navigation by
   construction, and a future key added here reaches both."
   [path-url props]
-  [:rf.route/url-requested
+  [:rf.route/navigate
    (merge {:url path-url} (select-keys props rf.routing.address/policy-keys))])
 
 #?(:cljs
@@ -267,7 +273,7 @@
   on a plain left-click. A `route-link` rendered with
   `{:target \"_blank\"}` or `{:download …}` looks like a normal anchor in
   the DOM and the user expects native new-tab / new-window / download
-  behaviour; intercepting it into a `:rf.route/url-requested` dispatch silently
+  behaviour; intercepting it into a `:rf.route/navigate` dispatch silently
   breaks that contract.
 
   Native-handling attributes recognised:
@@ -308,7 +314,7 @@
      `e` is the native click event; `on-click` is the caller-supplied
      `:on-click` (or nil); `frame-api` is the `capture-frame` bundle of the
      frame incarnation that rendered the link; `payload` and `native?` come
-     from `url-requested-payload` / `native-anchor?` (`link-model` bundles both
+     from `navigate-payload` / `native-anchor?` (`link-model` bundles both
      for the view side).
 
      Runs the caller `:on-click` first; then, unless the anchor is native (new
@@ -353,7 +359,7 @@
      `:aria-label`).
 
      The click is handed to `activate-link!` and the payload to
-     `url-requested-payload`, the two definitions a view artefact's route-link
+     `navigate-payload`, the two definitions a view artefact's route-link
      also runs — so this render fn states no part of the click law or the
      dispatch shape for itself, and the two link surfaces Spec 012 declares
      behaviourally identical are identical by construction rather than by
@@ -399,11 +405,11 @@
            encode (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
            [url base-attrs _address] (href-attrs props encode)
            ;; The click payload comes from the ONE synthesiser
-           ;; (`url-requested-payload`) over the PATH-FORM url `href-attrs`
+           ;; (`navigate-payload`) over the PATH-FORM url `href-attrs`
            ;; built from the address it extracted — so the href and the
            ;; payload name the same destination by construction. `props`
            ;; supplies only the navigation policy keys.
-           payload (url-requested-payload url props)
+           payload (navigate-payload url props)
            ;; Anchors carrying native-handling attributes
            ;; (`target="_blank"`, `download`) must let the browser handle
            ;; the click — SPA interception would defeat new-tab / download.
@@ -482,7 +488,7 @@
 ;;
 ;;   `link-model`     — PURE, both hosts. The whole routing calculation for one
 ;;                      link render: strategy-encoded href, the path-form
-;;                      `:rf.route/url-requested` dispatch payload, native?
+;;                      `[:rf.route/navigate {:url …}]` dispatch payload, native?
 ;;                      (target≠_self / download → the browser owns the click),
 ;;                      and the prefetch warm-up pair (the
 ;;                      `[:rf.route/prefetch …]` vector, or nil for a passive
@@ -508,7 +514,7 @@
 
     {:href          <strategy-encoded href — one of the four strategy consult
                     points, on BOTH hosts>
-     :payload       <the `[:rf.route/url-requested {:url … & policy}]` dispatch
+     :payload       <the `[:rf.route/navigate {:url … & policy}]` dispatch
                     vector, path-form throughout — the navigation>
      :native?       <true when the anchor carries native-handling attrs the
                     framework must not intercept even on a plain left click>
@@ -519,7 +525,7 @@
                     `prefetch-intent-keys`>}
 
   Bundles route-url synthesis, strategy encode, the shared
-  `url-requested-payload`, native-attr detection and the prefetch warm-up, so
+  `navigate-payload`, native-attr detection and the prefetch warm-up, so
   the consuming view artefact reaches route-link semantics through this one
   seam without exposing routing internals (strategy encode, frame capture,
   source stamping) as separate hooks — and reaches the SAME synthesisers
@@ -588,7 +594,7 @@
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
     {:href          (encode path-url)
-     :payload       (url-requested-payload path-url target)
+     :payload       (navigate-payload path-url target)
      :native?       (native-anchor? target)
      :prefetch      (prefetch-payload target)
      :prefetch-keys prefetch-intent-keys}))

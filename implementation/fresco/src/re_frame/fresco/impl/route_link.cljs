@@ -116,9 +116,9 @@
 
   The navigation policy keys — `:replace?`, `:scroll` and `:bypass-leave?`
   — are owned for the same reason. The link model reads them off the props
-  and carries them on the click's `:rf.route/url-requested` payload, which
-  honours each as `:rf.route/navigate` does, so they are navigation policy
-  and never anchor attributes. They are spelled out here because this
+  and carries them on the click's `:rf.route/navigate` payload, which
+  honours each, so they are navigation policy and never anchor
+  attributes. They are spelled out here because this
   artefact cannot require routing's `policy-keys`; the route-link test
   checks this list against it."
   [:to :params :query :fragment :on-click :prefetch
