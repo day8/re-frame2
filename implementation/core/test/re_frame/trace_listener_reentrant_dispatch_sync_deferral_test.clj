@@ -3,11 +3,11 @@
   must not have the nested drain's traces fanned out while that frame's
   `:drain-lock` is held.
 
-  `re-frame.trace.tooling/deliver-to-tooling!` checks the post-drain deferral
-  scope BEFORE the reentrant `*fanout-ctx*` fast path; taking the fast path
-  first would drive the outer schedule inline and run listener code under the
-  nested drain's lock. That silently misbehaves rather than throwing, so the
-  probe records whether the lock was held at each callback. Same-thread and
+  `re-frame.trace.tooling/deliver-to-tooling!` defers every drain-owned emit,
+  and the post-drain flush appends the batch to the outer fan-out's queue, so
+  the nested drain's traces reach listeners only after the lock is released.
+  Running listener code under the lock silently misbehaves rather than
+  throwing, so the probe records whether the lock was held at each callback. Same-thread and
   deterministic. JVM-only: the lock read is meaningful only where a real lock
   cell exists; `trace-listener-post-drain-settled-state-cljs-test` carries the
   cross-host settled-state contract."
@@ -42,7 +42,7 @@
                               (:operation ev)))
           (swap! observed conj
                  [(:operation ev) (drain-lock-held? :rf/default)]))))
-    ;; Reacts to a clean emit (so `*fanout-ctx*` is bound) by draining
+    ;; Reacts to a clean emit (so a fan-out queue is active) by draining
     ;; :rf/default on this thread.
     (rf.trace.tooling/register-listener! ::trigger
       (fn [ev]
@@ -53,6 +53,31 @@
       (is (= #{[:rf.event/run-start false] [:rf.event/run-end false]}
              (set @observed))
           "a trace listener ran while :rf/default's :drain-lock was held")
+      (finally
+        (rf.trace.tooling/unregister-listener! ::probe)
+        (rf.trace.tooling/unregister-listener! ::trigger)))))
+
+(deftest ^:requires-debug listener-scheduled-async-drain-reaches-listeners
+  ;; JVM `next-tick` conveys dynamic bindings to the executor thread, so the
+  ;; async drain a listener schedules runs with the listener's bindings. Its
+  ;; traces must open their own fan-out there: appended to the scheduling
+  ;; thread's queue, whose loop has already finished, they would reach no
+  ;; listener.
+  (rf/reg-event :6t6qk/async (fn [_ _] {}))
+  (let [run-end (promise)]
+    (rf.trace.tooling/register-listener! ::trigger
+      (fn [ev]
+        (when (= :6t6qk/async-trigger (:operation ev))
+          (rf/dispatch [:6t6qk/async] {:frame :rf/default}))))
+    (rf.trace.tooling/register-listener! ::probe
+      (fn [ev]
+        (when (and (= :rf.event/run-end (:operation ev))
+                   (= :6t6qk/async (first (-> ev :tags :rf.event/v))))
+          (deliver run-end true))))
+    (try
+      (rf.trace/emit! :info :6t6qk/async-trigger {})
+      (is (true? (deref run-end 5000 false))
+          "the listener-scheduled async drain's run-end never reached a listener")
       (finally
         (rf.trace.tooling/unregister-listener! ::probe)
         (rf.trace.tooling/unregister-listener! ::trigger)))))

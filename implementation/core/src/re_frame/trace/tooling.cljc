@@ -736,83 +736,65 @@
 ;; of any reference to the rings state or listener atom — so a
 ;; production build that never `:requires` this ns DCEs the whole body.
 
-;; ---- reentrant fan-out scheduler (ordering + synchronous completion) ------
+;; ---- the fan-out queue (emission order, no re-entry) ----------------------
 ;;
-;; A listener callback may reentrantly emit a trace (dispatch, re-register a
-;; flow, create/destroy a frame — all emit). Two delivery laws must BOTH hold for
-;; such a nested emit (Spec 009 §Listener invocation rules + §Emitting trace
-;; events):
+;; A listener callback may itself emit a trace (dispatch, re-register a flow,
+;; create/destroy a frame — all emit). Listener delivery is ONE FIFO queue owned
+;; by the OUTERMOST deliverer (Spec 009 §Listener invocation rules):
 ;;
-;;   1. EMISSION ORDER. Every listener sees events in the order the
-;;      runtime fired them. If a listener handling outer event A emits B, no
-;;      listener may observe B before A — a nested fan-out must not overtake the
-;;      still-in-progress outer one.
-;;   2. SYNCHRONOUS COMPLETION. `emit!` returns only after its event
-;;      has reached every eligible listener — for a NESTED emit too. A listener
-;;      that emits B and then inspects another listener's state must see B already
-;;      delivered (Spec 009: "the emit returns once every listener has been
-;;      invoked").
+;;   - an emit raised from inside a listener body APPENDS its event to the queue
+;;     of the fan-out in progress on this thread and returns at once;
+;;   - the outermost deliverer's loop (`drive-fanout!`) delivers each queued
+;;     event to every listener in its snapshot before moving on to the next, and
+;;     runs until the queue is empty.
 ;;
-;; These pull against each other at the reentrant seam. When A's fan-out is paused
-;; inside listener Lk's callback and Lk emits B, law 2 says B must reach the
-;; not-yet-visited listeners before `emit!` returns, but law 1 says those
-;; listeners must see A before B. The ONLY schedule satisfying both is: advance A
-;; to the remaining listeners FIRST, then deliver B to all — all before the nested
-;; `emit!` returns. A fire-and-drain-later append would satisfy law 1 but break
-;; law 2: the nested emit would return before ANY listener saw B.
+;; So every listener sees events in emission order, no listener callback is ever
+;; re-entered (a nested event waits until the callback that emitted it has
+;; returned), and every event reaches every listener before the outermost
+;; delivery returns. A nested `emit!` returns BEFORE its event is delivered: a
+;; listener that emits and then inspects another listener's state finds the
+;; emission not yet processed. The ring push happens inline in emission order,
+;; epoch capture already fired in `re-frame.trace/deliver!` before this hook, and
+;; classification ran in `emit!`, so none of them waits for the queue.
 ;;
-;; The scheduler is a shared, resumable driver over a FIFO event queue. A single
-;; `*fanout-ctx*` (bound for the duration of the outermost fan-out) holds:
-;;   :q       — FIFO vector of `[event continue?]`, appended by reentrant emits;
-;;   :head    — index of the event currently being delivered; `[0,:head)` done;
-;;   :entries — the listener snapshot for the current event (taken once, so a
-;;              resumed delivery neither re-snapshots nor double-delivers);
-;;   :lcursor — how many of `:entries` have received the current event.
-;; `drive-fanout!` walks this to completion: for each event, deliver to every
-;; remaining listener (advancing `:lcursor` BEFORE the call so a reentrant emit
-;; resumes at the NEXT listener), then advance `:head`. Delivery is strictly FIFO
-;; across events, so every listener sees A fully before B — law 1.
+;; Each queued entry is `[event continue? entries]`: the event, its OWN
+;; authority, and the listener snapshot it is delivered to. A listener that
+;; destroys the outer incarnation flips that event's `continue?` false and
+;; suppresses its remaining fan-out without touching a later event's authority.
+;; A nested event is delivered after the listener body that emitted it has
+;; returned, so it is queued exactly as a deferred drain-owned event is — snapshot
+;; taken at enqueue, `continue?` read through `deferred-continue` — and the one
+;; rule below ("deferral moves only the TIMING of delivery, never its CONTENT")
+;; covers both. The listener body already ran under the neutral continuation scope
+;; `re-frame.trace/deliver!` established.
 ;;
-;; A reentrant emit APPENDS its event and then calls `drive-fanout!` itself:
-;; because `:head` / `:lcursor` are shared, that call advances the paused outer
-;; delivery to completion and then delivers the reentrant event, all before the
-;; nested `emit!` returns — law 2. When control unwinds to the outer driver, its
-;; loop finds the queue drained (`:head` past the end) and stops, so no work is
-;; repeated. The delivery SCHEDULE (which listener sees which event, and in what
-;; order) is the plain FIFO schedule; what the shared driver adds is that the
-;; nested `emit!`'s RETURN is blocked until its event has been delivered. The ring
-;; push happens inline in emission order (A pushed before the outer drive,
-;; B pushed when its reentrant `deliver-to-tooling!` runs), epoch capture already
-;; fired in `re-frame.trace/deliver!` before this hook, and classification ran in
-;; `emit!`.
-;;
-;; Composes with per-event authority: each queued event carries its OWN `continue?`
-;; snapshot; the driver consults it per event, so a listener that destroys the
-;; outer incarnation flips A's `continue?` false and suppresses A's remaining
-;; fan-out without touching a later event's authority. The listener body already
-;; ran under the neutral continuation scope `re-frame.trace/deliver!` established.
+;; The queue belongs to a THREAD and is never conveyed to another (`fanout-queue`
+;; is a JVM `ThreadLocal`; CLJS uses a volatile). JVM `next-tick` and
+;; `set-timeout!` convey dynamic bindings, so a drain a listener schedules runs
+;; on the executor with that listener's bindings; had it appended its traces to
+;; the scheduling thread's queue, whose loop has already finished, no listener
+;; would ever receive them. It opens its own outermost fan-out instead.
 ;;
 ;; ---- cross-thread fan-out serialization -----------------------------------
 ;;
-;; `*fanout-ctx*` is per-thread (a dynamic binding), so it only schedules
-;; SAME-thread reentrant emits. It says nothing about two emits racing on two JVM
-;; threads: each opens its OWN outermost fan-out and each would invoke the SAME
-;; registered listener callback CONCURRENTLY. That violates the public listener
-;; contract (`docs/api/re-frame.core.md`: "Delivery is synchronous: the callback
-;; returns before the next record") and Spec 009 §The listener contract, which
-;; require synchronous, in-order, event-at-a-time delivery PER listener — a
-;; callback the tool author was told can never re-enter itself would be run on two
-;; threads at once, and B could reach a listener before A even when A's emit began
-;; first.
+;; The fan-out queue only orders SAME-thread emits. It says nothing about two
+;; emits racing on two JVM threads: each opens its OWN outermost fan-out and each
+;; would invoke the SAME registered listener callback CONCURRENTLY. That violates
+;; the public listener contract (`docs/api/re-frame.core.md`: "Delivery is
+;; synchronous: the callback returns before the next record") and Spec 009
+;; §Listener invocation rules, which require synchronous, in-order,
+;; event-at-a-time delivery PER listener — a callback the tool author was told can
+;; never re-enter itself would be run on two threads at once, and B could reach a
+;; listener before A even when A's emit began first.
 ;;
 ;; A single process-global monitor (`fanout-monitor`) serializes each OUTERMOST
-;; EXTERNAL/clean fan-out — its whole `drive-fanout!` (outer advance + reentrant
-;; deliveries) included. Concurrent clean emits therefore linearize on
-;; monitor-acquisition order: the second thread cannot begin its fan-out until the
-;; first thread's outermost drive has fully drained. No listener callback ever
-;; overlaps itself, records reach each listener in a single defined order, and an
-;; emit still returns only after its record's callback has run (the monitor is
-;; held for the whole synchronous drive and released before `emit!` returns).
+;; fan-out — its whole `drive-fanout!`, every event queued behind the first
+;; included. Concurrent clean emits therefore linearize on monitor-acquisition
+;; order: the second thread cannot begin its fan-out until the first thread's
+;; queue has fully drained. No listener callback ever overlaps itself, records
+;; reach each listener in a single defined order, and an outermost emit still
+;; returns only after its record has reached every listener (the monitor is held
+;; for the whole synchronous drive and released before `emit!` returns).
 ;;
 ;; ---- the post-drain deferral seam -----------------------------------------
 ;;
@@ -845,7 +827,8 @@
 ;; (`call-with-deferred-fanout`, established by `re-frame.router/drain-try!` /
 ;; `drain-block!` and `re-frame.frame/call-serialized-with-drain!` around their
 ;; whole acquire → run → release region), where the batch is flushed under
-;; `fanout-monitor` before the enclosing dispatch / drain call returns.
+;; `fanout-monitor` before the enclosing dispatch / drain call returns — or, when
+;; a listener callback started the drain, appended to that fan-out's queue.
 ;;
 ;; That one seam discharges both laws at once, and the dynamic scope IS the
 ;; ownership evidence — no frame resolution, no ownership probe, no shape guess:
@@ -876,19 +859,19 @@
 ;; the ring push and epoch capture run inline, the pending vector
 ;; is FIFO, and the whole batch is flushed under one monitor hold, so a drain's
 ;; own traces reach listeners contiguously and in order. The WHOLE captured batch
-;; is queued onto ONE fan-out schedule before any callback runs —
-;; `run-outermost-fanout!` for a top-level flush, `into` the active `*fanout-ctx*`
-;; for an integrated one — so a listener that authors a later trace while an
-;; earlier deferred entry is being fanned out appends BEHIND the still-pending
-;; later entries rather than overtaking them, exactly as an inline delivery of the
-;; same run would have ordered them.
+;; is queued onto ONE fan-out queue before any callback runs —
+;; `run-outermost-fanout!` for a top-level flush, `into` this thread's active
+;; queue for a listener-initiated drain — so a listener that authors a later
+;; trace while an earlier deferred entry is being fanned out appends BEHIND the
+;; still-pending later entries rather than overtaking them, exactly as an inline
+;; delivery of the same run would have ordered them.
 ;;
-;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit sees
-;; `*fanout-ctx*` already bound and takes the append+drive branch below, so it
-;; never reaches the lock — no self-deadlock, and the reentrant schedule advances
-;; the SAME critical section. `locking` is a reentrant monitor regardless, so a
-;; listener whose `dispatch-sync` drains a frame and flushes that drain's deferred
-;; batch while its own fan-out still holds the monitor simply re-enters it.
+;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit finds
+;; this thread's fan-out queue and appends to it, so it never reaches the lock.
+;; `locking` is a reentrant monitor regardless, so a listener whose
+;; `dispatch-sync` drains a frame and flushes that drain's deferred batch while
+;; its own fan-out still holds the monitor simply re-enters it (and the flush
+;; only appends).
 ;;
 ;; CLJS is single-threaded: no concurrent emits and no monitor. It defers all the
 ;; same: the drain opens the deferral scope through a late-bind hook (a volatile,
@@ -898,14 +881,34 @@
 ;; through the hook keeps the static drain path free of this ns, preserving
 ;; production elision.
 
-(def ^:private ^:dynamic *fanout-ctx*
-  "When bound, the shared fan-out schedule for the outermost listener fan-out in
-  progress on this thread — a map of volatiles `{:q :head :entries :lcursor}`
-  (see the section note above). A trace emitted reentrantly from inside a listener
-  body appends to `:q` and drives the same schedule, so every listener observes
-  the outer event before the reentrant one AND the nested `emit!` returns only
-  after its event reached every listener. nil at the top of the stack."
-  nil)
+#?(:clj
+   (def ^:private ^ThreadLocal fanout-queue
+     "When set, the queue of the outermost listener fan-out in progress on THIS
+     thread: a volatile FIFO vector of `[event continue? entries]` triples (see
+     the section note above). A trace emitted from inside a listener body appends
+     here and returns; the outermost deliverer's loop delivers it after every
+     event ahead of it.
+
+     A `ThreadLocal`, not a `^:dynamic` Var, for the reason given at
+     `deferred-drain-fanout`: JVM `next-tick` and `set-timeout!` convey Var
+     bindings, and an executor thread appending to a queue whose loop has
+     finished would strand its events. The CLJS analogue is `fanout-queue-cljs`."
+     (ThreadLocal.)))
+
+#?(:cljs
+   (def ^:private fanout-queue-cljs
+     "The CLJS fan-out queue: a volatile holding the outermost fan-out's queue
+     while one is in progress, else nil. A plain volatile suffices because a
+     fan-out runs to completion synchronously and clears it on the way out, so no
+     later async task ever sees it."
+     (volatile! nil)))
+
+(defn- current-fanout-queue
+  "The queue of the outermost listener fan-out in progress on this thread of
+  execution, or nil when none is."
+  []
+  #?(:clj  (.get ^ThreadLocal fanout-queue)
+     :cljs @fanout-queue-cljs))
 
 #?(:clj
    (def ^:private ^Object fanout-monitor
@@ -914,10 +917,10 @@
      listener callback is ever invoked on two threads at once and records reach
      each listener in one defined order. Held for the whole synchronous drive of a
      clean emit, and for the whole post-drain flush of a deferred batch. Reentrant
-     same-thread emits never acquire it (they advance the bound `*fanout-ctx*`
-     schedule), and a thread that owns a frame's `:drain-lock` never acquires it
-     (it appends to `*deferred-drain-fanout*` instead — see the seam note above).
-     CLJS is single-threaded and has no counterpart."
+     same-thread emits never acquire it (they append to this thread's
+     `fanout-queue`), and a thread that owns a frame's `:drain-lock` never
+     acquires it (it appends to `deferred-drain-fanout` instead — see the seam
+     note above). CLJS is single-threaded and has no counterpart."
      (Object.)))
 
 #?(:clj
@@ -1031,84 +1034,66 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))
     nil))
 
-(defn- drive-fanout!
-  "Drive the shared fan-out schedule `ctx` to completion: deliver every queued
-  event to every registered listener, FIFO across events and in registration
-  order within each event, resuming from the shared `:head` / `:entries` /
-  `:lcursor` cursors so a reentrant emit can advance a paused outer delivery to
-  every remaining listener BEFORE its own event is delivered.
+(defn- listener-snapshot
+  "The registered listeners, as the `[id f]` entries a queued event is
+  delivered to."
+  []
+  (vec (seq @listeners)))
 
-  Per-listener throws are isolated. Each event is
-  delivered under its OWN `continue?` snapshot: a listener that
-  destroys the outer incarnation flips that event's `continue?` false, which stops
-  its remaining fan-out and advances to the next queued event (evaluated under its
-  own predicate). `:lcursor` advances BEFORE the callback runs, so a reentrant
-  emit resuming this event delivers to the NEXT listener, never re-invoking the
-  current one. The listener snapshot per event is taken once (`:entries` nil ->
-  snapshot) so a resumed delivery is consistent even if the registry changes
-  mid-event."
-  [ctx]
-  (let [q       (:q ctx)
-        head    (:head ctx)
-        entries (:entries ctx)
-        lcursor (:lcursor ctx)]
-    (loop []
-      (when (< @head (count @q))
-        (when (nil? @entries)
-          ;; A queued triple `[event continue? snapshot]` carries the listener
-          ;; snapshot captured when a DEFERRED drain-owned event was appended,
-          ;; so integrating a nested drain's traces
-          ;; into a paused outer schedule reaches exactly the listeners an inline
-          ;; delivery would have. A plain pair re-snapshots live, as a reentrant
-          ;; listener-body emit always does.
-          (let [qelem    (nth @q @head)
-                snapshot (if (> (count qelem) 2)
-                           (nth qelem 2)
-                           (vec (seq @listeners)))]
-            ;; The unobserved-warning print reads THIS snapshot, so "printed"
-            ;; and "no listener received it" always agree.
-            (when (empty? snapshot)
-              (print-unobserved-warning! (nth qelem 0)))
-            (vreset! entries snapshot)
-            (vreset! lcursor 0)))
-        (let [[event continue?] (nth @q @head)
-              es                @entries]
-          (if (and (< @lcursor (count es)) (continue?))
-            (let [[_ f] (nth es @lcursor)]
-              (vreset! lcursor (inc @lcursor))
+(defn- drive-fanout!
+  "Deliver every event on the fan-out queue `q` — a volatile FIFO vector of
+  `[event continue? entries]` triples — to every listener in its `entries`
+  snapshot, in queue order, until the queue is empty. Only the outermost
+  deliverer runs this loop: an event appended while it runs (a listener body's
+  emit, or the flush of a listener-initiated drain) is delivered here once every
+  event ahead of it has reached every listener, so no listener callback is ever
+  re-entered.
+
+  Per-listener throws are isolated. Each event is delivered under its OWN
+  `continue?`: a listener that destroys the outer incarnation flips that event's
+  `continue?` false, which stops its remaining fan-out and moves on to the next
+  queued event (evaluated under its own predicate)."
+  [q]
+  (loop [head 0]
+    (when (< head (count @q))
+      (let [[event continue? entries] (nth @q head)]
+        ;; The unobserved-warning print reads THIS snapshot, so "printed" and
+        ;; "no listener received it" always agree.
+        (when (empty? entries)
+          (print-unobserved-warning! event))
+        (loop [i 0]
+          (when (and (< i (count entries)) (continue?))
+            (let [[_ f] (nth entries i)]
               (try
                 (f event)
                 (catch #?(:clj Throwable :cljs :default) _ nil))
-              (recur))
-            (do (vswap! head inc)
-                (vreset! entries nil)
-                (recur))))))))
+              (recur (inc i)))))
+        (recur (inc head))))))
 
 (defn- run-outermost-fanout!
-  "Seed ONE fresh fan-out schedule for a whole `batch` of queue entries, bind it
-  as `*fanout-ctx*` so reentrant emits from listener bodies advance the SAME
-  schedule, and drive it to completion. Always runs under `fanout-monitor` on the
-  JVM so concurrent emits serialize — either a single clean emit
-  (`batch` is one entry) or the whole post-drain flush of a deferred batch;
-  see the `deliver-to-tooling!` outermost branch and
-  `drain-deferred-batch!`. The binding + drive are the whole critical section.
+  "Seed ONE fresh fan-out queue with a whole `batch` of `[event continue?
+  entries]` triples, install it as this thread's `fanout-queue` so emits from
+  listener bodies append to it, and drive it to completion. Always runs under
+  `fanout-monitor` on the JVM so concurrent emits serialize — either a single
+  clean emit (`batch` is one entry) or the whole post-drain flush of a deferred
+  batch; see the `deliver-to-tooling!` outermost branch and
+  `drain-deferred-batch!`. Installing the queue and driving it are the whole
+  critical section.
 
   Seeding the WHOLE batch before driving is what keeps a deferred batch FIFO:
-  a listener that authors a later trace while an EARLIER deferred
-  entry is being fanned out appends BEHIND the still-pending later entries rather
-  than overtaking them. `:entries` starts nil and `drive-fanout!` re-reads it per
-  event as it advances `:head`, so a queued triple `[event continue? snapshot]`
-  delivers under the listener snapshot captured when it was APPENDED (exactly the
-  listeners an inline delivery would have reached), while a plain pair
-  `[event continue?]` — a single clean emit, or a reentrant child queued behind
-  the batch — re-snapshots live, as an inline listener-body emit always does."
+  a listener that authors a later trace while an EARLIER deferred entry is being
+  fanned out appends BEHIND the still-pending later entries rather than
+  overtaking them. Each entry is delivered under the listener snapshot taken when
+  it was queued."
   [batch]
-  (let [ctx {:q       (volatile! (vec batch))
-             :head    (volatile! 0)
-             :entries (volatile! nil)
-             :lcursor (volatile! 0)}]
-    (binding [*fanout-ctx* ctx]
-      (drive-fanout! ctx))))
+  (let [q (volatile! (vec batch))]
+    #?(:clj  (.set ^ThreadLocal fanout-queue q)
+       :cljs (vreset! fanout-queue-cljs q))
+    (try
+      (drive-fanout! q)
+      (finally
+        #?(:clj  (.remove ^ThreadLocal fanout-queue)
+           :cljs (vreset! fanout-queue-cljs nil))))))
 
 (def ^:private unread
   "Distinct baseline sentinel for `deferred-continue` — a fresh object, held by
@@ -1161,6 +1146,9 @@
       is delivered in full — just later.
 
   Deferral therefore changes delivery TIMING only, never the recipient set.
+  A nested emit queued behind the event being delivered is read through this
+  too: it is delivered after the listener body that emitted it has returned,
+  which unwinds that body's context in exactly the same way.
   Cross-platform: CLJS defers drain-owned emits too, and the same
   context-dependent-fence unwinding applies there, so this reasoning is not
   JVM-specific. The `unread` sentinel is a dedicated object, NOT a keyword: CLJS
@@ -1194,24 +1182,16 @@
     (let [batch @deferred-queue]
       (when (seq batch)
         (vreset! deferred-queue [])
-        (if-let [ctx *fanout-ctx*]
-          ;; A listener-initiated `dispatch-sync`: the flush runs
-          ;; while an OUTER listener fan-out is still paused inside the very
-          ;; listener body that opened this drain. INTEGRATE into that active
-          ;; schedule rather than seeding fresh outermost fan-outs. Enqueue the
-          ;; WHOLE captured batch FIRST, then drive once: `drive-
-          ;; fanout!` advances the paused outer event to its remaining listeners
-          ;; FIRST, so every listener still observes the outer event before these
-          ;; nested drain-owned ones; the whole batch is delivered
-          ;; before the enclosing `dispatch-sync` returns; and a
+        (if-let [q (current-fanout-queue)]
+          ;; A listener-initiated `dispatch-sync`: the flush runs inside the
+          ;; listener body that opened this drain, while the outer fan-out is
+          ;; still delivering. Append the WHOLE captured batch to that queue and
+          ;; return: the outermost loop delivers it once the outer event and
+          ;; everything queued ahead of it have reached every listener, and a
           ;; listener that authors a later trace while an EARLIER batch item is
-          ;; being driven appends BEHIND the still-pending later items instead of
-          ;; overtaking them (FIFO). Each entry already carries its
-          ;; append-time listener snapshot, which `drive-fanout!` honours. No
-          ;; monitor re-acquire is needed: the outer drive already holds it (JVM),
-          ;; and CLJS has none.
-          (do (vswap! (:q ctx) into batch)
-              (drive-fanout! ctx))
+          ;; being delivered appends BEHIND the still-pending later items
+          ;; (FIFO). Each entry carries its append-time listener snapshot.
+          (vswap! q into batch)
           ;; Outermost drain (a top-level dispatch-sync / async drain): seed ONE
           ;; fresh outermost schedule for the WHOLE batch, so the
           ;; entire batch is queued before any callback runs and a listener's
@@ -1243,7 +1223,8 @@
   "Run `f` as one post-drain listener-delivery region: trace events emitted inside
   it while the framework owns a frame's `:drain-lock` are appended rather than
   fanned out, and the batch is delivered here, on the way out (under
-  `fanout-monitor` on the JVM).
+  `fanout-monitor` on the JVM) — or, when a listener callback started the drain,
+  appended to that fan-out's queue.
 
   Wrap the WHOLE acquire → run → release region of every path that takes a
   `:drain-lock` (`re-frame.router/drain-try!` / `drain-block!` and
@@ -1320,13 +1301,11 @@
   listener BODY's nested authored work runs under ordinary always-continue
   authority, not A's fence.
 
-  Reentrant fan-out is SCHEDULED, not fired immediately, to preserve BOTH delivery
-  laws (see the section note above): a nested emit from inside a listener body
-  appends to the bound `*fanout-ctx*` and drives it, advancing the paused outer
-  delivery to every remaining listener BEFORE delivering the nested event — so
-  every listener observes the outer event before the reentrant one AND the
-  nested `emit!` returns only after its event reached every listener. The ring
-  push happens inline (emission order)."
+  A nested emit from inside a listener body is QUEUED, not fanned out (see the
+  section note above): it appends to this thread's fan-out queue and returns, and
+  the outermost deliverer's loop delivers it after the outer event has reached
+  every listener — so every listener observes the outer event first and no
+  callback is re-entered. The ring push happens inline (emission order)."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
@@ -1344,14 +1323,10 @@
      ;; while the framework owns a frame's `:drain-lock` — is appended, never
      ;; fanned out, until the post-drain boundary.
      ;;
-     ;; This check takes PRECEDENCE over the reentrant `*fanout-ctx*` fast path
-     ;; below: when an outer listener fan-out is in progress AND that
-     ;; listener's `dispatch-sync` has opened a nested drain scope, the nested
-     ;; drain's traces must DEFER — driving the outer schedule here would run
-     ;; arbitrary listener code inside the framework's critical section while the
-     ;; lock is held, the exact negation of the post-drain deferral seam. The post-drain
-     ;; flush integrates the batch back into that paused outer schedule so
-     ;; outer-before-inner ordering and synchronous completion survive.
+     ;; This check comes before the listener-body branch below: a drain-owned
+     ;; emit always defers, whether or not a fan-out is in progress. When one
+     ;; is (a listener's `dispatch-sync` opened this drain), the post-drain
+     ;; flush appends the batch to that fan-out's queue.
      ;;
      ;; The deferral scope also PROVES lock ownership (`call-with-deferred-fanout`
      ;; brackets every acquire → run → release region), so a drain-owned emit
@@ -1361,19 +1336,17 @@
      ;; scope, so a single-threaded host defers too and its
      ;; listeners never observe partial state.
      (do (vswap! deferred-queue conj [event (deferred-continue continue?)
-                                      (vec (seq @listeners))])
+                                      (listener-snapshot)])
          nil)
-     (if-let [ctx *fanout-ctx*]
-       ;; Reentrant emit from inside a listener body with NO drain scope open:
-       ;; append and drive the shared schedule. `drive-fanout!` advances the
-       ;; paused outer delivery to every remaining listener, then delivers this
-       ;; event, before we return — so the nested `emit!` completes synchronously
-       ;; while every listener still sees the outer event first. Ring retention
-       ;; already ran above, in emission order.
-       ;; `*fanout-ctx*` is bound only on THIS thread, so this branch keeps a
-       ;; reentrant emit off `fanout-monitor` — no self-deadlock.
-       (do (vswap! (:q ctx) conj [event continue?])
-           (drive-fanout! ctx)
+     (if-let [q (current-fanout-queue)]
+       ;; An emit from inside a listener body with NO drain scope open: queue it
+       ;; behind the event being delivered and return. The outermost loop
+       ;; delivers it once the callback that emitted it has returned, under the
+       ;; same snapshot-and-latch rule as a deferred event. Ring retention
+       ;; already ran above, in emission order. The queue is this thread's
+       ;; alone, so this branch keeps a nested emit off `fanout-monitor`.
+       (do (vswap! q conj [event (deferred-continue continue?)
+                           (listener-snapshot)])
            nil)
        ;; Outermost emit, no drain scope: by the same deferral bracketing this
        ;; thread provably holds no drain-lock — so it serializes on
@@ -1381,8 +1354,9 @@
        ;; held for the whole drive, and nothing can wait on it through a
        ;; drain-lock. CLJS is single-threaded and runs every outermost emit inline
        ;; with no monitor.
-       #?(:clj  (locking fanout-monitor (run-outermost-fanout! [[event continue?]]))
-          :cljs (run-outermost-fanout! [[event continue?]]))))))
+       #?(:clj  (locking fanout-monitor
+                  (run-outermost-fanout! [[event continue? (listener-snapshot)]]))
+          :cljs (run-outermost-fanout! [[event continue? (listener-snapshot)]]))))))
 
 (rf.late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
