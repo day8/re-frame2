@@ -529,7 +529,8 @@
   validation seams follow). Inferring presence from
   `(some? prior-schema)` would conflate a real entry carrying a nil token
   with no entry at all, so re-registering that path would be read as a
-  first registration and a `nil` → `nil` re-eval would warn.
+  first registration and an unchanged `nil` → `nil` re-eval would re-check
+  the live value.
 
   `:pre-reload-schema` names the prior declaration's token, so the trace
   carries it only on a re-registration: on a first registration there is
