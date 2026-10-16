@@ -100,10 +100,11 @@
   ;; runs under.
   ;;
   ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
-  ;; directory, is the whole production-gate lane, in CI (the
-  ;; `jvm-routing-prod-gate` job) and on a laptop alike. There is no exclusion
-  ;; roster and no `-n` selector: the runner discovers every `.*-test$`
-  ;; namespace, so a NEW namespace joins the lane by default.
+  ;; directory, is the whole production-gate lane, in CI (test.yml's
+  ;; `JVM implementation/routing (test:prod-gate)` leg) and on a laptop
+  ;; alike. There is no exclusion roster and no `-n` selector: the runner
+  ;; discovers every `.*-test$` namespace, so a NEW namespace joins the lane
+  ;; by default.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
    :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}

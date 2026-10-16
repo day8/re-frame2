@@ -54,9 +54,10 @@
 ;; whole tool tier on one classpath. It is not a published artefact and it
 ;; declares NO test alias.
 ;;
-;; The tool-tier JVM command is `scripts/test-jvm-tools.sh`, the roster that
-;; scripts/check_jvm_lane_rosters.py holds against the required CI jobs. An
-;; aggregate `:test` alias here would be a second hand-written inventory
+;; The tool-tier JVM command is `scripts/test-jvm-tools.sh`, whose roster is
+;; the rows of scripts/jvm-lanes.txt outside implementation/, which
+;; scripts/check_jvm_lanes.py holds against the deps.edn files and test.yml.
+;; An aggregate `:test` alias here would be a second hand-written inventory
 ;; that no CI job runs, so nothing would turn its drift red, and a developer
 ;; running it would get a green that skips live JVM-only contracts.
 ;;
