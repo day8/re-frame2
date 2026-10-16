@@ -75,6 +75,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { SHADOW_CLI } = require('../../scripts/lib/shadow.cjs');
 
 const IMPL = path.resolve(__dirname, '../..');
 const BUILD_ID = 'fresco-modules-compile';
@@ -239,10 +240,13 @@ function verifyRoster(rows, impl = IMPL) {
 // exit status is the whole verdict: there is no output left to parse.
 // ---------------------------------------------------------------------------
 
-/** Build `buildId` through shadow-cljs's own JS entry-point; any failure ends the process. */
+/**
+ * Build `buildId` through the shared shadow-cljs launcher, which takes the
+ * machine-wide build lane and owns the compiler's process tree; any failure
+ * ends the process.
+ */
 function shadowBuild({ impl, mode, buildId, configMerge, tag }) {
-  const runner = path.join(impl, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
-  const args = [runner, mode, buildId];
+  const args = [SHADOW_CLI, mode, buildId];
   if (configMerge) args.push('--config-merge', configMerge);
   const r = spawnSync(process.execPath, args, { cwd: impl, stdio: 'inherit' });
   if (r.error || r.status !== 0) {

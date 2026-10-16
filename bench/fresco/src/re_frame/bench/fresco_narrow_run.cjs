@@ -118,6 +118,10 @@ const { resetLaneBuildCache } = require(
   path.join(IMPL, 'core/test/re_frame/bench/lane_cache.cjs')
 );
 
+// The shared shadow-cljs launcher, reached the same way: the machine-wide build
+// lane, and the compiler's process tree owned.
+const { SHADOW_CLI } = require(path.join(IMPL, 'scripts/lib/shadow.cjs'));
+
 // THE LANE'S ONE PAGE-FAILURE COLLECTOR, reached the same way and with NO
 // FALLBACK for the same reason: a fallback would silently re-arm the
 // fail-open this require exists to close. A bare `pageerror` handler that
@@ -199,10 +203,9 @@ function build() {
     console.error(`[hn] cleared .shadow-cljs/builds/${BASE_BUILD} — one build id, N arms`);
   }
   console.error(`[hn] building :advanced bundle from template :${BASE_BUILD} ...`);
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', BASE_BUILD, '--config-merge', CONFIG_MERGE],
+    [SHADOW_CLI, 'release', BASE_BUILD, '--config-merge', CONFIG_MERGE],
     { cwd: PROJECT, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {

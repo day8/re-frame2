@@ -153,12 +153,14 @@ const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
+// The shared shadow-cljs launcher: the machine-wide build lane, and the compiler's
+// process tree owned.
+const { SHADOW_CLI } = require('../../../../../implementation/scripts/lib/shadow.cjs');
 // The bench lane's one page-failure collector, a sibling in this same
 // shared bench-helper directory.
 const { watchPage } = require('../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../..');
-const IMPL = path.resolve(PROJECT, '../../implementation');
 
 const BUILD = process.env.P0_BUILD || 'fresco-bench';
 const OUT_DIR = process.env.P0_OUT_DIR || 'out/p0-fresco';
@@ -608,13 +610,12 @@ function build() {
     console.error(`[p0] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms`);
   }
   console.error(`[p0] building :advanced bundle (donor build id: ${BUILD}) ...`);
-  // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
-  // Windows needs `shell: true`, and a shell concatenates argv, which is
-  // the other way the config-merge EDN gets torn in half.
-  const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+  // The shared launcher under `node` rather than the `.cmd` shim: spawning a
+  // shim on Windows needs `shell: true`, and a shell concatenates argv, which
+  // is the other way the config-merge EDN gets torn in half.
   const r = spawnSync(
     process.execPath,
-    [runner, 'release', BUILD, '--config-merge', CONFIG_MERGE],
+    [SHADOW_CLI, 'release', BUILD, '--config-merge', CONFIG_MERGE],
     { cwd: PROJECT, stdio: ['ignore', 'inherit', 'inherit'] }
   );
   if (r.status !== 0) {
