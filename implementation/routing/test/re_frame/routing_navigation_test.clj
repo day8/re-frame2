@@ -241,6 +241,37 @@
     (is (= 2 @on-match-calls))
     (is (= "nav-2" (:nav-token (nav-slice))))))
 
+(deftest on-match-event-receives-the-activation-target-last
+  ;; Spec 012 §Per-route data loading: each :on-match event is dispatched with
+  ;; one trailing argument — the target the guards saw plus the nav-token the
+  ;; commit allocated — so a loader reads its inputs from its own event. An
+  ;; entry with its own arguments receives the target after them.
+  (let [received (atom [])
+        record   (fn [{:keys [db]} event] (swap! received conj event) {:db db})]
+    (rf/reg-event :article/load record)
+    (rf/reg-event :article/track record)
+    (rf/reg-route :route/article {:on-match [[:article/load] [:article/track :viewed]]}
+                  "/articles/:id")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A?tab=x#c" {:rf.route/cause :link}])
+    (let [target {:route-id  :route/article
+                  :params    {:id "A"}
+                  :query     {"tab" "x"}
+                  :fragment  "c"
+                  :url       "/articles/A?tab=x#c"
+                  :nav-token "nav-1"}]
+      (is (= "nav-1" (:nav-token (nav-slice))) "the target's token is the one the commit published")
+      (is (= [[:article/load target] [:article/track :viewed target]] @received)))
+    (reset! received [])
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "B"}}])
+    (let [target {:route-id  :route/article
+                  :params    {:id "B"}
+                  :query     {}
+                  :fragment  nil
+                  :url       "/articles/B"
+                  :nav-token "nav-2"}]
+      (is (= "nav-2" (:nav-token (nav-slice))))
+      (is (= [[:article/load target] [:article/track :viewed target]] @received)))))
+
 ;; ---- param validation: a caller's address vs a raw URL ---------------------
 
 (deftest navigate-to-validation-failure-rejects-and-leaves-slice-unchanged
