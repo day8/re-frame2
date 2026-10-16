@@ -18,7 +18,7 @@
   - `re-frame.resources.state`           — reserved runtime-db paths, durable shapes, the host-side generation allocator, framework-write-authority stamp
   - `re-frame.resources.registry`        — `reg-resource` / `clear-resource` + the `:resource` registrar kind + registry introspection
   - `re-frame.resources.transport`       — the transport-neutral lower seam
-  - `re-frame.resources.transport.http`  — the `:rf.http/managed` lowering (late-bound HTTP)
+  - `re-frame.resources.transport.http`  — the `:rf.http/managed` lowering
   - `re-frame.resources.events`          — the `:rf.resource/*` causal event handlers (+ internal replies)
   - `re-frame.resources.subs`            — the `:rf.resource/*` passive subs
   - `re-frame.resources.route`           — LATE-BOUND routing integration (`:resources` route-metadata key)
@@ -36,10 +36,13 @@
   (`day8/re-frame2-resources`). `re-frame.core` MUST NOT `:require` it; the
   public-API surface is published through the late-bind table, so an app
   that omits the artefact sees the wrappers throw a clean
-  `:rf.error/resources-artefact-missing`. The routing + SSR integrations
-  are LATE-BOUND (resources never statically `:require`s routing / ssr /
-  http), so an app that loads resources but not those optional artefacts
-  carries none of their code. Nothing here `:require`s from `tools/`.
+  `:rf.error/resources-artefact-missing`. Managed HTTP is the one read
+  transport, so this namespace requires `re-frame.http.managed` (the artefact
+  depends on `day8/re-frame2-http`) and loading it registers
+  `:rf.http/managed`. The routing + SSR integrations are LATE-BOUND
+  (resources never statically `:require`s routing / ssr), so an app that
+  loads resources but not those optional artefacts carries none of their
+  code. Nothing here `:require`s from `tools/`.
 
   Loading this namespace registers the complete resource and mutation event,
   subscription, effect, and integration surface."
@@ -48,6 +51,9 @@
             [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
+            ;; The one read transport: loading resources registers
+            ;; `:rf.http/managed` and its late-bind hooks.
+            [re-frame.http.managed]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.events :as rf.resources.events]

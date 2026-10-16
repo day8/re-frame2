@@ -28,9 +28,6 @@
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
-   ;; production HTTP fx surface, so the transport feature probe resolves on the
-   ;; real-path drain tests; the fetch + abort fxs are stubbed below.
-   [re-frame.http.managed]
    ;; SSR artefact — the :rf/hydrate handler that consults the reconcile hook.
    [re-frame.ssr]
    ;; the consumer of :ssr/extend-runtime-db-projection (project-runtime-db).
