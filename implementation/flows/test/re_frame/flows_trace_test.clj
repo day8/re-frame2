@@ -162,15 +162,36 @@
     (is (rf.elision/marker? (:result tags)))))
 
 (defn- sign-in-through-throwing-flow!
-  "Sign in with `token` through a flow whose `:derive` throws an ex-info quoting
-  the token in its message and its data; return the `:rf.flow/failed` events."
-  [token]
-  (rf/reg-event :auth/signed-in {:interceptors [[:rf.interceptor/path [:auth]]]}
-    (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
-  (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]}
-    (fn [tok] (throw (ex-info (str "rejected " tok) {:leaked-token tok}))))
-  (rf/dispatch-sync [:auth/signed-in token])
-  (by-op :rf.flow/failed))
+  "Sign in with `token` through a flow whose `:derive` throws `(throwable message
+  token)`, the message quoting the token — by default an ex-info carrying the
+  token in its data too; return the `:rf.flow/failed` events."
+  ([token]
+   (sign-in-through-throwing-flow! token #(ex-info %1 {:leaked-token %2})))
+  ([token throwable]
+   (rf/reg-event :auth/signed-in {:interceptors [[:rf.interceptor/path [:auth]]]}
+     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
+   (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]}
+     (fn [tok] (throw (throwable (str "rejected " tok) tok))))
+   (rf/dispatch-sync [:auth/signed-in token])
+   (by-op :rf.flow/failed)))
+
+(defn- plain-error
+  "A throwable with a message and no `ex-data`."
+  [message _]
+  (IllegalStateException. ^String message))
+
+(defn- flow-eval-exception-rows
+  "Run `drive!` and return the `:rf.error/flow-eval-exception` traces it emitted."
+  [drive!]
+  (let [seen (atom [])]
+    (rf.trace.tooling/register-listener!
+      ::flow-eval-exception-rows
+      (fn [ev] (when (= :rf.error/flow-eval-exception (:operation ev)) (swap! seen conj ev))))
+    (try
+      (drive!)
+      @seen
+      (finally
+        (rf.trace.tooling/unregister-listener! ::flow-eval-exception-rows)))))
 
 (deftest flow-failed-redacts-exception-slots-when-frame-sensitive
   ;; On a frame holding sensitive data the message and the author-keyed ex-data
@@ -190,6 +211,35 @@
   (let [[ev] (sign-in-through-throwing-flow! "TOP-SECRET")]
     (is (= ["rejected TOP-SECRET" {:leaked-token "TOP-SECRET"} nil]
            [(-> ev :tags :exception-message) (-> ev :tags :exception-data) (:sensitive? ev)]))))
+
+(deftest flow-failed-redacts-a-plain-error-message-when-frame-sensitive
+  ;; A throw with no `ex-data` still carries a message that can quote the secret.
+  (classify! :rf/default :sensitive [:auth :token])
+  (let [[ev] (sign-in-through-throwing-flow! "TOP-SECRET" plain-error)]
+    (is (= [:rf/redacted true false]
+           [(-> ev :tags :exception-message) (:sensitive? ev)
+            (str/includes? (pr-str ev) "TOP-SECRET")]))))
+
+(deftest flow-failed-keeps-a-plain-error-message-when-frame-unclassified
+  (let [[ev] (sign-in-through-throwing-flow! "TOP-SECRET" plain-error)]
+    (is (= ["rejected TOP-SECRET" nil nil]
+           [(-> ev :tags :exception-message) (-> ev :tags :exception-data) (:sensitive? ev)]))))
+
+;; The run-level row's raw `:exception` prints the flow's thrown value as its
+;; cause, so it redacts on the same condition as `:rf.flow/failed`. Its `:event`
+;; is the dispatched event, classified by that event's own registration.
+(deftest flow-eval-exception-row-redacted-when-frame-sensitive
+  (classify! :rf/default :sensitive [:auth :token])
+  (let [[ev & more] (flow-eval-exception-rows #(sign-in-through-throwing-flow! "TOP-SECRET"))]
+    (is (= [nil :rf/redacted true false]
+           [more (-> ev :tags :exception) (:sensitive? ev)
+            (str/includes? (pr-str (update ev :tags dissoc :event)) "TOP-SECRET")]))))
+
+(deftest flow-eval-exception-row-keeps-its-exception-when-frame-unclassified
+  (let [[ev] (flow-eval-exception-rows #(sign-in-through-throwing-flow! "TOP-SECRET"))]
+    (is (= [nil true]
+           [(:sensitive? ev)
+            (str/includes? (pr-str (-> ev :tags :exception)) "rejected TOP-SECRET")]))))
 
 (deftest flow-failed-fails-closed-on-an-unresolvable-frame
   ;; With no frame there is no classification to consult, so the row redacts.
