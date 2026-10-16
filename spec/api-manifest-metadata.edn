@@ -525,8 +525,8 @@
   ;; --- re-frame.ssr CLJS-only client lifecycle ---
   ;; `read-server-payload` is defined under `#?(:cljs …)`, so the JVM
   ;; generator's view of re-frame.ssr cannot see it. spec/API.md's
-  ;; implementation-tier SSR note names it beside the JVM-visible
-  ;; `verify-hydration!`; the supported client path is `hydrate!`.
+  ;; implementation-tier SSR note names it; the supported client path is
+  ;; `hydrate!`.
   ;; Not covered by the CLJS probe, which does not load re-frame.ssr.
   {:namespace "re-frame.ssr" :var "read-server-payload" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
 
@@ -1166,7 +1166,7 @@
   ;; production boundary validation is the `:boundary? true` reg-event
   ;; metadata key, so there is no public var to classify.
   ;; SSR query surface: NOT re-exported.
-  ;; `render-to-string` / `render-tree-hash` / `project-error` /
+  ;; `render-to-string` / `project-error` /
   ;; `head-model` / `head-model->html` have no facade rows. A facade wrapper
   ;; would exist only to give the guided `:rf.error/ssr-artefact-missing` to an
   ;; app that calls an SSR fn without the artefact -- but loading
@@ -1704,7 +1704,6 @@
   ;; version-1 tree rather than hiccup): it invokes no view and resolves no
   ;; subscription.
   ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "004B" :status "v1"}
-  ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
   ;; The head-model SERIALISER and the single head READ, `head-model`, are
   ;; re-exported here from
@@ -1717,13 +1716,11 @@
   ["re-frame.ssr" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
-  ;; The supported client boot, rowed in spec/API.md SSR. A host that must
-  ;; observe the MOUNTED tree splits it into read-server-payload +
-  ;; :rf/hydrate + verify-hydration!; `hydrate-page!` is
-  ;; `:implementation`.
+  ;; The supported client boot, rowed in spec/API.md SSR. A host may
+  ;; instead seed with read-server-payload + :rf/hydrate; `hydrate-page!`
+  ;; is `:implementation`.
   ["re-frame.ssr" "hydrate!"]                      {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate-page!"]                 {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "set-request!"]                  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "get-request"]                   {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "clear-request!"]                {:tier :implementation :owner "011" :status "v1"}
