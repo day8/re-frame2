@@ -139,20 +139,6 @@
              :after  {:state :authing :data {}}
              :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter       rf.adapter.reagent/adapter
-     :ambient-frame nil
-     :async?        true
-     :init-fn       (fn []
-                      (xray-test-support/reset-all!)
-                      ;; Fresco's collector tables are process-global
-                      ;; `defonce`s the core fixture knows nothing about; a
-                      ;; neighbour's boundary left in the entry cache would
-                      ;; make W3's release row read a residue that is not
-                      ;; this panel's.
-                      (rf.fresco.impl.collector/reset-runtime!))}))
-
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
   build loads this ns but has no `js/document` to mount React into."
@@ -458,6 +444,22 @@
   and the panel is which view layer authored the body."
   []
   [:div {:data-testid "rf-xray-probe-reg-view"}])
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
+     :ambient-frame nil
+     :async?        true
+     :init-fn       (fn []
+                      (xray-test-support/reset-all!)
+                      ;; Fresco's collector tables are process-global
+                      ;; `defonce`s the core fixture knows nothing about; a
+                      ;; neighbour's boundary left in the entry cache would
+                      ;; make W3's release row read a residue that is not
+                      ;; this panel's.
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 (deftest w4-the-panels-render-emits-no-view-trace
   (testing "criterion 5. The panel's focused-event subtree bottoms

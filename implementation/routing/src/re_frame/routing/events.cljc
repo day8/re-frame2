@@ -168,8 +168,9 @@
 ;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
 ;;      nav-counter`) → capture-scroll (the leaving route's position) →
 ;;      [push-fx, when the door has not yet moved the browser URL]
-;;      → the fire-and-forget `:on-match` dispatches (ONLY on a valid plan —
-;;      a planning failure dispatches none, Spec 012 §Failed activation) →
+;;      → the fire-and-forget `:on-match` dispatches, each with the activation
+;;      target appended (ONLY on a valid plan — a planning failure dispatches
+;;      none, Spec 012 §Failed activation) →
 ;;      the resource ensure/release fx → the scroll fx. There is NO settle
 ;;      event: readiness is the resource projection.
 ;; A URL-driven door passes no `push-fx` (the browser URL already changed);
@@ -179,10 +180,13 @@
 (defn commit-navigation
   "Pure navigation-commit assembler every door's full transition ends in.
   `rdb` is the pre-commit runtime-db value. `slice`
-  carries `{:route-id :params :query :fragment :transition}` (the
-  published fields minus `:nav-token`, which rides the recordable
-  allocation). `on-match-vec` is
-  the resolved `:on-match` event vector (possibly empty). `capture-fx` /
+  carries `{:route-id :params :query :fragment :url :transition}` (the
+  resolved target the guards saw, minus `:nav-token`, which rides the
+  recordable allocation). `on-match-vec` is
+  the resolved `:on-match` event vector (possibly empty); each event is
+  dispatched with the activation target
+  `{:route-id :params :query :fragment :url :nav-token}` appended as its last
+  argument (Spec 012 §Per-route data loading). `capture-fx` /
   `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
   optional history-mutation fx entry (nil on a URL-driven door).
   `nav-allocation` is the RECORDABLE allocation `{:token \"nav-N\"
@@ -215,7 +219,7 @@
   construction, and costs one walk fewer per navigation.
 
   Returns the effects map `{:rf.db/runtime :fx}`."
-  [rdb {:keys [route-id params query fragment transition]} on-match-vec
+  [rdb {:keys [route-id params query fragment url transition]} on-match-vec
    {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame
            branch-contributors branch-error]}]
   (let [;; The nav-token rides the RECORDABLE `:rf.route/nav-allocation`
@@ -344,9 +348,17 @@
                       ;; target dispatches NONE of its events (Spec 012 §Failed
                       ;; activation / §Per-route data loading). Dispatch order +
                       ;; run-to-completion; it never drives readiness and there
-                      ;; is no settle event.
+                      ;; is no settle event. Each event receives the activation
+                      ;; target last, so a loader is a pure function of its
+                      ;; event rather than a reader of the live slice.
                       (when-not (:plan-error plan)
-                        (mapv (fn [ev] [:dispatch ev]) on-match-vec))
+                        (let [target {:route-id  route-id
+                                      :params    params
+                                      :query     query
+                                      :fragment  fragment
+                                      :url       url
+                                      :nav-token token}]
+                          (mapv (fn [ev] [:dispatch (conj ev target)]) on-match-vec)))
                       ;; The resource ensure dispatches + prior-
                       ;; owner release (Spec 016 §Route integration). Route
                       ;; readiness reconciles to :idle / :error through the

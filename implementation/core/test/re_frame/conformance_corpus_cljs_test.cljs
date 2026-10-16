@@ -54,24 +54,17 @@
 (def ^:private baseline-trace-listeners
   @re-frame.trace.tooling/listeners)
 
-(def ^:private framework-baseline-registrar @rf.registrar/kind->id->metadata)
 (def ^:private framework-baseline-source-store @rf.source-store/kind->id->ns->descriptor)
 
-(def ^:private pretest-registrar
-  (atom nil))
-
-;; Frames resolve through the source store, so it rolls back in lockstep with
-;; the registrar; a registrar-only rollback would leave stale handlers live.
 (def ^:private pretest-source-store
   (atom nil))
 
 ;; ---- runtime reset (CLJS-specific: snapshot/restore) ----------------------
 
 (defn- reset-runtime! []
-  ;; Roll the registrar and source store back to the framework-only baseline;
-  ;; the raw `reset!` does not bump the store generation, so drop the
+  ;; Roll the registration table back to the framework-only baseline; the raw
+  ;; `reset!` does not bump the store generation, so drop the
   ;; resolved-generation cache too.
-  (reset! rf.registrar/kind->id->metadata framework-baseline-registrar)
   (reset! rf.source-store/kind->id->ns->descriptor framework-baseline-source-store)
   (rf.image-assembly/clear-generation-cache!)
   ;; A suite that ran just before may have rolled the live store back past
@@ -117,12 +110,10 @@
 ;; ---- the test entrypoint --------------------------------------------------
 
 (deftest run-conformance-corpus-cljs
-  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
     (rf.conformance-runner/run-corpus fixtures host "CLJS")
     (finally
-      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))
 
@@ -167,7 +158,6 @@
    :fixture/expect       {:final-app-db {:count 1}}})
 
 (deftest unknown-top-level-key-fails-loud-cljs
-  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
     (is (:passed? (rf.conformance-runner/run-corpus-fixture
@@ -182,12 +172,10 @@
       (is (some? (re-find #":fixture/dispatchess" (str (:error result))))
           "the failure names the key"))
     (finally
-      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))
 
 (deftest classification-op-map-guard-cljs
-  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
     (doseq [[label ops] refused-classification-ops]
@@ -205,6 +193,5 @@
           (str "a valid single-axis op-map must still run the fixture to a pass; got "
                (pr-str (select-keys result [:error :final-db :expected-db])))))
     (finally
-      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
       (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
       (rf.image-assembly/clear-generation-cache!))))

@@ -117,8 +117,8 @@
   DIFFERENT images resolve the same
   `[kind id]` to their OWN image's descriptor. A frame made without `:images`
   binds a [[live-view]] of the registration store instead; any other target (a
-  nil target, a frame the test fixture seated) binds nothing and resolves
-  through the registrar atom.
+  nil target, a frame the test fixture seated) binds nothing and resolves each
+  id to its latest registration.
 
   ## Production elision
 
@@ -337,8 +337,9 @@
 
 (defn live-view
   "Build the resolver a frame made without `:images` resolves through for one
-  cascade — the value `rf.registrar/*live-view*` is bound to. It closes over ONE
-  snapshot of the active source store and the framework standards:
+  cascade — the value `rf.registrar/*live-view*` is bound to, and the view the
+  `{:source :store}` registrar queries answer from. It closes over ONE
+  snapshot of the registration table and the framework standards:
 
     (view kind id) — the descriptor `[kind id]` resolves to, nil when nothing
                      registers it, or a throw of
@@ -350,7 +351,7 @@
   Two derefs and a closure per cascade: nothing is assembled, sealed or
   cached."
   []
-  (let [store     @(rf.source-store/active-source-store)
+  (let [store     @rf.source-store/kind->id->ns->descriptor
         standards @rf.image-assembly/standard-registry]
     (fn
       ([kind]
@@ -383,7 +384,7 @@
   return its value: the record's sealed generation bound as
   `rf.registrar/*generation*`; for a frame made without `:images`, a fresh
   [[live-view]] bound as `rf.registrar/*live-view*`; for any other record (or
-  nil) no binding, so lookups read the registrar atom. The seam
+  nil) no binding, so lookups take each id's latest registration. The seam
   [[call-with-frame-resolution]] and the router's per-event resolution share,
   so a cascade binds ONE view of the registrations for its whole run."
   [record thunk]
@@ -430,8 +431,8 @@
 ;;
 ;; ABSENCE-IS-DEFAULT (the load-bearing fall-through): a nil frame object, or a
 ;; frame object carrying neither a generation nor the live mark, binds NOTHING —
-;; `rf.registrar/*generation*` stays nil and resolution falls through to the
-;; registrar atom path (the single default).
+;; `rf.registrar/*generation*` stays nil and resolution falls through to each
+;; id's latest registration (the single default).
 ;;
 ;; DERIVED from the carried frame object, never an ambient binding (EP-0002
 ;; carried-invariant): the generation is read off the frame the caller targets,
@@ -455,8 +456,8 @@
   normalizes either to its id and reads the `:generation` slot. A nil target, a
   non-frame value, or a frame whose record carries no generation yields nil;
   resolution then goes through the live store for a frame made without
-  `:images` ([[call-with-frame-resolution]]), and through the registrar atom
-  path otherwise. Pure."
+  `:images` ([[call-with-frame-resolution]]), and to each id's latest
+  registration otherwise. Pure."
   [frame-target]
   (frame-generation frame-target))
 
@@ -464,7 +465,7 @@
   "Invoke `thunk` with `rf.registrar/*generation*` bound to `frame-target`'s
   resolved image generation WHEN the target names an image-loaded frame, with
   `rf.registrar/*live-view*` bound to a [[live-view]] when it names a frame made
-  without `:images`, and with NO binding otherwise (the registrar-atom path).
+  without `:images`, and with NO binding otherwise (each id's latest registration).
   Returns the thunk's value. This is the frame-derived
   resolution seam: every event / subscription / fx / cofx / view / resource
   `(kind, id)` lookup inside `thunk` resolves through the targeted frame's OWN
@@ -498,7 +499,7 @@
   a value target and its id resolve the SAME generation, and a re-`make-frame`
   swap onto the record is observed through either. A nil target, a non-frame
   value, or a frame whose record carries neither a generation nor the live
-  mark binds nothing and runs `thunk` on the registrar-atom path. DERIVED from
+  mark binds nothing and runs `thunk` against each id's latest registration. DERIVED from
   the carried frame target, never an ambient binding (EP-0002
   carried-invariant)."
   [frame-target thunk]
@@ -1148,8 +1149,8 @@
          ;;                            seated into the `:live-store?` slot: the
          ;;                            frame resolves the registration store live
          ;;                            (a setup cascade included), never the
-         ;;                            registrar atom the test fixture's frame
-         ;;                            reads.
+         ;;                            latest-registration-wins projection the
+         ;;                            test fixture's frame reads.
          ;;   :rf.frame/adapter      — the active-substrate adapter binding, KEPT
          ;;                            in the stored config so tooling (Xray's
          ;;                            image/frame view) can read it by id.

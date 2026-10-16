@@ -110,11 +110,9 @@
   ;; reproject, swap the frame first, and leave it reporting `{}`.
   (with-redefs [rf.interop/next-tick (fn [_f] nil)]
     (rf.live-frame/flush-pending-reprojection!)
-    (let [store-before @rf.source-store/kind->id->ns->descriptor
-          reg-before   @rf.registrar/kind->id->metadata]
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
       (try
         (reset! rf.source-store/kind->id->ns->descriptor {})
-        (reset! rf.registrar/kind->id->metadata {})
         (rf.image-assembly/clear-generation-cache!)
         (rf.registrar/register! :event :counter/inc {:handler-fn ::v1 :ns "docs.counter.parity"})
         (rf.registrar/register! :event :other/x     {:handler-fn ::ox :ns "docs.other"})
@@ -133,7 +131,6 @@
         (finally
           (rf.live-frame/flush-pending-reprojection!)
           (reset! rf.source-store/kind->id->ns->descriptor store-before)
-          (reset! rf.registrar/kind->id->metadata reg-before)
           (rf.image-assembly/clear-generation-cache!))))))
 
 ;; ---- s8: the one frame constructor -----------------------------------------

@@ -148,17 +148,15 @@
     (rf/dispatch-sync [:hot/run])
     (is (= [:v1 :v2] @log))))
 
-(deftest reg-event-validates-refs-and-seats-in-the-bound-realm-registrar
-  (let [realm-reg (atom {})]
-    (binding [rf.registrar/*registrar* realm-reg]
-      (rf/reg-interceptor :rint/log
-        {:before (fn [ctx] ctx)})
-      ;; the ref lives only in the realm, so validation must resolve through it
-      (rf/reg-event :rint/run
-        {:interceptors [:rint/log]}
-        (fn [{:keys [db]} _] {:db db})))
-    (is (nil? (rf.registrar/lookup :event :rint/run)))
-    (is (some? (get-in @realm-reg [:event :rint/run])))))
+(deftest reg-event-validates-refs-against-the-registration-table
+  ;; the ref is registered first, so validation finds it in the table and the
+  ;; event lands beside it
+  (rf/reg-interceptor :rint/log
+    {:before (fn [ctx] ctx)})
+  (rf/reg-event :rint/run
+    {:interceptors [:rint/log]}
+    (fn [{:keys [db]} _] {:db db}))
+  (is (some? (rf.registrar/lookup :event :rint/run))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. registration coords ride resolution onto the exception trace

@@ -1,8 +1,12 @@
 (ns re-frame.registrar
-  "The global registrar — `(kind, id) → metadata` lookup.
+  "The registrar — registration into, and resolution out of, the one
+  registration table (`re-frame.source-store`, `kind → id → provenance-ns →
+  descriptor`).
 
-  Per Spec 001, the registrar is a single per-process map keyed by kind.
-  Frames isolate STATE; the registrar is shared across all frames.
+  Per Spec 001, the registrations are per-process, keyed by kind. Frames
+  isolate STATE; the registrations are shared across all frames, and each
+  frame resolves them through its own view (see `*generation*` and
+  `*live-view*`).
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :interceptor :view :frame :route :head
@@ -149,43 +153,6 @@
 (defn valid-kind? [k]
   (contains? kinds k))
 
-;; ---- the registry state ---------------------------------------------------
-
-(defonce
-  ^{:doc "kind → id → metadata-map. Atomic. The PROCESS-DEFAULT registrar — the
-  `(kind, id) → metadata` table the process dispatches/subscribes/resolves
-  against. Every `reg-*` / lookup routes through this one atom."}
-  kind->id->metadata
-  (atom {}))
-
-;; ---- the active registrar -------------------------------------------------
-;;
-;; The active `(kind, id) → metadata` atom the registrar reads + writes. nil
-;; means "the process-default registrar" (`kind->id->metadata`): unbound, every
-;; `reg-*` / `register!` / `unregister!` / `lookup` / `registrations` hits the
-;; one global atom, with ZERO added indirection on the dispatch hot path (the
-;; var is consulted once and resolves to the global atom).
-;;
-;; `*registrar*` is a rebindable seam an alternate-registrar seating could bind
-;; to redirect the `reg-*` lowering path to a different `(kind, id) → metadata`
-;; table without re-plumbing an argument through `re-frame.events` / `.subs` /
-;; `.fx` / `.cofx`. No live caller binds it; outside any binding it is nil and
-;; the default path holds.
-(def ^:dynamic *registrar*
-  "The active registrar atom, or nil for the process-default
-  `kind->id->metadata`. A rebindable seam; no live caller binds it (nil ⇒ the
-  process-default registrar)."
-  nil)
-
-(defn active-registrar
-  "Return the registrar atom registration + lookup currently target — the
-  bound `*registrar*` when one is in scope, else the process-default
-  `kind->id->metadata`. The single resolution point so every read/write below
-  targets ONE consistent atom under a binding (the default path resolves to the
-  global atom with no allocation)."
-  []
-  (or *registrar* kind->id->metadata))
-
 ;; ---- the active resolved image GENERATION (EP-0023 §Frame-derived live
 ;;      registration resolution) ------------------------------------------------
 ;;
@@ -209,17 +176,16 @@
 ;; instead of the registrar atom. When nil, a bound [[*live-view*]] (a frame
 ;; made without `:images`) answers instead; with neither bound — the
 ;; absence-is-default path, taken by EVERY caller that is not resolving
-;; against a frame object (the realm-routed dispatch and the single-realm
-;; default path alike) — the reads target `active-registrar`'s atom. This var
-;; is consulted with ONE nil check on the read hot path; the
-;; dominant production path leaves it unbound and pays a single `nil?` branch.
+;; against a frame object — the reads take the latest registration of each id
+;; in the registration table. This var is consulted with ONE nil check on the
+;; read hot path.
 ;;
-;; PERF / coherence: like `*registrar*`, the binding is established ONCE per
+;; PERF / coherence: the binding is established ONCE per
 ;; cascade / subscribe-build by `re-frame.live-frame/call-with-frame-resolution`
 ;; (DERIVED from the carried frame object, never an ambient binding — EP-0002),
 ;; so event + cofx + fx + sub resolve coherently through the SAME generation
 ;; (ALL-OR-NOTHING — routing only some would be an incoherent half-dispatch
-;; where a frame-local handler's effects resolve in the global registrar).
+;; where a frame-local handler's effects resolve outside the frame's view).
 ;;
 ;; No `:require` on `re-frame.image-assembly` (that ns requires THIS one — a
 ;; back-require would cycle): the resolver is read as plain map data via the
@@ -227,13 +193,13 @@
 ;; image-assembly) owns the binding seam and the generation read API.
 (def ^:dynamic *generation*
   "The active resolved image GENERATION (a sealed `re-frame.image-assembly`
-  generation value), or nil for the registrar-atom path. Bound by
+  generation value), or nil. Bound by
   `re-frame.live-frame/call-with-frame-resolution` around a dispatch /
   subscribe / fx / cofx / view / resource resolution targeting a frame made
   with explicit `:images`, so `(kind, id)` lookups resolve through the frame's
-  OWN image generation rather than the registration store (EP-0023
+  OWN image generation rather than the registration table (EP-0023
   §Frame-derived live registration resolution). nil ⇒ the [[*live-view*]] when
-  one is bound, else the registrar-atom path."
+  one is bound, else the latest registration of each id."
   nil)
 
 ;; ---- the LIVE view of a frame made without `:images` ----------------------
@@ -347,7 +313,7 @@
 ;;
 ;; Re-evaluating a namespace replaces each registration it makes again, but a
 ;; registration it no longer makes — a handler moved to another namespace,
-;; renamed or deleted — keeps its source-store slot. A shadow-cljs development
+;; renamed or deleted — keeps its slot in the registration table. A shadow-cljs development
 ;; build runs every `^:dev/before-load` hook before it reloads code and every
 ;; `^:dev/after-load` hook after, so the two hooks on `begin-reload-cycle!` and
 ;; `sweep-reload-cycle!` (below `clear-all!`) bracket one reload, with no setup
@@ -369,8 +335,8 @@
   (atom nil))
 
 (defn- note-reload-registration!
-  "Record that `stored` — the descriptor `register!` just wrote to the source
-  store — was made during the open hot-reload cycle, if one is open. A
+  "Record that `stored` — the descriptor `register!` just wrote to the
+  registration table — was made during the open hot-reload cycle, if one is open. A
   registration with no source namespace cannot be reloaded, so it is not
   recorded."
   [kind id stored]
@@ -576,7 +542,7 @@
   the id surfaces `:rf.warning/registration-collision`.\" The canonical
   identity is therefore the registration's PROVENANCE — its source-coord
   envelope (`:ns` / `:file` / `:line`), the same provenance boundary the
-  source store keys on (`source-store.cljc`: same `(kind, id, ns)` is a
+  registration table keys on (`source-store.cljc`: same `(kind, id, ns)` is a
   hot reload; a different ns for the same `(kind, id)` is the
   image-isolation collision case).
 
@@ -751,12 +717,6 @@
        :extra    {:kind kind
                   :id   id}}))
   (refuse-standard-replacement! kind id metadata)
-  ;; The process-wide `[kind id]` coord index tooling reads (§Production
-  ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
-  ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
-  ;; Programmatic paths (`*pending-coords*` nil) leave it untouched.
-  (when-let [pc rf.source-coords/*pending-coords*]
-    (rf.source-coords/remember-error-coords! kind id pc))
   ;; Pure-documentation metadata elision. Under `:advanced` +
   ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
   ;; metadata is stored, so `(rf/handler-meta {:source :store :kind kind :id id})` carries no `:doc` in
@@ -771,30 +731,25 @@
   ;;
   ;; The registration's own coordinate rides the stored descriptor (as
   ;; metadata, so the public registry-meta stays coord-free in production) into
-  ;; the source store and every generation that selects it; error-emit reads it
-  ;; off the descriptor the failing frame resolved. A registration with no
-  ;; macro on the stack carries none — see
+  ;; the registration table and every generation that selects it; error-emit
+  ;; and tooling read it off the descriptor they resolved. A registration with
+  ;; no macro on the stack carries none — see
   ;; `rf.source-coords/with-registration-coords`.
   (let [metadata (-> (strip-pure-documentation metadata)
                      (rf.source-coords/with-registration-coords
                        rf.source-coords/*pending-coords*))
-        reg      (active-registrar)
-        previous (-> @reg (get kind) (get id))]
-    (swap! reg assoc-in [kind id] metadata)
-    ;; EP-0023 provenance-preserving source store. In addition
-    ;; to the resolver-map write above (the default-image runtime
-    ;; path), record the descriptor in the source store keyed by
-    ;; [kind id provenance-namespace]. Cross-namespace duplicate `(kind, id)`
-    ;; registrations are BOTH retained there; a same-namespace re-eval replaces
-    ;; its own source slot (hot reload). The store stamps `:rf.provenance/ns` as
-    ;; a canonical string from the metadata's macro-captured `:ns` symbol. This
-    ;; is a pure store write — NO assembly / selection / collision decision is
-    ;; made here (that is image assembly, `re-frame.image-assembly`). `metadata`
-    ;; written into the resolver map intentionally stays untouched; the store
-    ;; keeps its own provenance-stamped copy.
-    (let [stored (rf.source-store/record-descriptor! kind id metadata)]
-      (when rf.interop/debug-enabled?
-        (note-reload-registration! kind id stored)))
+        ;; The id's latest registration before this one, from whichever
+        ;; namespace made it — so a second namespace registering the id is a
+        ;; re-registration here, exactly as a same-namespace re-eval is.
+        previous (rf.source-store/latest-descriptor kind id)
+        ;; The one write. The table keys it by [kind id provenance-namespace],
+        ;; so a cross-namespace duplicate is retained beside the first and a
+        ;; same-namespace re-eval replaces its own slot (hot reload). NO
+        ;; assembly / selection / collision decision is made here: that belongs
+        ;; to the reader — a frame's live view, or image assembly.
+        stored   (rf.source-store/record-descriptor! kind id metadata)]
+    (when rf.interop/debug-enabled?
+      (note-reload-registration! kind id stored))
     ;; RECORDING THE CHANGE COMPLETES BEFORE ANYTHING REACTS TO IT.
     ;;
     ;; These two hook batches are not peers. `registration-hooks` finish
@@ -896,23 +851,18 @@
     ;; exclusivity per Spec 012 §Multi-frame routing) are validated at the
     ;; moment of any registration — run ABOVE, before the replacement
     ;; hooks. See the note there for why the order is load-bearing.
-    ;; Both sites are after the resolver-map and source-store writes, so a hook
-    ;; inspects the final registry state.
+    ;; Both sites are after the table write, so a hook inspects the final
+    ;; registry state.
     {:was previous :now metadata}))
 
 (defn unregister!
   "Remove a single id under kind. Hot-reload code paths use this; user code
   rarely does."
   [kind id]
-  (let [reg      (active-registrar)
-        previous (-> @reg (get kind) (get id))]
-    (swap! reg update kind dissoc id)
-    ;; EP-0023: keep the provenance source store in step with the resolver-map
-    ;; removal. The resolver map keys by `(kind, id)`, so an unregister drops
-    ;; the id wholesale; mirror that in the source store by forgetting every
-    ;; provenance slot for `(kind, id)`.
+  (let [previous (rf.source-store/latest-descriptor kind id)]
+    ;; The id goes wholesale: every provenance slot for `(kind, id)`.
     (rf.source-store/forget-id! kind id)
-    ;; A removal is a source-store change — mark the live-frame
+    ;; A removal is a registration-table change — mark the live-frame
     ;; projection dirty (late-bound; the register side rides the registration
     ;; hook, removals ride this) so default-image frames drop the cleared
     ;; handler at their next resolution rather than resolving a stale sealed
@@ -920,7 +870,7 @@
     ;; sealed generation of a frame made with `:images` is produced
     ;; unconditionally by `make-frame`, so
     ;; skipping the dirty mark in production would leave a cleared handler
-    ;; resolving forever out of a store that no longer backs it. Late-bound by keyword;
+    ;; resolving forever out of a table that no longer backs it. Late-bound by keyword;
     ;; unpublished (no frame ever constructed) means no-op.
     (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
       (mark-dirty!))
@@ -946,17 +896,12 @@
   a single kind starts each case from a clean diagnostic slate —
   mirrors `clear-all!`'s reset semantics, scoped to the named kind."
   [kind]
-  (let [reg          (active-registrar)
-        previous-ids (keys (get @reg kind))
+  (let [previous-ids (keys (get @rf.source-store/kind->id->ns->descriptor kind))
         clear-kind   (fn [cache-set]
                        (into #{} (remove #(= kind (first %))) cache-set))]
-    (swap! reg dissoc kind)
-    ;; EP-0023: drop the matching kind from the provenance source store too, via
-    ;; the source-store API so the store GENERATION is bumped. A raw
-    ;; `(swap! (active-source-store) dissoc kind)` here would NOT bump the
-    ;; generation, leaving the resolved-image-generation cache (keyed on the
-    ;; source-store generation) to HIT and return a stale generation that still
-    ;; resolves the just-cleared `(kind, id)`s.
+    ;; Through the source-store API, so the store GENERATION is bumped: a raw
+    ;; `swap!` would leave the resolved-image-generation cache to HIT and return
+    ;; a stale generation that still resolves the just-cleared `(kind, id)`s.
     (rf.source-store/clear-kind! kind)
     ;; Same ungated removal dirty-mark as
     ;; `unregister!` (see there).
@@ -991,20 +936,14 @@
   first emit for any `(kind, id)` proceeds (otherwise the table from
   the prior test would silently suppress the new test's first emit)."
   []
-  (reset! kind->id->metadata {})
   (reset! missing-doc-warned #{})
   (reset! collision-warned   #{})
-  ;; EP-0023: reset the provenance-preserving source store (and its
-  ;; namespace-string pool) in lockstep with the process-default resolver map,
-  ;; so a test fixture starts each case from a clean state on both surfaces.
+  ;; Empty the registration table (and its namespace-string pool).
   (rf.source-store/clear-all!)
   ;; Same ungated removal dirty-mark as `unregister!`
   ;; (see there).
   (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
     (mark-dirty!))
-  ;; Also clear the process-wide coord index
-  ;; so test cases start from a clean state on both surfaces.
-  (rf.source-coords/forget-error-coords!)
   ;; Clear the B4 dedup table when the trace.tooling sibling is loaded.
   ;; Production CLJS bundles that never load trace.tooling silently
   ;; no-op here — the dedup hook is unbound and there's no table to
@@ -1031,8 +970,8 @@
   nil)
 
 (defn- forget-stale-registration!
-  "Forget the registration namespace `provenance` made of `[kind id]`. When no
-  other namespace registers the id, that is [[unregister!]] followed by the
+  "Forget the registration namespace `provenance` made of `[kind id]`. When it
+  is the id's only registration, that is [[unregister!]] followed by the
   replacement hooks with `:now` nil: the deletion changed what the id means,
   so state built from the deleted registration goes with it — a sub's cached
   reactions above all, which nothing else drops in a frame made without
@@ -1043,26 +982,15 @@
   marked the live-frame projection dirty, so a consumer rebuilding inside one
   resolves a world without the id.
 
-  Otherwise the other registrations stay, and the registrar's latest-writer
-  slot, if it held the forgotten one, moves to the one survivor, or empties
-  when several remain (the id is ambiguous until one is cleared)."
+  Otherwise only that namespace's slot goes, and the other registrations stay."
   [kind id provenance]
-  (rf.source-store/forget-descriptor! kind id provenance)
-  (let [survivors (rf.source-store/descriptors-for kind id)
-        reg       (active-registrar)]
-    (cond
-      (empty? survivors)
-      (let [previous (-> @reg (get kind) (get id))]
+  (let [ns->desc (rf.source-store/descriptors-for kind id)]
+    (if (= #{provenance} (set (keys ns->desc)))
+      (let [previous (rf.source-store/latest ns->desc)]
         (unregister! kind id)
         (run-replacement-hooks! {:kind kind :id id :was previous :now nil
                                  :different-fn? true}))
-
-      (= provenance (rf.source-store/provenance-ns (-> @reg (get kind) (get id))))
-      (swap! reg update kind
-             (fn [id->metadata]
-               (if (= 1 (count survivors))
-                 (assoc id->metadata id (val (first survivors)))
-                 (dissoc id->metadata id)))))))
+      (rf.source-store/forget-descriptor! kind id provenance))))
 
 (defn ^:no-doc ^:dev/after-load sweep-reload-cycle!
   "Close the hot-reload cycle [[begin-reload-cycle!]] opened. Every namespace
@@ -1078,7 +1006,7 @@
   (when rf.interop/debug-enabled?
     (when-let [made @reload-cycle]
       (reset! reload-cycle nil)
-      (let [stale (vec (for [[kind id->ns] @(rf.source-store/active-source-store)
+      (let [stale (vec (for [[kind id->ns] @rf.source-store/kind->id->ns->descriptor
                              [id ns->desc] id->ns
                              provenance    (keys ns->desc)
                              :let  [ids (get made provenance)]
@@ -1094,42 +1022,30 @@
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn lookup
-  "Return the metadata map registered for (kind, id), or nil.
+  "Return the descriptor registered for (kind, id), or nil.
 
   EP-0023 §Frame-derived live registration resolution: when an
   EP-0023 frame OBJECT's image generation is in scope (`*generation*` bound by
   `re-frame.live-frame/call-with-frame-resolution`), the `(kind, id)` resolves
   through the FRAME'S OWN generation resolver — so two frames running different
-  images resolve the same `[kind id]` to their OWN image's descriptor. The
-  generation's resolver is keyed `[kind id]`; the descriptor is the same
-  registration-metadata shape `register!` stores (the source store records it
-  verbatim), so the return value is byte-shape-identical to the registrar path.
+  images resolve the same `[kind id]` to their OWN image's descriptor.
   With no generation bound, a bound `*live-view*` (a frame made without
-  `:images`) resolves the id against its snapshot of the registration store,
+  `:images`) resolves the id against its snapshot of the registration table,
   throwing `:rf.error/ambiguous-registration` for an id more than one namespace
   registers. With neither bound — every caller not resolving against a frame —
-  resolution targets the `active-registrar` atom.
+  the id's latest registration answers (`re-frame.source-store/latest`).
 
-  The REGISTRAR-ATOM branch uses paired `get` calls rather than
-  `(get-in ... [kind id])` — `get-in` allocates a path vector per call, and
-  `lookup` runs per dispatch (event handler), per fx (handler), and per sub
-  (handler).
-
-  The GENERATION-ROUTED branch pays that cost anyway, and cannot avoid it here:
-  the resolver is keyed by a `[kind id]` PAIR, so the routed lookup must build
-  one. Measured at ~98 B/call on the JVM. Re-keying the resolver
-  `{kind {id descriptor}}` would let both branches read the same paired
-  `get` — but `:rf.gen/resolver`'s `{[kind id] descriptor}` shape is normative
-  (Spec API.md §`frame-generation`, Conventions.md §`:rf.gen/*`) and is read as
-  plain data by Xray, the Pair MCP runtime and Story, so that is a spec change
-  and not a local one. So the paired-`get` claim above covers ONE of the two
-  branches."
+  The GENERATION-ROUTED branch builds a `[kind id]` pair per call (measured at
+  ~98 B/call on the JVM), because `:rf.gen/resolver`'s `{[kind id] descriptor}`
+  shape is normative (Spec API.md §`frame-generation`, Conventions.md
+  §`:rf.gen/*`) and is read as plain data by Xray, the Pair MCP runtime and
+  Story; the other two branches read paired `get`s."
   [kind id]
   (if-let [resolver (generation-resolver)]
     (get resolver [kind id])
     (if-let [view *live-view*]
       (view kind id)
-      (-> @(active-registrar) (get kind) (get id)))))
+      (rf.source-store/latest-descriptor kind id))))
 
 (defn handler
   "Return just the handler fn from the metadata, or nil. The handler is
@@ -1142,12 +1058,12 @@
 ;; ---- query API (per Spec 002 §The public registrar query API) -------------
 
 (defn registrations
-  "All ids registered under kind, with their metadata. Tools, agents,
+  "All ids registered under kind, with their descriptors. Tools, agents,
   storybook resolution, all use this.
 
   Two arities:
     (registrations kind)
-      Return the full `{id metadata}` map for kind, or `{}` if the kind
+      Return the full `{id descriptor}` map for kind, or `{}` if the kind
       has no registrations.
     (registrations kind pred-fn)
       Same shape, filtered: only entries for which `(pred-fn meta)`
@@ -1163,92 +1079,55 @@
   `filter` over the result map's keys when needed).
 
   EP-0023 §Frame-derived live registration resolution: when a frame generation
-  is in scope (`*generation*` bound), the `{id metadata}` map is PROJECTED from
-  the generation's resolver for `kind` — only the ids the frame's OWN image
-  carries, so a generation-scoped query (a per-frame fx walk, a view-id
-  resolution) sees the frame's registration universe, not the global
-  registrar's. A bound `*live-view*` projects the ids the live frame can run
-  (an ambiguous id is not one of them). Unbound ⇒ the registrar atom path."
+  is in scope (`*generation*` bound), the `{id descriptor}` map is PROJECTED
+  from the generation's resolver for `kind` — only the ids the frame's OWN image
+  carries. A bound `*live-view*` projects the ids the live frame can run (an
+  ambiguous id is not one of them). Unbound ⇒ each id's latest registration."
   ([kind]
    (if-let [resolver (generation-resolver)]
      (kind-registrations-from-resolver resolver kind)
      (if-let [view *live-view*]
        (view kind)
-       (get @(active-registrar) kind {}))))
+       (reduce-kv (fn [acc id ns->desc]
+                    (assoc acc id (rf.source-store/latest ns->desc)))
+                  {}
+                  (get @rf.source-store/kind->id->ns->descriptor kind)))))
   ([kind pred-fn]
    (into {}
          (filter (fn [[_id meta]] (pred-fn meta)))
          (registrations kind))))
 
 (defn ambiguous-registrations
-  "The ids of `kind` that [[registrations]] leaves out because using them
-  raises `:rf.error/ambiguous-registration`: under a bound [[*live-view*]], the
-  `{id {provenance-ns descriptor}}` of every id more than one namespace
-  registers, as the source store holds them. `{}` under a sealed generation or
-  the registrar atom, which hold one registration per id.
+  "The ids of `kind` that `view` cannot run because more than one namespace
+  registers them, as `{id {provenance-ns descriptor}}` — the slots the
+  registration table holds for each. `view` is a live view
+  (`re-frame.live-frame/live-view`): the `{:source :store}` read passes a fresh
+  one, and the one-arity form uses the bound [[*live-view*]].
 
-  For a consumer that matches against a whole kind rather than looking up one
-  id — the route table — so it can keep an ambiguous id in view and raise when
-  that id is the one it would use, instead of silently using another."
-  [kind]
-  (if (generation-resolver)
-    {}
-    (if-let [view *live-view*]
-      (let [shared (into {}
-                         (filter (fn [[_id ns->desc]] (< 1 (count ns->desc))))
-                         (get @(rf.source-store/active-source-store) kind))]
-        (if (seq shared)
-          (let [runnable (view kind)]
-            (into {} (remove (fn [[id _]] (contains? runnable id))) shared))
-          {}))
-      {})))
+  The one-arity form answers `{}` under a sealed generation and with no frame
+  resolution bound, where each id resolves to one registration. A consumer that
+  matches against a whole kind rather than looking up one id — the route
+  table — reads it to keep an ambiguous id in view and raise when that id is the
+  one it would use, instead of silently using another."
+  ([kind]
+   (if (generation-resolver)
+     {}
+     (if-let [view *live-view*]
+       (ambiguous-registrations view kind)
+       {})))
+  ([view kind]
+   (let [shared (into {}
+                      (filter (fn [[_id ns->desc]] (< 1 (count ns->desc))))
+                      (get @rf.source-store/kind->id->ns->descriptor kind))]
+     (if (seq shared)
+       (let [runnable (view kind)]
+         (into {} (remove (fn [[id _]] (contains? runnable id))) shared))
+       {}))))
 
 (defn handler-meta
   "Public alias for lookup. Used by tooling."
   [kind id]
   (lookup kind id))
-
-;; ---- SOURCE-STORE reads (generation-bypassing) ----------------------------
-;;
-;; `store-registrations` / `store-lookup` are the `{:source :store}` half of the
-;; public registrar query grammar (`rf/registrations` / `rf/handler-meta`, Spec
-;; API.md §Public registrar query API). They read the `active-registrar` ATOM
-;; and NEVER consult `*generation*`.
-;;
-;; Why they exist as separate fns rather than as a rebinding of `*generation*`
-;; at the facade: `registrations` / `lookup` / `ids` / `handler-meta` above are
-;; the runtime's resolution path — every dispatch, sub build, fx and view
-;; resolution routes through them, and they MUST stay generation-routed. The
-;; source/frame distinction is a property of the PUBLIC INSPECTION boundary, so
-;; it is implemented there, with these two reads as the store-side primitive.
-;; Binding `*generation*` to nil around a facade call would work on the JVM but
-;; is fragile in async CLJS (a binding does not survive a `go` block or a
-;; callback), so the atom is read directly instead.
-;;
-;; This pair is the public door for a tool that needs the process store from
-;; inside a frame-resolved context, so no tool reaches into
-;; `kind->id->metadata` directly.
-
-(defn store-registrations
-  "The `{id metadata}` map for `kind` in the process SOURCE STORE — the
-  `active-registrar` atom — or `{}` when the kind has no registrations.
-
-  UNLIKE `registrations`, this NEVER consults `*generation*`: it is the
-  `{:source :store}` read, and it returns the same answer whether or not a
-  frame's image generation is bound around the call. That is the whole point —
-  an inspector running inside its own frame needs to see what the PROCESS
-  registered, not what its own image resolves."
-  [kind]
-  (get @(active-registrar) kind {}))
-
-(defn store-lookup
-  "The metadata map registered for `(kind, id)` in the process SOURCE STORE —
-  the `active-registrar` atom — or nil.
-
-  The `store-registrations` counterpart of `lookup`: paired `get` on the atom,
-  `*generation*` never consulted. See the section comment above."
-  [kind id]
-  (-> @(active-registrar) (get kind) (get id)))
 
 (defn ids
   "Just the id set for a kind."

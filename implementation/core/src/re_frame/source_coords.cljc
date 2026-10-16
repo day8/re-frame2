@@ -522,49 +522,6 @@
   [descriptor]
   (get (meta descriptor) registration-coords-key))
 
-;; ---- the process-wide `[kind id]` coord index -----------------------------
-;;
-;; The coordinate of the LAST macro registration of each `[kind id]`, kept for
-;; tooling that resolves an id outside any frame (Story's element inspector
-;; falls back to it for a view's `:file` when production elision has stripped
-;; the public meta). Error emission does not read it: with several live
-;; implementations of one id it names whichever namespace registered last.
-
-(defonce
-  ^{:doc "kind → id → coords-map. Atomic. Per-process. The values are
-          coord-maps (`:rf/source-coord-meta` per Spec-Schemas — `:ns` /
-          `:file` / `:line`; `:column` is dev-only). Last macro registration
-          wins. Survives production elision."}
-  error-coords-by-id
-  (atom {}))
-
-(defn remember-error-coords!
-  "Store coord-map under `[kind id]` in the process-wide index. Called by
-  `re-frame.registrar/register!` from any path where `*pending-coords*` is
-  bound (the public reg-* macro path). In CLJS production builds the
-  coord-map's `:column` slot is absent — the prod-side macro emission omits
-  it; only `:ns`/`:file`/`:line` ride through. Returns the stored coord-map."
-  [kind id coords]
-  (when (and kind id coords)
-    (swap! error-coords-by-id assoc-in [kind id] coords))
-  coords)
-
-(defn error-coords-for
-  "Look up the coord-map of the last macro registration of `[kind id]`.
-  Returns nil when none was captured for that pair (programmatic
-  registration, REPL eval that bypassed the macro path). For an error
-  record's coordinate read [[registration-coords]] off the descriptor that
-  ran instead."
-  [kind id]
-  (get-in @error-coords-by-id [kind id]))
-
-(defn forget-error-coords!
-  "Clear the process-wide coord index. Test fixtures use this between cases.
-  Mirrors `registrar/clear-all!`."
-  []
-  (reset! error-coords-by-id {})
-  nil)
-
 ;; ---- :file resolution at macro-expansion time -----------------------------
 ;;
 ;; The reg-* macros in `re-frame.core` capture `(meta &form)` and `*file*`
