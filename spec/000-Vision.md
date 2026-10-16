@@ -454,7 +454,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 | 010 | Schemas (CLJS reference) | Malli on every `reg-*` and `app-db` paths; validation timing and dev-vs-prod elision. Other-language hosts use their type system. |
 | 011 | SSR & Hydration | Server frame lifecycle, render-to-string contract, state-shipping, hydration handshake. Forces the id-valued override seam. |
 | 012 | Routing | URL ↔ frame-state; routes are registry entries; navigation is an event. |
-| 013 | Flows | Registered, runtime-toggleable computed-state declarations that materialise into `app-db`. v2 incarnation of v1's `on-changes` interceptor. |
+| 013 | Flows | Registered computed-state declarations that materialise into `app-db`, run by each frame that names them in its `:flows` config. v2 incarnation of v1's `on-changes` interceptor. |
 
 > Slot 003 is intentionally vacant — reserved for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology); see [README §About Spec 003](README.md). The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
 
