@@ -201,9 +201,6 @@
    ;; EP-0015 §8: durable app-db classification is frame-owned
    ;; (`re-frame.frame-classification`) — the app-db egress registry is fed by
    ;; the frame, not by schemas.
-   {:key         :elision/sensitive-declarations
-    :producer-ns 're-frame.elision
-    :description "Return the frame's frame-owned sensitive app-db path declarations."}
    {:key         :elision/clear-warning-cache!
     :producer-ns 're-frame.elision
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
