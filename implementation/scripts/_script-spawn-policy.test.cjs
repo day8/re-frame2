@@ -137,7 +137,6 @@ for (const base of ['serve-and-run-browser-tests.cjs', 'check-story-static.cjs']
 // launchers above cannot pass readiness without publishing it, so they are not
 // listed again here.
 const TOKEN_LIFECYCLE_LAUNCHERS = [
-  'serve-and-run-reagent-slim-smoke.cjs',
   'serve-and-run-tenant-switcher-testbed.cjs',
   'serve-and-run-xray-feature-gate.cjs',
 ];

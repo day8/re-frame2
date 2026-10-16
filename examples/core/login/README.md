@@ -56,7 +56,7 @@ The password never enters the machine — `:submit-form` sends the request and h
 
 This is the canonical cross-view-layer base. The exact same login feature — the same `login.model` machine, schemas, and HTTP stub — is imported by [`examples/substrates/uix/login/`](../../substrates/uix/login/) and [`examples/substrates/fresco/login/`](../../substrates/fresco/login/). Only the view layer differs. That's deliberate: it makes the three variants a clean apples-to-apples comparison, where the only moving part is the view notation — held against a model that is not merely equal across the trio but literally the same source. (Per Decision 7 — the curated example set — in Spec 006's UIx substrate section.)
 
-The substrate here is stock Reagent (not reagent-slim). This is the reference example, so it sits on the reference substrate. If it's the stock-vs-slim contrast you want, that's a different pair: `counter` / `counter_slim_and_fast`.
+The substrate here is stock Reagent. This is the reference example, so it sits on the reference substrate.
 
 A note on layout (this is example layout, not production layout). The substrate-free half already lives in its own file, `model.cljc` — the seam a real codebase draws first. In a larger app you'd split `model.cljc` further along the seams the `:auth.login/*` slice implies — `login/schema.cljc | events.cljs | subs.cljs | machines.cljs`. Here the model is one file so you can read it whole; each `core.cljs` keeps only the views + mount.
 

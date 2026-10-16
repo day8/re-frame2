@@ -478,8 +478,8 @@
         ;; would reach React as no key at all under these `defview`
         ;; boundaries — silently, with the metadata
         ;; still on the vector. Reagent honours meta first and the attr
-        ;; map second (`react-key-from-meta-or-props` in
-        ;; reagent2.impl.template), so one attribute satisfies both
+        ;; map second (`reagent.impl.template` copies a meta key over the
+        ;; attr one), so one attribute satisfies both
         ;; heads.
         (doall
           (for [t child-teardowns]

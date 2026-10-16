@@ -128,8 +128,8 @@ doing the whole job.
 
 One note on the substrate choice: this is stock Reagent (reached through
 `re-frame.adapter.reagent`, the entry ns's only substrate require — the
-adapter owns `reagent.dom.client` so you never require it yourself), not
-reagent-slim. That keeps the trio on the reference substrate for each adapter.
+adapter owns `reagent.dom.client` so you never require it yourself). That
+keeps the trio on the reference substrate for each adapter.
 
 The mount is the ordinary re-frame2 boot, in 2 steps.
 [`init!`](../../../docs/core/glossary.md#init) installs the Reagent

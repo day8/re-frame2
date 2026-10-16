@@ -127,10 +127,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:bundle-isolation
 
-      - name: Gate — reagent-slim bundle isolation (test:reagent-slim:bundle-isolation)
-        if: ${{ !cancelled() }}
-        run: npm run test:reagent-slim:bundle-isolation
-
       - name: Gate — per-adapter mount/dispatch smokes (test:adapter-smokes)
         if: ${{ !cancelled() }}
         run: npm run test:adapter-smokes
@@ -205,10 +201,6 @@ jobs:
       - name: Gate — schemas bundle cost, two-sided margin (test:schemas-bundle)
         if: ${{ !cancelled() }}
         run: npm run test:schemas-bundle
-
-      - name: Gate — Reagent Slim client-runtime smoke (test:reagent-slim:smoke)
-        if: ${{ !cancelled() }}
-        run: npm run test:reagent-slim:smoke
 
       - name: Gate — tenant-switcher testbed smoke (test:testbed-tenant-switcher)
         if: ${{ !cancelled() }}

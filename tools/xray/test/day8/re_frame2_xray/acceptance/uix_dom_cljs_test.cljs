@@ -8,8 +8,7 @@
 
   The element-shaped adapter is chosen by reading what actually ships.
   `implementation/adapters/README.md` §'Adapters that ship today' rosters
-  three — Reagent, UIx, reagent-slim — and of those UIx is the
-  element-shaped one: its `:render` comes from
+  two — Reagent and UIx — and of those UIx is the element-shaped one: its `:render` comes from
   `re-frame.substrate.spine/make-react-adapter` and takes substrate-native
   React ELEMENTS rather than hiccup — so it cannot paint Xray's hiccup
   shell, which is why Xray owns its own root, and the reason this is the

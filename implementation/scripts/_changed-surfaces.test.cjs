@@ -894,6 +894,24 @@ test('fresco, http, resources, routing, epoch and ssr arm playground from src an
   );
 });
 
+// Stock Reagent is the bundle's substrate, so its adapter's source and deps
+// arm the playground job; its tests and testbed are not baked in.
+test('the Reagent adapter arms playground from src and deps.edn only', () => {
+  for (const file of [
+    'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
+    'implementation/adapters/reagent/deps.edn',
+  ]) {
+    assert.equal(classify(file).playground, 'true', `${file} is baked into the playground bundle`);
+  }
+  for (const file of [
+    'implementation/adapters/reagent/test/re_frame/late_bind_hooks_cljs_test.cljs',
+    'implementation/adapters/reagent/testbed/core.cljs',
+    'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
+  ]) {
+    assert.equal(classify(file).playground, 'false', `${file} is not baked into the playground bundle`);
+  }
+});
+
 // tools/template arms its own jvm-tools-template lane, and adapter_diagnostic
 // for the reverse edge: `uix_consumer_deps_recipe_test.clj` (jvm-uix) slurps a
 // template file as its version source, so a template-only diff can red jvm-uix.
@@ -958,13 +976,11 @@ const GENERIC_SCRIPT_OUTPUTS = [
   'cljs_browser',
   'cljs_prod',
   'bundle_isolation',
-  'reagent_slim_bundle',
 ];
 
 test('each gate launcher arms its own gate and keeps the generic static-script outputs (rf2-5v0dg7, rf2-h5e3v7, rf2-ga8m, rf2-hic-015, rf2-9n2cv)', () => {
   for (const [file, gate] of [
     ['implementation/scripts/serve-and-run-xray-feature-gate.cjs', 'story_xray_browser'],
-    ['implementation/scripts/serve-and-run-reagent-slim-smoke.cjs', 'reagent_slim_bundle'],
     ['implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs', 'tenant_switcher_smoke'],
     ['implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs', 'fresco_controlled'],
     ['implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs', 'fresco_hmr'],
@@ -975,13 +991,6 @@ test('each gate launcher arms its own gate and keeps the generic static-script o
       assert.equal(result[output], 'true', `${file} must arm ${output}`);
     }
   }
-});
-
-test('the reagent-slim adapter/testbed surface fires reagent_slim_bundle (canonical trigger) (rf2-5v0dg7)', () => {
-  // The smoke testbed lives under implementation/adapters/reagent-slim/; a
-  // change there must arm the slim gate (smoke included) directly.
-  const result = classify('implementation/adapters/reagent-slim/testbed/smoke.cjs');
-  assert.equal(result.reagent_slim_bundle, 'true');
 });
 
 // The standalone example-build compiler has its own output. Core changes defer

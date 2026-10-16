@@ -3,18 +3,9 @@
 Everything in this folder exists to be read *against* something else. Each
 example here is a second copy of an app you can already find elsewhere in the
 tree, changed in exactly one place — and which place that is depends on the
-comparison you came for. There are two.
+comparison you came for.
 
-## Track 1 — same authoring language, different package
-
-Both sides are Reagent. You write the same views, with the same `reg-view`, and
-the difference is entirely in what ships.
-
-| Read this | Against this | What differs |
-|---|---|---|
-| [`reagent_slim/counter/`](reagent_slim/counter/) — `examples/counter-slim-and-fast` | [`core/counter/`](../core/counter/) — `examples/counter` | The package under the notation. `day8/reagent-slim` is a ground-up `reagent2.*` rewrite: in an adopting app every `reagent.*` import becomes `reagent2.*`, and `rf/init!` takes the slim adapter Var. Neither counter imports Reagent directly, so here the adapter Var is the whole diff. The interest is in what the bundle does *not* contain. |
-
-## Track 2 — one model, three view languages
+## One model, three view languages
 
 One substrate-free model namespace, three view layers over it. This is the
 comparison the login example exists to make.
@@ -87,7 +78,6 @@ npm run dev:example -- examples/login-uix        # UIx
 npm run dev:example -- examples/login-fresco    # Fresco
 npm run dev:example -- examples/counter          # Reagent counter
 npm run dev:example -- examples/counter-uix      # UIx counter
-npm run dev:example -- examples/counter-slim-and-fast
 ```
 
 Each command stages the example's host page and the shared `_shared/` assets

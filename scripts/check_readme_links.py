@@ -337,8 +337,7 @@ def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
     `check_doc_slugs.py` (outside DEFAULT_ROOTS), and not the other two
     rosters here, because `_iter_readmes` wants the name `README.md` and
     `_iter_root_markdown` drops anything with a `/` in it.  The same holds for
-    `examples/TESTING.md`, `implementation/adapters/TESTING.md`, the
-    mutually-linked reagent-slim design trio, and the two
+    `examples/TESTING.md`, `implementation/adapters/TESTING.md` and the two
     `tools/mcp-conformance/` vocabularies that `spec/Conventions.md` and
     `spec/Tool-Pair.md` cite normatively.
 

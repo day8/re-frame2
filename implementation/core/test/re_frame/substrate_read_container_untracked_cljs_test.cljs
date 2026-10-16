@@ -1,6 +1,6 @@
 (ns re-frame.substrate-read-container-untracked-cljs-test
   "`re-frame.substrate.adapter/read-container-untracked` at kernel level, on
-  BOTH ratom implementations — stock Reagent and reagent2.
+  the stock Reagent ratom implementation.
 
   The reader returns exactly what `read-container` returns and records no
   dependency on the reaction being computed. Binding the capture context to
@@ -34,20 +34,16 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.ratom :as stock-ratom]
-            [reagent2.ratom :as slim-ratom]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
-;; ---- per-kernel configuration ---------------------------------------------
+;; ---- kernel configuration ---------------------------------------------------
 ;;
-;; The two kernels differ only in which library supplies the primitives, and
-;; in the name of the first capture run: reagent2 spells stock's `IRunnable`
-;; `run` as `activate!`. The nil and sink spellings are the two ways of
-;; suppressing capture by hand; each kernel's dynamic var is bound directly.
+;; The nil and sink spellings are the two ways of suppressing capture by
+;; hand; the kernel's dynamic var is bound directly.
 
 (def ^:private stock-config
   {:label     "reagent"
@@ -59,17 +55,6 @@
    :dispose!  stock-ratom/dispose!
    :nil-read  (fn [c] (binding [stock-ratom/*ratom-context* nil] @c))
    :sink-read (fn [c] (binding [stock-ratom/*ratom-context* (js-obj)] @c))})
-
-(def ^:private slim-config
-  {:label     "reagent-slim"
-   :adapter   rf.adapter.reagent-slim/adapter
-   :ratom     slim-ratom/atom
-   :reaction  slim-ratom/make-reaction
-   :activate! slim-ratom/activate!
-   :flush!    slim-ratom/flush!
-   :dispose!  slim-ratom/dispose!
-   :nil-read  (fn [c] (binding [slim-ratom/*ratom-context* nil] @c))
-   :sink-read (fn [c] (binding [slim-ratom/*ratom-context* (js-obj)] @c))})
 
 ;; ---- harness --------------------------------------------------------------
 
@@ -273,7 +258,7 @@
           (str label ": a plain read leaves a never-run Reaction watching nothing"))
       (dispose! sunk))))
 
-;; ---- the two kernels ------------------------------------------------------
+;; ---- the kernel -------------------------------------------------------------
 
 (defn- kernel-scenarios [config]
   (with-adapter (:adapter config)
@@ -285,9 +270,6 @@
 
 (deftest stock-reagent-untracked-read
   (kernel-scenarios stock-config))
-
-(deftest reagent-slim-untracked-read
-  (kernel-scenarios slim-config))
 
 ;; ---- a non-capturing adapter ----------------------------------------------
 

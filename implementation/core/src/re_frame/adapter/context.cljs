@@ -162,9 +162,7 @@
 ;; directly (raw `:>` interop, not `rf/frame-provider`) still hits
 ;; stock Reagent's prop-conversion under the classic adapter
 ;; (`day8/re-frame2-reagent`). That path stringifies the keyword:
-;; `:foo` -> `\"foo\"`. The slim adapter (`day8/reagent-slim`)
-;; preserves keywords on non-HTML prop names so the read returns the
-;; keyword directly under that build.
+;; `:foo` -> `\"foo\"`.
 ;;
 ;; This helper round-trips the stringified shape back to a keyword so
 ;; the resolution chain returns the same shape regardless of which

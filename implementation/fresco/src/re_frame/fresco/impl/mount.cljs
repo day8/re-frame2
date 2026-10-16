@@ -459,7 +459,7 @@
 ;; `re-frame.substrate.spine/make-client-root-fns` DELIBERATELY: the spine
 ;; is core's React-HOOK machinery, and one `:require` of it from this
 ;; namespace would put the whole spine into the bundle of every Fresco
-;; application, including the ones that install Reagent, reagent-slim or
+;; application, including the ones that install Reagent or
 ;; UIx instead. That is the exact cost `re-frame.fresco.substrate`'s row
 ;; in `scripts/check_optional_module_reachability.py` exists to keep
 ;; optional. Twenty lines of handle branch is the cheaper half of that

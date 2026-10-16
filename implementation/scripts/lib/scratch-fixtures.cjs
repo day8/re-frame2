@@ -54,7 +54,7 @@ function scratchRoot(repoRoot) {
 
 // Create a fresh, process-scoped fixture lane under `<repoRoot>/.scratch/`
 // and return its absolute path. `prefix` names the owning suite (e.g.
-// `rf2-slim-ns`); the pid segment makes a concurrent sibling's lane
+// `rf2-story-preflight`); the pid segment makes a concurrent sibling's lane
 // visibly distinguishable when one is left behind by a killed run, and
 // `mkdtemp`'s random suffix keeps two lanes of the SAME process distinct.
 function makeScratchDir(repoRoot, prefix) {

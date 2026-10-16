@@ -28,7 +28,7 @@ There are 2 top-level groupings:
 - `adapters/` — adapter artefacts that bridge the reactive substrates
   (rf2-zha9 directory introduction;
   rf2-0imy canonical naming, "adapters" not "substrates"). One directory
-  per adapter (`reagent`, `uix`, `reagent-slim`).
+  per adapter (`reagent`, `uix`).
 - per-feature artefacts — one flat directory per feature
   (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`,
   `resources`, `epoch` — 9 in all), each plugged into core via the
@@ -36,7 +36,7 @@ There are 2 top-level groupings:
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 The `fresco/` artefact sits beside `core/` and `adapters/` as re-frame2's own
-native view substrate. Reagent, reagent-slim and UIx live on as first-class,
+native view substrate. Reagent and UIx live on as first-class,
 actively-supported adapters. The 2 earlier view substrates — the `ui/` donor
 ([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)) and
 `freehand/` ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
@@ -82,7 +82,7 @@ implementation/
 
   adapters/                  Substrate adapters live here per rf2-zha9 (renamed from
                              substrates/ per rf2-0imy) — one directory per adapter
-                             (reagent, uix, reagent-slim). Per-feature artefacts
+                             (reagent, uix). Per-feature artefacts
                              (schemas, machines, ...) stay flat under implementation/.
     reagent/                 day8/re-frame2-reagent — the Reagent adapter artefact.
       deps.edn               :local/root dep on ../../core.
@@ -96,15 +96,6 @@ implementation/
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
                              The UIx adapter (use-sub, flush-views!, etc.).
-    reagent-slim/            day8/reagent-slim — Reagent rewrite for React 19
-                             (rf2-5djt; Stage 4 rf2-6hyy). Stage 4 landed: the full
-                             reagent2.* rewrite on disk — reactive primitives
-                             (ratom), render scheduler (impl/batching), component-shape
-                             detection (impl/component), hiccup translation
-                             (impl/template), DOM Root API (dom + dom/client) and
-                             pure-CLJS render-to-string (dom/server), plus the
-                             re-frame.adapter.reagent-slim adapter and its own CLJS
-                             test suite (~20 test files).
 
   schemas/                   day8/re-frame2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
@@ -283,10 +274,6 @@ The Reagent adapter is the canonical adapter — every test target (every
 run, every `examples` run, every conformance fixture) executes against
 it. The UIx adapter is smoke-tested via the counter + login
 pair per [Conventions §Adapter test matrix policy](../spec/Conventions.md#adapter-test-matrix-policy).
-The `reagent-slim` adapter has landed Stage 4 (the full `reagent2.*`
-rewrite) and carries its own CLJS test suite — the `reagent2.*` internals
-plus the slim-adapter substrate-shape, container round-trip, derived-value,
-disposal, render-sequence, and source-coord / view-id contracts.
 
 ## Running tests
 
@@ -352,7 +339,6 @@ npm run test:cljs       # node-test build, every artefact's CLJS test tree
 npm run test:browser    # browser-test build, headless Chromium via Playwright
 npm run test:elision    # production-elision contract (Spec 009 §Production builds)
 npm run test:bundle-isolation
-npm run test:reagent-slim:bundle-isolation
 npm run test:adapter-smokes   # example-app browser tests
 ```
 
@@ -444,7 +430,7 @@ disambiguate names that look interchangeable at a glance.
   `re-frame.adapter.*` ns that bridges core to that substrate
   (canonical naming per rf2-0imy; not "substrate adapter" or
   "renderer"). Artefact is a Maven coordinate the adapter ships
-  as (for example `day8/re-frame2-reagent`, `day8/reagent-slim`).
+  as (for example `day8/re-frame2-reagent`, `day8/re-frame2-uix`).
 - `story/ids` vs `rf/registrations` — both enumerate registered
   ids for a kind. `story/ids` is Story's re-export of
   `registrar/ids` colocated with the Story facade so test-driver

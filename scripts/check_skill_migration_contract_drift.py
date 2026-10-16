@@ -99,23 +99,19 @@ Two contract facts, each pinned against the shipped spec:
     example, no `add-watch`, a per-mount `r/track!` owner, and a matching
     `r/dispose!` at unmount. See `form3_reactive_owner_problems`.
 
-  * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
-    cross-owner check.** The reagent-slim FORM-3.md is the
-    adopter-facing owner of the Form-3 capture-once recipe; guided-views-m11.md
-    §M-11 is the canonical migration recipe. FORM-3.md recommends
-    capturing the frame once in the outer `reg-view*` callable, but that handle is
+  * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY
+    check.** guided-views-m11.md §M-11 is the canonical migration recipe for
+    capturing the frame once in the outer `reg-view*` callable, and that handle is
     a LOCKED value that never re-resolves (`make-capture-frame` closes the captured
     frame over every op — capture_frame.cljc), so capture-once is safe ONLY while the
     mount's provider frame is invariant: a *surviving* instance retargeted from
-    provider A to provider B keeps sending to the stale A. Each owner must state
+    provider A to provider B keeps sending to the stale A. The recipe must state
     the invariant with SEMANTIC TEETH, not just the vocabulary: the capture-once
     framing, the A→B retarget, and the stale-A consequence must be tied together
-    in ONE paragraph (scattered tokens do not count), the adopter owner's paragraph
-    must carry a supported remedy — a frame-derived React `key` remount or the
-    registered `reg-view` child — and the canonical-recipe pointer, and NEITHER
-    owner may assert the OPPOSITE polarity (capture-once auto-retargets /
-    re-resolves / follows automatically, never goes stale, or needs no remount),
-    even when every positive vocabulary token appears elsewhere. The
+    in ONE paragraph (scattered tokens do not count), and it may not assert the
+    OPPOSITE polarity (capture-once auto-retargets / re-resolves / follows
+    automatically, never goes stale, or needs no remount), even when every
+    positive vocabulary token appears elsewhere. The
     adaptive-remedy prose (route 1 "follows A→B with no remount") is
     exempt — it is the remedy, not the footgun. A POSITIVE-presence census
     alone would let a reversal with scattered vocabulary through, which is
@@ -236,9 +232,9 @@ Two structurally different guards ride the same gate:
 
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
-(migration/from-re-frame-v1/README.md), the shipped adapter READMEs that
-migration guidance links to and the reagent-slim FORM-3.md, since the same
-drift can appear across those user-facing surfaces. The skill's `spec/`
+(migration/from-re-frame-v1/README.md) and the shipped adapter READMEs that
+migration guidance links to, since the same drift can appear across those
+user-facing surfaces. The skill's `spec/`
 re-authoring meta-docs are out of scope (not loaded during normal operation).
 
 Exit code:
@@ -291,29 +287,19 @@ MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
 ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "uix" / "README.md",
-    REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
 )
-# The reagent-slim Form-3 adopter owner. FORM-3.md is the
-# adopter-facing companion to the canonical migration recipe
-# (guided-views-m11.md §M-11); it carries the same lifecycle-frame contract the
-# READMEs do, so it belongs on the same stale-claim scan surface, and its
-# capture-once retarget invariance is pinned by
-# `form3_capture_once_retarget_problems`.
-FORM3_MD = REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "FORM-3.md"
 
 
 def _scanned_files() -> list[Path]:
     """User-facing migration-skill leaves (SKILL.md + references/*.md), globbed so
     a new reference leaf is covered automatically, plus the migration corpus the
-    skill treats as source of truth, the shipped adapter READMEs, and the
-    reagent-slim Form-3 adopter owner (FORM-3.md). The skill's spec/
+    skill treats as source of truth, and the shipped adapter READMEs. The skill's spec/
     meta-docs are excluded (re-authoring material, not loaded during normal
     operation)."""
     files = [SKILL_DIR / "SKILL.md"]
     files.extend(sorted((SKILL_DIR / "references").glob("*.md")))
     files.append(MIGRATION_MD)
     files.extend(ADAPTER_READMES)
-    files.append(FORM3_MD)
     return files
 
 
@@ -1658,20 +1644,19 @@ def m1_anchor_problems() -> list[str]:
 # ---------------------------------------------------------------------------
 # Form-3 capture-once retarget invariance.
 #
-# The reagent-slim FORM-3.md is the ADOPTER-facing owner of the Form-3
-# capture-once recipe; guided-views-m11.md §M-11 is the CANONICAL migration
-# recipe. FORM-3.md §4 recommends capturing the frame-aware bundle *once in the
-# outer `reg-view*` callable* (`(rf/capture-frame)`), but that handle is a LOCKED
-# value: the frame is captured at mount and never re-resolves (implementation:
+# guided-views-m11.md §M-11 is the CANONICAL migration recipe for capturing the
+# frame-aware bundle *once in the outer `reg-view*` callable*
+# (`(rf/capture-frame)`), and that handle is a LOCKED value: the frame is captured at mount and never re-resolves (implementation:
 # `make-capture-frame` closes the captured frame over every op — capture_frame.cljc). So
 # capture-once is safe ONLY while the mount's provider frame is invariant. A
 # *surviving* instance retargeted from provider A to provider B keeps sending to
 # the stale A, because React keeps it mounted and the outer callable does not
 # re-run. The canonical recipe records this A→B footgun and its two frame-safe
 # remedies (a frame-derived React `key` remount, or the registered `reg-view`
-# child route); adopter capture-once advice WITHOUT the invariance drifts from
-# it. This guard makes the adopter owner
-# carry the invariant and keeps it aligned with the canonical recipe.
+# child route). This guard keeps the recipe carrying the invariant. An
+# ADOPTER-facing owner of the same recipe is checked with
+# `_retarget_invariance_problems(..., adopter=True)`, which also requires an
+# in-paragraph remedy and the canonical-recipe pointer.
 #
 # This carries BOTH shapes. Like `m1_anchor_problems` it asserts a thing must be
 # PRESENT (a future edit must not delete the invariant from one owner while the
@@ -1801,8 +1786,8 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
     the A→B retarget, and the stale-A consequence must sit in ONE paragraph
     (scattered tokens cannot satisfy it), and no capture-once paragraph may
     ASSERT the reversal (auto-retargets / never goes stale / no remount needed),
-    even if every positive token appears elsewhere. `adopter=True` (the
-    FORM-3 owner) additionally requires an in-paragraph supported remedy and the
+    even if every positive token appears elsewhere. `adopter=True` (an
+    adopter-facing owner) additionally requires an in-paragraph supported remedy and the
     canonical-recipe pointer; the canonical recipe is the pointer target, so it
     passes adopter=False."""
     problems: list[str] = []
@@ -1893,26 +1878,18 @@ def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
 
 
 def form3_capture_once_retarget_problems() -> list[str]:
-    """Pin the Form-3 capture-once retarget invariance in BOTH owners.
-
-    The adopter owner (FORM-3.md) must state when capture-once is safe, the
-    provider A→B stale-bundle case, at least one supported remedy, and a pointer
-    to the canonical recipe. The canonical recipe (guided-views-m11.md §M-11)
-    must carry the aligned invariance, so the two owners cannot drift
-    apart."""
-    if not FORM3_MD.is_file():
+    """Pin the Form-3 capture-once retarget invariance in the canonical recipe
+    (guided-views-m11.md §M-11): when capture-once is safe, the provider A→B
+    stale-bundle case, and no assertion of the reversal."""
+    if not GUIDED_VIEWS_M11_MD.is_file():
         return [
-            f"SETUP: Form-3 adopter owner missing: {FORM3_MD.relative_to(REPO_ROOT)}"
-        ]
-    g_text = _slurp(GUIDED_VIEWS_M11_MD) if GUIDED_VIEWS_M11_MD.is_file() else None
-    problems = _form3_capture_once_problems(_slurp(FORM3_MD), g_text)
-    if g_text is None:
-        problems.append(
             f"SETUP: canonical recipe missing: "
             f"{GUIDED_VIEWS_M11_MD.relative_to(REPO_ROOT)} — the Form-3 capture-once "
-            "cross-owner alignment leg cannot run."
-        )
-    return problems
+            "retarget check cannot run."
+        ]
+    return _retarget_invariance_problems(
+        _slurp(GUIDED_VIEWS_M11_MD), "guided-views-m11.md", adopter=False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2352,7 +2329,7 @@ def run(*, verbose: bool, ci: bool) -> int:
             f"migration contract-drift guard: scanned {len(files)} files "
             f"({lines_checked} lines) + ran the M-1 classifier over "
             f"{len(M1_FLAG_NSES) + len(M1_EXEMPT_NSES)} representative requires "
-            "+ pinned the Form-3 capture-once retarget invariance in both owners."
+            "+ pinned the Form-3 capture-once retarget invariance in the canonical recipe."
         )
 
     if not problems:
@@ -3263,29 +3240,29 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
-    # mutation that drops the A→B sentence from either owner must be caught — so a
-    # careless re-author of the real docs cannot make this guard go vacuous.
-    f3_live = _slurp(FORM3_MD)
+    # Live-corpus teeth: the SHIPPED recipe must carry the invariant, and a
+    # mutation that drops the A→B sentence from it must be caught — so a
+    # careless re-author of the real doc cannot make this guard go vacuous.
     g_live = _slurp(GUIDED_VIEWS_M11_MD)
-    f3_broken = FORM3_RETARGET_RE.sub("under one steady frame", f3_live)
-    if not _form3_capture_once_problems(f3_broken, g_live):
-        print(
-            "SELF-TEST FAIL (form3 owner mutation): dropping the provider A→B "
-            "retarget sentence from FORM-3.md did not trip the guard — it is "
-            "blind to the shape the adopter owner actually ships."
+
+    def canonical_problems(text: str) -> list[str]:
+        return _retarget_invariance_problems(
+            text, "guided-views-m11.md", adopter=False
         )
+
+    for problem in canonical_problems(g_live):
+        print(f"SELF-TEST FAIL (form3 canonical live): {problem}")
         failures += 1
     g_broken = FORM3_RETARGET_RE.sub("under one steady frame", g_live)
-    if not _form3_capture_once_problems(f3_live, g_broken):
+    if not canonical_problems(g_broken):
         print(
             "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
             "A→B retarget sentence from guided-views-m11.md did not trip "
-            "the cross-owner drift leg."
+            "the guard."
         )
         failures += 1
 
-    # Mutate each live owner to the WRONG POLARITY while keeping ALL of the
+    # Mutate the live recipe to the WRONG POLARITY while keeping ALL of the
     # A/B / remount / pointer vocabulary intact — a splice adjacent to a
     # real capture-once token, so it lands inside a capture-once paragraph
     # regardless of the doc's exact wording. A vocabulary-presence-only
@@ -3299,21 +3276,12 @@ def _self_test() -> int:
             count=1,
         )
 
-    f3_reversed = _splice_reversal(f3_live)
-    if not _form3_capture_once_problems(f3_reversed, g_live):
-        print(
-            "SELF-TEST FAIL (form3 owner reversal): a capture-once auto-adapt "
-            "reversal spliced into FORM-3.md (A/B/remount/pointer intact) "
-            "passed the guard — the polarity teeth are blunt."
-        )
-        failures += 1
-
     g_reversed = _splice_reversal(g_live)
-    if not _form3_capture_once_problems(f3_live, g_reversed):
+    if not canonical_problems(g_reversed):
         print(
             "SELF-TEST FAIL (canonical reversal): a capture-once auto-adapt "
             "reversal spliced into guided-views-m11.md (A/B/remount/"
-            "pointer intact) passed the cross-owner leg."
+            "pointer intact) passed the guard — the polarity teeth are blunt."
         )
         failures += 1
 

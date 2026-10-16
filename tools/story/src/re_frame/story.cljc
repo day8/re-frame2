@@ -876,7 +876,7 @@
       ;; ex-message, with `:rf.error/id` the sole machine discriminator.
       ;; The central `re-frame.error` builder is NOT used here — `tools/`
       ;; is bundle-isolated and MUST NOT `:require re-frame.*`, so the shape
-      ;; is hand-rolled inline (mirroring reagent-slim's same constraint).
+      ;; is hand-rolled inline.
       (let [msg (str "configure! got unknown key(s): "
                      (pr-str (vec unknown))
                      " — known keys are " (pr-str known-keys) ". "
@@ -913,7 +913,7 @@
       ;; ex-message, with `:rf.error/id` the sole machine discriminator.
       ;; The central `re-frame.error` builder is NOT used here — `tools/`
       ;; is bundle-isolated and MUST NOT `:require re-frame.*`, so the shape
-      ;; is hand-rolled inline (mirroring reagent-slim's same constraint).
+      ;; is hand-rolled inline.
       (let [msg (str "configure! got an unknown :rf.story/egress-profile: "
                      (pr-str egress-profile)
                      " — known profiles are " (pr-str rf.story.config/egress-profiles) ". "

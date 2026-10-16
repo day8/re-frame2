@@ -86,10 +86,7 @@
   (`:tenant/admin`) survive the React-context round trip on the classic
   Reagent adapter — stock Reagent's `convert-prop-value` calls `(name kw)`
   on named prop values, which drops the namespace before React sees the
-  prop. The slim adapter (`day8/reagent-slim`) preserves keywords for
-  non-HTML prop names so the namespace would survive there even via the
-  `[:> Provider ...]` hiccup form; routing the canonical surface through
-  `:r>` keeps the behaviour identical across adapters.
+  prop.
 
   Children remain hiccup — `:r>` only short-circuits prop conversion;
   children are translated by the renderer as usual. Per
@@ -225,9 +222,8 @@
 ;;
 ;; The active adapter publishes its Reagent build's `current-component`
 ;; fn through `:adapter/current-component` at ns-load time. Static
-;; `:require [reagent.core]` would hard-couple this ns to stock Reagent
-;; and silently shadow the slim adapter's components in mixed-mode
-;; environments.
+;; `:require [reagent.core]` would hard-couple this substrate-neutral ns
+;; to Reagent and put Reagent on every UIx and Fresco classpath.
 
 (defn current-component
   "Resolve the in-flight Reagent component via the active adapter's hook.

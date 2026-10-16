@@ -14,11 +14,6 @@
   `:reagent-render` under a real class instance, and exactly-once
   `:component-did-mount` / `:component-will-unmount`.
 
-  Stock Reagent only. `reagent-slim` builds its class differently (it tags the
-  constructor `cljsReagentClass` and installs `prototype.render` rather than
-  `prototype.reagentRender`, and its constructor calls `React.Component` against
-  `this` and returns `this`), so nothing here speaks to that substrate.
-
   Browser-only: the evidence is real React class construction and lifecycle
   ordering, which no headless invocation reproduces — calling the wrapper by
   hand would mistake a constructor call for a mount. The `-dom-cljs-test`

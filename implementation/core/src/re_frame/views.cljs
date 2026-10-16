@@ -358,8 +358,8 @@
 ;; reaction created in the wrapper, deref'd inside the render so the
 ;; substrate's per-component render reaction tracks it as a dependency,
 ;; with an `rf.interop/add-on-dispose!` callback that fires
-;; `:rf.view/unmounted` when the reaction is disposed. On the Reagent
-;; family (stock + reagent-slim) the component's render reaction disposes
+;; `:rf.view/unmounted` when the reaction is disposed. On Reagent
+;; the component's render reaction disposes
 ;; its tracked dependencies on `componentWillUnmount`, so the callback
 ;; fires exactly once per instance teardown. The whole surface rides
 ;; `rf.interop/debug-enabled?` so production DCEs it (the reaction is never
@@ -564,7 +564,7 @@
 
   A render that returns a Form-2 inner fn was CONSTRUCTION, not a render:
   it emits no `:rf.view/rendered` and returns `form-2-render-fn` around the
-  inner fn. Reagent and reagent-slim cache what it returns and call it
+  inner fn. Reagent caches what it returns and calls it
   directly on every later render, so the inner fn's renders run this same
   scope. Construction is only recognisable once the render has returned,
   after the start marker and the mount flag were taken, so the
@@ -626,19 +626,17 @@
             ;; a Reagent-family constructor carries no
             ;; `cljs$lang$applyTo`, so `apply` bottoms out in
             ;; `(.apply f f …)` — `this` is the CONSTRUCTOR OBJECT.
-            ;; Both supported constructors are `(React.Component.call
-            ;; this props …) … this`, so calling one as a plain
+            ;; The constructor is `(React.Component.call this props …)
+            ;; … this`, so calling it as a plain
             ;; function stamps a few fields onto the class object and
             ;; RETURNS THE CLASS. `out` is therefore a `reagent-class?`
             ;; value, which `form-2-inner-fn?` and the annotation walk
             ;; below both pass through untouched and the substrate's own
             ;; render-result branch then mounts as `[klass & args]`
-            ;; (stock Reagent: `reagent.impl.component/wrap-render`;
-            ;; reagent-slim: `reagent2.impl.component/form-2-inner-fn` →
-            ;; `class-mounting-render-fn`). Bind `this` to anything
-            ;; else and the constructor either throws or mutates the
-            ;; global object and returns it, and the shape breaks on
-            ;; every substrate at once. The output-side discrimination
+            ;; (`reagent.impl.component/wrap-render`). Bind `this` to
+            ;; anything else and the constructor either throws or
+            ;; mutates the global object and returns it, and the shape
+            ;; breaks. The output-side discrimination
             ;; is thus SUFFICIENT rather than "too late"; no input-side
             ;; special case is wanted here.
             (let [out (rf.performance/mark-and-measure :render id
@@ -695,9 +693,8 @@
   `with-meta` on a fn yields a `cljs.core/MetaFn`, an IFn OBJECT whose
   `.call` / `.apply` dispatch through a fixed arity table: under shadow-cljs
   a twenty-first argument is read as a rest seq and a twenty-second throws
-  `Invalid arity`. Stock Reagent passes a component's argv through `.apply`,
-  and reagent-slim through `apply`, which falls back to `.apply` past twenty
-  arguments, so a keyword-variadic view called with fifteen key/value pairs
+  `Invalid arity`. Reagent passes a component's argv through `.apply`,
+  so a keyword-variadic view called with fifteen key/value pairs
   would fail before it rendered. A JS function's own `.apply` takes any
   count. `render-fn` is called through `unwrapped-fn` for the same reason."
   [id render-fn view-scope coord-attr wrap-applied?]

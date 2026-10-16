@@ -4,9 +4,9 @@
   Per `docs/core/views.md` §\"imperative listeners lose the frame\": Hiccup
   `:on-*` attrs are NOT wrapped so that a `dispatch` inside them carries the
   frame, and a bare `#(rf/dispatch [:tile/finished])` in an
-  `:on-animation-end` prop is the WRONG pattern. Neither the Reagent
-  adapter (`re-frame.adapter.reagent`) nor reagent-slim wraps `:on-*`
-  callbacks to re-establish a frame binding: the handler is a plain closure
+  `:on-animation-end` prop is the WRONG pattern. The Reagent adapter
+  (`re-frame.adapter.reagent`) does not wrap `:on-*` callbacks to
+  re-establish a frame binding: the handler is a plain closure
   React invokes LATER, on a fresh JS stack, with no render in progress. At
   that point:
 

@@ -154,8 +154,8 @@ test('every deploy-leaf rewrites its real deps.edn to exactly one published coor
   // A changed matrix shape must fail here, not parse to fewer leaves.
   assert.equal(
     leaves.length,
-    13,
-    `expected 13 leaf declarations parsed from release.yml, got ${leaves.length}`,
+    12,
+    `expected 12 leaf declarations parsed from release.yml, got ${leaves.length}`,
   );
 
   for (const { leaf, directory, localRoot, extraLocalRoot } of leaves) {

@@ -59,7 +59,7 @@ Thumbs.db
 /docs/spec/
 /docs/migration/
 # The docs/cljs live-cell SCI bundle (rf2-tzy13) — a shadow-cljs :advanced
-# build over re-frame2 core + reagent-slim + machines + flows + react@19. It is
+# build over re-frame2 core + Reagent + machines + flows + react@19. It is
 # a GENERATED artefact, built at each consumption boundary (test.yml's
 # tools-playground job at PR time, docs.yml on deploy) and by `npm run build` in
 # docs/tools/playground locally. It was previously committed; every PR touching

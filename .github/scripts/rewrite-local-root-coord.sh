@@ -52,8 +52,8 @@
 #
 # Linux-runner-only by design: the only caller is release.yml's deploy-leaf
 # job, which runs on ubuntu-latest. POSIX sh + python3, which is
-# preinstalled on ubuntu-latest. No .ps1 sibling (same rationale as
-# transform-reagent-slim-ns.sh).
+# preinstalled on ubuntu-latest. No .ps1 sibling: nothing runs it off a
+# Linux runner.
 #
 # # Usage
 #

@@ -557,16 +557,11 @@
 ;;                                    &quot;<b>x</b>&quot;}"></div>
 ;;   {:meta [{:children "v" :name "a"}]}  => <meta children="v" name="a">
 ;;
-;; WHAT THE CLIENT DOES, established rather than assumed. The client
-;; adapters pass both straight through to React: `reagent2.impl.template`
-;; drops only the three prototype-pollution names, so both reach
-;; `createElement`, and React then renders `props.children` as the
-;; element's children and `dangerouslySetInnerHTML.__html` as its raw
-;; body — painting NEITHER as an attribute. react-dom's own output for
-;; the raw-HTML case is pinned in-repo against the real serialiser by
-;; `reagent2.dom.parity-cljs-test/parity-dangerously-set-inner-html`, and
-;; the peer hiccup serialiser `reagent2.dom.server` strips both
-;; from its attribute stream for exactly this reason (`emit-attribute`).
+;; WHAT THE CLIENT DOES. The client adapters pass both straight through
+;; to React, so both reach `createElement`, and React then renders
+;; `props.children` as the element's children and
+;; `dangerouslySetInnerHTML.__html` as its raw body — painting NEITHER as
+;; an attribute.
 ;;
 ;; SO THE ATTRIBUTE STREAM DROPS BOTH, AND THE CONTENT IS THE CHILDREN
 ;; PATH'S BUSINESS. The hiccup body walker (`emit/emit-element`) renders
@@ -871,11 +866,7 @@
 ;; React path emits from the same style object, or React 19 logs a hydration
 ;; attribute mismatch on first load.
 ;;
-;; The rules mirror `react-dom/server`'s `pushStyleAttribute` — the same
-;; contract the reagent-slim static-markup emitter pins in its IMPL-SPEC §8.3.
-;; It is duplicated here by intent: bundle isolation forbids `re-frame.ssr`
-;; requiring the adapter, exactly as `void-elements` is duplicated in
-;; `emit.cljc`.
+;; The rules mirror `react-dom/server`'s `pushStyleAttribute`.
 
 (defn- style-name->css
   "camelCase style-property name → kebab CSS name, matching React's
@@ -888,8 +879,8 @@
       (str/lower-case)
       (str/replace #"^ms-" "-ms-")))
 
-;; React 19.2.0's `unitlessNumber` set, mirrored verbatim from the authoritative
-;; `reagent2.dom.server/unitless-style-props` (camelCase keys), then reprojected
+;; React 19.2.0's `unitlessNumber` set, mirrored verbatim (camelCase keys),
+;; then reprojected
 ;; ONCE to the kebab CSS names `style-name->css` produces so a numeric value can
 ;; be classified without re-deriving the camelCase form. Deriving the kebab set
 ;; from the camelCase source (rather than hand-transcribing) preserves React's

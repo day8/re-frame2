@@ -118,7 +118,7 @@
   (testing "A `:<>` fragment's props map at slot 1 is not a child: emitting it
             would put the map's EDN on the wire, and `[:<> {:key i} …]` inside
             a `for` is the canonical idiom. Its attributes are dropped, not
-            refused, as React and reagent-slim drop them"
+            refused, as React drops them"
     (doseq [[tree expected]
             [[[:<> {:class "nope" :onClick "alert(1)"} [:div "x"]]     "<div>x</div>"]
              [[:<> (list [:div "a"]) [:div "b"]]                       "<div>a</div><div>b</div>"]]]
@@ -190,9 +190,8 @@
         (pr-str el))))
 
 ;; ===========================================================================
-;; `:dangerouslySetInnerHTML` renders as the element's raw body, in the order
-;; `reagent2.dom.server` uses: a void element ignores it, otherwise it wins
-;; over any children.
+;; `:dangerouslySetInnerHTML` renders as the element's raw body: a void
+;; element ignores it, otherwise it wins over any children.
 ;; ===========================================================================
 
 (deftest dangerously-set-inner-html-renders-raw

@@ -9,7 +9,6 @@
   #{:reagent/set-hiccup-emitter!
     :adapter/current-frame
     :adapter/current-component
-    :adapter/as-element
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction

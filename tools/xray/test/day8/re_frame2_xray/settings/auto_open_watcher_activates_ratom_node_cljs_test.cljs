@@ -6,11 +6,10 @@
   `add-watch` can never fire. The ribbon is a signal no component renders,
   so nothing else supplies that context, and the plain-atom adapter the
   rest of the suite uses cannot show the defect. These rows install
-  reagent-slim and drive a real app-db write through the real watch.
-  Template: `re-frame.observation-port-activates-ratom-node-cljs-test`."
+  the Reagent adapter and drive a real app-db write through the real watch."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [reagent2.ratom :as ratom]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
+            [reagent.ratom :as ratom]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -19,7 +18,7 @@
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
-    {:adapter    rf.adapter.reagent-slim/adapter
+    {:adapter    rf.adapter.reagent/adapter
      :tier       :runtime
      :post-reset effects/detach-auto-open-watcher!}))
 

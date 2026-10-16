@@ -1575,7 +1575,7 @@
 
 ;; ---- render-owned references on the ratom family ---------------------------
 ;;
-;; WHY THIS EXISTS. A Reagent / reagent-slim view reads a subscription
+;; WHY THIS EXISTS. A Reagent view reads a subscription
 ;; as `@(subscribe q)` inside its render, and `subscribe` bumps `:ref-count`
 ;; EVERY TIME. On the ratom family nothing calls `unsubscribe`: the slot is
 ;; removed by the substrate instead, when the component's render Reaction drops
@@ -1595,7 +1595,7 @@
 ;;
 ;; WHY THE RELEASE IS NOT ALSO THE EMIT, which is the thing a reader will ask.
 ;; A Reaction's `dispose!` removes its upstream watches BEFORE it fires its own
-;; on-dispose callbacks (stock `reagent.ratom` and `reagent2.ratom` both). So on
+;; on-dispose callbacks (`reagent.ratom`). So on
 ;; unmount the sub Reaction has usually already auto-disposed — taking its slot
 ;; with it — by the time the release below runs, and the release correctly
 ;; no-ops through its identity guard. That is why the eviction site itself

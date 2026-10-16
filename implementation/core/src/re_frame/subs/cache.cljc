@@ -145,7 +145,7 @@
   evicted by the RATOM FAMILY'S OWN teardown route rather than by a ref-count
   decrement taken here.
 
-  WHY A SECOND DOOR TO THE SAME EMIT EXISTS. On Reagent and reagent-slim a
+  WHY A SECOND DOOR TO THE SAME EMIT EXISTS. On Reagent a
   cached sub reaction can be torn down by the substrate instead of by the
   cache: `Reaction`'s `-remove-watch` disposes itself once its last watcher
   drops and it carries no `auto-run`, which is precisely what a view unmount

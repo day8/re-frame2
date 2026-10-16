@@ -21,7 +21,7 @@
 
   Mounting through the host adapter's `:render` would only work on hosts
   whose `:render` accepts HICCUP render-trees — the ratom family (stock
-  Reagent / reagent-slim). Every substrate built on the React-hook spine
+  Reagent). Every substrate built on the React-hook spine
   shares an ELEMENT-shaped `render`
   (`re-frame.substrate.spine/make-react-adapter`) that hands the tree to
   React untouched, so a hiccup shell would reach React as raw CLJS data

@@ -75,7 +75,6 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:browser-prod-elision && \
   npm run test:elision && \
   npm run test:bundle-isolation && \
-  npm run test:reagent-slim:bundle-isolation && \
   npm run test:adapter-smokes && \
   npm run test:examples-compile && \
   npm run test:story-feature-load && \
@@ -86,7 +85,6 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:ssr-node && \
   npm run test:perf-bundle && \
   npm run test:schemas-bundle && \
-  npm run test:reagent-slim:smoke && \
   npm run test:testbed-tenant-switcher && \
   npm run test:tools-machines-viz && \
   npm run build:machines-viz-viewer)

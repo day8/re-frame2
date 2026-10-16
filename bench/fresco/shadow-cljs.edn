@@ -37,7 +37,6 @@
                 "../../implementation/core/src"
                 "../../implementation/core/test"
                 "../../implementation/adapters/reagent/src"
-                "../../implementation/adapters/reagent-slim/src"
                 "../../implementation/adapters/uix/src"
                 "../../implementation/fresco/src"
                 "../../implementation/fresco/test"

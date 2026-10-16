@@ -191,7 +191,7 @@
                  `:render-tree-fn` when, and only when, the client render is a
                  hashable DATA tree:
 
-                   • **Hashable data render-tree — Reagent and Reagent-slim.**
+                   • **Hashable data render-tree — Reagent.**
                      A view is a pure fn returning hiccup, so
                      `((rf/view :app/root))` yields the tree this step hashes.
                      That is the boot: `ssr/hydrate!` WITH `:render-tree-fn`,

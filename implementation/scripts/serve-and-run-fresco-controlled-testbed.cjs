@@ -16,8 +16,8 @@
  * That runner is ONE engine over N specs; this surface is ONE spec over N
  * engines, and the engines are the contract rather than a detail of how it
  * is run. Widening the shared runner would put three browser launches
- * behind every adapter smoke to serve one caller. The reagent-slim and
- * tenant-switcher testbeds likewise carry their own orchestrators.
+ * behind every adapter smoke to serve one caller. The tenant-switcher
+ * testbed likewise carries its own orchestrator.
  *
  * ## The three engines, and why each is mandatory
  *

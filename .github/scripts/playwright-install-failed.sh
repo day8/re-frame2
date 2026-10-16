@@ -27,10 +27,9 @@
 #     - name: Install Playwright (Chromium + system deps)
 #       run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 #
-# and the three sites that carry a step-level `timeout-minutes: 5`
-# (`cljs-reagent-slim-bundle-isolation`, `tenant-switcher-testbed-smoke`,
-# `mcp-conformance-re-frame2-pair`) keep the bare form with no `timeout` and no
-# `$?`. "Why there is an in-command deadline" below is the measurement that
+# and the two sites that carry a step-level `timeout-minutes: 5`
+# (`tenant-switcher-testbed-smoke`, `mcp-conformance-re-frame2-pair`) keep the
+# bare form with no `timeout` and no `$?`. "Why there is an in-command deadline" below is the measurement that
 # settles it; do not tidy the two shapes into one.
 #
 # Use the $GITHUB_WORKSPACE-absolute form, not a relative path: several jobs
@@ -118,7 +117,7 @@
 # step — match the directory to its lockfile — instead of a caveat that is
 # silently inapplicable in two of seventeen jobs.
 #
-# # Why there is an in-command deadline — and why there is none at three sites
+# # Why there is an in-command deadline — and why there is none at two sites
 #
 # `cmd || <handler>` fires the handler on a NON-ZERO EXIT. A step the RUNNER
 # guillotines is killed, not failed, so the handler never runs and this script
@@ -129,7 +128,7 @@
 #     runner posts `The action 'Install Playwright chromium (for hermetic
 #     browser preload)' has timed out after 5 minutes.` — read verbatim off
 #     real jobs. It names the step, so a reader sees provisioning without
-#     opening a log, and at these three sites the annotation this script adds
+#     opening a log, and at these two sites the annotation this script adds
 #     is already on the checks page.
 #
 #   * A JOB-LEVEL `timeout-minutes` GUILLOTINE ANNOTATES NOTHING. Such a job
@@ -139,8 +138,8 @@
 #     a wedged gate, and establishing which it was costs a diagnosis cycle
 #     reading the raw log. THAT is the hole the `timeout` prefix closes, and it
 #     is why the fourteen sites whose only backstop is the job cap take the
-#     prefix while the three step-capped ones do not. Adding a redundant
-#     in-command deadline at those three would only thin a measured margin to
+#     prefix while the two step-capped ones do not. Adding a redundant
+#     in-command deadline at those two would only thin a measured margin to
 #     restate an annotation the runner already gives.
 #
 # THE 720s VALUE IS DERIVED, NOT ROUND. Measured over 140 completed `test.yml`
@@ -186,8 +185,8 @@
 #   * A STALLED APT HOP — `##[error]The action 'Install Playwright (Chromium +
 #     system deps)' has timed out after 5 minutes`, spent entirely inside the
 #     `--with-deps` apt hop fetching 21MB of fonts from
-#     azure.archive.ubuntu.com, never reaching the browser download. Three
-#     of the seventeen sites carry `timeout-minutes: 5`; an envelope wider
+#     azure.archive.ubuntu.com, never reaching the browser download. Two of
+#     the sites carry `timeout-minutes: 5`; an envelope wider
 #     than that cap cannot finish, and a step the runner guillotines never
 #     reaches this script at all. There, a wider loop is not merely useless
 #     but actively worse than none. At the other fourteen the in-command

@@ -3,8 +3,8 @@
   Reagent-tier client paints, not the author's attribute map verbatim.
 
   Every expected string below was taken from the supported adapters' prop
-  conversion (stock Reagent 2.0.1 `dash-to-prop-name` / `class-names`, which
-  reagent-slim copies) fed through the installed react-dom 19.3.0's
+  conversion (stock Reagent 2.0.1 `dash-to-prop-name` / `class-names`) fed
+  through the installed react-dom 19.3.0's
   `renderToStaticMarkup` — never from another local table. Two spellings
   differ from react-dom's bytes without differing in the DOM: this emitter
   writes a presence attribute bare (`readOnly`) where react-dom writes

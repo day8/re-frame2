@@ -1,11 +1,10 @@
 (ns day8.re-frame2-xray.acceptance.substrate-gap-dom-cljs-test
   "THE PUBLIC `open!` VERB ACROSS BOTH ADAPTER FAMILIES.
 
-  The three arms beside this file — `acceptance.uix-dom-cljs-test`,
-  `acceptance.reagent-dom-cljs-test` and
-  `acceptance.reagent-slim-dom-cljs-test` — witness all six behavioural
+  The two arms beside this file — `acceptance.uix-dom-cljs-test` and
+  `acceptance.reagent-dom-cljs-test` — witness all six behavioural
   criteria through Xray's own React root, on an element-shaped adapter and
-  on both ratom-family runtimes alike. This file covers the one thing they
+  on the ratom family alike. This file covers the one thing they
   do not: the PUBLIC `open!` verb, the door a host app actually uses. The
   namespace is named for the seam it pins: whether the public mount
   crosses the gap between adapter families.
@@ -28,25 +27,13 @@
   root directly (`test-helpers.criteria/mount-xray!`), never `open!` — so
   it is coverage rather than ceremony.
 
-  [[the-public-mount-succeeds-on-a-slim-ratom-family-substrate]] drives
-  the same door on reagent-slim. That pairing fails if a hiccup->React
-  crossing names stock Reagent's walk statically: a crossing loses its
-  frame, `:rf.error/no-frame-context` raises during render, React takes
-  the whole subtree down and Xray's chrome does not paint.
-  `substrate/as-element` reads the walk off the INSTALLED adapter, and
-  `static.shell-reagent-slim-crossing-dom-cljs-test` witnesses that
-  crossing with an error boundary above it — an instrument a naked mount
-  cannot supply, because the browser runner fails a whole run on an
-  uncaught `pageerror` INDEPENDENTLY of the cljs.test summary.
-
   ## FIXTURE
 
   No `:adapter` in the fixture: each row installs its own with `rf/init!`,
-  so all three rows sit in ONE namespace and differ in the installed
+  so both rows sit in ONE namespace and differ in the installed
   adapter and in nothing else — which is the entire content of the claim."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
@@ -170,69 +157,6 @@
               ;; `clear-diagnostic!` leaves an `{:ok? true}` marker rather
               ;; than nil, so the literal to compare against is the FLAG,
               ;; not the slot's emptiness.
-              (is (= true (:ok? (:diagnostic (xray-mount/status))))
-                  (str "with the diagnostic slot reporting health rather than a "
-                       "refusal. Got: "
-                       (pr-str (:diagnostic (xray-mount/status)))))
-              (is (nil? (:reason (:diagnostic (xray-mount/status))))
-                  (str "and naming no refusal reason. Got: "
-                       (pr-str (:reason (:diagnostic (xray-mount/status))))))
-              (is (some? (.getElementById js/document "rf-xray-root"))
-                  "and a real mount root is in the document")
-              (is (= 1 (.-childElementCount host))
-                  (str "inside the host's own slot, which now holds exactly the "
-                       "one node Xray put there. Got: "
-                       (.-childElementCount host))))))))))
-
-;; ===========================================================================
-;; The same family, the OTHER ratom runtime — reagent-slim through the
-;; public verb
-;; ===========================================================================
-
-(deftest the-public-mount-succeeds-on-a-slim-ratom-family-substrate
-  (testing "the ratom family's OTHER runtime through the same
-            public verb, same host element, same registrations. The row
-            above installs stock Reagent; this one installs reagent-slim,
-            which `tools/xray/deps.edn` carries as Xray's DEFAULT
-            transitive adapter and which is therefore the ratom build a
-            host most easily ends up on without choosing it.
-
-            It is coverage rather than a third helping of the same thing.
-            A hiccup->React crossing that names stock Reagent's
-            `as-element` STATICALLY paints the islands with the wrong
-            ratom build under THIS adapter and the chrome comes up blank —
-            a failure specific to the pairing and invisible to the Reagent
-            row above it. The six-criteria arms witness the crossing on
-            Xray's OWN root; this row is the only place it is witnessed
-            through the PUBLIC door.
-
-            Caught for the reason the element-shaped row catches: this
-            adapter's failure mode is a render-phase THROW, and an
-            uncaught one would swallow every assertion below it."
-    (if-not (browser?)
-      (is true "skipped: the :browser-test runner drives the real mount")
-      (do
-        (rf/init! rf.adapter.reagent-slim/adapter)
-        (registry/register-xray-handlers!)
-        (with-layout-host
-          (fn [host]
-            (let [ret (try (xray-mount/open!)
-                           (catch :default e
-                             (is false
-                                 (str "`open!` THREW on the slim ratom-family "
-                                      "substrate: "
-                                      (pr-str (:rf.error/id (ex-data e)
-                                                            (ex-message e)))
-                                      ". `substrate/as-element` reads the "
-                                      "hiccup->React walk off the INSTALLED "
-                                      "adapter; a throw here says that "
-                                      "crossing lost the frame."))
-                             ::threw))]
-              (is (= true (xray-mount/mounted?))
-                  (str "`open!` mounted on the slim ratom-family substrate. "
-                       "Returned: " (pr-str (if (map? ret)
-                                              (dissoc ret :node :unmount)
-                                              ret))))
               (is (= true (:ok? (:diagnostic (xray-mount/status))))
                   (str "with the diagnostic slot reporting health rather than a "
                        "refusal. Got: "

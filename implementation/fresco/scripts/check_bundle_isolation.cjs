@@ -92,7 +92,7 @@
  * contains no UIx code. THE
  * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Fresco's public
  * door installs no reactive adapter, so a consumer picks one — Reagent,
- * reagent-slim, UIx, or Fresco's own optional `re-frame.fresco.substrate`.
+ * UIx, or Fresco's own optional `re-frame.fresco.substrate`.
  * The exemplar picks UIx, so `re-frame.adapter.uix` is on
  * the entry's require list and `uix.core` comes with it.
  *
@@ -254,7 +254,7 @@
  * ## The substrate module: the UIx control's twin, one adapter over
  *
  * `re-frame.fresco.substrate` is Fresco's own reactive-substrate adapter,
- * the option a consumer takes INSTEAD of Reagent, reagent-slim or UIx.
+ * the option a consumer takes INSTEAD of Reagent or UIx.
  * The exemplar takes UIx, so on this bundle the module must be absent:
  * an application that installs somebody else's adapter must not pay for
  * this one, nor for the React-hook spine it is built on.

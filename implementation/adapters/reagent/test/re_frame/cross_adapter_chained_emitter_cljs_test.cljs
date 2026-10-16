@@ -1,6 +1,6 @@
 (ns re-frame.cross-adapter-chained-emitter-cljs-test
   "`:reagent/set-hiccup-emitter!` is a `:chained? true` late-bind hook: each
-  React-shaped adapter (reagent, reagent-slim, uix) publishes an install
+  React-shaped adapter (reagent, uix) publishes an install
   step with `late-bind/chain-fn!`, so one consumer call fans out to all of
   them. A producer that used `set-fn!` would wipe every step loaded before
   it, and ns-load order can hide that until a reshuffle loads the offender
@@ -10,13 +10,12 @@
   chains onto the hook too, so the React adapters are a required SUBSET of
   the producers rather than the exact set."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            ;; Loading every adapter ns here forces all three to publish
+            ;; Loading every adapter ns here forces both to publish
             ;; their chain steps before this test's deftest runs. Every
             ;; require is load-bearing — do not trim.
-            [re-frame.adapter.reagent       :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim  :as rf.adapter.reagent-slim]
-            [re-frame.adapter.uix           :as rf.adapter.uix]
-            [re-frame.late-bind             :as rf.late-bind]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix     :as rf.adapter.uix]
+            [re-frame.late-bind       :as rf.late-bind]))
 
 (def ^:private hook-key :reagent/set-hiccup-emitter!)
 
@@ -33,9 +32,8 @@
   (fn [_render-tree _opts] marker))
 
 (def ^:private adapter-maps
-  [["reagent"      rf.adapter.reagent/adapter]
-   ["reagent-slim" rf.adapter.reagent-slim/adapter]
-   ["uix"          rf.adapter.uix/adapter]])
+  [["reagent" rf.adapter.reagent/adapter]
+   ["uix"     rf.adapter.uix/adapter]])
 
 (deftest chained-install-fans-out-to-every-adapter
   (testing "invoking the chained `:reagent/set-hiccup-emitter!`
@@ -46,7 +44,6 @@
     ;; Clear every cell, and confirm it, so a stale install cannot mask a
     ;; fan-out failure.
     (rf.adapter.reagent/set-hiccup-emitter! nil)
-    (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
     (rf.adapter.uix/set-hiccup-emitter! nil)
     (doseq [[adapter-name adapter-map] adapter-maps]
       (is (thrown-with-msg?
@@ -60,7 +57,7 @@
     ;; An unbound hook throws here.
     (let [marker ::fan-out-marker]
       ((rf.late-bind/get-fn hook-key) (sentinel-emitter marker))
-      (is (= {"reagent" marker "reagent-slim" marker "uix" marker}
+      (is (= {"reagent" marker "uix" marker}
              (into {} (map (fn [[adapter-name adapter-map]]
                              [adapter-name (adapter-render-to-string adapter-map)]))
                    adapter-maps))
@@ -69,5 +66,4 @@
                "registered, or clobbered by a sibling producer's set-fn!")))
     ;; Re-clear, so later tests install their own emitter.
     (rf.adapter.reagent/set-hiccup-emitter! nil)
-    (rf.adapter.reagent-slim/set-hiccup-emitter! nil)
     (rf.adapter.uix/set-hiccup-emitter! nil)))

@@ -345,7 +345,7 @@ MODULES = [
         # rather than adding a second coordinate purely to obtain a state
         # container.  It is a MODULE and not a door the package leads to, for
         # the reason every row here exists: an application that deliberately
-        # installs Reagent, reagent-slim or UIx under a Fresco tree must not
+        # installs Reagent or UIx under a Fresco tree must not
         # pay for this one, and `re-frame.substrate.spine` is what it would
         # pay in.  The adapter ADDS an option and withdraws none, and this row
         # is what keeps the option free.

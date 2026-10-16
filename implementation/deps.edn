@@ -3,7 +3,6 @@
 ;; The published artefacts are
 ;;   - core/          (day8/re-frame2)
 ;;   - reagent/       (day8/re-frame2-reagent)
-;;   - reagent-slim/  (day8/reagent-slim)
 ;;   - uix/           (day8/re-frame2-uix)
 ;;   - schemas/       (day8/re-frame2-schemas)
 ;;   - machines/ (day8/re-frame2-machines)
@@ -29,7 +28,6 @@
 {:paths []
  :deps  {day8/re-frame2          {:local/root "core"}
          day8/re-frame2-reagent  {:local/root "adapters/reagent"}
-         day8/reagent-slim        {:local/root "adapters/reagent-slim"}
          day8/re-frame2-uix      {:local/root "adapters/uix"}
          day8/re-frame2-schemas  {:local/root "schemas"}
          day8/re-frame2-machines {:local/root "machines"}
@@ -59,7 +57,6 @@
   :test
   {:extra-paths ["core/test"
                  "adapters/reagent/test"
-                 "adapters/reagent-slim/test"
                  "adapters/uix/test"
                  ;; The test-react adapter test tree (REPL parity; the
                  ;; canonical JVM gate is the artefact's own :test alias,
