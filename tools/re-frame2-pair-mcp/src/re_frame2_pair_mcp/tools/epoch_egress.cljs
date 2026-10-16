@@ -369,3 +369,41 @@
     ;; an unstamped record throws instead of being bare-walked.
     (str "(mapv (fn [r#] " (stamped-epoch-guard-src "r#")
          " (re-frame.core/project-egress r# " opts-edn ")) " p ")")))
+
+(defn project-trace-bundles-src
+  "CLJS source that projects a let-bound vector of trace-ring event
+  bundles — `snapshot`'s `:traces` slice, `(re-frame.core/trace-buffer
+  frame-id)` — for off-box egress. `bundles-sym` is the name of the
+  let-bound vector (a CLJS symbol or string).
+
+  A bundle carries the same raw trace events an epoch record's
+  `:trace-events` slot does, so it takes the same projection: each
+  bundle's `:trace-events` crosses `re-frame.core/project-egress` inside
+  a record stamped `:kind :rf/epoch-record` (bundle's own `:frame`, no
+  other slot), the one door that reaches the epoch projector's
+  trace-event rules. Off-box, event arguments, effect arguments and
+  unschematized HTTP bodies become `:rf/redacted` whether or not
+  anything declared them sensitive, and declared-sensitive app-db slots
+  redact. A kindless walk of the bundle would reach none of those rules,
+  because none of them is an app-db path.
+
+  The bundle is then REBUILT from the projected events with the ring's
+  own fold (`re-frame.trace.projection/absorb` over `empty-event-bundle`,
+  as `re-frame.trace.tooling/trace-buffer` builds it), so `:event`,
+  `:dispatched`, `:handler`, `:fx`, `:effects`, `:subs`, `:renders`,
+  `:other` and `:parent-dispatch-id` are views of the projected
+  `:trace-events` and cannot carry a byte the projection removed.
+
+  `incl?` is threaded exactly as `project-page-src` threads it: the
+  `:include-sensitive` opt-in lifts the app-db sensitive axis inside the
+  projection and never bypasses it."
+  [bundles-sym incl?]
+  (let [b        (name bundles-sym)
+        opts-edn (egress-opts-edn incl?)]
+    (str "(mapv (fn [b#]"
+         " (let [pe# (:trace-events (re-frame.core/project-egress"
+         " {:kind :rf/epoch-record :frame (:frame b#) :trace-events (:trace-events b#)} " opts-edn "))]"
+         " (reduce re-frame.trace.projection/absorb"
+         " (assoc re-frame.trace.projection/empty-event-bundle"
+         " :dispatch-id (:dispatch-id b#) :frame (:frame b#) :trace-events pe#)"
+         " pe#))) " b ")")))

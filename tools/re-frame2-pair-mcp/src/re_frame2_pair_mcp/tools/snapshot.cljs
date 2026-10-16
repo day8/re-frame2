@@ -118,6 +118,14 @@
         ;; never crosses the wire as a raw
         ;; fx-arg / runtime-db payload, gate ON or OFF.
         project-epochs?   true
+        ;; The `:traces` slice is the trace ring's event bundles, and a
+        ;; bundle carries the same raw trace events an epoch record's
+        ;; `:trace-events` slot does — event args, fx args, HTTP bodies,
+        ;; none of them app-db paths, so the bare-value arm the `:app-db`
+        ;; slice takes would redact none of them. Each bundle therefore
+        ;; takes the epoch projector's trace-event rules under the same
+        ;; opts as `:epochs` (`epoch_egress/project-trace-bundles-src`),
+        ;; always, gate ON or OFF.
         ;; EP-0001 — the `:machines` slice is
         ;; RUNTIME-DB-partition state (machine snapshots live in the
         ;; durable runtime-db partition). Per Spec
@@ -133,15 +141,16 @@
         redact-runtime-db? (not incl?)
         ;; The `walked` reduction always fires: the `:app-db` /
         ;; `:sub-cache` slices route through the door on EVERY read,
-        ;; and `:epochs` projection (`project-epochs?`) / `:machines`
-        ;; runtime-db redaction (`redact-runtime-db?`) ride the same
-        ;; reduction.
+        ;; and `:epochs` projection (`project-epochs?`), `:traces`
+        ;; projection and `:machines` runtime-db redaction
+        ;; (`redact-runtime-db?`) ride the same reduction.
         ;; Source fragment that applies the active per-slot transforms to
         ;; one frame's slice map `fmap`. The slice arm routes `:app-db` /
         ;; `:sub-cache` through `re-frame.core/project-egress` under the
         ;; NAMED profile as bare values; `project-epochs?` maps the
         ;; `:epochs` vector through the SAME door as whole stamped
-        ;; records; `redact-runtime-db?` substitutes
+        ;; records; the `:traces` arm sends each bundle's trace events
+        ;; through that door's epoch arm; `redact-runtime-db?` substitutes
         ;; the `:machines` runtime-db slice with the `:rf/redacted`
         ;; sentinel. Emitted as a threaded `let` so a frame can carry all
         ;; transforms. An `:elision false` read stays on
@@ -186,6 +195,9 @@
                                       ;; sensitive axis only), never around it.
                                       "                (fn [es] " (egress/project-page-src "es" incl?) ")) fmap)")
                                  "")
+                               " fmap (if (contains? fmap :traces)"
+                               "        (update fmap :traces"
+                               "                (fn [ts] " (egress/project-trace-bundles-src "ts" incl?) ")) fmap)"
                                (if redact-runtime-db?
                                  (str " fmap (if (contains? fmap :machines)"
                                       "        (assoc fmap :machines :rf/redacted) fmap)")
