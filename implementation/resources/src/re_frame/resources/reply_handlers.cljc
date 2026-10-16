@@ -20,11 +20,13 @@
   ## The three knobs each family passes
 
   - **`path-fn`** — `(payload) → db-path` for the family's durable slot: the
-    resource entry (`state/entry-path` keyed on `:resource/key`) or the
-    mutation instance (`mstate/instance-path` keyed on `:instance-id`). Used
-    by `live-for-reply?` (the verifier reads `:current-work` + `:generation`
-    off the slot) and by `current-generation` (the `:current` half of the
-    carried-vs-current stale gate reads the slot's live `:generation`).
+    resource entry at the scoped key resolved from the receiving frame's
+    ledger row (`ledger-row-for-reply`), or the mutation instance
+    (`mstate/instance-path` keyed on `:instance-id`). A nil path means there
+    is no slot to verify against. Used by `live-slot-for-reply` (the verifier
+    reads `:current-work` + `:generation` off the slot) and by
+    `current-generation` (the `:current` half of the carried-vs-current stale
+    gate reads the slot's live `:generation`).
   - **`work-kind`** — `rf.resources.reply/work-kind-resource` | `rf.resources.reply/work-kind-mutation`
     (Managed-Effects §Work-id correlation).
   - **`stale-reason`** — `:rf.resource/superseded` | `:rf.mutation/superseded`
@@ -67,11 +69,24 @@
   (let [reply-frame-id (:rf.frame/id payload)]
     (and (some? reply-frame-id) (not= reply-frame-id receiving-frame-id))))
 
+(defn ledger-row-for-reply
+  "The RECEIVING frame's work-ledger row for an internal reply's `:work/id`,
+  or nil. The row is the one place that records which scoped key an attempt
+  serves (`:resource/key`), so a resource reply resolves its entry through
+  it rather than carrying the key on the transport. A cross-frame reply
+  resolves nothing: two frames can hold the same work-id (see
+  `rf.resources.work-ledger/resource-work-id`), so the row under it here is
+  the receiving frame's own work. Nil too when the row is gone — the attempt
+  was dropped with its entry — and the reply is then stale."
+  [runtime-db receiving-frame-id {work-id :work/id :as payload}]
+  (when-not (cross-frame-reply? receiving-frame-id payload)
+    (rf.resources.work-ledger/get-record runtime-db work-id)))
+
 (defn live-slot-for-reply
   "Look the live durable slot up for an internal reply and verify it is still
   the one the reply belongs to: the reply's stamped `:rf.frame/id` equals the
   RECEIVING frame (`receiving-frame-id`), the slot at `(path-fn payload)`
-  exists, its `:current-work` equals the reply's `:work/id`, AND its
+  exists (a nil path is no slot), its `:current-work` equals the reply's `:work/id`, AND its
   `:generation` equals the reply's `:generation`. Returns the slot value on a
   match, nil on a cross-frame / stale / superseded / vanished reply (which MUST
   be suppressed).
@@ -95,11 +110,11 @@
   belt-and-braces for a future transport that reuses a work-id.
 
   `path-fn` is the family's slot path: `(payload) → db-path` (the resource
-  `state/entry-path`-by-`:resource/key`, or the mutation
+  entry at the ledger-resolved scoped key, or the mutation
   `mstate/instance-path`-by-`:instance-id`)."
   [runtime-db receiving-frame-id path-fn {work-id :work/id :keys [generation] :as payload}]
   (when-not (cross-frame-reply? receiving-frame-id payload)
-    (when-let [slot (get-in runtime-db (path-fn payload))]
+    (when-let [slot (some->> (path-fn payload) (get-in runtime-db))]
       (when (and (= work-id (:current-work slot))
                  (= generation (:generation slot)))
         slot))))
@@ -133,7 +148,7 @@
   carries; the `:carried` half is the generation stamped on the reply token
   (`(:generation payload)`)."
   [runtime-db path-fn payload]
-  (:generation (get-in runtime-db (path-fn payload))))
+  (some->> (path-fn payload) (get-in runtime-db) :generation))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) Stale-suppress reply builder (lowers through the shared substrate).

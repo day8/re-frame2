@@ -5,30 +5,32 @@
   The resource runtime first creates or joins a work-ledger record, then
   lowers an ensure/refetch into managed HTTP (`:rf.http/managed`, Spec
   014), supplying `:request-id` / `:on-success` / `:on-failure` itself
-  from the scoped resource key and current generation:
+  from the attempt's work id and generation:
 
       [:rf.http/managed
        (assoc http-args
-              :request-id  request-id
+              :request-id  [:rf.req frame-id work-id]
               :on-success  [:rf.resource.internal/succeeded
-                            {:work/id … :resource/key … :scope …
-                             :rf.frame/id … :generation …}]
+                            {:work/id … :generation … :rf.frame/id …}]
               :on-failure  [:rf.resource.internal/failed
-                            {:work/id … :resource/key … :scope …
-                             :rf.frame/id … :generation …}])]
+                            {:work/id … :generation … :rf.frame/id …}])]
 
-  The verification-payload work identity is `:work/id` — the qualified
-  spelling the ledger row, the entry's `:current-work`, and the uniform
-  reply envelope all use (EP-0007 one-attempt-one-spelling: one attempt has
-  one work id, one name). It is NOT `:work-id`.
+  The payloads carry no `:resource/key` and no `:scope`: the reply handler
+  resolves the attempt's scoped key through the receiving frame's ledger
+  row, the one place that records which key an attempt serves, so the
+  scoped key never rides the transport. The verification-payload work
+  identity is `:work/id` — the qualified spelling the ledger row, the
+  entry's `:current-work`, and the uniform reply envelope all use (EP-0007
+  one-attempt-one-spelling: one attempt has one work id, one name). It is
+  NOT `:work-id`.
 
   This namespace contains only the resources-owned lowering and args-map
   construction. The emitted `:rf.http/managed` effect is registered by
   `re-frame.http.managed`, which the `re-frame.resources` facade requires.
 
   The lowering lives here: `lower` stamps the caller-supplied request-id and
-  the work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
-  `:rf.frame/id` / `:generation`) into the reply addressing."
+  the work-ledger correlation (`:work/id` / `:generation` / `:rf.frame/id`)
+  into the reply addressing."
   (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -52,7 +54,7 @@
   "The reply-addressing / request-correlation keys the RUNTIME owns and an
   app `:request` (the Spec 014 managed-HTTP args map) MUST NOT supply. Per
   Spec 016 §Transport: the runtime supplies `:request-id` / `:on-success` /
-  `:on-failure` from the scoped resource key and current generation; an app
+  `:on-failure` from the attempt's work id and generation; an app
   that supplies them itself could bypass stale-suppression (point a reply
   at an event other than the verifying internal handler, or reuse a
   request-id the runtime correlates work by). `:reply-to`, Spec 014's
@@ -81,8 +83,8 @@
              (pr-str (vec offending-keys))
              " — :request-id / :on-success / "
              ":on-failure are supplied by resource "
-             "lowering from the scoped resource key "
-             "and current generation, and :reply-to "
+             "lowering from the attempt's work id "
+             "and generation, and :reply-to "
              "cannot sit beside them. An app-supplied "
              "reply target bypasses stale suppression "
              "(the correctness boundary). Remove them "
@@ -103,12 +105,14 @@
 
   The reply payloads stamp the qualified `:rf.frame/id` (the canonical
   carried frame stamp, EP-0002 R3) — matching the `:work/frame` stamp on
-  the ledger record — plus `:work/id`, `:resource/key`, `:scope`, and
-  `:generation` so the reply handlers can verify frame + work-id +
-  generation before writing (stale suppression is the correctness
-  boundary). The verification work identity is `:work/id` (the qualified
-  EP-0007 spelling the ledger / entry / reply envelope share), never the
-  unqualified `:work-id`.
+  the ledger record — plus `:work/id` and `:generation`, so the reply
+  handlers can verify frame + work-id + generation before writing (stale
+  suppression is the correctness boundary). They carry no `:resource/key`
+  and no `:scope`: the handler resolves the attempt's scoped key through the
+  receiving frame's ledger row. The verification work identity is `:work/id`
+  (the qualified EP-0007 spelling the ledger / entry / reply envelope
+  share), never the unqualified `:work-id`. `:resource/key` is read here
+  only to name the attempt in the reserved-key diagnostic.
 
   Reply ADDRESSING is overridable so the SAME managed-HTTP lower serves
   both resources and mutations: `:on-success-id` / `:on-failure-id` default
@@ -125,7 +129,7 @@
   that supplies the runtime-owned `:request-id` / `:on-success` /
   `:on-failure`, or `:reply-to`, itself is REJECTED here
   (`reject-reserved-reply-keys!`) — it would bypass stale suppression."
-  [{:keys [http-args request-id work-id scope frame-id generation where
+  [{:keys [http-args request-id work-id frame-id generation where
            on-success-id on-failure-id reply-payload]
     resource-key :resource/key}]
   (reject-reserved-reply-keys! http-args resource-key
@@ -135,10 +139,8 @@
                            ;; qualified `:work/id` (the ledger row / entry
                            ;; `:current-work` / reply-envelope spelling), one
                            ;; attempt one name.
-                           {:work/id      work-id
-                            :resource/key resource-key
-                            :scope        scope
-                            :generation   generation})
+                           {:work/id    work-id
+                            :generation generation})
                        :rf.frame/id frame-id)]
     (assoc http-args
            :request-id request-id
@@ -154,8 +156,9 @@
 
   `ensure-ctx` is the live ensure-context the resource runtime assembles:
   `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
-  map), `:request-id`, `:work-id`, `:resource/key`, `:scope`, `:frame-id`,
-  `:generation`, and `:where` (the dispatch surface for diagnostics). The
+  map), `:request-id`, `:work-id`, `:resource/key` (diagnostics only — it
+  never reaches the payload), `:frame-id`, `:generation`, and `:where` (the
+  dispatch surface for diagnostics). The
   built args carry the runtime-owned reply addressing; the app `:request`'s
   reserved reply keys are rejected (`build-managed-args`)."
   [ensure-ctx]

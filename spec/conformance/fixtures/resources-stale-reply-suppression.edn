@@ -45,8 +45,7 @@
   ;; generation 1. Verified against the live entry (now generation 2), it
   ;; MISMATCHES and is suppressed — no write, :rf.resource/stale-suppressed.
   [:rf.resource.internal/succeeded
-   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+   {:work/id      [:rf.work/resource :res/article 1]
     :generation   1
     :data         {:stale "data"}}]]
 
