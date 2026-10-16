@@ -196,7 +196,7 @@
               (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]}))
               (count (:articles db))])
           "bound to the per-request frame and not :rf/default; the server-init commit loaded two articles")
-      ;; the [:maybe [:vector …]] schema accepts the loaded articles and refuses
+      ;; the bare [:vector …] schema accepts the loaded articles and refuses
       ;; a non-vector on the per-request frame, while :rf/default, carrying no
       ;; SSR schema, soft-passes the same bad value
       (is (= [true false true]
