@@ -137,7 +137,7 @@ dismisses it, `:on-dismiss` sets the flag false, and focus returns to
     (for [{:keys [id title]} (h/sub [:todo/visible])]
       [:li {:key id} title])]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-screen]]
 ```
 

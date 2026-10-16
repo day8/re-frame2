@@ -269,12 +269,12 @@ Each click in this cell is an event, so each adds an epoch. The buttons under
         ^{:key id} [:li title])]
      [:p "History:"]
      ;; the new idea: one record per run, each holding the state after it
-     (for [{:keys [epoch-id trigger-event]} (rf.epoch/epoch-history :app)]
+     (for [{:keys [epoch-id trigger-event]} (rf.epoch/epoch-history :rf/default)]
        ^{:key epoch-id}
-       [:button {:on-click #(rf.epoch/restore-epoch! :app epoch-id)}
+       [:button {:on-click #(rf.epoch/restore-epoch! :rf/default epoch-id)}
         (pr-str trigger-event)])]))
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [time-travel]]
 ```
 

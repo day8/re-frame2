@@ -617,7 +617,7 @@ and Forward need a URL-bound frame, so Step 6 has nothing to try here.
        [:button {:on-click #(dispatch [:rf.route/handle-url-change url])}
         (str "Type " url)])]))
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :initial-events [[:rf.route/navigate {:to :app/home}]]}
  [address-bar]
  [root-view]]

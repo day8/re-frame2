@@ -188,7 +188,7 @@ to try **Save** before **Home**, and **Save and close**.
      :app/article-editor [editor-page]
      nil)])
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :initial-events [[:rf.route/navigate {:to     :app/article-editor
                                                       :params {:slug "intro"}}]]}
  [editor-app]]

@@ -51,7 +51,7 @@ last event and checkout runs again, recording a new epoch.
   (let [items   @(subscribe [:cart/items])
         ordered @(subscribe [:cart/ordered])
         ;; Not a subscription: read again whenever the cart changes.
-        history (rf.epoch/epoch-history :app/main)
+        history (rf.epoch/epoch-history :rf/default)
         n       (count history)]
     [:div
      [:button {:on-click #(dispatch [:cart/add "apple"])} "Add an apple"]
@@ -60,14 +60,14 @@ last event and checkout runs again, recording a new epoch.
      [:p "Cart: " (pr-str items) ", ordered: " (pr-str ordered)]
      [:p "History: " (pr-str (map :event-id history))]
      [:button {:disabled (< n 2)
-               :on-click #(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
+               :on-click #(rf.epoch/restore-epoch! :rf/default (:epoch-id (nth history (- n 2))))}
       "Rewind to before the last event"]
      " "
      [:button {:disabled (zero? n)
-               :on-click #(rf.epoch/replay-epoch! :app/main (:epoch-id (peek history)))}
+               :on-click #(rf.epoch/replay-epoch! :rf/default (:epoch-id (peek history)))}
       "Replay the last event"]]))
 
-[rf/frame-root {:id :app/main}
+[rf/frame-root {:id :rf/default}
  [cart-history]]
 ```
 
