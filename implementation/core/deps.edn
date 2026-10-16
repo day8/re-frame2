@@ -48,7 +48,7 @@
  :aliases
  {;; The core artefact's tests exercise schema-aware, machine-aware,
   ;; routing-aware AND flow-aware paths (every reset-runtime fixture
-  ;; rolls the per-frame schema registry, the machines wall-clock-timer
+  ;; rolls the registrar (app-db schemas included), the machines wall-clock-timer
   ;; table (whose spawn ids are allocated in-snapshot), the route-
   ;; registration counter, and the per-frame
   ;; flow registry; many test files require re-frame.schemas to set up

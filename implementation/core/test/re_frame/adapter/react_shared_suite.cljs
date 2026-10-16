@@ -925,7 +925,7 @@
           ok-id    (mint-kw substrate-kw "schema-reject-ok")
           runs     (atom 0)]
       (rf/make-frame {:id fid})
-      (rf/reg-app-schema [:n] {:frame fid} [:int])
+      (rf/reg-app-schema [:n] [:int])
       (rf/reg-event seed-id  (fn [_ _] {:db {:n 0}}))
       (rf/reg-event break-id (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
       (rf/reg-event ok-id    (fn [{:keys [db]} _] {:db (assoc db :n 1)}))

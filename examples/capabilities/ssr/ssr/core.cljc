@@ -48,8 +48,8 @@
             ;; effect: loading the namespace registers something we lean on
             ;; later. They look unused; they aren't.
 
-            ;; Wires up the schema hooks, so the rf/reg-app-schema calls below
-            ;; have something to resolve to.
+            ;; Wires up the schema hooks, so the rf/reg-app-schema call below
+            ;; has something to resolve to.
             [re-frame.schemas]
             ;; Brings in the `:rf.http/managed` effect we use for the article
             ;; fetch. During render we don't want a real network call, so we
@@ -91,13 +91,13 @@
 ;; SCHEMA
 ;; ============================================================================
 ;;
-;; We keep the schema as a plain value, deliberately. SSR juggles two frames —
-;; the throwaway per-request server frame (a gensym, born in `handle-request`)
-;; and the fixed client frame (`app-frame`, in `run`) — and both answer to the
-;; exact same contract. Since `reg-app-schema` is frame-local, each entry point
-;; registers this value against its own frame with the `{:frame …}` override.
-;; Parking the schema in a `def` means namespace-load never has to reach for an
-;; ambient frame that isn't there yet.
+;; SSR juggles two frames — the throwaway per-request server frame (a gensym,
+;; born in `handle-request`) and the fixed client frame (`app-frame`, in `run`)
+;; — and both answer to the exact same contract. A schema is a program
+;; registration, like an event: it is registered once, here at the top level,
+;; and every frame that resolves this namespace's registrations validates
+;; against it — each per-request frame and the client frame alike, with no
+;; per-frame step in either entry point.
 ;;
 ;; The articles slice is absent for a beat: the server's `:app/server-init`
 ;; commits a db with no articles in it (all it does is start the fetch), and a
@@ -110,6 +110,8 @@
             [:id    :string]
             [:title :string]
             [:body  :string]]])
+
+(rf/reg-app-schema [:articles] ArticlesSchema)
 
 ;; ============================================================================
 ;; FX
@@ -360,13 +362,11 @@
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (rf.ssr/set-request! fid request)
-           ;; Schema first, frame second — order matters. `make-frame` runs its
-           ;; `:initial-events` pipeline run synchronously, and that run includes
-           ;; the `:articles` commit `:app/server-init` sets in motion. If the
-           ;; schema weren't already registered against this per-request frame
-           ;; (the gensym `fid`), there'd be nothing to validate that commit
-           ;; against by the time it fires.
-           _   (rf/reg-app-schema [:articles] {:frame fid} ArticlesSchema)
+           ;; `make-frame` runs its `:initial-events` pipeline run
+           ;; synchronously, and that run includes the `:articles` commit
+           ;; `:app/server-init` sets in motion. The frame resolves the
+           ;; top-level `ArticlesSchema` registration, so that commit is
+           ;; validated with no per-request schema step.
            f   (rf/make-frame {:id fid :doc       "ssr-example per-request frame"
                                :platform  :server
                                :initial-events [[:app/server-init]]})]
@@ -565,12 +565,10 @@
      ;; compatibility-check effects actually fire.
      (rf/make-frame {:id app-frame :doc      "ssr-example client app-frame"
                      :platform :client})
-     ;; Register the schema against this client frame too — the mirror of the
-     ;; per-request registration back in `handle-request`. That way the hydrated
-     ;; `:articles` commit, and every interactive commit the reader triggers
-     ;; afterward, get validated on the client just as they were on the server.
-     ;; (Also no-op-safe on hot-reload.)
-     (rf/reg-app-schema [:articles] {:frame app-frame} ArticlesSchema)
+     ;; The client frame resolves the same top-level `ArticlesSchema`
+     ;; registration the server frames do, so the hydrated `:articles` commit,
+     ;; and every interactive commit the reader triggers afterward, get
+     ;; validated on the client just as they were on the server.
      ;; READ, HYDRATE, VERIFY — all three against the same `app-frame` the mount
      ;; below uses. The one subtlety is `:render-tree-fn`: VERIFY has to hash the
      ;; *exact* tree the server hashed, or it'll cry mismatch over a difference

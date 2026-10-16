@@ -11,14 +11,13 @@
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.error-emit/clear-error-listeners!)
   (rf.fx/reset-dispatch-later-timers!)
   (rf/init! rf.substrate.plain-atom/adapter)

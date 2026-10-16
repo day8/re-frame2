@@ -8,7 +8,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -17,7 +17,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; reset the breadcrumb too, or every later test would see :adapter-disposed
   (rf.substrate.adapter/dispose-adapter!)
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)

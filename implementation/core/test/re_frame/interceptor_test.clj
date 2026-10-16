@@ -9,7 +9,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.registrar :as rf.registrar]
@@ -20,7 +20,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not create `:rf/default`, and framework operations need a
   ;; carried frame.

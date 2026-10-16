@@ -43,13 +43,11 @@
    [:start-text  :string]
    [:return-text :string]])
 
-;; A schema is frame-local, so it binds inside a frame. The render root runs
-;; this app in `:rf/default` (see the `frame-root {:id …}` below), so we
-;; name that frame here. Binding is by id, which is why this works even though
-;; it runs at ns-load — before the provider has actually created the frame.
-;; From here on, every commit to the `[:flight]` slice is validated.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:flight] FlightState))
+;; A schema is a program registration, like an event, so it runs at ns-load
+;; with no frame in sight. The frame the render root creates (see the
+;; `frame-root {:id …}` below) resolves it, and from then on every commit to the
+;; `[:flight]` slice is validated.
+(rf/reg-app-schema [:flight] FlightState)
 
 ;; ============================================================================
 ;; EVENTS

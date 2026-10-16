@@ -13,7 +13,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -22,7 +22,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not synthesise `:rf/default` and ambient reads need a
   ;; carried frame (EP-0002), so register it and pin it as the scope.

@@ -30,7 +30,8 @@
   `reg-app-schema` is an ordinary member of the
   `reg-*` family — the schema is the POSITIONAL value slot:
   `(reg-app-schema path schema)` (2-slot) / `(reg-app-schema path metadata
-  schema)` (3-slot, `metadata` carries the optional `:frame` target).
+  schema)` (3-slot). It registers the registrar kind `:app-schema`, keyed by
+  the canonical path, frame-agnostically; a `:frame` is an error.
 
   DEVELOPMENT-BUILD ASSERTION. Registration itself runs in every build,
   but the candidate validation it arms is dev-only: a production build
@@ -42,8 +43,8 @@
   ([path metadata schema] :delegate))
 
 (defwrapper reg-app-schemas
-  "Bulk-register `{path -> schema}` against the active frame (or the
-  `:frame` opt). The plural form of `reg-app-schema`, aimed at
+  "Bulk-register `{path -> schema}`, each entry its own `:app-schema`
+  registration. The plural form of `reg-app-schema`, aimed at
   feature-modular apps (per Conventions §Feature-modularity prefix
   convention).
 
@@ -52,7 +53,6 @@
     (rf/reg-app-schemas {[:auth] AuthSlice
                          [:cart] CartSlice
                          ...})
-    (rf/reg-app-schemas {...} {:frame :tenant/a})
 
   Returns the vector of paths registered. See `re-frame.schemas/reg-app-schemas`
   for full semantics and the singular-form fallback when deterministic

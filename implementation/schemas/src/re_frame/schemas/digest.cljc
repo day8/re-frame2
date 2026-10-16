@@ -114,8 +114,8 @@
     (str "sha256:" (subs full-hex 0 16))))
 
 (defn app-schemas-digest
-  "Return a stable digest of the frame's registered `app-db` schema set
-  — the same shape `app-schemas` would return — as the canonical wire
+  "Return a stable digest of the `app-db` schema set the frame resolves
+  — the same set `app-schemas` returns — as the canonical wire
   form `\"sha256:\" + 16 lowercase-hex-chars`.
 
   Per Spec 010 §Digest algorithm the procedure is byte-deterministic
@@ -126,8 +126,10 @@
 
   `(app-schemas-digest {:frame f})`. `:frame` is REQUIRED and accepts a
   frame-id keyword or a frame value; a frameless or non-map call raises
-  `:rf.error/no-frame-context` (one frame spelling on the side-table read
-  lane).
+  `:rf.error/no-frame-context` (one frame spelling on the schema read
+  lane). Because the set is the frame's own resolution, an SSR server frame
+  and the client frame that hydrates it compare like with like: each digests
+  the schemas it validates against.
 
   The digest is computed over the `{path → schema}` projection of
   `app-schemas`, so registration metadata (source coords, `:doc`) never

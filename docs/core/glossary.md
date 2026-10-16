@@ -410,9 +410,10 @@ the runtime looks up later. An app's behaviour is the set of registrations it ma
 | `reg-interceptor` | an [interceptor](#interceptor) |
 | `reg-view` / `reg-view*` | a [view](#view) |
 
-`reg-flow`, `reg-app-schema` and `reg-http-interceptor` are different: each
-registers into one frame (the one in scope, or `:frame` in its metadata), not the
-registrar. Other artefacts add their own registrations: `reg-machine`
+`reg-flow` and `reg-http-interceptor` are different: each registers into one
+frame (the one in scope, or `:frame` in its metadata), not the registrar. Other
+artefacts add their own registrations: `reg-app-schema` (an app-db
+[schema](#schema), keyed by its path), `reg-machine`
 ([machines](../machines/concepts.md)), `reg-route` (routing), `reg-resource` and
 `reg-mutation` ([resources](../api/re-frame.resources.md)), and `reg-head` and
 `reg-error-projector` (SSR). A frame is not a registration; you

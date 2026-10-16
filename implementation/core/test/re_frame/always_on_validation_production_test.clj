@@ -42,7 +42,6 @@
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf.error-emit/clear-error-listeners!)
   (rf.event-emit/clear-event-listeners!)

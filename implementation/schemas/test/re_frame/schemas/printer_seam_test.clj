@@ -4,18 +4,16 @@
   the installed printer returns, and `{:print nil}` or `default-schema-fns`
   brings back the default printer the parity literals were taken over."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]))
 
 (defn- reset [test-fn]
-  ;; The printer and the schema registry are process-global, and
-  ;; reg-app-schema needs an established frame scope.
+  ;; The printer and the schema registrations are process-global.
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
-  (rf.schemas/clear-schemas-by-frame!)
-  (try (binding [rf.frame/*current-frame* :rf/default]
-         (test-fn))
+  (rf.registrar/clear-kind! :app-schema)
+  (try (test-fn)
        (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
-                (rf.schemas/clear-schemas-by-frame!))))
+                (rf.registrar/clear-kind! :app-schema))))
 
 (use-fixtures :each reset)
 

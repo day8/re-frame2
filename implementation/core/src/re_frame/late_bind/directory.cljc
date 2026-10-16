@@ -305,7 +305,7 @@
     :description "Validate a subscription's return value against its schema."}
    {:key         :schemas/frame-schema-entries
     :producer-ns 're-frame.schemas
-    :description "Return the per-frame schema-registration entries (for snapshotting)."}
+    :description "`(fn [frame-target])` — the `{path → registration}` map of the app-db schemas the frame resolves (its sealed generation's, the live store's, or each path's latest registration). Consumed by the validation hot path, epoch restore and Story's db-seed check."}
    {:key         :schemas/reg-app-schema
     :producer-ns 're-frame.schemas
     :description "Register a path-scoped schema for app-db values."}
@@ -315,18 +315,6 @@
    {:key         :schemas/app-schemas-digest
     :producer-ns 're-frame.schemas
     :description "Cheap digest of the registered-schema set (cache-key surface)."}
-   {:key         :schemas/snapshot-by-frame
-    :producer-ns 're-frame.schemas
-    :description "Snapshot the per-frame schema registry for restore."}
-   {:key         :schemas/restore-by-frame!
-    :producer-ns 're-frame.schemas
-    :description "Restore a previously-snapshotted per-frame schema registry."}
-   {:key         :schemas/clear-by-frame!
-    :producer-ns 're-frame.schemas
-    :description "Clear the schema registry entries for a frame (test isolation)."}
-   {:key         :schemas/on-frame-destroyed!
-    :producer-ns 're-frame.schemas
-    :description "Drop the destroyed frame's app-db schema entries (consumed by frame/destroy-frame!)."}
    {:key         :schemas/validate-with-registered-fn
     :producer-ns 're-frame.schemas
     :description "Boundary seam: validate using the registered validator fn."}

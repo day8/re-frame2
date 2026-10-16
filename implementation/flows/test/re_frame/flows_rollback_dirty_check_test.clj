@@ -35,7 +35,7 @@
   (let [reject-out? (atom false)]
     (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
     (rf/reg-event :touch-other (fn [{:keys [db]} _] {:db (assoc db :other true)}))
-    (rf/reg-app-schema [:out] {:frame :rf/default} (fn [out] (or (nil? out) (not @reject-out?))))
+    (rf/reg-app-schema [:out] (fn [out] (or (nil? out) (not @reject-out?))))
     (rf/dispatch-sync [:seed])
     (rf/reg-flow :double {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 n)))
     (reset! reject-out? true)

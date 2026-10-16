@@ -1,7 +1,7 @@
 (ns re-frame.schemas-test
   "JVM tests for Spec 010 schema validation: the validation sites and their
-  traces (app-db, event, sub-return, fx-args, recordable cofx), per-frame
-  registration, the digest, the validator-install seam and the
+  traces (app-db, event, sub-return, fx-args, recordable cofx), frames
+  diverging through images, the digest, the validator-install seam and the
   `:boundary? true` production arm. The dev/production toggle is the JVM
   mirror of `goog.DEBUG`, `re-frame.interop/debug-enabled?` (or
   `re-frame.spec/dev-mode?` for the boundary arm), flipped with `with-redefs`."
@@ -34,19 +34,27 @@
       (rf/dispatch-sync [:n/break-with-fx])
       (is (= [{:n 0} []] [(rf/app-db-value :rf/default) @fx-calls])))))
 
-(deftest schema-fires-only-on-the-frame-it-registers-against
-  (testing "a commit is checked against its own frame's schemas only"
-    (rf/make-frame {:id :test/main})
-    (rf/make-frame {:id :test/other})
-    (rf/reg-app-schema [:n] {:frame :test/other} [:int])
+(def ^:private app-image
+  (delay (rf/image {:id :test/app :select-ns {:include ["re-frame.schemas-test"]}})))
+
+(deftest frames-diverge-through-the-images-they-resolve
+  (testing "a commit is checked against the schemas its frame resolves: a
+            frame whose images select no schema at a path checks nothing
+            there, and one whose images select the schema checks it"
     (rf/reg-event :n/break (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (let [failing-frames (fn [n]
+    (rf/reg-event :probe/noop {:ns 'probe.events-only} (fn [_ _] {}))
+    (rf/reg-app-schema [:n] {:ns 'probe.schemas} [:int])
+    (rf/make-frame {:id     :test/main
+                    :images [@app-image]})
+    (rf/make-frame {:id     :test/checked
+                    :images [@app-image
+                             (rf/image {:id :test/schemas :select-ns {:include ["probe.schemas"]}})]})
+    (let [failing-frames (fn [frame n]
                            (with-trace-recorder! [traces]
-                             (rf/dispatch-sync [:n/break n] {:frame :test/main})
+                             (rf/dispatch-sync [:n/break n] {:frame frame})
                              (mapv (comp :frame :tags) (failures traces))))]
-      (is (= [] (failing-frames "not-an-int")))
-      (rf/reg-app-schema [:n] {:frame :test/main} [:int])
-      (is (= [:test/main] (failing-frames "still-not-an-int"))))))
+      (is (= [] (failing-frames :test/main "not-an-int")))
+      (is (= [:test/checked] (failing-frames :test/checked "still-not-an-int"))))))
 
 ;; ---- event, sub-return, fx-args and recordable cofx through dispatch -------
 
@@ -194,12 +202,15 @@
 
 ;; ---- app-schemas-digest ------------------------------------------------------
 
-(deftest app-schemas-digest-frame-isolated
-  (testing "a frame's digest covers only its own schemas; a frame with none
-            has the empty-set digest"
-    (rf/make-frame {:id :test/a})
-    (rf/make-frame {:id :test/b})
-    (rf/reg-app-schema [:user] {:frame :test/a} [:map [:id :uuid]])
+(deftest app-schemas-digest-covers-the-set-the-frame-resolves
+  (testing "a frame's digest covers the schemas its images select; a frame
+            whose images select none has the empty-set digest"
+    (rf/reg-event :probe/noop {:ns 'probe.events-only} (fn [_ _] {}))
+    (rf/reg-app-schema [:user] {:ns 'probe.schemas} [:map [:id :uuid]])
+    (rf/make-frame {:id     :test/a
+                    :images [(rf/image {:id :test/schemas :select-ns {:include ["probe.schemas"]}})]})
+    (rf/make-frame {:id     :test/b
+                    :images [(rf/image {:id :test/events :select-ns {:include ["probe.events-only"]}})]})
     (let [empty-set-digest (:expected rf.schemas.digest-parity-fixtures/empty-set)]
       (is (= empty-set-digest (rf.schemas/app-schemas-digest {:frame :test/b})))
       (is (not= empty-set-digest (rf.schemas/app-schemas-digest {:frame :test/a}))))))

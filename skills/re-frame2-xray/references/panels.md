@@ -88,8 +88,8 @@ letters, not keys: pressing one selects nothing, and the palette entry is
 Static is **mixed-scope**: the definition catalogues are process-global
 (the registrar is shared across every frame, Spec 001); the L1 frame
 picker scopes only the per-frame *live* projections each tab adds —
-machine snapshots, the flows registry, the app-db-schema side-table, the
-current-route slice. The mode and tab choices persist across reload; the
+machine snapshots, the flows registry, the app-db schemas the frame
+resolves, the current-route slice. The mode and tab choices persist across reload; the
 **frame pin does not** (it resets to the head-frame default).
 
 ## What's deliberately NOT here

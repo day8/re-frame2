@@ -17,7 +17,7 @@
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             ;; load the tooling sibling so the late-bind hooks behind the
             ;; public listener API resolve.
@@ -28,7 +28,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not synthesise `:rf/default` and ambient reads need a

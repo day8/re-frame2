@@ -273,8 +273,9 @@
 
   (testing "the app-db slice schema validates the app-db partition independently of the machine :data boundary"
     ;; The example registers `[:config] Config` as an APP schema
-    ;; (validates the app-db partition only). App schemas are frame-scoped,
-    ;; so register the example's own `Config` on this test frame, then write
+    ;; (validates the app-db partition only). Register the example's own
+    ;; `Config` from this test, so this frame resolves it whatever the
+    ;; bundle's baseline holds, then write
     ;; a structurally-wrong slice: the post-commit app-db validator must
     ;; reject it at `:where :app-db` — a DIFFERENT boundary from the
     ;; machine `:data` one above, proving the two surfaces are distinct.
@@ -286,7 +287,7 @@
                                  (swap! app-traces conj ev))))
       (try
         (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-          (rf/reg-app-schema [:config] {:frame f} [:maybe boot-schema/Config])
+          (rf/reg-app-schema [:config] [:maybe boot-schema/Config])
           (rf/dispatch-sync [::write-bad-config] {:frame f}))
         (finally (rf/unregister-listener! :trace ::app)))
       (is (pos? (count @app-traces))

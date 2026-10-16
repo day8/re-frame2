@@ -642,7 +642,7 @@
           :data    data})))))
 
 (defn schemas
-  "All registered app-schemas for the operating frame.
+  "All app-schemas the operating frame resolves.
    Map of `path → schema` — the MCP WIRE contract, which is the tool's and
    not the library's. `(rf.schemas/app-schemas {:frame f})` answers
    `path → registration-metadata`, so the preload

@@ -23,13 +23,12 @@ Most schema checks run only in dev builds and are elided from release builds, so
    [:title [:string {:min 1}]]
    [:done? :boolean]])
 
-(rf/with-frame :app
-  (rf/reg-app-schema [:todos] [:map-of :int Todo]))
+(rf/reg-app-schema [:todos] [:map-of :int Todo])
 ```
 
 `Todo` is plain data in [Malli](https://github.com/metosin/malli), the default schema language; the common shapes are [below](#the-shapes-youll-actually-write). Until something writes `[:todos]` the path is absent, and an absent path is not checked ([below](#what-a-path-schema-checks)).
 
-The registration runs inside `with-frame` because schemas are registered per [frame](../glossary.md#frame), so it has to name one. A bare top-level call raises `:rf.error/no-frame-context`. You can instead pass the frame in a metadata map: `(rf/reg-app-schema [:todos] {:frame :app} [:map-of :int Todo])`. The frame doesn't have to exist yet. Schemas belong to the frame, so `rf/destroy-frame!` drops them: a frame re-created under the same id is unchecked until your `reg-app-schema` forms run again.
+The registration names no [frame](../glossary.md#frame). A schema is a program registration, like an event, so it runs at the top level and applies to every frame that resolves it: your app's frame, a test frame, a server-rendering frame. A frame that should validate differently selects a later [image](../glossary.md#image) that shadows the path. Naming a frame on the registration raises `:rf.error/app-schema-frame-target`.
 
 When an event handler writes `[:todos]`, the runtime validates the new value before installing it. If the value doesn't conform, the runtime emits `:rf.error/schema-validation-failure`, app-db keeps its pre-event value, and the dispatch is treated as failed.
 
@@ -53,8 +52,7 @@ A todo's title must never be blank. In this example the rule appears twice, on p
 (def Todo
   [:map [:id :int] [:title [:string {:min 1}]] [:done? :boolean]])
 
-;; Registered against the :app frame the root below creates.
-(rf/reg-app-schema [:todos] {:frame :app} [:map-of :int Todo])
+(rf/reg-app-schema [:todos] [:map-of :int Todo])
 
 (rf/reg-event :todo/initialise
   {:schema [:cat [:= :todo/initialise]]}
@@ -117,17 +115,16 @@ Beyond these seven, `[:set …]`, `[:map-of …]`, `[:tuple …]`, `[:or …]`, 
 
 ```clojure
 ;; Todo and TodoUi are your own schemas.
-(rf/with-frame :app
-  (rf/reg-app-schemas
-   {[:todos]          [:map-of :int Todo]
-    [:showing]        [:enum :all :active :done]
-    [:todo.ui]        TodoUi
-    [:todo.ui :draft] :string}))
+(rf/reg-app-schemas
+ {[:todos]          [:map-of :int Todo]
+  [:showing]        [:enum :all :active :done]
+  [:todo.ui]        TodoUi
+  [:todo.ui :draft] :string})
 ```
 
 Paths may nest: a write under `[:todo.ui :draft]` is checked against that schema and against the surrounding `[:todo.ui]` one. The empty path `[]` covers the whole of app-db. [The Conduit example](../../../examples/real-apps/realworld_http) registers every slice that holds server data, and every form draft, this way.
 
-A duplicate path is last-write-wins, and the call returns the vector of paths it registered. Use the singular `reg-app-schema` when a feature has only a path or two, or when registration order matters: the plural form registers in the map's iteration order, which for a large map is not source order.
+Re-registering a path from the same namespace replaces it, and the call returns the vector of paths it registered. The same path registered from two namespaces is ambiguous: a frame made without `:images` refuses it, failing with `:rf.error/ambiguous-registration` once a write puts a value there. Use the singular `reg-app-schema` when a feature has only a path or two, or when registration order matters: the plural form registers in the map's iteration order, which for a large map is not source order.
 
 These paths cover your data only. The framework's [runtime-db partition](../app-db.md) validates itself, and registering a schema against it is an error ([Troubleshooting](#troubleshooting)).
 
@@ -144,13 +141,12 @@ This is how optional properties behave in Zod and TypeScript: a missing key pass
 Whether a key must exist is a separate statement, made by an enclosing schema, usually the root `[]`:
 
 ```clojure
-(rf/with-frame :app
-  (rf/reg-app-schema [] [:map [:cart CartSchema]]))   ;; :cart must exist
+(rf/reg-app-schema [] [:map [:cart CartSchema]])   ;; :cart must exist
 ```
 
 `(rf/reg-app-schema [:cart] CartSchema)` alone admits an app-db with no `:cart`; the root's required entry makes a missing `:cart`, never seeded or removed with `dissoc`, a failure. Because `[]` is checked on every write, seed the keys a root schema requires in one `:db` write, before any other event writes app-db.
 
-Registering a schema also checks the value already at its path. In a dev build, a present value that fails it emits an `:rf.schema/violation` warning, the same one a hot reload of a changed schema emits ([Troubleshooting](#troubleshooting)); an absent path, or a frame that doesn't exist yet, emits nothing. The root of a running frame is always present, so register a root schema before its frame is created, as the namespace-load registrations on this page are, or after the seed has landed. Registered against a running frame whose app-db is still `{}`, the root schema above warns once.
+Registering a schema also checks the value already at its path in each running frame that resolves it. In a dev build, a present value that fails it emits an `:rf.schema/violation` warning, the same one a hot reload of a changed schema emits ([Troubleshooting](#troubleshooting)); an absent path, or no frame running yet, emits nothing. The root of a running frame is always present, so register a root schema before its frame is created, as the namespace-load registrations on this page are, or after the seed has landed. Registered while a frame whose app-db is still `{}` is running, the root schema above warns once.
 
 ## Put a schema on the event too
 
@@ -268,6 +264,7 @@ Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps op
 | `:rf.error/app-schema-bad-path` at registration (every build) | The path is a keyword, string or map, not a vector of keys; in `reg-app-schemas`, one bad key rejects the whole batch | Pass a vector, or `[]` for the root |
 | `:rf.error/app-schemas-bad-batch` | `reg-app-schemas` got something other than a `{path schema}` map | Pass a map of vector paths |
 | `:rf.error/app-schema-runtime-path` | The path starts with `:rf/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
+| `:rf.error/app-schema-frame-target` at registration | The registration names a frame: `:frame` in the metadata map, a frame value in its place, or a frame as `reg-app-schemas`' second argument | Register at the top level with no frame; to validate one frame differently, shadow the path in a later [image](../glossary.md#image) |
 | `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form (a childless `[:vector]`, an unknown op) registers cleanly because Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
 | Every commit rejected against `[]`, naming a key the handler never wrote | A root schema requires a key nothing has seeded yet, and `[]` is checked on every write | Seed the keys it requires in one `:db` write, before other events write app-db ([above](#what-a-path-schema-checks)) |
 | `:rf.schema/violation` warning (Xray Issues panel) at registration or after a hot reload | A schema registered for the first time, or tightened, doesn't match the value already in app-db; the warning carries `:post-reload-schema` and `:mismatching-value`, plus `:pre-reload-schema` when it replaced a schema | Dispatch the event that rewrites the slice, or reload the page. For a root schema at boot, register it before the frame exists ([above](#what-a-path-schema-checks)) |
@@ -291,11 +288,10 @@ If you use [machines](../../machines/concepts.md), a machine's `:data` takes a s
 A validation failure carries the failing value, which is what makes it debuggable, but a credential that fails its schema would then reach every listener, including off-box monitors. Two reserved keys in a schema slot's properties map change what a failure trace carries:
 
 ```clojure
-(rf/with-frame :app
-  (rf/reg-app-schema [:auth]
-    [:map
-     [:user  [:maybe [:map [:email :string] [:username :string]]]]
-     [:token {:sensitive? true} [:maybe :string]]]))   ;; a bad :token fails redacted
+(rf/reg-app-schema [:auth]
+  [:map
+   [:user  [:maybe [:map [:email :string] [:username :string]]]]
+   [:token {:sensitive? true} [:maybe :string]]])   ;; a bad :token fails redacted
 ```
 
 - **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
@@ -313,10 +309,10 @@ Registered schemas can be queried, by you, by tools, and by AI agents: "what sha
 (require '[re-frame.schemas :as schemas])
 
 (schemas/app-schema-meta {:frame :app :path [:todos]})
-;; => {:path [:todos] :schema [:map-of :int Todo] :frame :app :ns ... :line ... :file ...}
+;; => {:path [:todos] :schema [:map-of :int Todo] :ns ... :line ... :file ...}
 
 (schemas/app-schemas {:frame :app})
-;; => {[:todos] {:path [:todos] :schema [...] ...}, ...}   one frame, keyed by path
+;; => {[:todos] {:path [:todos] :schema [...] ...}, ...}   what :app resolves, by path
 
 (update-vals (schemas/app-schemas {:frame :app}) :schema)
 ;; => {[:todos] [:map-of :int Todo], ...}                  the schemas alone
@@ -325,9 +321,9 @@ Registered schemas can be queried, by you, by tools, and by AI agents: "what sha
 ;; => "sha256:abc1234567890def"                                       a hash of the whole set
 ```
 
-Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value); a call without one raises `:rf.error/no-frame-context`. Event, sub, and fx schemas come from the registrar instead: `(rf/handler-meta {:source :store :kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
+Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value) and answers with the schemas that frame resolves; a call without one raises `:rf.error/no-frame-context`. App-db schemas are registrations of the kind `:app-schema`, so `(rf/registrations {:frame :app :kind :app-schema})` answers the same. Event, sub, and fx schemas ride on their handlers' registrations: `(rf/handler-meta {:source :store :kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
 
-The digest is a deterministic hash of a frame's whole schema set, identical on any runtime for the same schemas. When a server-rendered page [hydrates](../../ssr/glossary.md#hydration), the client compares the server's digest with its own and emits a `:rf.ssr/schema-digest-mismatch` warning if they differ, which means the server and client bundles are out of sync. Agents use the same readers to learn what shape to write before they dispatch, and Malli's `mg/generate` turns a schema into test data.
+The digest is a deterministic hash of the whole schema set a frame resolves, identical on any runtime for the same schemas. When a server-rendered page [hydrates](../../ssr/glossary.md#hydration), the client compares the server's digest with its own and emits a `:rf.ssr/schema-digest-mismatch` warning if they differ, which means the server and client bundles are out of sync. Agents use the same readers to learn what shape to write before they dispatch, and Malli's `mg/generate` turns a schema into test data.
 
 ### Swap the validator (Malli is the default)
 

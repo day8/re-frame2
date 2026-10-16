@@ -16,7 +16,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.derivation.graph :as rf.derivation.graph]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             ;; load-bearing side-effecting requires: each façade registers
             ;; its registrar kind / framework events so the family is live.
@@ -35,7 +35,6 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.flows/reset-last-inputs!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; re-`require` every optional façade so its framework registrations are
   ;; present after the clear-all! above.

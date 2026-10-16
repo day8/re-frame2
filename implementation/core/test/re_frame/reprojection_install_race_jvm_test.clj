@@ -27,7 +27,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
@@ -50,7 +50,6 @@
       (rf.registrar/clear-all!)
       (reset! rf.frame/frames {})
       (rf.flows/reset-flows!)
-      (rf.schemas/clear-schemas-by-frame!)
       (rf.trace.tooling/clear-listeners!)
       (rf/init! rf.substrate.plain-atom/adapter)
       (require 're-frame.routing :reload)

@@ -41,7 +41,7 @@
     (let [fid  :reagent.schema-reject/main
           runs (atom 0)]
       (rf/make-frame {:id fid})
-      (rf/reg-app-schema [:n] {:frame fid} [:int])
+      (rf/reg-app-schema [:n] [:int])
       (rf/reg-event :reject.test/seed  (fn [_ _] {:db {:n 0}}))
       (rf/reg-event :reject.test/break (fn [{:keys [db]} _]
                                          {:db (assoc db :n "boom")}))

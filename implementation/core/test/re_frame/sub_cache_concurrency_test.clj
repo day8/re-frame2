@@ -10,7 +10,7 @@
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.registrar :as rf.registrar]
             [re-frame.interop :as rf.interop]
@@ -21,7 +21,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; A `with-frame` binding does not convey into worker threads, so the calls
   ;; below name `:rf/default` explicitly.

@@ -5510,8 +5510,8 @@
   failed, or nil. Each `:where` reads through the door that
   registration actually lives behind:
 
-    - `:app-db` — the schema is registered at a PATH, in the schemas
-      artefact's per-frame side table, so the read is
+    - `:app-db` — the schema is registered at a PATH, and the frame that
+      failed resolves which registration that is, so the read is
       `rf.schemas/app-schema-meta`. That read REQUIRES a
       `:frame`, so the violation's own frame (off the projected row) is
       passed explicitly: resolving ambiently would resolve Xray's own

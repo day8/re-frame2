@@ -116,13 +116,10 @@
    [:cells      [:map-of :string CellEntry]]       ;; sparse: only edited cells exist
    [:editing-id [:maybe :string]]])
 
-;; Hand the schema to the frame so every commit under `[:cells]` gets validated.
-;; `reg-app-schema` needs a frame in scope, and `with-frame` supplies one by id
-;; — `:rf/default`, the same name `run` mounts down below. The id is all that's
-;; needed: we can register the schema here at load time, before the frame
-;; actually exists, and it snaps into place once the frame is created.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:cells] CellsState))
+;; Register the schema so every commit under `[:cells]` gets validated. Like an
+;; event, a schema is a program registration: it names no frame, and the frame
+;; `run` mounts down below validates against it once it exists.
+(rf/reg-app-schema [:cells] CellsState)
 
 ;; ============================================================================
 ;; PARSER + EVALUATOR

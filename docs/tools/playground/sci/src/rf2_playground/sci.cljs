@@ -415,12 +415,12 @@
     2. Frames. Cells reuse ids such as `:app` and `:rf/default`, and creating
        a frame whose id already exists keeps its app-db and skips its
        `:initial-events` (Spec 002 §Duplicate id policy). Destroying every
-       frame makes the next page start from its documented initial state, and
-       drops any app-db schemas registered against it.
+       frame makes the next page start from its documented initial state.
     3. Registrations. Without this, a later page could dispatch to a handler
        it never registered and reach the outgoing page's. The registrar goes
        back to the baseline captured in `ensure-init!`: a cell's own
-       registrations are unregistered, so that dispatch raises
+       registrations, app-db schemas among them, are unregistered, so that
+       dispatch raises
        `:rf.error/no-such-handler` (or `-sub`) instead, and a framework
        registration a cell replaced, such as `:rf.route/entry-denied`, gets
        the framework's back.

@@ -16,7 +16,7 @@
             [re-frame.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.ssr]
             ;; publishes the :http/reg-http-interceptor late-bind hook that
@@ -28,7 +28,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; a stale last-inputs entry would make a same-keyed flow's first
   ;; evaluation no-op (Spec 013 §Dirty-check semantics)
   (rf.flows/reset-last-inputs!)
@@ -180,12 +179,11 @@
       (doseq [[kind id] [[:event :o1bp/evt1] [:event :o1bp/evt2] [:event :o1bp/mach1]
                          [:sub :o1bp/sub1] [:fx :o1bp/fx1] [:cofx :o1bp/cofx1]
                          [:view :o1bp/view1] [:route :o1bp/route1]
-                         [:error-projector :o1bp/err1]]]
+                         [:error-projector :o1bp/err1] [:app-schema [:o1bp/path]]]]
         (is (contains? (ids-of kind) id) (str kind " lists " id)))
       ;; :flow is reserved-but-empty: the query throws rather than answering an
       ;; authoritative-looking {} over a store that lives elsewhere
-      (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow)))
-      (is (not (rf.registrar/valid-kind? :app-schema)) ":app-schema is not a registrar kind"))
+      (is (thrown? clojure.lang.ExceptionInfo (ids-of :flow))))
     (testing "handler-meta per id"
       (let [evt (rf/handler-meta {:source :store :kind :event :id :o1bp/evt1})]
         (is (= [true false] [(fn? (:handler-fn evt)) (contains? evt :event/kind)])

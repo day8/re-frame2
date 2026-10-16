@@ -63,12 +63,9 @@ Now bind two [schemas](../glossary.md#schema) to app-db: one for the slice's mac
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
-;; App-db schemas are registered per frame; a bare top-level call raises
-;; :rf.error/no-frame-context. Neither path is checked until
-;; :form.login/initialise writes it.
-(rf/with-frame :app
-  (rf/reg-app-schema [:auth :login]        FormSlice)
-  (rf/reg-app-schema [:auth :login :draft] LoginDraft))
+;; Neither path is checked until :form.login/initialise writes it.
+(rf/reg-app-schema [:auth :login]        FormSlice)
+(rf/reg-app-schema [:auth :login :draft] LoginDraft)
 ```
 
 Keep the validation rules in `LoginForm` rather than on the app-db path. The draft is invalid while the user is still typing, and the draft slice is checked whenever a keystroke writes it ([details](validate-with-schemas.md#what-a-path-schema-checks)), so binding `LoginForm` there would reject the first keystroke.

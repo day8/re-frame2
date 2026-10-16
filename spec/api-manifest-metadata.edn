@@ -116,8 +116,7 @@
   ;; The reusable client root: allocate inert, render (create or
   ;; hydrate once, then update the same Root), unmount idempotently. Backed by
   ;; the adapter's active-root ownership (Spec 006 §`render` / §Adapter
-  ;; disposal lifecycle). The published slim artefact renames its adapter ns
-  ;; to this one at publication, so it publishes the same trio here.
+  ;; disposal lifecycle).
   {:namespace "re-frame.adapter.reagent" :var "client-root"         :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "render!"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "unmount!"            :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -1392,7 +1391,7 @@
   ;; public-for-technical-reasons (cross-namespace reach) and NOT a
   ;; supported surface → `implementation`.
   ;; =========================================================================
-  ;; ONE frame spelling on the side-table read lane. The three
+  ;; ONE frame spelling on the read lane. The three
   ;; reads each take a single opts MAP with a REQUIRED `:frame`. `app-schemas`
   ;; answers `{path -> registration-metadata}` (the `{id -> meta}` shape
   ;; `registrations` answers), so there is no separate public
@@ -1416,25 +1415,15 @@
   ["re-frame.schemas" "default-schema-fns"]      {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schema"]          {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schemas"]         {:tier :implementation :owner "010" :status "v1"}
-  ;; The four raw schema atoms
-  ;; (schemas-by-frame / validator-fn / explainer-fn / printer-fn) are NOT
-  ;; re-exported from the re-frame.schemas facade. Exporting them would leak
-  ;; encapsulation (exposure freezes the authoritative store's rep, and a
-  ;; public printer-fn atom would bypass the never-nil invariant).
-  ;; The supported public surface is the encapsulated snapshot/restore/clear
-  ;; API (snapshot-schemas-by-frame / clear-schemas-by-frame!) plus the
-  ;; schema-fns / set-schema-fns! value pair. The atoms are the
-  ;; authoritative state in their home namespaces (storage / validator) but
-  ;; are not public Vars on the facade, so they carry NO manifest row.
-  ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :implementation :owner "010" :status "v1"}
-  ;; There is no bundle-level snapshot/restore pair. The registry pair above has
-  ;; dedicated verbs because its state is a mutable store with no value-shaped
-  ;; installer; the validator bundle has one, so `schema-fns` + `set-schema-fns!`
-  ;; give the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
-  ;; restore without reaching the raw atoms.
-  ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :implementation :owner "010" :status "v1"}
+  ;; The three raw validator-bundle atoms (validator-fn / explainer-fn /
+  ;; printer-fn) are NOT re-exported from the re-frame.schemas facade: a
+  ;; public printer-fn atom would bypass the never-nil invariant. The
+  ;; schema-fns / set-schema-fns! value pair is the supported surface, and
+  ;; gives the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
+  ;; restore without reaching the atoms. App-db schemas are registrar state,
+  ;; so the registrar snapshot in re-frame.test-support captures and
+  ;; restores them; there is no schemas-side pair. The atoms are not public
+  ;; Vars on the facade, so they carry NO manifest row.
   ["re-frame.schemas" "validate-app-schema!"]      {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-event!"]           {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "redact-validation-tags"]    {:tier :implementation :owner "010" :status "v1"}

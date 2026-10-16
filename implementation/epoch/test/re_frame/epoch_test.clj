@@ -389,7 +389,7 @@
     (rf/dispatch-sync [:set "not-an-int"] {:frame :test/main})
     (let [target (last (rf.epoch/epoch-history :test/main))]
       (rf/dispatch-sync [:set 0] {:frame :test/main})
-      (rf/reg-app-schema [:n] {:frame :test/main} [:int])
+      (rf/reg-app-schema [:n] [:int])
       (let [recorded (record-trace!)]
         (is (= :rf.epoch/restore-schema-mismatch (refusal-reason (rf.epoch/restore-epoch! :test/main (:epoch-id target)))))
         (is (= {:n 0} (rf/app-db-value :test/main)) "app-db unchanged")
@@ -422,7 +422,7 @@
                                   (if (= ::pos schema) (and (int? v) (pos? v)) true))}
       (fn []
         (rf/make-frame {:id :test/sub})
-        (rf/reg-app-schema [:n] {:frame :test/sub} ::pos)
+        (rf/reg-app-schema [:n] ::pos)
         (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
         (rf/dispatch-sync [:seed] {:frame :test/sub})
         (let [recorded (record-trace!)]
@@ -433,7 +433,7 @@
 
 (deftest epoch-record-stamps-schema-digest
   (rf/make-frame {:id :test/digest})
-  (rf/reg-app-schema [:n] {:frame :test/digest} [:int])
+  (rf/reg-app-schema [:n] [:int])
   (rf/reg-event :init (fn [_ _] {:db {:n 0}}))
   (rf/dispatch-sync [:init] {:frame :test/digest})
   (is (= (rf.schemas/app-schemas-digest {:frame :test/digest})
@@ -809,7 +809,7 @@
             false, leaves app-db unchanged, and emits
             :rf.epoch/replace-schema-mismatch naming the failing path"
     (rf/make-frame {:id :test/main})
-    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
+    (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [recorded (record-trace!)]
@@ -929,7 +929,7 @@
     (rf/dispatch-sync [:set "not-an-int"] {:frame :test/main})
     (rf/dispatch-sync [:set 0] {:frame :test/main})
     (rf/dispatch-sync [:set 5] {:frame :test/main})
-    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
+    (rf/reg-app-schema [:n] [:int])
     (let [target   (second (rf.epoch/epoch-history :test/main))
           recorded (record-trace!)]
       (is (= :rf.epoch/restore-schema-mismatch (refusal-reason (rf.epoch/restore-epoch! :test/main (:epoch-id target) {:to :before}))))

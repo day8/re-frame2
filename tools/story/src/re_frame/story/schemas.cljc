@@ -715,7 +715,7 @@
   `:rf.error/story-db-seed-invalid`.
 
   The seed VALUE is left loose (`:any`) at this layer — the precise
-  conformance is the per-frame app-db schema check at run time, which
+  conformance is the app-db schema check the variant frame runs, which
   carries the exact path/value/explain diagnostic. The key shape is a
   top-level app-db slice (a keyword or a path vector), matching the
   `[:frame-setup :app-db-patch]` decorator slot the runtime reuses."

@@ -19,7 +19,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; publishes the machines teardown hooks
@@ -32,7 +32,6 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.flows/reset-last-inputs!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
@@ -143,7 +142,6 @@
 (deftest composed-destroy-leak-audit
   ;; every per-frame subsystem with a teardown hook, cleared by one destroy
   (rf/make-frame {:id :composed/leak-audit :doc "leak-audit"})
-  (rf/reg-app-schema [:n] {:frame :composed/leak-audit} [:int])
   (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
   (rf/reg-flow :composed/area {:frame :composed/leak-audit :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
   (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
@@ -152,17 +150,16 @@
   (rf/reg-sub :composed/leak-rect (fn [db _] (:rect db)))
   (rf/subscribe [:composed/leak-rect] {:frame :composed/leak-audit})
   (let [rows (fn []
-               [(contains? (rf.schemas/snapshot-schemas-by-frame) :composed/leak-audit)
-                (contains? (rf.flows/flows-snapshot) :composed/leak-audit)
+               [(contains? (rf.flows/flows-snapshot) :composed/leak-audit)
                 (contains? (get (rf.flows/last-inputs-snapshot) :composed/area)
                            :composed/leak-audit)
                 (some? (get @rf.frame/frames :composed/leak-audit))])]
-    (is (= [true true true true] (rows)) "precondition: schema, flow, last-inputs and frame rows")
+    (is (= [true true true] (rows)) "precondition: flow, last-inputs and frame rows")
     (is (pos? (count @(:sub-cache (rf.frame/frame :composed/leak-audit)))))
     (when rf.interop/debug-enabled?
       (is (pos? (count (rf.epoch/epoch-history :composed/leak-audit)))
           "precondition: the epoch ring saw the frame"))
     (rf.frame/destroy-frame! :composed/leak-audit)
-    (is (= [false false false false] (rows)))
+    (is (= [false false false] (rows)))
     (when rf.interop/debug-enabled?
       (is (= [] (rf.epoch/epoch-history :composed/leak-audit))))))

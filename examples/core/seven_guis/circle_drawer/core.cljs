@@ -66,14 +66,12 @@
    [:undo      [:vector :any]]                  ;; past :circles values, newest on top
    [:redo      [:vector :any]]])                ;; undone :circles values, waiting for Redo
 
-;; Now bind the schema to a frame, and from then on every commit to that frame
-;; gets checked against it. Schemas are frame-local — each frame validates its
-;; own. There's a timing wrinkle: this line runs at ns-load, long before any
-;; provider has mounted, so there's no frame "in scope" to pick up implicitly.
-;; We just say which one out loud with `with-frame`. The `:rf/default` here is
-;; the same frame the render root's `frame-root` names below.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:drawer] DrawerState))
+;; Now register the schema, and from then on every commit to `[:drawer]` gets
+;; checked against it. A schema is a program registration, like an event: this
+;; line runs at ns-load, long before any provider has mounted, and needs no
+;; frame — the frame the render root's `frame-root` creates below validates
+;; against it.
+(rf/reg-app-schema [:drawer] DrawerState)
 
 ;; ============================================================================
 ;; UNDO INTERCEPTOR

@@ -1,21 +1,21 @@
 (ns re-frame.schemas.storage
-  "Per-frame storage + registration surface for app-db schemas.
+  "Registration and resolution of app-db schemas.
 
-  The authoritative registry has shape `{frame-id {path schema-meta}}`.
-  App-db schemas are not registrar entries; source coordinates, hot reload,
-  and tools read the metadata stored here.
+  An app-db schema is an ordinary registrar kind, `:app-schema`, whose id is
+  the canonical path vector. `reg-app-schema` is a frame-agnostic program
+  registration, like `reg-event`: it never reads a frame, and every frame
+  validates against the schemas it RESOLVES — live for a frame made without
+  `:images`, through the sealed generation for a frame made with them, and
+  each path's latest registration for a frame that carries neither. A Story
+  variant or a test narrows a schema by shadowing it in a later image.
 
   Owns:
-    - `schemas-by-frame` atom (the authoritative store).
     - `reg-app-schema` / `reg-app-schemas` registration entry points.
     - `app-schemas` / `app-schema-meta` query entry points — one opts MAP
-      with a REQUIRED `:frame`, answering registration METADATA
-      (source-coords, `:path`, `:schema`, `:frame`).
-    - `frame-schema-entries` cross-artefact seam consumed by
-      `re-frame.elision` / `re-frame.epoch` via the late-bind table.
-    - `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
-      `clear-schemas-by-frame!` — test-support hooks consumed by
-      `re-frame.test-support`'s reset-runtime fixture."
+      with a REQUIRED `:frame`, answering the registrations that frame
+      resolves (source-coords, `:path`, `:schema`).
+    - `frame-schema-entries` cross-artefact seam consumed by the validation
+      hot path, `re-frame.epoch` and Story via the late-bind table."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -29,94 +29,28 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defonce
-  ^{:doc "frame-id → path → schema-meta. Per-frame so a story or test
-          fixture's reg-app-schema does not bleed into the default
-          frame's contract."}
-  schemas-by-frame
-  (atom {}))
+;; ---- a frame is never a registration input ---------------------------------
+;;
+;; Registration never reads a frame. A schema that should differ between
+;; frames comes from the images those frames resolve, so naming a frame at
+;; registration is refused rather than ignored: ignoring it would install a
+;; program-wide schema where the author asked for a frame-local one.
 
-(defn resolve-frame
-  "Resolve a schema operation's frame id. An explicit `:frame` target wins;
-  otherwise the carried frame scope is required. Frame values normalize to
-  runnable ids, and the result must be a keyword so reads and registrations
-  cannot create unreachable registry keys. `where` names the calling entry
-  point in errors; registration is the default."
-  ([opts] (resolve-frame opts 'rf/reg-app-schema))
-  ([opts where]
-   (let [frame-target (:frame opts)
-         frame-id     (if (some? frame-target)
-                        (rf.frame/frame-target->id frame-target)
-                        (rf.frame/require-current-frame!
-                          :reg-app-schema {:where where}))]
-     (when-not (keyword? frame-id)
-       (rf.error/throw-error!
-         :rf.error/app-schemas-bad-arg
-         where
-          (str "the :frame opt must be a frame-id keyword or a frame value "
-              "(from rf/make-frame); got " (pr-str frame-target)
-              ", which resolved to the non-keyword frame target "
-              (pr-str frame-id) ". Pass a frame-id keyword or a frame value.")
-         {:recovery :supply-a-frame-id-or-frame-value
-          :extra    {:received frame-target
-                     :resolved frame-id
-                     :expected "keyword frame-id or frame value"}}))
-     frame-id)))
-
-(defn coerce-opts
-  "Permit the frame-target sugar `(reg-app-schemas m frame-id)` and the
-  opts-map form `(reg-app-schemas m {:frame frame-id})` of the registration
-  opts. Nil means no override. Reads take an opts map only (`read-frame-id`).
-
-  A frame value is itself a map, so it must be recognized before the generic
-  opts-map branch or it would lose its target."
-  [opts-or-frame-id]
-  (cond
-    (nil? opts-or-frame-id) {}
-    ;; A frame value is a map; keep this branch before the generic map branch.
-    (or (keyword? opts-or-frame-id)
-        (rf.frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
-    (map? opts-or-frame-id) opts-or-frame-id
-    :else
-    (rf.error/throw-error!
-      :rf.error/app-schemas-bad-arg
-      'rf/reg-app-schemas
-      (str "reg-app-schemas expects a keyword frame-id, a frame value, or an "
-           "opts map; got " (pr-str opts-or-frame-id) ". Pass a frame-id "
-           "keyword, a frame value (from rf/make-frame), or a "
-           "{:frame <frame-id-or-value>} opts map.")
-      {:recovery :supply-a-frame-id-or-opts-map
-       :extra    {:received opts-or-frame-id
-                  :expected "keyword frame-id, frame value, or opts map"}})))
-
-(defn frame-target->opts
-  "Lift registration metadata's `:frame` target into the opts shape consumed
-  by `resolve-frame`. Wrapping matters for invalid map-shaped targets: they
-  must be validated as targets, not mistaken for an opts map. Nil selects the
-  carried frame scope."
-  [frame-target]
-  (if (some? frame-target)
-    {:frame frame-target}
-    {}))
-
-(defn- best-effort-frame-id
-  "Resolve the registration frame for an error payload without throwing:
-  the explicit `:frame` opt if present, else the carried-invariant scope
-  frame, else `nil` when no scope is established. Used only to enrich the
-  `:rf.error/app-schema-runtime-path` payload. The path gate
-  runs before the registration's own (throwing) frame resolution, so we
-  must not let a missing scope (or a malformed opts shape) mask the
-  runtime-path rejection.
-
-  The argument is an OPTS map / opts-sugar (the bulk path's `opts-or-frame-id`,
-  or the singular path's `(frame-target->opts (:frame metadata))` lift) — i.e.
-  the same shape `resolve-frame` consumes — so this is the non-throwing twin of
-  the registration's own resolution and they never disagree on which frame the
-  error payload names."
-  [opts]
-  (try
-    (resolve-frame (coerce-opts opts))
-    (catch #?(:clj Exception :cljs :default) _ nil)))
+(defn- refuse-frame-target!
+  "Throw `:rf.error/app-schema-frame-target`: `received` named a frame on a
+  schema registration. `where` is the entry point the caller used."
+  [where path received]
+  (rf.error/throw-error!
+    :rf.error/app-schema-frame-target
+    where
+    (str where " was given a frame (" (pr-str received) "). App-db schemas "
+         "are program registrations, like events: a schema registers once, at "
+         "the top level, and applies to every frame that resolves it. A schema "
+         "that differs per frame comes from images: register it in a namespace "
+         "a later image selects, and that image's frames resolve it instead.")
+    {:recovery :register-at-top-level-and-select-variants-by-image
+     :extra    (cond-> {:received received}
+                 (some? path) (assoc :path path))}))
 
 (defn- normalize-app-schema-metadata
   "Validate + normalize the OPTIONAL middle registration-metadata map of the
@@ -125,36 +59,109 @@
   The schema is the final positional value, matching other 3-slot `reg-*`
   surfaces:
 
-      (reg-app-schema [:user] UserSchema)                ;; 2-slot
-      (reg-app-schema [:user] {:frame :session} UserSchema) ;; 3-slot
+      (reg-app-schema [:user] UserSchema)                       ;; 2-slot
+      (reg-app-schema [:user] {:doc \"The user.\"} UserSchema)  ;; 3-slot
 
-  The 2-slot form supplies no metadata (`nil` here → `{}`). A bare frame value
-  in the slot names its frame and lifts to `{:frame fv}`, as `coerce-opts`
-  lifts one for `reg-app-schemas`. A frame value is itself a map, so it is
-  recognized before the generic map branch; read as metadata it carries no
-  `:frame` key and would register on the ambient frame. A non-nil, non-map
-  middle arg is a caller bug — the common slip is passing the schema where the
-  metadata map goes — and fails LOUDLY at the authoring boundary (dev AND prod)
-  with `:rf.error/app-schema-bad-metadata`, naming the path and the value.
+  The 2-slot form supplies no metadata (`nil` here → `{}`). A frame — a
+  `:frame` key, or a bare frame value in the slot — throws
+  `:rf.error/app-schema-frame-target`. A frame value is itself a map, so it is
+  recognized before the generic map branch. A non-nil, non-map middle arg is a
+  caller bug — the common slip is passing the schema where the metadata map
+  goes — and fails LOUDLY at the authoring boundary (dev AND prod) with
+  `:rf.error/app-schema-bad-metadata`, naming the path and the value.
 
   Returns the metadata map (never nil)."
   [path metadata]
   (cond
     (nil? metadata) {}
     ;; A frame value is a map; keep this branch before the generic map branch.
-    (rf.frame/frame-value? metadata) {:frame metadata}
-    (map? metadata) metadata
+    (rf.frame/frame-value? metadata)
+    (refuse-frame-target! 'rf/reg-app-schema path metadata)
+    (map? metadata)
+    (if (contains? metadata :frame)
+      (refuse-frame-target! 'rf/reg-app-schema path (:frame metadata))
+      metadata)
     :else
     (rf.error/throw-error!
       :rf.error/app-schema-bad-metadata
       'rf/reg-app-schema
       (str "reg-app-schema's middle arg must be a registration-metadata map — "
-           "e.g. (reg-app-schema " (pr-str path) " {:frame :session} MySchema). "
+           "e.g. (reg-app-schema " (pr-str path) " {:doc \"…\"} MySchema). "
            "Got " (pr-str metadata) ". The grammar is "
            "(reg-app-schema path schema) / (reg-app-schema path metadata schema); "
            "the schema is the positional value slot, not a :schema metadata key.")
       {:recovery :pass-metadata-map-then-schema
        :extra    {:path path :received metadata}})))
+
+(defn- assert-bulk-opts!
+  "Validate `reg-app-schemas`' optional second argument. `nil` and a map
+  without `:frame` are accepted. A frame — a frame-id keyword, a frame value,
+  or a `:frame` key — throws `:rf.error/app-schema-frame-target`; any other
+  value throws `:rf.error/app-schemas-bad-arg`."
+  [opts]
+  (cond
+    (nil? opts) nil
+    (or (keyword? opts) (rf.frame/frame-value? opts))
+    (refuse-frame-target! 'rf/reg-app-schemas nil opts)
+    (map? opts)
+    (when (contains? opts :frame)
+      (refuse-frame-target! 'rf/reg-app-schemas nil (:frame opts)))
+    :else
+    (rf.error/throw-error!
+      :rf.error/app-schemas-bad-arg
+      'rf/reg-app-schemas
+      (str "reg-app-schemas' optional second argument is an opts map; got "
+           (pr-str opts) ". Register the batch with (reg-app-schemas m).")
+      {:recovery :drop-the-second-argument
+       :extra    {:received opts
+                  :expected "an opts map, or no second argument"}})))
+
+;; ---- resolution through a frame ----------------------------------------------
+
+(defn- in-frame-resolution
+  "Run `thunk` under `frame-target`'s registration resolution — its sealed
+  generation, the live store for a frame made without `:images`, or each id's
+  latest registration for a frame carrying neither (an unknown id included).
+  Reached through the late-bound `:live-frame/call-with-frame-resolution`
+  seam; with it absent, `thunk` runs against each id's latest registration."
+  [frame-target thunk]
+  (if-let [with-frame (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution)]
+    (with-frame frame-target thunk)
+    (thunk)))
+
+(defn- resolved-registrations
+  "The `{path → registration}` map of the `:app-schema` ids the bound
+  resolution runs. A path more than one namespace registers is never left out
+  of it: a frame made without `:images` refuses such a path, so this throws
+  the `:rf.error/ambiguous-registration` the frame raises where it uses the
+  id, rather than answering without the schema."
+  []
+  (when-let [[path _] (first (rf.registrar/ambiguous-registrations :app-schema))]
+    (rf.registrar/lookup :app-schema path))
+  (rf.registrar/registrations :app-schema))
+
+(defn- resolution-with-ambiguity
+  "`{:entries {path → registration} :ambiguous #{path}}` for the bound
+  resolution: the paths it runs, and the paths it refuses because more than
+  one namespace registers them."
+  []
+  {:entries   (rf.registrar/registrations :app-schema)
+   :ambiguous (set (keys (rf.registrar/ambiguous-registrations :app-schema)))})
+
+(defn- frame-resolves-schema?
+  "True when frame `frame-id` resolves `path` to a registration carrying
+  `schema`. A path the frame cannot resolve because more than one namespace
+  registers it answers false: this read only selects frames for a dev
+  diagnostic."
+  [frame-id path schema]
+  (try
+    (let [resolved (in-frame-resolution
+                     frame-id #(rf.registrar/lookup :app-schema path))]
+      (and (some? resolved) (= schema (:schema resolved))))
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.registrar/ambiguous-registration? e)
+        false
+        (throw e)))))
 
 ;; ---- registration-time path validation -----------------------------------
 
@@ -219,8 +226,8 @@
 (defn assert-app-schema-path!
   "Throw a framework error (per Spec 009 error catalogue) when `path` is
   not a valid `reg-app-schema` path. Called by `reg-app-schema` /
-  `reg-app-schemas` BEFORE the store mutation so a bad path never lands
-  in `schemas-by-frame`. Two distinct rejections:
+  `reg-app-schemas` BEFORE anything is registered, so a bad path never lands.
+  Two distinct rejections:
 
     - `:rf.error/app-schema-bad-path` — the SHAPE is wrong (a
       non-sequential scalar), which would poison the `validate-app-schema!`
@@ -232,48 +239,41 @@
       it — machine `:snapshots` refined per-machine from each machine's
       `[:schemas :data]` schema) and is NOT a user schema-registration
       surface, so the
-      remedy is to drop the runtime path.
-
-  `frame` (optional) names the resolved registration frame for the
-  runtime-path error payload; callers pass the frame they resolved. It is
-  best-effort context only — the gate runs before the registration's own
-  frame resolution, so a `nil` frame still rejects loudly."
-  ([path] (assert-app-schema-path! path nil))
-  ([path frame]
-   (when-not (valid-app-schema-path? path)
-     (rf.error/throw-error!
-       :rf.error/app-schema-bad-path
-       'rf/reg-app-schema
-       (str "reg-app-schema path " (pr-str path) " is invalid; pass "
-            "a sequential get-in path (vector/seq) "
-            "of CONCRETE :rf/path segments (keyword, "
-            "string, symbol, safe-range integer, "
-            "boolean, UUID, instant, or nil), or [] "
-            "for the app-db root — composite / "
-            "function / host / float / unsafe-integer "
-            "segments are rejected (EP-0012 §The "
-            ":rf/path algebra).")
-       {:recovery :supply-a-concrete-get-in-path
-        :extra    {:received path}}))
-   (when (runtime-app-schema-path? path)
-     (rf.error/throw-error!
-       :rf.error/app-schema-runtime-path
-       'rf/reg-app-schema
-       (str "app schemas validate only app-db; a "
-            "path whose first segment is a "
-            ":rf.runtime/* keyword (or the legacy "
-            ":rf/runtime root) reaches into the "
-            "runtime-db partition. The runtime-db "
-            "partition is framework-owned and "
-            "validated by the framework (machine "
-            ":snapshots refined per-machine from "
-            "each machine's [:schemas :data] "
-            "schema); it is "
-            "NOT a user schema-registration "
-            "surface — drop the runtime path.")
-       {:recovery :drop-the-runtime-path
-        :extra    {:received path
-                   :frame    frame}}))))
+      remedy is to drop the runtime path."
+  [path]
+  (when-not (valid-app-schema-path? path)
+    (rf.error/throw-error!
+      :rf.error/app-schema-bad-path
+      'rf/reg-app-schema
+      (str "reg-app-schema path " (pr-str path) " is invalid; pass "
+           "a sequential get-in path (vector/seq) "
+           "of CONCRETE :rf/path segments (keyword, "
+           "string, symbol, safe-range integer, "
+           "boolean, UUID, instant, or nil), or [] "
+           "for the app-db root — composite / "
+           "function / host / float / unsafe-integer "
+           "segments are rejected (EP-0012 §The "
+           ":rf/path algebra).")
+      {:recovery :supply-a-concrete-get-in-path
+       :extra    {:received path}}))
+  (when (runtime-app-schema-path? path)
+    (rf.error/throw-error!
+      :rf.error/app-schema-runtime-path
+      'rf/reg-app-schema
+      (str "app schemas validate only app-db; a "
+           "path whose first segment is a "
+           ":rf.runtime/* keyword (or the legacy "
+           ":rf/runtime root) reaches into the "
+           "runtime-db partition. The runtime-db "
+           "partition is framework-owned and "
+           "validated by the framework (machine "
+           ":snapshots refined per-machine from "
+           "each machine's [:schemas :data] "
+           "schema); it is "
+           "NOT a user schema-registration "
+           "surface — drop the runtime path.")
+      {:recovery :drop-the-runtime-path
+       :extra    {:received path}})))
 
 ;; ---- bulk argument validation ---------------------------------------------
 
@@ -304,7 +304,8 @@
                   :expected "a {path -> schema} map (possibly empty)"}})))
 
 (defn read-frame-id
-  "Resolve the REQUIRED `:frame` target of a side-table READ's opts map.
+  "Resolve the REQUIRED `:frame` target of a schema READ's opts map to a
+  frame-id keyword.
 
   ONE FRAME SPELLING. Every schema read entry point
   (`app-schemas` / `app-schema-meta` / `app-schemas-digest`) takes a single
@@ -313,24 +314,34 @@
   deliberately NO ambient default and no trailing frame-target sniffing: a
   live frame value is itself a map, so a type-sniffing trailing argument
   cannot be read locally (Spec Principles §Name over place). A frameless or
-  non-map call raises the catalogued `:rf.error/no-frame-context`.
+  non-map call raises the catalogued `:rf.error/no-frame-context`; a `:frame`
+  that names no frame id raises `:rf.error/app-schemas-bad-arg`.
 
-  No liveness or image resolution happens here — the side table is keyed by
-  frame id, so a read of a frame holding no schemas answers `{}` / `nil`
-  rather than throwing. Story computes a variant frame's identity BEFORE that
-  frame is allocated and depends on that.
-
-  The `reg-*` WRITE entry points have their own `coerce-opts` sugar: that is
-  a Spec 010 registration contract, not a read."
+  The read then answers from that frame's resolution. An id naming no live
+  frame resolves each path's latest registration rather than throwing: Story
+  computes a variant frame's identity BEFORE that frame is allocated."
   [opts where-sym]
   (let [target (when (map? opts) (:frame opts))]
     (if (some? target)
-      (resolve-frame {:frame target} where-sym)
+      (let [frame-id (rf.frame/frame-target->id target)]
+        (when-not (keyword? frame-id)
+          (rf.error/throw-error!
+            :rf.error/app-schemas-bad-arg
+            where-sym
+            (str "the :frame opt must be a frame-id keyword or a frame value "
+                 "(from rf/make-frame); got " (pr-str target)
+                 ", which resolved to the non-keyword frame target "
+                 (pr-str frame-id) ". Pass a frame-id keyword or a frame value.")
+            {:recovery :supply-a-frame-id-or-frame-value
+             :extra    {:received target
+                        :resolved frame-id
+                        :expected "keyword frame-id or frame value"}}))
+        frame-id)
       (let [payload (rf.frame/no-frame-context-payload
                       :app-schema-introspection
                       {:where    where-sym
                        :reason   (str where-sym " requires an explicit frame: pass "
-                                      "{:frame <frame-id-or-frame-value>}. Side-table "
+                                      "{:frame <frame-id-or-frame-value>}. Schema "
                                       "reads never fall back to an ambient frame, and "
                                       "the frame target is never a bare positional "
                                       "argument. Got " (pr-str opts) ".")
@@ -512,25 +523,17 @@
 (def ^:private redacted-sentinel rf.privacy/redacted-sentinel)
 
 (defn- maybe-emit-schema-violation!
-  "Emit `:rf.schema/violation` when a registration declares a schema at
-  `(frame-id, path)` that the live `app-db` value present at `path` fails.
-  A first registration checks the live value; a re-registration checks it
-  only when the schema changed. No-op when the path is absent from the live
-  `app-db` (or the frame has no `app-db` yet), the schema is unchanged, no
-  validator is registered, or the live value validates.
+  "Emit `:rf.schema/violation` when the live `app-db` value present at `path`
+  in frame `frame-id` fails `new-schema`. No-op when the path is absent from
+  the live `app-db` (or the frame has no `app-db` yet), no validator is
+  registered, or the live value validates.
 
-  `prior-registered?` is whether the registry held an ENTRY for
-  `(frame-id, path)` before this registration, and `prior-schema` is the
-  exact token that entry stored. The two are separate arguments on
-  purpose: a schema value is opaque to re-frame, so `nil` is a
-  legitimate token a custom validator may interpret, and Spec 010
-  §The `:schema` value is opaque makes \"registered\" a question about
-  DECLARATION PRESENCE rather than token truthiness (the law the
-  validation seams follow). Inferring presence from
-  `(some? prior-schema)` would conflate a real entry carrying a nil token
-  with no entry at all, so re-registering that path would be read as a
-  first registration and an unchanged `nil` → `nil` re-eval would re-check
-  the live value.
+  `prior-registered?` is whether the registrar held an ENTRY for `path`
+  before this registration, and `prior-schema` is the exact token that entry
+  stored. The two are separate arguments on purpose: a schema value is opaque
+  to re-frame, so `nil` is a legitimate token a custom validator may
+  interpret, and Spec 010 §The `:schema` value is opaque makes \"registered\"
+  a question about DECLARATION PRESENCE rather than token truthiness.
 
   `:pre-reload-schema` names the prior declaration's token, so the trace
   carries it only on a re-registration: on a first registration there is
@@ -541,45 +544,59 @@
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds)."
   [frame-id path prior-registered? prior-schema new-schema]
+  (when-let [validate-fn @rf.schemas.validator/validator-fn]
+    (let [app-db     (rf.frame/frame-app-db-value frame-id)
+          live-value (if (nil? app-db) ::absent (get-in app-db path ::absent))]
+      (when-not (or (= ::absent live-value)
+                    ;; A malformed new schema can make the validator throw
+                    ;; (e.g. Malli's `:malli.core/child-error` on a childless
+                    ;; `[:vector]`). A bad schema is not a violation of the
+                    ;; live value and MUST NOT crash registration — treat a
+                    ;; throwing validator as "cannot determine a violation"
+                    ;; (pass).
+                    (try (boolean (validate-fn new-schema live-value))
+                         (catch #?(:clj Throwable :cljs :default) _ true)))
+        (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
+          ;; Fail closed on an opaque schema. The
+          ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
+          ;; compiled `m/schema` value, so `schema-has-sensitive?` alone would
+          ;; return false and `:mismatching-value` would egress the live value
+          ;; verbatim — the asymmetry the validate-*! redactor already closes
+          ;; (`re-frame.schemas.validate` uses the same
+          ;; `(or schema-has-sensitive? schema-has-opaque-child?)` posture). A
+          ;; bare keyword is provably flag-free and is NOT opaque
+          ;; (`schema-opaque?`). Use recursive `schema-has-opaque-child?`,
+          ;; not the root-only
+          ;; `schema-opaque?` — a vector-form `new-schema` can embed a nested
+          ;; opaque child the root-only check would miss.
+          (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
+                               (rf.schemas.walker/schema-has-opaque-child? new-schema))]
+            (emit! :warning :rf.schema/violation
+                   (cond-> {:path               path
+                            :post-reload-schema new-schema
+                            :mismatching-value  (if sensitive?
+                                                  redacted-sentinel
+                                                  live-value)
+                            :frame              frame-id
+                            :recovery           :logged-and-skipped
+                            :sensitive?         sensitive?}
+                     prior-registered? (assoc :pre-reload-schema prior-schema)))))))))
+
+(defn- maybe-emit-schema-violations!
+  "Run the registration-time `:rf.schema/violation` check in every live frame
+  that resolves `path` to the registration just made. A first registration
+  checks; a re-registration checks only when the schema changed, so a re-eval
+  with the same schema does nothing.
+
+  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  (Spec 009 §Production builds)."
+  [path prior-registered? prior-schema new-schema]
   (when (or (not prior-registered?)
             (not= prior-schema new-schema))
-    (when-let [validate-fn @rf.schemas.validator/validator-fn]
-      (let [app-db     (rf.frame/frame-app-db-value frame-id)
-            live-value (if (nil? app-db) ::absent (get-in app-db path ::absent))]
-        (when-not (or (= ::absent live-value)
-                      ;; A malformed new schema can make the validator throw
-                      ;; (e.g. Malli's `:malli.core/child-error` on a childless
-                      ;; `[:vector]`). A bad schema is not a violation of the
-                      ;; live value and MUST NOT crash registration — treat a
-                      ;; throwing validator as "cannot determine a violation"
-                      ;; (pass).
-                      (try (boolean (validate-fn new-schema live-value))
-                           (catch #?(:clj Throwable :cljs :default) _ true)))
-          (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
-            ;; Fail closed on an opaque schema. The
-            ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
-            ;; compiled `m/schema` value, so `schema-has-sensitive?` alone would
-            ;; return false and `:mismatching-value` would egress the live value
-            ;; verbatim — the asymmetry the validate-*! redactor already closes
-            ;; (`re-frame.schemas.validate` uses the same
-            ;; `(or schema-has-sensitive? schema-has-opaque-child?)` posture). A
-            ;; bare keyword is provably flag-free and is NOT opaque
-            ;; (`schema-opaque?`). Use recursive `schema-has-opaque-child?`,
-            ;; not the root-only
-            ;; `schema-opaque?` — a vector-form `new-schema` can embed a nested
-            ;; opaque child the root-only check would miss.
-            (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
-                                 (rf.schemas.walker/schema-has-opaque-child? new-schema))]
-              (emit! :warning :rf.schema/violation
-                     (cond-> {:path               path
-                              :post-reload-schema new-schema
-                              :mismatching-value  (if sensitive?
-                                                    redacted-sentinel
-                                                    live-value)
-                              :frame              frame-id
-                              :recovery           :logged-and-skipped
-                              :sensitive?         sensitive?}
-                       prior-registered? (assoc :pre-reload-schema prior-schema))))))))))
+    (doseq [frame-id (rf.frame/frame-ids)]
+      (when (frame-resolves-schema? frame-id path new-schema)
+        (maybe-emit-schema-violation! frame-id path prior-registered?
+                                      prior-schema new-schema)))))
 
 ;; Schemas describe shape and validation-failure egress. They do not populate
 ;; durable app-db classification, which is owned by commit-plane effects.
@@ -601,8 +618,9 @@
   exists: an absent path is not checked, a present `nil` is. A key that
   must exist is declared by an enclosing schema, usually the root `[]`:
   `(reg-app-schema [] [:map [:cart CartSchema]])`. Registering also checks
-  a live value already present at `path` and, when it fails, emits the
-  dev-only `:rf.schema/violation` warning.
+  the live value already present at `path` in each frame that resolves the
+  schema and, when it fails, emits the dev-only `:rf.schema/violation`
+  warning.
 
   DEVELOPMENT-BUILD ASSERTION. That rejection is dev-only. A production
   build (`:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug=false`
@@ -617,71 +635,62 @@
 
   The schema is the positional value slot:
 
-      (rf/reg-app-schema [:user] UserSchema)                   ;; 2-slot
-      (rf/reg-app-schema [:user] {:frame :session} UserSchema) ;; 3-slot
+      (rf/reg-app-schema [:user] UserSchema)                       ;; 2-slot
+      (rf/reg-app-schema [:user] {:doc \"The user.\"} UserSchema)  ;; 3-slot
 
-  `reg-app-schema` is an ordinary member of the `reg-*` family: the path is
-  the registration id (Conventions §reg-* return-value convention — the
-  path-as-id asymmetry is defended in Spec 010), and the schema is the last
-  POSITIONAL value slot, uniform with every other 3-slot `reg-*` surface
-  (Spec 001 §The metadata map). The OPTIONAL middle arg is the standard
-  registration-metadata map carrying the `:frame` target (and any open
-  `:my/*` extension key). Omit it for the 2-slot form. A bare frame value in
-  that slot names its frame, exactly as `{:frame fv}` does. A non-map middle
-  arg throws `:rf.error/app-schema-bad-metadata` at the authoring boundary.
+  `reg-app-schema` is an ordinary member of the `reg-*` family: it registers
+  the registrar kind `:app-schema`, the canonical path is the registration id
+  (Conventions §reg-* return-value convention — the path-as-id asymmetry is
+  defended in Spec 010), and the schema is the last POSITIONAL value slot,
+  uniform with every other 3-slot `reg-*` surface (Spec 001 §The metadata
+  map). The OPTIONAL middle arg is the standard registration-metadata map
+  (`:doc`, open `:my/*` extension keys). A non-map middle arg throws
+  `:rf.error/app-schema-bad-metadata` at the authoring boundary.
 
-  Registration is frame-scoped. The `:frame` metadata value may be a frame-id
-  keyword or frame value; without it the carried frame scope is required.
+  Registration is FRAME-AGNOSTIC: a top-level program registration that never
+  reads a frame. Every frame validates against the schemas it resolves — live
+  for a frame made without `:images`, through the sealed generation for a
+  frame made with them — so a schema applies to every frame that resolves it,
+  and a frame that should validate differently selects a later image that
+  shadows the path. A `:frame` in the metadata, or a frame value in its slot,
+  throws `:rf.error/app-schema-frame-target`.
+
   The path must be a sequential collection of concrete path segments, with
-  `[]` naming the whole app-db root. Path and frame validation happen before
-  the registry mutation. Returns the canonical vector path."
+  `[]` naming the whole app-db root. Path validation happens before anything
+  is registered. Returns the canonical vector path."
   ([path schema] (reg-app-schema path nil schema))
   ([path metadata schema]
-  (let [metadata (normalize-app-schema-metadata path metadata)
-        ;; Metadata carries a frame target, not the whole opts map.
-        frame-opts (frame-target->opts (:frame metadata))]
-   ;; Reject malformed and runtime-db paths before the store mutation. Frame
-   ;; context is best-effort here so a missing scope cannot mask a path error.
-   (assert-app-schema-path! path (best-effort-frame-id frame-opts))
-   (let [frame-id     (resolve-frame frame-opts)
-         ;; Storage, lookup, and digesting share one canonical vector identity.
-         path         (rf.path/normalize-concrete path)
-         ;; Preserve open registration metadata, but stamp the positional
-         ;; schema and resolved path/frame over caller-supplied values.
-         schema-meta  (rf.source-coords/merge-coords
-                        (assoc (dissoc metadata :schema :frame)
-                               :schema schema :path path :frame frame-id))
-         ;; Capture before replacement for the dev-only registration check.
-         ;; Presence and token come from ONE deref so they cannot disagree,
-         ;; and presence is `contains?` on the frame's path map rather than
-         ;; the truthiness of the stored token: a schema value is
-         ;; opaque to re-frame, so a registered nil is a real declaration a
-         ;; custom validator may interpret, and only an ABSENT entry means
-         ;; "no schema" (Spec 010 §The `:schema` value is opaque).
-         prior-paths  (get @schemas-by-frame frame-id)
-         prior-known? (contains? prior-paths path)
-         prior-schema (:schema (get prior-paths path))]
-     (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
-     ;; Read-only diagnostics are absent from production builds.
-     (when rf.interop/debug-enabled?
-       (maybe-warn-validator-unavailable!)
-       (maybe-warn-walker-opaque! schema path)
-       (maybe-emit-schema-violation! frame-id path prior-known? prior-schema
-                                     schema)
-       ;; Spec 001 §`:doc` is dev-warned when absent covers app-db schemas.
-       ;; The registrar's shared emitter keeps the macro-path carve-out
-       ;; (`schema-meta` carries `:ns` only when a macro captured coords)
-       ;; and the once-per-`(kind, id)` suppression. Bulk entries are exempt.
-       (when-not *bulk-entry?*
-         (rf.registrar/maybe-emit-missing-doc! :app-schema path schema-meta)))
-     path))))
+   (let [metadata (normalize-app-schema-metadata path metadata)]
+     ;; Reject malformed and runtime-db paths before registering.
+     (assert-app-schema-path! path)
+     (let [;; Registration, resolution and digesting share one canonical
+           ;; vector identity.
+           path        (rf.path/normalize-concrete path)
+           ;; Preserve open registration metadata, but stamp the positional
+           ;; schema and canonical path over caller-supplied values.
+           schema-meta (rf.source-coords/merge-coords
+                         (assoc (dissoc metadata :schema)
+                                :schema schema :path path))
+           ;; `:was` is the path's latest registration before this one. Its
+           ;; presence — not the truthiness of its schema token — is what
+           ;; makes this a re-registration: a schema value is opaque to
+           ;; re-frame, so a registered nil is a real declaration a custom
+           ;; validator may interpret (Spec 010 §The `:schema` value is
+           ;; opaque).
+           {:keys [was]} (binding [rf.registrar/*missing-doc-exempt?* *bulk-entry?*]
+                           (rf.registrar/register! :app-schema path schema-meta))]
+       ;; Read-only diagnostics are absent from production builds.
+       (when rf.interop/debug-enabled?
+         (maybe-warn-validator-unavailable!)
+         (maybe-warn-walker-opaque! schema path)
+         (maybe-emit-schema-violations! path (some? was) (:schema was) schema))
+       path))))
 
 (defn reg-app-schemas
-  "Bulk-register a map of `{path -> schema}` against the active frame
-  (or the frame named in `opts`). Designed for feature-modular apps (per Conventions
-  §Feature-modularity prefix convention) where a single feature module
-  registers 5–20 schemas under a common path prefix like `[:cart …]` or
-  `[:auth …]`.
+  "Bulk-register a map of `{path -> schema}`. Designed for feature-modular
+  apps (per Conventions §Feature-modularity prefix convention) where a single
+  feature module registers 5–20 schemas under a common path prefix like
+  `[:cart …]` or `[:auth …]`.
 
   Shape:
 
@@ -690,17 +699,13 @@
                          [:cart]                CartSlice
                          [:cart :items]         [:vector CartItem]})
 
-    (rf/reg-app-schemas {[:foo] FooSchema} {:frame :tenant/a})
-
-  The `:frame` opt names
-  the frame for every entry in the map (you cannot mix frames in a single
-  call), else the carried-invariant scope chain resolves it. Registering
-  under no scope and no explicit `:frame` raises
-  `:rf.error/no-frame-context` (the up-front path-shape sweep still runs
-  first).
   Each entry registers through the singular `reg-app-schema`, so every
-  entry stamps its own per-frame side-table entry with source-coords
-  captured from this call site.
+  entry is its own `:app-schema` registration, frame-agnostic, carrying
+  source-coords captured from this call site. A frame — a frame-id or frame
+  value as the second argument, or a `:frame` key in it — throws
+  `:rf.error/app-schema-frame-target`, as the singular form does. The whole
+  batch is validated (its shape, every path, the second argument) before any
+  entry registers.
 
   A bulk entry has no slot for a per-path `:doc`, so this form never emits
   `:rf.warning/missing-doc`. To document a path, register it with
@@ -712,126 +717,111 @@
   do not run in production builds. Per Spec 010 §Production builds.
 
   Returns the vector of canonical paths registered, in map iteration order."
-  ([path->schema] (reg-app-schemas path->schema {}))
-  ([path->schema opts-or-frame-id]
+  ([path->schema] (reg-app-schemas path->schema nil))
+  ([path->schema opts]
    ;; Reject a malformed batch before path iteration can silently no-op.
    (assert-bulk-schemas-arg! path->schema)
-   ;; Validate every path before mutating so an invalid entry cannot leave a
-   ;; partially registered batch.
-   (let [batch-frame-id (best-effort-frame-id opts-or-frame-id)]
-     (run! #(assert-app-schema-path! % batch-frame-id) (keys path->schema)))
-   ;; Delegate each map value through the singular positional schema slot.
-   (let [frame-target (:frame (coerce-opts opts-or-frame-id))]
-     (binding [*bulk-entry?* true]
-       (mapv (fn [[path schema]]
-               (if (some? frame-target)
-                 (reg-app-schema path {:frame frame-target} schema)
-                 (reg-app-schema path schema)))
-             path->schema)))))
+   (assert-bulk-opts! opts)
+   ;; Validate every path before registering so an invalid entry cannot leave
+   ;; a partially registered batch.
+   (run! assert-app-schema-path! (keys path->schema))
+   (binding [*bulk-entry?* true]
+     (mapv (fn [[path schema]] (reg-app-schema path schema))
+           path->schema))))
 
 (defn ^:no-doc frame-schema-entries
-  "Cross-artefact seam — consumed by `re-frame.elision`, `re-frame.epoch` and
-  the validation hot path via the `:schemas/frame-schema-entries` late-bind
-  hook. Returns the `{path → schema-meta}` map for a frame, or `{}`.
+  "Cross-artefact seam — consumed by `re-frame.epoch` and Story via the
+  `:schemas/frame-schema-entries` late-bind hook, and the read behind
+  `app-schemas` and the digest. Returns
+  the `{path → registration}` map of the app-db schemas frame `frame-target`
+  RESOLVES, or `{}`: its sealed generation's, the live store's for a frame
+  made without `:images`, and each path's latest registration for a frame
+  carrying neither. A path more than one namespace registers throws
+  `:rf.error/ambiguous-registration` in a frame made without `:images`, never
+  validating without it.
 
-  Takes a resolved frame-id KEYWORD, not an opts map: it is the private twin
-  of the public `app-schemas`, which reads the same fact through the one
-  `{:frame f}` spelling. There is no public var of this name."
-  [frame-id]
-  (get @schemas-by-frame frame-id {}))
+  Takes a frame target (an id or a frame value), not an opts map: it is the
+  private twin of the public `app-schemas`, which reads the same fact through
+  the one `{:frame f}` spelling. There is no public var of this name."
+  [frame-target]
+  (in-frame-resolution frame-target resolved-registrations))
+
+(defn ^:no-doc frame-schema-resolution
+  "The validation hot path's read of frame `frame-target`'s schemas:
+  `{:entries {path → registration} :ambiguous #{path}}`. `:ambiguous` names
+  each path the frame refuses because more than one namespace registers it, so
+  validation can fail loudly on such a path exactly when a candidate puts a
+  value there to check ([[throw-ambiguous-schema!]]) — never validating that
+  value without its schema, and never refusing a commit over a path it leaves
+  absent."
+  [frame-target]
+  (in-frame-resolution frame-target resolution-with-ambiguity))
+
+(defn ^:no-doc throw-ambiguous-schema!
+  "Throw the `:rf.error/ambiguous-registration` frame `frame-target` raises
+  for `path`, one of the `:ambiguous` paths of [[frame-schema-resolution]]."
+  [frame-target path]
+  (in-frame-resolution frame-target #(rf.registrar/lookup :app-schema path)))
 
 (defn app-schemas
-  "Return every app-db schema registration for a frame as a
+  "Return the app-db schema registrations frame `f` resolves, as a
   `{path → registration-metadata}` map, or `{}`.
 
   `(app-schemas {:frame f})`. `:frame` is REQUIRED and accepts a frame-id
   keyword or a frame value (`rf/make-frame`'s return token); a frameless or
   non-map call raises `:rf.error/no-frame-context`.
 
-  Each value is the full meta map stamped at `reg-app-schema` — `:path`,
-  `:schema`, `:frame`, and the source-coords `:ns` / `:line` / `:file` — the
-  same `{id → meta}` shape the registrar grammar's `rf/registrations`
-  answers. Project `:schema` when only the schema values are wanted:
+  Each value is the registration's metadata — `:path`, `:schema`, and the
+  source-coords `:ns` / `:line` / `:file` — the same `{id → meta}` shape the
+  registrar grammar's `rf/registrations` answers, because
+  `(rf/registrations {:frame f :kind :app-schema})` reads the same
+  resolution. Project `:schema` when only the schema values are wanted:
   `(update-vals (app-schemas {:frame f}) :schema)`.
 
-  Per Spec 010 §Per-frame schemas the result is the schema set registered
-  against the NAMED frame; schemas registered against a different frame do
-  not appear."
+  Per Spec 010 §Schemas resolve through the frame's images the result is the
+  frame's own resolution: every schema it inherits from the registrations it
+  resolves, and a later image's schema in place of the one it shadows. A path
+  more than one namespace registers throws `:rf.error/ambiguous-registration`
+  for a frame made without `:images`."
   [opts]
   (frame-schema-entries (read-frame-id opts 're-frame.schemas/app-schemas)))
 
 (defn app-schema-meta
-  "Return one path's registration metadata map in a frame, or nil.
+  "Return the registration metadata of the schema one path resolves to in a
+  frame, or nil.
 
   `(app-schema-meta {:frame f :path p})`. Both keys are REQUIRED; `:frame`
-  accepts a frame-id keyword or a frame value. The value is the full meta map
-  stamped at `reg-app-schema` — source-coords (`:ns` / `:line` / `:file`),
-  `:path`, `:schema` and `:frame` — so the registered schema itself is
+  accepts a frame-id keyword or a frame value. The value is the
+  registration's metadata — source-coords (`:ns` / `:line` / `:file`),
+  `:path` and `:schema` — so the resolved schema itself is
   `(:schema (app-schema-meta {:frame f :path p}))`.
 
   This is the canonical single-path read surface for app-db schema metadata:
-  pair tools, 10x panels and source-coord tests use it to introspect where a
-  schema was registered. App-db schemas are not a registrar kind; the
-  per-frame side table is the single source of truth. Per Spec 010 §Schemas
-  as a tooling and agent surface."
+  pair tools, 10x panels and source-coord tests use it to find where the
+  schema a frame runs was registered. Per Spec 010 §Schemas as a tooling and
+  agent surface."
   [{:keys [path] :as opts}]
-  ;; Lookup uses the same canonical concrete path identity as registration.
-  (get-in @schemas-by-frame [(read-frame-id opts 're-frame.schemas/app-schema-meta)
-                             (rf.path/normalize-concrete path)]))
+  (let [frame-id (read-frame-id opts 're-frame.schemas/app-schema-meta)
+        ;; Lookup uses the same canonical concrete path identity as
+        ;; registration.
+        path     (rf.path/normalize-concrete path)]
+    (in-frame-resolution frame-id #(rf.registrar/lookup :app-schema path))))
 
 ;; ---- hot-reload semantics ------------------------------------------------
 ;;
-;; `reg-app-schema` writes only to `schemas-by-frame`. Re-registering a
-;; `(frame-id, path)` entry is an
-;; ordinary `swap!`: the new meta replaces the prior entry atomically, and
-;; the validation hot path (`frame-schema-entries`) picks up the new
-;; schema on its next read. The per-frame map IS the validation cache.
+;; `reg-app-schema` is a `register!` like any other: re-registering a path from
+;; the same namespace replaces that namespace's slot, the hot-reload sweep
+;; (`re-frame.registrar/sweep-reload-cycle!`) forgets a schema a reloaded
+;; namespace no longer registers, and `(rf/clear :app-schema path)` removes
+;; one. A frame made without `:images` reads the change at its next
+;; validation; a frame made with them re-resolves its generation.
 ;;
-;; One dev-only side effect accompanies a re-registration:
-;;   `:rf.schema/violation` — emitted when the schema CHANGED and the live
-;;   `app-db` value at the path fails the new shape (Spec 010 §Schema
-;;   migration on hot-reload). See `maybe-emit-schema-violation!`. Gated on
-;;   `interop/debug-enabled?` and DCE'd in production.
+;; One dev-only side effect accompanies a registration:
+;;   `:rf.schema/violation` — emitted in each live frame that resolves the
+;;   path when the schema is new or CHANGED and that frame's live `app-db`
+;;   value at the path fails it (Spec 010 §Schema migration on hot-reload).
+;;   See `maybe-emit-schema-violations!`. Gated on `interop/debug-enabled?`
+;;   and DCE'd in production.
 ;;
 ;; Re-registration does not refresh durable app-db classification; schemas
 ;; do not own that registry.
-
-;; ---- test-support snapshot / restore -------------------------------------
-;;
-;; Consumed by re-frame.test-support's make-reset-runtime-fixture via the
-;; `:schemas/{snapshot-by-frame,restore-by-frame!,clear-by-frame!}`
-;; late-bind hooks. The fixture captures and restores the per-frame
-;; registry around each test; when the schemas artefact is not on the
-;; classpath the hooks are nil and the fixture no-ops the schema steps.
-
-(defn snapshot-schemas-by-frame
-  "Return a snapshot value of the per-frame schema registry."
-  []
-  @schemas-by-frame)
-
-(defn restore-schemas-by-frame!
-  "Reset the per-frame schema registry to the supplied snapshot."
-  [snap]
-  (reset! schemas-by-frame snap))
-
-(defn clear-schemas-by-frame!
-  "Reset the per-frame schema registry to `{}`. Used by test fixtures,
-  among them the reset `make-reset-runtime-fixture` runs before every
-  test. The per-frame registry is the artefact's only mutable registration
-  state."
-  []
-  (reset! schemas-by-frame {}))
-
-(defn on-frame-destroyed!
-  "Per Spec 002 §Destroy: drop every schema registered against the
-  destroyed frame so a subsequent construction of the same id starts
-  with a clean schema slate. Called from `frame/destroy-frame!`
-  through the `:schemas/on-frame-destroyed!` late-bind hook
-  (mirrors the `:machines/on-frame-destroyed!` /
-  `:ssr/on-frame-destroyed` cleanup contract).
-
-  Without this cleanup, reusing a frame id would revive schemas from the
-  destroyed frame and could cause rollback against orphan paths. Idempotent:
-  a missing frame entry is a no-op `dissoc`."
-  [frame-id]
-  (swap! schemas-by-frame dissoc frame-id))

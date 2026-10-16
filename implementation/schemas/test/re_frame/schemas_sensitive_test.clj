@@ -14,6 +14,7 @@
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.schemas.walker :as rf.schemas.walker]
@@ -30,7 +31,7 @@
   "Register `schema` at `path` as the frame's only app-schema, validate `db`
   (which must fail it), and return the failure trace."
   [path schema db failing-id]
-  (rf.schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-kind! :app-schema)
   (rf/reg-app-schema path schema)
   (with-trace-recorder! [traces]
     (rf.schemas/validate-app-schema! db failing-id)

@@ -114,7 +114,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 | `:db-before`, `:db-after` | map | The `app-db` partition of the two frame-states, for diffs. |
 | `:trace-events` | vector of trace events | The raw trace the event produced. |
 | `:sub-runs`, `:renders`, `:effects` | vectors of rows | Structured summaries of the trace; the row shapes are below. |
-| `:schema-digest` | digest or `nil` | A digest of the frame's app-schema set when the record was made; `nil` without a schema layer. `:rf.epoch/restore-schema-mismatch` reports it beside the current digest. |
+| `:schema-digest` | digest or `nil` | A digest of the app-schema set the frame resolved when the record was made; `nil` without a schema layer. `:rf.epoch/restore-schema-mismatch` reports it beside the current digest. |
 | `:rf.epoch/sensitive?` | boolean | `true` when the event involved declared-sensitive data. |
 | `:rf.epoch/redacted-modified-paths-count` | integer | How many declared-sensitive paths the event changed. |
 | `:rf.cofx` | map | The coeffect values the event consumed, which `replay-epoch!` presents again. |
@@ -154,7 +154,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
     - `:rf.epoch/restore-during-drain`: called while a drain is in flight.
     - `:rf.epoch/restore-unknown-epoch`: `epoch-id` is not in the frame's current history.
     - `:rf.epoch/restore-non-ok-record`: the epoch's `:outcome` is not `:ok`. A halted cascade's record holds partial state and cannot be restored.
-    - `:rf.epoch/restore-schema-mismatch`: the recorded `app-db` no longer validates against the frame's registered app-schemas.
+    - `:rf.epoch/restore-schema-mismatch`: the recorded `app-db` no longer validates against the app-schemas the frame resolves.
     - `:rf.epoch/restore-missing-handler`: a machine or route referenced from the recorded `runtime-db` is no longer registered.
     - `:rf.epoch/restore-version-mismatch`: a machine snapshot's version differs from the current definition.
 - **Example**:
@@ -217,7 +217,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
         - `:rf.error/replace-frame-state-bad-keys`: the map has no recognised partition key, or has an unrecognised key. Checked before the frame is resolved. The envelope's `:cause` says which (`:no-recognized-keys` or `:unknown-keys`), beside `:keys`.
         - `:rf.error/no-such-handler`: the frame is not registered.
         - `:rf.epoch/replace-during-drain`: called while a drain is in flight.
-        - `:rf.epoch/replace-schema-mismatch`: a present `app-db` value fails the frame's registered app-schemas, or a present `runtime-db` value fails the framework's `runtime-db` validator.
+        - `:rf.epoch/replace-schema-mismatch`: a present `app-db` value fails the app-schemas the frame resolves, or a present `runtime-db` value fails the framework's `runtime-db` validator.
         - `:rf.epoch/replace-history-disabled`: recording is off (`:depth` 0), so the synthetic epoch that makes the write undoable cannot be recorded.
 - **Example**:
   ```clojure

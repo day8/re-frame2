@@ -10,7 +10,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -18,8 +17,6 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
-    (clear-schemas!))
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not create `:rf/default`, and framework operations need a

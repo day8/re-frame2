@@ -20,7 +20,7 @@
             [re-frame.image :as rf.image]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -28,7 +28,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; Destroy first: `init!` handed a DIFFERENT adapter than the seated one
   ;; raises, and this ns shares the node bundle with suites that seat Reagent,
   ;; UIx and SSR.

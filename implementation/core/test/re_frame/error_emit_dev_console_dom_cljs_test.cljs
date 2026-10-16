@@ -322,9 +322,8 @@
 
 (defn- register-rollback-app! []
   (rf/make-frame {:id :fu75.rollback/frame :doc "app-db rollback console witness"})
-  (rf/with-frame :fu75.rollback/frame
-    (rf/reg-app-schema [:articles] :int)
-    (rf/reg-app-schema [:tags]     :int))
+  (rf/reg-app-schema [:articles] :int)
+  (rf/reg-app-schema [:tags]     :int)
   ;; Both paths present with the wrong type: a path the candidate lacks is
   ;; not checked, so only a present value can fail its registration.
   (rf/reg-event :fu75.rollback/write

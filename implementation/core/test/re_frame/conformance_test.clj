@@ -35,7 +35,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.flows :as rf.flows]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.response :as rf.ssr.response]
@@ -150,7 +150,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; The per-frame SSR side channel outlives the `frames` reset, and
   ;; `:ssr/request-result` reads its response slot.
   (reset! rf.ssr.request/request-slots {})

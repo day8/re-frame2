@@ -49,14 +49,14 @@
     (rf/make-frame {:id :teardown/n-failures :doc "three hooks will throw"})
     (with-hooks*
       {:ssr/on-frame-destroyed           (throwing-hook :ssr)
-       :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+       :machines/on-frame-destroyed!      (throwing-hook :machines)
        :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
       (fn [] (rf/destroy-frame! :teardown/n-failures)))
     (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
           r       (first reports)]
       (is (= [1
               :teardown/n-failures
-              [:flows/teardown-on-frame-destroy! :schemas/on-frame-destroyed! :ssr/on-frame-destroyed]
+              [:flows/teardown-on-frame-destroy! :machines/on-frame-destroyed! :ssr/on-frame-destroyed]
               #{:safe-call-hook!}
               true
               :ignored
@@ -93,7 +93,7 @@
     (rf/make-frame {:id :teardown/abort :doc "aborts mid-teardown"})
     (with-hooks*
       {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-       :schemas/on-frame-destroyed! (throwing-hook :schemas)}
+       :machines/on-frame-destroyed! (throwing-hook :machines)}
       (fn []
         (with-redefs [rf.frame/emit-frame-destroyed-trace!
                       (fn [_id]
@@ -101,7 +101,7 @@
           (is (thrown? #?(:clj Throwable :cljs js/Error)
                        (rf/destroy-frame! :teardown/abort))))))
     (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
-      (is (= [1 [:schemas/on-frame-destroyed! :ssr/on-frame-destroyed]]
+      (is (= [1 [:machines/on-frame-destroyed! :ssr/on-frame-destroyed]]
              [(count reports) (sort (map :hook (:hook-failures (first reports))))])))))
 
 (deftest ^:requires-debug dev-per-hook-diagnostic-rows-still-emit
@@ -111,12 +111,12 @@
       (rf/make-frame {:id :teardown/diagnostic :doc "two hooks throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
+         :machines/on-frame-destroyed! (throwing-hook :machines)}
         (fn []
           (try
             (rf/destroy-frame! :teardown/diagnostic)
             (finally (rf/unregister-listener! :trace ::rec)))))
-      (is (= [[:teardown/diagnostic :schemas/on-frame-destroyed!]
+      (is (= [[:teardown/diagnostic :machines/on-frame-destroyed!]
               [:teardown/diagnostic :ssr/on-frame-destroyed]]
              (sort (keep #(when (= :rf.warning/teardown-hook-exception (:operation %))
                             [(get-in % [:tags :frame]) (get-in % [:tags :hook])])
@@ -168,12 +168,12 @@
                     :on-destroy [:teardown/destroy-inner]})
     (with-hooks*
       {:ssr/on-frame-destroyed           (throwing-hook :ssr)
-       :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+       :machines/on-frame-destroyed!      (throwing-hook :machines)
        :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
       (fn [] (rf/destroy-frame! :teardown/outer-A)))
     (let [reports  (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
           expected [:flows/teardown-on-frame-destroy!
-                    :schemas/on-frame-destroyed!
+                    :machines/on-frame-destroyed!
                     :ssr/on-frame-destroyed]]
       (is (= [2 {:teardown/outer-A expected :teardown/inner-B expected}]
              [(count reports)

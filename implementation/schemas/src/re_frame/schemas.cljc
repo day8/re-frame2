@@ -1,9 +1,9 @@
 (ns re-frame.schemas
   "Schema registration, validation, classification, and digest façade.
 
-  App-db schemas are frame-scoped. A registration without an explicit
-  `:frame` uses the carried frame scope and fails when no scope exists.
-  Validation runs at the event, effect, subscription, and post-commit
+  App-db schemas are an ordinary registrar kind, `:app-schema`, keyed by the
+  canonical path: a frame-agnostic program registration that every frame
+  validates against when it resolves it. Validation runs at the event, effect, subscription, and post-commit
   boundaries in development builds; the boundary interceptor can also
   invoke the registered validator in production.
 
@@ -25,9 +25,8 @@
             [re-frame.schemas.validator :as rf.schemas.validator]
             [re-frame.schemas.walker :as rf.schemas.walker]))
 
-;; Raw registry and validator atoms stay private to their owning namespaces.
-;; Snapshot, restore, clear, and setter functions preserve representation and
-;; never-nil printer invariants across the public boundary.
+;; Validator atoms stay private to their owning namespace; the setter
+;; preserves the never-nil printer invariant across the public boundary.
 
 ;; The validator port is a VALUE: one installer, one read, and the framework
 ;; default as a value. Capture / stub / restore is a `let` + `finally` over
@@ -37,7 +36,8 @@
 (def schema-fns          rf.schemas.validator/schema-fns)
 (def default-schema-fns  rf.schemas.validator/default-schema-fns)
 
-;; Registration + per-frame query (Spec 010 §Per-frame schemas).
+;; Registration + per-frame resolution query (Spec 010 §Schemas resolve
+;; through the frame's images).
 (def reg-app-schema       rf.schemas.storage/reg-app-schema)
 (def reg-app-schemas      rf.schemas.storage/reg-app-schemas)
 ;; ONE FRAME SPELLING: both reads take a single opts MAP with a REQUIRED
@@ -48,11 +48,9 @@
 (def app-schemas          rf.schemas.storage/app-schemas)
 (def app-schema-meta      rf.schemas.storage/app-schema-meta)
 
-;; Test-support snapshot / restore / clear.
-(def snapshot-schemas-by-frame rf.schemas.storage/snapshot-schemas-by-frame)
-(def restore-schemas-by-frame! rf.schemas.storage/restore-schemas-by-frame!)
-(def clear-schemas-by-frame!   rf.schemas.storage/clear-schemas-by-frame!)
-(def on-frame-destroyed!       rf.schemas.storage/on-frame-destroyed!)
+;; Test-support clears for the once-per-process registration warnings. The
+;; registrations themselves are registrar state, which the registrar's own
+;; snapshot / restore / clear covers.
 (def clear-validator-unavailable-warned!
   rf.schemas.storage/clear-validator-unavailable-warned!)
 (def clear-walker-opaque-warned!
@@ -107,9 +105,6 @@
 (rf.late-bind/set-fn! :schemas/validate-sub!        validate-sub!)
 (rf.late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (rf.late-bind/set-fn! :schemas/frame-schema-entries rf.schemas.storage/frame-schema-entries)
-;; Frame-destroy cleanup hook (consumed by frame/destroy-frame!,
-;; mirrors :machines/on-frame-destroyed! and :ssr/on-frame-destroyed).
-(rf.late-bind/set-fn! :schemas/on-frame-destroyed!  on-frame-destroyed!)
 
 ;; Boundary-validation seam.
 (rf.late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)
@@ -142,8 +137,3 @@
 ;; facade: validation surfaces keep such a reference walkable.
 (rf.late-bind/set-fn! :schemas/schema-has-qualified-ref? rf.schemas.walker/schema-has-qualified-ref?)
 
-;; Test-support hooks (consumed by re-frame.test-support's
-;; make-reset-runtime-fixture).
-(rf.late-bind/set-fn! :schemas/snapshot-by-frame    snapshot-schemas-by-frame)
-(rf.late-bind/set-fn! :schemas/restore-by-frame!    restore-schemas-by-frame!)
-(rf.late-bind/set-fn! :schemas/clear-by-frame!      clear-schemas-by-frame!)

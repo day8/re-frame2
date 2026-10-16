@@ -18,7 +18,7 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -27,7 +27,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; The error-listener registry is a `defonce` atom.
   (rf.error-emit/clear-error-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)

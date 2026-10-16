@@ -74,10 +74,10 @@
   (rf.late-bind/get-fn :schemas/validate-with-registered-fn))
 
 (defn- registered-app-schemas
-  "Return the {path → schema-meta} map registered against the named
-  frame, or {}. Per Spec 010 §Per-frame schemas the schema set is
-  frame-scoped; restore-epoch! validates against the schemas registered
-  against the frame the epoch belongs to, not a process-global set."
+  "Return the {path → schema-meta} map the named frame resolves, or {}.
+  Per Spec 010 §Schemas resolve through the frame's images each frame
+  validates against its own resolution; restore-epoch! validates against
+  the schemas the frame the epoch belongs to resolves."
   [frame-id]
   (if-let [schema-entries-for-frame
            (rf.late-bind/get-fn :schemas/frame-schema-entries)]

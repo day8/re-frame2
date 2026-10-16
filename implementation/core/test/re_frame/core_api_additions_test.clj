@@ -11,7 +11,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.machines]
             [re-frame.routing :as rf.routing]
@@ -26,7 +26,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf.frame/ensure-default-frame!)
