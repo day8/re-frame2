@@ -13,20 +13,12 @@ This directory groups re-frame2's substrate adapters — implementations of the 
 
 You pick one (or more) by adding the matching artefact to your `deps.edn` alongside `day8/re-frame2`. Bundle isolation is structural — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
 
-## Local-test-only adapter
-
-| Directory | Adapter | Coordinate | Target |
-|---|---|---|---|
-| [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator for lifecycle-order and unmount-during-render tests |
-
-The test-react adapter is not a published artefact. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array and the release deploy matrix by design. That governs publishing, not testing — its suite is gated on every PR by the required `jvm-adapters-test-react` job (its own `clojure -M:test`) and, on the CLJS side, by the consolidated Shadow `:node-test` run; see [TESTING.md](../../TESTING.md). Consumers never depend on it. It exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
-
 ## What an adapter implements
 
 Each adapter implements the surface defined in [Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md):
 
 - required (6): `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`
-- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 3 of the 5 shipped adapter kinds install it — Reagent, UIx and Fresco (the last two through `spine/make-react-adapter`, which wires the React spine's slot unconditionally). The other 2 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush. The test-react fixture is not one of the 5 shipped kinds — it has no `:kind` in the shipped set, per the [canonical inventory](../../spec/006-ReactiveSubstrate.md#cljs-reference-scope) — and provides none either, handing the render clock to the test.
+- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 3 of the 5 shipped adapter kinds install it — Reagent, UIx and Fresco (the last two through `spine/make-react-adapter`, which wires the React spine's slot unconditionally). The other 2 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush.
 - lifecycle (1): `dispose-adapter!`
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (for example `:rf.adapter/uix`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
@@ -43,17 +35,13 @@ adapters/
 │   ├── deps.edn              ; declares day8/re-frame2-reagent
 │   ├── src/re_frame/adapter/reagent.cljs
 │   └── test/...
-├── uix/
-│   ├── deps.edn
-│   ├── src/re_frame/adapter/uix.cljs
-│   └── test/...
-└── test-react/              ; local-test-only — NOT published (no Maven coord, no :clein/build)
-    ├── deps.edn              ; depends on core via :local/root; carries no publish descriptor
-    ├── src/re_frame/adapter/test_react.cljc  ; pure-CLJC class-3 lifecycle simulator
+└── uix/
+    ├── deps.edn
+    ├── src/re_frame/adapter/uix.cljs
     └── test/...
 ```
 
-All 3 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. The unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
+All 3 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
 
 ## Where the substrate logic lives
 
@@ -66,8 +54,6 @@ core artefact. There are 2 factory families:
 - React-hook family — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx here; Fresco's own substrate, at `implementation/fresco/`, uses the same pair — which is why both carry `:flush-render!`)
 
 Each adapter file builds a config map and hands it to the appropriate factory pair. The spine carries the epoch scheduler (glitch-freedom), the container quartet, `useSyncExternalStore` hooks, source-coord wrapping, the after-render sentinel, the unmount sentinel, and the nine-/five-hook routed late-bind tables. Reading the spine ns is the fastest path to understanding how the adapters work end-to-end.
-
-The test-react adapter is its own quadrant — pure CLJC, no React, shares only the atom-container quartet with plain-atom.
 
 ## Per-feature artefacts vs adapters
 

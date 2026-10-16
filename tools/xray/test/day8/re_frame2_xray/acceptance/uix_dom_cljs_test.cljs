@@ -4,7 +4,7 @@
   `day8.re-frame2-xray.acceptance.test-helpers.criteria`; this namespace
   supplies ONE thing — the installed adapter — and wraps them in `deftest`.
 
-  ## WHY UIx, AND NOT `test-react`
+  ## WHY UIx
 
   The element-shaped adapter is chosen by reading what actually ships.
   `implementation/adapters/README.md` §'Adapters that ship today' rosters
@@ -14,15 +14,11 @@
   shell, which is why Xray owns its own root, and the reason this is the
   adapter worth running the six criteria under.
 
-  `adapters/test-react/` does not qualify, on its own docstring rather
-  than on its shipping status. It 'simulates the React class-3
-  lifecycle in pure CLJC ... without React, a DOM, or jsdom', and states
-  it performs 'no automatic rerender on app-db change, React context
-  traversal, or DOM source annotation'. Every one of the six criteria
-  needs at least one of those: criterion 1 needs a DOM, 2 and 3 need
-  re-render on change, 4 needs React context traversal. A harness run on
-  it would report green having exercised none of them — a fail-open
-  shape.
+  The arm needs a DOM-bearing React adapter, because every one of the six
+  criteria needs something only real React on a DOM supplies: criterion 1
+  needs a DOM, 2 and 3 need re-render on change, 4 needs React context
+  traversal. A harness run on a headless substrate would report green
+  having exercised none of them — a fail-open shape.
 
   ## WHAT THIS ARM IS EVIDENCE FOR
 

@@ -6,9 +6,9 @@
   it, and ns-load order can hide that until a reshuffle loads the offender
   last. So the fan-out is observed end-to-end: invoke the hook with a
   sentinel emitter and read each adapter's `:render-to-string`, the
-  contract `re-frame.ssr.emit` depends on. The headless test-react adapter
-  chains onto the hook too, so the React adapters are a required SUBSET of
-  the producers rather than the exact set."
+  contract `re-frame.ssr.emit` depends on. Fresco's substrate chains onto
+  the hook too, so these two adapters are a required SUBSET of the
+  producers rather than the exact set."
   (:require [cljs.test :refer-macros [deftest is testing]]
             ;; Loading every adapter ns here forces both to publish
             ;; their chain steps before this test's deftest runs. Every

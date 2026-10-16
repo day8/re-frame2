@@ -183,8 +183,6 @@ implementation/                CLJS reference implementation — per-artefact su
   adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     uix/                       day8/re-frame2-uix — the UIx adapter
-    test-react/                local-test-only (no Maven coord) — pure-CLJC React-lifecycle
-                               simulator; catches lifecycle bugs at unit-test speed (no React/DOM/jsdom)
   schemas/                     day8/re-frame2-schemas — Malli boundary-validation artefact
   machines/                    day8/re-frame2-machines — state-machine artefact (xstate-flavoured)
   flows/                       day8/re-frame2-flows — registered computed-state declarations
