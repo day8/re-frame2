@@ -54,7 +54,6 @@
   call-sites."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.classification :as rf.machines.classification]
-            [re-frame.machines.data-validation :as rf.machines.data-validation]
             [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
@@ -67,46 +66,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- exact-incarnation destroy fence ---------------------------------------
+;; ---- the destroy owner token ----------------------------------------------
 ;;
 ;; The ordinary `:rf.machine/destroy` effect runs inside the destroying event's
-;; fx drain, so `*event-owner*` names the exact frame incarnation A that owns
-;; the in-flight event. `teardown-live-actor!`'s pipeline crosses SEVERAL
-;; callback-bearing boundaries. The actor's `:exit` cascade and the late-bound
-;; HTTP-abort hook run on the destroying stack on every path. The
-;; `:rf.machine.timer/cancelled` traces, the `:rf.machine/destroyed` trace and
-;; the `:rf.registry/handler-cleared` unregister trace reach their listeners on
-;; that stack only when the effect is called directly, outside any drain; inside
-;; the drain those listeners run after it. Each boundary that runs on the stack
-;; can synchronously destroy A and publish a same-id successor B. Every subsequent
-;; framework-owned action (classification / timer / registrar /
-;; resource-owner / the durable teardown projection) resolves a bare frame /
-;; actor id to the CURRENT incarnation B, so running it after A is lost erases
-;; or mutates B. The fence captures A's continuation + raw token ONCE at the
-;; effect entry and rechecks after every callback-bearing boundary before the
-;; next framework action; the durable writes ride the exact owner token.
-
-(def ^:private eventless-fence
-  "The inert fence for a genuinely eventless destroy caller — the frame-destroy
-  cascade running outside (or opting out of) an event drain (Spec 005
-  §Cross-Spec Interactions §1). `owner-gone?` never fires and there is no
-  exact-write token, so the tail has full authority: frame
-  teardown must reap EVERY actor regardless of which event, if any, triggered
-  it."
-  {:owner-gone? (constantly false) :owner-token nil})
-
-(defn- effect-fence
-  "Capture the exact event-owner continuation + raw token at the
-  `:rf.machine/destroy` EFFECT entry. `owner-gone?` is true once a synchronous
-  callback has destroyed A / published same-id B (`rf.machines.data-validation/owner-
-  continuation` yields `(constantly true)` when no event owner is bound, so
-  `owner-gone?` is then always false — an eventless caller gets full authority);
-  `owner-token` is A's raw token (nil with no owner), threaded into the durable
-  writes so they bind to A's own container."
-  [frame-id]
-  (let [continue? (rf.machines.data-validation/owner-continuation frame-id)]
-    {:owner-gone? (fn [] (not (continue?)))
-     :owner-token (rf.frame/current-event-owner-token)}))
+;; fx drain, so `*event-owner*` names the frame incarnation that owns the
+;; in-flight event. A destroy of that frame requested on this stack waits for
+;; the event boundary (Spec 002 §Destroy), so the incarnation stays live through
+;; the whole teardown. The durable writes still ride its token, binding each to
+;; the container the effect entered against; an eventless caller (the
+;; frame-destroy walker) has no token and takes the bare write.
 
 (defn- snapshot-present?
   "True iff `runtime-db` carries a machine snapshot at `actor-id`. A nil
@@ -212,31 +180,21 @@
 
   Returns the `db-swapped?` flag from the teardown projection.
 
-  The pipeline is fenced to the exact incarnation `fence`
-  (`{:owner-gone? :owner-token}`, captured once at the destroy EFFECT entry).
-  Each step below crosses (or follows) a callback-bearing boundary; ownership
-  is rechecked before every next framework-owned action, the durable writes
-  ride the exact owner token, and the timer cancel threads the same gate. For a
-  genuinely eventless caller (`eventless-fence`) `owner-gone?` never fires and
-  the token is nil — the tail runs unfenced."
-  [frame-id actor-id teardown-args emit-destroyed!-fn {:keys [owner-gone? owner-token] :as fence}]
-  ;; (1) run the active configuration's `:exit` cascade — its `:exit` actions
-  ;; are authored callbacks that may destroy A. An already-entered callback
-  ;; stands; recheck before every subsequent framework action. The
-  ;; helper takes the same `fence`, so its own post-exit snapshot write and
-  ;; nested exit-effect walk stop at A's loss instead of landing in B.
-  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id fence)
+  The durable writes ride `owner-token` — the token of the incarnation whose
+  event entered the destroy effect, or nil for an eventless caller, which takes
+  the bare write."
+  [frame-id actor-id teardown-args emit-destroyed!-fn owner-token]
+  ;; (1) run the active configuration's `:exit` cascade.
+  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit!
+    frame-id actor-id {:owner-gone? (constantly false) :owner-token owner-token})
   ;; (1b) destroy the children this actor's `:spawn` / `:spawn-all` slots
-  ;; track. Each child's teardown is callback-bearing; the reap rechecks
-  ;; ownership between slots and every step below rechecks after it.
-  (when-not (owner-gone?)
-    (reap-tracked-children! frame-id actor-id fence))
-  ;; (2) abort in-flight HTTP — the late-bound `:http/abort-on-actor-destroy`
-  ;; hook is callback-bearing. Frame-exact: an actor address is
+  ;; track.
+  (reap-tracked-children! frame-id actor-id owner-token)
+  ;; (2) abort in-flight HTTP through the late-bound
+  ;; `:http/abort-on-actor-destroy` hook. Frame-exact: an actor address is
   ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
   ;; actor in a sibling frame keeps its in-flight requests.
-  (when-not (owner-gone?)
-    (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id))
+  (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id)
   ;; (3) Drop this actor's
   ;; per-instance classification declarations from the per-frame elision
   ;; registry — the teardown half of `rf.machines.classification/lower-at-spawn!`. A
@@ -246,71 +204,52 @@
   ;; Resolve the spec BEFORE the teardown projection clears the snapshot, via
   ;; the registered TYPE or the snapshot's `:rf/machine-type` (a `:spawn`
   ;; instance carries no registrar entry). A spec that declared no
-  ;; classification is a clean no-op. Recheck ownership after the
-  ;; HTTP-abort callback and route the drop through the EXACT elision write so a
-  ;; mid-write watch cannot re-root the removal onto same-id B.
-  (when-not (owner-gone?)
-    (let [snapshot (get-in (rf.frame/frame-runtime-db-value frame-id)
-                           (rf.machines.paths/snapshot-path actor-id))]
-      (when-let [spec (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)]
-        (rf.machines.classification/drop-at-destroy! frame-id actor-id spec owner-token))))
-  ;; (4) cancel armed `:after` timers — the 3-arity threads `owner-gone?` so the
-  ;; cancellation loop short-circuits on A→B loss.
-  (when-not (owner-gone?)
-    (rf.machines.timer/cancel-actor-timers! frame-id actor-id owner-gone?))
-  ;; (5) apply the unified teardown projection through the EXACT durable write.
-  ;; `swap-runtime-db-exact!` binds the write to A's own container and returns
-  ;; nil on mid-write owner loss (no dissoc of B's snapshot, no epoch bump for
-  ;; B); the eventless caller (nil token) falls back to the bare
-  ;; write. If A is already gone before the write, do nothing and report no
-  ;; swap.
-  (if (owner-gone?)
-    false
-    (let [swap-fn     (fn [runtime-db]
-                        (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args))
-          new-rt      (if owner-token
-                        (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
-                        (rf.frame/swap-runtime-db! frame-id swap-fn))
-          db-swapped? (some? new-rt)]
-      ;; (6) emit `:rf.machine/destroyed` (callback-bearing) — only while the
-      ;; exact owner survives (a mid-write watch that lost A flips `owner-gone?`).
-      (when (and emit-destroyed!-fn (not (owner-gone?)))
-        (emit-destroyed!-fn))
-      ;; (7) when the projection landed, clear any registrar entry
-      ;; (`:rf.registry/handler-cleared`, callback-bearing). When the effect is
-      ;; called directly, outside any drain, the `:rf.machine/destroyed` trace
-      ;; at (6) is ITSELF a callback boundary: a listener can destroy A and
-      ;; publish same-id B, registering B's fresh event handler at `actor-id`
-      ;; on that trace's own stack (inside a drain it runs after the drain). Recheck
-      ;; ownership here rather than reusing (6)'s precheck, so A's teardown
-      ;; never clears B's just-registered handler (the ordinary-destroy
-      ;; terminal-fence law, Spec 005 §Destroy is silent-idempotent).
-      ;; EXCEPT when the address carries a machine DEFINITION. A
-      ;; `reg-machine` registration is a shared load-time TYPE, not this actor's
-      ;; own per-instance entry: the registration is the PROGRAM that makes the
-      ;; address creatable, the snapshot is the INSTANCE, and teardown ends the
-      ;; instance and never the program (Spec 005 §Liveness is derived from
-      ;; runtime-db). Clearing it would strand every later spawn of that type
-      ;; with `:rf.error/machine-spawn-unregistered-type`, and — for a singleton
-      ;; — silently delete an authoring artefact the destroy never named.
-      ;; `rf/clear` remains the public spelling for permanent removal. A plain
-      ;; `reg-event` handler squatting here carries no `:rf/machine? true`, so
-      ;; `spec-from-registry` returns nil and step (7) still clears it — which
-      ;; is the stale/externally-installed case this step exists for.
-      (when (and db-swapped? (not (owner-gone?))
-                 (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
-        (rf.registrar/unregister! :event actor-id))
-      ;; (8) release the actor's resource owners once it is gone, so
-      ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
-      ;; keep refetching/polling. Rechecked after the unregister callback: a lost
-      ;; owner must not fire `:rf.resource/release-owner` against B's live owners.
-      ;; Guarded on resources being loaded (machines never depends on resources).
-      ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
-      ;; through here; it appends the symmetric `rf.machines.lifecycle-fx.resource-release/release-fx-entry`
-      ;; to its returned `:fx` instead — together they cover every destroy cause.
-      (when-not (owner-gone?)
-        (rf.machines.lifecycle-fx.resource-release/release-actor-resource-owners! frame-id actor-id))
-      db-swapped?)))
+  ;; classification is a clean no-op.
+  (let [snapshot (get-in (rf.frame/frame-runtime-db-value frame-id)
+                         (rf.machines.paths/snapshot-path actor-id))]
+    (when-let [spec (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)]
+      (rf.machines.classification/drop-at-destroy! frame-id actor-id spec owner-token)))
+  ;; (4) cancel armed `:after` timers.
+  (rf.machines.timer/cancel-actor-timers! frame-id actor-id)
+  ;; (5) apply the unified teardown projection through the EXACT durable write:
+  ;; `swap-runtime-db-exact!` binds the write to the owner's own container and
+  ;; returns nil once that incarnation is gone; the eventless caller (nil
+  ;; token) takes the bare write.
+  (let [swap-fn     (fn [runtime-db]
+                      (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args))
+        new-rt      (if owner-token
+                      (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+                      (rf.frame/swap-runtime-db! frame-id swap-fn))
+        db-swapped? (some? new-rt)]
+    ;; (6) emit `:rf.machine/destroyed`.
+    (when emit-destroyed!-fn
+      (emit-destroyed!-fn))
+    ;; (7) when the projection landed, clear any registrar entry
+    ;; (`:rf.registry/handler-cleared`).
+    ;; EXCEPT when the address carries a machine DEFINITION. A
+    ;; `reg-machine` registration is a shared load-time TYPE, not this actor's
+    ;; own per-instance entry: the registration is the PROGRAM that makes the
+    ;; address creatable, the snapshot is the INSTANCE, and teardown ends the
+    ;; instance and never the program (Spec 005 §Liveness is derived from
+    ;; runtime-db). Clearing it would strand every later spawn of that type
+    ;; with `:rf.error/machine-spawn-unregistered-type`, and — for a singleton
+    ;; — silently delete an authoring artefact the destroy never named.
+    ;; `rf/clear` remains the public spelling for permanent removal. A plain
+    ;; `reg-event` handler squatting here carries no `:rf/machine? true`, so
+    ;; `spec-from-registry` returns nil and step (7) still clears it — which
+    ;; is the stale/externally-installed case this step exists for.
+    (when (and db-swapped?
+               (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
+      (rf.registrar/unregister! :event actor-id))
+    ;; (8) release the actor's resource owners once it is gone, so
+    ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
+    ;; keep refetching/polling.
+    ;; Guarded on resources being loaded (machines never depends on resources).
+    ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
+    ;; through here; it appends the symmetric `rf.machines.lifecycle-fx.resource-release/release-fx-entry`
+    ;; to its returned `:fx` instead — together they cover every destroy cause.
+    (rf.machines.lifecycle-fx.resource-release/release-actor-resource-owners! frame-id actor-id)
+    db-swapped?))
 
 (defn destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: run
@@ -333,35 +272,25 @@
   Silent-idempotent guard: an already-destroyed actor
   (all liveness signals gone) is a no-op. Returns the teardown's own
   `db-swapped?` commit flag when the actor was live — `true` when the teardown
-  projection committed while authority remained exact, `false` when the exact
-  owner was lost mid-tail — and `nil` (the `when`'s falsey value)
-  for the silent no-op. So callers (notably `destroy-spawn-all-children!`)
-  can gate their `:rf.machine/destroyed` emit / slot clear / iteration on a
-  GENUINE teardown, preventing a double-destroyed trace for join-cancelled
-  survivors the resolution cascade already tore down AND a phantom destroyed for
-  a child whose teardown aborted on owner loss. Mirrors the `live?` gate
-  `destroy-resolved!` carries.
+  projection committed, `false` when the durable write did not land — and `nil`
+  (the `when`'s falsey value) for the silent no-op. So callers (notably
+  `destroy-spawn-all-children!`) can gate their `:rf.machine/destroyed` emit /
+  slot clear / iteration on a GENUINE teardown, preventing a double-destroyed
+  trace for join-cancelled survivors the resolution cascade already tore down.
+  Mirrors the `live?` gate `destroy-resolved!` carries.
 
-  The 2-arity is the EVENTLESS entry (frame-destroy walker) — it
-  passes `eventless-fence`, so the full teardown runs regardless of any ambient
-  event owner. The 3-arity carries the destroy-effect `fence` for the
-  `:spawn-all` children iteration (which runs inside `destroy-machine-fx`)."
-  ([frame-id actor-id] (destroy-single-actor! frame-id actor-id eventless-fence))
-  ([frame-id actor-id fence]
+  The 2-arity is the EVENTLESS entry (frame-destroy walker), which takes the
+  bare durable writes. The 3-arity carries the destroy effect's `owner-token`
+  for the `:spawn-all` children iteration (which runs inside
+  `destroy-machine-fx`)."
+  ([frame-id actor-id] (destroy-single-actor! frame-id actor-id nil))
+  ([frame-id actor-id owner-token]
    (when (actor-live? actor-id (rf.frame/frame-runtime-db-value frame-id))
      ;; This site does NOT emit `:rf.machine/destroyed` — its callers
      ;; (`destroy-spawn-all-children!`, the frame-destroy walker) own that
      ;; emit, gating it on this fn's truthy return so each actor's destroyed
      ;; trace fires exactly once. So no emit-destroyed callback.
-     ;;
-     ;; Return `teardown-live-actor!`'s own `db-swapped?` flag
-     ;; rather than an unconditional `true`: `false` when the exact owner was
-     ;; lost mid-teardown (a callback destroyed A / published same-id B before
-     ;; the durable write), so a `:spawn-all` caller emits `:rf.machine/destroyed`
-     ;; ONLY for a genuinely-torn-down child — never a phantom for one whose
-     ;; teardown aborted on owner loss. The `when` still returns nil for an
-     ;; already-destroyed actor (the silent-idempotent no-op).
-     (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil fence))))
+     (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil owner-token))))
 
 (defn- authenticated-join-child
   "Return a private join-child teardown context only when the actor snapshot's
@@ -422,46 +351,44 @@
   no tombstone crosses re-entry.
 
   Returns `{:reason ... :join-child ...}` for the caller's trace, or nil when
-  the exact event owner was lost during the durable write."
-  [frame-id actor-id requested-reason
-   {:keys [owner-gone? owner-token]}]
-  (when-not (owner-gone?)
-    (let [runtime-db     (rf.frame/frame-runtime-db-value frame-id)
-          current        (authenticated-join-child runtime-db actor-id)
-          classification (if current
-                           (assoc current :reason requested-reason)
-                           {:reason requested-reason})
-          cancel-current? (and current (= :explicit requested-reason))]
-      (if-not cancel-current?
-        classification
-        (let [prepared (volatile! nil)
-              mark-fn  (fn [latest-db]
-                         ;; Re-authenticate inside the exact durable write: the
-                         ;; decision and tombstone must describe the same live
-                         ;; join attempt that is committed.
-                         (if-let [latest (authenticated-join-child
-                                          latest-db actor-id)]
-                           (let [reason requested-reason]
-                             (vreset! prepared (assoc latest :reason reason))
-                             (if (= :explicit reason)
-                               (update-in
-                                 latest-db
-                                 (conj (rf.machines.paths/spawned-path
-                                         (:parent-id latest)
-                                         (:invoke-id latest))
-                                       :cancelled)
-                                 (fnil conj #{})
-                                 (:child-id latest))
-                               latest-db))
-                           (do
-                             (vreset! prepared {:reason requested-reason})
-                             latest-db)))
-              written  (if owner-token
-                         (rf.frame/swap-runtime-db-exact!
-                           frame-id owner-token mark-fn)
-                         (rf.frame/swap-runtime-db! frame-id mark-fn))]
-          (when (some? written)
-            @prepared))))))
+  the durable write did not land."
+  [frame-id actor-id requested-reason owner-token]
+  (let [runtime-db     (rf.frame/frame-runtime-db-value frame-id)
+        current        (authenticated-join-child runtime-db actor-id)
+        classification (if current
+                         (assoc current :reason requested-reason)
+                         {:reason requested-reason})
+        cancel-current? (and current (= :explicit requested-reason))]
+    (if-not cancel-current?
+      classification
+      (let [prepared (volatile! nil)
+            mark-fn  (fn [latest-db]
+                       ;; Re-authenticate inside the exact durable write: the
+                       ;; decision and tombstone must describe the same live
+                       ;; join attempt that is committed.
+                       (if-let [latest (authenticated-join-child
+                                        latest-db actor-id)]
+                         (let [reason requested-reason]
+                           (vreset! prepared (assoc latest :reason reason))
+                           (if (= :explicit reason)
+                             (update-in
+                               latest-db
+                               (conj (rf.machines.paths/spawned-path
+                                       (:parent-id latest)
+                                       (:invoke-id latest))
+                                     :cancelled)
+                               (fnil conj #{})
+                               (:child-id latest))
+                             latest-db))
+                         (do
+                           (vreset! prepared {:reason requested-reason})
+                           latest-db)))
+            written  (if owner-token
+                       (rf.frame/swap-runtime-db-exact!
+                         frame-id owner-token mark-fn)
+                       (rf.frame/swap-runtime-db! frame-id mark-fn))]
+        (when (some? written)
+          @prepared)))))
 
 (declare destroy-spawn-all-children!*)
 
@@ -480,26 +407,20 @@
   mis-addressed; clearing it would orphan the live tracked child without
   teardown, so the form fails loud (`:cause :slot-shape-mismatch`) and
   mutates nothing."
-  [frame-id parent-id invoke-id args fence]
+  [frame-id parent-id invoke-id args owner-token]
   (let [join-state (get-in (rf.frame/frame-runtime-db-value frame-id)
                            (rf.machines.paths/spawned-path parent-id invoke-id))]
     (if-not (or (nil? join-state) (map? join-state))
       (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :slot-shape-mismatch args)
-      (destroy-spawn-all-children!* frame-id parent-id invoke-id join-state fence))))
+      (destroy-spawn-all-children!* frame-id parent-id invoke-id join-state owner-token))))
 
 (defn- destroy-spawn-all-children!*
   "The verified body of `destroy-spawn-all-children!` — `join-state` is
-  known to be a join-state map (or nil, the repeat-exit no-op).
-
-  Each per-child teardown fires a callback-bearing
-  `:rf.machine/destroyed` trace; a listener that destroys A / publishes same-id
-  B mid-iteration must not let the NEXT child's teardown (or the final
-  join-slot clear) resolve to B. `owner-gone?` is rechecked before each child
-  and before the final clear (which rides the EXACT durable write)."
-  [frame-id parent-id invoke-id join-state {:keys [owner-gone? owner-token] :as fence}]
+  known to be a join-state map (or nil, the repeat-exit no-op). The final
+  join-slot clear rides the EXACT durable write."
+  [frame-id parent-id invoke-id join-state owner-token]
   (let [children (when (map? join-state) (:children join-state))]
-    (doseq [[child-id spawned-id] children
-            :while (not (owner-gone?))]
+    (doseq [[child-id spawned-id] children]
       ;; `destroy-single-actor!` runs the child's `:exit`
       ;; cascade before teardown; we fire `:rf.machine/destroyed` AFTER it
       ;; so the trace lands after `:exit` — the same exit-then-destroyed
@@ -519,7 +440,7 @@
       ;; membership fails `owned-join-child?` and they are skipped, keeping each
       ;; survivor's `:rf.machine/destroyed` to EXACTLY ONE — no phantom
       ;; double-destroy. The emit is also gated on `destroy-single-actor!`'s
-      ;; return, so a child whose teardown aborts on owner loss gets none.
+      ;; return, so a child whose teardown write did not land gets none.
       ;;
       ;; A child that completed destroyed itself with
       ;; `:rf.machine/finished` when it folded, so it has no snapshot and
@@ -529,8 +450,8 @@
                                spawned-id parent-id invoke-id child-id)
         (when-let [{:keys [reason join-child]}
                    (prepare-join-child-teardown!
-                     frame-id spawned-id :explicit fence)]
-          (when (destroy-single-actor! frame-id spawned-id fence)
+                     frame-id spawned-id :explicit owner-token)]
+          (when (destroy-single-actor! frame-id spawned-id owner-token)
             (rf.machines.lifecycle-fx.traces/emit-destroyed!
               {:frame           frame-id
                :actor-id        spawned-id
@@ -540,17 +461,14 @@
                :child-id        child-id
                :reason          reason})))))
     ;; Clear the join-state slot via the unified projection (slot-only),
-    ;; fenced on live ownership and routed through the EXACT durable write, so a
-    ;; child-`:rf.machine/destroyed` listener that published same-id B cannot have
-    ;; this A-derived clear vacate B's freshly-seeded join slot.
-    (when-not (owner-gone?)
-      (let [clear-fn (fn [runtime-db]
-                       (rf.machines.lifecycle-fx.teardown/teardown-actor
-                         runtime-db {:parent-id parent-id
-                                     :invoke-id invoke-id}))]
-        (if owner-token
-          (rf.frame/swap-runtime-db-exact! frame-id owner-token clear-fn)
-          (rf.frame/swap-runtime-db! frame-id clear-fn))))
+    ;; routed through the EXACT durable write.
+    (let [clear-fn (fn [runtime-db]
+                     (rf.machines.lifecycle-fx.teardown/teardown-actor
+                       runtime-db {:parent-id parent-id
+                                   :invoke-id invoke-id}))]
+      (if owner-token
+        (rf.frame/swap-runtime-db-exact! frame-id owner-token clear-fn)
+        (rf.frame/swap-runtime-db! frame-id clear-fn)))
     nil))
 
 (defn- destroy-resolved!
@@ -578,10 +496,9 @@
   `destroy-single-actor!` and `finalize-machine`.
   See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
 
-  `fence` carries the destroy-effect's exact-incarnation gate +
-  owner token; it is threaded into `teardown-live-actor!` so every
-  callback-bearing teardown boundary is rechecked and the durable writes ride
-  A's token. Before teardown, `prepare-join-child-teardown!` authenticates the
+  `owner-token` is threaded into `teardown-live-actor!` so the durable writes
+  ride the effect owner's token. Before teardown,
+  `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
   generation feeds the reply identity; a single-`:spawn` child's is the
   `:rf/work-generation` its spawn stamped, read from its `old-db` snapshot,
@@ -589,10 +506,10 @@
   reply would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion."
-  [frame-id actor-id requested-reason parent-id invoke-id old-db fence]
+  [frame-id actor-id requested-reason parent-id invoke-id old-db owner-token]
   (when (actor-live? actor-id old-db)
     (when-let [teardown (prepare-join-child-teardown!
-                          frame-id actor-id requested-reason fence)]
+                          frame-id actor-id requested-reason owner-token)]
       (let [reason     (:reason teardown)
             join-child (:join-child teardown)
             child-data (get-in old-db (rf.machines.paths/snapshot-path actor-id :data))
@@ -637,7 +554,7 @@
                      :reason            reason}
               (some? work-generation)
               (assoc :work-generation work-generation))))
-        fence))))
+        owner-token))))
   nil)
 
 ;; ---- the closed map-form grammar -------------------------------------------
@@ -739,7 +656,7 @@
     - live but a same-id REPLACEMENT this slot does not own → prune the
       stale slot only, leaving the replacement untouched;
     - live and owned → the normal exact-incarnation `:explicit` destroy."
-  [frame-id args old-db {:keys [owner-token] :as fence}]
+  [frame-id args old-db owner-token]
   (let [parent-id (:rf/parent-id args)
         invoke-id (:rf/invoke-id args)
         slot-id   (when old-db (get-in old-db (rf.machines.paths/spawned-path parent-id invoke-id)))]
@@ -752,7 +669,7 @@
 
       (and (actor-live? slot-id old-db)
            (slot-owned-incarnation? old-db slot-id parent-id invoke-id))
-      (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db fence)
+      (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db owner-token)
 
       :else
       (prune-tracked-slot! frame-id parent-id invoke-id owner-token))))
@@ -776,28 +693,27 @@
   Slots are taken deepest invoke-id first, mirroring the leaf-to-root exit
   order, and each is re-read from the live runtime-db because an `:exit`
   or an earlier child's teardown may already have destroyed a child or
-  pruned a slot. Ownership is rechecked before every slot."
-  [frame-id actor-id {:keys [owner-gone?] :as fence}]
+  pruned a slot."
+  [frame-id actor-id owner-token]
   (let [invoke-ids (->> (get-in (rf.frame/frame-runtime-db-value frame-id)
                                 (rf.machines.paths/spawned-path actor-id))
                         keys
                         (sort-by (juxt (comp - count) identity)))]
-    (doseq [invoke-id invoke-ids
-            :while (not (owner-gone?))]
+    (doseq [invoke-id invoke-ids]
       (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
             slot       (get-in runtime-db (rf.machines.paths/spawned-path actor-id invoke-id))]
         (cond
           (keyword? slot)
           (destroy-tracked! frame-id
                             {:rf/parent-id actor-id :rf/invoke-id invoke-id}
-                            runtime-db fence)
+                            runtime-db owner-token)
 
           (map? slot)
           (destroy-spawn-all-children! frame-id actor-id invoke-id
                                        {:rf/spawn-all  true
                                         :rf/parent-id  actor-id
                                         :rf/invoke-id  invoke-id}
-                                       fence))))))
+                                       owner-token))))))
 
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Parses the CLOSED destroy grammar
@@ -822,19 +738,17 @@
                    {:where 'rf.machine/destroy
                     :event-id (when (map? args) (:rf/parent-id args))})
         old-db   (rf.frame/frame-runtime-db-value frame-id)
-        ;; Capture the exact event-owner continuation + raw token
-        ;; ONCE at the destroy EFFECT entry. The `:rf.machine/destroy` fx runs
-        ;; inside the destroying event's drain, so this names the incarnation A
-        ;; that owns the in-flight event; every teardown path below threads it so
-        ;; each callback-bearing boundary rechecks ownership and the durable
-        ;; writes bind to A's own container. An eventless call (no owner bound)
-        ;; yields the inert fence — the tail keeps full authority.
-        fence    (effect-fence frame-id)]
+        ;; The `:rf.machine/destroy` fx runs inside the destroying event's
+        ;; drain, so this names the incarnation that owns the in-flight event;
+        ;; every teardown path below threads it so the durable writes bind to
+        ;; that incarnation's own container. An eventless call has none and
+        ;; takes the bare writes.
+        owner-token (rf.frame/current-event-owner-token)]
     (cond
       ;; Imperative form — the actor-id IS the arg; a live in-progress
       ;; teardown is ALWAYS an `:explicit` cancellation.
       (keyword? args)
-      (destroy-resolved! frame-id args :explicit nil nil old-db fence)
+      (destroy-resolved! frame-id args :explicit nil nil old-db owner-token)
 
       (map? args)
       (let [shape (set (keys args))]
@@ -847,12 +761,12 @@
                                          (:rf/parent-id args)
                                          (:rf/invoke-id args)
                                          args
-                                         fence)
+                                         owner-token)
             (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
 
           (= shape tracked-form-keys)
           (if (join-coordinates-ok? args)
-            (destroy-tracked! frame-id args old-db fence)
+            (destroy-tracked! frame-id args old-db owner-token)
             (rf.machines.lifecycle-fx.traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
 
           :else
@@ -912,8 +826,8 @@
   `[:machine <actor-id>]` resource owners would keep polling). Routing through `destroy-machine-fx`'s KEYWORD branch —
   rather than calling the private `teardown-live-actor!` — is deliberate: the
   keyword form is what `[:rf.machine/destroy <actor-id>]` itself takes, so the
-  replacement gets `prepare-join-child-teardown!`'s join preparation, the fresh
-  `effect-fence`, and the `:rf.machine/destroyed` emit for free, and it cannot
+  replacement gets `prepare-join-child-teardown!`'s join preparation, the event
+  owner's token, and the `:rf.machine/destroyed` emit for free, and it cannot
   drift from the ordinary path because it IS the ordinary path.
 
   `:reason` is `:explicit`, never a bespoke enum member: both

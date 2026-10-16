@@ -7,11 +7,9 @@
   (`re-frame.trace/call-with-continuation-predicate` bound to
   `rf.frame/event-continuation-live?`, as a cold `reg-flow` does) fans out inside
   that binding. A listener that destroys A and creates same-id B with
-  `:initial-events` must still get B seeded: inheriting A's now-false predicate
-  would drop the seed at `build-envelope` and leave B live with `{}`, beyond the
-  reach of a later re-ensure. The same holds for the listener's nested work in an
-  unrelated frame. The loop itself must still suppress A's remaining listeners
-  once A is gone — and must not suppress them while A is live.
+  `:initial-events` gets B seeded, and its nested work in an unrelated frame
+  runs. The loop itself must still suppress A's remaining listeners once A is
+  gone — and must not suppress them while A is live.
 
   Synchronous on one thread; the listeners live in a small array-map, so the
   first registered fans out first on both hosts."

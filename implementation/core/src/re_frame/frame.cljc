@@ -1335,38 +1335,13 @@
 
 ;; ---- lookup ---------------------------------------------------------------
 ;;
-;; WHAT ONE DISPATCH COSTS THIS REGISTRY. A single
-;; `dispatch-sync` of a one-line `:db`-writing handler re-resolves the registry
-;; 124 times:
-;;
-;;     frame                                    124
-;;     frame-record-visible-to-current-actor?   125
-;;     frame-incarnation-token                  115
-;;     frame-incarnation-closing?               105
-;;
-;; Method: counting wrappers installed over those four vars for the duration of
-;; ONE dispatch, plain-atom substrate, JVM, default debug gate. Structural
-;; counts, not timings — identical on every run. (The visibility predicate runs
-;; once more than `frame` because one call arrives from a registry enumeration —
-;; `frame-meta` / `frame-ids` — rather than through `frame`.)
-;;
-;; The total points at the wrong file, so the ATTRIBUTION is the part worth
-;; keeping. 115 of the 124 arrive through `frame-incarnation-token` from
-;; `frame-incarnation-live?`, and 105 of those from `event-continuation-live?` —
-;; the liveness fence, consulted from TWENTY distinct sites in one pipeline run.
-;; The heaviest are `router/call-while-exact-owner` (22), `process-event!`'s
-;; inner continuation (21) and `prepare-handler-ctx` (9). The four router seams
-;; that already hold a frame record — `run-one-pass!`, `prepare-handler-ctx`,
-;; `commit-and-flow!`, `emit-pipeline-trailers!` — account for 20 between them.
-;;
-;; So the tempting remedy, record-taking arities at the seams that already hold
-;; the record, reaches about a sixth of the resolutions; collapsing the rest
-;; means threading an incarnation token through a chain whose widest hop
-;; (`emit-pipeline-trailers!`) already takes eight positional arguments. That
-;; trades clarity for microseconds and is DELIBERATELY NOT TAKEN — the fence
-;; density is the design: every hop that could outlive its incarnation asks. The
-;; one unconditionally free win here — keyword-invoke rather than a literal-path
-;; `get-in` in these predicates — is applied.
+;; The event pipeline does not ask, hop by hop, whether its frame incarnation
+;; is still live. A destroy requested while an event runs waits for that
+;; event's boundary (Spec 002 §Destroy), so the incarnation a dequeued event
+;; starts with is the one it finishes with; `process-event!` checks once, at
+;; the start, that the envelope's drain still names the live record. The
+;; liveness predicates below serve work that can outlive its incarnation: a
+;; timer, an HTTP reply, a captured frame op, a cold registry write.
 
 (defn- frame-record-visible-to-current-actor?
   "True when raw registry record `f` is a live frame visible to this actor.
@@ -1434,10 +1409,10 @@
 (defn frame-incarnation-live?
   "True when `token` still identifies `id`'s currently-live frame.
 
-  Internal event-tail fence: a dequeued event captures this token before its
-  handler runs. If that handler destroys A and a fresh same-id B appears before
-  the returned transition/effects settle, the identity comparison is false, so
-  A's tail can neither commit nor dispatch into B."
+  Work that can outlive its incarnation — a timer, an HTTP reply, a captured
+  frame op — takes the token when it is scheduled and compares it here before
+  it acts, so work for a destroyed incarnation A never reaches a same-id
+  successor B."
   [id token]
   (and (some? token)
        (identical? token (frame-incarnation-token id))))
@@ -3783,24 +3758,21 @@
 (defn ^:no-doc call-with-event-owner-token
   "Run `f` with the exact-incarnation authority captured by the router.
 
-  The raw dynamic var is private so authored handlers/interceptors cannot
-  replace the framework's binding after creating a same-id successor. This
-  narrow runner is the only binding seam; a nested authored call cannot change
-  the outer event pipeline's authority once it returns.
+  The raw dynamic var is private so authored handlers and interceptors cannot
+  forge the framework's binding. This narrow runner is the only binding seam; a
+  nested authored call cannot change the outer event pipeline's authority once
+  it returns.
 
-  The 5-arity also records the dequeued `envelope`; the router passes it around
+  The 4-arity also records the dequeued `envelope`; the router passes it around
   the handler pipeline only. It rides the SAME binding map rather than a second
   dynamic var, so the per-event cost is one more entry in a map that is built
   anyway, and any nested owner scope drops it by construction."
   ([frame-id token f]
-   (call-with-event-owner-token frame-id token false nil f))
-  ([frame-id token allow-closing? f]
-   (call-with-event-owner-token frame-id token allow-closing? nil f))
-  ([frame-id token allow-closing? envelope f]
-   (binding [*event-owner* {:frame          frame-id
-                            :token          token
-                            :allow-closing? allow-closing?
-                            :envelope       envelope}]
+   (call-with-event-owner-token frame-id token nil f))
+  ([frame-id token envelope f]
+   (binding [*event-owner* {:frame    frame-id
+                            :token    token
+                            :envelope envelope}]
      (f))))
 
 (defn ^:no-doc current-event-envelope
@@ -3831,29 +3803,18 @@
   []
   (:frame *event-owner*))
 
-(defn ^:no-doc current-event-owner-allows-closing?
-  "True only inside the router's exact-token private teardown cascade."
-  []
-  (true? (:allow-closing? *event-owner*)))
 
-(defn ^:no-doc event-owner-live?
-  "True when the router-bound event owner still names frame `id`."
-  [id]
-  (and (= id (:frame *event-owner*))
-       (event-continuation-live? id (:token *event-owner*))))
 
 (defn ^:no-doc event-continuation-live?
-  "True while ordinary framework-owned event continuation may proceed.
-
-  A destroy claim is the terminal cutoff even before lifecycle-dead. The sole
-  exemption is the router's unforgeable exact-token private teardown cascade,
-  whose owner binding carries `:allow-closing? true`."
+  "True while work for incarnation `token` of frame `id` may proceed: the
+  incarnation is live and its teardown has not begun. A pending destroy has not
+  begun its teardown. The thread running the teardown is the exception — its
+  own steps (`:on-destroy` and that event's cascade among them) still act for
+  the incarnation they are closing."
   [id token]
   (and (frame-incarnation-live? id token)
        (or (not (frame-incarnation-closing? id token))
-           (and (:allow-closing? *event-owner*)
-                (= id (:frame *event-owner*))
-                (identical? token (:token *event-owner*))))))
+           (= id *destroying-frame-id*))))
 
 (defn- record-teardown-failure!
   "Record a best-effort teardown-step failure on BOTH Spec 009
@@ -4639,20 +4600,6 @@
             hook-failures     (atom [])]
        (binding [*destroying-frame-id*    id
                  *teardown-hook-failures* hook-failures]
-         ;; The exact-token destroy recipe is the sole framework-owned action
-         ;; authorised after the claim. Replace the now-false authored-event
-         ;; trace predicate for the whole recipe (including the post-dissoc
-         ;; epoch hook and teardown-failure flush), then restore it on return.
-         (rf.trace/call-with-terminal-continuation-predicate
-           ;; `claim-frame-destroy!` already granted this exact recipe local
-           ;; terminal authority. After A's dissoc, an independent B destroy
-           ;; may replace the bare-id marker with token B; that must not
-           ;; retroactively cancel A's already-acquired terminal publications.
-           ;; Every id-keyed teardown mutation keeps its own exact-token guard;
-           ;; this predicate governs only continuation through this local
-           ;; recipe and its corpus/structural observations.
-           (constantly true)
-           (fn []
          (try
         (fire-on-destroy-event! id expected-incarnation-token f)
         ;; Step 3 rides the SAME best-effort boundary as the later
@@ -4900,7 +4847,7 @@
           ;; stale A's finally must never erase B's claim.
           (when (= :destruction (:kind transaction-owner))
             (release-frame-construction! transaction-owner))
-          (release-frame-destroy-claim! id expected-incarnation-token))))))))
+          (release-frame-destroy-claim! id expected-incarnation-token))))))
 
 (defn ^:no-doc pending-destroy?
   "True when a PENDING destroy (Spec 002 §Destroy) is recorded for exactly the

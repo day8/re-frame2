@@ -340,32 +340,18 @@
   :afters. The drain loop reads :rf/interceptor-error after the chain
   ends, emits :rf.error/handler-exception (or similar) and commits
   nothing."
-  ([interceptors initial-context]
-   (execute-chain interceptors initial-context nil))
-  ([interceptors initial-context {:keys [continue-before?]}]
-   ;; Every unwind runs the `:after` of each interceptor already entered, in
-   ;; reverse, and of none that was not.  On a captured exception `i` is one
-   ;; past the stage whose `:before` threw, so that stage unwinds too.  The
-   ;; exact-incarnation path additionally stops BEFORE entering another
-   ;; authored callback once ownership is lost, then unwinds the same way
-   ;; (including the callback which caused loss); that cleanup's returned
-   ;; context is inert to the router's out-of-band owner token.
-   (loop [i   0
-          ctx initial-context]
-     (cond
-       (and continue-before? (not (continue-before?)))
-       (unwind-afters interceptors (dec i)
-                       (assoc ctx :rf/stale-incarnation? true))
+  [interceptors initial-context]
+  ;; Every unwind runs the `:after` of each interceptor already entered, in
+  ;; reverse, and of none that was not.  On a captured exception `i` is one
+  ;; past the stage whose `:before` threw, so that stage unwinds too.
+  (loop [i   0
+         ctx initial-context]
+    (cond
+      (:rf/interceptor-error ctx)
+      (unwind-afters interceptors (dec i) ctx)
 
-       (:rf/interceptor-error ctx)
-       (unwind-afters interceptors (dec i) ctx)
+      (= i (count interceptors))
+      (unwind-afters interceptors (dec i) ctx)
 
-       (= i (count interceptors))
-       (unwind-afters interceptors (dec i) ctx)
-
-       :else
-       (let [next-ctx (invoke-before ctx (nth interceptors i))]
-         (if (and continue-before? (not (continue-before?)))
-           (unwind-afters interceptors i
-                          (assoc next-ctx :rf/stale-incarnation? true))
-           (recur (inc i) next-ctx)))))))
+      :else
+      (recur (inc i) (invoke-before ctx (nth interceptors i))))))

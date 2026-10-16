@@ -319,10 +319,7 @@
   event owner, so it fences the non-destroy reasons uniformly (INCLUDING the
   eventless frame-destroy / restore paths) without the wrongful-skip a
   closing-frame `owner-continuation` gate would inflict on a frame torn down under
-  an unrelated event owner. The explicit `owner-gone?` that `cancel-actor-timers!`
-  takes keeps the stronger destroy-tail gate its callers already captured (the actor — not the frame — is
-  destroyed there, so the frame incarnation is stable and the token check would be
-  too weak)."
+  an unrelated event owner."
   [frame-id]
   (let [captured-incarnation (rf.frame/frame-incarnation-token frame-id)]
     (if (some? captured-incarnation)
@@ -970,26 +967,14 @@
   CANCELLATION's own stack, re-arming a reused key under a fresh token. The loop
   SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its snapshotted
   attempt token (`cancel-snapshotted-entry!`), so a re-read can never claim B's
-  fresh-token entry; the destroy tail that follows this call (the
-  classification drop) resolves bare rf.frame/actor ids to the CURRENT
-  incarnation B. The optional `owner-gone?` predicate (the finalize cascade's
-  exact-incarnation gate) is rechecked BEFORE each cancellation, so once the first
-  cancellation loses A the loop short-circuits and never touches B's timer.
-  `owner-gone?` is MONOTONIC (once A→B it
-  stays gone). The 2-arity (the imperative `destroy` tail, which carries no event
-  owner) passes `(constantly false)`, which is safe because the snapshot-token
-  claim alone fences B's entry."
-  ([frame-id parent-id]
-   (cancel-actor-timers! frame-id parent-id (constantly false)))
-  ([frame-id parent-id owner-gone?]
-   (when (and frame-id parent-id)
-     (loop [pairs (into []
-                        (filter (fn [[k _]] (= parent-id (:parent k))))
-                        (vec (get @after-timers frame-id)))]
-       (when (and (seq pairs) (not (owner-gone?)))
-         (let [[k entry] (first pairs)]
-           (cancel-snapshotted-entry! frame-id k entry :on-destroy))
-         (recur (subvec pairs 1)))))))
+  fresh-token entry. Inside a drain a destroy of the frame waits for the event
+  boundary, so the incarnation cannot change under the loop there."
+  [frame-id parent-id]
+  (when (and frame-id parent-id)
+    (doseq [[k entry] (into []
+                            (filter (fn [[k _]] (= parent-id (:parent k))))
+                            (vec (get @after-timers frame-id)))]
+      (cancel-snapshotted-entry! frame-id k entry :on-destroy))))
 
 (defn cancel-all-timers!
   "Cancel every in-flight :after timer the runtime is currently tracking
