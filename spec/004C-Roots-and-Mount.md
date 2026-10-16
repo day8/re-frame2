@@ -35,7 +35,7 @@ and ordering.
   `identifierPrefix` must be the one the server rendered under — React's empty prefix
   `""` when the server set none — or every `useId` resolves differently from the
   server's bytes. The host passes it as the `:identifier-prefix` `render!` opt, which
-  Fresco's door and the Reagent, reagent-slim and UIx client roots all take.
+  Fresco's door and the Reagent and UIx client roots all take.
 - **Frame preflight runs before React.** A root door that ensures its frame does so
   before `createRoot`: ENSURE creates the frame if absent and drains its
   `:initial-events` synchronously, so the first paint is the seeded one, and a frame
