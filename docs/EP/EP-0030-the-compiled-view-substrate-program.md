@@ -539,6 +539,32 @@ baseline is a recorded comparison, not a standing gate.
   template, and the `examples/ui/minimal-counter` scaffold are reconciled to that
   truth. This discharges the pre-publication install-tax gate (rf2-u53yy.1) that
   blocked `day8/re-frame2-ui` publication (rf2-vxgfnd.99.2).
+- **reagent-slim retired before the first tag (2026-10-16, rf2-34jhz).**
+  reagent-slim — `day8/reagent-slim`, the `reagent2.*` namespaces plus the
+  `re-frame.adapter.reagent-slim` adapter — is retired before the first tag
+  would publish it, and `:rf.adapter/reagent-slim` becomes a reserved,
+  never-recycled adapter kind, as `:rf.adapter/helix` is. This supersedes the
+  reagent-slim clause of "Adapter disposition reframed (2026-07-17)" above, the
+  slim-bundle option in §Rationale, and the reserved reagent-slim template
+  variant in the 2026-07-19 template-menu entry; those entries stay as the
+  record of what was ruled then. **Stock Reagent and UIx stay first-class,
+  actively-supported adapters**, and stock Reagent (`day8/re-frame2-reagent`)
+  is the one Reagent adapter. The decisive facts: slim's headline bundle saving
+  measured 1,088 B gzip under `:advanced` (184,268 B stock against 183,180 B
+  slim for the same counter app, −0.6%, rf2-kjx1), where its own design
+  rationale called anything under a 15% reduction an unsupported framing; its
+  named audience cannot adopt it unchanged, because its renderer tracks derefs
+  only against `reagent2.ratom`, so re-com's `reagent.core` requires pull stock
+  Reagent back into the build and its stock `reagent/atom` local state stops
+  re-rendering; and a Clojars publication cannot be yanked, while the release
+  step would have renamed slim's adapter onto the stock artefact's own
+  `re-frame.adapter.reagent` namespace. Rejected: keeping it first-class with
+  corrected docs, parking it unpublished in the tree, and running a further
+  stock/slim/Fresco comparison first. Git keeps the code, including the
+  leak-free renderer and the pure-CLJS HTML exporter. It reopens on a named
+  application that needs leak-free Reagent-style local state or browser-side
+  HTML export, with a runnable acceptance case, or on a decision that Day8 owns
+  its Reagent and ports re-com onto `reagent2`.
 
 ## Open Issues
 

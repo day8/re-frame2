@@ -4,13 +4,13 @@
 The disposition, whose source of record is
 `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §Resolved Decisions:
 
-  * **Stock Reagent, reagent-slim, and UIx live on as first-class, actively-
-    supported adapters** — not frozen, not scheduled for removal.
-  * **Only Helix is removed.**
+  * **Stock Reagent and UIx live on as first-class, actively-supported
+    adapters** — not frozen, not scheduled for removal.
+  * Helix is removed and reagent-slim is retired; this guard protects neither.
   * `re-frame.ui` is retired and removed from the tree, so nothing replaces,
     outranks or defaults ahead of the adapters.
 
-The superseded shape ("frozen compatibility adapters" / "reagent-slim removed" /
+The superseded shape ("frozen compatibility adapters" / "UIx is retiring" /
 "only taught view layer") reads as an instruction to remove or downgrade a
 supported surface, so a worker dispatched from an authority stating it would do
 exactly that. This guard exists so the superseded statuses cannot silently
@@ -23,7 +23,7 @@ sweep. It scans a CLOSED roster of files that are ACTIVE dispatchable authoritie
 lifecycle/technical realizations, is out of scope by construction.
 
 TWO CLASSES of superseded shape are matched. The first asserts an adapter STATUS
-("frozen compatibility adapters", "reagent-slim is deleted"). The second
+("frozen compatibility adapters", "UIx is retired"). The second
 asserts an OPERATIONAL INSTRUCTION that only makes sense under that
 status — deleting an example or template belonging to a RETAINED adapter
 ("`substrates/` deletion", "template collapse"). The second class is the dangerous one precisely because it can name no
@@ -91,16 +91,16 @@ EP0030_REL = "docs/EP/EP-0030-the-compiled-view-substrate-program.md"
 SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"frozen\s+compat(?:ibility)?\s+(?:adapter|tier|Reagent)", re.I),
-        'the "frozen compatibility adapter/tier" shape is superseded — Reagent, '
-        "reagent-slim, and UIx are first-class and actively supported",
+        'the "frozen compatibility adapter/tier" shape is superseded — Reagent '
+        "and UIx are first-class and actively supported",
     ),
     (
         re.compile(r"frozen[- ](?:stock[- ])?(?:Reagent|UIx)\b", re.I),
         "Reagent and UIx are not frozen — they live on as first-class adapters",
     ),
     (
-        re.compile(r"\b(?:Reagent|UIx|reagent-slim)\s+(?:adapters?\s+)?freezes?\b", re.I),
-        "no adapter freezes — only Helix is removed",
+        re.compile(r"\b(?:Reagent|UIx)\s+(?:adapters?\s+)?freezes?\b", re.I),
+        "neither Reagent nor UIx freezes — both live on as first-class adapters",
     ),
     (
         # "…the reg-view family freezes WITH stock Reagent", "they freeze INTO the
@@ -115,34 +115,15 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"retiring\s+UIx|UIx\s+(?:is\s+|are\s+)?retir(?:es|ing|ed)", re.I),
-        "UIx is not retiring — only Helix is removed",
+        "UIx is not retiring — it lives on as a first-class adapter",
     ),
     (
         re.compile(r"only[- ]taught\s+(?:view\s+)?layer|only\s+taught\s+(?:view\s+)?layer", re.I),
-        "no view layer is the only taught one — Reagent, reagent-slim, and UIx "
-        "are first-class",
+        "no view layer is the only taught one — Reagent and UIx are first-class",
     ),
     (
         re.compile(r"(?:slated\s+to\s+replace|replaces?)\s+the\s+adapter\s+trio", re.I),
-        "nothing replaces the adapters — Reagent, reagent-slim, and UIx are "
-        "first-class",
-    ),
-    (
-        re.compile(
-            r"reagent-slim\s+(?:is\s+|are\s+|remains?\s+)?"
-            r"(?:deleted|removed|retired|retires|exits)\b",
-            re.I,
-        ),
-        "reagent-slim is NOT deleted — it lives on as a first-class adapter",
-    ),
-    (
-        re.compile(
-            r"(?:Helix\s*\+\s*reagent-slim|reagent-slim\s*\+\s*Helix|Helix\s+and\s+"
-            r"reagent-slim|Helix\s*/\s*(?:reagent-)?slim)\s+"
-            r"(?:are\s+|is\s+)?(?:deleted|removed|exit|retire)",
-            re.I,
-        ),
-        "only Helix is removed; reagent-slim is retained",
+        "nothing replaces the adapters — Reagent and UIx are first-class",
     ),
     (
         re.compile(r"defaults?\s+to\s+`?re-frame\.ui`?", re.I),
@@ -161,8 +142,8 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             r"|delet(?:e|es|ing|ion\s+of)\s+(?:the\s+)?`?substrates/`?",
             re.I,
         ),
-        "`substrates/` is RETAINED — only its Helix arm is removed, because "
-        "Reagent, reagent-slim, and UIx keep their example coverage (W4)",
+        "`substrates/` is RETAINED, because Reagent and UIx keep their example "
+        "coverage (W4)",
     ),
     (
         re.compile(
@@ -213,10 +194,6 @@ EP0030_REQUIRED: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"only\s+Helix\s+is\s+removed", re.I),
         'EP-0030 must state that "only Helix is removed"',
-    ),
-    (
-        re.compile(r"reagent-slim", re.I),
-        "EP-0030 must name reagent-slim among the retained adapters",
     ),
 )
 
@@ -342,7 +319,9 @@ def check(repo_root: Path, *, verbose: bool = False, ci: bool = False) -> int:
 _SELF_TEST_CASES = (
     ("A3 replaces the adapter trio",
      "it is the substrate slated to replace the adapter trio", True),
-    ("A5 reagent-slim is deleted", "reagent-slim is deleted at the wave.", True),
+    ("A5 UIx is retired", "UIx is retired at the wave.", True),
+    ("A6 reagent-slim is retired is not drift",
+     "reagent-slim is retired before the first tag.", False),
     ("A7 defaults to re-frame.ui", "New UI work defaults to `re-frame.ui`.", True),
     ("A8 frozen Reagent / retiring UIx",
      "the `[TRANSITION]` frozen Reagent / retiring UIx + Helix adapters", True),
@@ -393,7 +372,7 @@ def _run_self_tests(*, verbose: bool = False) -> int:
 
     # EP-0030 positive assertion: a source of record missing a required
     # statement (here "only Helix is removed") is flagged.
-    if not ep0030_problems("Reagent, UIx, and reagent-slim live on as first-class adapters."):
+    if not ep0030_problems("Reagent and UIx live on as first-class adapters."):
         failures += 1
         sys.stderr.write("self-test FAILED [D4 only-Helix clause removed]: mutation not caught\n")
     elif verbose:
@@ -410,8 +389,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Guard the active re-frame2 authorities against reintroducing the "
-            "superseded adapter disposition (frozen Reagent/UIx, deleted "
-            "reagent-slim, re-frame.ui as sole/default/only-taught layer)."
+            "superseded adapter disposition (frozen or retiring Reagent/UIx, "
+            "re-frame.ui as sole/default/only-taught layer)."
         ),
     )
     parser.add_argument(
