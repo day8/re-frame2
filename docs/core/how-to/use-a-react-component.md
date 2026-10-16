@@ -1,6 +1,6 @@
 # Use a React component
 
-A date picker, a chart or a rich-text editor from npm is a React component written in JavaScript. This recipe renders one inside a `reg-view`, feeds it a value from a subscription, and turns its callbacks into events. It uses the Reagent adapter, and [reagent-slim](use-uix-or-slim.md) works the same way, with one difference in [how props cross](#2-know-how-props-cross). A UIx component passes the component to `$` like any other. A [Fresco](../fresco/index.md) view declares it with `h/defhost` instead ([Interop](../fresco/09-interop.md)).
+A date picker, a chart or a rich-text editor from npm is a React component written in JavaScript. This recipe renders one inside a `reg-view`, feeds it a value from a subscription, and turns its callbacks into events. It uses the Reagent adapter. A UIx component passes the component to `$` like any other. A [Fresco](../fresco/index.md) view declares it with `h/defhost` instead ([Interop](../fresco/09-interop.md)).
 
 ??? info "For JavaScript developers"
 
@@ -49,8 +49,6 @@ Reagent turns the props map into a JavaScript object before the component sees i
 | a vector, list or set | a JavaScript array made by `clj->js`, whose map keys are not camelCased |
 | a keyword, such as `:small` | its name, `"small"` |
 
-reagent-slim differs on the last row. It passes a keyword prop value through unchanged, except under `:class`, `:id`, `:role`, `data-*` and `aria-*`; keywords inside a nested map still become strings. Write a string wherever the library documents one, and both adapters agree.
-
 Children after the props map are hiccup, converted like any other child.
 
 ## 3. Pass hiccup where the component wants an element
@@ -69,7 +67,7 @@ Hiccup inside a prop is a vector, so it arrives as a JavaScript array rather tha
                   :custom-input (r/as-element [:button.due "Set a due date"])}])
 ```
 
-A render prop, a function the component calls for an element, follows the same rule: `(fn [item] (r/as-element [:li (.-label item)]))`. On reagent-slim the function is `reagent2.core/as-element`.
+A render prop, a function the component calls for an element, follows the same rule: `(fn [item] (r/as-element [:li (.-label item)]))`.
 
 ## 4. Return several elements with `[:<>]`
 

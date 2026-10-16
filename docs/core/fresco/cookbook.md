@@ -109,7 +109,7 @@ which runs first when the page loads.
 - **Call `rf/init!` first.** app-db lives in a reactive container that an
   [adapter](../glossary.md#adapter) supplies, and nothing installs one for you.
   Rendering before `init!` throws `:rf.error/no-adapter-installed`.
-  `re-frame.fresco.substrate` is Fresco's own adapter; a Reagent, reagent-slim
+  `re-frame.fresco.substrate` is Fresco's own adapter; a Reagent
   or UIx adapter also works (see
   [Installation](00-installation.md#fresco-needs-a-substrate-adapter)).
 - **Allocate the handle with `defonce`.** The first `h/render!` through a
