@@ -478,22 +478,23 @@
                      " `set-schema-fns!` with a non-default `:validate` fn"
                      " to suppress this warning.")})))))
 
-;; ---- hot-reload :rf.schema/violation trace --------------------------------
+;; ---- registration-time :rf.schema/violation trace -------------------------
 ;;
 ;; Per Spec 010 §Schema migration on hot-reload + Spec 009 error catalogue
 ;; row `:rf.schema/violation`: when a `(frame-id, path)` schema is
-;; re-registered during dev (a file save re-evaluates `reg-app-schema`
-;; with a DIFFERENT schema for the same path), the live `app-db` value at
-;; that path may now violate the new schema. The runtime emits a
+;; registered for the first time, or re-registered during dev with a
+;; DIFFERENT schema (a file save re-evaluates `reg-app-schema`), the live
+;; `app-db` value present at that path may violate it. The runtime emits a
 ;; `:rf.schema/violation` trace (`:op-type :warning`, recovery
 ;; `:logged-and-skipped`) so dev panels highlight the stale slice — the
 ;; live app continues running; `app-db` is NOT auto-cleared or rewound.
 ;;
 ;; Distinct from `:rf.error/schema-validation-failure` (dispatch-time
-;; boundary validation): this fires at the hot-reload edge against
-;; PRE-EXISTING state, only when the schema actually changed AND the live
-;; value fails the new schema. A no-op re-eval with the same schema does
-;; nothing; a re-eval that the live value still satisfies does nothing.
+;; candidate validation): this fires at the registration edge against
+;; PRE-EXISTING state, only when the declaration is new or changed AND a
+;; live value is present at the path AND it fails the schema. An absent
+;; path, a re-eval with the same schema, and a live value that satisfies
+;; the schema all do nothing.
 
 ;; The `:rf/redacted` privacy sentinel — Spec 009 §Privacy. Stamped in
 ;; place of `:mismatching-value` when the new schema declares the slot
@@ -511,11 +512,12 @@
 (def ^:private redacted-sentinel rf.privacy/redacted-sentinel)
 
 (defn- maybe-emit-schema-violation!
-  "Emit `:rf.schema/violation` when a re-registration changes the schema
-  at `(frame-id, path)` AND the live `app-db` value at `path` fails the
-  NEW schema. No-op when the path was not registered before this call,
-  the schema is unchanged, no validator is registered, or the live value
-  still validates.
+  "Emit `:rf.schema/violation` when a registration declares a schema at
+  `(frame-id, path)` that the live `app-db` value present at `path` fails.
+  A first registration checks the live value; a re-registration checks it
+  only when the schema changed. No-op when the path is absent from the live
+  `app-db` (or the frame has no `app-db` yet), the schema is unchanged, no
+  validator is registered, or the live value validates.
 
   `prior-registered?` is whether the registry held an ENTRY for
   `(frame-id, path)` before this registration, and `prior-schema` is the
@@ -526,27 +528,32 @@
   DECLARATION PRESENCE rather than token truthiness (the law the
   validation seams follow). Inferring presence from
   `(some? prior-schema)` would conflate a real entry carrying a nil token
-  with no entry at all, so re-registering that path would emit nothing
-  and the schema-evolution diagnostic would go silent on exactly the
-  state it exists to explain.
+  with no entry at all, so re-registering that path would be read as a
+  first registration and a `nil` → `nil` re-eval would warn.
+
+  `:pre-reload-schema` names the prior declaration's token, so the trace
+  carries it only on a re-registration: on a first registration there is
+  no prior declaration and the key is absent (a `nil` there would read as
+  a registered `nil` token).
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds)."
   [frame-id path prior-registered? prior-schema new-schema]
-  (when (and prior-registered?
-             (not= prior-schema new-schema))
+  (when (or (not prior-registered?)
+            (not= prior-schema new-schema))
     (when-let [validate-fn @rf.schemas.validator/validator-fn]
-      (let [app-db      (rf.frame/frame-app-db-value frame-id)
-            live-value (get-in app-db path)
-            ;; A malformed new schema can make the validator throw
-            ;; (e.g. Malli's `:malli.core/child-error` on a childless
-            ;; `[:vector]`). A bad schema is not a hot-reload violation
-            ;; and MUST NOT crash registration — treat a throwing
-            ;; validator as "cannot determine a violation" (pass).
-            passes?   (try (boolean (validate-fn new-schema live-value))
-                           (catch #?(:clj Throwable :cljs :default) _ true))]
-        (when-not passes?
+      (let [app-db     (rf.frame/frame-app-db-value frame-id)
+            live-value (if (nil? app-db) ::absent (get-in app-db path ::absent))]
+        (when-not (or (= ::absent live-value)
+                      ;; A malformed new schema can make the validator throw
+                      ;; (e.g. Malli's `:malli.core/child-error` on a childless
+                      ;; `[:vector]`). A bad schema is not a violation of the
+                      ;; live value and MUST NOT crash registration — treat a
+                      ;; throwing validator as "cannot determine a violation"
+                      ;; (pass).
+                      (try (boolean (validate-fn new-schema live-value))
+                           (catch #?(:clj Throwable :cljs :default) _ true)))
           (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
             ;; Fail closed on an opaque schema. The
             ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
@@ -563,15 +570,15 @@
             (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
                                  (rf.schemas.walker/schema-has-opaque-child? new-schema))]
               (emit! :warning :rf.schema/violation
-                     {:path               path
-                      :pre-reload-schema  prior-schema
-                      :post-reload-schema new-schema
-                      :mismatching-value  (if sensitive?
-                                            redacted-sentinel
-                                            live-value)
-                      :frame              frame-id
-                      :recovery           :logged-and-skipped
-                      :sensitive?         sensitive?}))))))))
+                     (cond-> {:path               path
+                              :post-reload-schema new-schema
+                              :mismatching-value  (if sensitive?
+                                                    redacted-sentinel
+                                                    live-value)
+                              :frame              frame-id
+                              :recovery           :logged-and-skipped
+                              :sensitive?         sensitive?}
+                       prior-registered? (assoc :pre-reload-schema prior-schema))))))))))
 
 ;; Schemas describe shape and validation-failure egress. They do not populate
 ;; durable app-db classification, which is owned by commit-plane effects.
@@ -589,7 +596,12 @@
   "Register a Malli schema at a path inside app-db. Validation runs in
   dev whenever an event handler returns a new app-db; failures emit
   :rf.error/schema-validation-failure and reject the whole candidate
-  before it installs.
+  before it installs. The schema constrains the value only where `path`
+  exists: an absent path is not checked, a present `nil` is. A key that
+  must exist is declared by an enclosing schema, usually the root `[]`:
+  `(reg-app-schema [] [:map [:cart CartSchema]])`. Registering also checks
+  a live value already present at `path` and, when it fails, emits the
+  dev-only `:rf.schema/violation` warning.
 
   DEVELOPMENT-BUILD ASSERTION. That rejection is dev-only. A production
   build (`:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug=false`
@@ -638,7 +650,7 @@
          schema-meta  (rf.source-coords/merge-coords
                         (assoc (dissoc metadata :schema :frame)
                                :schema schema :path path :frame frame-id))
-         ;; Capture before replacement for the dev-only hot-reload check.
+         ;; Capture before replacement for the dev-only registration check.
          ;; Presence and token come from ONE deref so they cannot disagree,
          ;; and presence is `contains?` on the frame's path map rather than
          ;; the truthiness of the stored token: a schema value is
