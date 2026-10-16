@@ -7,7 +7,7 @@ Phase 2 is one repeatable loop over the EP index below, driven by the **pinned o
 Before or alongside the first foundation slice, build the smallest harness seam that runs one fixture end to end. The corpus contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/); the operational walk is [`conformance.md`](conformance.md).
 
 - **Read the corpus at the pin.** An EDN reader is ~200 lines in any host with maps and vectors; or translate the corpus locally at bootstrap.
-- **Enumerate, don't transcribe.** Fixture ids, capability tags, handler-DSL ops, Mode-B `:call` ops, and the top-level `:fixture/*` key set are all facts of the corpus at the pin — how to derive each is in [`conformance.md`](conformance.md).
+- **Read the grammar file.** The top-level `:fixture/*` keys, the Mode-B `:call` ops, the handler-DSL steps and the capability vocabulary are declared in [`spec/conformance/fixture-file.edn`](https://github.com/day8/re-frame2/blob/main/spec/conformance/fixture-file.edn); read it at the pin rather than trusting any prose list. The fixture inventory is derived from the corpus at the pin, as [`conformance.md`](conformance.md) describes.
 - **Fail loud on the unknown.** The harness owes the fail-loud floors listed once in [`conformance.md` §The harness](conformance.md#the-harness) — each fails the run with a diagnostic naming it, never a silent skip.
 - **Grow op-by-op.** Implement handler-DSL and Mode-B operators as live fixtures require them. Do not invent a generated fixture-translation layer or a cross-host compatibility package.
 
