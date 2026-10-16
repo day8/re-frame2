@@ -1213,7 +1213,7 @@ Five surfaces survive elision and are the canonical production-debugging fallbac
     ```clojure
     ;; 1. Declare the frame's error-observability policy.
     (rf/make-frame
-      {:id :app/main
+      {:id :rf/default
        :observability {:errors [{:sink :my-app.sinks/sentry
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
 
@@ -2793,7 +2793,7 @@ DESIGN-RATIONALE — **why the two markers stay separate rather than unifying be
 
 Implementations MUST support declaration-driven nomination. Every source writes into one runtime-db registry (`[:rf.runtime/elision :declarations]`); the wire walker consults that registry at every emit. (The shape lives in [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry); the runtime-db slot is reserved per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys).)
 
-The canonical entry for a **durable app-db** path is the EP-0025 commit-plane `:large` classification effect: a `reg-event` handler returns `:large [[…]]` alongside its `:db` write and the runtime installs the declaration under `:source :effect` at the point the value is committed. Declaring at the write site is what makes the claim AI-discoverable — an agent reading the handler sees the elision claim beside the write that motivates it. The other sources are `reg-flow` output declarations (`:source :flow`) and subsystem projection-relative declarations lowered per instance (`:source :machine` / `:resource` / `:route`); all sources union at lookup time. **`{:large? true}` on a Malli slot in `:rf/app-schema` is NOT one of them** — there is no schema→registry bridge (EP-0015 §8): no boot / hot-reload schema walk into this registry, and a schema slot prop drives schema-validation-failure-trace redaction and the schema-owned transient shapes only.
+The canonical entry for a **durable app-db** path is the EP-0025 commit-plane `:large` classification effect: a `reg-event` handler returns `:large [[…]]` alongside its `:db` write and the runtime installs the declaration under `:source :effect` at the point the value is committed. Declaring at the write site is what makes the claim AI-discoverable — an agent reading the handler sees the elision claim beside the write that motivates it. The other sources are `reg-flow` output declarations (`:source :flow`) and subsystem projection-relative declarations lowered per instance (`:source :machine` / `:resource` / `:route`); all sources union at lookup time. **`{:large? true}` on a Malli slot of an app-db schema (`reg-app-schema`) is NOT one of them** — there is no schema→registry bridge (EP-0015 §8): no boot / hot-reload schema walk into this registry, and a schema slot prop drives schema-validation-failure-trace redaction and the schema-owned transient shapes only.
 
 The walker does not auto-elide unclassified values. In dev, when it observes a large string at an undeclared path, it emits `:rf.warning/large-value-unschema'd` once per `(frame, path)` to nudge authors toward classifying that path (the warning keyword's name stays as-is for wire compatibility; its `:hint` slot names the commit-plane effect).
 

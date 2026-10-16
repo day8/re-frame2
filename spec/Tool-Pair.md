@@ -198,8 +198,8 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
 ;; been rewound to the epoch's :frame-state-after and :rf.epoch/restored has
 ;; fired. A refusal's :reason is the failure-mode :operation from the table
 ;; above, and its other keys are that row's :tags.
-(when-let [target (epoch-before-event :app/main :checkout/submit)]
-  (let [r (rf.epoch/restore-epoch! :app/main target)]
+(when-let [target (epoch-before-event :rf/default :checkout/submit)]
+  (let [r (rf.epoch/restore-epoch! :rf/default target)]
     (if (:ok? r)
       (notify-ui :restored r)
       (notify-ui :error (:reason r) r))))
@@ -265,18 +265,18 @@ All five failures have `:op-type :error` and `:recovery :no-recovery`. The close
 ;; (machines, routes) intact; use a both-key map when the repro also
 ;; seeds those.
 
-(let [r (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:cart {:items [{:sku "abc" :qty 2}]}
-                                                         :checkout/state :ready}})]
+(let [r (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {:cart {:items [{:sku "abc" :qty 2}]}
+                                                           :checkout/state :ready}})]
   (when (:ok? r)
     ;; replace-frame-state! has fired :rf.epoch/db-replaced and recorded a
     ;; synthetic epoch, named by (:epoch-id r). Now drive a dispatch to
     ;; exercise the new handler.
-    (rf/dispatch [:checkout/submit] {:frame :app/main})
+    (rf/dispatch [:checkout/submit] {:frame :rf/default})
 
     ;; To undo the injection later, restore that synthetic record's
     ;; before-state. That needs no earlier epoch, so it works on a fresh
     ;; frame too.
-    (rf.epoch/restore-epoch! :app/main (:epoch-id r) {:to :before})))
+    (rf.epoch/restore-epoch! :rf/default (:epoch-id r) {:to :before})))
 ```
 
 **What the injection surface is not.** It is **not** a substitute for `dispatch` — handlers, interceptors, fx, and the trace stream all stay quiet during a replace. Use it only when bypass-the-pipeline-run is *required* (the four use cases above); for any change you want the event pipeline to see, dispatch a real event. The synthetic epoch's empty `:sub-runs` / `:renders` / `:effects` projections are the visible signal that no pipeline run ran.
