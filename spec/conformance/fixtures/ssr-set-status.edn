@@ -9,7 +9,7 @@
  :fixture/doc          "A 'page-not-found' handler emits :rf.server/set-status 404. The accumulator's :status is 404 (default 200 if no fx sets one). HTML body still renders (this is a 404 page, not a redirect)."
 
  :fixture/registry
- {:event {:rf/server-init       {:doc       "Per-request server-side init."
+ {:event {:app/server-init      {:doc       "Per-request server-side init."
                                  :platforms #{:server}}
           :rf.route/not-found      {:doc       "Render the not-found page with the right status."
                                  :platforms #{:server}}}
@@ -24,11 +24,11 @@
   }
 
  :fixture/handlers
- {:event {:rf/server-init  [[:fx [[:dispatch [:rf.route/not-found]]]]]
+ {:event {:app/server-init [[:fx [[:dispatch [:rf.route/not-found]]]]]
           :rf.route/not-found [[:set [:page] :not-found]
                             [:fx [[:rf.server/set-status 404]]]]}}
 
- :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
+ :fixture/frame-config {:initial-events [[:app/server-init]] :platform :server}
 
  :fixture/dispatches []
 
@@ -47,5 +47,5 @@
               :redirect nil}}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :app/server-init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/not-found}}]}}

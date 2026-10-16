@@ -146,7 +146,7 @@
 
 ;; ---- ssr: the server flow ------------------------------------------------------
 ;;
-;; per-request frame → :rf/server-init → managed HTTP via the canned stub →
+;; per-request frame → :app/server-init → managed HTTP via the canned stub →
 ;; render to string → render hash. JVM-only: the server render runs under
 ;; Clojure.
 
@@ -188,7 +188,7 @@
           f      (rf/with-fx-overrides {:rf.http/managed :ssr.http/canned-articles}
                    (rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
                                    :platform :server
-                                   :initial-events [[:rf/server-init]]}))
+                                   :initial-events [[:app/server-init]]}))
           db     (rf/app-db-value f)
           bad-db (assoc db :articles "not-a-vector-of-articles")]
       (is (= [schema nil 2]
@@ -200,9 +200,9 @@
       ;; a non-vector on the per-request frame, while :rf/default, carrying no
       ;; SSR schema, soft-passes the same bad value
       (is (= [true false true]
-             [(rf.schemas/validate-app-schema! db :rf/server-init fid)
-              (rf.schemas/validate-app-schema! bad-db :rf/server-init fid)
-              (rf.schemas/validate-app-schema! bad-db :rf/server-init :rf/default)]))
+             [(rf.schemas/validate-app-schema! db :app/server-init fid)
+              (rf.schemas/validate-app-schema! bad-db :app/server-init fid)
+              (rf.schemas/validate-app-schema! bad-db :app/server-init :rf/default)]))
       (rf/destroy-frame! f))))
 
 ;; ---- ssr: the client hydration path ----------------------------------------------

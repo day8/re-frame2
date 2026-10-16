@@ -134,7 +134,7 @@
 (deftest ssr-full-request-lifecycle
   (reg-canned-http-get!)
   (reg-articles-view!)
-  (rf/reg-event :rf/server-init
+  (rf/reg-event :app/server-init
     (fn [{:keys [db]} [_ request]]
       {:db (assoc db :request request)
        :fx [[:http/get {:url "/api/articles" :on-success [:articles/loaded]}]]}))
@@ -143,7 +143,7 @@
 
   (let [server-frame (rf.frame/make-anon-frame-record!
                        {:platform       :server
-                        :initial-events [[:rf/server-init {:uri "/articles"}]]
+                        :initial-events [[:app/server-init {:uri "/articles"}]]
                         :fx-overrides   {:http/get :http/get.canned-articles}})
         server-db    (rf/app-db-value server-frame)
         render-tree  [(rf/view :pages/articles)]

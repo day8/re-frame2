@@ -19,7 +19,7 @@ Vs the generic [Pattern-AsyncEffect](Pattern-AsyncEffect.md):
 - **Failure semantics differ.** A failed step usually halts boot; the user sees an error page, not a partial app. Some failures are recoverable with retry; others are fatal.
 - **Visible progress.** Users want to see "Loading profile…" then "Connecting…" then "Almost ready…". The boot UI is its own thing distinct from the running-app UI.
 - **One-shot semantics.** Booting runs once per app load. Re-booting is unusual but should work (e.g., session expired → re-authenticate → resume).
-- **SSR has a parallel concern.** Server-side init via `:rf/server-init` (per [011](011-SSR.md)) covers part of this; client-side boot handles the post-hydration steps.
+- **SSR has a parallel concern.** Server-side init via the app's per-request setup event (per [011](011-SSR.md)) covers part of this; client-side boot handles the post-hydration steps.
 - **Hot-reload concerns.** In dev, boot must not re-run on every code reload; only on initial app load.
 
 ## The simple form — chained events
@@ -449,7 +449,7 @@ For the full mechanism menu see [Pattern-AsyncEffect §Parameter passing across 
 
 ### SSR composition
 
-Server-side init via `:rf/server-init` (per [011 §Routing and SSR](011-SSR.md#routing-and-ssr) and [011 §Authentication / sessions](011-SSR.md#authentication--sessions)) is the server-side equivalent of boot. The handoff:
+Server-side init via the app's per-request setup event, named in `:initial-events` (per [011 §Routing and SSR](011-SSR.md#routing-and-ssr) and [011 §Authentication / sessions](011-SSR.md#authentication--sessions)) is the server-side equivalent of boot. The handoff:
 
 - **Server-side** runs the boot phases that are server-meaningful: config, session resolution from the request, route resolution, server-side data fetches. Phases that are client-only (`:hydrating` from `localStorage`, real-time service connections) are skipped — `:platforms #{:client}` on the relevant fxs causes the server's fx resolver to no-op them (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)).
 - **Client-side**, after `:rf/hydrate` seeds the frame-state container from the server payload, the boot machine starts in a state that reflects what the server already accomplished. The recommended convention: the server's last act is to write `[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into the hydrated **runtime-db**; the client's boot machine reads its initial state from the snapshot per [005 §Restore semantics](005-StateMachines.md) and resumes from there.
@@ -508,7 +508,7 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 
 - [002-Frames §`make-frame` is atomic](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar) — `:initial-events` is the canonical entry point for boot.
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:spawn` / `:after` mechanics.
-- [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
+- [011-SSR.md](011-SSR.md) — the server-side per-request setup event and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
 - Boot-as-state-machine study — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary.
