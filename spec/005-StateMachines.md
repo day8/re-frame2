@@ -226,7 +226,7 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | self-transitions | per-event | omit `:target` for the targetless `internal?` no-op, or name the declaring state as the `:target` (non-reentering by default — target survives, descendants re-resolve); add `:reenter? true` for external (exit+re-enter). A `:target` naming a proper ancestor of the declaring state exits and re-enters that ancestor either way |
 | per-state `:meta` | per-state | tooling-visible, e.g. `{:terminal? true}` |
 
-**`:initial` and `:states` are required to boot, not to register.** Registration validates the structure a spec declares and builds no snapshot, so a spec with no `:initial` registers, with or without `:states` (a bodiless spawn target with neither is the usual case), and fails only when an instance of it first boots: its initial `:state` is nil, and the boot throws `:rf.error/machine-bad-state-form`. An `:initial` that names no state in `:states` is declared structure, so registration rejects it with `:rf.error/machine-unresolved-target`.
+**A bodiless spec registers.** Registration validates the structure a spec declares and builds no snapshot, so a spec with neither `:initial` nor `:states` (a bodiless spawn target, say) registers, and fails only when an instance of it first boots: its initial `:state` is nil, and the boot throws `:rf.error/machine-bad-state-form`. A declared `:initial` is still checked against `:states` at registration (per [§Initial-state cascading](#initial-state-cascading)).
 
 ### State nodes
 
