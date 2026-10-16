@@ -46,14 +46,6 @@ const EXEMPT = [
   { prefix: 'skills/', within: '/tests/fixture/', why: 'a skill fixture is its own shadow-cljs project' },
   // Miswired bench drivers kept as TEXT for lane_cache_wiring.test.cjs; never executed.
   { prefix: 'implementation/core/test/re_frame/bench/lane_cache_fixtures/', why: 'gate fixtures, read as text' },
-  // KNOWN DIRECT: an entry that still starts shadow-cljs itself and so runs OUTSIDE
-  // the lane (AGENTS.md lists it for the coordinator's grant). `direct` makes this
-  // suite red once it is routed, so the entry cannot outlive the route.
-  {
-    prefix: 'implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs',
-    why: 'the adapter-smoke launcher still spawns the runner itself',
-    direct: true,
-  },
 ];
 
 const rel = (file) => path.relative(REPO_ROOT, file).split(path.sep).join('/');
@@ -165,16 +157,11 @@ test('the helper itself carries the direct routes, so the pattern can see them',
   assert.match(code, /shadow\.cljs\.devtools\.cli/);
 });
 
-test('every exemption still covers a tracked file, and a known-direct one is still direct', () => {
+test('every exemption still covers a tracked file', () => {
   const all = tracked('*.cjs', '*.js', '*.mjs', 'package.json', '*/package.json');
   for (const e of EXEMPT) {
     const covered = all.filter((p) => exempt(p) && p.startsWith(e.prefix));
     assert.ok(covered.length > 0, `exemption ${e.prefix} (${e.why}) covers no tracked file; delete it`);
-    if (!e.direct) continue;
-    for (const p of covered) {
-      const code = stripComments(fs.readFileSync(path.join(REPO_ROOT, p), 'utf8'));
-      assert.match(code, CODE_ROUTE_RE, `${p} no longer starts shadow-cljs directly; delete its EXEMPT entry`);
-    }
   }
 });
 
