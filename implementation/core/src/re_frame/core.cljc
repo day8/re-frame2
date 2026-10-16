@@ -2565,34 +2565,6 @@
 ;; artefact is absent. A dedicated per-channel pair here would duplicate
 ;; the stream-parameterized verb.
 
-(def ^{:doc "THE supported receiver decision for a
-  `:rf.epoch.cb/silenced-on-frame-destroy` signal — pass the signal's `:tags`
-  map back in:
-
-      (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
-                 (rf/epoch-silence-current? (:tags ev)))
-        ...)
-
-  True when the silence still names a CURRENT fact: the carried `:observed-gen`
-  is still the generation registered under `:cb-id`, AND that registration is not
-  observing `:frame` right now. False otherwise — including a `nil`/absent
-  `:observed-gen`, and when the `day8/re-frame2-epoch` artefact is absent.
-
-  ONE ATOMIC DECISION. REGISTRATION identity (a same-id replacement
-  or an unregister-drop makes a different generation current) and OBSERVATION
-  continuum (a same-id successor frame re-arms by DELIVERY, which mints no
-  generation, so `:observed-gen` still matches while the callback is live
-  again) are weighed under a SINGLE consistent snapshot of the listener
-  ledger. Composing the two facts from separate reads is not
-  linearizable: a replacement or drop landing between them reads as
-  generation-still-matches AND not-observing, accepting a silence for an
-  already-superseded registration, an answer no single point in time ever had.
-
-  Per Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
-  delayed-silence emission linearization law. Late-bound via
-  `:epoch/epoch-silence-current?`."}
-  epoch-silence-current?  rf.core-epoch/epoch-silence-current?)
-
 ;; ---- frame-state write surface -------------------------------------------
 ;;
 ;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the

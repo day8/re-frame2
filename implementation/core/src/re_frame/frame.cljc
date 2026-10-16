@@ -4368,10 +4368,10 @@
 
 (defn- snapshot-epoch-terminal-evidence!
   "Snapshot the destroyed incarnation's terminal halted-destroy
-  evidence (its `:halted-destroy` record + listener/silencing snapshot) while it
+  evidence (its `:halted-destroy` record and the listeners it fans to) while it
   is still the sole owner of its id-keyed epoch stores, i.e. BEFORE
   `dissoc-frame!`. A same-id successor can only be constructed after that dissoc,
-  so it can never claim (and drop) the buffer / observation ledger out from under
+  so it can never claim (and drop) the capture buffer out from under
   this snapshot. Returns the evidence bundle threaded to `notify-epoch-
   listeners!` (or nil when no epoch layer participates / the frame was not
   mid-drain). Guarded like the best-effort teardown steps: a throw here is
@@ -4482,7 +4482,7 @@
                                       feature cleanup hook has completed.
     7a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
         evidence!                     evidence (its epoch record + the
-                                      listener/silencing snapshot) via the
+                                      listeners it fans to) via the
                                       :epoch/snapshot-frame-destroyed hook
                                       while A still SOLELY owns its id-keyed
                                       epoch stores — i.e. BEFORE the step-9
@@ -4508,8 +4508,9 @@
                                       the whole forget: the `frames` registry
                                       is the ONE store a seated frame lives in
                                       (no registrar row exists).
-    10. notify-epoch-listeners!     — fire the epoch hook so tools see
-                                      :rf.epoch.cb/silenced-on-frame-destroy.
+    10. notify-epoch-listeners!     — publish the terminal :halted-destroy
+                                      record step 7a bound, if any, and drop
+                                      the frame's epoch stores.
                                       This is the PUBLISH half of the epoch
                                       destroy contract: it ships the terminal
                                       evidence step 7a bound pre-dissoc,

@@ -36,11 +36,6 @@
 ;; pins this catalogue against every `:rf.epoch/*` op the namespace
 ;; emits, so an addition that forgets to update one or the other will
 ;; fail loudly rather than drift silently.
-;;
-;; `:rf.epoch.cb/silenced-on-frame-destroy` is a different op-type
-;; (`:rf.epoch.cb`) but is likewise terminal/out-of-cascade evidence. It is
-;; skipped explicitly so it can neither enter a future incarnation's buffer nor
-;; claim that replacement's owner token during stale-A cleanup.
 (def skip-ops
   #{;; Event-settle emit, after harvest emptied the buffer.
     :rf.epoch/snapshotted
@@ -65,9 +60,6 @@
     ;; ring, so replace-frame-state! rejects loudly with this op + a false
     ;; return. It fires out of cascade with a frame tag like its siblings.
     :rf.epoch/replace-history-disabled
-    ;; Frame-destroy listener-silencing is emitted by the exact-owner cleanup
-    ;; hook itself. It is terminal evidence, never input to a later epoch.
-    :rf.epoch.cb/silenced-on-frame-destroy
     ;; Listener failure isolation runs during post-harvest fan-out. In
     ;; particular, terminal destroy fan-out runs after exact-owner cleanup, so
     ;; its diagnostic must not enter a fresh same-id incarnation's buffer.

@@ -5,7 +5,7 @@
   CLJS is single-threaded, so these races cannot arise there.
 
   Stress dial: `n-threads` × `stress-iters` (default 5000, override with
-  `RF2_RD7A7_STRESS_ITERS`); scenario 5 uses `RF2_J538F75_ITERS` (default 500)."
+  `RF2_RD7A7_STRESS_ITERS`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -213,68 +213,3 @@
                       {:landed-on (:epoch-id record) :aimed-at (:value row)}))
             "every accepted back-fill landed on the epoch it embeds — no stale-index splice")
         (is (pos? @accepted) "the back-fillers accepted splices, so the race was exercised")))))
-
-;; ---- Scenario 5: same-id listener replacement vs fan-out / destroy -------
-;;
-;; One driver owns the frame lifecycle (settle → destroy → recreate) while
-;; churners re-register ONE shared id, minting a generation per call. A
-;; replacement must install the new generation's observation rather than erase
-;; it, and no destroy may emit a torn double silence.
-
-(def ^:private gen-churn-iters
-  (or (some-> (System/getenv "RF2_J538F75_ITERS") Long/parseLong)
-      500))
-
-(deftest same-id-replacement-vs-fanout-destroy-stress
-  (testing "same-id replacement churn vs settle/destroy cycles — at most one
-            silence per destroy, and the live generation silences exactly once"
-    (rf/make-frame {:id :j538.gen/main})
-    (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
-    (let [cb-id       ::churned
-          silence-cnt (atom 0)
-          errors      (atom [])
-          churn-stop  (atom false)
-          latch       (CountDownLatch. 1)]
-      (rf/register-listener! :trace ::silence-rec
-                             (fn [ev]
-                               (when (and (= :rf.epoch.cb/silenced-on-frame-destroy
-                                             (:operation ev))
-                                          (= cb-id (:cb-id (:tags ev))))
-                                 (swap! silence-cnt inc))))
-      (rf/register-listener! :epoch cb-id (fn [_] nil))
-      (let [churners (mapv (fn [_]
-                             (future
-                               (.await latch)
-                               (try
-                                 (while (not @churn-stop)
-                                   (rf/register-listener! :epoch cb-id (fn [_] nil)))
-                                 (catch Throwable t (swap! errors conj t)))))
-                           (range (max 2 (quot n-threads 2))))
-            driver   (future
-                       (.await latch)
-                       (try
-                         (dotimes [i gen-churn-iters]
-                           (rf/dispatch-sync [:bump i] {:frame :j538.gen/main})
-                           (let [before @silence-cnt]
-                             (rf/destroy-frame! :j538.gen/main)
-                             (let [delta (- @silence-cnt before)]
-                               (when (> delta 1)
-                                 (swap! errors conj
-                                        (ex-info "torn double-silence for one destroy"
-                                                 {:delta delta :cycle i})))))
-                           (rf/make-frame {:id :j538.gen/main}))
-                         (catch Throwable t (swap! errors conj t))
-                         (finally (reset! churn-stop true))))]
-        (.countDown latch)
-        (is (all-completed? (cons driver churners)) "driver and churners completed")
-        (is (empty? @errors)
-            (str "no thread threw and no destroy double-silenced; got "
-                 (pr-str (mapv #(.getMessage ^Throwable %) (take 3 @errors)))))
-        ;; Churn stopped: a fresh registration's observation survives, carries
-        ;; the live generation, and its destroy silences exactly once.
-        (rf/register-listener! :epoch cb-id (fn [_] nil))
-        (rf/dispatch-sync [:bump -1] {:frame :j538.gen/main})
-        (let [before @silence-cnt]
-          (rf/destroy-frame! :j538.gen/main)
-          (is (= 1 (- @silence-cnt before))
-              "the fresh generation's destroy silences exactly once"))))))

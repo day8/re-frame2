@@ -66,8 +66,8 @@
 # production posture is that the artefact is OFF: `implementation/epoch/
 # deps.edn`'s own header says its runtime paths are gated on
 # `interop/debug-enabled?` precisely so production builds can eliminate them.  A
-# suite exercising epoch's recording, restore, projection, redaction, silencing
-# or attribution behaviour therefore CANNOT run under this gate — there is no
+# suite exercising epoch's recording, restore, projection, redaction or
+# attribution behaviour therefore CANNOT run under this gate — there is no
 # behaviour to exercise — and its red is not a defect and not triage debt.  What
 # belongs in this lane is the NEGATIVE claim: with the gate off, nothing is
 # recorded, nothing fires, nothing is retained.
@@ -79,7 +79,7 @@
 # allowlist would have the opposite failure mode.
 #
 # EVERY ENTRY IS CLASSIFIED, and its class is recorded beside it below:
-# subject-elided, publication-elided, or non-terminating.  None is incidental,
+# subject-elided or non-terminating.  None is incidental,
 # so the roster is not expected to shrink.  The count is not the health metric
 # here — a shrinking roster would mean epoch had acquired production behaviour,
 # which is the opposite of its design.  The vacuous-pass risk this lane does
@@ -109,7 +109,7 @@ test_root="$artefact/test"
 # names a real namespace is a hard error (see `verify_roster` below), so a
 # rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
-# Every entry falls into one of two classes, below; NONE is the "could run,
+# Every entry falls into the class below; NONE is the "could run,
 # nobody tried" class, so the roster has no incidental members and nothing to
 # shrink.  The discriminator that decides
 # every case is one question — DOES THE GATE ERASE WHAT THE SUITE IS ABOUT? — and
@@ -163,32 +163,6 @@ known_red=(
   #    Concurrency stress over recording, restore and listener fan-out: its
   #    scenarios wait on records the gate never assembles, so they time out red.
   re-frame.epoch-concurrency-stress-test
-
-  # ── CLASS B · PUBLICATION ELIDED (6).  Different mechanism, same verdict, and
-  #    worth separating because a partial failure invites the wrong conclusion —
-  #    run here, `lineage-285` passes most of its assertions, which reads like a
-  #    suite that almost runs.  It nearly does: the LEDGER these suites drive
-  #    (`re-frame.epoch.state`) carries no `debug-enabled?` gate at all, so its
-  #    arithmetic is posture-INDEPENDENT and those assertions pass here for the
-  #    same reason they pass in dev.  What the gate erases is the
-  #    PUBLICATION — `listeners.cljc`'s `on-frame-destroyed!` and the fan-out
-  #    around it are gated — and the emitted silencing trace is the observable
-  #    every one of these suites is actually about.
-  #
-  #    So splitting them would buy assertions, not coverage: a posture-
-  #    independent path re-run in a second posture reports what the dev lane
-  #    already reported, at the cost of permanent per-deftest tagging and, for
-  #    `lineage-285` and `lineage-aba`, concurrency latches in a required job.
-  #    The lane already carries two ungated-ledger suites under the real gate
-  #    (`silence-decision-atomicity`, `silencing-emit-deadlock`), which is what
-  #    covers the load-time risk; four more of the same shape add cost, not
-  #    information.  DISPOSITION: correct as-is.
-  re-frame.epoch-silence-contract-test
-  re-frame.epoch-silence-receiver-public-api-test
-  re-frame.epoch-silencing-generation-emission-test
-  re-frame.epoch-silencing-lineage-285-test
-  re-frame.epoch-silencing-lineage-aba-test
-  re-frame.epoch-silencing-same-generation-rearm-test
 )
 
 # ---------------------------------------------------------------------------
