@@ -413,33 +413,24 @@
   (let [[projected-key _disposition _spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
     (assoc projected-key 0 (rf.resources.trace-egress/project-scope (nth scoped-key 0)))))
 
-(defn- project-work-id
-  "Project the scoped key embedded in a resource work-id
-  `[:rf.work/resource <scoped-key> <generation>]` through `project-key`.
-  A work-id of another shape rides unchanged. Pure."
-  [work-id project-key]
-  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
-    (assoc work-id 1 (project-key (nth work-id 1)))
-    work-id))
-
 (defn- live-work-ledger-link
   "Build the in-flight `:work-ledger` + `:host-transient` slots for a live node,
-  PROJECTING the work-id's embedded scoped key + the record's `:resource/key`
-  through `project-key` so neither leaks the raw scope/params. Returns
-  the node `acc` with both slots assoc'd."
+  PROJECTING the record's `:resource/key` through `project-key` so it does not
+  leak the raw scope/params. The work-id names the attempt by resource id and
+  generation, so it carries neither and rides as-is. Returns the node `acc`
+  with both slots assoc'd."
   [acc runtime-db work-id project-key]
   (let [record  (rf.resources.work-ledger/get-record runtime-db work-id)
-        wid'    (project-work-id work-id project-key)
         summary (select-keys record
                              [:work/id :work/kind :status
                               :resource/key :generation
                               :transport :owners :causes])
-        rec'    (cond-> (assoc summary :work/id wid')
+        rec'    (cond-> (assoc summary :work/id work-id)
                   (contains? summary :resource/key)
                   (update :resource/key project-key))]
     (assoc acc
-           :work-ledger    {:work/id wid' :record rec'}
-           :host-transient [[:rf.http/in-flight wid']])))
+           :work-ledger    {:work/id work-id :record rec'}
+           :host-transient [[:rf.http/in-flight work-id]])))
 
 (defn- collision-key
   "The node identity of the `ordinal`-th of several live entries whose scoped
@@ -478,10 +469,12 @@
   the host-transient in-flight handle address (Derivations §Output —
   `:host-transient` in-flight work).
 
-  Every identity position — the `:id`, the `:output` runtime-path tail, the
-  in-flight work-ledger work-id and record `:resource/key`, and the
-  host-transient handle address — carries `node-key`; the realized
-  `[:scope …]` / `[:param …]` inputs carry the projected scope and params.
+  Every identity position — the `:id`, the `:output` runtime-path tail and
+  the in-flight work-ledger record's `:resource/key` — carries `node-key`; the
+  realized `[:scope …]` / `[:param …]` inputs carry the projected scope and
+  params. The in-flight work-id (on the work-ledger link and in the
+  host-transient handle address) names its attempt by resource id and
+  generation, so it carries no key to project.
   No resource egresses a raw non-global scope here, a `:sensitive?` /
   `:large?` resource never egresses its raw params (the value-path walk cannot
   reach either), and a plain resource's params ride verbatim."
@@ -510,8 +503,8 @@
       ;; transport, status) AND names the host-transient in-flight handle
       ;; address (the abortable handle lives OUTSIDE durable frame-state, in
       ;; the `[frame-id work-id]` side table — Derivations §Output).
-      ;; Both are PROJECTED for tool egress (the record's `:resource/key` + the
-      ;; work-id's embedded scoped key).
+      ;; The record's `:resource/key` is PROJECTED for tool egress; the
+      ;; work-id carries no scoped key.
       (some? work-id)
       (live-work-ledger-link runtime-db work-id project-key)
       ;; carry the static node's source coords / schema / doc / derive token
