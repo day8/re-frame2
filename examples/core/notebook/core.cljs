@@ -383,8 +383,8 @@
 ;; `:initial-events` once to seed app-db before anything paints; a hot
 ;; reload finds the frame already there and skips the seed. From then on
 ;; every `dispatch` and `subscribe` in the tree resolves to it. The name
-;; `:rf/default` is just an id — pick any keyword; it earns no special
-;; privileges for being the only one here. See
+;; `:rf/default` is the conventional app-frame id; any keyword works, and the
+;; runtime never falls back to this one. See
 ;; docs/core/frames.md.
 (def app-frame :rf/default)
 

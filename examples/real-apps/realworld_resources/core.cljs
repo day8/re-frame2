@@ -314,8 +314,8 @@
 
 (def app-frame :rf/default)
 
-;; `:rf/default` is just a frame id. It carries no special framework privilege —
-;; `init!` installs the adapter and creates no frame at all. This app earns URL
+;; `:rf/default` is the conventional app-frame id, and the runtime never falls
+;; back to it: `init!` installs the adapter and creates no frame at all. This app earns URL
 ;; ownership the honest way: by declaring `:url-bound? true` on the frame below.
 ;;
 ;; The frame is created, configured, and seeded in exactly one place: the

@@ -521,8 +521,9 @@
 ;; The [frame-root](../../../../docs/core/glossary.md#frame-root)
 ;; glossary entry has the longer version.
 ;;
-;; `app-frame` is just an id we chose. `:rf/default` is an ordinary frame id —
-;; no special powers, despite the official-looking name.
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it, so
+;; the frame-root in `mount!` names it.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
