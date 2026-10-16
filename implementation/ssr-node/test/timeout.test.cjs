@@ -9,7 +9,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed, refusalOf, fixture } = require('./_support.cjs');
+const { withService, observed, refusalOf, fixture } = require('./_support.cjs');
 const { CODE } = require('../src/protocol.cjs');
 const { createService } = require('../src/service.cjs');
 const { Isolate } = require('../src/isolate.cjs');
@@ -17,20 +17,18 @@ const { EXIT_AT_FLAG } = require('./fixtures/exits.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
-// The same runaway loop with two chunks already emitted.
-const torn = (extra = {}) => ({ protocol: 1, entry: 'app/torn', state: {}, ...extra });
 
 test('a render that never returns is refused inside its budget, and the service ceiling binds a caller that asks for longer', async () => {
   await withService('hang', { isolates: 1, maxTimeoutMs: 200, admissionTimeoutMs: 10000 }, async (service) => {
     const started = Date.now();
-    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 60000 })));
+    const err = await refusalOf(() => service.renderToString(hang({ timeoutMs: 60000 })));
     const elapsed = Date.now() - started;
 
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
-    // The request asked for 60 s; the service says 200 ms. Nothing was written, so nothing is torn.
+    // The request asked for 60 s; the service says 200 ms.
     assert.deepStrictEqual(
       { ...err.detail, isolate: typeof err.detail.isolate, threadId: typeof err.detail.threadId },
-      { timeoutMs: 200, isolate: 'number', threadId: 'number', entry: 'app/root', afterChunks: 0 },
+      { timeoutMs: 200, isolate: 'number', threadId: 'number', entry: 'app/root' },
     );
     assert.ok(elapsed >= 150 && elapsed < 5000, `refused after ${elapsed} ms; expected 150–5000 ms`);
   });
@@ -38,59 +36,42 @@ test('a render that never returns is refused inside its budget, and the service 
 
 test('the pool recovers, and the replacement is a DIFFERENT thread', async () => {
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    const firstThread = observed(await collect(service, quick())).threadId;
+    const firstThread = observed(await service.renderToString(quick())).threadId;
 
-    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 150 })));
+    const err = await refusalOf(() => service.renderToString(hang({ timeoutMs: 150 })));
     assert.deepStrictEqual([err.code, err.detail.threadId], [CODE.RENDER_TIMEOUT, firstThread]);
 
-    const after = await collect(service, quick());
-    assert.deepStrictEqual([after.chunks.length, service.stats().replacements, service.stats().total], [1, 1, 1]);
+    const after = await service.renderToString(quick());
+    assert.deepStrictEqual([service.stats().replacements, service.stats().total], [1, 1]);
     assert.notStrictEqual(observed(after).threadId, firstThread, 'a terminated isolate must never be reused');
   });
 });
 
-test('a TIMEOUT after chunks is a TORN response, names the exact count, and never completes', async () => {
-  // The deadline builds its own refusal, so the count comes from the
-  // isolate's record rather than from the worker.
-  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    const chunks = [];
-    let complete = null;
-    const err = await refusalOf(async () => {
-      for await (const frame of service.renderFrames(torn({ timeoutMs: 400 }))) {
-        if (frame.type === 'chunk') chunks.push(frame.html);
-        else complete = frame;
-      }
-    });
-    assert.deepStrictEqual(
-      [chunks.length, complete, err.code, err.detail.afterChunks, err.detail.timeoutMs, err.detail.entry],
-      [2, null, CODE.RENDER_TIMEOUT, 2, 400, 'app/torn'],
-    );
-  });
-});
-
-test('a render that emits nothing at all is refused rather than served empty', async () => {
+test('a render that returns no body is refused rather than served empty', async () => {
   await withService('throws', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/silent', state: {} }));
-    assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.match(err.message, /without emitting any body markup/);
+    const err = await refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/silent', state: {} }));
+    assert.deepStrictEqual(
+      [err.code, err.detail],
+      [CODE.RENDER_THREW, { entry: 'app/silent', returned: '[object Undefined]' }],
+    );
   });
 });
 
 test('an isolate that throws is not poisoned — the next request is served', async () => {
   await withService('throws', { isolates: 1 }, async (service) => {
-    await refusalOf(() => collect(service, { protocol: 1, entry: 'app/before', state: {} }));
-    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/before', state: {} }));
+    await refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/before', state: {} }));
+    const err = await refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/before', state: {} }));
     assert.deepStrictEqual([err.code, service.stats().replacements], [CODE.RENDER_THREW, 0]);
   });
 });
 
-test('closing the service refuses an in-flight render with its tear count', async () => {
+test('closing the service refuses an in-flight render', async () => {
   const service = await createService({ modulePath: fixture('hang'), isolates: 1, admissionTimeoutMs: 10000 });
-  const inFlight = refusalOf(() => collect(service, hang({ timeoutMs: 30000 })));
+  const inFlight = refusalOf(() => service.renderToString(hang({ timeoutMs: 30000 })));
   await new Promise((resolve) => setImmediate(resolve));
   await service.close();
   const err = await inFlight;
-  assert.deepStrictEqual([err.code, err.detail.afterChunks], [CODE.SERVICE_CLOSED, 0]);
+  assert.deepStrictEqual([err.code, err.detail], [CODE.SERVICE_CLOSED, {}]);
 });
 
 // ---------------------------------------------------------------------------

@@ -12,8 +12,8 @@
 //
 // **Bounded: the SERVICE's own overhead.** For one request, that is
 //
-//     overhead = (wall time from `service.render(req)` to the last frame
-//                 of its response being delivered to the caller)
+//     overhead = (wall time from `service.render(req)` to its response
+//                 being delivered to the caller)
 //              - (the render module's own render duration, measured
 //                 inside the isolate around the module's `render` call)
 //

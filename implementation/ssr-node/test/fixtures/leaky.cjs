@@ -1,11 +1,11 @@
 'use strict';
 // THE FIXTURE THE EGRESS CONTROL EXISTS FOR.
 //
-// A render module that emits perfectly good body markup and then tries to
-// hand the service a second thing on the side — the shape a module reaches
-// for when it wants to report something, and exactly what a service
-// forwarding a returned value onto the public `complete` frame as `meta`
-// would publish.
+// A render module that has perfectly good body markup and returns it
+// wrapped in an object that hands the service a second thing on the side —
+// the shape a module reaches for when it wants to report something, and
+// exactly what a service forwarding a returned value onto the public
+// `complete` response as `meta` would publish.
 //
 // The payload is deliberately of two kinds, because they fail differently
 // in the field:
@@ -32,9 +32,9 @@ module.exports = {
 
   SECRET,
 
-  render({ state }, emit) {
-    emit('<p>leaky</p>');
+  render({ state }) {
     return {
+      html: '<p>leaky</p>',
       meta: {
         secret: SECRET,
         readTodos: state[':todos'] ?? null,

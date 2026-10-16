@@ -55,13 +55,13 @@ module.exports = {
     'app/root': { stateAllowlist: [], runtimeAllowlist: [] },
   },
 
-  render({ entry }, emit) {
+  render({ entry }) {
     if (entry === 'app/hang') {
       while (true) {
         Math.sqrt(Date.now());
       }
     }
-    emit('<p>ok</p>');
+    return '<p>ok</p>';
   },
 };
 

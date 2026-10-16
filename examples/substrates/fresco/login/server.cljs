@@ -43,11 +43,9 @@
   ## The render module contract
 
   `{:protocol 1 :buildId <string> :entries {…} :boot fn :render fn}`, and
-  `render` has ONE output channel — `emit`. It returns `js/undefined`
-  rather than `nil`, and the difference is not pedantry: the service
-  refuses a module that returns a VALUE, and CLJS `nil` compiles to `null`,
-  which the contract calls \"a sentence someone wrote\" and refuses along
-  with every other value."
+  `render` returns the body markup as a string — `render-body`'s answer —
+  which is its ONE output channel. The service refuses a module that
+  returns anything else."
   (:require [re-frame.core :as rf]
             [re-frame.fresco.server :as rf.fresco.server]
             [re-frame.fresco.substrate :as rf.fresco.substrate]
@@ -110,34 +108,31 @@
   shared by every request in this isolate, which is the one thing a
   per-request renderer must not do."
   []
-  (rf/init! rf.fresco.substrate/adapter)
-  js/undefined)
+  (rf/init! rf.fresco.substrate/adapter))
 
 (defn- render!
   "Render one request's body. `call` is the frozen `{entry, state, runtime,
-  args}` the service hands a module; `emit` is its only output channel.
+  args}` the service hands a module; the markup string returned is its only
+  output channel.
 
   `state` and `runtime` arrive as key-text -> EDN-text, per partition,
   because the service does not decode application data. `deserialize`
   reads them back under the bundled SAFE EDN reader, and `render-body`
   installs both partitions into a fresh per-request frame in one write."
-  [^js call emit]
+  [^js call]
   (let [partitions (rf.ssr.render-state/deserialize
                      {:rf/app-db     (js->clj (.-state call))
                       :rf/runtime-db (js->clj (.-runtime call))})]
-    (emit (rf.fresco.server/render-body
-            {:hiccup            [views/root-view]
-             :render-state      partitions
-             :identifier-prefix views/identifier-prefix
-             ;; The app's own frame config — `:fx-overrides` points
-             ;; `:rf.http/managed` at the demo stub, exactly as it does in
-             ;; the browser. Its `:initial-events` are NOT run:
-             ;; `render-body` forces the setup vector empty, because the
-             ;; JVM already drained them and the projection is the settled
-             ;; result.
-             :frame-opts        model/frame-config})))
-  ;; `undefined`, not `nil` — see the namespace docstring.
-  js/undefined)
+    (rf.fresco.server/render-body
+      {:hiccup            [views/root-view]
+       :render-state      partitions
+       :identifier-prefix views/identifier-prefix
+       ;; The app's own frame config — `:fx-overrides` points
+       ;; `:rf.http/managed` at the demo stub, exactly as it does in the
+       ;; browser. Its `:initial-events` are NOT run: `render-body` forces
+       ;; the setup vector empty, because the JVM already drained them and
+       ;; the projection is the settled result.
+       :frame-opts        model/frame-config})))
 
 (def module
   "`module.exports` for the sidecar. Named in `shadow-cljs.edn` as the

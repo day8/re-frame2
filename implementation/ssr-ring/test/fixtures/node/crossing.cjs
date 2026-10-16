@@ -7,7 +7,7 @@
 // builtins, no React and no shadow-cljs build — because the witness proves
 // the CROSSING, not a renderer. Its whole job is to make what it was handed
 // visible through the one channel the contract gives a render module: the
-// markup it emits.
+// markup it returns.
 //
 // The values arrive as EDN TEXT, per key, exactly as the wire carries them
 // (`re-frame.ssr.render-state/serialize` on the JVM side). This module
@@ -37,14 +37,14 @@ module.exports = {
     },
   },
 
-  async render({ entry, state, args }, emit) {
+  async render({ entry, state, args }) {
     const delay = Number(state[':delay-ms'] ?? 0);
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-    emit(
+    return (
       `<main data-entry="${escapeHtmlText(entry)}" data-args="${escapeHtmlText(args)}">` +
         `<h1 class="crossing-heading">${escapeHtmlText(state[':heading'])}</h1>` +
         `<p class="crossing-server-only">${escapeHtmlText(state[':server-only'])}</p>` +
-        `</main>`,
+        `</main>`
     );
   },
 };

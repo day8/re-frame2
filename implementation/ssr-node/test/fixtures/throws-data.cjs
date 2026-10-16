@@ -44,8 +44,7 @@ module.exports = {
   protocol: 1,
   buildId: 'throws-data-build-1',
   entries: {
-    'app/plain': ENTRY, // throws before emitting; invented code
-    'app/torn': ENTRY, // emits, THEN throws — the torn response
+    'app/plain': ENTRY, // invented code
     'app/as-caller-fault': ENTRY,
     'app/as-saturated': ENTRY,
     'app/as-deadline': ENTRY,
@@ -53,8 +52,7 @@ module.exports = {
 
   SPOOFED_CODE,
 
-  render({ entry, state }, emit) {
-    if (entry === 'app/torn') emit('<p>first</p>');
+  render({ entry, state }) {
     const err = new Error(`render failed while handling ${state[':for-message']}`);
     // `code` is a bare property on an ordinary `Error` — nothing stops a
     // module setting it, and a module that has its own error taxonomy will.

@@ -8,12 +8,12 @@
 // A Unix socket or a length-prefixed pipe would be a sibling of this
 // file and would touch nothing else.
 //
-// ## THE TWO MODES ARE ONE PROTOCOL READ TWICE
+// ## ONE BUFFERED RESPONSE
 //
-// BUFFERED (the default) collects the chunks, computes a byte-accurate
-// `Content-Length`, and writes once. STREAMING writes each chunk as it
-// arrives under chunked transfer-encoding. They differ only at the edge,
-// and the service beneath them cannot tell which is running.
+// A render is answered with one body: the `html` the service returned,
+// with a byte-accurate `Content-Length`, written once — or with a refusal
+// instead of it. No byte of a body leaves before the render has finished,
+// so there is never a status code already sent when a refusal arrives.
 //
 // ## CONTENT-LENGTH IS COUNTED IN BYTES
 //
@@ -21,14 +21,6 @@
 // UTF-16 code units. A `Content-Length` short by the width of one em dash
 // TRUNCATES the response, and what a truncated SSR body costs is the tail
 // of the markup and any hydration the client was going to do with it.
-//
-// ## A TORN RESPONSE IS NOT A SHORT ONE
-//
-// If a render fails after chunks have already been written to the socket
-// in streaming mode, there is no status code left to send. The socket is
-// DESTROYED rather than ended, so the caller sees a broken transfer and
-// treats it as a failure, instead of a well-formed short page it would
-// have cached and served.
 
 const http = require('node:http');
 const { CODE, Refusal } = require('./protocol.cjs');
@@ -55,11 +47,6 @@ const statusFor = (code) => STATUS[code] ?? 500;
 
 function sendRefusal(res, refusal, requestId) {
   if (res.destroyed || res.writableEnded) return;
-  if (res.headersSent) {
-    // Nothing left to say in-band — see the header's torn-response note.
-    res.destroy();
-    return;
-  }
   const body = JSON.stringify(refusal.toFrame(requestId));
   res.writeHead(statusFor(refusal.code), {
     'content-type': 'application/json; charset=utf-8',
@@ -120,27 +107,7 @@ function readBody(req, maxBytes) {
   });
 }
 
-/**
- * Split a trailing HIGH surrogate off a streamed chunk, to be written with
- * the next one.
- *
- * `emit` takes JavaScript strings and puts no code-point boundary on them,
- * so a module splitting its markup at a code-unit offset can end one chunk
- * on the first half of an astral character and start the next on the
- * second. Encoding each chunk to UTF-8 on its own turns each half into
- * U+FFFD — a 200 whose bytes differ from the buffered mode's, which joins
- * before it encodes. Holding back at most ONE code unit prevents that:
- * the pair is encoded together once its mate arrives, and every other
- * chunk goes out at once. One still held at the end is
- * written alone, which is exactly what the buffered join does with an
- * unmatched surrogate.
- */
-function holdTrailingHighSurrogate(text) {
-  const last = text.charCodeAt(text.length - 1);
-  return last >= 0xd800 && last <= 0xdbff ? [text.slice(0, -1), text.slice(-1)] : [text, ''];
-}
-
-async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) {
+async function handleRender(service, req, res, { maxRequestBytes }) {
   let renderRequest;
   let requestId;
   try {
@@ -184,67 +151,17 @@ async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) 
     return;
   }
 
-  // ONE SELECTOR. Buffered is the default and `?stream=1` is the opt-in,
-  // and there is no second way to say it: no request header and no serve
-  // option selects the framing, so the framing a caller gets cannot be
-  // changed by a magic header or by an in-process option the operational
-  // docs do not teach. `test/bytes.test.cjs` pins that an
-  // `x-rf-ssr-stream: 1` header is inert. Read off the target the listener
-  // already parsed, inside its guard — one parse, not a second unguarded
-  // one.
-  const streaming = requestUrl.searchParams.get('stream') === '1';
-
-  const bufferedHtmlChunks = [];
-  let heldHighSurrogate = '';
   try {
-    for await (const frame of service.renderFrames(renderRequest)) {
-      if (frame.type === 'chunk') {
-        if (streaming) {
-          if (!res.headersSent) {
-            // No `content-length`, so node frames the response as chunked
-            // on its own. Declaring the encoding by hand as well is one
-            // more place for the two to disagree.
-            res.writeHead(200, {
-              'content-type': 'text/html; charset=utf-8',
-              'x-rf-ssr-build': service.buildId,
-              ...(requestId ? { 'x-rf-ssr-request': requestId } : {}),
-            });
-          }
-          const [text, held] = holdTrailingHighSurrogate(heldHighSurrogate + frame.html);
-          heldHighSurrogate = held;
-          if (text) res.write(text, 'utf8');
-        } else {
-          bufferedHtmlChunks.push(frame.html);
-        }
-        continue;
-      }
-      // terminal
-      if (streaming) {
-        if (!res.headersSent) {
-          // A module that emitted nothing cannot happen — the worker
-          // refuses that — so this arm is only reachable if a future
-          // module legitimately produces an empty body.
-          res.writeHead(200, {
-            'content-type': 'text/html; charset=utf-8',
-            'x-rf-ssr-build': service.buildId,
-          });
-        }
-        if (heldHighSurrogate) res.write(heldHighSurrogate, 'utf8');
-        res.end();
-      } else {
-        const body = bufferedHtmlChunks.join('');
-        res.writeHead(200, {
-          'content-type': 'text/html; charset=utf-8',
-          // BYTES. See the header.
-          'content-length': Buffer.byteLength(body, 'utf8'),
-          'x-rf-ssr-build': frame.buildId,
-          'x-rf-ssr-chunks': String(frame.chunks),
-          'x-rf-ssr-render-ms': String(frame.renderMs),
-          ...(requestId ? { 'x-rf-ssr-request': requestId } : {}),
-        });
-        res.end(body, 'utf8');
-      }
-    }
+    const complete = await service.renderToString(renderRequest);
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      // BYTES. See the header.
+      'content-length': Buffer.byteLength(complete.html, 'utf8'),
+      'x-rf-ssr-build': complete.buildId,
+      'x-rf-ssr-render-ms': String(complete.renderMs),
+      ...(requestId ? { 'x-rf-ssr-request': requestId } : {}),
+    });
+    res.end(complete.html, 'utf8');
   } catch (err) {
     sendRefusal(res, err instanceof Refusal ? err : new Refusal(CODE.RENDER_THREW, String(err), {}), requestId);
   }
@@ -293,7 +210,7 @@ function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 <
       return handleHealth(service, res);
     }
     if (req.method === 'POST' && requestUrl.pathname === '/render') {
-      return void handleRender(service, req, res, requestUrl, { maxRequestBytes });
+      return void handleRender(service, req, res, { maxRequestBytes });
     }
     const body = JSON.stringify({
       type: 'refusal',

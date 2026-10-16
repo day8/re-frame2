@@ -1,6 +1,5 @@
 'use strict';
-// The bytes the renderer wrote are the bytes the client receives, and the
-// protocol stays a sequence of frames until the transport's edge.
+// The bytes the renderer wrote are the bytes the client receives.
 //
 // Every byte row compares UTF-8 at the two ends of the crossing over
 // `fixtures/bytes.cjs`, a non-ASCII corpus (3- and 4-byte characters) on
@@ -9,18 +8,20 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
-const { withService, collect, post } = require('./_support.cjs');
+const { withService, post } = require('./_support.cjs');
 const { serve } = require('../src/http.cjs');
 const { CODE } = require('../src/protocol.cjs');
 
 const CORPUS = require('./fixtures/bytes.cjs');
 const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 
+const BYTES_REQUEST = { protocol: 1, entry: 'app/root', state: {} };
+
 test('the bytes out of HTTP are the same bytes, and Content-Length counts them', async () => {
   await withService('bytes', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
     try {
-      const res = await post(`http://127.0.0.1:${http.port}/render`, { protocol: 1, entry: 'app/root', state: {} });
+      const res = await post(`http://127.0.0.1:${http.port}/render`, BYTES_REQUEST);
       assert.deepStrictEqual(
         [res.status, res.buf, Number(res.headers.get('content-length'))],
         [200, Buffer.from(CORPUS.BODY, 'utf8'), utf8(CORPUS.BODY)],
@@ -31,59 +32,10 @@ test('the bytes out of HTTP are the same bytes, and Content-Length counts them',
   });
 });
 
-test('the query is the ONLY streaming selector — a stream header changes nothing', async () => {
-  // A response carrying `content-length` was buffered: a streamed one has none.
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    const body = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<a>","—","<c/>"]' } };
-    try {
-      const plain = await post(`http://127.0.0.1:${http.port}/render`, body);
-      const withHeader = await post(`http://127.0.0.1:${http.port}/render`, body, { 'x-rf-ssr-stream': '1' });
-      assert.deepStrictEqual(
-        [withHeader.status, withHeader.headers.get('content-length'), withHeader.buf],
-        [200, String(plain.buf.length), plain.buf],
-      );
-    } finally {
-      await http.close();
-    }
-  });
-});
-
-test('a multi-chunk render arrives as multiple frames — nothing joins on the way', async () => {
-  // Exact frames, so a fourth field on a chunk (the worker's own `t`/`id`,
-  // say) is a red here rather than a quietly wider public frame.
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const parts = ['<a>', '—', '<c/>', '\u{1D11E}'];
-    const { chunks, complete } = await collect(service, {
-      protocol: 1,
-      entry: 'app/root',
-      state: { ':bytes': JSON.stringify(parts) },
-    });
-    assert.deepStrictEqual(chunks, [
-      { type: 'chunk', seq: 0, html: '<a>' },
-      { type: 'chunk', seq: 1, html: '—' },
-      { type: 'chunk', seq: 2, html: '<c/>' },
-      { type: 'chunk', seq: 3, html: '\u{1D11E}' },
-    ]);
-    assert.strictEqual(complete.chunks, 4);
-  });
-});
-
-test('renderToString is a WRAPPER — it joins what the frames already carried', async () => {
-  // And it carries the complete frame's roster and nothing besides.
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const { renderMs, ...out } = await service.renderToString({
-      protocol: 1,
-      entry: 'app/root',
-      state: { ':bytes': JSON.stringify(['<p>one</p>', '<p>two</p>']) },
-    });
-    assert.strictEqual(typeof renderMs, 'number');
-    assert.deepStrictEqual(out, {
-      html: '<p>one</p><p>two</p>',
-      type: 'complete',
-      chunks: 2,
-      buildId: 'chunked-build-1',
-    });
+test('in process, html IS the module\'s string — nothing re-escapes or re-encodes it', async () => {
+  await withService('bytes', { isolates: 1 }, async (service) => {
+    const { html } = await service.renderToString(BYTES_REQUEST);
+    assert.strictEqual(html, CORPUS.BODY);
   });
 });
 
@@ -152,9 +104,8 @@ function rawGet(port, target) {
 test('a target the URL parser refuses is a 400, and the SAME service keeps serving', async () => {
   // Unguarded, the listener's throw would take the whole sidecar down: the
   // process, not this row, would fail.
-  await withService('chunked', { isolates: 1 }, async (service) => {
+  await withService('bytes', { isolates: 1 }, async (service) => {
     const http = await serve({ service, port: 0 });
-    const ok = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<p>ok</p>"]' } };
     try {
       const raw = await rawGet(http.port, '//');
       assert.strictEqual(raw.split('\r\n')[0], 'HTTP/1.1 400 Bad Request', raw);
@@ -162,39 +113,9 @@ test('a target the URL parser refuses is a 400, and the SAME service keeps servi
       assert.match(raw, /\r\nx-rf-ssr-refusal: :rf\.ssr-node\/malformed-request\r\n/i);
       const health = await fetch(`http://127.0.0.1:${http.port}/health`);
       assert.strictEqual(health.status, 200, '/health after the bad targets');
-      const render = await post(`http://127.0.0.1:${http.port}/render`, ok);
-      assert.deepStrictEqual([render.status, render.text], [200, '<p>ok</p>']);
+      const render = await post(`http://127.0.0.1:${http.port}/render`, BYTES_REQUEST);
+      assert.deepStrictEqual([render.status, render.text], [200, CORPUS.BODY]);
       assert.strictEqual((await rawGet(http.port, '/missing')).split('\r\n')[0], 'HTTP/1.1 404 Not Found');
-    } finally {
-      await http.close();
-    }
-  });
-});
-
-test('the STREAMING mode delivers the buffered bytes exactly, even with a surrogate pair SPLIT across chunks', async () => {
-  // The reference is the joined string's own UTF-8, so the two modes cannot
-  // agree on a wrong answer; the unmatched surrogate shows the reference is
-  // Node's encoding and not a cleaned one.
-  const cases = [
-    ['an empty chunk between the halves', ['<p>\uD834', '', '\uDD1E</p>']],
-    ['several split pairs', ['\uD834', '\uDD1E\uD834', '\uDD1E<i>\uD83D', '\uDE00</i>']],
-    ['a high surrogate never matched', ['<p>', '\uD834']],
-  ];
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    try {
-      for (const [name, parts] of cases) {
-        const expected = Buffer.from(parts.join(''), 'utf8');
-        const body = { protocol: 1, entry: 'app/root', state: { ':bytes': JSON.stringify(parts) } };
-        const buffered = await post(`http://127.0.0.1:${http.port}/render`, body);
-        const streamed = await post(`http://127.0.0.1:${http.port}/render?stream=1`, body);
-        assert.deepStrictEqual(
-          [buffered.status, streamed.status, buffered.buf, streamed.buf,
-            buffered.headers.get('content-length'), streamed.headers.get('content-length')],
-          [200, 200, expected, expected, String(expected.length), null],
-          name,
-        );
-      }
     } finally {
       await http.close();
     }
@@ -206,47 +127,38 @@ test('a requestId no HTTP header can carry is refused as a caller fault, before 
   // value at `writeHead` — after the render — so unchecked it would surface
   // as a `render-threw` 500. One id above U+00FF and one carrying CR/LF.
   const ids = ['correlation-…', 'correlation\r\nx-injected: 1'];
-  const body = (requestId) => ({
-    protocol: 1,
-    entry: 'app/root',
-    requestId,
-    state: { ':bytes': '["<p>ok</p>"]' },
-  });
-  await withService('chunked', { isolates: 1 }, async (service) => {
+  const body = (requestId) => ({ ...BYTES_REQUEST, requestId });
+  await withService('bytes', { isolates: 1 }, async (service) => {
     for (const id of ids) {
       assert.strictEqual((await service.renderToString(body(id))).requestId, id, 'in-process, any string correlates');
     }
     const rendered = [];
-    const renderFrames = service.renderFrames.bind(service);
-    service.renderFrames = (request) => {
+    const renderToString = service.renderToString.bind(service);
+    service.renderToString = (request) => {
       rendered.push(request.requestId);
-      return renderFrames(request);
+      return renderToString(request);
     };
     const http = await serve({ service, port: 0 });
     try {
       for (const id of ids) {
-        for (const selector of ['/render', '/render?stream=1']) {
-          const res = await post(`http://127.0.0.1:${http.port}${selector}`, body(id));
-          const frame = JSON.parse(res.text);
-          assert.deepStrictEqual(
-            [res.status, res.headers.get('x-rf-ssr-refusal'), frame.detail.field, frame.requestId],
-            [400, CODE.BAD_REQUEST_FIELD, 'requestId', id],
-            `${selector} ${JSON.stringify(id)}`,
-          );
-        }
+        const res = await post(`http://127.0.0.1:${http.port}/render`, body(id));
+        const frame = JSON.parse(res.text);
+        assert.deepStrictEqual(
+          [res.status, res.headers.get('x-rf-ssr-refusal'), frame.detail.field, frame.requestId],
+          [400, CODE.BAD_REQUEST_FIELD, 'requestId', id],
+          JSON.stringify(id),
+        );
       }
       assert.deepStrictEqual(rendered, [], 'no unrepresentable id may reach the renderer');
 
-      // CONTROL — an ASCII id renders and is echoed in both modes, and the
-      // counter really does count.
-      for (const selector of ['/render', '/render?stream=1']) {
-        const res = await post(`http://127.0.0.1:${http.port}${selector}`, body('corr-ascii-1'));
-        assert.deepStrictEqual(
-          [res.status, res.headers.get('x-rf-ssr-request'), res.text],
-          [200, 'corr-ascii-1', '<p>ok</p>'],
-        );
-      }
-      assert.deepStrictEqual(rendered, ['corr-ascii-1', 'corr-ascii-1']);
+      // CONTROL — an ASCII id renders and is echoed, and the counter really
+      // does count.
+      const res = await post(`http://127.0.0.1:${http.port}/render`, body('corr-ascii-1'));
+      assert.deepStrictEqual(
+        [res.status, res.headers.get('x-rf-ssr-request'), res.text],
+        [200, 'corr-ascii-1', CORPUS.BODY],
+      );
+      assert.deepStrictEqual(rendered, ['corr-ascii-1']);
     } finally {
       await http.close();
     }

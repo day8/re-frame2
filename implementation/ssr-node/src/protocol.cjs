@@ -2,27 +2,25 @@
 // THE JVM<->NODE RENDER PROTOCOL.
 //
 // This file is the contract and its validator, and it knows nothing about
-// HTTP, worker threads or how any of it is framed on a wire. That is the
-// separability requirement discharged at its root: the protocol is a set
-// of MESSAGE SHAPES, and a transport is an adapter over them. `http.cjs`
+// HTTP, worker threads or how any of it is framed on a wire: the protocol
+// is a set of MESSAGE SHAPES, and a transport is an adapter over them. `http.cjs`
 // is one such adapter; a socket, a length-prefixed pipe or an in-process
 // call would be others, and none of them would touch this file.
 //
-// ## A RESPONSE IS A SEQUENCE OF FRAMES, NOT A STRING
+// ## A RESPONSE IS ONE BODY, OR A REFUSAL INSTEAD OF IT
 //
-// No layer bakes in "one complete string", so that a streaming caller
-// does not need a second semantics. Every response here is N `chunk`
-// frames followed by one terminal frame, where N is 1 for a
-// `renderToString` module and many for a streaming one. Joining is a
-// decision the TRANSPORT makes, once, at the edge — never something a
-// middle layer does on the way past, because a middle layer that joins is
-// a middle layer that has to be rewritten.
+// The render module returns its body markup as a string — React's
+// `renderToString` output, in a Fresco bundle — and a response is that
+// string in one `complete` message, or one `refusal` in its place. One
+// buffered body is all either side reads: the JVM adapter POSTs to
+// `/render` and takes the whole body, and Spec 011 specifies a whole-page
+// response. A streaming render would be a separate, stream-returning form
+// behind the JVM's `:renderer` seam, with flow control and cancellation of
+// its own, added beside this one rather than latent in it.
 //
-// A refusal arrives INSTEAD OF chunks and never after them. A caller that
-// has begun writing bytes to its own client cannot un-write them, so
-// everything refusable is refused before the first chunk leaves the
-// isolate. That ordering is a property of `validateRequest` running to
-// completion before dispatch, and it is asserted in `protocol.test.cjs`.
+// Every caller-fault refusal is delivered before an isolate is borrowed,
+// because `validateRequest` runs to completion before dispatch; that is
+// asserted in `protocol.test.cjs`.
 //
 // ## NODE RETURNS BODY MARKUP AND NOTHING ELSE
 //
@@ -82,10 +80,11 @@
 // a `meta` map in the other. `COMPLETE_FIELDS` is therefore the response
 // leg's field list, and it is the same kind of object as `REQUEST_FIELDS`
 // rather than a comment: every member is a fact the SERVICE owns about
-// the crossing it just performed, and there is no member — and no
-// mechanism — by which the application's render module contributes one.
-// The module's only output channel is `emit`, and `MODULE_RETURN_REFUSAL`
-// is the reason a module that reaches for a second one is told no.
+// the crossing it just performed, except `html`, the body markup itself —
+// and there is no other member, and no mechanism, by which the
+// application's render module contributes one. The string `render` returns
+// is the module's only output channel, and `worker.cjs` refuses a module
+// that returns anything else.
 
 const PROTOCOL_VERSION = 1;
 
@@ -159,15 +158,16 @@ const REFUSED_FIELDS = Object.freeze({
 });
 
 /**
- * EVERY field a `complete` frame carries. The response leg's half of the
+ * EVERY field a `complete` response carries. The response leg's half of the
  * contract, and the same kind of list as `REQUEST_FIELDS` — see the header.
  *
- * Read the members as a single claim: each one is a fact about the
- * CROSSING, produced by this service, and none of them originates in the
- * application's render module.
+ * Read the members as a single claim: `html` is the body markup the
+ * application's render module returned, and every other member is a fact
+ * about the CROSSING, produced by this service — none of them originates
+ * in the module.
  *
- *   `type`      — the frame discriminator.
- *   `chunks`    — how many body chunks preceded this frame. Counted here.
+ *   `type`      — the discriminator, beside a refusal's `'refusal'`.
+ *   `html`      — the body markup, exactly as the module returned it.
  *   `renderMs`  — how long the module's render took. Timed here.
  *   `buildId`   — which bundle answered. Read from the module's published
  *                 table at boot, not from the render.
@@ -182,34 +182,7 @@ const REFUSED_FIELDS = Object.freeze({
  * server-arm pricing calls "the host fork arriving by increments", and
  * `test/egress.test.cjs` is the row that will say so.
  */
-const COMPLETE_FIELDS = Object.freeze(['type', 'chunks', 'renderMs', 'buildId', 'requestId']);
-
-/**
- * Why a render module that returns a value is refused rather than having
- * its value quietly dropped.
- *
- * The wording lives here, with the contract, because it IS the contract:
- * the module has one output channel and dropping a second one silently is
- * how a second one survives long enough to be depended on. A returned
- * value forwarded to the caller — as `meta`, say — over a transport that
- * happens not to serialise it would leave "the current transport drops
- * it" doing the work a guarantee is supposed to do.
- *
- * THE ACCEPTED SET IS `{ undefined }` and nothing else. `null` is not
- * spared on the reading that it is a kind of nothing; it is not. Falling
- * off the end of a function produces
- * `undefined`, so `undefined` is what absence looks like here, while
- * `return null` is a sentence someone wrote — and it is the likeliest
- * deliberate return this contract will ever be handed, because it reads
- * as "nothing to say". A guarantee that admits one value is fail-closed
- * except, with the exception on the most probable path.
- */
-const MODULE_RETURN_REFUSAL =
-  'the render module returned a value. `emit` is its only output channel: this contract ' +
-  'carries body markup and nothing else, so a second way out of the isolate is application ' +
-  'data crossing a boundary that has no policy for it — the host fork arriving by increments. ' +
-  'Falling off the end — `undefined` — is the only accepted return; `null` is a value, not ' +
-  'an absence. Render what the module has to say, and return nothing.';
+const COMPLETE_FIELDS = Object.freeze(['type', 'html', 'renderMs', 'buildId', 'requestId']);
 
 /**
  * What a caller is told when the render module threw.
@@ -219,8 +192,9 @@ const MODULE_RETURN_REFUSAL =
  * string beats the obvious alternative.
  *
  * A thrown `Error` is the OTHER way out of a render, and it can carry
- * what the returned value is refused for. `message` is built from the
- * value being processed in every renderer worth the name — React names the
+ * application data that only the returned body markup may carry.
+ * `message` is built from the value being processed in every renderer
+ * worth the name — React names the
  * property that was undefined, a validator quotes the input, a template
  * interpolates the row — so this is not a leak that needs a module doing
  * something strange; it is a leak that needs a module having a bug.
@@ -366,7 +340,7 @@ class Refusal extends Error {
     this.code = code;
     this.detail = detail;
   }
-  /** The wire frame. Terminal, and never preceded by a chunk. */
+  /** The wire frame, sent instead of a `complete` response. */
   toFrame(requestId) {
     return {
       type: 'refusal',
@@ -688,19 +662,16 @@ function validateRequest(request, moduleTables, limits = {}) {
   };
 }
 
-/** A body chunk. `seq` is monotonic per response and starts at 0. */
-const chunkFrame = (seq, html) => ({ type: 'chunk', seq, html });
-
 /**
- * The terminal success frame. Everything that is not body markup — and
- * `COMPLETE_FIELDS` is the whole of it. There is deliberately no rest
- * parameter and no spread of a caller-supplied object here: a constructor
- * that copies whatever it is handed is a field list that grows without
- * anyone editing the field list.
+ * The success response: the body markup and the facts this service owns
+ * about it — `COMPLETE_FIELDS` is the whole of it. There is deliberately no
+ * rest parameter and no spread of a caller-supplied object here: a
+ * constructor that copies whatever it is handed is a field list that grows
+ * without anyone editing the field list.
  */
-const completeFrame = ({ chunks, renderMs, buildId, requestId }) => ({
+const completeFrame = ({ html, renderMs, buildId, requestId }) => ({
   type: 'complete',
-  chunks,
+  html,
   renderMs,
   buildId,
   ...(requestId === undefined ? {} : { requestId }),
@@ -713,7 +684,6 @@ module.exports = {
   PARTITIONS,
   REFUSED_FIELDS,
   COMPLETE_FIELDS,
-  MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
   REPLACEMENT_FAILED_REFUSAL,
@@ -721,6 +691,5 @@ module.exports = {
   Refusal,
   validateModule,
   validateRequest,
-  chunkFrame,
   completeFrame,
 };

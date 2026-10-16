@@ -15,29 +15,16 @@ module.exports = {
   entries: {
     'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] },
     'app/quick': { stateAllowlist: [], runtimeAllowlist: [] },
-    // The TORN arm: chunks are already on their way when the deadline
-    // fires, so the refusal has to name how many. `app/root` is
-    // the clean counterpart (nothing emitted, `afterChunks` 0), and the
-    // pair is what makes the count a measurement rather than a constant.
-    'app/torn': { stateAllowlist: [], runtimeAllowlist: [] },
   },
 
-  render({ entry }, emit) {
-    if (entry === 'app/torn') {
-      emit('<p>first</p>');
-      emit('<p>second</p>');
-      while (true) {
-        Math.sqrt(Date.now());
-      }
-    }
+  render({ entry }) {
     if (entry === 'app/quick') {
       // The thread id is what proves a REPLACEMENT rather than a revival:
       // a terminated isolate is never reused, so the isolate that serves
       // the request after a timeout must be a different thread. It rides
       // the markup, because that is the only channel out of here.
       const threadId = require('node:worker_threads').threadId;
-      emit(`<p${encode({ threadId })}>quick</p>`);
-      return;
+      return `<p${encode({ threadId })}>quick</p>`;
     }
     while (true) {
       // Touch something so no engine can optimise the loop away.

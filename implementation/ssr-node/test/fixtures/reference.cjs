@@ -11,10 +11,9 @@
 // TypeError when it writes to a frozen snapshot, which is what makes the
 // freeze visible.
 //
-// It reports what it observed by RENDERING it — the one channel the
-// contract gives a render module, and the reason `test/observations.cjs`
-// exists. It returns nothing, because a render module has nothing to
-// return.
+// It reports what it observed by RENDERING it into the body markup it
+// returns — the one channel the contract gives a render module, and the
+// reason `test/observations.cjs` exists.
 
 const { encode } = require('../observations.cjs');
 
@@ -75,8 +74,7 @@ module.exports = {
       // Exactly the keys `observe` reads. An allowlist member this module
       // never looks at is state it would admit and drop, which is the
       // opposite of what a fail-closed allowlist is for — the byte-fidelity
-      // rows have their own fixture (`chunked.cjs`, `bytes.cjs`) and their
-      // own `:bytes` entry.
+      // rows have their own fixture (`bytes.cjs`).
       stateAllowlist: [':todos', ':route', ':delay'],
       runtimeAllowlist: [':rf.runtime/routing'],
     },
@@ -87,7 +85,7 @@ module.exports = {
     globalThis[BOOTS] += 1;
   },
 
-  async render(call, emit) {
+  async render(call) {
     inFlight += 1;
     overlapMax = Math.max(overlapMax, inFlight);
     try {
@@ -101,7 +99,7 @@ module.exports = {
       // could never see an overlap it was measuring.
       observed.overlapMax = overlapMax;
 
-      emit(`<div data-entry="${entry}"${encode(observed)}>${state[':todos'] ?? ''}</div>`);
+      return `<div data-entry="${entry}"${encode(observed)}>${state[':todos'] ?? ''}</div>`;
     } finally {
       inFlight -= 1;
     }

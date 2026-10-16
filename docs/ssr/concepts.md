@@ -830,22 +830,20 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
   (into-array (map pr-str (get policy/render-state-policy slot))))
 
 (defn- boot! []
-  (rf/init! substrate/adapter)
-  js/undefined)
+  (rf/init! substrate/adapter))
 
-(defn- render! [^js call emit]
+(defn- render! [^js call]
   (let [partitions (render-state/deserialize
                      {:rf/app-db     (js->clj (.-state call))
                       :rf/runtime-db (js->clj (.-runtime call))})]
-    (emit (server/render-body
-            {:hiccup            [views/root-view]
-             :render-state      partitions
-             :identifier-prefix views/identifier-prefix
-             ;; The host's frame config, so `route-link` hrefs carry the
-             ;; same base path. Its `:initial-events` do not run here: the
-             ;; JVM already drained them.
-             :frame-opts        policy/frame-config})))
-  js/undefined)
+    (server/render-body
+      {:hiccup            [views/root-view]
+       :render-state      partitions
+       :identifier-prefix views/identifier-prefix
+       ;; The host's frame config, so `route-link` hrefs carry the same
+       ;; base path. Its `:initial-events` do not run here: the JVM
+       ;; already drained them.
+       :frame-opts        policy/frame-config})))
 
 (def module
   #js {:protocol 1
@@ -860,9 +858,9 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
 Two details matter. **The allowlists belong to the entry**, not to the caller,
 so a host cannot widen its own allowance; an entry that declares no list for a
 partition cannot be rendered at all, because a missing list means nothing may
-be read. And **`render` returns `js/undefined`, not `nil`**: `emit` is its only
-output, and the service refuses a module that returns a value. CLJS `nil`
-compiles to `null`, which counts as a value.
+be read. And **`render` returns the body markup as a string** (or a promise of
+one), here `render-body`'s answer. That string is the module's only output, and
+the service refuses a render that returns anything else.
 
 **Only projected state crosses to Node.** The request carries the two
 render-state partitions and none of the JVM frame's config, so the render

@@ -208,22 +208,20 @@
 
 (defn- hand-to-module!
   "Hand the module the frozen call shape `worker.cjs` builds, and answer
-  `{:html … :returned …}`. `:returned` is what `render` gave back, which the
-  contract requires to be `undefined`."
+  what `render` returns — the body markup, which the contract requires to
+  be a string."
   [^js request]
-  (let [call     (js/Object.freeze
-                   #js {:entry   (.-entry request)
-                        :state   (js/Object.freeze (.-state request))
-                        :runtime (js/Object.freeze (.-runtime request))
-                        :args    (.-args request)})
-        !html    (atom nil)
-        returned ((.-render module) call (fn [html] (reset! !html html)))]
-    {:html @!html :returned returned}))
+  (let [call (js/Object.freeze
+               #js {:entry   (.-entry request)
+                    :state   (js/Object.freeze (.-state request))
+                    :runtime (js/Object.freeze (.-runtime request))
+                    :args    (.-args request)})]
+    ((.-render module) call)))
 
 (defn- crossing!
-  "One request, end to end: project -> serialize -> VALIDATE -> render.
-  Throws the sidecar's own `Refusal` when the request is refused. Needs the
-  validator, so it is a node-lane row."
+  "One request, end to end: project -> serialize -> VALIDATE -> render, and
+  answer the body markup. Throws the sidecar's own `Refusal` when the
+  request is refused. Needs the validator, so it is a node-lane row."
   [frame-id]
   (hand-to-module!
     (.validateRequest ^js @protocol (request-js (wire-of frame-id)) tables #js {})))
@@ -237,7 +235,7 @@
   already been proved valid there. The `state` / `runtime` objects are the
   wire's, unchanged; only the door is missing."
   [frame-id]
-  (:html (hand-to-module! (request-js (wire-of frame-id)))))
+  (hand-to-module! (request-js (wire-of frame-id))))
 
 (defn- with-frame! [events extra-db f]
   (let [fid (server-frame! events extra-db)]
@@ -292,19 +290,19 @@
     (fn []
       (with-frame! idle-events nil
         (fn [fid]
-          (let [{:keys [html returned]} (crossing! fid)]
+          (let [html (crossing! fid)]
             (is (str/includes? html "Sign in") "the page rendered")
             (is (str/includes? html "ada@example.com")
                 "the app-db partition reached the controlled input's :value")
-            (is (undefined? returned)
-                "`emit` is the module's only output channel - a returned VALUE is refused")))))))
+            (is (string? html)
+                "`render` returns the body markup as a string - the module's only output channel")))))))
 
 (deftest the-machine-snapshot-decides-which-face-renders
   (crossing-row!
     (fn []
       (testing "the two faces come from ONE render-state policy and TWO runtime-db values"
-        (let [idle   (with-frame! idle-events   nil #(:html (crossing! %)))
-              authed (with-frame! authed-events nil #(:html (crossing! %)))]
+        (let [idle   (with-frame! idle-events   nil crossing!)
+              authed (with-frame! authed-events nil crossing!)]
           (is (str/includes? idle "login-form")
               ":idle - the machine carries no tag, so the form renders")
           (is (not (str/includes? idle "Welcome!")))
@@ -322,7 +320,7 @@
     (fn []
       (with-frame! idle-events nil
         (fn [fid]
-          (let [html (:html (crossing! fid))
+          (let [html (crossing! fid)
                 edn  (pr-str (payload-of fid))]
             (is (not (str/includes? html "correct-horse"))
                 "the draft password is classified :sensitive, so the projection redacts it BEFORE the wire - the render cannot print what it was never handed")

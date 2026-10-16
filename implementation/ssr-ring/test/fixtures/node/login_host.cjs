@@ -47,16 +47,16 @@ module.exports = {
     },
   },
 
-  async render({ entry, state, runtime }, emit) {
+  async render({ entry, state, runtime }) {
     const sortedKeyList = (partition) => Object.keys(partition ?? {}).sort().join(' ');
-    emit(
+    return (
       `<main data-entry="${escapeHtmlText(entry)}">` +
         `<div class="login-state-keys">${escapeHtmlText(sortedKeyList(state))}</div>` +
         `<div class="login-runtime-keys">${escapeHtmlText(sortedKeyList(runtime))}</div>` +
         `<div class="login-draft">${escapeHtmlText(state[':auth'])}</div>` +
         `<div class="login-notice">${escapeHtmlText(state[':auth.login/server-notice'])}</div>` +
         `<div class="login-machines">${escapeHtmlText(runtime[':rf.runtime/machines'])}</div>` +
-        `</main>`,
+        `</main>`
     );
   },
 };
