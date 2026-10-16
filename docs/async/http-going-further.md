@@ -1,8 +1,8 @@
 # HTTP interceptors
 
 Add authentication headers to every article request with one registration.
-A per-frame HTTP interceptor can change outgoing requests in `:before` and
-incoming replies in `:after`.
+An HTTP interceptor can change outgoing requests in `:before` and incoming
+replies in `:after`, for every frame that names it.
 
 ## Interceptors: stamp every request once
 
@@ -17,7 +17,6 @@ in `:before` so each new request uses the current token:
 (rf/reg-http-interceptor
   :app/bearer-auth
   {:doc    "Stamp Bearer <token> on every outgoing request."
-   :frame  :app/articles
    :before (fn [ctx]
              (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
@@ -34,9 +33,16 @@ in `:before` so each new request uses the current token:
             :on-failure [:article/load-error]}]]}))
 ```
 
-The interceptor names `:app/articles`, the same frame used by the tutorial.
-Register it before that frame issues its first request. It also applies to HTTP
-requests issued by resources and mutations in that frame.
+The registration belongs to no frame. A frame turns it on by naming its id in
+`:http-interceptors`; here that is `:app/articles`, the same frame used by the
+tutorial:
+
+```clojure
+[rf/frame-root {:id :app/articles :http-interceptors [:app/bearer-auth]}
+ [article-view]]
+```
+
+It also applies to HTTP requests issued by resources and mutations in that frame.
 
 <a id="keeping-secrets-out-of-the-trace"></a>
 
@@ -61,28 +67,31 @@ article handlers can read a structured value:
 (rf/reg-http-interceptor
   :app/rate-limit
   {:doc   "Parse X-RateLimit-* once; downstream handlers read :rate-limit."
-   :frame :app/articles
    :after (fn [_ctx response]
             (let [remaining (some-> (get-in response [:meta :headers "x-ratelimit-remaining"])
                                     parse-long)]
               (cond-> response
                 remaining (assoc :rate-limit {:remaining remaining}))))})
+
+;; and the frame names both:
+;; {:id :app/articles :http-interceptors [:app/bearer-auth :app/rate-limit]}
 ```
 
 ## Registration and lifetime
 
-- An interceptor applies only to requests from its [frame](../core/frames.md).
-  Pass `:frame`, or register inside `rf/with-frame`. No frame in scope raises
-  `:rf.error/no-frame-context`.
-- `:before` runs in registration order; `:after` runs in reverse, as with
-  [event interceptors](../core/interceptors.md).
+- An interceptor applies only to requests from a [frame](../core/frames.md)
+  that names it in `:http-interceptors`. Register it at the top level, with no
+  `:frame`; frames that need different behaviour name different ids.
+- `:before` runs in the order of the frame's `:http-interceptors` vector;
+  `:after` runs in reverse, as with [event interceptors](../core/interceptors.md).
+  Load order sets nothing.
 - The chain is captured at request start. `:before` runs once, and retries reuse
   that request, including its token. `:after` runs once on the final reply,
   including cancellation. Refreshing a token and issuing another request belongs
   in the application's authentication flow.
-- Re-registering an id replaces it in place. Remove it with
-  `(rf/clear :http-interceptor id {:frame :app/articles})`; a later registration
-  appends it to the chain.
+- Re-registering an id replaces it for every frame that names it.
+  `(rf/clear :http-interceptor id)` removes it for every frame; to stop one
+  frame running it, leave the id out of that frame's `:http-interceptors`.
 
 [Add authentication](../core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary)
 uses this pattern for a complete login flow. The [interceptor reference](../api/re-frame.http.md#request-interceptors)
@@ -92,8 +101,8 @@ records the context fields and registration forms.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/no-frame-context` | No frame was named or in scope | Pass `:frame :app/articles`, or register inside its frame scope |
-| `:rf.error/http-bad-interceptor` | Neither phase is a function, or the id/frame is invalid | Supply at least one function phase and keyword ids |
+| `:rf.error/unregistered-interceptor` | The frame's `:http-interceptors` names an id nothing registered | Require the namespace that registers it, or fix the id |
+| `:rf.error/http-bad-interceptor` | Neither phase is a function, the id is not a keyword, or the map carries `:frame` | Supply at least one function phase and a keyword id; name the id in the frame's `:http-interceptors` instead of passing `:frame` |
 | `:rf.error/http-interceptor-bad-return` | A phase returned a non-map | Return the request context from `:before` and the reply map from `:after` |
 | `:rf.error/http-interceptor-failed` | A phase threw | Handle expected failures in the phase; a failed `:before` sends no request, and a failed `:after` delivers no reply |
 

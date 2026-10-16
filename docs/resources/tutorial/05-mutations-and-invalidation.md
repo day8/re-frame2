@@ -216,11 +216,11 @@ server rejects the second article's favorite, so its button shows the error.
    [:get    (str api-base "/articles/draft")]            {:reply {:ok (article "draft" "A draft" false 0)}}
    [:post   (str api-base "/articles/draft/favorite")]   {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}})
 
-;; Log each request that reaches the stubbed API.
+;; Log each request that reaches the stubbed API. The frame below names it
+;; in :http-interceptors.
 (def requests (r/atom []))
 (rf/reg-http-interceptor :conduit/request-log
-  {:frame  :conduit
-   :before (fn [ctx]
+  {:before (fn [ctx]
              (let [{:keys [method url]} (:request ctx)]
                (swap! requests conj (str (str/upper-case (name method)) " " (subs url (count api-base))))
                ctx))})
@@ -312,6 +312,7 @@ server rejects the second article's favorite, so its button shows the error.
    (into [:ol] (for [r @requests] [:li r]))])
 
 [rf/frame-root {:id :conduit
+                :http-interceptors [:conduit/request-log]
                 :initial-events [[:rf/set-db {:auth {:user {:username "alice"} :token "alice-token"}}]
                                  [:rf.resource/ensure {:resource :conduit/article :params {:slug "welcome"} :owner [:demo/cards]}]
                                  [:rf.resource/ensure {:resource :conduit/article :params {:slug "draft"} :owner [:demo/cards]}]]
