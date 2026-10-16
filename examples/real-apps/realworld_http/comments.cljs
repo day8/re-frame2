@@ -8,8 +8,8 @@
 
    - `:article` and `:comments` in the plain remote-data slice shape.
    - `:comment-form` in the plain form slice shape.
-   - Route-driven loads that read the current slug off the runtime-db
-     coeffect at `[:rf.runtime/routing :current :params :slug]`.
+   - Route-driven loads that read the slug off the activation target the
+     router appends to each `:on-match` event.
    - Everything that writes this page's state staying owned by the route
      identity — the reads, the comment mutations, and the article's own
      social buttons alike: each slice records the slug it is loading, every
@@ -217,9 +217,8 @@
 ;; ============================================================================
 
 (rf/reg-event :article/load
-  {:doc "Load the article named by
-         `[:rf.runtime/routing :current :params :slug]` (the route lives in
-         runtime-db).
+  {:doc "Load the article named by the `:slug` param of the activation target
+         the route's `:on-match` appends: `[:article/load target]`.
 
          This one's a little demo of the unified reply spelling. Point
          `:reply-to` back at this very same event id and the framework delivers
@@ -238,12 +237,13 @@
          `:fetching` refresh), so the page never renders one slug's article
          under another slug's URL. See THE CORRELATION GATE above."
    :rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ slug reply]]
+  (fn [{:keys [db rf/time-ms]} [_ target-or-slug reply]]
     (if reply
-      ;; Reply hat — the answer's back, carrying the slug it was requested
-      ;; for. The correlation gate first: a reply whose slug is no longer the
-      ;; slice's is not this screen's to act on — return nil, change nothing.
-      (when (reply-for-current-slug? db :article slug)
+      ;; Reply hat — `[:article/load slug reply]`, the answer back and carrying
+      ;; the slug it was requested for. The correlation gate first: a reply
+      ;; whose slug is no longer the slice's is not this screen's to act on —
+      ;; return nil, change nothing.
+      (when (reply-for-current-slug? db :article target-or-slug)
         (case (:status reply)
           :ok
           {:db (-> db
@@ -257,12 +257,13 @@
                    (assoc-in [:article :status] :error)
                    (assoc-in [:article :error] (rh/failure->message (:error reply))))}))
 
-      ;; Request hat — first time through, fire the managed request. `:reply-to`
-      ;; brings the one reply right back to this event, slug aboard. A
-      ;; same-slug re-entry is a refresh (keep the loaded article up,
-      ;; `:fetching`); a different slug is a new identity (reset the slice, so
-      ;; the old article is not renderable while the new one loads).
-      (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
+      ;; Request hat — `[:article/load target]`, first time through: fire the
+      ;; managed request. `:reply-to` brings the one reply right back to this
+      ;; event, slug aboard. A same-slug re-entry is a refresh (keep the loaded
+      ;; article up, `:fetching`); a different slug is a new identity (reset
+      ;; the slice, so the old article is not renderable while the new one
+      ;; loads).
+      (let [slug     (get-in target-or-slug [:params :slug])
             refresh? (reply-for-current-slug? db :article slug)
             slice    (if refresh?
                        (:article db)
@@ -312,8 +313,8 @@
          after the reader reached beta is refused, and refusing it is only
          safe because the navigation has ALREADY released the form. Reset and
          gate are two halves of one guarantee."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
+  (fn [{:keys [db]} [_ target]]
+    (let [slug     (get-in target [:params :slug])
           refresh? (reply-for-current-slug? db :comments slug)
           slice    (if refresh?
                      (:comments db)

@@ -56,8 +56,10 @@ are its [activation work](#activation-work), not its loader. See [Activation wor
 
 ### **activation work**
 
-The events a [route](#route) lists under `:on-match`. The runtime dispatches them
-whenever the route becomes active, including when its params change but not when
+The events a [route](#route) lists under `:on-match`. The runtime dispatches them,
+each with the activation target `{:route-id :params :query :fragment :url :nav-token}`
+appended as its last argument, whenever the route becomes active, including when
+its params change but not when
 the same address is navigated to again, and then moves on: it never waits for them,
 and they never move [transition](#transition). A handler that throws reports on the
 ordinary event error channel. Data the page cannot render without belongs in the
