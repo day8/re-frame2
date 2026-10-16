@@ -232,14 +232,13 @@
 
 (defn- large-shadow-set
   "The subset of `large-set` whose paths have a `:sensitive` path strictly BELOW
-  them — a `:large`-marked subtree containing a `:sensitive` descendant. Per
-  Spec 015 §No-propagation (L338, a normative MUST) such a subtree REDACTS
-  (descend + redact the descendant) rather than emitting a size-preview marker
-  that would leak `:bytes` / `:type` (and, off-box with digests on, a SHA-256
-  digest computed over a subtree that contains the secret — a brute-force
-  oracle). Computed once per walk; empty in the common no-nesting case. The
-  peer of `re-frame.elision/large-keys-shadowing-sensitive`, over path SETS
-  rather than declaration tables."
+  them — a `:large`-marked subtree containing a `:sensitive` descendant. Such a
+  node still gets the ordinary size marker, measured over the subtree AFTER its
+  sensitive descendants redact, so the marker never varies with a secret (Spec
+  015 §No propagation, 009 §Wire marker). Computed once per walk; empty in the
+  common no-nesting case. The peer of
+  `re-frame.elision/large-keys-shadowing-sensitive`, over path SETS rather than
+  declaration tables."
   [sensitive-set large-set]
   (into #{} (filter (fn [lp] (some #(strict-prefix? lp %) sensitive-set))) large-set))
 
@@ -297,8 +296,8 @@
   "Walk `v` and substitute sentinels at the declared paths. Paths in
   `sensitive-paths` and `large-paths` are rooted at `v`. Sensitive wins over
   large at the same path; a large-marked subtree containing a sensitive
-  descendant descends-and-redacts rather than emitting a size marker
-  (nested-axis suppression).
+  descendant gets the ordinary size marker, measured over the subtree after
+  that descendant redacts.
 
   `index-free?` selects how a COLLECTION is read. Default false — every index
   and key is a declaration segment, so matching is the exact path membership
@@ -322,41 +321,52 @@
           large-set     (set (map vec large-paths))
           prefixes      (decl-prefix-set sensitive-set large-set)
           shadow-set    (large-shadow-set sensitive-set large-set)
-          matches?      (fn [tbl candidates] (boolean (some #(contains? tbl %) candidates)))]
+          matches?      (fn [tbl candidates] (boolean (some #(contains? tbl %) candidates)))
+          descend
+          {:map-key (fn [[path candidates] k]
+                      [(conj path k)
+                       ;; An index-free candidate already inside a declaration
+                       ;; also rides the key unchanged — it may be a `:map-of`
+                       ;; key, which consumes no declared segment. The empty
+                       ;; root candidate does not, so a declaration cannot float
+                       ;; past leading named slots.
+                       (cond-> (fork-segment candidates k prefixes)
+                         index-free? (into (filter seq) candidates))])
+           :index   (fn [[path candidates] i]
+                      [(conj path i)
+                       ;; An index-free candidate rides the descent UNCHANGED —
+                       ;; the element position consumed no declared segment.
+                       ;; Riding an index can never float a declaration past a
+                       ;; NAMED slot, so no position guard is needed here (the
+                       ;; argument `re-frame.elision/fork-index-paths` makes).
+                       (cond-> (fork-segment candidates i prefixes)
+                         index-free? (into candidates))])
+           :leaf    (fn [_state v] v)}
+          ;; Measures a collision node: sensitive redaction only, large off.
+          measure
+          (assoc descend :decide
+                 (fn [[_path candidates] _v]
+                   (if (matches? sensitive-set candidates)
+                     rf.privacy/redacted-sentinel
+                     rf.elision/walk-recur)))]
       (rf.elision/walk-tree
         v [[] #{[]}]
-        {:decide  (fn [[path candidates] v]
-                    (cond
-                      (matches? sensitive-set candidates) rf.privacy/redacted-sentinel
-                      ;; NESTED-AXIS SUPPRESSION: a large-marked
-                      ;; node that shadows a sensitive descendant descends so
-                      ;; the descendant redacts in place — no size marker.
-                      (and (matches? large-set candidates)
-                           (seq shadow-set)
-                           (matches? shadow-set candidates))
-                      rf.elision/walk-recur
+        (assoc descend :decide
+               (fn [[path candidates :as state] v]
+                 (cond
+                   (matches? sensitive-set candidates) rf.privacy/redacted-sentinel
 
-                      (matches? large-set candidates)     (large-marker v path)
-                      :else                               rf.elision/walk-recur))
-         :map-key (fn [[path candidates] k]
-                    [(conj path k)
-                     ;; An index-free candidate already inside a declaration
-                     ;; also rides the key unchanged — it may be a `:map-of`
-                     ;; key, which consumes no declared segment. The empty
-                     ;; root candidate does not, so a declaration cannot float
-                     ;; past leading named slots.
-                     (cond-> (fork-segment candidates k prefixes)
-                       index-free? (into (filter seq) candidates))])
-         :index   (fn [[path candidates] i]
-                    [(conj path i)
-                     ;; An index-free candidate rides the descent UNCHANGED —
-                     ;; the element position consumed no declared segment.
-                     ;; Riding an index can never float a declaration past a
-                     ;; NAMED slot, so no position guard is needed here (the
-                     ;; argument `re-frame.elision/fork-index-paths` makes).
-                     (cond-> (fork-segment candidates i prefixes)
-                       index-free? (into candidates))])
-         :leaf    (fn [_state v] v)}))))
+                   ;; A large node holding a sensitive descendant gets the
+                   ;; ordinary marker, measured over the subtree after that
+                   ;; descendant redacts (Spec 015 §No propagation).
+                   (and (matches? large-set candidates)
+                        (seq shadow-set)
+                        (matches? shadow-set candidates)
+                        (not (rf.elision/marker? v)))
+                   (large-marker (rf.elision/walk-tree v state measure) path)
+
+                   (matches? large-set candidates)     (large-marker v path)
+                   :else                               rf.elision/walk-recur)))))))
 
 (defn redact-with-paths
   "Public projection helper. Walks `v` and substitutes sentinels at the declared

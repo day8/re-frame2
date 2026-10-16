@@ -978,20 +978,25 @@
 (defn- large-keys-shadowing-sensitive
   "The subset of `:large` declaration keys that have a `:sensitive` declaration
   strictly BELOW them — a `:large`-marked subtree that contains a `:sensitive`
-  descendant. Per Spec 015 §No-propagation (L338) + EP-0025 §Egress-rules
-  (a normative MUST): such a subtree REDACTS rather than showing a size preview
-  (the `:rf.size/large-elided` marker leaks `:bytes` / `:type` and — off-box,
-  digests on — a SHA-256 digest computed over a subtree that contains the
-  secret, a brute-force oracle). The walker uses this set to look ahead at a
-  large-matched node: if the matched large coordinate shadows a sensitive
-  descendant, sensitive DOMINATES and the walker descends-and-redacts instead
-  of emitting the marker. Pure function of the two declaration tables; computed
+  descendant. Such a node still elides behind the ordinary
+  `:rf.size/large-elided` marker, but the marker is measured over the subtree
+  AFTER its sensitive descendants redact, so its `:bytes` and `:digest` never
+  vary with a secret's content or length (Spec 015 §No propagation, 009 §Wire
+  marker). The walker uses this set to tell such a COLLISION node from an
+  ordinary large one. Pure function of the two declaration tables; computed
   once per walk and carried in `ctx`."
   [large-tbl sensitive-tbl]
   (let [s-keys (keys sensitive-tbl)]
     (into #{}
           (filter (fn [lk] (some #(strict-prefix? lk %) s-keys)))
           (keys large-tbl))))
+
+(defn- collision-measure-ctx
+  "The walk context that measures a collision node: large elision off,
+  sensitive redaction as in `ctx`, and no unschema'd-large warning for leaves
+  the marker hides."
+  [ctx]
+  (assoc ctx :rf.egress/include-large? true :threshold-bytes 0))
 
 ;; The wire walker's traversal state is the pair `[path decl-paths]` — the
 ;; concrete runtime path (drives marker `:path` / `:handle` + the unschema'd-
@@ -1007,7 +1012,12 @@
   The per-node decision (sensitive → sentinel, declared-large → idempotent
   marker, else descend), the map-key / index state forks, and the scalar leaf
   (the runtime-size-threshold warning side-effect) — the elision-specific arms
-  the shared skeleton parameterises over."
+  the shared skeleton parameterises over.
+
+  Also carries `:collision-owners`, which `walk-tree` ignores: given a candidate
+  set, the large owners of a COLLISION node (a large node holding a sensitive
+  descendant, measured after redaction), else nil. The offset replay in
+  `elide-against-registry` reads it."
   [ctx]
   (let [large-tbl     (:large ctx)
         sensitive-tbl (:sensitive ctx)
@@ -1016,37 +1026,25 @@
         include-lg?   (:rf.egress/include-large? ctx)
         include-s?    (:rf.egress/include-sensitive? ctx)
         threshold     (:threshold-bytes ctx)
-        frame-id      (:frame-id ctx)]
+        frame-id      (:frame-id ctx)
+        ;; A collision node's matched large coordinate holds a `:sensitive`
+        ;; descendant. Only while sensitive redaction is in force: a caller
+        ;; that opted out of it is measured over the raw subtree.
+        collision?    (fn [decl-paths]
+                        (and (not include-s?)
+                             (seq shadow-set)
+                             (some #(contains? shadow-set %) decl-paths)))
+        measure       (delay (walk-decider (collision-measure-ctx ctx)))]
     {:decide
-     (fn [[path decl-paths] v]
+     (fn [[path decl-paths :as state] v]
        (let [large-owners (decl-match decl-paths large-tbl)
              sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
          (cond
            (and sensitive? (not include-s?))
            rf.privacy/redacted-sentinel
 
-           ;; NESTED-AXIS SUPPRESSION: a `:large`-matched node
-           ;; whose matched large coordinate shadows a `:sensitive` descendant
-           ;; must NOT emit the size marker — sensitive DOMINATES. Fall through
-           ;; to `walk-recur` so the walker descends and redacts the sensitive
-           ;; descendant in place (Spec 015 §No-propagation L338, a normative
-           ;; MUST). Emitting the marker here would leak `:bytes` / `:type` and
-           ;; (off-box, digests on) a SHA-256 digest over a subtree that
-           ;; contains the secret — a brute-force oracle. Gated on
-           ;; `(not include-s?)`: the suppression exists to let the sensitive
-           ;; descendant redact on descent, so it only applies when sensitive
-           ;; redaction is in force (a caller that opted OUT of sensitive
-           ;; redaction has waived it; the large axis is then orthogonal). Only
-           ;; fires when a sensitive descendant actually exists under a large
-           ;; match, so the ordinary same-path / no-nesting large case falls
-           ;; to the marker arm below.
-           (and large-owners (not include-lg?) (not include-s?)
-                (seq shadow-set)
-                (some #(contains? shadow-set %) decl-paths))
-           walk-recur
-
            (and large-owners (not include-lg?))
-           (if (marker? v)
+           (cond
              ;; Idempotence under double-projection: a value at a `:large?`-
              ;; declared path that already carries the `:rf.size/large-elided`
              ;; marker shape is passed through unchanged. A forwarder pipeline
@@ -1057,11 +1055,29 @@
              ;; the sensitive-case idempotence (the `:rf/redacted` scalar
              ;; sentinel is non-matchable so the walker descends into nothing
              ;; on a re-projection pass).
+             (marker? v)
              v
+
+             ;; A collision node elides behind the ORDINARY marker, measured
+             ;; over the subtree after its sensitive descendants redact (Spec
+             ;; 015 §No propagation, 009 §Wire marker): `:bytes` and `:digest`
+             ;; never vary with a secret's content or length.
+             (collision? decl-paths)
+             (->marker (walk-tree v state @measure) path
+                       (marker-opts large-owners ctx))
+
+             :else
              (->marker v path (marker-opts large-owners ctx)))
 
            :else
            walk-recur)))
+
+     :collision-owners
+     (fn [decl-paths]
+       (when (and (not include-lg?)
+                  (collision? decl-paths)
+                  (not (decl-sensitive? decl-paths sensitive-tbl)))
+         (decl-match decl-paths large-tbl)))
 
      :map-key
      (fn [[path decl-paths] k]
@@ -1107,9 +1123,9 @@
                    :large              large
                    :sensitive          sensitive
                    ;; The subset of `:large` keys that shadow a `:sensitive`
-                   ;; descendant — drives the nested-axis suppression look-ahead
-                   ;; (Spec 015 §No-propagation L338, a normative MUST). Empty in
-                   ;; the common case (no nested classification).
+                   ;; descendant — the collision nodes whose marker is measured
+                   ;; after redaction. Empty in the common case (no nested
+                   ;; classification).
                    :large-shadows-s    (large-keys-shadowing-sensitive large sensitive)
                    ;; Prefix set of every declared path — bounds the forked
                    ;; candidate decl-path set as the walker descends maps.
@@ -1125,8 +1141,16 @@
                    :threshold-bytes    threshold}
         seed-path (vec (:path opts))
         n         (count seed-path)
-        decide    (:decide (walk-decider ctx))
-        prefixes  (:decl-prefixes ctx)]
+        decider   (walk-decider ctx)
+        decide    (:decide decider)
+        collision (:collision-owners decider)
+        redact?   #(and (not (:rf.egress/include-sensitive? ctx))
+                        (decl-sensitive? % sensitive))
+        prefixes  (:decl-prefixes ctx)
+        fork      (fn [cands seg]
+                    (if (integer? seg)
+                      (fork-index-paths cands seg prefixes)
+                      (fork-decl-paths cands seg prefixes)))]
     ;; `:path` is the ABSOLUTE app-db offset of `v`, so a declaration AT or
     ;; ABOVE the offset governs `v` exactly as it would in a whole-db walk
     ;; Seeding the candidate set with the bare offset could
@@ -1138,22 +1162,41 @@
     ;; with the candidate set that descent arrives at. An ancestor matched
     ;; sensitive yields the sentinel; one matched large yields the marker,
     ;; built for `v` at the offset so its handle re-fetches exactly what was
-    ;; asked for; a large ancestor shadowing a sensitive descendant descends,
-    ;; as it does whole-db. The offset carries no container types, so an
-    ;; integer segment takes the index fork — the SUPERSET of the map-key fork
-    ;; for the same segment, so an integer-keyed map can over-match but never
-    ;; leak. No offset (`[]`) walks from `#{[]}`, the whole-db seed.
-    (loop [i 0 cands #{[]}]
-      (if (= i n)
+    ;; asked for. A COLLISION ancestor (a large node holding a sensitive
+    ;; descendant) cannot build its marker from its own candidates, because `v`
+    ;; must be redacted against the candidates at the read's coordinate: the
+    ;; replay continues to that coordinate, a sensitive coordinate on the way
+    ;; still yields the sentinel, and `v` is then wrapped in a marker at the
+    ;; offset, measured after its own sensitive descendants redact. The offset
+    ;; carries no container types, so an integer segment takes the index fork —
+    ;; the SUPERSET of the map-key fork for the same segment, so an
+    ;; integer-keyed map can over-match but never leak. No offset (`[]`) walks
+    ;; from `#{[]}`, the whole-db seed.
+    (loop [i 0 cands #{[]} owners nil]
+      (cond
+        (and owners (redact? cands))
+        rf.privacy/redacted-sentinel
+
+        (and owners (< i n))
+        (recur (inc i) (fork cands (nth seed-path i)) owners)
+
+        owners
+        (if (marker? v)
+          v
+          (->marker (walk v seed-path cands (collision-measure-ctx ctx))
+                    seed-path
+                    (marker-opts owners ctx)))
+
+        (= i n)
         (walk v seed-path cands ctx)
-        (let [r (decide [seed-path cands] v)]
-          (if (identical? r walk-recur)
-            (let [seg (nth seed-path i)]
-              (recur (inc i)
-                     (if (integer? seg)
-                       (fork-index-paths cands seg prefixes)
-                       (fork-decl-paths cands seg prefixes))))
-            r))))))
+
+        :else
+        (if-let [collision-owners (collision cands)]
+          (recur i cands collision-owners)
+          (let [r (decide [seed-path cands] v)]
+            (if (identical? r walk-recur)
+              (recur (inc i) (fork cands (nth seed-path i)) nil)
+              r)))))))
 
 (defn- elide-against-frame
   "`elide-against-registry` over `frame-id`'s own committed elision registry."
