@@ -200,7 +200,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 
 ### 7. Reactive substrate adapter
 
-**Role.** Bridge the core's pure-data primitives (containers, derived values, render trees) to a host reactivity library. The adapter contract is closed for v1 — six required functions, two optional, one lifecycle ([006 §Normative contract](006-ReactiveSubstrate.md#normative-contract)).
+**Role.** Bridge the core's pure-data primitives (containers, derived values, render trees) to a host reactivity library. The adapter is one map: six required functions, three optional, one lifecycle ([006 §Normative contract](006-ReactiveSubstrate.md#normative-contract)), plus optional capability keys — reactive primitives, frame resolution, view composition, disposal — that `install-adapter!` publishes into the `:adapter/*` late-bind slots ([006 §Capability publication](006-ReactiveSubstrate.md#capability-publication)).
 
 **Inputs.** Core calls: `make-state-container` (frame creation), `replace-container!` (drain-loop commit), `make-derived-value` (sub-cache derivation), `render` / `render-to-string`, `register-context-provider` (frame-provider for views), `dispose-adapter!` (teardown).
 
@@ -286,7 +286,7 @@ Most of these components have v1 ancestors. The CLJS-reference implementor can l
 | Drain loop | Level 4 (the FIFO router-layer drain) | Levels 1–3 (machine cascades, `:always` microsteps, snapshot commit), `:raise` as a pre-commit primitive distinct from `:dispatch`, structured drain-depth/raise-depth/always-depth limits |
 | `do-fx` | `:fx` walking, fx handler resolution | Source-order rule made normative; per-frame and per-call `:fx-overrides`; `:platforms` metadata for SSR |
 | Sub-cache | Layer-1/2/3 caching algorithm; invalidation on app-db change | Per-frame caches (v1 is global), explicit disposal-on-frame-destroy, derived-container contract on the substrate adapter |
-| Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the closed ten-fn contract, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
+| Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the one-map adapter contract whose capability keys are published at install, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
 | Trace bus | Trace-event idea, listener registration | Closed core fields, structured error contract, always-on error-emit observability, server error projection, `:platforms` on advisories |
 | Interop layer | Most of `re-frame.interop` carries over | Extended slightly for machine-clock primitives ([002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)) |
 
