@@ -2356,10 +2356,11 @@ jobs:
   #
   # SCOPE. The WHOLE ssr suite, run as `clojure -M:test:prod-gate` in
   # `implementation/ssr`, the same command as on a laptop. There is no
-  # exclusion roster and no `-n` selector. The runner discovers every `.*-test$` namespace under
-  # `implementation/ssr/test` and runs it, which is the strongest polarity but
-  # also the quiet one: a NEW namespace joins this lane the day it lands, with
-  # nothing to edit and nothing to warn you. Budget for that when you add one.
+  # exclusion roster and no `-n` selector. The runner discovers every
+  # `.*-test$` namespace under `implementation/ssr/test` and runs it, which is
+  # the strongest polarity but also the quiet one: a NEW namespace joins this
+  # lane the day it lands, with nothing to edit and nothing to warn you.
+  # Budget for that when you add one.
   #
   # DO NOT SIZE THE LANE OFF A NUMBER IN A COMMENT. The runner prints its own
   # counts at run time, and that printout is the authority — a count written
