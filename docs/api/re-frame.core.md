@@ -1705,23 +1705,6 @@ See [Observability](../core/observability.md).
   ```
 - **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, and records a synthetic epoch so `restore-epoch!` can rewind it. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
 
-### `epoch-silence-current?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (epoch-silence-current? tags) → boolean
-  ```
-- **Description**: Development builds only. Tells a trace listener whether a `:rf.epoch.cb/silenced-on-frame-destroy` signal still describes a current fact. Pass the signal's `:tags` map (`:frame`, `:cb-id`, `:observed-gen`). Returns true when the signal still applies: the callback registered under `:cb-id` is the same registration the signal was about (`:observed-gen`), not replaced or unregistered since, and it is not receiving records from a new frame under the id `:frame`. Both facts are read at the same moment. Returns false otherwise, including for a `nil` or absent `:observed-gen` and when the `day8/re-frame2-epoch` artefact is absent.
-- **Example**:
-  ```clojure
-  (rf/register-listener! :trace :my-app/silence-watch
-    (fn [ev]
-      (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
-                 (rf/epoch-silence-current? (:tags ev)))
-        (js/console.log "epoch callback silenced" (:cb-id (:tags ev))))))
-  ```
-
 ## Registrar queries
 
 The registrar holds every registration (events, subs, fx, cofx, interceptors, machines, views, routes, resources) as queryable data, which is what the framework's tools are built on. These are the reads; the writes are the `reg-*` forms and [`clear`](#clear). All of them run on the JVM.

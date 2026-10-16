@@ -375,7 +375,7 @@
     ;; snapshotted before dissoc and belongs to A's incarnation. A late
     ;; predecessor terminal record may arrive after a newer same-id epoch; it is
     ;; HISTORICAL and consumers must not treat it as the successor's current
-    ;; ring/focus (Spec 009 / Tool-Pair late-record consumer rule).
+    ;; ring/focus (Tool-Pair late-record consumer rule).
     (when-let [record (:record terminal-evidence)]
       ;; Same detailed/coarse trailer pair as normal commits, delivered
       ;; structurally: excluded from capture ownership and immune to a same-id
