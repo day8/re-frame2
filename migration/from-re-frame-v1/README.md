@@ -1471,12 +1471,12 @@ Take the alias while you are there. `rf.machines` is the canonical alias for a f
 
 **Type A** (mechanical, dep-only).
 
-As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/reg-route`, or to `match-url` / `route-url` under any spelling — the pre-split `re-frame.core/match-url` included. `reg-route` stays on the façade, but the two URL helpers do **not** (see **Public API** below), so a `re-frame.core/`-spelled helper call site is both a detection hit *and* a site to re-point at `re-frame.routing`.
-- Any dispatch of `:rf.route/navigate`, `:rf.route/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
+- Any dispatch of `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
 

@@ -664,7 +664,7 @@ keyword per call, numbered in the order the tests ran:
 ```clojure
 [:re-frame.fresco.impl.intent/navigate
  {:frame   :re-frame.fresco.test/probe-7
-  :payload [:rf.route/url-requested {:url "/profile/jane" ...}]
+  :payload [:rf.route/navigate {:url "/profile/jane" ...}]
   :native? false
   :veto    nil}]
 ```

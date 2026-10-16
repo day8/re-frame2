@@ -23,8 +23,7 @@ any navigation to it on to the new address:
   [[ev-id a]]
   (let [url (case ev-id
               :rf.route/handle-url-change a          ;; address bar, reload, Back/Forward
-              :rf.route/url-requested     (:url a)   ;; a link click
-              :rf.route/navigate          (:url a)   ;; a {:url …} navigate
+              :rf.route/navigate          (:url a)   ;; a link click, or any {:url …} navigate
               nil)]
     (when-let [{:keys [route-id params query fragment]} (some-> url rf.routing/match-url)]
       (when-let [new-address (moved route-id)]
@@ -54,10 +53,10 @@ frame with `frame-root`, which takes the same options, so add
 
 ## How it works
 
-An old URL can arrive three ways, and the interceptor reads the URL from each:
+An old URL can arrive two ways, and the interceptor reads the URL from each:
 `:rf.route/handle-url-change` for a typed or pasted address, a reload and Back or
-Forward; `:rf.route/url-requested` for a `route-link` click; and a `{:url …}`
-`:rf.route/navigate`. `match-url` resolves the URL to `:legacy/post`, and `moved`
+Forward; and a `{:url …}` `:rf.route/navigate`, which is what a `route-link` click
+dispatches. `match-url` resolves the URL to `:legacy/post`, and `moved`
 turns its params into the new address. The original query and fragment are kept,
 unless the new address overrides them, so `/posts/intro?tag=ssr#comments` reaches
 `/articles/intro?tag=ssr#comments`. If the destination uses typed query values, keep
@@ -105,7 +104,6 @@ sends; as a `route-link` click; and as a `{:url …}` navigate. Each lands on
 (defn- redirect-for [[ev-id a]]
   (let [url (case ev-id
               :rf.route/handle-url-change a
-              :rf.route/url-requested     (:url a)
               :rf.route/navigate          (:url a)
               nil)]
     (when-let [{:keys [route-id params query fragment]} (some-> url rf.routing/match-url)]

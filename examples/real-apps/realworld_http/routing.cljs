@@ -13,8 +13,7 @@
    - `:rf.route/navigate`
    - `:rf.route/handle-url-change`
    - `:rf.route/continue` / `:rf.route/cancel`
-   - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
-   - `:rf.route/url-requested`"
+   - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`"
   (:require [re-frame.core :as rf]
             ;; Routing lives in its own artefact. Requiring it registers the
             ;; hooks and subs that make the `rf/reg-route` calls below resolve.

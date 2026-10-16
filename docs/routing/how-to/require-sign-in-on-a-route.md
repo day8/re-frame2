@@ -263,13 +263,12 @@ route metadata: a maintenance-mode lockout, or a feature flag that closes a whol
 section. The example below closes every route tagged `:requires-auth`
 (`{:tags #{:requires-auth}}` in its metadata) to signed-out readers.
 
-An interceptor has to cover all three navigation events itself, or it lets
+An interceptor has to cover both navigation events itself, or it lets
 navigations through:
 
 | Event | Sent by | Payload |
 |---|---|---|
-| `:rf.route/navigate` | `(dispatch [:rf.route/navigate …])` | The request map: `:to`, `:url`, or an in-place edit |
-| `:rf.route/url-requested` | A `route-link` click | `{:url …}` |
+| `:rf.route/navigate` | `(dispatch [:rf.route/navigate …])`, and a `route-link` click | The request map: `:to`, `:url` (a link click's), or an in-place edit |
 | `:rf.route/handle-url-change` | The address bar, a reload, Back/Forward | The URL string |
 
 Reduce each to one `{:id <route-id> :params <map>}` target, or `nil`, and decide once:
@@ -303,7 +302,6 @@ Reduce each to one `{:id <route-id> :params <map>}` target, or `nil`, and decide
         {:id (:route-id current) :params (or (:params current) {})}
         :else nil))     ;; malformed: the runtime rejects it with :rf.error/navigate-bad-request
 
-    :rf.route/url-requested     (matched-id (:url a))
     :rf.route/handle-url-change (matched-id a)
     nil))
 
