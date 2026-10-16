@@ -7,9 +7,11 @@
   Every Story-allocated frame declares `{:sink :rf.story/errors}` on its
   `[:observability :errors]` policy, and the mounted shell registers that
   sink. So these rows pin the SINK REGISTRY (`re-frame.observability/sinks`)
-  and the frame policy — the precise things the fallback consults. A no-op
-  on the corpus-wide `:errors` LISTENER registry would also quiet the
-  console, but for every frame on the page, the host app's included.
+  and the frame policy — the precise things the fallback consults. A
+  listener on the corpus-wide `:errors` registry quiets only the records it
+  claims by returning exactly `true`, whichever frame produced them, so a
+  no-op one quiets nothing; the sink policy is what scopes the silence to
+  Story's own frames.
 
   Whether a console error actually stops appearing is the browser gate's
   job (`npm run test:story-feature-load`)."

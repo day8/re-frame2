@@ -5,6 +5,7 @@
   `re-frame.source-coords/parse-source-coord`, whose own tests pin it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?@(:cljs [[clojure.string :as str]
+                       [re-frame.registrar :as rf.registrar]
                        [re-frame.source-coords :as rf.source-coords]])
             [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]))
 
@@ -83,13 +84,21 @@
        (is (nil? (rf.story.ui.element-inspector/overlay))))))
 
 #?(:cljs
-   (deftest resolve-source-coord-file-falls-back-to-error-coords
-     (testing "with no view meta to read, `:file` comes from the error-coords
-               registry; the DOM attribute's line+col beat the meta side"
+   (defn- register-coord-only-view!
+     "Register `view-id` the way a production build stores it: no coordinate
+     keys in the public meta, the registration coordinate on the descriptor."
+     [view-id coords]
+     (binding [rf.source-coords/*pending-coords* coords]
+       (rf.registrar/register! :view view-id {:handler-fn (fn [] nil)}))))
+
+#?(:cljs
+   (deftest resolve-source-coord-file-falls-back-to-registration-coords
+     (testing "with no view meta to read, `:file` comes from the descriptor's
+               registration coordinate; the DOM attribute's line+col beat it"
        (let [view-id :rf.inspector-test/sample-view]
-         (rf.source-coords/remember-error-coords!
-           :view view-id
-           {:ns "rf.inspector-test" :file "src/sample.cljs"
+         (register-coord-only-view!
+           view-id
+           {:ns 'rf.inspector-test :file "src/sample.cljs"
             :line 12 :column 4})
          (try
            (is (= {:file "src/sample.cljs" :line 42 :column 7}
@@ -98,16 +107,16 @@
                                    "rf.inspector-test:sample-view:42:7"))
                                [:file :line :column])))
            (finally
-             (rf.source-coords/forget-error-coords!)))))))
+             (rf.registrar/unregister! :view view-id)))))))
 
 #?(:cljs
    (deftest resolve-source-coord-defaults-when-attr-degraded
      (testing "programmatic-registration coords arrive as `?:?` — the resolver
                falls through to the meta-side line/col"
        (let [view-id :rf.inspector-test/degraded]
-         (rf.source-coords/remember-error-coords!
-           :view view-id
-           {:ns "rf.inspector-test" :file "src/d.cljs"
+         (register-coord-only-view!
+           view-id
+           {:ns 'rf.inspector-test :file "src/d.cljs"
             :line 99 :column 3})
          (try
            (is (= [99 3]
@@ -116,7 +125,7 @@
                      (rf.story.ui.element-inspector/parse-coord
                        "rf.inspector-test:degraded:?:?")))))
            (finally
-             (rf.source-coords/forget-error-coords!)))))))
+             (rf.registrar/unregister! :view view-id)))))))
 
 #?(:cljs
    (deftest overlay-renders-outline-and-tooltip-when-hovering

@@ -313,15 +313,18 @@
   record — see `join-child-record`) rides under `:rf/join-child` when
   present. `invoke-attempt` (a declarative single `:spawn`'s attempt token)
   rides under `:rf/invoke-attempt` when present; the child's
-  completion carriers hand it back to the parent's currency gate."
-  [spec spawned-id parent-id invoke-id join-child invoke-attempt]
+  completion carriers hand it back to the parent's currency gate. That
+  attempt's exact `work-generation` rides under `:rf/work-generation`, where
+  its replies and its cancel row read it."
+  [spec spawned-id parent-id invoke-id join-child invoke-attempt work-generation]
   (when spec
     (let [base-data (or (:data spec) {})
           data'     (cond-> (assoc base-data :rf/self-id spawned-id)
                       parent-id  (assoc :rf/parent-id parent-id)
                       invoke-id  (assoc :rf/invoke-id invoke-id)
                       join-child (assoc :rf/join-child join-child)
-                      invoke-attempt (assoc :rf/invoke-attempt invoke-attempt))]
+                      invoke-attempt (assoc :rf/invoke-attempt invoke-attempt)
+                      work-generation (assoc :rf/work-generation work-generation))]
       (assoc spec :data data'))))
 
 (defn- join-child-record-from-state
@@ -352,9 +355,10 @@
      ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
      ;; therefore never decides fixed-vs-generated provenance, and the
      ;; public/pure spawn effect shape remains unchanged.
-     :work-generation (if (contains? args :fixed-actor-id)
-                        (:rf/attempt join-state)
-                        (rf.machines.reply/actor-generation spawned-id))}))
+     :work-generation (rf.machines.reply/spawn-work-generation
+                        (contains? args :fixed-actor-id)
+                        spawned-id
+                        (:rf/attempt join-state))}))
 
 (defn- join-child-record
   "Build the PRIVATE join-membership record the runtime stamps into a
@@ -396,14 +400,22 @@
   stamp the definition it has already resolved for its verdict, without a
   second registry read."
   [spec args spawned-id join-child]
-  (let [spec' (if (and spec (contains? args :data))
-                (assoc spec :data (:data args))
-                spec)]
+  (let [spec'   (if (and spec (contains? args :data))
+                  (assoc spec :data (:data args))
+                  spec)
+        attempt (:rf/invoke-attempt args)]
     (stamp-framework-data spec' spawned-id
                           (:rf/parent-id args)
                           (:rf/invoke-id args)
                           join-child
-                          (:rf/invoke-attempt args))))
+                          attempt
+                          ;; Only the spawn args say whether a single
+                          ;; `:spawn`'s id was authored, so the attempt's work
+                          ;; generation is chosen here, as `join-child-record`
+                          ;; chooses a `:spawn-all` child's.
+                          (when attempt
+                            (rf.machines.reply/spawn-work-generation
+                              (contains? args :fixed-actor-id) spawned-id attempt)))))
 
 (defn- candidate-spawn-spec
   "The fully framework-stamped machine spec a spawn of `args` WOULD install:

@@ -24,10 +24,6 @@
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
-
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -50,6 +46,12 @@
      (if (= :heading kind)
        ^{:key (str "h-" v)} [keydom-heading v]
        ^{:key v} [keydom-row v]))])
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (deftest mounting-seq-of-keyed-regviews-emits-no-collision-warning
   (testing "rendering a seq of reg-views each with ^{:key} under a real

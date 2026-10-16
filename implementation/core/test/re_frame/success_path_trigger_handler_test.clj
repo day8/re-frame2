@@ -9,9 +9,10 @@
 
   The slot rides the dev trace gate, so trace claims sit inside
   `(when rf.interop/debug-enabled? …)`. The COORD itself is always-on:
-  `rf.registrar/register!` records it in the `error-coords-by-id` registry in
-  both postures, so every case also asserts that registry (and the
-  programmatic case asserts its absence beside a macro-path control)."
+  `rf.registrar/register!` attaches it to the stored descriptor in both
+  postures (`rf.source-coords/registration-coords`), so every case also
+  asserts it there (and the programmatic case asserts its absence beside a
+  macro-path control)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -49,23 +50,24 @@
   (first (filter #(= op (:operation %)) evs)))
 
 (defn- assert-always-on-coord
-  "The always-on registry holds a real coord for a macro-path registration."
+  "The descriptor carries a real always-on coord for a macro-path registration."
   [kind id]
-  (let [c (rf.source-coords/error-coords-for kind id)]
+  (let [c (rf.source-coords/registration-coords (rf.registrar/lookup kind id))]
     (is (= [true true true] ((juxt (comp symbol? :ns) (comp string? :file) (comp integer? :line)) c))
         (str "always-on registration coord for " kind " " id))
     c))
 
 (defn- assert-no-always-on-coord
-  "A programmatic registration leaves the always-on registry empty; the
+  "A programmatic registration's descriptor carries no always-on coord; the
   macro-path control proves the negative is not free."
   [kind id control-id]
-  (is (= [nil true] [(rf.source-coords/error-coords-for kind id)
-                     (some? (rf.source-coords/error-coords-for kind control-id))])))
+  (is (= [nil true] [(rf.source-coords/registration-coords (rf.registrar/lookup kind id))
+                     (some? (rf.source-coords/registration-coords
+                              (rf.registrar/lookup kind control-id)))])))
 
 (defn- assert-trigger
   "The trace's trigger-handler names `kind`/`id` and carries exactly the
-  registrar's coord, which equals the always-on registry's."
+  registrar's coord, which equals the descriptor's always-on one."
   [ev kind id]
   (let [ks   [:ns :file :line :column]
         meta (select-keys (rf/handler-meta {:source :store :kind kind :id id}) ks)

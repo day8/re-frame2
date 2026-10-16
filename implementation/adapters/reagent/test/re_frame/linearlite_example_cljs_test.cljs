@@ -15,6 +15,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
@@ -35,12 +36,15 @@
 ;; the example, so its ns-load registrations are snapshotted here and
 ;; reinstalled by `init!`.
 (def ^:private resource-kind-snapshots
-  (select-keys @rf.registrar/kind->id->metadata [:resource :mutation]))
+  (into {} (for [kind [:resource :mutation]
+                :let [id->desc (rf.registrar/registrations kind)]
+                :when (seq id->desc)]
+            [kind id->desc])))
 
 ;; Remove our ids from the shared registrar at load, so another suite's reset
 ;; never clears them and mirrors the resulting frameless
 ;; `:rf.registry/handler-cleared` burst into a tooling test's trace collector.
-(swap! rf.registrar/kind->id->metadata
+(swap! rf.source-store/kind->id->ns->descriptor
        (fn [reg]
          (reduce (fn [r [kind id->meta]]
                    (update r kind (fn [m] (apply dissoc m (keys id->meta)))))

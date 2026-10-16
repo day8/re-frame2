@@ -23,7 +23,7 @@
 
   Assertions on registrar state (`rf/handler-meta`) and in-process values
   carry no posture guard, so they also run in
-  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`). Every read
+  `clojure -M:test:prod-gate` (`-Dre-frame.debug=false`). Every read
   off the trace bus sits inside a `(when rf.interop/debug-enabled? …)` arm,
   because `trace/emit!` is dev-gated; the `(not (re-find …))` census in the
   inverse-load-order case would otherwise pass vacuously with no trace."
@@ -266,9 +266,10 @@
     (is (= [[:requested-url] [:destination] [:target] [:guard]]
            (:sensitive (rf/handler-meta {:frame :rf/default :kind :event :id :rf.route/entry-denied})))
         "the frame-targeted read, which dispatch and egress resolve through, carries the same union as the default-first order")
-    ;; The positional read is the process resolver map, last-write-wins
-    ;; (Spec 012); in this order the framework's own seeding writes last.
-    (is (= {:sensitive [[:requested-url] [:destination] [:target]] :rf/framework-default? true}
+    ;; The store read resolves the registration table as a frame made without
+    ;; :images does (Spec 012), so it converges on the application descriptor
+    ;; and the same union in this order too.
+    (is (= {:sensitive [[:requested-url] [:destination] [:target] [:guard]]}
            (select-keys (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})
                         [:sensitive :rf/framework-default?])))
     (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]

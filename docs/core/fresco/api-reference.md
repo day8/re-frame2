@@ -347,9 +347,9 @@ Invalid envelope arguments throw `ex-info` with
 
 ## `re-frame.fresco.test` — the L1 and L2 test kit
 
-Ships from `test_kit/src`: it is in the jar but not on the artefact's `:paths`,
-so a `:local/root` consumer adds that root to its test classpath explicitly.
-Nothing here mounts anything; these tiers inspect values and run view bodies.
+Ships from `test_kit/src`, which is on the artefact's `:paths` and in its jar,
+so there is nothing to add from either a published coordinate or a
+`:local/root` checkout. Nothing here mounts anything; these tiers inspect values and run view bodies.
 
 ```clojure
 (ns my.app-test

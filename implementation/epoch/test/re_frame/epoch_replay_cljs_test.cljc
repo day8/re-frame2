@@ -1,4 +1,4 @@
-(ns re-frame.epoch-replay-cljs-test
+(ns ^:requires-debug re-frame.epoch-replay-cljs-test
   "`replay-epoch!`: strict replay of one retained epoch by id (Tool-Pair
   §Replay).
 
@@ -10,7 +10,16 @@
   never another dispatch's.
 
   `.cljc` under a `-cljs-test` name so both the `:node-test` build and the
-  artefact's `clojure -M:test` run it."
+  artefact's `clojure -M:test` run it.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. Replay re-dispatches from a retained record, and under
+  `-Dre-frame.debug=false` the ring never fills, so `replay-epoch!` refuses
+  by design; `re-frame.epoch-jvm-prod-gate-test` pins that refusal. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]

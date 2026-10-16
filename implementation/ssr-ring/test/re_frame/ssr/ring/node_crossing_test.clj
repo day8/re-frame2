@@ -271,10 +271,10 @@
       (is (not (str/includes? body "render-hash"))
           "…and no payload :rf/render-hash"))
 
-    (testing "(c) render-state != payload: a server-only key is rendered by the
-              fixture and ABSENT from __rf_payload"
+    (testing "(c) render-state != payload: a server-only key, named by no entry,
+              is rendered by the fixture and ABSENT from __rf_payload"
       (is (str/includes? body (str "<p class=\"crossing-server-only\">\"" server-only-value "\"</p>"))
-          "on the render-state allowlist: the fixture rendered it")
+          "on the JVM's render-state allowlist, which alone decides what crosses: the fixture rendered it")
       (is (not (str/includes? (payload-edn-of body) server-only-value))
           "not on the payload allowlist: the hydration payload never carries it")
       (is (not (str/includes? body "on-no-allowlist"))
@@ -334,31 +334,6 @@
             "exactly one isolate was terminated and replaced — the deadline was the sidecar's")))
     (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
-(deftest ^:crossing refusal-arm-a-key-the-entry-does-not-allowlist
-  (register-app!)
-  (let [{:keys [url]} (sidecar!)
-        seen          (capture-errors!)
-        frames-before (set (rf/frame-ids))
-        ;; `:hidden` is on the JVM's render-state allowlist but NOT on the
-        ;; entry's stateAllowlist: the sidecar refuses (400) — the allowlist
-        ;; belongs to the entry, so a caller cannot widen its own allowance.
-        h             (handler (node-renderer url :render-state {:app-db [:heading :hidden]}))
-        response      (h request)]
-    (assert-projected-5xx! response frames-before)
-    (is (= [:rf.error/ssr-node-refused] (render-failure-ids @seen)))
-    (let [{:keys [status refusal detail]} (render-failure-data @seen)]
-      (is (= 400 status) "the sidecar's status rides in ex-data…")
-      ;; The code is the sidecar's vocabulary, carried opaquely: asserted by
-      ;; its parts so nothing on the JVM spells the namespace (the sidecar's
-      ;; absence witness holds that, over raw text, everywhere).
-      (is (= ["rf.ssr-node" "state-key-not-allowed"]
-             [(namespace refusal) (name refusal)])
-          "…with its refusal code, as a keyword")
-      (is (= ":hidden" (get detail "key")) "…and its detail"))
-    (let [{:strs [busy waiting]} (await-idle-isolates! url 2000)]
-      (is (= 0 busy)) (is (= 0 waiting)))
-    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
-
 (deftest ^:crossing refusal-arm-build-identity-mismatch-is-refused-by-the-sidecar
   (register-app!)
   (let [{:keys [url]} (sidecar!)
@@ -369,7 +344,10 @@
     (assert-projected-5xx! response frames-before)
     (is (= [:rf.error/ssr-node-refused] (render-failure-ids @seen)))
     (let [{:keys [status refusal]} (render-failure-data @seen)]
-      (is (= 409 status))
+      (is (= 409 status) "the sidecar's status rides in ex-data…")
+      ;; The code is the sidecar's vocabulary, carried opaquely: asserted by
+      ;; its parts so nothing on the JVM spells the namespace (the sidecar's
+      ;; absence witness holds that, over raw text, everywhere).
       (is (= ["rf.ssr-node" "build-identity-mismatch"]
              [(namespace refusal) (name refusal)])))
     (rf.error-emit/unregister-error-listener! ::crossing-recorder)))

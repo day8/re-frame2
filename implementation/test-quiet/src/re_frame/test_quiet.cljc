@@ -17,9 +17,10 @@
 
   This namespace governs only reporter output. The runtime entry points
   (`re-frame.test-quiet.runner` on the JVM and
-  `re-frame.test-quiet.shadow-node` on CLJS node) pass stdout through. The
-  JVM runner filters cognitect's discovery banner. Each runner buffers its
-  runtime-specific warning channel and replays it only on red. A green run shows the summary
+  `re-frame.test-quiet.shadow-node` on CLJS node) pass stdout through, so a
+  green JVM run also shows cognitect's one `Running tests in #{...}` line
+  above the summary. Each runner buffers its runtime-specific warning
+  channel and replays it only on red. A green run shows the summary
   plus whatever a test deliberately printed, and never the expected
   warnings warning-heavy suites emit.  See those namespaces' docstrings
   for the runtime side of the contract.

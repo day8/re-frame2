@@ -39,10 +39,6 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
-
 (def ^:private frame-id ::direct-class-frame)
 
 (defn- browser? []
@@ -82,6 +78,12 @@
 ;; installed. This is the canonical boot order the head-cache section of
 ;; `re-frame.views` describes, and the path a direct class must survive.
 (rf/reg-view* ::preinit-panel (probe-class "direct-class-preinit"))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 (defn- mount-element []
   (let [el (.createElement js/document "div")]

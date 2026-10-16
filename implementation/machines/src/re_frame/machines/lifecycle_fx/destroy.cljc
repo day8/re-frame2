@@ -559,7 +559,9 @@
   liveness-gated ordered teardown for an ALREADY-RESOLVED `actor-id` and emit
   its `:rf.machine/destroyed` trace with `reason`. The two shapes differ ONLY
   in how they resolve `actor-id` + `reason` (+ the trace's `:parent-id` /
-  `:invoke-id`); this is their common teardown-and-emit tail.
+  `:invoke-id`, which a keyword-form destroy of a declarative single-`:spawn`
+  child reads from the child's own stamps); this is their common
+  teardown-and-emit tail.
 
   Aligned with XState convention, destroying an **already-destroyed** actor
   is a **silent idempotent no-op**: subsequent destroy attempts emit NO
@@ -582,7 +584,10 @@
   callback-bearing teardown boundary is rechecked and the durable writes ride
   A's token. Before teardown, `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
-  generation feeds the reply identity. The trace carries the requested
+  generation feeds the reply identity; a single-`:spawn` child's is the
+  `:rf/work-generation` its spawn stamped, read from its `old-db` snapshot,
+  so the cancel row closes the same work id the attempt's done or error
+  reply would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion."
   [frame-id actor-id requested-reason parent-id invoke-id old-db fence]
@@ -590,7 +595,25 @@
     (when-let [teardown (prepare-join-child-teardown!
                           frame-id actor-id requested-reason fence)]
       (let [reason     (:reason teardown)
-            join-child (:join-child teardown)]
+            join-child (:join-child teardown)
+            child-data (get-in old-db (rf.machines.paths/snapshot-path actor-id :data))
+            ;; The keyword form names only the actor. A declarative
+            ;; single-`:spawn` child names its spawn in its own
+            ;; `:rf/parent-id` / `:rf/invoke-id` stamps, so its trace and
+            ;; cancel row carry the coordinates its done or error reply
+            ;; carries. The teardown below still prunes only the slots the
+            ;; caller named: a keyword destroy leaves the tracked slot to
+            ;; the parent's exit (`destroy-tracked!`).
+            [spawn-parent-id spawn-invoke-id]
+            (if (and (nil? invoke-id) (some? (:rf/invoke-id child-data)))
+              [(:rf/parent-id child-data) (:rf/invoke-id child-data)]
+              [parent-id invoke-id])
+            ;; A single-`:spawn` child has no membership record; the
+            ;; `:rf/work-generation` its spawn stamped sets its generation,
+            ;; exactly as `finalize-machine` reads it for the attempt's done
+            ;; or error reply.
+            work-generation (or (:work-generation join-child)
+                                (:rf/work-generation child-data))]
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
@@ -609,12 +632,12 @@
           (rf.machines.lifecycle-fx.traces/emit-destroyed!
             (cond-> {:frame             frame-id
                      :actor-id          actor-id
-                     :parent-id         parent-id
-                     :invoke-id         invoke-id
-                     :work-bearing-path (or invoke-id (:invoke-id join-child))
+                     :parent-id         spawn-parent-id
+                     :invoke-id         spawn-invoke-id
+                     :work-bearing-path (or spawn-invoke-id (:invoke-id join-child))
                      :reason            reason}
-              (some? (:work-generation join-child))
-              (assoc :work-generation (:work-generation join-child)))))
+              (some? work-generation)
+              (assoc :work-generation work-generation))))
         fence))))
   nil)
 

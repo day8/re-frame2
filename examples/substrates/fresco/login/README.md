@@ -137,7 +137,7 @@ login/
   core.cljs    — the Fresco HALF: rf.fresco/defview views + adapter init + frame + boot.
   server.cljs  — the SERVER bundle: the entry table the ssr-node sidecar loads.
   host.clj     — the JVM half: one ssr-handler wired to the Node renderer.
-  policy.cljc  — the render-state list and the entry id, read by BOTH of those.
+  policy.cljc  — the render-state list and the entry id: the host reads both, the bundle the id.
   index.html   — minimal host page.
 ```
 
@@ -196,14 +196,14 @@ renderer:
                :runtime-db [:rf.runtime/machines]}
 ```
 
-That map is not written twice. It is
-[`policy.cljc`](policy.cljc)'s `render-state-policy`, and `host.clj` and
-`server.cljs` both read it — one list, two readers, one file. It has to be its
-own namespace because neither neighbour can be read by the other's compiler,
-so a policy written in either is a policy the other has to copy. The sidecar
-refuses a host that asks for **more** than the entry table allows; nothing can
-notice a host that asks for **less**, which is the direction a hand-kept copy
-actually drifts in.
+That map is written once, as [`policy.cljc`](policy.cljc)'s
+`render-state-policy`, and it is the one render-visibility policy: the JVM
+projects under it, and the sidecar checks only the shape of what arrives,
+never which keys. `server.cljs` publishes an entry table of ids alone, reading
+the entry id from the same namespace, which is `.cljc` because neither
+neighbour can be read by the other's compiler. A key missing from the list is
+refused nowhere — the render reads `nil` for it and draws the wrong page — so
+name every key a render reads.
 
 `:rf.runtime/machines` is in the render's list and not the browser's *shape*
 because the two partitions are different places: the `:auth.login/flow`

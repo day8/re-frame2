@@ -28,12 +28,11 @@ const RETURNS = Object.freeze({
   'app/promise-of-string': () => Promise.resolve('<p>a promised string</p>'),
 });
 
-const ENTRY = { stateAllowlist: [], runtimeAllowlist: [] };
 
 module.exports = {
   protocol: 1,
   buildId: 'non-string-return-build-1',
-  entries: Object.fromEntries(Object.keys(RETURNS).map((entry) => [entry, ENTRY])),
+  entries: Object.keys(RETURNS),
 
   render({ entry }) {
     return RETURNS[entry]();

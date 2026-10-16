@@ -3,6 +3,6 @@
 module.exports = {
   protocol: 99,
   buildId: 'bad-2',
-  entries: { 'app/root': { stateAllowlist: [], runtimeAllowlist: [] } },
+  entries: ['app/root'],
   render() { return '<p>never</p>'; },
 };

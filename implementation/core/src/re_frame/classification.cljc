@@ -1356,7 +1356,7 @@
   EP-0025: the \"machine declares ANY `:sensitive`\" decision
   consults the FRAME's snapshot-path classification (the sole app-db mechanism)
   unioned with any author `:event` registration classification. A row that names
-  no machine (the timer's delay-resolver rows) has neither to consult.
+  no machine has neither to consult.
 
   A nil / unresolvable frame FAILS CLOSED (redacts) — matching the sibling
   `project-flow-exception-tags` and Spec 015 §Failure-posture (unknown frame =>

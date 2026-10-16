@@ -18,9 +18,9 @@
 //   `:heading`     set by the JVM's boot event. Its presence here proves the
 //                  JVM drained `:initial-events` BEFORE the crossing (a) and
 //                  that the state partition carried the drained value.
-//   `:server-only` a key the witness allowlists for RENDER but not for the
-//                  hydration payload — rendered here, absent from
-//                  `__rf_payload` (c).
+//   `:server-only` a key the JVM's `:render-state` names and its `:payload`
+//                  does not — rendered here although this module's entry
+//                  table names no keys, absent from `__rf_payload` (c).
 //   `:delay-ms`    a sleep, so one entry can be made to overrun `timeoutMs`
 //                  and the sidecar's 504 can be crossed back (d).
 
@@ -30,12 +30,7 @@ const escapeHtmlText = (value) =>
 module.exports = {
   protocol: 1,
   buildId: 'crossing-build-1',
-  entries: {
-    'app/root': {
-      stateAllowlist: [':heading', ':server-only', ':delay-ms'],
-      runtimeAllowlist: [':rf.runtime/routing'],
-    },
-  },
+  entries: ['app/root'],
 
   async render({ entry, state, args }) {
     const delay = Number(state[':delay-ms'] ?? 0);

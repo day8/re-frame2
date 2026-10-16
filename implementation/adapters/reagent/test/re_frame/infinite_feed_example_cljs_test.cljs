@@ -35,6 +35,7 @@
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
@@ -73,7 +74,7 @@
 ;; registration — not a test-local copy. See the resources-example sibling for
 ;; the full rationale.
 (def ^:private resource-kind-snapshot
-  (get @rf.registrar/kind->id->metadata :resource))
+  (rf.registrar/registrations :resource))
 
 ;; AT NS LOAD, remove THIS example's `:resource` registration (by id) from the
 ;; SHARED live registrar — after snapshotting it above. Reinstated per-test by
@@ -82,7 +83,7 @@
 ;; registrar until some OTHER suite's reset clears it, mirroring a frameless
 ;; `:rf.registry/handler-cleared` burst into a cross-cutting tooling test's
 ;; cascade seed. We remove only OUR ids (not the whole kind).
-(swap! rf.registrar/kind->id->metadata update :resource
+(swap! rf.source-store/kind->id->ns->descriptor update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
 (defn- init!

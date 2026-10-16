@@ -407,14 +407,12 @@
         ;; Thread that coordinate into the SAME
         ;; canonical machine work-id generation slot used by its join fold, so
         ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
-        ;; A single-`:spawn` child has no membership record; it carries its
-        ;; spawn's `:rf/invoke-attempt`, which is a fixed id's generation
-        ;; because that address is the same on every attempt. A hand-emitted
-        ;; spawn carries neither and keeps the actor-id convention.
+        ;; A single-`:spawn` child has no membership record; its spawn
+        ;; stamped the attempt's exact generation as `:rf/work-generation`.
+        ;; A hand-emitted spawn carries neither and keeps the actor-id
+        ;; convention.
         work-generation (or (:work-generation join-child)
-                            (when-some [attempt (:rf/invoke-attempt child-data)]
-                              (rf.machines.reply/spawn-attempt-generation
-                                machine-id attempt)))
+                            (:rf/work-generation child-data))
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path

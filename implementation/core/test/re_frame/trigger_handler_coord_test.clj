@@ -89,7 +89,7 @@
         [exc] (errors-of traces :rf.error/fx-handler-exception)]
     (is (= {:event-id     :rf2-3nn8/use-throwing-fx
             :failing-id   :rf2-3nn8/throwing-fx
-            :source-coord (rf.source-coords/error-coords-for :event :rf2-3nn8/use-throwing-fx)}
+            :source-coord (rf.source-coords/registration-coords (rf.registrar/lookup :event :rf2-3nn8/use-throwing-fx))}
            (select-keys (error-of errors :rf.error/fx-handler-exception)
                         [:event-id :failing-id :source-coord]))
         "the always-on record: the event's coord, the fx id on :failing-id")
@@ -103,7 +103,7 @@
                                   #(deref (rf/subscribe [:rf2-3nn8/throwing-sub])))
         [exc] (errors-of traces :rf.error/sub-exception)]
     (is (= {:event-id     :rf2-3nn8/throwing-sub
-            :source-coord (rf.source-coords/error-coords-for :sub :rf2-3nn8/throwing-sub)}
+            :source-coord (rf.source-coords/registration-coords (rf.registrar/lookup :sub :rf2-3nn8/throwing-sub))}
            (select-keys (error-of errors :rf.error/sub-exception) [:event-id :source-coord]))
         "the always-on record carries the sub id and its coord under [:sub …]")
     (when rf.interop/debug-enabled?
@@ -118,7 +118,7 @@
   (let [{:keys [traces errors]} (record-both
                                   #(rf/dispatch-sync [:rf2-3nn8/uses-missing-fx]))
         [miss] (errors-of traces :rf.error/no-such-fx)]
-    (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
+    (is (= (rf.source-coords/registration-coords (rf.registrar/lookup :event :rf2-3nn8/uses-missing-fx))
            (:source-coord (error-of errors :rf.error/no-such-fx)))
         "the always-on record carries the enclosing event's coord")
     (when rf.interop/debug-enabled?
@@ -134,9 +134,9 @@
                                   #(rf/dispatch-sync [:rf2-3nn8/registration-site]))
         [exc]    (errors-of traces :rf.error/handler-exception)
         trigger  (:rf.trace/trigger-handler exc)
-        errc     (rf.source-coords/error-coords-for :event :rf2-3nn8/registration-site)
+        errc     (rf.source-coords/registration-coords (rf.registrar/lookup :event :rf2-3nn8/registration-site))
         ks       [:ns :file :line :column]]
-    (is (integer? (:line errc)) "the always-on registry holds the registration coord")
+    (is (integer? (:line errc)) "the descriptor holds the always-on registration coord")
     (is (= errc (:source-coord (error-of errors :rf.error/handler-exception)))
         "the always-on record's :source-coord IS the registration coord")
     ;; Under the gate `reg-meta` carries no coord keys, so this half is dev-only.

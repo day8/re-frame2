@@ -14,9 +14,9 @@ The test kit has two namespaces:
 - `re-frame.fresco.test.mounted`, usually aliased `hm`, for real React and DOM
   tests.
 
-Both ship with Fresco. From a `:local/root` checkout you add the kit to a test
-alias yourself, and mounted tests need a build target that provides a
-`document`; both steps are under [Set up the test kit](#set-up-the-test-kit).
+Both ship with Fresco and are on your classpath on either route, so there is
+nothing to add. Mounted tests need a build target that provides a `document`;
+see [Set up the test kit](#set-up-the-test-kit).
 
 ## The testing ladder
 
@@ -519,44 +519,16 @@ Do not claim more than the level proves:
 
 ### Put the test kit on the classpath
 
-**From a published coordinate**, both namespaces are in the Fresco jar and
-there is nothing to add. They stay out of your production bundle because no
-shipping namespace requires them: a build that never requires `ht` or `hm`
-compiles none of the kit.
+There is nothing to add, on either route. Both namespaces ship with
+`day8/re-frame2-fresco`: the published jar carries them, and a `:local/root`
+checkout puts the kit's source root, `test_kit/src`, on your classpath through
+the artifact's own `:paths`. With the
+[`:local/root` setup](00-installation.md#add-the-dependencies) as it stands,
+every `ht` and `hm` require on this page resolves.
 
-**From a `:local/root` checkout**, the only option until Fresco is published,
-the kit has its own source root, `test_kit/src`, outside the Fresco artifact's
-`:paths`. Until you add it to a test alias, every `ht` and `hm` require on this
-page fails to resolve. Following the [`:local/root` setup](00-installation.md#add-the-dependencies):
-
-```clojure
-;; deps.edn
-{:paths ["src"]
- :deps  {day8/re-frame2-fresco {:local/root "../re-frame2/implementation/fresco"}
-         day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}
-
- :aliases
- {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
-
-  ;; The test kit, from the same checkout the artifact resolves from.
-  :test   {:extra-deps {day8/re-frame2-fresco-test-kit
-                        {:local/root "../re-frame2/implementation/fresco/test_kit"}}}}}
-```
-
-Then select that alias in the build, beside the one that puts the compiler on
-the classpath. shadow-cljs reads its classpath from `deps.edn`, so an alias not
-named here is not on it:
-
-```clojure
-;; shadow-cljs.edn
-{:deps {:aliases [:shadow :test]}}
-```
-
-The path is relative to *your* `deps.edn`. Use the `:local/root` coordinate
-rather than an `:extra-paths` entry: the kit carries its own `deps.edn`, while
-an `:extra-paths` entry outside your project makes the Clojure CLI print
-`WARNING: Use of :paths external to the project has been deprecated` on every
-invocation.
+The kit stays out of your production bundle because no shipping namespace
+requires it: a build that never requires `ht` or `hm` compiles none of the
+kit.
 
 L3 also uses Testing Library, which is an npm package:
 `npm install --save-dev @testing-library/dom`, plus
@@ -584,7 +556,7 @@ Split the two lanes by namespace suffix, so the browser-free bulk of the suite
 never pays for a browser:
 
 ```clojure
-;; shadow-cljs.edn, continued: the :builds map
+;; shadow-cljs.edn: the :builds map, beside :app
 {:builds
  {:node-test    {:target    :node-test
                  :ns-regexp "-cljs-test$"

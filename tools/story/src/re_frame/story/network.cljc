@@ -77,7 +77,6 @@
   One implementation, one route map, two projections."
   (:require [re-frame.core     :as rf]
             [re-frame.frame    :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (its home namespace, not the `re-frame.core` façade). CLJS
             ;; requires it directly; on the JVM it is resolved LAZILY at call
@@ -210,7 +209,7 @@
 
   PURE — `rf/image` builds inert data; this registers nothing."
   []
-  (when-let [handler (:handler-fn (rf.registrar/store-lookup :fx stub-fx-id))]
+  (when-let [handler (:handler-fn (rf/handler-meta {:source :store :kind :fx :id stub-fx-id}))]
     (rf/image
       {:id            fixture-image-id
        :registrations {:reg-fx [[stub-fx-id

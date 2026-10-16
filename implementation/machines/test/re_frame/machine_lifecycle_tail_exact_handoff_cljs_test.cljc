@@ -76,7 +76,8 @@
       (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         (rf.frame/call-with-event-owner-token frame-a token-a
           (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
-      (is (= b-meta (rf.registrar/lookup :event actor-id)))
+      (is (= b-meta (dissoc (rf.registrar/lookup :event actor-id) :kind :id))
+          "B's registration, as the registration table stamped it, survives A's unregister")
       (finally
         (rf.trace.tooling/unregister-listener! ::released-handoff)
         (rf.registrar/unregister! :event actor-id)))))

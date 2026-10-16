@@ -50,33 +50,28 @@
 ;; asserts that ordering from the workflow's real job graph rather than by
 ;; convention.
 ;;
-;; `:src-dirs` carries `resources` as well as `src`, for the reason `:paths`
-;; does: the clj-kondo export reaches a consumer over the CLASSPATH, so a jar
-;; without it silently ships no lint layer at all.
-;;
-;; IT ALSO CARRIES `test_kit/src`, WHICH `:paths` DOES NOT. The two
-;; keys are not the same lever and this artefact is the one place they diverge:
-;; `:paths` is the classpath a `:local/root` consumer inherits, while `:src-dirs`
-;; is the ONLY thing that decides jar content — clein's `create-jar` is
-;; `copy-src` then `b/jar`, and `copy-src` is `b/copy-dir` over
+;; `:src-dirs` and `:paths` name the same three roots — `src`, `resources` and
+;; `test_kit/src` — and must keep agreeing, because they are not the same
+;; lever: `:paths` is the classpath a `:local/root` consumer inherits, while
+;; `:src-dirs` is the ONLY thing that decides jar content — clein's
+;; `create-jar` is `copy-src` then `b/jar`, and `copy-src` is `b/copy-dir` over
 ;; `(concat :src-dirs :resource-dirs)` into `:class-dir`, so a root that is off
-;; `:src-dirs` is off the jar and nothing else puts it back. Were the kit off
-;; `:src-dirs`, a `v*` tag would publish a `day8/re-frame2-fresco` containing no
-;; `re-frame.fresco.test` and no `re-frame.fresco.test.mounted` — the supported
-;; testing surface, absent from the artefact that documents it, with no second
-;; coordinate to get it from.
+;; `:src-dirs` is off the jar and nothing else puts it back. `resources` is on
+;; both for the lint export (below). `test_kit/src` is on both because it holds
+;; `re-frame.fresco.test` and `re-frame.fresco.test.mounted`, the supported
+;; testing surface, so a consumer on either route — the jar or a `:local/root`
+;; checkout — requires the kit with nothing to add.
 ;;
-;; This does NOT weaken the kit's dev-only property, because that property is
-;; not the separate root's to give. `re-frame.fresco.evidence` and
-;; `re-frame.fresco.tool` ship from `src/` and are dev-only by REACHABILITY —
-;; no `src/` namespace requires them, so a consumer who never asks for the
+;; Being on the classpath does NOT weaken the kit's dev-only property, because
+;; that property is REACHABILITY, not packaging. `re-frame.fresco.evidence` and
+;; `re-frame.fresco.tool` ship from `src/` and are dev-only the same way — no
+;; `src/` namespace requires them, so a consumer who never asks for the
 ;; projection never bundles a byte of it — and `scripts/check_production_erasure.cjs`
 ;; is what checks that, by scanning the release bundle for each surface's
 ;; sentinel. The kit is on that same roster, under the sentinel
-;; `rf.error/fresco-test-`, and its entry states the real rule: no
-;; `src/` namespace may require the kit. A classpath entry costs no bundle bytes;
-;; a `:require` does. The kit is off `:paths`, so the in-repo lane and the
-;; `:local/root` route ask for it explicitly.
+;; `rf.error/fresco-test-`, and its entry states the rule: no `src/` namespace
+;; may require the kit. A classpath entry costs no bundle bytes; a `:require`
+;; does.
 ;;
 ;; `resources` is on :paths for ONE reason: the clj-kondo export
 ;; reaches a consumer over the CLASSPATH. `clj-kondo --lint
@@ -87,7 +82,7 @@
 ;; trusting it.
 ;; Nothing under `resources/` is a loadable namespace: the hook file is data
 ;; that clj-kondo's own SCI reads from the config directory.
-{:paths ["src" "resources"]
+{:paths ["src" "resources" "test_kit/src"]
  :deps  {day8/re-frame2     {:local/root "../core"}
          day8/re-frame2-ssr {:local/root "../ssr"}}
 
@@ -111,19 +106,7 @@
  ;; The lint export's witness is NOT a JVM suite. It is
  ;; `scripts/check_lint_export.py`, run by `npm run test:fresco-lint` — a
  ;; checker over the package, the same shape as `check_guide_samples.py`.
- {:test {:extra-paths ["test"
-                       ;; `re-frame.fresco.test`, the supported
-                       ;; L0–L2 testing surface. Its own root, and NOT in
-                       ;; `:paths` above, so the in-repo lane and any
-                       ;; `:local/root` consumer ask for it by name. It IS on
-                       ;; `:clein/build`'s `:src-dirs`, so the published jar
-                       ;; carries it — see the `:src-dirs` paragraph
-                       ;; in the header for why those are different levers and
-                       ;; why a classpath entry is not a bundle byte. Listed
-                       ;; here so the classpath probe sees it; the CLJS lane
-                       ;; reaches it through the `fresco/test_kit/src`
-                       ;; :source-paths entry in implementation/shadow-cljs.edn.
-                       "test_kit/src"]
+ {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; The Node lane's substrate. The package's
                        ;; node-lane suites run on the UIx adapter and not on

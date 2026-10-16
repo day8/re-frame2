@@ -19,30 +19,21 @@
   policy here, no head model, no cookies and no status. The service refuses
   a request carrying any of them, by name, with the reason attached.
 
-  ## The two allowlists, and who owns them
+  ## The entry table, and what decides the state
 
-  `entries` publishes, per entry, the top-level keys of EACH partition that
-  entry may be handed. The lists belong to the ENTRY rather than to the
-  caller, so a JVM host cannot widen its own allowance, and an entry that
-  declares no list for a partition cannot be rendered at all — absence is a
-  refusal, never a licence to read everything.
-
-  They are derived from `fresco.login.policy/render-state-policy` — the
-  SAME Var `host.clj` hands the Node renderer as `:render-state`, in a
-  `.cljc` namespace precisely so both halves can read it. ONE list, two
-  readers, one file. The two processes are deployed separately, so nothing
-  can MAKE them agree at run time — but nothing has to: a host that asks
-  for a key this table does not name is refused with the sidecar's
-  state-key-not-allowed refusal, and a host built against a different
-  bundle with its build-identity one. Both codes are the sidecar's
-  vocabulary, spelled in its protocol rather than restated here. Drift is
-  loud on the first request, not silent on the thousandth — and a host
-  built from this repository cannot drift in the first place, because
-  there is one list to edit.
+  `entries` publishes the ids a JVM host may name — here one,
+  `fresco.login.policy/root-entry`, read from the shared `.cljc` namespace
+  so both halves spell it the same way. It names no state keys. Which keys
+  reach `render!` is the JVM host's `:render-state` policy
+  (`fresco.login.policy/render-state-policy`, which `host.clj` hands the
+  Node renderer): the JVM projects the settled frame under it, and the
+  sidecar checks only the shape of what arrives — top-level key text, EDN
+  text per value, one byte ceiling. A host built against a different
+  bundle is refused with the sidecar's build-identity refusal.
 
   ## The render module contract
 
-  `{:protocol 1 :buildId <string> :entries {…} :boot fn :render fn}`, and
+  `{:protocol 1 :buildId <string> :entries [<entry id> …] :boot fn :render fn}`, and
   `render` returns the body markup as a string — `render-body`'s answer —
   which is its ONE output channel. The service refuses a module that
   returns anything else."
@@ -53,7 +44,7 @@
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
             [fresco.login.core :as views]
-            ;; The one render-state list, shared with `host.clj`.
+            ;; The entry id, shared with `host.clj`.
             [fresco.login.policy :as policy]
             [login.model :as model]))
 
@@ -77,24 +68,18 @@
 (goog-define build-id "login-fresco-dev")
 
 ;; ---------------------------------------------------------------------------
-;; The render-state policy — the one list both halves read
+;; The entry id — the one name both halves use
 ;; ---------------------------------------------------------------------------
 ;;
-;; It is NOT written here. `fresco.login.policy/render-state-policy` owns it,
-;; in a `.cljc` namespace both this bundle and the JVM `host.clj` require, and
-;; that namespace's docstring is where the per-key reasoning lives.
+;; It is NOT written here. `fresco.login.policy` owns it, in a `.cljc`
+;; namespace both this bundle and the JVM `host.clj` require. The
+;; render-state policy lives there too, and only the host reads it: the JVM
+;; projects, and this bundle renders what it is handed.
 
 (def root-entry
   "The entry identifier a JVM host names in its renderer opts — from the
-  shared policy namespace, for the same reason the allowlists are."
+  shared policy namespace, so both halves spell it the same way."
   policy/root-entry)
-
-(defn- allowlist
-  "The EDN text of each key in one slot of `policy/render-state-policy` —
-  the spelling the protocol's key grammar admits (`:foo`, `:foo/bar`), and
-  the same spelling `rf.ssr.render-state/serialize` puts on the wire."
-  [slot]
-  (into-array (map pr-str (get policy/render-state-policy slot))))
 
 ;; ---------------------------------------------------------------------------
 ;; The module
@@ -139,8 +124,6 @@
   `:examples/login-fresco-server` build's `:exports-var`."
   #js {:protocol 1
        :buildId  build-id
-       :entries  (js-obj root-entry
-                         #js {:stateAllowlist   (allowlist :app-db)
-                              :runtimeAllowlist (allowlist :runtime-db)})
+       :entries  #js [root-entry]
        :boot     boot!
        :render   render!})

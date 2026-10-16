@@ -339,10 +339,13 @@ explicitly."
 ;; ---- error capture --------------------------------------------------------
 ;;
 ;; Server error projection captures through two late-bind hooks that core's
-;; delivery code calls beside its listener fan-out. Neither is a listener. A
-;; listener registration means somebody is watching, so it owns the dev
-;; console prints, and a test's listener clear removes it; SSR's capture is a
-;; permanent framework consumer that must do neither.
+;; delivery code calls beside its listener fan-out. Neither is a listener,
+;; because a test's listener clear removes a listener, and a listener can take
+;; a dev console print — an error listener each record it claims by returning
+;; exactly `true`, a trace listener every unobserved warning by being
+;; registered. SSR's capture is a permanent framework consumer that must
+;; survive the clear and own neither print; core ignores a hook's return
+;; value, so the capture never claims a record.
 ;;
 ;; The always-on capture survives `interop/debug-enabled? = false`, so the
 ;; SSR `:rf/public-error` projection contract holds even when the trace
