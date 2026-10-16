@@ -17,7 +17,7 @@ Resources ship as their own artefact, like routing. They sit on top of a second 
  :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-Resources brings http onto your classpath, so the `re-frame.http.managed` require below resolves without an http coordinate of your own. An app adds `day8/re-frame2-http` itself only when its own code issues managed-HTTP requests — as Part 3's login does.
+Resources brings http onto your classpath and registers managed HTTP when `re-frame.resources` loads, so you need no http coordinate or require of your own. An app adds `day8/re-frame2-http` itself only when its own code issues managed-HTTP requests — as Part 3's login does.
 
 Now a tiny namespace that says where the API is. Make it `.cljc` rather than `.cljs` — it holds no browser code, and [Part 6](06-test-and-ship.md) loads it on the JVM:
 
@@ -53,7 +53,6 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 ;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (ns conduit.resources
   (:require [re-frame.core :as rf]
-            [re-frame.http.managed]   ; the managed-HTTP transport resources use
             [re-frame.resources]      ; boots the optional artefact
             [conduit.api :as api]))
 
