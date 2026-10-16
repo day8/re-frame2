@@ -27,7 +27,11 @@
       request-id `[:rf.req frame-id work-id]` (Spec 016) is the
       sanctioned second identity for process-global transport
       correlation; the Resources work-ledger's `managed-request-id` is
-      its only shipped constructor.
+      its only shipped constructor. Its resource work id
+      `[:rf.work/resource <resource-id> <generation>]` names no scope or
+      params, so the HTTP work id, the failure maps and the
+      `:rf.http/*` trace rows that carry it hold no resource identity
+      and need no projector.
 
    2. **Canonical reply map** (`success-reply` / `failure-reply`). The
       transport's success / failure / abort
@@ -132,7 +136,10 @@
   `:rf.http/*` failure map, from the request's identity `ctx`:
 
    - `:request {:method :url}` — an echo of the caller's own wire envelope;
-   - `:request-id`             — uniform across every failure category;
+   - `:request-id`             — uniform across every failure category (a
+                                 resource read's is `[:rf.req <frame-id>
+                                 [:rf.work/resource <resource-id>
+                                 <generation>]]`, with no scope or params);
    - `:attempt` / `:max-attempts` — the retry accounting (`:attempt` is
                                     also on the canonical envelope);
    - `:work/id`                — correlation to the trace stream.
