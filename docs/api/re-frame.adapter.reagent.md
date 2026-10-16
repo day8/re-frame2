@@ -182,6 +182,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 
 - [`re-frame.adapter.uix`](re-frame.adapter.uix.md) — the hooks-first React adapter, with the same client-root functions.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; installs `set-hiccup-emitter!` for you.
-- [Use UIx](../core/how-to/use-uix-or-slim.md) — choosing a substrate, and moving an app's views to UIx.
+- [Use UIx](../core/how-to/use-uix.md) — choosing a substrate, and moving an app's views to UIx.
 - [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) in the glossary.

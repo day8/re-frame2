@@ -1490,8 +1490,8 @@ else
       #     async-routing-recipes.md                                 → jvm-routing
       #   docs/core/testing/views.md         uix_component_recipe_docs_pin_test
       #                                        .clj                  → jvm-uix
-      #   docs/core/how-to/use-uix-or-       uix_consumer_deps_recipe_test.clj
-      #     slim.md                                                  → jvm-uix
+      #   docs/core/how-to/use-uix.md        uix_consumer_deps_recipe_test.clj
+      #                                                              → jvm-uix
       #   docs/skills/re-frame2-setup.md     skills/re-frame2-setup/tests/
       #                                        setup_drift_test.clj  → skills-
       #                                                                structural
@@ -1609,7 +1609,7 @@ else
         # exactly one is armed.
         implementation_jvm=true
         ;;
-      docs/core/testing/views.md|docs/core/how-to/use-uix-or-slim.md)
+      docs/core/testing/views.md|docs/core/how-to/use-uix.md)
         # Two named pages, NOT `docs/core/*`, and they arm
         # `adapter_diagnostic` rather than the JVM tier: both readers run in
         # `jvm-uix`, which gates on it.

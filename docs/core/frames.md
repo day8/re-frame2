@@ -547,7 +547,7 @@ Code gets its frame in one of three ways. Prefer them in this order:
     - In a Reagent `reg-view`, the injected `dispatch` and `subscribe` are already
       bound.
     - In UIx, the `(use-frame)` hook returns the same frame api (see
-      [Use UIx](how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api)).
+      [Use UIx](how-to/use-uix.md#3-why-callbacks-dispatch-off-the-frame-api)).
     - Anywhere else, call `rf/capture-frame` directly.
 2. **Scope**: make a frame current for a region. `frame-root` and `frame-provider` do
    it for a React subtree through context; `with-frame` does it for a synchronous

@@ -181,7 +181,7 @@ on the symbol.
     UIx you write native components and reach the frame through adapter
     hooks (`use-sub`, `use-frame`). The pure-function rule, the
     compute-in-subs rule, and frame isolation hold on every substrate. See
-    [Use UIx](how-to/use-uix-or-slim.md).
+    [Use UIx](how-to/use-uix.md).
 
 ### Which views are `reg-view`s
 
@@ -396,7 +396,7 @@ a frame, wrap it in `frame-provider`; see [Frames](frames.md).
 Handlers, subs and app-db never name a rendering library. The adapter you install at
 boot (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes DOM. Switching
 substrates changes only the `init!` call and the view notation
-([Use UIx](how-to/use-uix-or-slim.md)).
+([Use UIx](how-to/use-uix.md)).
 
 ### Fresco: another way to write views
 

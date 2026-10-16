@@ -2342,7 +2342,7 @@ pinnedRoster(
 // `tools/` and `skills/` rows are nested inside their own tree's arm.
 const PROSE_PINS_ARMING_OTHER_LANES = [
   ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['docs/core/how-to/use-uix-or-slim.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['docs/core/how-to/use-uix.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['docs/skills/re-frame2-setup.md', 'setup_drift_test.clj', 'skills-structural', 'skills_structural'],
   ['docs/core/fresco/20-migration-from-reagent.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
   ['skills/reagent-fresco-migration/references/procedure.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
@@ -2783,7 +2783,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/async': DOCS_YML,
   // `docs/core` is DELIBERATELY ABSENT, for the reason `docs/ssr` is below:
   // three of its pages carry a test.yml reader — testing/views.md and
-  // how-to/use-uix-or-slim.md, read by jvm-uix suites, and
+  // how-to/use-uix.md, read by jvm-uix suites, and
   // fresco/20-migration-from-reagent.md, read by the Fresco codemod's
   // census_test.clj — each with an arm scheduling its job, so one armed file
   // arms the tree. Its other pages arm no output, and the gates that read them are
