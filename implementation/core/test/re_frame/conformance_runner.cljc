@@ -19,13 +19,10 @@
     - the `:fixture/compute-subs` invocation (each query computed before
       grading)
     - the `:fixture/clock` controlled host clock (`run-clock-steps!`)
-    - all `:fixture/expect` matchers (app-db, runtime-db, subs, traces,
-      traces-not-emitted, effects-routed, error-emit-records, epoch-records,
-      absent-paths, SSR public-error, and the frame-destroy window)
+    - the matcher tables (`expect-matchers`, `call-matchers`)
     - `run-fixture` orchestration
     - the corpus body (`run-corpus`) with three-way capability
-      classification, TOP-LEVEL-KEY and EXPECTATION-KEY fail-loud,
-      reporting, and the pass/floor/count `is` assertions
+      classification, reporting, and the pass/floor/count `is` assertions
     - the production-posture predicate (`prod-posture-fixture?`): the
       fixtures whose grading reads no dev-only surface, which a host can
       run under `-Dre-frame.debug=false`
@@ -45,23 +42,23 @@
   This is a test-only namespace under `core/test`, `:require`d only by test
   namespaces, so production source and bundle graphs never see it.
 
-  ## Fail-loud expectation keys
+  ## One matcher per expectation key
 
-  The core corpus runner OWNS a fixed set of `:fixture/expect` matchers
-  (`corpus-checked-expect-keys`). The flow and SSR conformance runners own
-  additional expectation keys (`sibling-owned-expect-keys`, the delegated
-  allowlist), and each loads every fixture that carries one. A runnable
-  fixture whose `:fixture/expect` names a key in NEITHER set is a typo /
-  drift — the suite FAILS rather than silently ignoring it. This is the
-  capability-allowlist discipline (`known-skipped-capabilities`) applied to
-  expectation keys; it is the structural guard against a silently ignored
-  expectation.
+  The fixture grammar, `spec/conformance/fixture-file.edn`, declares every
+  expectation a fixture may carry and the law it is compared by. This runner
+  grades each one with exactly one matcher: `expect-matchers` for the
+  `:fixture/expect` keys and `call-matchers` for the `:fixture/calls`
+  records, and every matcher runs on every runnable fixture carrying its key,
+  whatever the fixture's filename. `re-frame.conformance-test` ties both
+  tables to the grammar, so a grammar key without a matcher, or a matcher
+  without a grammar key, fails the suite. The one exception is
+  `sibling-graded`: an expectation whose fixture claims a capability this
+  runner does not, graded by the family runner that does; the same test
+  proves that runner loads every fixture carrying it.
 
-  The fixture's TOP-LEVEL keys are held to the same rule
-  (`implemented-fixture-keys`): a runnable fixture carrying a key this runner
-  does not implement — a misspelt setup key such as `:fixture/dispatchess` —
-  fails naming the key, because a dropped setup key silently changes the
-  scenario."
+  A `:fixture/expect` key with no matcher fails the fixture naming it, on
+  both hosts. An unknown top-level key is caught by the JVM grammar
+  validation over the same corpus (`re-frame.conformance-grammar-test`)."
   (:require
     #?(:clj  [clojure.test :refer [is]]
        :cljs [cljs.test :refer-macros [is]])
@@ -72,6 +69,7 @@
     [re-frame.events :as rf.events]
     [re-frame.fx :as rf.fx]
     [re-frame.cofx :as rf.cofx]
+    [re-frame.core-ssr :as rf.core-ssr]
     [re-frame.frame :as rf.frame]
     [re-frame.registrar :as rf.registrar]
     [re-frame.source-store :as rf.source-store]
@@ -99,6 +97,8 @@
     [re-frame.derivation.graph :as rf.derivation.graph]
     [re-frame.subs.tooling :as rf.subs.tooling]
     [re-frame.machines.tooling :as rf.machines.tooling]
+    [re-frame.flows :as rf.flows]
+    [re-frame.flows.topo :as rf.flows.topo]
     [re-frame.flows.tooling :as rf.flows.tooling]
     [re-frame.resources.tooling :as rf.resources.tooling]
     [re-frame.routing.tooling :as rf.routing.tooling]
@@ -213,87 +213,9 @@
 (def known-skipped-capabilities
   "Capabilities this build INTENTIONALLY does not claim. Fixtures whose
   capabilities fall here are reported as out-of-claim skips but do not block
-  the suite. The hydration payload and render-tree-hash are gated by the
-  dedicated ssr-artefact conformance runner, not this core corpus runner."
-  #{:ssr/hydration-payload
-    :ssr/render-tree-hash})
-
-;; ---- fail-loud expectation keys -------------------------------------------
-;;
-;; The core corpus runner OWNS matchers for exactly these `:fixture/expect`
-;; keys. This is the SINGLE definition — both hosts check the same keys.
-
-(def corpus-checked-expect-keys
-  "The `:fixture/expect` keys this runner has a matcher for. Any runnable
-  fixture using ONLY these (plus sibling-owned, below) is fully graded."
-  #{:final-app-db
-    :final-app-dbs
-    :final-app-db-absent
-    :final-runtime-db
-    :final-runtime-dbs
-    :sub-values
-    :trace-emissions
-    :trace-not-emitted
-    :error-emit-records
-    :epoch-records
-    :effects-routed
-    :on-destroy-emissions
-    :on-destroy-effects
-    :ssr/public-error})
-
-(def sibling-owned-expect-keys
-  "`:fixture/expect` keys the core corpus runner intentionally does NOT
-  check because a DEDICATED sibling conformance runner grades them —
-  flow-conformance (`:flow-*`, `:expect-trace-stream`, `:trace-absent`,
-  `:registrar-flow-slots-after`), which loads every `flow-*.edn`, and
-  ssr-conformance (`:ssr/request-result`, `:ssr/active-head`,
-  `:ssr/rendered-head-contains`), which loads every `ssr-*.edn`. Those
-  runners pick fixtures by FILENAME, so a key belongs here only while every
-  fixture carrying it has the matching prefix; a key on any other fixture
-  needs a matcher in this runner instead. A fixture may only carry a key
-  here or in `corpus-checked-expect-keys` — anything else fails loud."
-  #{:expect-trace-stream
-    :flow-graph-topology
-    :flow-last-inputs-after
-    :flow-recompute-counts
-    :flow-registry-after
-    :registrar-flow-slots-after
-    :trace-absent
-    :ssr/active-head
-    :ssr/rendered-head-contains
-    :ssr/request-result})
-
-(defn unknown-expect-keys
-  "Return the seq of `:fixture/expect` keys that are neither corpus-checked
-  nor sibling-owned — i.e. keys this runner would SILENTLY IGNORE. A
-  non-empty result FAILS the fixture (fail-loud). Empty for every
-  key currently in the corpus."
-  [fixture]
-  (remove #(or (contains? corpus-checked-expect-keys %)
-               (contains? sibling-owned-expect-keys %))
-          (keys (:fixture/expect fixture {}))))
-
-(def implemented-fixture-keys
-  "The top-level fixture keys this runner implements: read, gated on, or
-  owned by a sibling conformance runner. Per `spec/conformance/README.md`
-  §Top-level fixture keys, a harness meeting any other key fails naming it."
-  #{;; metadata
-    :fixture/id :fixture/doc :fixture/spec-version :fixture/capabilities
-    ;; static-host gating; a dynamic host implements it by running the fixture
-    :fixture/dynamic-host-only?
-    ;; setup, read by `run-fixture`
-    :fixture/registry :fixture/handlers :fixture/frame-config :fixture/frames
-    :fixture/runtime :fixture/flow-bodies :fixture/classification-effects
-    :fixture/dispatches :fixture/calls :fixture/clock
-    ;; expectation, read by `run-fixture`
-    :fixture/expect :fixture/compute-subs :fixture/render-after-hydrate})
-
-(defn unknown-fixture-keys
-  "The fixture's top-level keys outside `implemented-fixture-keys`. Taken from
-  the PARSED map: the corpus also carries event ids in the `:fixture/`
-  namespace, which a text search would misread as keys."
-  [fixture]
-  (remove implemented-fixture-keys (keys fixture)))
+  the suite. The render-tree hash is graded by the ssr artefact's own
+  conformance runner (see `sibling-graded`)."
+  #{:ssr/render-tree-hash})
 
 ;; ---- fixture classification -----------------------------------------------
 
@@ -321,36 +243,6 @@
   [fixture]
   (let [v (:fixture/spec-version fixture)]
     (or (nil? v) (contains? claimed-spec-versions v))))
-
-;; ---- production-posture subset --------------------------------------------
-
-(def dev-posture-expect-keys
-  "The `:fixture/expect` keys whose matchers read a surface that exists only
-  in the debug build: trace emissions (present, absent, or in the
-  frame-destroy window) and the effects routed off them, the SSR public
-  error projected from the dev trace's last error event, and epoch records
-  from the trace-fed epoch ring. Under `-Dre-frame.debug=false` none of them
-  is emitted, so a fixture asserting a present one fails there by design,
-  and `:trace-not-emitted` would pass over an empty trace stream whatever
-  the runtime did."
-  #{:trace-emissions :trace-not-emitted :effects-routed :ssr/public-error
-    :epoch-records :on-destroy-emissions :on-destroy-effects})
-
-(def dev-posture-capabilities
-  "Capabilities whose fixtures read a dev-only surface through
-  `:fixture/calls` rather than through an expectation key.
-  `:derivation/algebra-graph` asserts the live derivation graph, whose
-  projections are gated on `interop/debug-enabled?`."
-  #{:derivation/algebra-graph})
-
-(defn prod-posture-fixture?
-  "True when grading the fixture reads no dev-only surface, so it grades the
-  same under `-Dre-frame.debug=false` as in the debug build. Capability tags
-  cannot answer this: every `:core/*` capability is required of every port,
-  so a fixture asserting trace emissions need not claim `:core/trace`."
-  [fixture]
-  (and (not-any? dev-posture-expect-keys (keys (:fixture/expect fixture)))
-       (not-any? dev-posture-capabilities (:fixture/capabilities fixture))))
 
 ;; ---- handler-body realisation ---------------------------------------------
 ;;
@@ -519,6 +411,11 @@
       (rf.registrar/register!
         :view id
         {:handler-fn (rf.conformance/realise-view-handler steps)}))
+    ;; head registrations — a head body is `[[:return-head model]]`, a head
+    ;; fn returning that literal model. Routes name it through `:head`.
+    (doseq [[id [[_ model]]] (get handlers-map :head)]
+      (claim-fixture-id! :head id) ;; claim (see claim-fixture-id!)
+      (rf.core-ssr/-reg-head id (fn [_db _route] model)))
     ;; machine registrations. Merge the fixture's realised action /
     ;; guard bodies into each machine-spec before reg-machine*.
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
@@ -581,9 +478,8 @@
   priority-ordered, so without the check a multi-axis op would silently
   apply only its first arm and an empty or unknown-key op would silently
   apply nothing — a fixture author writing two axes would get one, with no
-  error. Same fail-loud posture as `unknown-expect-keys` above, and the
-  same reason: a setup key the harness ignores changes the scenario
-  without saying so."
+  error, and a setup key the harness ignores changes the scenario without
+  saying so."
   [fixture scope-frame]
   (letfn [(slot-for [axis]
             (case axis :sensitive :sensitive-declarations :large :declarations))
@@ -771,6 +667,230 @@
               entries)))
         by-frame))))
 
+(defn- submap-failures
+  "The grammar's `:submap` law, as a failure seq: empty when `expected` is a
+  submap of `actual`."
+  [what expected actual]
+  (when-not (rf.conformance/submap? expected actual)
+    [(str what " expected (submap) " (pr-str expected) "\n      actual " (pr-str actual))]))
+
+(defn- equal-failures
+  "The grammar's `:equal` law, as a failure seq."
+  [what expected actual]
+  (when (not= expected actual)
+    [(str what " expected " (pr-str expected) "\n      actual   " (pr-str actual))]))
+
+(defn- absent-path-failures
+  "The grammar's `:absent-paths` law. A sentinel `get-in` default tells an
+  absent tip key from one present with a nil value."
+  [db paths]
+  (let [sentinel ::absent]
+    (keep (fn [path]
+            (let [v (get-in db path sentinel)]
+              (when-not (identical? v sentinel)
+                (str "expected app-db path " (pr-str path) " to be ABSENT but found " (pr-str v)))))
+          paths)))
+
+(defn- flow-ids
+  "The ids of the flows registered on `frame-id`."
+  [frame-id]
+  (set (keys (get (rf.flows/flows-snapshot) frame-id))))
+
+(defn- flow-dependencies
+  "`{flow-id #{dep-id …}}` over `:rf/default`'s flows, by the runtime's own
+  `topo/depends-on?`, so the matcher cannot drift from the dependency rule."
+  []
+  (let [registry (get (rf.flows/flows-snapshot) :rf/default {})]
+    (into {} (for [[id flow] registry]
+               [id (into #{} (for [[other-id other] registry
+                                   :when (and (not= id other-id)
+                                              (rf.flows.topo/depends-on? flow other))]
+                               other-id))]))))
+
+(defn- active-head
+  "The head model `:rf/default`'s active route resolves to, or nil when
+  resolution throws (an unregistered `:head`, an absent frame): the channel
+  asserts a model, not a failure mode."
+  []
+  (try (rf.ssr/head-model :rf/default)
+       (catch #?(:clj Throwable :cljs :default) _ nil)))
+
+(defn- routed-failures
+  "`check-effects-routed`, with the routed list appended when it fails."
+  [actual expected]
+  (when-let [failures (seq (check-effects-routed actual (normalise-effects-routed expected)))]
+    (conj (vec failures) (str "routed: " (pr-str actual)))))
+
+;; ---- the `:fixture/expect` matcher table ----------------------------------
+
+(def expect-matchers
+  "The ONE matcher for each `:fixture/expect` key the fixture grammar
+  declares, as `[key {:match f :dev-only? bool}]` pairs in grading order.
+  `(f run expected)` returns a seq of failure strings, empty on a pass;
+  `run` carries the fixture's `:traces` and `:err-records` atoms and its
+  `:destroy-traces` delay. Each matcher applies the law the grammar names
+  for its key (`spec/conformance/fixture-file.edn` §`:laws`).
+
+  The order matters twice. Subscribing for `:sub-values` can emit the
+  sub-exception trace a `:trace-emissions` row expects, so state and subs
+  are read before any trace. And the frame-destroy window is opened last,
+  so every other matcher reads the live frame and creation-time traces
+  cannot satisfy a destroy-time claim.
+
+  `:dev-only?` marks a matcher reading a surface only the debug build emits:
+  the trace bus, the effects and public error read off it, and the
+  trace-fed epoch ring."
+  [[:final-app-db
+    {:match (fn [_ want] (submap-failures "app-db" want (rf/app-db-value :rf/default)))}]
+   [:final-app-dbs
+    {:match (fn [_ want]
+              (mapcat (fn [[fid db]] (submap-failures (str fid " app-db") db (rf/app-db-value fid)))
+                      want))}]
+   [:final-app-db-absent
+    {:match (fn [_ paths] (absent-path-failures (rf/app-db-value :rf/default) paths))}]
+   ;; EP-0001: durable framework runtime state lives in the runtime-db
+   ;; partition.
+   [:final-runtime-db
+    {:match (fn [_ want]
+              (submap-failures "runtime-db" want
+                               (:rf.db/runtime (rf/frame-state-value :rf/default))))}]
+   [:final-runtime-dbs
+    {:match (fn [_ want]
+              (mapcat (fn [[fid rt]]
+                        (submap-failures (str fid " runtime-db") rt
+                                         (:rf.db/runtime (rf/frame-state-value fid))))
+                      want))}]
+   [:sub-values
+    {:match (fn [_ want]
+              (mapcat (fn [[query-v expected]]
+                        (let [[frame-id qv] (rf.conformance/resolve-sub :rf/default query-v)]
+                          (equal-failures (str "sub " (pr-str query-v)) expected
+                                          (rf/subscribe-once qv {:frame frame-id}))))
+                      want))}]
+   ;; Spec 011's per-request response accumulator — the one slot of the
+   ;; request result the corpus observes. The host adapter builds the body
+   ;; and payload from it, and its own tests grade them.
+   [:ssr/request-result
+    {:match (fn [_ want]
+              (submap-failures "request result" want
+                               {:response (rf.ssr/get-response :rf/default)}))}]
+   [:ssr/active-head
+    {:match (fn [_ want] (equal-failures "head model" want (active-head)))}]
+   [:ssr/rendered-head-contains
+    {:match (fn [_ wanted]
+              (let [html (or (some-> (active-head) rf.ssr/head-model->html) "")]
+                (for [s wanted :when (not (str/includes? html s))]
+                  (str "rendered head lacks " (pr-str s) "\n      html " (pr-str html)))))}]
+   [:flow-graph-topology
+    {:match (fn [_ want]
+              (equal-failures "flow dependencies" want
+                              (select-keys (flow-dependencies) (keys want))))}]
+   ;; A bare set reads `:rf/default`; a map reads each named frame.
+   [:flow-registry-after
+    {:match (fn [_ want]
+              (equal-failures "registered flows" want
+                              (if (map? want)
+                                (into {} (for [[fid _] want] [fid (flow-ids fid)]))
+                                (flow-ids :rf/default))))}]
+   [:flow-last-inputs-after
+    {:match (fn [_ want]
+              (equal-failures "frames holding last inputs" want
+                              (into {} (for [[id _] want]
+                                         [id (set (keys (get (rf.flows/last-inputs-snapshot) id)))]))))}]
+   ;; The whole `:flow` registrar slot, which `reg-flow` never writes —
+   ;; neither the per-frame store nor the expected ids, either of which
+   ;; would let an empty expectation match a polluted slot.
+   [:registrar-flow-slots-after
+    {:match (fn [_ want] (equal-failures "registrar :flow ids" want (set (rf.registrar/ids :flow))))}]
+   [:trace-emissions
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} want] (rf.conformance/check-trace-emissions @traces want))}]
+   [:trace-not-emitted
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} shapes] (check-trace-not-emitted @traces shapes))}]
+   [:trace-absent
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} shapes] (check-trace-not-emitted @traces shapes))}]
+   [:expect-trace-stream
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} want]
+                  (rf.conformance/check-trace-emissions (filterv #(= :flow (:op-type %)) @traces) want))}]
+   ;; A `:rf.flow/skip` is the absence of a recompute, so it does not count.
+   [:flow-recompute-counts
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} want]
+                  (equal-failures "flow recomputes" want
+                                  (frequencies (for [t @traces :when (= :rf.flow/computed (:operation t))]
+                                                 (get-in t [:tags :flow-id])))))}]
+   [:effects-routed
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} want] (routed-failures (effects-routed-from-traces @traces) want))}]
+   [:error-emit-records
+    {:match (fn [{:keys [err-records]} want]
+              (when-let [failures (seq (check-error-emit-records @err-records want))]
+                (conj (vec failures) (str "records: " (pr-str @err-records)))))}]
+   ;; Both hosts read the recorded `:rf/epoch-record` ring.
+   [:epoch-records
+    {:dev-only? true
+     :match     (fn [_ want] (check-epoch-records want))}]
+   ;; Spec 011: the run's last error, projected by the active error projector.
+   [:ssr/public-error
+    {:dev-only? true
+     :match     (fn [{:keys [traces]} want]
+                  (if-let [last-error (last (filter #(= :error (:op-type %)) @traces))]
+                    (equal-failures "public error" want (rf.ssr/project-error :rf/default last-error))
+                    [(str "expected public error " (pr-str want) " but the run emitted no error")]))}]
+   [:on-destroy-emissions
+    {:dev-only? true
+     :match     (fn [{:keys [destroy-traces]} want]
+                  (rf.conformance/check-trace-emissions @destroy-traces want))}]
+   [:on-destroy-effects
+    {:dev-only? true
+     :match     (fn [{:keys [destroy-traces]} want]
+                  (routed-failures (effects-routed-from-traces @destroy-traces) want))}]])
+
+(def ^:private expect-matcher-index (into {} expect-matchers))
+
+(defn- grade-expect
+  "Grade a fixture's `:fixture/expect` block against the finished `run`:
+  `{key failures}` for each key that failed. A key with no matcher fails
+  naming itself, so an expectation this runner cannot read is never a pass."
+  [run expect]
+  (into (into {} (for [k (keys expect) :when (not (contains? expect-matcher-index k))]
+                   [k ["no matcher grades this key"]]))
+        (keep (fn [[k {:keys [match]}]]
+                (when (contains? expect k)
+                  (when-let [failures (seq (match run (get expect k)))]
+                    [k (vec failures)]))))
+        expect-matchers))
+
+;; ---- production-posture subset --------------------------------------------
+
+(def dev-posture-expect-keys
+  "The `:fixture/expect` keys whose matcher reads a surface only the debug
+  build emits (`:dev-only?` in `expect-matchers`). Under
+  `-Dre-frame.debug=false` none of them is emitted, so a fixture asserting a
+  present one fails there by design, and a negative one (`:trace-not-emitted`,
+  `:trace-absent`) would pass over an empty trace stream whatever the
+  runtime did."
+  (into #{} (keep (fn [[k {:keys [dev-only?]}]] (when dev-only? k))) expect-matchers))
+
+(def dev-posture-capabilities
+  "Capabilities whose fixtures read a dev-only surface through
+  `:fixture/calls` rather than through an expectation key.
+  `:derivation/algebra-graph` asserts the live derivation graph, whose
+  projections are gated on `interop/debug-enabled?`."
+  #{:derivation/algebra-graph})
+
+(defn prod-posture-fixture?
+  "True when grading the fixture reads no dev-only surface, so it grades the
+  same under `-Dre-frame.debug=false` as in the debug build. Capability tags
+  cannot answer this: every `:core/*` capability is required of every port,
+  so a fixture asserting trace emissions need not claim `:core/trace`."
+  [fixture]
+  (and (not-any? dev-posture-expect-keys (keys (:fixture/expect fixture)))
+       (not-any? dev-posture-capabilities (:fixture/capabilities fixture))))
+
 ;; ---- fixture registration helpers -----------------------------------------
 
 (defn- register-routes! [fixture]
@@ -846,560 +966,412 @@
     {:actions actions-by-id
      :guards  guards-by-id}))
 
-;; ---- :fixture/calls execution ---------------------------------------------
+;; ---- the `:fixture/calls` matcher table -----------------------------------
 
-(defn run-call
-  "Execute one `:fixture/calls` entry. Returns `{:passed? bool :detail …}`.
-  `fixture-machines` is the realised `{:actions … :guards …}` map for the
-  fixture (built once by run-fixture). An unrecognised `:call` FAILS (the
-  default branch) — the call-op fail-loud counterpart of the expectation-key
-  fail-loud."
-  [call & [fixture-machines]]
-  (case (:call call)
-    :match-url
-    ;; Spec 012 §Bidirectional URL ↔ params: the result carries an
-    ;; implementation-specific :validation-error explanation; dissoc it before
-    ;; equality (the :validation-failed? flag is the normative bit).
-    (let [actual (some-> (rf.routing/match-url (:url call)) (dissoc :validation-error))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "match-url " (:url call)
-                       " expected " expect " got " actual))})
+(defn- on-value
+  "A call matcher that grades an operation's returned value. An operation
+  that threw is graded by `:expect-error`, or failed once by `run-call`."
+  [f]
+  (fn [outcome want call]
+    (when (contains? outcome :value)
+      (f (:value outcome) want call))))
 
-    :route-url
-    (let [actual (cond
-                   (contains? call :fragment)
-                   (rf.routing/route-url {:to (:route-id call) :params (:params call) :query (or (:query call) {}) :fragment (:fragment call)})
-                   (:query call)
-                   (rf.routing/route-url {:to (:route-id call) :params (:params call) :query (:query call)})
-                   :else
-                   (rf.routing/route-url {:to (:route-id call) :params (:params call)}))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "route-url " (:route-id call)
-                       " expected " expect " got " actual))})
+(defn- equal-to
+  "A call matcher applying the `:equal` law to the returned value, or to
+  `(observe value)`."
+  ([] (equal-to identity))
+  ([observe]
+   (on-value (fn [v want _] (equal-failures "" want (observe v))))))
 
-    :round-trip
-    (let [matched (rf.routing/match-url (:url call))
-          rebuilt (when matched
-                    (rf.routing/route-url {:to (:route-id matched) :params (:params matched) :query (or (:query matched) {}) :fragment (:fragment matched)}))]
-      {:passed? (= (:url call) rebuilt)
-       :detail  (when (not= (:url call) rebuilt)
-                  (str "round-trip " (:url call) " → " rebuilt))})
+(defn- thrown-error-id
+  "The grammar's `:thrown-error-id` law: the operation threw, and the
+  throw's ex-data `:rf.error/id` is the expected id."
+  [outcome want _]
+  (let [e   (:thrown outcome)
+        got (some-> e ex-data :rf.error/id)]
+    (when-not (= want got)
+      [(str "expected a throw with :rf.error/id " want ", got "
+            (cond (nil? e)    "no throw"
+                  (some? got) got
+                  :else       (str "a throw without one: " (ex-message e))))])))
 
-    ;; Mode-B route-pattern validation. `:pattern` is the raw
-    ;; `:path` string; `:expect-error :rf.error/invalid-route-pattern` ⇒ the
-    ;; pure validator must throw an ex-info whose `:rf.error/id` equals that
-    ;; id; absent `:expect-error` ⇒ a well-formed pattern must NOT throw.
-    :reg-route
-    (let [want-error (:expect-error call)
-          thrown     (try (rf.routing.match/validate-route-pattern!
-                            (:route-id call :rf.test/pattern) (:pattern call)) nil
-                          (catch #?(:clj Throwable :cljs :default) e e))]
-      (if want-error
-        (let [got-id (:rf.error/id (ex-data thrown))
-              ok?    (= want-error got-id)]
-          {:passed? ok?
-           :detail  (when-not ok?
-                      (str "reg-route " (pr-str (:pattern call)) "\n"
-                           "    expected error :rf.error/id: " want-error "\n"
-                           "    actual   error :rf.error/id: " got-id "\n"
-                           "    thrown:                       " (some-> thrown ex-message)))})
-        {:passed? (nil? thrown)
-         :detail  (when (some? thrown)
-                    (str "reg-route " (pr-str (:pattern call)) "\n"
-                         "    expected: no error (well-formed pattern)\n"
-                         "    thrown:   " (ex-message thrown)))}))
+(defn- member-failures
+  "The grammar's `:member` / `:non-member` laws over the collection `coll`."
+  [what coll wanted member?]
+  (for [x wanted :when (not= member? (contains? coll x))]
+    (str (pr-str x) (if member? " expected in " " expected absent from ") what)))
 
-    ;; rank-vs-rank assertion: winner's rank tuple compares greater than loser's.
-    :assert-rank-greater
-    (let [w-meta  (rf.registrar/lookup :route (:winner call))
-          l-meta  (rf.registrar/lookup :route (:loser  call))
-          w-rank  (:rf.route/rank w-meta)
-          l-rank  (:rf.route/rank l-meta)
-          ok?     (and w-rank l-rank (pos? (compare w-rank l-rank)))]
-      {:passed? ok?
-       :detail  (when-not ok?
-                  (str "assert-rank-greater " (:winner call)
-                       " > " (:loser call)
-                       " — winner-rank " w-rank " loser-rank " l-rank))})
-
-    ;; SSR pure render: input is hiccup, in which a view is named by the
-    ;; portable `[:view-ref <id> & args]` marker (a keyword
-    ;; head is a DOM element on every host, so the fixture cannot spell a
-    ;; view as its head). `realise-view-refs` turns the marker into this
-    ;; host's callable-head form before the emitter sees it. Opts may
-    ;; carry :doctype?.
-    :render-to-string
-    (let [opts (or (:opts call) {})
-          out  (try (rf.ssr/render-to-string
-                      (rf.conformance/realise-view-refs (:input call)) opts)
-                    (catch #?(:clj Throwable :cljs :default) e
-                      (str "<error: " (ex-message e) ">")))
-          want (:expect call)]
-      {:passed? (= want out)
-       :detail  (when (not= want out)
-                  (str "render-to-string\n"
-                       "    expected: " (pr-str want) "\n"
-                       "    actual:   " (pr-str out)))})
-
-    ;; pure machine-transition call (fsm fixtures). The public fn returns the
-    ;; Spec 005 §Level 1 map — `{:status :ok :snapshot … :fx …}` or
-    ;; `{:status :error :error {:kind …}}`.
-    :machine-transition
-    (let [actions-by-id  (or (:actions fixture-machines) {})
-          guards-by-id   (or (:guards  fixture-machines) {})
-          definition     (-> (:definition call)
-                             (update :actions #(merge actions-by-id %))
-                             (update :guards  #(merge guards-by-id %)))
-          r             (try (rf.machines/machine-transition definition (:snapshot call) (:event call))
-                             (catch #?(:clj Throwable :cljs :default) e
-                               {:snapshot nil
-                                :fx   [:error (ex-message e)]}))
-          ;; A bounded-depth abort is `:status :error` with a
-          ;; depth-exceeded `:kind`; project it onto the observable
-          ;; atomic-rollback shape (input snapshot, empty effects).
-          depth-abort?  (and (= :error (:status r))
-                             (contains? #{:rf.error/machine-always-depth-exceeded
-                                          :rf.error/machine-raise-depth-exceeded}
-                                        (get-in r [:error :kind])))
-          snap-out      (if depth-abort? (:snapshot call) (:snapshot r))
-          fx-out        (if depth-abort? [] (:fx r))
-          want-snap     (:expect-next-snapshot call)
-          want-fx       (or (:expect-effects call) [])
-          ok-snap?      (= want-snap snap-out)
-          ok-fx?        (= want-fx (vec fx-out))]
-      {:passed? (and ok-snap? ok-fx?)
-       :detail  (when (not (and ok-snap? ok-fx?))
-                  (str "machine-transition\n"
-                       "    expected snapshot: " want-snap "\n"
-                       "    actual   snapshot: " snap-out "\n"
-                       "    expected effects:  " want-fx "\n"
-                       "    actual   effects:  " fx-out))})
-
-    ;; pure registration-validation call. `:expect-error
-    ;; <category>` ⇒ the pure validator must throw that `:rf.error/id`.
-    :reg-machine
-    (let [want-error (:expect-error call)
-          thrown     (try (rf.machines/validate-machine! (:definition call)) nil
-                          (catch #?(:clj Throwable :cljs :default) e e))]
-      (if want-error
-        (let [got-id (:rf.error/id (ex-data thrown))
-              ok?    (= want-error got-id)]
-          {:passed? ok?
-           :detail  (when-not ok?
-                      (str "reg-machine\n"
-                           "    expected error :rf.error/id: " want-error "\n"
-                           "    actual   error :rf.error/id: " got-id "\n"
-                           "    thrown:                       " (some-> thrown ex-message)))})
-        {:passed? (nil? thrown)
-         :detail  (when (some? thrown)
-                    (str "reg-machine\n"
-                         "    expected: no error (well-formed machine)\n"
-                         "    thrown:   " (ex-message thrown)))}))
-
-    ;; EP-0027 construction-engine registration call. `:config`
-    ;; is passed to `make-frame`; `:expect-error <:rf.error/id>` ⇒ construction
-    ;; must throw that id. The frame is destroyed afterward (best-effort).
-    :make-frame
-    (let [frame-id   (or (:frame-id call) :rf.test/construction)
-          want-error (:expect-error call)
-          thrown     (try (rf/make-frame (assoc (:config call) :id frame-id)) nil
-                          (catch #?(:clj Throwable :cljs :default) e e))
-          _          (try (rf/destroy-frame! frame-id)
-                          (catch #?(:clj Throwable :cljs :default) _ nil))]
-      (if want-error
-        (let [got-id (:rf.error/id (ex-data thrown))
-              ok?    (= want-error got-id)]
-          {:passed? ok?
-           :detail  (when-not ok?
-                      (str "make-frame\n"
-                           "    expected error :rf.error/id: " want-error "\n"
-                           "    actual   error :rf.error/id: " got-id "\n"
-                           "    thrown:                       " (some-> thrown ex-message)))})
-        {:passed? (nil? thrown)
-         :detail  (when (some? thrown)
-                    (str "make-frame\n"
-                         "    expected: no error (well-formed config)\n"
-                         "    thrown:   " (ex-message thrown)))}))
-
-    ;; Spec 016 §Resources — `:reg-resource` Mode-B registration-
-    ;; validation. `:expect-error <:rf.error/id>` ⇒ registration must throw
-    ;; that id; absent ⇒ a well-formed spec must NOT throw. Cleared afterward.
-    :reg-resource
-    (let [resource-id (or (:resource-id call) :rf.test/resource)
-          request-fn  (fn [params _ctx]
-                        {:request {:method :get
-                                   :url    (str (:request-url call "/api/probe") params)}})
-          want-error  (:expect-error call)
-          thrown      (try (rf.resources/reg-resource resource-id (:spec call) request-fn) nil
-                           (catch #?(:clj Throwable :cljs :default) e e))
-          _           (try (rf/clear :resource resource-id)
-                           (catch #?(:clj Throwable :cljs :default) _ nil))]
-      (if want-error
-        (let [got-id (:rf.error/id (ex-data thrown))
-              ok?    (= want-error got-id)]
-          {:passed? ok?
-           :detail  (when-not ok?
-                      (str "reg-resource\n"
-                           "    expected error :rf.error/id: " want-error "\n"
-                           "    actual   error :rf.error/id: " got-id "\n"
-                           "    thrown:                       " (some-> thrown ex-message)))})
-        {:passed? (nil? thrown)
-         :detail  (when (some? thrown)
-                    (str "reg-resource\n"
-                         "    expected: no error (well-formed spec)\n"
-                         "    thrown:   " (ex-message thrown)))}))
-
-    ;; Spec 016 §Scope resolution — `:resolve-scope` fail-closed.
-    ;; `:side` selects the write-side event resolver or the read-side sub
-    ;; resolver; `:expect-error` ⇒ that id; absent ⇒ `:expect` is the returned
-    ;; canonical scope. Pure — the fail-closed THROW is captured directly.
-    :resolve-scope
-    (let [resource-id (:resource-id call)
-          side        (:side call :event)
-          want-error  (:expect-error call)
-          result      (try
-                        {:ok (case side
-                               :sub   (rf.resources.subs/resolve-scoped-key
-                                        (cond-> {:resource resource-id
-                                                 :params   (:params call {})}
-                                          (contains? call :payload-scope)
-                                          (assoc :scope (:payload-scope call)))
-                                        (:db call {}))
-                               (rf.resources.registry/resolve-scope-for-event
-                                 resource-id (rf.resources.registry/resource-meta resource-id)
-                                 {:payload-scope (:payload-scope call)
-                                  :db            (:db call)}
-                                 'rf.test/resolve-scope))}
-                        (catch #?(:clj Throwable :cljs :default) e
-                          (if-let [id (:rf.error/id (ex-data e))]
-                            {:err id}
-                            {:err (ex-message e)})))]
-      (if want-error
-        {:passed? (= want-error (:err result))
-         :detail  (when (not= want-error (:err result))
-                    (str "resolve-scope " side " " resource-id
-                         "\n    expected error: " want-error
-                         "\n    actual:         " (pr-str result)))}
-        {:passed? (= (:expect call) (:ok result))
-         :detail  (when (not= (:expect call) (:ok result))
-                    (str "resolve-scope " side " " resource-id
-                         "\n    expected: " (pr-str (:expect call))
-                         "\n    actual:   " (pr-str result)))}))
-
-    ;; EP-0012 — CEDN-1 canonical-identity golden ops (the FROZEN
-    ;; byte-contract, so an encoder rewrite fails the corpus on BOTH hosts).
-    :canonical-bytes
-    (let [actual (try (rf.identity/canonical-bytes (:value call))
-                      (catch #?(:clj Throwable :cljs :default) e
-                        (str "<error: " (ex-message e) ">")))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "canonical-bytes " (pr-str (:value call))
-                       "\n    expected: " (pr-str expect)
-                       "\n    actual:   " (pr-str actual)))})
-
-    :canonical-identical
-    (let [ok? (try (rf.identity/identical-identity? (:a call) (:b call))
-                   (catch #?(:clj Throwable :cljs :default) _ false))]
-      {:passed? (boolean ok?)
-       :detail  (when-not ok?
-                  (str "canonical-identical expected = identity: "
-                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
-
-    :canonical-distinct
-    (let [same? (try (rf.identity/identical-identity? (:a call) (:b call))
-                     (catch #?(:clj Throwable :cljs :default) _ false))]
-      {:passed? (not same?)
-       :detail  (when same?
-                  (str "canonical-distinct expected DISTINCT identities: "
-                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
-
-    ;; `:canonical-value` pins the exact NORMALIZED value
-    ;; `canonical` returns (distinct from `:canonical-bytes`, which pins the
-    ;; byte token). Used for the reserved tagged-instant tuple + its idempotence.
-    :canonical-value
-    (let [actual (try (rf.identity/canonical (:value call))
-                      (catch #?(:clj Throwable :cljs :default) e
-                        (str "<error: " (ex-message e) ">")))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "canonical-value " (pr-str (:value call))
-                       "\n    expected: " (pr-str expect)
-                       "\n    actual:   " (pr-str actual)))})
-
-    ;; `:path-instantiate` — `(rf.path/instantiate path bindings)` = `:expect`,
-    ;; OR fails closed with `:expect-error`. Concrete-path PRODUCER boundary.
-    :path-instantiate
-    (let [want-error (:expect-error call)
-          result     (try {:ok (rf.path/instantiate (:path call) (:bindings call))}
-                          (catch #?(:clj Throwable :cljs :default) e
-                            {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
-      (if want-error
-        {:passed? (= want-error (:err result))
-         :detail  (when (not= want-error (:err result))
-                    (str "path-instantiate expected error " want-error
-                         " got " (pr-str result)))}
-        {:passed? (= (:expect call) (:ok result))
-         :detail  (when (not= (:expect call) (:ok result))
-                    (str "path-instantiate " (pr-str (:path call))
-                         "\n    expected: " (pr-str (:expect call))
-                         "\n    actual:   " (pr-str result)))}))
-
-    ;; EP-0012 — `:rf/path` algebra LAW ops. `:path-over` carries
-    ;; a NAMED transform (`:fn`) so the fixture stays pure data.
-    (:path-get :path-lookup :path-put :path-over :path-compose :path-prefix :path-overlap)
-    (let [run-path-op
-          (fn []
-            (case (:call call)
-              :path-get     (if (contains? call :not-found)
-                              (rf.path/get (:value call) (:path call) (:not-found call))
-                              (rf.path/get (:value call) (:path call)))
-              :path-lookup  (rf.path/lookup (:value call) (:path call))
-              :path-put     (rf.path/put (:value call) (:path call) (:x call))
-              :path-over    (rf.path/over (:value call) (:path call)
-                                       (case (:fn call)
-                                         :inc       (fn [v] (inc (or v 0)))
-                                         :wrap-vec  (fn [v] [:wrapped v])))
-              :path-compose (rf.path/compose (:p call) (:q call))
-              :path-prefix  (rf.path/prefix? (:p call) (:q call))
-              :path-overlap (rf.path/overlap? (:p call) (:q call))))
-          actual (try (run-path-op)
-                      (catch #?(:clj Throwable :cljs :default) e
-                        (str "<error: " (ex-message e) ">")))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str (name (:call call)) " " (pr-str (dissoc call :call :expect))
-                       "\n    expected: " (pr-str expect)
-                       "\n    actual:   " (pr-str actual)))})
-
-    ;; EP-0015 — `:project-egress`. When the call OMITS
-    ;; `:frame`, bind `*current-frame*` to nil so the projection is genuinely
-    ;; frameless (the fail-closed posture); otherwise the ambient scope frame
-    ;; would leak in.
-    :project-egress
-    (let [has-frame? (contains? call :frame)
-          opts       (cond-> {:rf.egress/profile (:rf.egress/profile call)}
-                       has-frame? (assoc :frame (:frame call)))
-          run        (fn [] (rf.projection/project-egress (:value call) opts))
-          actual     (try (if has-frame?
-                            (run)
-                            (binding [rf.frame/*current-frame* nil] (run)))
-                          (catch #?(:clj Throwable :cljs :default) e
-                            (str "<error: " (ex-message e) ">")))
-          expect     (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "project-egress " (pr-str (:value call))
-                       " under " (:rf.egress/profile call)
-                       "\n    expected: " (pr-str expect)
-                       "\n    actual:   " (pr-str actual)))})
-
-    ;; EP-0015 — `:redact-headers`. Frame-local carrier extends
-    ;; the immutable built-in defaults; no frame can remove a default.
-    :redact-headers
-    (let [actual (try (rf.http.privacy-headers/redact-headers
-                        (:headers call) (:frame-extras call))
-                      (catch #?(:clj Throwable :cljs :default) e
-                        (str "<error: " (ex-message e) ">")))
-          expect (:expect call)]
-      {:passed? (= expect actual)
-       :detail  (when (not= expect actual)
-                  (str "redact-headers " (pr-str (:headers call))
-                       " extras " (pr-str (:frame-extras call))
-                       "\n    expected: " (pr-str expect)
-                       "\n    actual:   " (pr-str actual)))})
-
-    ;; EP-0015 — `:ssr-apply-policy`. Allowlist-first SSR
-    ;; hydration-payload projection; `:expect-error` for the fail-closed
-    ;; validator on a missing / malformed policy.
-    :ssr-apply-policy
-    (let [want-error (:expect-error call)
-          result     (try {:ok (rf.ssr.payload-policy/apply-policy
-                                  (:app-db call) (:opts call))}
-                          (catch #?(:clj Throwable :cljs :default) e
-                            {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
-      (if want-error
-        {:passed? (= want-error (:err result))
-         :detail  (when (not= want-error (:err result))
-                    (str "ssr-apply-policy expected error " want-error
-                         " got " (pr-str result)))}
-        {:passed? (= (:expect call) (:ok result))
-         :detail  (when (not= (:expect call) (:ok result))
-                    (str "ssr-apply-policy " (pr-str (:opts call))
-                         "\n    expected: " (pr-str (:expect call))
-                         "\n    actual:   " (pr-str result)))}))
-
-    ;; EP-0026 — `:assemble-image`. Pin the EP-0026 image-API
-    ;; surface host-agnostically against the live `rf.image/image` constructor +
-    ;; `image-assembly` assembler. PURE — a function of the call's `:pool` +
-    ;; `:images` specs. Inline bodies are realised to a host no-op (EDN cannot
-    ;; carry fns; who-won is read from the descriptor coordinate, pure EDN).
-    :assemble-image
-    (let [;; A FRESH fn per entry so two inline entries for one [kind id] stay
-          ;; DISTINCT registrations (a shared body would dedupe them and mask
-          ;; the two-inline within-image collision the fixture pins).
-          realise-entry
-          (fn [entry]
+(defn- realise-image-spec
+  "An `rf/image` spec with each inline registration body realised to a
+  FRESH host no-op: EDN cannot carry fns, and a body shared between two
+  inline entries for one `[kind id]` would dedupe them and mask the
+  within-image collision a fixture pins."
+  [spec]
+  (letfn [(realise-entry [entry]
             (cond
               (and (vector? entry) (= 3 (count entry)))
               (assoc entry 2 (fn [& _] nil))
               (and (vector? entry) (= 2 (count entry)) (not (map? (nth entry 1))))
               (assoc entry 1 (fn [& _] nil))
-              :else entry))
-          realise-regs
-          (fn [regs]
-            (reduce-kv (fn [m section entries]
-                         (assoc m section (mapv realise-entry entries)))
-                       {} regs))
-          realise-spec
-          (fn [spec]
-            (cond-> spec
-              (contains? spec :registrations)
-              (update :registrations realise-regs)))
-          want-error (:expect-error call)
-          ;; `:images-literal` — the `make-frame` BOUNDARY case (`:images []`
-          ;; is an error). `validate-images!` fires inside `make-frame` BEFORE
-          ;; any frame record is created, so the error case is pure.
-          outcome
-          (if (contains? call :images-literal)
-            (try (rf/make-frame {:images (:images-literal call)})
-                 {:err :no-error}
-                 (catch #?(:clj Throwable :cljs :default) e
-                   (if-let [id (:rf.error/id (ex-data e))]
-                     {:err id}
-                     {:err-msg (ex-message e)})))
-            (try
-              (rf.image-assembly/clear-standards!)
-              (rf.image-assembly/clear-generation-cache!)
-              (doseq [[kind id] (:standards call)]
-                (rf.image-assembly/register-standard! kind id {:handler-fn :rf.std/sentinel}))
-              (let [pool   (vec (:pool call))
-                    images (mapv (fn [spec] (rf.image/image (realise-spec spec)))
-                                 (:images call))
-                    gen    (if (or (:default? call) (empty? images))
-                             (rf.image-assembly/assemble-default pool)
-                             (rf.image-assembly/assemble images pool))]
-                {:gen gen})
-              (catch #?(:clj Throwable :cljs :default) e
-                (if-let [id (:rf.error/id (ex-data e))]
-                  {:err id}
-                  {:err-msg (ex-message e)}))
-              (finally (rf.image-assembly/clear-standards!))))]
-      (if want-error
-        (let [got (:err outcome)]
-          {:passed? (= want-error got)
-           :detail  (when (not= want-error got)
-                      (str "assemble-image expected error " want-error
-                           " got " (pr-str (or got (:err-msg outcome)
-                                               (when (:gen outcome) :no-error)))))})
-        (if-let [gen (:gen outcome)]
-          (let [resolver (:rf.gen/resolver gen)
-                fails
-                (concat
-                  (keep (fn [{:keys [kind id coordinate]}]
-                          (let [d (get resolver [kind id])]
-                            (cond
-                              (nil? d)
-                              (str "expected [" kind " " id "] to resolve, but it is absent")
-                              (not= coordinate (rf.image-assembly/descriptor-coordinate d))
-                              (str "[" kind " " id "] resolved to coordinate "
-                                   (pr-str (rf.image-assembly/descriptor-coordinate d))
-                                   " — expected " (pr-str coordinate)))))
-                        (:expect-resolves call))
-                  (keep (fn [k+id]
-                          (when-not (contains? resolver (vec k+id))
-                            (str "expected resolver key " (pr-str (vec k+id)) " present")))
-                        (:expect-present call))
-                  (keep (fn [k+id]
-                          (when (contains? resolver (vec k+id))
-                            (str "expected resolver key " (pr-str (vec k+id)) " ABSENT")))
-                        (:expect-absent call))
-                  (when (contains? call :expect-kinds)
-                    (let [got (:rf.gen/kinds gen)]
-                      (when (not= (set (:expect-kinds call)) got)
-                        [(str "expected kinds " (pr-str (set (:expect-kinds call)))
-                              " got " (pr-str got))])))
-                  ;; `:expect-gen-absent` — top-level GENERATION keys that MUST
-                  ;; NOT appear on the sealed generation map.
-                  (keep (fn [k]
-                          (when (contains? gen k)
-                            (str "generation key " (pr-str k) " must be ABSENT (got "
-                                 (pr-str (get gen k)) ")")))
-                        (:expect-gen-absent call))
-                  (when (contains? call :expect-shadows)
-                    (let [got (:rf.gen/shadows gen)]
-                      (when (not= (:expect-shadows call) got)
-                        [(str "expected shadows\n      " (pr-str (:expect-shadows call))
-                              "\n    got\n      " (pr-str got))]))))]
-            {:passed? (empty? fails)
-             :detail  (when (seq fails)
-                        (str "assemble-image:\n    " (str/join "\n    " fails)))})
-          {:passed? false
-           :detail  (str "assemble-image: assembly threw unexpectedly — "
-                         (pr-str (or (:err outcome) (:err-msg outcome))))})))
+              :else entry))]
+    (cond-> spec
+      (contains? spec :registrations)
+      (update :registrations
+              #(reduce-kv (fn [m section entries] (assoc m section (mapv realise-entry entries)))
+                          {} %)))))
 
-    ;; EP-0014 — `:derivation-graph`. Compose the
-    ;; cross-family derivation/process graph over the FULL contributor set and
-    ;; assert normalized node + edge shapes. `:expect-graph` is a
-    ;; SUBMAP over the WHOLE graph (the graph-level `:mode`/`:frame` shape).
-    :derivation-graph
-    (let [contributors  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
-                                     :live-fn    rf.subs.tooling/sub-cache-algebra-view
-                                     :live-shape :map}
-                         :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
-                                     :live-fn    rf.flows.tooling/flow-algebra-view
-                                     :live-shape :map}
-                         :resources {:static-fn  rf.resources.tooling/resource-algebra-view
-                                     :live-fn    rf.resources.tooling/resource-cache-algebra-view
-                                     :live-shape :map}
-                         :routes    {:static-fn  rf.routing.tooling/route-algebra-view
-                                     :live-fn    rf.routing.tooling/route-slice-algebra-view
-                                     :live-shape :node}
-                         :machines  {:static-fn        rf.machines.tooling/machine-algebra-view
-                                     :live-fn          rf.machines.tooling/machine-instance-algebra-view
-                                     :live-shape       :map
-                                     :selector-targets rf.machines.tooling/machine-selector-targets}}
-          graph         (if (= :live (:mode call))
-                          (rf.derivation.graph/live-derivation-graph (:frame call :rf/default) contributors)
-                          (rf.derivation.graph/derivation-graph contributors))
-          nodes         (:nodes graph)
-          edges         (set (:edges graph))
-          sub-map?      (fn [sub m] (every? (fn [[k v]] (= v (get m k))) sub))
-          graph-fails   (let [want (:expect-graph call)]
-                          (when (and want (not (sub-map? want graph)))
-                            [(str "graph expected superset of " want
-                                  " got " (select-keys graph (keys want)))]))
-          node-fails    (keep (fn [{:keys [id] :as expect-node}]
-                                (let [node (get nodes id)
-                                      want (dissoc expect-node :id)]
-                                  (when-not (and node (sub-map? want node))
-                                    (str "node " id " expected superset of " want
-                                         " got " (select-keys (or node {}) (keys want))))))
-                              (:expect-nodes call))
-          edge-fails    (keep (fn [edge]
-                                (when-not (contains? edges edge)
-                                  (str "missing edge " edge)))
-                              (:expect-edges call))
-          absent-fails  (keep (fn [edge]
-                                (when (contains? edges edge)
-                                  (str "edge should be ABSENT but present: " edge)))
-                              (:expect-absent-edges call))
-          fails         (concat graph-fails node-fails edge-fails absent-fails)]
-      {:passed? (empty? fails)
-       :detail  (when (seq fails)
-                  (str "derivation-graph (" (or (:mode call) :static) "):\n    "
-                       (str/join "\n    " fails)))})
+(defn- derivation-contributors
+  "The FULL contributor set the `:derivation-graph` op composes."
+  []
+  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
+               :live-fn    rf.subs.tooling/sub-cache-algebra-view
+               :live-shape :map}
+   :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
+               :live-fn    rf.flows.tooling/flow-algebra-view
+               :live-shape :map}
+   :resources {:static-fn  rf.resources.tooling/resource-algebra-view
+               :live-fn    rf.resources.tooling/resource-cache-algebra-view
+               :live-shape :map}
+   :routes    {:static-fn  rf.routing.tooling/route-algebra-view
+               :live-fn    rf.routing.tooling/route-slice-algebra-view
+               :live-shape :node}
+   :machines  {:static-fn        rf.machines.tooling/machine-algebra-view
+               :live-fn          rf.machines.tooling/machine-instance-algebra-view
+               :live-shape       :map
+               :selector-targets rf.machines.tooling/machine-selector-targets}})
 
-    ;; unknown call op — fail loud (call-op counterpart of the expectation-key
-    ;; fail-loud). A fixture reaching here uses a `:call` no host implements.
-    {:passed? false :detail (str "unknown :call form: " (:call call))}))
+(defn- path-op
+  "A `:path-*` law op: `(f call)` is the `:rf/path` operation under test."
+  [f]
+  {:observe  (fn [call _] (f call))
+   :matchers {:expect (equal-to)}})
+
+(def call-matchers
+  "The ONE matcher for each expectation a `:fixture/calls` record carries,
+  keyed by `:call` op. `:observe` runs the operation once, as `(observe
+  call fixture-machines)`; `run-call` captures a throw as the outcome.
+  `:matchers` maps each expectation key the grammar declares on the op's
+  record to `(f outcome expected call)`, a seq of failure strings. `:holds`
+  grades a record whose whole claim is its observation (the grammar's
+  `:holds` law), as `(f value call)`."
+  {:match-url
+   ;; The result's `:validation-error` is an implementation-specific
+   ;; explanation; the `:validation-failed?` flag is the normative bit
+   ;; (Spec 012 §Bidirectional URL ↔ params).
+   {:observe  (fn [call _]
+                (some-> (rf.routing/match-url (:url call)) (dissoc :validation-error)))
+    :matchers {:expect (equal-to)}}
+
+   :route-url
+   {:observe  (fn [call _]
+                (rf.routing/route-url
+                  (cond-> {:to (:route-id call) :params (:params call)}
+                    (or (:query call) (contains? call :fragment))
+                    (assoc :query (or (:query call) {}))
+                    (contains? call :fragment)
+                    (assoc :fragment (:fragment call)))))
+    :matchers {:expect (equal-to)}}
+
+   :round-trip
+   {:observe (fn [call _]
+               (when-let [matched (rf.routing/match-url (:url call))]
+                 (rf.routing/route-url {:to       (:route-id matched)
+                                        :params   (:params matched)
+                                        :query    (or (:query matched) {})
+                                        :fragment (:fragment matched)})))
+    :holds   (fn [rebuilt call]
+               (when (not= (:url call) rebuilt)
+                 [(str "route-url of match-url rebuilt " (pr-str rebuilt))]))}
+
+   :assert-rank-greater
+   {:observe (fn [call _]
+               [(:rf.route/rank (rf.registrar/lookup :route (:winner call)))
+                (:rf.route/rank (rf.registrar/lookup :route (:loser call)))])
+    :holds   (fn [[w-rank l-rank] call]
+               (when-not (and w-rank l-rank (pos? (compare w-rank l-rank)))
+                 [(str (:winner call) " rank " (pr-str w-rank) " does not compare greater than "
+                       (:loser call) " rank " (pr-str l-rank))]))}
+
+   ;; The pure path-pattern validator: no registrar mutation, no navigation.
+   :reg-route
+   {:observe  (fn [call _]
+                (rf.routing.match/validate-route-pattern! :rf.test/pattern (:pattern call)))
+    :matchers {:expect-error thrown-error-id}}
+
+   ;; A view is named by the portable `[:view-ref <id> & args]` marker (a
+   ;; keyword head is a DOM element on every host); `realise-view-refs`
+   ;; turns it into this host's callable-head form.
+   :render-to-string
+   {:observe  (fn [call _]
+                (rf.ssr/render-to-string (rf.conformance/realise-view-refs (:input call))
+                                         (or (:opts call) {})))
+    :matchers {:expect (equal-to)}}
+
+   ;; The public fn returns Spec 005 §Level 1's `{:status :ok :snapshot …
+   ;; :fx …}` or `{:status :error :error {:kind …}}`. A bounded-depth abort
+   ;; projects onto the observable atomic-rollback shape: the input
+   ;; snapshot, no effects.
+   :machine-transition
+   {:observe  (fn [call {:keys [actions guards]}]
+                (let [definition (-> (:definition call)
+                                     (update :actions #(merge actions %))
+                                     (update :guards  #(merge guards %)))
+                      r          (rf.machines/machine-transition
+                                   definition (:snapshot call) (:event call))
+                      abort?     (and (= :error (:status r))
+                                      (contains? #{:rf.error/machine-always-depth-exceeded
+                                                   :rf.error/machine-raise-depth-exceeded}
+                                                 (get-in r [:error :kind])))]
+                  (if abort?
+                    {:snapshot (:snapshot call) :fx []}
+                    {:snapshot (:snapshot r) :fx (vec (:fx r))})))
+    :matchers {:expect-next-snapshot (equal-to :snapshot)
+               :expect-effects       (equal-to :fx)}}
+
+   ;; Registration-time validation of the raw definition; handler bodies
+   ;; are not realised.
+   :reg-machine
+   {:observe  (fn [call _] (rf.machines/validate-machine! (:definition call)))
+    :matchers {:expect-error thrown-error-id}}
+
+   ;; EP-0027 construction. The frame is destroyed afterward (best-effort).
+   :make-frame
+   {:observe  (fn [call _]
+                (let [frame-id (or (:frame-id call) :rf.test/construction)]
+                  (try (rf/make-frame (assoc (:config call) :id frame-id))
+                       nil
+                       (finally
+                         (try (rf/destroy-frame! frame-id)
+                              (catch #?(:clj Throwable :cljs :default) _ nil))))))
+    :matchers {:expect-error thrown-error-id}}
+
+   ;; Spec 016 registration validation. The registration is cleared
+   ;; afterward.
+   :reg-resource
+   {:observe  (fn [call _]
+                (let [resource-id (or (:resource-id call) :rf.test/resource)]
+                  (try (rf.resources/reg-resource
+                         resource-id (:spec call)
+                         (fn [params _ctx]
+                           {:request {:method :get :url (str "/api/probe" params)}}))
+                       nil
+                       (finally
+                         (try (rf/clear :resource resource-id)
+                              (catch #?(:clj Throwable :cljs :default) _ nil))))))
+    :matchers {:expect-error thrown-error-id}}
+
+   ;; Spec 016 §Scope resolution, fail-closed: `:side` picks the write-side
+   ;; event resolver (the default) or the read-side sub resolver.
+   :resolve-scope
+   {:observe  (fn [call _]
+                (let [resource-id (:resource-id call)]
+                  (case (:side call :event)
+                    :sub (rf.resources.subs/resolve-scoped-key
+                           (cond-> {:resource resource-id :params (:params call {})}
+                             (contains? call :payload-scope) (assoc :scope (:payload-scope call)))
+                           {})
+                    (rf.resources.registry/resolve-scope-for-event
+                      resource-id (rf.resources.registry/resource-meta resource-id)
+                      {:payload-scope (:payload-scope call)}
+                      'rf.test/resolve-scope))))
+    :matchers {:expect       (equal-to)
+               :expect-error thrown-error-id}}
+
+   ;; EP-0012 — the CEDN-1 canonical-identity golden ops, the frozen byte
+   ;; contract.
+   :canonical-bytes
+   {:observe  (fn [call _] (rf.identity/canonical-bytes (:value call)))
+    :matchers {:expect (equal-to)}}
+
+   ;; The exact normalized value `canonical` returns, distinct from the byte
+   ;; token `:canonical-bytes` pins.
+   :canonical-value
+   {:observe  (fn [call _] (rf.identity/canonical (:value call)))
+    :matchers {:expect (equal-to)}}
+
+   :canonical-identical
+   {:observe (fn [call _] (rf.identity/identical-identity? (:a call) (:b call)))
+    :holds   (fn [same? call]
+               (when-not same?
+                 [(str "expected one identity: " (pr-str (:a call)) " vs " (pr-str (:b call)))]))}
+
+   :canonical-distinct
+   {:observe (fn [call _] (rf.identity/identical-identity? (:a call) (:b call)))
+    :holds   (fn [same? call]
+               (when same?
+                 [(str "expected distinct identities: " (pr-str (:a call)) " vs " (pr-str (:b call)))]))}
+
+   ;; The concrete-path producer boundary.
+   :path-instantiate
+   {:observe  (fn [call _] (rf.path/instantiate (:path call) (:bindings call)))
+    :matchers {:expect       (equal-to)
+               :expect-error thrown-error-id}}
+
+   ;; EP-0012 — the `:rf/path` algebra laws. `:path-over` names its
+   ;; transform so the record stays data.
+   :path-get     (path-op #(if (contains? % :not-found)
+                             (rf.path/get (:value %) (:path %) (:not-found %))
+                             (rf.path/get (:value %) (:path %))))
+   :path-lookup  (path-op #(rf.path/lookup (:value %) (:path %)))
+   :path-put     (path-op #(rf.path/put (:value %) (:path %) (:x %)))
+   :path-over    (path-op #(rf.path/over (:value %) (:path %)
+                                         (case (:fn %)
+                                           :inc      (fn [v] (inc (or v 0)))
+                                           :wrap-vec (fn [v] [:wrapped v]))))
+   :path-compose (path-op #(rf.path/compose (:p %) (:q %)))
+   :path-prefix  (path-op #(rf.path/prefix? (:p %) (:q %)))
+   :path-overlap (path-op #(rf.path/overlap? (:p %) (:q %)))
+
+   ;; EP-0015. `:frame` is read by key presence: a record that omits it
+   ;; projects with `*current-frame*` bound to nil, genuinely frameless (the
+   ;; fail-closed posture), so the ambient scope frame cannot leak in.
+   :project-egress
+   {:observe  (fn [call _]
+                (let [opts (cond-> {:rf.egress/profile (:rf.egress/profile call)}
+                             (contains? call :frame) (assoc :frame (:frame call)))]
+                  (if (contains? call :frame)
+                    (rf.projection/project-egress (:value call) opts)
+                    (binding [rf.frame/*current-frame* nil]
+                      (rf.projection/project-egress (:value call) opts)))))
+    :matchers {:expect (equal-to)}}
+
+   ;; EP-0015 — a frame-local carrier extends the immutable built-in
+   ;; defaults; no frame can remove a default.
+   :redact-headers
+   {:observe  (fn [call _]
+                (rf.http.privacy-headers/redact-headers (:headers call) (:frame-extras call)))
+    :matchers {:expect (equal-to)}}
+
+   ;; EP-0015 — the allowlist-first SSR hydration-payload projection, which
+   ;; fails closed on a missing or malformed policy.
+   :ssr-apply-policy
+   {:observe  (fn [call _] (rf.ssr.payload-policy/apply-policy (:app-db call) (:opts call)))
+    :matchers {:expect       (equal-to)
+               :expect-error thrown-error-id}}
+
+   ;; EP-0026 — pure: a function of the record's `:pool`, `:standards` and
+   ;; `:images`, assembled against the live `rf/image` constructor and
+   ;; `image-assembly`. Who-won is read from the descriptor coordinate, pure
+   ;; EDN. `:images-literal` is the `make-frame` boundary case: it hands its
+   ;; value to `make-frame`, whose `:images` validation fires before any
+   ;; frame record exists. Standards and the generation cache are reset
+   ;; around each call so nothing leaks into the next.
+   :assemble-image
+   {:observe
+    (fn [call _]
+      (if (contains? call :images-literal)
+        (rf/make-frame {:images (:images-literal call)})
+        (try
+          (rf.image-assembly/clear-standards!)
+          (rf.image-assembly/clear-generation-cache!)
+          (doseq [[kind id] (:standards call)]
+            (rf.image-assembly/register-standard! kind id {:handler-fn :rf.std/sentinel}))
+          (let [pool   (vec (:pool call))
+                images (mapv #(rf.image/image (realise-image-spec %)) (:images call))]
+            (if (or (:default? call) (empty? images))
+              (rf.image-assembly/assemble-default pool)
+              (rf.image-assembly/assemble images pool)))
+          (finally (rf.image-assembly/clear-standards!)))))
+    :matchers
+    {:expect-error      thrown-error-id
+     :expect-resolves   (on-value
+                          (fn [gen want _]
+                            (keep (fn [{:keys [kind id coordinate]}]
+                                    (let [d (get (:rf.gen/resolver gen) [kind id])]
+                                      (cond
+                                        (nil? d)
+                                        (str "[" kind " " id "] does not resolve")
+                                        (not= coordinate (rf.image-assembly/descriptor-coordinate d))
+                                        (str "[" kind " " id "] resolved to coordinate "
+                                             (pr-str (rf.image-assembly/descriptor-coordinate d))
+                                             ", expected " (pr-str coordinate)))))
+                                  want)))
+     :expect-present    (on-value (fn [gen want _]
+                                    (member-failures "the resolver" (:rf.gen/resolver gen)
+                                                     (map vec want) true)))
+     :expect-absent     (on-value (fn [gen want _]
+                                    (member-failures "the resolver" (:rf.gen/resolver gen)
+                                                     (map vec want) false)))
+     :expect-kinds      (equal-to :rf.gen/kinds)
+     ;; Top-level generation keys that must not appear on the sealed
+     ;; generation map.
+     :expect-gen-absent (on-value (fn [gen want _]
+                                    (member-failures "the generation" gen want false)))
+     :expect-shadows    (equal-to :rf.gen/shadows)}}
+
+   ;; EP-0014 — the cross-family derivation/process graph, composed over
+   ;; the full contributor set, `:static` (the default) or `:live`.
+   ;; `:expect-graph` reads the WHOLE graph map, so a live graph that drops
+   ;; or misreports its graph-level `{:mode :live :frame …}` fails even when
+   ;; its nodes and edges are right.
+   :derivation-graph
+   {:observe
+    (fn [call _]
+      (if (= :live (:mode call))
+        (rf.derivation.graph/live-derivation-graph :rf/default (derivation-contributors))
+        (rf.derivation.graph/derivation-graph (derivation-contributors))))
+    :matchers
+    {:expect-graph        (on-value (fn [graph want _] (submap-failures "graph" want graph)))
+     :expect-nodes        (on-value
+                            (fn [graph want _]
+                              (mapcat (fn [{:keys [id] :as expected}]
+                                        (if-let [node (get (:nodes graph) id)]
+                                          (submap-failures (str "node " id) (dissoc expected :id) node)
+                                          [(str "node " id " is absent")]))
+                                      want)))
+     :expect-edges        (on-value (fn [graph want _]
+                                      (member-failures "the edges" (set (:edges graph)) want true)))
+     :expect-absent-edges (on-value (fn [graph want _]
+                                      (member-failures "the edges" (set (:edges graph)) want false)))}}})
+
+(def sibling-graded
+  "Call-record expectations this runner does not grade, because every
+  fixture carrying one claims a capability in `known-skipped-capabilities`:
+  `[op key]` → the family runner that grades them and the filename prefix of
+  the fixtures it loads. `re-frame.conformance-test` proves every fixture
+  carrying one has that prefix."
+  {[:render-tree-hash :expect] {:runner 're-frame.ssr-conformance-test :prefix "ssr-"}})
+
+(defn- describe-call
+  "The record's inputs — everything but `:call` and its expectation keys —
+  cut short for a failure line."
+  [call matchers]
+  (let [s (pr-str (into {} (remove (fn [[k _]] (or (= :call k) (contains? matchers k)))) call))]
+    (if (< 160 (count s)) (str (subs s 0 160) "…") s)))
+
+(defn run-call
+  "Run one `:fixture/calls` record and grade it through `call-matchers`.
+  Returns `{:passed? bool :detail …}`. `fixture-machines` is the fixture's
+  realised `{:actions … :guards …}` map, built once by `run-fixture`.
+
+  The operation runs once, and each expectation key the record carries is
+  graded by its op's matcher. A throw fails the record unless the record
+  carries `:expect-error`, which is the `:thrown-error-id` law's other half:
+  a record that omits `:expect-error` asserts the operation does not throw.
+  An op with no entry FAILS."
+  [call & [fixture-machines]]
+  (let [op (:call call)]
+    (if-let [{:keys [observe holds matchers]} (get call-matchers op)]
+      (let [outcome  (try {:value (observe call fixture-machines)}
+                          (catch #?(:clj Throwable :cljs :default) e {:thrown e}))
+            failures (concat
+                       (when (and (contains? outcome :thrown) (not (contains? call :expect-error)))
+                         [(str "threw: " (ex-message (:thrown outcome)))])
+                       (when (and holds (contains? outcome :value))
+                         (holds (:value outcome) call))
+                       (mapcat (fn [[k match]]
+                                 (when (contains? call k)
+                                   (map #(str k " " %) (match outcome (get call k) call))))
+                               matchers))]
+        {:passed? (empty? failures)
+         :detail  (when (seq failures)
+                    (str (name op) " " (describe-call call matchers) "\n    "
+                         (str/join "\n    " failures)))})
+      {:passed? false
+       :detail  (str "unknown :call form: " op
+                     (some (fn [[[sibling-op _] {:keys [runner]}]]
+                             (when (= sibling-op op) (str " (graded by " runner ")")))
+                           sibling-graded))})))
 
 ;; ---- fixture execution ----------------------------------------------------
 
@@ -1609,7 +1581,8 @@
   "Realise, dispatch, and grade one fixture against `:fixture/expect`. `host`
   supplies the genuinely host-specific seams (`:reset-runtime!`,
   `:register-trace-listener!`, `:unregister-trace-listener!`). Returns a
-  result map with `:passed?` and per-check diagnostics."
+  result map with `:passed?`, the `:expect-failures` `grade-expect` reports,
+  and the `:dispatch-error-failures` and `:compute-sub-failures`."
   [fixture host]
   (try
     ((:reset-runtime! host))
@@ -1710,30 +1683,11 @@
                                (str/join "; " (map :detail call-failures)))
                           {:call-failures call-failures}))))
       ;; Drain any pending error projections so :rf/response carries the
-      ;; projector's :status before snapshotting final-app-db.
+      ;; projector's :status before anything is graded.
       (doseq [fid (rf.frame/frame-ids)]
         (try (rf.ssr/apply-error-projection! fid)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
-      (let [expect       (or (:fixture/expect fixture) {})
-            expected-db  (:final-app-db expect)
-            expected-dbs (:final-app-dbs expect)
-            expected-absent (:final-app-db-absent expect)
-            final-db     (rf/app-db-value :rf/default)
-            final-dbs    (when expected-dbs
-                           (into {}
-                                 (for [[fid _] expected-dbs]
-                                   [fid (rf/app-db-value fid)])))
-            ;; EP-0001: durable framework runtime state lives in
-            ;; the runtime-db partition; fixtures assert it under
-            ;; :final-runtime-db / :final-runtime-dbs.
-            expected-rt  (:final-runtime-db expect)
-            expected-rts (:final-runtime-dbs expect)
-            final-rt     (:rf.db/runtime (rf/frame-state-value :rf/default))
-            final-rts    (when expected-rts
-                           (into {}
-                                 (for [[fid _] expected-rts]
-                                   [fid (:rf.db/runtime (rf/frame-state-value fid))])))
-            ;; `:fixture/compute-subs` — invoke each query before grading, so
+      (let [;; `:fixture/compute-subs` — invoke each query before grading, so
             ;; a sub that throws surfaces as the sub-exception trace the
             ;; trace-emissions check grades. A query naming no registered
             ;; sub has nothing to compute, so it fails the fixture.
@@ -1745,126 +1699,25 @@
                         (str ":fixture/compute-subs query " (pr-str query-v)
                              " names no registered sub")))
                     (:fixture/compute-subs fixture)))
-            ;; Realise sub-checks BEFORE trace-failures: subscribing computes
-            ;; the reaction body, which may emit sub-exception traces the
-            ;; trace-emissions check expects to see.
-            sub-checks
-            (doall
-              (for [[query-v expected-val] (or (:sub-values expect) {})]
-                (let [[frame-id qv] (rf.conformance/resolve-sub :rf/default query-v)]
-                  {:query    query-v
-                   :expected expected-val
-                   :actual   (rf/subscribe-once qv {:frame frame-id})})))
-            ;; EP-0017: NEGATIVE app-db path assertions. A
-            ;; sentinel `get-in` distinguishes absent from present-with-nil.
-            absent-failures
-            (when expected-absent
-              (vec
-                (keep (fn [path]
-                        (let [sentinel ::absent
-                              v        (get-in final-db path sentinel)]
-                          (when-not (identical? v sentinel)
-                            (str "expected app-db path " (pr-str path)
-                                 " to be ABSENT but found " (pr-str v)))))
-                      expected-absent)))
-            trace-failures (rf.conformance/check-trace-emissions @traces (:trace-emissions expect))
-            error-emit-failures (when (contains? expect :error-emit-records)
-                                  (check-error-emit-records
-                                    @err-records (:error-emit-records expect)))
-            ;; :epoch-records — both hosts assert against the recorded
-            ;; :rf/epoch-record ring.
-            epoch-failures (when-let [er (:epoch-records expect)]
-                             (check-epoch-records er))
-            actual-effects (effects-routed-from-traces @traces)
-            expected-effects (when (contains? expect :effects-routed)
-                               (normalise-effects-routed (:effects-routed expect)))
-            effects-failures (when expected-effects
-                               (check-effects-routed actual-effects expected-effects))
-            ;; SSR error-projection contract — Spec 011.
-            expected-public-error (:ssr/public-error expect)
-            public-error-check
-            (when expected-public-error
-              (let [error-events (filter #(= :error (:op-type %)) @traces)
-                    last-error   (last error-events)]
-                (if last-error
-                  (let [actual (rf.ssr/project-error :rf/default last-error)]
-                    {:expected expected-public-error
-                     :actual   actual
-                     :passed?  (= expected-public-error actual)})
-                  {:expected expected-public-error
-                   :actual   nil
-                   :passed?  false})))
-            not-emitted-failures (when (contains? expect :trace-not-emitted)
-                                   (check-trace-not-emitted
-                                     @traces (:trace-not-emitted expect)))
-            ;; `:on-destroy-emissions` / `:on-destroy-effects` grade the
-            ;; traces the runner's own destroy of the fixture's frame adds.
-            ;; It runs LAST, so every expectation above has read the live
-            ;; frame, and only that window is matched, so creation-time
-            ;; traces cannot satisfy a destroy-time claim.
-            destroy-traces (when (or (contains? expect :on-destroy-emissions)
-                                     (contains? expect :on-destroy-effects))
-                             (let [before (count @traces)]
-                               (rf/destroy-frame! scope-frame)
-                               (subvec @traces before)))
-            destroy-emission-failures
-            (when (contains? expect :on-destroy-emissions)
-              (rf.conformance/check-trace-emissions
-                destroy-traces (:on-destroy-emissions expect)))
-            destroy-effects-failures
-            (when (contains? expect :on-destroy-effects)
-              (check-effects-routed
-                (effects-routed-from-traces destroy-traces)
-                (normalise-effects-routed (:on-destroy-effects expect))))]
+            run {:traces         traces
+                 :err-records    err-records
+                 ;; The runner's own destroy of the fixture's frame. Only the
+                 ;; `:on-destroy-*` matchers open it, and they grade last.
+                 :destroy-traces (delay (let [before (count @traces)]
+                                          (rf/destroy-frame! scope-frame)
+                                          (subvec @traces before)))}
+            expect-failures (grade-expect run (or (:fixture/expect fixture) {}))]
         ;; Drop just this fixture's trace listener (host-specific registry).
         ((:unregister-trace-listener! host) fid)
         ;; Drop just this fixture's error-emit recorder.
         (rf.error-emit/unregister-error-listener! [fid ::records])
-        {:fixture-id   fid
-         :passed?      (and (or (nil? expected-db) (rf.conformance/submap? expected-db final-db))
-                            (or (nil? expected-dbs)
-                                (every? (fn [[fid db]] (rf.conformance/submap? db (get final-dbs fid)))
-                                        expected-dbs))
-                            (or (nil? expected-rt) (rf.conformance/submap? expected-rt final-rt))
-                            (or (nil? expected-rts)
-                                (every? (fn [[fid rt]] (rf.conformance/submap? rt (get final-rts fid)))
-                                        expected-rts))
-                            (empty? absent-failures)
-                            (empty? @dispatch-error-failures)
-                            (empty? compute-sub-failures)
-                            (every? #(= (:expected %) (:actual %)) sub-checks)
-                            (empty? trace-failures)
-                            (empty? not-emitted-failures)
-                            (empty? effects-failures)
-                            (empty? epoch-failures)
-                            (empty? error-emit-failures)
-                            (empty? destroy-emission-failures)
-                            (empty? destroy-effects-failures)
-                            (or (nil? public-error-check)
-                                (:passed? public-error-check)))
-         :absent-failures         absent-failures
+        {:fixture-id              fid
+         :passed?                 (and (empty? expect-failures)
+                                       (empty? @dispatch-error-failures)
+                                       (empty? compute-sub-failures))
+         :expect-failures         expect-failures
          :dispatch-error-failures @dispatch-error-failures
-         :final-db     final-db
-         :final-dbs    final-dbs
-         :expected-db  expected-db
-         :expected-dbs expected-dbs
-         :final-rt     final-rt
-         :final-rts    final-rts
-         :expected-rt  expected-rt
-         :expected-rts expected-rts
-         :compute-sub-failures compute-sub-failures
-         :sub-checks   sub-checks
-         :trace-failures     trace-failures
-         :not-emitted-failures not-emitted-failures
-         :destroy-emission-failures destroy-emission-failures
-         :destroy-effects-failures  destroy-effects-failures
-         :effects-failures   effects-failures
-         :actual-effects     actual-effects
-         :expected-effects   expected-effects
-         :epoch-failures     epoch-failures
-         :error-emit-failures error-emit-failures
-         :actual-error-emit-records @err-records
-         :public-error-check public-error-check}))
+         :compute-sub-failures    compute-sub-failures}))
     (catch #?(:clj Throwable :cljs :default) e
       {:fixture-id (:fixture/id fixture)
        :passed?    false
@@ -1893,65 +1746,20 @@
     (println "  " (:fixture-id f))
     (when (:unknown-caps f)
       (println "    unknown capabilities:" (:unknown-caps f)))
-    (when (:unknown-fixture-keys f)
-      (println "    unknown top-level fixture keys:" (:unknown-fixture-keys f)))
-    (when (:unknown-expect-keys f)
-      (println "    unknown :fixture/expect keys:" (:unknown-expect-keys f)))
     (when (:error f)
       (println "    error:" (:error f)))
-    (when-let [td (:expected-db f)]
-      (when (not= td (:final-db f))
-        (println "    expected app-db:" td)
-        (println "    actual   app-db:" (:final-db f))))
-    (when-let [tds (:expected-dbs f)]
-      (when (not= tds (:final-dbs f))
-        (println "    expected app-dbs:" tds)
-        (println "    actual   app-dbs:" (:final-dbs f))))
-    (when (seq (:absent-failures f))
-      (doseq [af (:absent-failures f)]
-        (println "    absent:" af)))
-    (when (seq (:dispatch-error-failures f))
-      (doseq [de (:dispatch-error-failures f)]
-        (println "    expect-error:" de)))
+    (doseq [de (:dispatch-error-failures f)]
+      (println "    expect-error:" de))
     (doseq [cf (:compute-sub-failures f)]
       (println "    compute-subs:" cf))
-    (doseq [sc (:sub-checks f)]
-      (when (not= (:expected sc) (:actual sc))
-        (println "    sub" (:query sc) "expected:" (:expected sc) "actual:" (:actual sc))))
-    (when (seq (:trace-failures f))
-      (doseq [tf (:trace-failures f)]
-        (println "    trace:" tf)))
-    (doseq [nf (:not-emitted-failures f)]
-      (println "    not-emitted:" nf))
-    (doseq [df (concat (:destroy-emission-failures f) (:destroy-effects-failures f))]
-      (println "    on-destroy:" df))
-    (when (seq (:effects-failures f))
-      (doseq [ef (:effects-failures f)]
-        (println "    fx:" ef))
-      (println "    actual effects routed:")
-      (doseq [a (:actual-effects f)]
-        (println "      " (pr-str a))))
-    (when (seq (:epoch-failures f))
-      (doseq [erf (:epoch-failures f)]
-        (println "    epoch:" erf)))
-    (when (seq (:error-emit-failures f))
-      (doseq [eef (:error-emit-failures f)]
-        (println "    error-emit:" eef))
-      (println "    actual error-emit records:")
-      (doseq [r (:actual-error-emit-records f)]
-        (println "      " (pr-str r))))
-    (when-let [pec (:public-error-check f)]
-      (when-not (:passed? pec)
-        (println "    public-error expected:" (:expected pec))
-        (println "    public-error actual:  " (:actual pec))))))
+    (doseq [[k failures] (:expect-failures f)
+            failure      failures]
+      (println (str "    " k ": " failure)))))
 
 (defn run-corpus-fixture
   "The corpus verdict for one `[fname fixture]` entry: a skip for an
   unclaimed spec version or an allowlisted capability; a failure
-  for an unknown capability, an unknown top-level key or an unknown
-  `:fixture/expect` key; otherwise `run-fixture`'s result. The key checks
-  follow the capability gate, so a fixture this build does not claim may
-  carry keys only a sibling runner reads."
+  for an unknown capability; otherwise `run-fixture`'s result."
   [fname fixture host]
   (cond
     (not (spec-version-claimed? fixture))
@@ -1961,9 +1769,7 @@
      :spec-version (:fixture/spec-version fixture)}
 
     :else
-    (let [{:keys [allowed unknown]} (classify-capabilities fixture)
-          bad-fixture-keys (unknown-fixture-keys fixture)
-          bad-keys (unknown-expect-keys fixture)]
+    (let [{:keys [allowed unknown]} (classify-capabilities fixture)]
       (cond
         (seq unknown)
         {:fixture-id   (:fixture/id fixture)
@@ -1982,33 +1788,6 @@
          :reason       "capabilities intentionally not claimed (allowlisted)"
          :capabilities (:fixture/capabilities fixture)
          :allowed      allowed}
-
-        (seq bad-fixture-keys)
-        {:fixture-id           (:fixture/id fixture)
-         :passed?              false
-         :unknown-fixture-keys (vec bad-fixture-keys)
-         :error                (str "unknown top-level fixture keys: " (vec bad-fixture-keys)
-                                    " — this runner implements no such key. Implement it "
-                                    "in the shared runner, or add it to "
-                                    "implemented-fixture-keys if a dedicated conformance "
-                                    "runner owns it. A dropped setup key silently changes "
-                                    "the scenario, so it is refused.")}
-
-        ;; Fail-loud — a runnable fixture whose :fixture/expect
-        ;; names a key this runner would silently ignore (neither
-        ;; corpus-checked nor delegated to a sibling runner) FAILS.
-        (seq bad-keys)
-        {:fixture-id          (:fixture/id fixture)
-         :passed?             false
-         :unknown-expect-keys (vec bad-keys)
-         :error               (str "unknown :fixture/expect keys: " (vec bad-keys)
-                                   " — key is neither a corpus-checked "
-                                   "expectation nor a sibling-owned "
-                                   "(delegated) expectation. Add a matcher "
-                                   "to the shared runner, or add the key to "
-                                   "sibling-owned-expect-keys if a dedicated "
-                                   "conformance runner owns it. A silently ignored "
-                                   "expectation lets the hosts drift, so it is refused.")}
 
         :else
         (assoc (run-fixture fixture host) :fname fname)))))

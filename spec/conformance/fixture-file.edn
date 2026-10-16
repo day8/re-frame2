@@ -39,9 +39,6 @@
   :submap
   "The expected value is a partial map. Each key it declares must match in the observation: an expected map matches an observed map recursively by this same law, and any other expected value must equal the observed value at that key. Keys the expectation omits are not compared. The observed value is read with `get`, so an expected nil matches a nil value OR an absent key. A non-map expected value is compared by :equal."
 
-  :shallow-submap
-  "The expected value is a partial map. Each key it declares must equal, by :equal and without recursion, the observed map's value at that key. Keys the expectation omits are not compared."
-
   :ordered-subset
   "The expected value is a vector, and the observation a sequence in emission order. Each expected element must match an observed element by the key's :element-law, in declaration order: matching for the next expected element resumes after the previous match. Observed elements between or after matches are tolerated; an expected element left unmatched fails."
 
@@ -715,11 +712,11 @@
      [:expect-graph
       {:optional true
        :observe  "the derivation/process graph composed in :mode (default :static)"
-       :law      :shallow-submap}
+       :law      :submap}
       :map]
      [:expect-nodes
       {:observe "for each entry, the composed graph's node at the entry's :id; the :id itself is not compared"
-       :law     :shallow-submap}
+       :law     :submap}
       [:vector [:map [:id :any]]]]
      [:expect-edges
       {:optional true

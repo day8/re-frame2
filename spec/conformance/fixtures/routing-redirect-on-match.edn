@@ -1,10 +1,13 @@
 ;; Conformance fixture: routing/redirect-on-match
 ;;
-;; A route's :on-match event short-circuits to a different route by
-;; dispatching :rf.route/navigate. This is the pattern Spec 012 §Redirects
-;; and guards canonicalises: redirects are interceptors-or-events that
-;; replace the navigation target rather than a special :redirect-on-match
-;; route-metadata key.
+;; A route's :on-match event short-circuits to a different route: the app
+;; event it names dispatches :rf.route/navigate. This is the pattern Spec 012
+;; §Redirects and guards canonicalises: redirects are interceptors-or-events
+;; that replace the navigation target rather than a special :redirect-on-match
+;; route-metadata key. The redirect is an app event rather than a bare
+;; [:rf.route/navigate ...] entry because every :on-match event receives the
+;; activation target as its last argument, which navigate's closed arity
+;; refuses.
 ;;
 ;; Per [012 §Redirects and guards](../../012-Routing.md#redirects-and-guards)
 ;; and [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading).
@@ -12,28 +15,31 @@
 {:fixture/id           :routing/redirect-on-match
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
- :fixture/doc          "A legacy URL whose :on-match dispatches :rf.route/navigate to the canonical destination. The :route slice ends on the canonical route. The legacy nav-token is allocated first; the redirect dispatches :rf.route/navigate which replaces the slice."
+ :fixture/doc          "A legacy URL whose :on-match app event dispatches :rf.route/navigate to the canonical destination. The :route slice ends on the canonical route. The legacy nav-token is allocated first; the redirect event dispatches :rf.route/navigate which replaces the slice."
 
  :fixture/registry
  {:route
   {:route/legacy-cart {:path     "/old/cart"
-                       :on-match [[:rf.route/navigate {:to :route/cart}]]}
+                       :on-match [[:app/redirect-to-cart]]}
    :route/cart        {:path "/cart"}}
 
   :event
-  {:rf.route/navigate {:doc "Navigate to a registered route."}}
+  {:app/redirect-to-cart {:doc "The legacy route's :on-match — redirects to the canonical cart."}
+   :rf.route/navigate    {:doc "Navigate to a registered route."}}
 
   :fx
   {:rf.nav/push-url    {:platforms #{:client}}
    :rf.nav/replace-url {:platforms #{:client}}}}
 
  :fixture/handlers
- {:fx {:rf.nav/push-url    [[:noop]]
-       :rf.nav/replace-url [[:noop]]}}
+ {:event {:app/redirect-to-cart [[:fx [[:dispatch [:rf.route/navigate {:to :route/cart}]]]]]}
+  :fx    {:rf.nav/push-url    [[:noop]]
+          :rf.nav/replace-url [[:noop]]}}
 
  :fixture/dispatches
- ;; Visiting /old/cart triggers the legacy route's :on-match, which
- ;; dispatches :rf.route/navigate to the canonical :route/cart.
+ ;; Visiting /old/cart triggers the legacy route's :on-match, whose
+ ;; :app/redirect-to-cart dispatches :rf.route/navigate to the canonical
+ ;; :route/cart.
  [[:rf.route/handle-url-change "/old/cart" {:rf.route/cause :link}]]
 
  :fixture/expect
@@ -45,6 +51,9 @@
   [;; Token allocated for the legacy route (:rf.route/handle-url-change branch).
    {:operation :rf.route.nav-token/allocated
     :tags      {:route-id :route/legacy-cart}}
+
+   ;; The legacy route's :on-match event runs and redirects.
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :app/redirect-to-cart}}
 
    ;; The redirect: :rf.route/navigate fires the canonical destination.
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf.route/navigate}}]}}

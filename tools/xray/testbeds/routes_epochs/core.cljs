@@ -244,16 +244,11 @@
 (rf/reg-event :routes-epochs/load-profile
   {:doc "Step #8's route-driven loader — fired as
          `:routes-epochs/profile`'s `:on-match`. Reads the route params
-         from the route slice and writes `:profile` into app-db (the
-         transition runs :loading → :idle around this loader).
-
-         EP-0001: the route slice is durable routing RUNTIME-DB state at
-         `[:rf.runtime/routing :current]`. An event handler reads it off
-         the `:rf.db/runtime` coeffect every event handler receives — the
-         canonical `:on-match` loader idiom (mirrors the realworld
-         example's `:profile/load`)."}
-  (fn handler-load-profile [{:keys [db] rt :rf.db/runtime} _ev]
-    (let [user (get-in rt [:rf.runtime/routing :current :params :user])]
+         from the activation target the runtime appends to every
+         `:on-match` event, and writes `:profile` into app-db (the
+         transition runs :loading → :idle around this loader)."}
+  (fn handler-load-profile [{:keys [db]} [_ target]]
+    (let [user (get-in target [:params :user])]
       {:db (assoc db :profile {:user user :loaded-at-step (:step db)})})))
 
 ;; ============================================================================

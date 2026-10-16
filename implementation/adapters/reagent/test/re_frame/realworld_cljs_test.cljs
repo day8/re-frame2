@@ -816,8 +816,8 @@
       (fn [f lowered]
         (open-article! f lowered "alpha")
         (settle-article! f lowered "alpha")
-        (rf/dispatch-sync [:article/load] {:frame f})
-        (rf/dispatch-sync [:comments/load] {:frame f})
+        (rf/dispatch-sync [:article/load {:params {:slug "alpha"}}] {:frame f})
+        (rf/dispatch-sync [:comments/load {:params {:slug "alpha"}}] {:frame f})
         (is (= [:fetching "Title alpha" ["c-alpha"]]
                [(:status (sub f [:article/slice])) (:title (sub f [:article/data])) (comment-ids f)]))
         (visit! f "/article/beta")
@@ -865,7 +865,7 @@
         (rf/dispatch-sync [:auth/flow [:auth/success]] {:frame f})
         (open-article! f lowered "alpha")
         (rf/dispatch-sync [:comment-form/edit-field :body "unsent words"] {:frame f})
-        (rf/dispatch-sync [:comments/load] {:frame f})
+        (rf/dispatch-sync [:comments/load {:params {:slug "alpha"}}] {:frame f})
         (is (= "unsent words" (draft-body f)))
         (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
         (rf/dispatch-sync [:auth/store-session (wire-user "bob" "jwt-bob" nil)] {:frame f})
@@ -1174,7 +1174,7 @@
                        #(= 1000 (:id (second (comments))))
                        {:label "the POST settles and the saved comment replaces the optimistic card"})))
             (.then (fn [_]
-                     (rf/dispatch-sync [:comments/load] {:frame f})
+                     (rf/dispatch-sync [:comments/load {:params {:slug slug}}] {:frame f})
                      (rf.test-support/poll-until loaded? {:label "the later load settles"})))
             (.then (fn [_]
                      (let [cs (comments)]

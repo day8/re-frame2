@@ -61,8 +61,8 @@ to the saved value:
 
 ```clojure
 (rf/reg-event :editor/open
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
+  (fn [{:keys [db]} [_ target]]
+    (let [{:keys [slug]} (:params target)
           title (get-in sample-articles [slug :title])]
       {:db (assoc db :editor {:slug slug :draft title :saved title})})))
 
@@ -141,8 +141,8 @@ to try **Save** before **Home**, and **Save and close**.
 (rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
 
 (rf/reg-event :editor/open
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
+  (fn [{:keys [db]} [_ target]]
+    (let [{:keys [slug]} (:params target)
           title (get-in sample-articles [slug :title])]
       {:db (assoc db :editor {:slug slug :draft title :saved title})})))
 
