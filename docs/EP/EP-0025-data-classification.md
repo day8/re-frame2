@@ -489,7 +489,8 @@ section-by-section map.
     classification / sensitive / large / redaction) to the new surface; strip
     old-surface guidance.
 11. **Conformance fixtures:** same-event classify-then-egress; axis-independent clear;
-   sensitive-vs-large precedence + nested suppression; `[[]]` whole-value; cross-frame
+   sensitive-wins precedence, a `:large` subtree measured after its `:sensitive`
+   descendants are redacted; `[[]]` whole-value; cross-frame
    isolation; profile-aware egress (default-redacts / raw-local-passes); SSR allowlist +
    projection; MCP/Xray/off-box-sink redaction; per-subsystem generated-instance create
     + teardown; malformed-payload fail-loud.
