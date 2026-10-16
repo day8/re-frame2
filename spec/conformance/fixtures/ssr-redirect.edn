@@ -1,12 +1,13 @@
 ;; Conformance fixture: ssr/redirect
-;; A handler emits :rf.server/redirect during the SSR drain. The runtime
-;; sets :status 302 and Location, and TRUNCATES the HTML body — :html and
-;; :payload are absent from the request result. Per [011 §Redirect precedence].
+;; A handler emits :rf.server/redirect during the SSR drain; the response
+;; accumulator carries the redirect and its :status 302. Per [011 §Redirect
+;; precedence]. Dropping the HTML body and payload is the host adapter's job,
+;; done where it builds the request result, so its tests grade that.
 
 {:fixture/id           :ssr/redirect
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :ssr/response-contract}
- :fixture/doc          "An :initial-events event emits :rf.server/redirect with status 302 and Location /login. The request result has the redirect populated and :html absent (HTML render skipped)."
+ :fixture/doc          "An :initial-events event emits :rf.server/redirect with status 302 and Location /login. The response accumulator has the redirect populated and :status 302."
 
  :fixture/registry
  {:event {:rf/server-init     {:doc       "Per-request server-side init."
@@ -35,9 +36,7 @@
  {:final-app-db {}
 
   :ssr/request-result
-  {:html     :absent                                                 ;; redirect truncates the body
-   :payload  :absent
-   :response {:status   302
+  {:response {:status   302
               :redirect {:status 302 :location "/login"}}}
 
   :trace-emissions

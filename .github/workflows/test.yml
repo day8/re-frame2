@@ -1556,18 +1556,17 @@ jobs:
   # inside the lane and asserts unconditionally that `re-frame.debug` reads
   # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
   # property ever stops arriving, this job goes RED rather than green-on-the-
-  # wrong-posture — which matters more here than anywhere else in the file,
-  # because the lane's namespace roster is by construction a subset of what
-  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  # wrong-posture — which matters because every test the lane runs already
+  # passes in dev posture, so a lost flag would otherwise be invisible.
   #
-  # SCOPE. Not the whole core suite: the namespaces excluded are red under the
-  # real gate because they assert dev instrumentation (traces, the `:errors`
-  # sink, doc metadata, source coords) inline with semantics. Those are
-  # legitimate dev-posture tests, not defects; the roster lives in
-  # `scripts/test-core-prod-gate.sh`, which prints its own namespace counts at
-  # run time. The roster is an EXCLUSION list, so a
-  # new namespace joins this lane by default and has to be excluded
-  # deliberately.
+  # SCOPE. The whole core suite, run as `clojure -M:test:prod-gate` in
+  # `implementation/core`, the same command as on a laptop. The runner
+  # discovers every `.*-test$` namespace, and the `:prod-gate` alias skips the
+  # deftests tagged `^:requires-debug`: those assert dev instrumentation
+  # (traces, the `:errors` sink, doc metadata, source coords), which the
+  # framework does not emit under the gate, by design. A new namespace, and a
+  # new untagged deftest, joins this lane by default. The runner prints the
+  # tests and assertions it executed.
   jvm-core-prod-gate:
     name: JVM core under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-core: it is the same artefact.
@@ -1575,6 +1574,9 @@ jobs:
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: implementation/core
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1601,11 +1603,10 @@ jobs:
             ${{ runner.os }}-clj-core-
             ${{ runner.os }}-clj-
 
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries
-      # the evidence of which posture it ran in.
+      # `re-frame.prod-gate-lane-pin-test` reds the run if the property did
+      # not arrive, so a green log is evidence of the posture it ran in.
       - name: Run the core suite under -Dre-frame.debug=false
-        run: bash scripts/test-core-prod-gate.sh
+        run: clojure -M:test:prod-gate
 
   cljs-fresco-controlled:
     name: CLJS fresco controlled-input correctness (real Chromium + Firefox + WebKit)
@@ -2153,19 +2154,18 @@ jobs:
   # runs inside the lane and asserts unconditionally that `re-frame.debug`
   # reads `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it.
   # If the property ever stops arriving, this job goes RED rather than
-  # green-on-the-wrong-posture — which matters more here than anywhere else,
-  # because the lane's namespace roster is by construction a subset of what
-  # already passes in dev posture, so a lost flag would otherwise be invisible.
+  # green-on-the-wrong-posture — which matters because every test the lane
+  # runs already passes in dev posture, so a lost flag would otherwise be
+  # invisible.
   #
-  # SCOPE. Not the whole routing suite: the namespaces excluded are red under
-  # the real gate because they assert dev instrumentation — a `:rf.route/*`
-  # trace fired, the `:errors` sink received, `:doc` / `:source` retained on a
-  # route-algebra node — inline with semantics. Those are legitimate
-  # dev-posture tests, not defects; the roster lives in
-  # `scripts/test-routing-prod-gate.sh`, which prints its own counts at run
-  # time. The roster is an EXCLUSION list, so a
-  # new namespace joins this lane by default and has to be excluded
-  # deliberately.
+  # SCOPE. The whole routing suite, run as `clojure -M:test:prod-gate` in
+  # `implementation/routing`, the same command as on a laptop. There is no
+  # exclusion roster and no `-n` selector: the runner discovers every
+  # `.*-test$` namespace, so a new namespace joins this lane by default. A
+  # namespace's readings of dev instrumentation — a `:rf.route/*` trace, the
+  # `:errors` sink, `:doc` / `:source` on a route-algebra node — sit inside a
+  # posture arm beside the semantics they accompany, and the semantics run
+  # here. The runner prints the tests and assertions it executed.
   jvm-routing-prod-gate:
     name: JVM routing under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-routing: it is the same artefact.
@@ -2173,6 +2173,9 @@ jobs:
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: implementation/routing
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2199,11 +2202,11 @@ jobs:
             ${{ runner.os }}-clj-routing-
             ${{ runner.os }}-clj-
 
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries
-      # the evidence of which posture it ran in.
+      # `re-frame.routing-prod-gate-lane-pin-test` reds the run if the property
+      # did not arrive, so a green log is evidence of the posture it ran in;
+      # the runner prints the tests and assertions it executed.
       - name: Run the routing suite under -Dre-frame.debug=false
-        run: bash scripts/test-routing-prod-gate.sh
+        run: clojure -M:test:prod-gate
 
   jvm-flows:
     name: JVM flows (clojure -M:test)
@@ -2353,17 +2356,20 @@ jobs:
   # (see SCOPE below) that pin is the only signal that the posture
   # is the one intended.
   #
-  # SCOPE. The WHOLE ssr suite: there is no exclusion roster and no `-n`
-  # selector. The runner discovers every `.*-test$` namespace under
-  # `implementation/ssr/test` and runs it, which is the strongest polarity but
-  # also the quiet one: a NEW namespace joins this lane the day it lands, with
-  # nothing to edit and nothing to warn you. Budget for that when you add one.
+  # SCOPE. The WHOLE ssr suite, run as `clojure -M:test:prod-gate` in
+  # `implementation/ssr`, the same command as on a laptop. There is no
+  # exclusion roster and no `-n` selector. The runner discovers every
+  # `.*-test$` namespace under `implementation/ssr/test` and runs it, which is
+  # the strongest polarity but also the quiet one: a NEW namespace joins this
+  # lane the day it lands, with nothing to edit and nothing to warn you.
+  # Budget for that when you add one.
   #
-  # DO NOT SIZE THE LANE OFF A NUMBER IN A COMMENT. The script prints its
-  # own posture and the runner prints its own counts at run time, and that
-  # printout is the authority — a count written here would go stale silently
-  # as namespaces are added. The `RF2_MIN_TESTS` coverage floor that is this
-  # lane's only structural guard lives in `scripts/test-ssr-prod-gate.sh`.
+  # DO NOT SIZE THE LANE OFF A NUMBER IN A COMMENT. The runner prints its own
+  # counts at run time, and that printout is the authority — a count written
+  # here would go stale silently as namespaces are added. A run that executes
+  # no test is red on the runner's nonzero floor, and a test file the runner
+  # cannot discover as its own namespace stops the run before any test
+  # executes.
   jvm-ssr-prod-gate:
     name: JVM ssr under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-ssr: it is the same artefact.
@@ -2371,6 +2377,9 @@ jobs:
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: implementation/ssr
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2397,12 +2406,11 @@ jobs:
             ${{ runner.os }}-clj-ssr-
             ${{ runner.os }}-clj-
 
-      # The script prints the tree it resolved, the JVM property and the
-      # posture pin before it runs anything, so the job's own log carries the
-      # evidence of which posture it ran in; the runner then prints the tests
-      # and assertions it actually executed.
+      # `re-frame.ssr-prod-gate-lane-pin-test` reds the run if the property
+      # did not arrive, so a green log is evidence of the posture it ran in;
+      # the runner prints the tests and assertions it executed.
       - name: Run the ssr suite under -Dre-frame.debug=false
-        run: bash scripts/test-ssr-prod-gate.sh
+        run: clojure -M:test:prod-gate
 
   jvm-security:
     name: JVM security (clojure -M:test)
@@ -2649,17 +2657,16 @@ jobs:
   # those things too, for the opposite reason, so a lost flag would not weaken
   # this job's greens, it would INVERT what they mean.
   #
-  # SCOPE — and this roster is lopsided for a structural reason, not as debt.
-  # Most of epoch's test namespaces are red under the real gate and one does
-  # not terminate. That is because epoch's production posture
-  # is that the artefact is OFF: a suite exercising epoch's recording, restore,
-  # projection or silencing behaviour has no behaviour to exercise here. Unlike
-  # the core and routing lanes, whose exclusion lists shrink as
-  # dev-instrumentation assertions get split out, this one is not expected to
-  # empty. The roster and the reasoning live in
-  # `scripts/test-epoch-prod-gate.sh`. The roster
-  # is an EXCLUSION list, so a new namespace joins this lane by default and has
-  # to be excluded deliberately.
+  # SCOPE. The whole epoch suite, run as `clojure -M:test:prod-gate` in
+  # `implementation/epoch`, the same command as on a laptop. The runner
+  # discovers every `.*-test$` namespace, so a new namespace joins this lane
+  # by default. Most of epoch's namespaces carry `^:requires-debug` on their
+  # `(ns ...)` form, which the alias skips: epoch's production posture is
+  # that the artefact is OFF, so a suite about its recording, restore, replay
+  # or a record read back out of the ring has nothing to exercise here, and
+  # each says so in its ns docstring. They still load here, so a load-time
+  # failure in one reddens this job. The runner prints the tests and
+  # assertions it executed.
   jvm-epoch-prod-gate:
     name: JVM epoch under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-epoch: it is the same artefact.
@@ -2667,6 +2674,9 @@ jobs:
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: implementation/epoch
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2693,11 +2703,11 @@ jobs:
             ${{ runner.os }}-clj-epoch-
             ${{ runner.os }}-clj-
 
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries the
-      # evidence of which posture it ran in.
+      # `re-frame.epoch-prod-gate-lane-pin-test` reds the run if the property
+      # did not arrive, so a green log is evidence of the posture it ran in;
+      # the runner prints the tests and assertions it executed.
       - name: Run the epoch suite under -Dre-frame.debug=false
-        run: bash scripts/test-epoch-prod-gate.sh
+        run: clojure -M:test:prod-gate
 
   jvm-resources:
     name: JVM resources (clojure -M:test)

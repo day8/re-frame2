@@ -5,7 +5,7 @@
   The route miss's dev trace is elided under `-Dre-frame.debug=false`, so
   the same emit site also rides the always-on error axis, and that record is
   what a production server projects from. Every assertion here holds in both
-  postures, so the namespace runs under `scripts/test-ssr-prod-gate.sh` for
+  postures, so the namespace runs under `clojure -M:test:prod-gate` for
   real — a `with-redefs` of the load-time gate would prove nothing."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]

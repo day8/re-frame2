@@ -1,4 +1,4 @@
-(ns re-frame.epoch-egress-resource-trace-test
+(ns ^:requires-debug re-frame.epoch-egress-resource-trace-test
   "Off-box egress of the resource / mutation trace family through an epoch
   record (EP-0015): the family-row projector the epoch tool-pair reaches through
   the late-bound `:resources/project-resource-trace-egress` hook, and the
@@ -9,7 +9,17 @@
   drives that produce those records.
 
   resources is a TEST-ONLY dep: production epoch finds the hooks nil and passes
-  the rows through."
+  the rows through.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -71,11 +81,6 @@
                    :large         [[:data :avatar]]
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/c"}}))
-                (rf/reg-resource :declared/params-owner
-                  {:scope         :rf.scope/global
-                   :sensitive     [[:params :account]]
-                   :params-schema [:map [:account :string] [:slug :string]]}
-                  (fn [_ _] {:request {:method :get :url "/d"}}))
                 ;; The same declaration on an INFINITE FEED, whose reply `:value`
                 ;; is the merged item list, so `[:data :email]` names a field
                 ;; of each item.
@@ -179,8 +184,9 @@
 ;; ===========================================================================
 
 (deftest off-box-redacts-rollback-dispositions-owner-sensitive-scope
-  (testing "a rollback disposition row's :resource/key tokenizes its OWNER's
-            scope and params; the resource-id and the boolean facts ride"
+  (testing "a rollback disposition row's :resource/key tokenizes its scope by
+            the standing scope rule and its params by its OWNER's claim; the
+            resource-id and the boolean facts ride"
     (let [k   (sk [:rf.scope/session {:username secret}] :derived/profile {:slug "me"})
           row (-> (projected-tags
                     (record-with
@@ -189,7 +195,8 @@
                                :dispositions [{:resource/key k :restored true :conflict false}]})]))
                   :dispositions first)
           [pscope rid pparams] (:resource/key row)]
-      (is (every? redacted-component? [pscope pparams]))
+      (is (= [:rf.scope/session true true]
+             [(first pscope) (redacted-component? (second pscope)) (redacted-component? pparams)]))
       (is (= [:derived/profile true false] [rid (:restored row) (:conflict row)])))))
 
 (def ^:private optimistic-params
@@ -356,22 +363,27 @@
                 :decision     :refetch}]
       (is (= tags (projected-tags (record-with [(event :rf.resource/refetch-decision tags)])))))))
 
-(deftest off-box-plain-owner-free-scope-map-fails-closed-key-rides-verbatim
-  (testing "a free :scope names no owner, so its identity map fails closed even
-            beside a PLAIN owner's key — the tier rides and the row is stamped —
-            while that key and its :matched copy ride verbatim"
-    (let [k    (sk plain-session-scope :plain/profile {:slug "me"})
-          tags (projected-tags
-                 (record-with [(event :rf.resource/invalidated
-                                      {:rf.frame/id  :test/rt
-                                       :scope        plain-session-scope
-                                       :resource/key k
-                                       :matched      [k]})]))
+(deftest off-box-plain-owner-row-carries-one-scope-under-one-rule
+  (testing "the standing scope rule is the framework's, not the owner's: beside a
+            PLAIN owner's key the free :scope, the key's scope and its :matched
+            copy project to ONE value — tier riding, identity tokenized — while
+            the plain params ride and the rule stamps nothing"
+    (let [params {:slug "me"}
+          k      (sk plain-session-scope :plain/profile params)
+          tags   (projected-tags
+                   (record-with [(event :rf.resource/invalidated
+                                        {:rf.frame/id  :test/rt
+                                         :scope        plain-session-scope
+                                         :resource/key k
+                                         :matched      [k]})]))
           [tier identity-map] (:scope tags)]
       (is (= :rf.scope/session tier))
       (is (redacted-component? identity-map))
-      (is (= [k [k]] [(:resource/key tags) (:matched tags)]))
-      (is (true? (:sensitive? tags))))))
+      (is (= [(:scope tags) (:scope tags)]
+             [(first (:resource/key tags)) (first (first (:matched tags)))])
+          "the row's carriers of one scope agree")
+      (is (= [params params] [(nth (:resource/key tags) 2) (nth (first (:matched tags)) 2)]))
+      (is (not (:sensitive? tags))))))
 
 ;; ---------------------------------------------------------------------------
 ;; the wiring is reached from a REAL cascade
@@ -633,9 +645,11 @@
       (is (= custom-args (:rf.fx/args custom)))
       (is (not (:sensitive? custom)))
       (let [[pscope _ pparams] (first (:app/anything (:rf.fx/args audit)))]
-        (is (every? redacted-component? [pscope pparams]) "the registry proof"))
+        (is (= [:rf.scope/global true] [pscope (redacted-component? pparams)])
+            "the registry proof"))
       (let [[pscope _ pparams] (first (:resource/keys (:rf.fx/args cancel)))]
-        (is (every? redacted-component? [pscope pparams]) "the named proof")))))
+        (is (= [:rf.scope/global true] [pscope (redacted-component? pparams)])
+            "the named proof")))))
 
 (deftest fx-carrier-leaves-app-owned-scope-maps-verbatim
   (testing "an app's own :scope map rides and stamps nothing; a :scope in a
@@ -669,7 +683,9 @@
                                                :params       {:format :csv}})])
                    {:rf.egress/include-fx-args? true}))]
       (is (= [{:public true} {:format :csv}] [(:value args) (:params args)]))
-      (is (redacted-component? (first (:resource/key args)))))))
+      (is (= [true true]
+             [(tokenized-scope? (first (:resource/key args)))
+              (redacted-component? (nth (:resource/key args) 2))])))))
 
 ;; ---------------------------------------------------------------------------
 ;; the reply of an owner that makes NO coarse claim and declares paths instead
@@ -707,19 +723,6 @@
                       declared-reply-params
                       [:rf.scope/global :declared/profile declared-reply-params]]
                      [(:display-name (:value r)) (:params r) (:resource/key r)])))))))))
-
-(deftest fx-carrier-declared-reply-params-redact-through-the-same-declaration
-  (testing "a `:params`-rooted declaration redacts the reply's :params slot per
-            path and leaves the body alone"
-    (let [params {:account "acct-9911" :slug plain-slug}
-          r      (-> (reply-carrier-record
-                       (read-reply (sk :rf.scope/global :declared/params-owner params)
-                                   :rf.scope/global {:ok true}))
-                     project-carrier-egress
-                     carrier-replies
-                     first)]
-      (is (= [{:account :rf/redacted :slug plain-slug} {:ok true}]
-             [(:params r) (:value r)])))))
 
 (deftest fx-carrier-declared-arm-leaves-the-fx-familys-own-value-verbatim
   (testing "a map with :value but no reply marker is not a reply, whatever owner

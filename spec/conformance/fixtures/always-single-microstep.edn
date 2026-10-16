@@ -15,7 +15,7 @@
 {:fixture/id           :machine/always-single-microstep
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/eventless-always}
- :fixture/doc          "A state with :always firing once after the resolving event. Verify single macrostep externally; verify microstep counter; verify per-microstep trace event; verify atomic commit (intermediate state is NOT externally observable)."
+ :fixture/doc          "A state with :always firing once after the resolving event. Verify single macrostep externally and atomic commit (intermediate state is NOT externally observable)."
 
  :fixture/registry
  {:machine-action
@@ -51,14 +51,7 @@
    ;; External-observable next snapshot: :winner. The "still in :asking
    ;; with correct-count 10" intermediate state is invisible.
    :expect-next-snapshot {:state :winner :data {:correct-count 10}}
-   :expect-effects       []
-   :expect-microsteps    1
-   :expect-trace
-   ;; Two trace events at machine level — one per-microstep, one outer macrostep.
-   [{:operation :rf.machine.microstep/transition
-     :tags      {:from :asking :to :winner :microstep-index 0}}
-    {:operation :rf.machine/transition
-     :tags      {:from :asking :to :winner :microsteps 1}}]}
+   :expect-effects       []}
 
   ;; Pre-condition: correct-count is 5. The :answer-correct increments to 6;
   ;; :always's :enough-correct? is false; microstep loop terminates with
@@ -77,8 +70,4 @@
    :snapshot     {:state :asking :data {:correct-count 5}}
    :event        [:answer-correct]
    :expect-next-snapshot {:state :asking :data {:correct-count 6}}
-   :expect-effects       []
-   :expect-microsteps    0
-   :expect-trace
-   [{:operation :rf.machine/transition
-     :tags      {:from :asking :to :asking :microsteps 0}}]}]}
+   :expect-effects       []}]}

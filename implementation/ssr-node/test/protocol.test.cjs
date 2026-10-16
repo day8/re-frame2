@@ -1,15 +1,14 @@
 'use strict';
-// GUARANTEE 2 — THE ALLOWLISTED REQUEST, FAIL-CLOSED.
+// GUARANTEE 2 — A CLOSED REQUEST ENVELOPE, FAIL-CLOSED.
 //
 // Mostly `validateRequest` directly, because a fail-closed contract is a
 // claim about every input and enumerating inputs is the cheapest honest way
 // to make it. The service-level rows at the bottom show the validator is the
-// door: a refusal reaches the caller with no chunk emitted and no isolate
-// borrowed. Each refusal row is the valid request `OK()` plus one fault.
+// door: a refusal reaches the caller with no isolate borrowed. Each refusal row is the valid request `OK()` plus one fault.
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed, refusalOf } = require('./_support.cjs');
+const { withService, observed, refusalOf } = require('./_support.cjs');
 const {
   CODE,
   REFUSED_FIELDS,
@@ -20,13 +19,7 @@ const {
 
 const TABLES = {
   buildId: 'reference-build-1',
-  entries: {
-    'app/root': {
-      stateAllowlist: [':todos', ':route'],
-      runtimeAllowlist: [':rf.runtime/routing', ':rf.runtime/machines'],
-    },
-    'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
-  },
+  entries: ['app/root', 'app/other'],
 };
 
 const OK = () => ({
@@ -115,7 +108,7 @@ test('build identity: a caller expecting another build is refused', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The render-visibility allowlists, one per partition, owned by the ENTRY
+// The partitions: key and value SHAPE, and one byte ceiling
 // ---------------------------------------------------------------------------
 
 test('state keys must be top-level app-db keys, and values must be EDN text', () => {
@@ -125,27 +118,12 @@ test('state keys must be top-level app-db keys, and values must be EDN text', ()
   assert.strictEqual(codeOf({ ...OK(), state: [] }), CODE.BAD_REQUEST_FIELD);
 });
 
-test('a runtime key the entry does not declare is refused, and the refusal names the partition', () => {
-  const err = refuseOf({ ...OK(), runtime: { ':rf.runtime/resources': '{}' } });
-  assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
-  assert.deepStrictEqual(err.detail, {
-    entry: 'app/root',
-    field: 'runtime',
-    key: ':rf.runtime/resources',
-    allowed: [':rf.runtime/routing', ':rf.runtime/machines'],
-  });
-  // ...and the app-db refusal names ITS partition, so the two cannot be confused.
-  assert.strictEqual(refuseOf({ ...OK(), state: { ':secrets': '{}' } }).detail.field, 'state');
-});
-
-test('the runtime allowlist belongs to the ENTRY too - an empty list reads nothing', () => {
-  const req = { protocol: 1, entry: 'app/other', state: { ':route': '{}' } };
-  assert.strictEqual(codeOf(req), null);
-  assert.strictEqual(
-    codeOf({ ...req, runtime: { ':rf.runtime/routing': '{}' } }),
-    CODE.STATE_KEY_NOT_ALLOWED,
-    'app/other declared [] - a decision, and the caller cannot widen it',
-  );
+test('any well-formed key crosses: which keys a render sees is the JVM :render-state policy', () => {
+  // The entry table names ids, never keys, so the keys the JVM projected are the keys the render gets.
+  const state = { ':feature-flags': '#{:beta}' };
+  const runtime = { ':rf.runtime/resources': '{}' };
+  const out = validateRequest({ protocol: 1, entry: 'app/other', state, runtime }, TABLES);
+  assert.deepStrictEqual([out.state, out.runtime], [state, runtime]);
 });
 
 test('the byte ceiling is ONE ceiling over both partitions', () => {
@@ -222,40 +200,39 @@ test('every field the normalized request carries is read exactly ONCE', () => {
 // The module's own tables are fail-closed too
 // ---------------------------------------------------------------------------
 
-test('an allowlist member that is not a top-level key in EDN spelling makes the module unrenderable', () => {
-  const badKey = {
-    protocol: 1,
-    buildId: 'b',
-    entries: { 'app/root': { stateAllowlist: [':a'], runtimeAllowlist: ['routing'] } },
-    render() {},
-  };
-  assert.throws(
-    () => validateModule(badKey),
-    (e) => e.code === CODE.MALFORMED_MODULE && /runtime-db key/.test(e.message),
-  );
+test('an entry table that is not a non-empty list of entry ids makes the module unrenderable', () => {
+  const moduleWith = (entries) => ({ protocol: 1, buildId: 'b', entries, render() {} });
+  for (const entries of [undefined, [], [''], [42], { 'app/root': {} }]) {
+    assert.throws(
+      () => validateModule(moduleWith(entries)),
+      (e) => e.code === CODE.MALFORMED_MODULE && /entry table/.test(e.message),
+      JSON.stringify(entries),
+    );
+  }
+  assert.doesNotThrow(() => validateModule(moduleWith(['app/root'])));
 });
 
 // ---------------------------------------------------------------------------
 // Through a live service: the validator is the DOOR
 // ---------------------------------------------------------------------------
 
-test('a refused request yields no chunks, and never touches an isolate', async () => {
+test('a refused request never touches an isolate', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const before = service.stats();
     const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':nope': '1' } }),
+      service.renderToString({ protocol: 1, entry: 'app/root', state: { nope: '1' } }),
     );
-    assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
+    assert.strictEqual(err.code, CODE.BAD_REQUEST_FIELD);
     assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
     // ...and the same service still renders: the refusal was about the request.
-    const ok = await collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } });
-    assert.strictEqual(ok.chunks.length, 1);
+    const ok = await service.renderToString({ protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } });
+    assert.strictEqual(observed(ok).readTodos, '[1]');
   });
 });
 
 test('the runtime partition reaches the module, frozen like state', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const out = await collect(service, {
+    const out = await service.renderToString({
       protocol: 1,
       entry: 'app/root',
       state: { ':todos': '[1]' },
@@ -273,8 +250,6 @@ test('a malformed bundle refuses at BOOT, not at first request', async () => {
   for (const [fixtureName, why] of [
     // Each module's OWN refusal wording: a bare field name is also matched by
     // the TypeError the worker throws reading a field validation let through.
-    ['bad-no-allowlist', /declares no stateAllowlist/],
-    ['bad-no-runtime-allowlist', /declares no runtimeAllowlist/],
     ['bad-no-build-id', /publishes no buildId/],
     ['bad-protocol', /declares protocol/],
   ]) {

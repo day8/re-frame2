@@ -189,7 +189,8 @@
    :frame       frame-id
    :event-id    :auth/login
    :event       [:auth/login {:password "secret"}]
-   :status      :ok
+   :time        1700000000000
+   :outcome     :ok
    :elapsed-ms  12
    :effects     [:db :rf.http/managed]
    :correlation {:work-id "w-77" :dispatch-id "d-91"}})

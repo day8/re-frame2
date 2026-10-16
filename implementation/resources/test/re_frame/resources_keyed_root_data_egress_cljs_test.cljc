@@ -6,8 +6,8 @@
   matched. The durable entry walks `[:data :email]` with `:data` intact, so
   `{\"u1\" {:email …}}` redacts there. A read sub whose value IS the data
   projection (`:rf.resource/data`, `:previous-data`, `:pages`, a feed's merged
-  items, `:rf.mutation/result`) and a scoped key's params component carry no
-  such slot, so their walks keep the declaration's anchor: the value is walked
+  items, `:rf.mutation/result`) carries no
+  such slot, so its walk keeps the declaration's anchor: the value is walked
   under the slot the owner declared against. The subs that carry the
   projection under a named slot (`:rf/resource`'s `:data`, `:rf/mutation`'s
   `:result`) are the controls.
@@ -27,7 +27,6 @@
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.state :as rf.resources.state]
-   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    ;; load-bearing side-effecting requires: the facade registers the
    ;; :rf.resource/* + :rf.mutation/* events and subs and publishes the
    ;; read-sub egress projector; schemas binds the shared walker hooks.
@@ -198,16 +197,3 @@
              [(:result (last-run-value state-q events)) (last-run-value result-q events)])
           "the anchored :rf/mutation slot (the control) and :rf.mutation/result agree")
       (is (false? (carries-a-secret? events)) "no sub run carries either secret"))))
-
-;; A scoped key's params component, keyed by id at its top level.
-
-(def ^:private keyed-params-key
-  [:rf.scope/global :keyed/by-acct {"a" {:acct email-1} "b" {:acct email-2}}])
-
-(def ^:private redacted-params-key
-  [:rf.scope/global :keyed/by-acct {"a" {:acct redacted} "b" {:acct redacted}}])
-
-(deftest a-root-keyed-params-component-redacts-its-declared-slot-in-the-key
-  (is (= redacted-params-key
-         (rf.resources.trace-egress/redact-key-declarations
-           keyed-params-key :serialize {:sensitive [[:params :acct]]}))))

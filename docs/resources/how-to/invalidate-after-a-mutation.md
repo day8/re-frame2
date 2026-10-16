@@ -65,7 +65,7 @@ What happens next depends on whether anything is still using the entry. An entry
 
 The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when the managed-HTTP args returned by its request function declare `:retry` beside `:request`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request, rather than in each mutation's `:request`. If that interceptor makes a read viewer-dependent, give the read and mutation the same viewer scope.
 
-A write whose params carry a secret — a password, a card number — names the path on the registration, `:sensitive [[:params :password]]`, so the value leaves the app as a redaction marker ([data classification](../../core/glossary.md#data-classification)).
+A write whose params carry a secret — a password, a card number — names the path on the registration, `:sensitive [[:params :password]]`, so the value leaves the app as a redaction marker ([data classification](../../core/glossary.md#data-classification)). A read is different: its params and scope are its identity, so `reg-resource` refuses a `[:params …]` or `[:scope …]` path. Off-box tools always see a read's scope as a redaction marker; keep its params to identifiers, or mark the whole resource `:sensitive? true`.
 
 !!! warning "Gotcha — a lone vector is one tag"
 

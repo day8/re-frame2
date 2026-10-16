@@ -23,7 +23,8 @@
             ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.subs]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -349,3 +350,176 @@
         (is (= [#{:machine} :rf/redacted false]
                [(sources) (get-in out [:tags :after :data :token]) (.contains (pr-str out) "secret-jwt")])
             "the machine's surviving claim keeps the value redacted after the effect cleared")))))
+
+;; ---- (7) a thrown action's exception row ---------------------------------
+;; A message routinely quotes the value that failed, so once a machine declares
+;; any `:sensitive` path its exception row redacts the text and the raw
+;; exception together with the `:exception-data`.
+
+(def ^:private thrown-secret "S3CR3T-thrown-action")
+
+(defn- thrown-action-row
+  "Boot machine `mid` (its `spec` merged over a one-transition body), dispatch an
+  event whose action throws an ex-info quoting `thrown-secret` in its message
+  and its data, and return the `:rf.error/machine-action-exception` trace."
+  [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :actions {:reject (fn [_] (throw (ex-info (str "rejected " thrown-secret)
+                                                      {:k thrown-secret})))}
+            :states  {:idle {:on {:submit {:target :done :action :reject}}} :done {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (rf.machines.test-support/with-trace-capture traces
+    (rf/dispatch-sync [mid [:submit]])
+    (first (filter #(= :rf.error/machine-action-exception (:operation %)) @traces))))
+
+(deftest thrown-action-exception-slots-redacted-when-machine-sensitive
+  (let [row (thrown-action-row :rf.machine-redaction/sensitive-thrower
+                               {:sensitive [[:data :token]]})]
+    (is (= [{:exception-data    :rf/redacted
+             :exception-message :rf/redacted
+             :reason            :rf/redacted
+             :exception         :rf/redacted}
+            true false]
+           [(select-keys (:tags row) [:exception-data :exception-message :reason :exception])
+            (:sensitive? row)
+            (.contains (pr-str row) thrown-secret)]))))
+
+(deftest thrown-action-exception-text-kept-when-machine-unclassified
+  (let [tags (:tags (thrown-action-row :rf.machine-redaction/plain-thrower {}))]
+    (is (= [{:k thrown-secret} (str "rejected " thrown-secret) "Machine action threw."]
+           ((juxt :exception-data :exception-message :reason) tags)))
+    (is (.contains (pr-str (:exception tags)) (str "rejected " thrown-secret))
+        "the raw :exception prints its message onto the wire")))
+
+;; ---- (8) every row that carries the thrown value -------------------------
+;; A guard's row, an action's `:rf.machine/action-ran` row, an `:on-done`
+;; callback's row, a destroy-time `:exit` row and an `:after` delay resolver's
+;; row carry the raw `:exception` (the `:on-done` row its `:exception-message`
+;; too) but no `:exception-data`, so the condition is asked of every machine
+;; row that carries a thrown value.
+
+(defn- throw-secret!
+  "Throw an ex-info quoting `thrown-secret` in its message and its data."
+  [_]
+  (throw (ex-info (str "rejected " thrown-secret) {:k thrown-secret})))
+
+(defn- thrown-value-rows
+  "Run `drive!` and return every trace it emitted that carries an `:exception`."
+  [drive!]
+  (rf.machines.test-support/with-trace-capture traces
+    (drive!)
+    (filterv #(contains? (:tags %) :exception) @traces)))
+
+(defn- guard-throw-rows [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :guards  {:check throw-secret!}
+            :states  {:idle {:on {:submit {:guard :check :target :done}}} :done {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (thrown-value-rows #(rf/dispatch-sync [mid [:submit]])))
+
+(defn- action-throw-rows [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :actions {:reject throw-secret!}
+            :states  {:idle {:on {:submit {:target :done :action :reject}}} :done {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (thrown-value-rows #(rf/dispatch-sync [mid [:submit]])))
+
+(defn- on-done-throw-rows [mid spec]
+  (let [child (keyword (namespace mid) (str (name mid) "-child"))]
+    (rf/reg-machine child
+      {:initial :running
+       :states  {:running {:on {:finish :done}} :done {:final? true}}})
+    (rf/reg-machine mid
+      (merge {:initial :idle
+              :data    {:token nil}
+              :states  {:idle    {:on {:start :working}}
+                        :working {:spawn {:machine-id child :on-done throw-secret!}}}}
+             spec))
+    (rf/dispatch-sync [mid [:start]])
+    (let [child-id (get-in (rf.machines.test-support/runtime-db)
+                           [:rf.runtime/machines :spawned mid [:working]])]
+      (thrown-value-rows #(rf/dispatch-sync [child-id [:finish]])))))
+
+(defn- destroy-exit-throw-rows [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :a
+            :data    {:token nil}
+            :actions {:boom throw-secret!}
+            :states  {:a {:exit :boom}}}
+           spec))
+  (rf/reg-event :rf.machine-redaction/destroy (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (thrown-value-rows #(rf/dispatch-sync [:rf.machine-redaction/destroy mid])))
+
+(defn- after-fn-throw-rows [mid spec]
+  (rf/reg-machine mid
+    (merge {:initial :idle
+            :data    {:token nil}
+            :states  {:idle    {:on {:go :running}}
+                      :running {:after {throw-secret! :timeout}}
+                      :timeout {}}}
+           spec))
+  (rf/dispatch-sync [mid [:rf.machine/start]])
+  (thrown-value-rows #(rf/dispatch-sync [mid [:go]])))
+
+(defn- after-sub-throw-rows
+  "A user sub body's throw is caught inside the subscription layer, so the
+  delay reaction's deref throws directly: `subscribe` is stubbed to return one."
+  [mid spec]
+  (let [sub-id (keyword (namespace mid) (str (name mid) "-delay"))]
+    (rf/reg-sub sub-id (fn [_db _] 1000))
+    (rf/reg-machine mid
+      (merge {:initial :idle
+              :data    {:token nil}
+              :states  {:idle    {:on {:go :running}}
+                        :running {:after {[sub-id] :timeout}}
+                        :timeout {}}}
+             spec))
+    (rf/dispatch-sync [mid [:rf.machine/start]])
+    (let [throwing (reify clojure.lang.IDeref (deref [_] (throw-secret! nil)))]
+      (with-redefs [re-frame.subs/subscribe (fn ([_query-v] throwing)
+                                              ([_query-v _opts] throwing))]
+        (thrown-value-rows #(rf/dispatch-sync [mid [:go]]))))))
+
+(def ^:private throw-sites
+  "Each place a machine's code throws, with the operations of the rows that then
+  carry the thrown value."
+  [["guard"        guard-throw-rows
+    #{:rf.machine/guard-evaluated :rf.error/machine-action-exception}]
+   ["action"       action-throw-rows
+    #{:rf.machine/action-ran :rf.error/machine-action-exception}]
+   ["on-done"      on-done-throw-rows
+    #{:rf.error/machine-action-exception}]
+   ["destroy-exit" destroy-exit-throw-rows
+    #{:rf.machine/action-ran :rf.error/machine-action-exception}]
+   ["after-fn"     after-fn-throw-rows
+    #{:rf.error/machine-after-fn-threw}]
+   ["after-sub"    after-sub-throw-rows
+    #{:rf.error/machine-after-sub-threw}]])
+
+(deftest every-thrown-value-row-redacted-when-machine-sensitive
+  (doseq [[label rows-of ops] throw-sites]
+    (let [rows (rows-of (keyword "rf.machine-redaction" (str label "-sensitive"))
+                        {:sensitive [[:data :token]]})]
+      (is (= [ops true []]
+             [(set (map :operation rows))
+              (every? :sensitive? rows)
+              (into [] (comp (filter #(.contains (pr-str %) thrown-secret)) (map :operation)) rows)])
+          label))))
+
+(deftest every-thrown-value-row-keeps-its-message-when-machine-unclassified
+  (doseq [[label rows-of ops] throw-sites]
+    (let [rows (rows-of (keyword "rf.machine-redaction" (str label "-plain")) {})]
+      (is (= [ops true]
+             [(set (map :operation rows))
+              (every? #(.contains (pr-str %) (str "rejected " thrown-secret)) rows)])
+          label))))

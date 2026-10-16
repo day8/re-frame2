@@ -211,9 +211,9 @@
   ## Scope
 
   Dev/test only. Nothing in a production bundle may `:require` this
-  namespace — it is its own source root (`fresco/test_kit/src`) and is
-  absent from the artefact's `:paths`, so it is reachable when
-  used and unreachable otherwise."
+  namespace — it lives in the kit's own source root
+  (`fresco/test_kit/src`) and no shipping namespace requires it, so it
+  is reachable when used and unreachable otherwise."
   (:refer-clojure :exclude [find])
   (:require [clojure.string :as str]
             [re-frame.core :as rf]

@@ -39,7 +39,6 @@
 // its own error taxonomy will set `code`, and a boundary that believed it
 // would let a render fault choose its own HTTP status.
 
-const ENTRY = { stateAllowlist: [':for-uncaught'], runtimeAllowlist: [] };
 
 /** A real member of the service's family — see the header. 400, not 500. */
 const SPOOFED_CODE = ':rf.ssr-node/unknown-entry';
@@ -47,13 +46,9 @@ const SPOOFED_CODE = ':rf.ssr-node/unknown-entry';
 module.exports = {
   protocol: 1,
   buildId: 'throws-async-build-1',
-  entries: {
-    'app/rejected': ENTRY,
-    'app/uncaught': ENTRY,
-    'app/uncaught-null': ENTRY,
-  },
+  entries: ['app/rejected', 'app/uncaught', 'app/uncaught-null'],
 
-  render({ entry, state }, emit) {
+  render({ entry, state }) {
     const err = new Error(`render callback saw ${state[':for-uncaught']}`);
     err.code = SPOOFED_CODE;
     err.detail = { echoed: state[':for-uncaught'] };

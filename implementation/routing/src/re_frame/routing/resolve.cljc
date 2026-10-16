@@ -28,7 +28,7 @@
       cause, the resolved target, the parent-to-leaf branch, and the
       leaf resource plan.
     - `plan-trace-tags` — the projection as `:rf.route/planned` TRACE tags, the
-      ONE mapping both door commit branches emit through so the projection is
+      ONE mapping the pipeline's commit branch emits through so the projection is
       reachable from an executed navigation without the trace becoming a
       carrier.
     - `redact-declared-url` — a URL string projected for egress by the
@@ -158,9 +158,9 @@
   `{:tab :overview}`, and `:fragment \"\"` would warm `\"\"` against a committed
   nil — two resource identities for one destination. A door-local
   normalisation is a normalisation the next door forgets.
-  Both are idempotent, so the programmatic door's own earlier
-  `normalize-fragment` (which it needs, to rebuild an unmatched raw URL
-  before this seam runs) lowers through unchanged."
+  Both are idempotent, so the raw-URL stage's own earlier
+  `normalize-fragment` (which it needs, to rebuild the URL around an
+  explicit `:fragment` before this seam runs) lowers through unchanged."
   [{:keys [route-id params query fragment url]}]
   (let [route-meta (rf.registrar/lookup :route route-id)]
     {:route-id route-id
@@ -301,8 +301,8 @@
 
   Plain data — there is no public `RoutePlan` constructor or
   promise-returning router object; its observable projection is
-  `plan-trace-tags`, the `:rf.route/planned` trace both door commit branches
-  emit through.
+  `plan-trace-tags`, the `:rf.route/planned` trace the pipeline's commit
+  branch emits through.
 
   The parent-to-leaf `:branch` is the FAIL-LOUD walk
   (`rf.routing.events/resolve-branch`), resolved ONCE per navigation here:

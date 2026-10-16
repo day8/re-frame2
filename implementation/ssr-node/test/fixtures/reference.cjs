@@ -4,17 +4,16 @@
 // It stands in for an application's compiled server bundle. It renders no
 // React and requires no build, because every guarantee under test is a
 // property of the SERVICE rather than of a renderer — and a suite that
-// needed a shadow-cljs compile to check an allowlist would be a suite
+// needed a shadow-cljs compile to check a fail-closed door would be a suite
 // nobody runs.
 //
 // `'use strict'` is deliberate and load-bearing: a strict module takes a
 // TypeError when it writes to a frozen snapshot, which is what makes the
 // freeze visible.
 //
-// It reports what it observed by RENDERING it — the one channel the
-// contract gives a render module, and the reason `test/observations.cjs`
-// exists. It returns nothing, because a render module has nothing to
-// return.
+// It reports what it observed by RENDERING it into the body markup it
+// returns — the one channel the contract gives a render module, and the
+// reason `test/observations.cjs` exists.
 
 const { encode } = require('../observations.cjs');
 
@@ -70,24 +69,13 @@ function observe({ entry, state, runtime, args }) {
 module.exports = {
   protocol: 1,
   buildId: 'reference-build-1',
-  entries: {
-    'app/root': {
-      // Exactly the keys `observe` reads. An allowlist member this module
-      // never looks at is state it would admit and drop, which is the
-      // opposite of what a fail-closed allowlist is for — the byte-fidelity
-      // rows have their own fixture (`chunked.cjs`, `bytes.cjs`) and their
-      // own `:bytes` entry.
-      stateAllowlist: [':todos', ':route', ':delay'],
-      runtimeAllowlist: [':rf.runtime/routing'],
-    },
-    'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
-  },
+  entries: ['app/root', 'app/other'],
 
   boot() {
     globalThis[BOOTS] += 1;
   },
 
-  async render(call, emit) {
+  async render(call) {
     inFlight += 1;
     overlapMax = Math.max(overlapMax, inFlight);
     try {
@@ -101,7 +89,7 @@ module.exports = {
       // could never see an overlap it was measuring.
       observed.overlapMax = overlapMax;
 
-      emit(`<div data-entry="${entry}"${encode(observed)}>${state[':todos'] ?? ''}</div>`);
+      return `<div data-entry="${entry}"${encode(observed)}>${state[':todos'] ?? ''}</div>`;
     } finally {
       inFlight -= 1;
     }

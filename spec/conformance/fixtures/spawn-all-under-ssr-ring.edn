@@ -157,8 +157,10 @@
   ;; The out-of-subset invariant stated negatively: the machine MUST NOT have
   ;; reached :ready, and the server deadline MUST NOT have been scheduled or
   ;; fired. (These trace ops never appearing is the "no async settle under
-  ;; SSR" guarantee.)
+  ;; SSR" guarantee.) The runtime's transition row carries the whole `:after`
+  ;; snapshot rather than a `:to` state, so the third shape names
+  ;; `:after {:state :ready}`.
   :trace-not-emitted
   [{:operation :rf.machine.timer/scheduled :tags {:actor-id :pdp/load}}
    {:operation :rf.machine.timer/fired     :tags {:actor-id :pdp/load}}
-   {:operation :rf.machine/transition       :tags {:actor-id :pdp/load :to :ready}}]}}
+   {:operation :rf.machine/transition       :tags {:actor-id :pdp/load :after {:state :ready}}}]}}

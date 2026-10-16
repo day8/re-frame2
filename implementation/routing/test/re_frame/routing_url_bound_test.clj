@@ -11,7 +11,7 @@
   `url-owner-frame-id` reports, that a duplicate binding is STORED rather than
   rejected, and that reconcile fails CLOSED on an ambiguous multi-binding load
   order. Those run in the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+  `clojure -M:test:prod-gate` (the `-Dre-frame.debug=false` lane).
 
   The `:rf.error/duplicate-url-binding` DIAGNOSTIC is dev instrumentation —
   `trace/emit-error!` sits behind `rf.interop/debug-enabled?`, read once at load

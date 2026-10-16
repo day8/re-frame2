@@ -99,3 +99,36 @@
     (testing "control: the same script behind a seed the schema accepts runs"
       (is (= :pass (:status (run-target :story.cart/go))))
       (is (= 1 @script-ran)))))
+
+(defn- seeded-variant! [variant-id reg-path schema seed]
+  (reg-app-schema! variant-id reg-path schema)
+  (rf.story/reg-variant
+    variant-id
+    {:db-seed seed
+     :script  [[:dispatch-sync [:cart/add-item {:sku "B" :qty 2}]]]}))
+
+(deftest db-seed-check-skips-an-absent-path-and-checks-a-present-nil
+  ;; As at commit (spec/010 §When schemas are checked): a path schema
+  ;; constrains a value only where its path exists.
+  (install-schema-seam!)
+  (seeded-variant! :story.cart/no-coupon [:coupon] :string {:cart {:items []}})
+  (seeded-variant! :story.cart/nil-coupon [:coupon] :string {:cart {:items []} :coupon nil})
+  (is (= :pass (:status (run-target :story.cart/no-coupon)))
+      "a registered path the seeded db lacks is not checked")
+  (is (= [{:path [:coupon] :value nil}]
+         (mapv #(select-keys % [:path :value])
+               (:violations (seed-error-record (run-target :story.cart/nil-coupon)))))
+      "a present nil is checked"))
+
+(deftest db-seed-check-delegates-a-nil-schema-token
+  ;; A schema token is opaque, so a registered `nil` is a declaration the
+  ;; validator interprets, as at commit. This validator refuses every value
+  ;; under a `nil` token.
+  (rf.late-bind/set-fn! :schemas/frame-schema-entries
+                        (fn [frame-id] (get @frame-schemas frame-id {})))
+  (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
+                        (fn [schema value] (and (some? schema) (m/validate schema value))))
+  (rf.late-bind/set-fn! :schemas/explain-with-registered-fn (constantly nil))
+  (seeded-variant! :story.cart/nil-token [:cart] nil {:cart {:items []}})
+  (is (= [[:cart]]
+         (mapv :path (:violations (seed-error-record (run-target :story.cart/nil-token)))))))

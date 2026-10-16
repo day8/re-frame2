@@ -25,7 +25,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Fixture: an entry keyed by its opaque key-id, the scoped key on
 ;; `:resource/key`, carrying RAW sensitive values in its scope, params and data
-;; so the local-render seam — not an upstream elision — is what redacts them.
+;; so the local-render seam — not an upstream elision — is what redacts the
+;; declared data slot. Params and scope are the resource's identity and carry no
+;; declaration, so the local operator sees them.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private secret-token "secret-session-jwt-abc123")
@@ -56,7 +58,7 @@
       (-> rt
           (assoc-in [:rf.runtime/resources :entries] {key-id raw-entry})
           (rf.resources.classification/reconcile-registry
-            {:article/by-slug {:sensitive [[:data :secret] [:params :secret] [:scope 1 :secret]]}})))))
+            {:article/by-slug {:sensitive [[:data :secret]]}})))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -88,9 +90,13 @@
 
 (deftest resources-local-render-redacts-the-sensitive-leaf-and-keeps-metadata
   (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))]
-    (testing "each frame-declared sensitive leaf redacts in place under the on-box
-              default: data, and the scope and params, which carry PII"
-      (is (= [true true true] (mapv (comp leaf-redacted? row) [:data :scope :params]))))
+    (testing "the declared sensitive data leaf redacts in place under the on-box
+              default"
+      (is (leaf-redacted? (:data row))))
+    (testing "the scope and params are the resource's identity, not a classified
+              slot, so the local operator sees them on-box"
+      (is (= [true true]
+             (mapv #(str/includes? (str (:preview (% row))) secret-token) [:scope :params]))))
     (testing "the metadata projects from the RAW entry, never through egress, and
               the RAW scoped-key stays the identity key, so two entries whose scope
               redacts to the same sentinel never collapse"

@@ -1,41 +1,29 @@
 'use strict';
 // THE SERVICE — validate, admit, render, release.
 //
-// ## ONE CORE API, AND THE STRING IS A WRAPPER OVER IT
+// ## ONE CALL, ONE BODY
 //
-// `renderFrames` is an async generator yielding `chunk` frames and then
-// one `complete` frame. `renderToString` iterates it and joins. That
-// ordering is the separability requirement, made structural rather than
-// promised: the string-shaped call is the DERIVED one, so a streaming
-// caller is not asking for a second semantics, it is declining a
-// convenience. Were the primitive the string, every layer beneath it
-// would already hold the assumption that there is exactly one, and
-// streaming would mean a retrofit through all of them.
+// `renderToString` validates a request, borrows an isolate, and resolves
+// with the `complete` response: the body markup the render module
+// returned, beside the facts this service owns about the crossing. Or it
+// throws a `Refusal`. That is the whole API, because one buffered body is
+// the whole of what either side of this service reads — see
+// `protocol.cjs`.
 //
-// Nothing between the render module and the transport ever holds "the
-// body". The isolate posts each chunk as the module emits it, the
-// generator yields it, and the buffered HTTP mode is where — and the
-// only place where — a complete string comes into existence.
-//
-// ## REFUSALS COME BEFORE BYTES
+// ## REFUSALS COME BEFORE THE ISOLATE
 //
 // `validateRequest` runs to completion before an isolate is acquired, so
-// every caller-fault refusal is delivered with no chunk yet emitted. A
-// failure that arrives AFTER chunks — the isolate dying under a render,
-// or a streaming module throwing halfway — is a TORN response, carries
-// `detail.afterChunks`, and the transport is required to treat it as
-// unpresentable rather than as a shorter page.
+// every caller-fault refusal is delivered without one being borrowed.
 //
-// ## THE PUBLIC FRAMES CARRY NO APPLICATION DATA
+// ## THE RESPONSE CARRIES NO APPLICATION DATA OUTSIDE `html`
 //
-// `renderFrames` is the widest surface this package has: every transport
+// `renderToString` is the widest surface this package has: every transport
 // is an adapter over it and the in-process caller reads it raw, so
-// whatever it yields IS the egress. What it yields is body markup in
-// `chunk` frames and `COMPLETE_FIELDS` in the terminal one — nothing
-// else, and nothing the application's render module authored outside the
-// markup it emitted. `test/egress.test.cjs` is that property's witness,
-// and it checks the frames rather than the HTTP response, because HTTP
-// dropping a field is a fact about HTTP and not a guarantee about this.
+// whatever it returns IS the egress. What it returns is `COMPLETE_FIELDS` —
+// the body markup in `html`, and nothing else the application's render
+// module authored. `test/egress.test.cjs` is that property's witness, and
+// it checks this response rather than the HTTP one, because HTTP dropping a
+// field is a fact about HTTP and not a guarantee about this.
 
 const {
   CODE,
@@ -96,10 +84,10 @@ class Service {
   }
 
   /**
-   * The core call. Yields `{type:'chunk'}` frames as the render produces
-   * them, then one `{type:'complete'}`. Throws a `Refusal`.
+   * The one call. Resolves with the `complete` response — `html` and the
+   * rest of `COMPLETE_FIELDS`. Throws a `Refusal`, and nothing else.
    */
-  async *renderFrames(request) {
+  async renderToString(request) {
     const validatedRequest = validateRequest(
       request,
       { buildId: this.pool.buildId, entries: this.pool.entries },
@@ -107,112 +95,47 @@ class Service {
     );
 
     const isolate = await this.pool.acquire();
-
-    // A hand-rolled bridge from the isolate's callback to this generator,
-    // because there is no smaller one: `onChunk` is called from a
-    // 'message' handler and the consumer pulls at its own pace.
-    const pendingFrames = [];
-    let resumeConsumer = null;
-    const wakeConsumer = () => {
-      if (resumeConsumer) {
-        const resume = resumeConsumer;
-        resumeConsumer = null;
-        resume();
-      }
-    };
-
-    let renderFinished = false;
-    let renderFailure = null;
-    let renderResult = null;
-
-    const renderCompletion = isolate
-      .render(validatedRequest, {
-        timeoutMs: validatedRequest.timeoutMs,
-        onChunk: (frame) => {
-          pendingFrames.push(frame);
-          wakeConsumer();
-        },
-      })
-      .then(
-        (result) => {
-          renderResult = result;
-        },
-        (error) => {
-          if (error instanceof Refusal) {
-            renderFailure = error;
-            return;
-          }
-          // THE LAST RECEIVER, and it states the same law as the other
-          // three: the contract's wording, never `String(error)`. What
-          // arrives here is not guaranteed to be this package's own text.
-          // A request value that fails to structured-clone makes
-          // `postMessage` throw `DataCloneError` synchronously inside
-          // `render()`'s executor, which passes through no receiver that
-          // could make it a `Refusal` — and a `DataCloneError` names the
-          // value it choked on, so `String(error)` would interpolate the
-          // CALLER'S value into a message published on the widest surface
-          // this package has, the egress this file's header says does not
-          // exist.
-          //
-          // A caller cannot reach this that way: `validateRequest` reads
-          // every field exactly once and returns what it read, so a request
-          // that validates is a request that clones.
-          //
-          // BEING UNREACHABLE FROM A CALLER IS NOT A REASON TO REMOVE THE
-          // ARM. It is what guarantees `renderFrames` throws nothing but a
-          // `Refusal`, which is the property every transport is written
-          // against; deleting it would let a raw `Error` reach `statusFor`
-          // with no code at all — and `isolate.cjs`'s `render` deliberately
-          // lets a `postMessage` that throws reject RAW rather than dressing
-          // it as a `Refusal`, precisely so this arm is what states the
-          // wording and writes the operator's copy.
-          reportUncontractedFault(error);
-          renderFailure = new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
-        },
-      )
-      .then(() => {
-        renderFinished = true;
-        this.pool.release(isolate);
-        wakeConsumer();
-      });
-
+    let rendered;
     try {
-      for (;;) {
-        while (pendingFrames.length) yield pendingFrames.shift();
-        if (renderFinished) break;
-        await new Promise((resolve) => {
-          resumeConsumer = resolve;
-        });
-      }
-      await renderCompletion;
-      if (renderFailure) throw renderFailure;
-      yield completeFrame({
-        chunks: renderResult.chunks,
-        renderMs: renderResult.renderMs,
-        buildId: renderResult.buildId,
-        requestId: validatedRequest.requestId,
-      });
+      rendered = await isolate.render(validatedRequest, { timeoutMs: validatedRequest.timeoutMs });
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      // THE LAST RECEIVER, and it states the same law as the other three:
+      // the contract's wording, never `String(error)`. What arrives here is
+      // not guaranteed to be this package's own text. A request value that
+      // fails to structured-clone makes `postMessage` throw `DataCloneError`
+      // synchronously inside `render()`'s executor, which passes through no
+      // receiver that could make it a `Refusal` — and a `DataCloneError`
+      // names the value it choked on, so `String(error)` would interpolate
+      // the CALLER'S value into a message published on the widest surface
+      // this package has, the egress this file's header says does not exist.
+      //
+      // A caller cannot reach this that way: `validateRequest` reads every
+      // field exactly once and returns what it read, so a request that
+      // validates is a request that clones.
+      //
+      // BEING UNREACHABLE FROM A CALLER IS NOT A REASON TO REMOVE THE ARM.
+      // It is what guarantees `renderToString` throws nothing but a
+      // `Refusal`, which is the property every transport is written
+      // against; deleting it would let a raw `Error` reach `statusFor` with
+      // no code at all — and `isolate.cjs`'s `render` deliberately lets a
+      // `postMessage` that throws reject RAW rather than dressing it as a
+      // `Refusal`, precisely so this arm is what states the wording and
+      // writes the operator's copy.
+      reportUncontractedFault(error);
+      throw new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
     } finally {
-      // A consumer that abandons the iteration must not strand the
-      // isolate. `renderCompletion` releases it whichever way the render
-      // went, so this only has to make sure the promise is not left
-      // unobserved.
-      renderCompletion.catch(() => {});
+      // Whichever way the render went: a dead isolate is replaced by the
+      // pool, a live one is offered to the next caller.
+      this.pool.release(isolate);
     }
-  }
 
-  /**
-   * The convenience: one string, for the caller that is not streaming.
-   * The join happens HERE and nowhere earlier — see the header.
-   */
-  async renderToString(request) {
-    let html = '';
-    let complete = null;
-    for await (const frame of this.renderFrames(request)) {
-      if (frame.type === 'chunk') html += frame.html;
-      else complete = frame;
-    }
-    return { html, ...complete };
+    return completeFrame({
+      html: rendered.html,
+      renderMs: rendered.renderMs,
+      buildId: rendered.buildId,
+      requestId: validatedRequest.requestId,
+    });
   }
 
   async close() {

@@ -1,16 +1,16 @@
 'use strict';
 // THE EGRESS CONTROL — application data cannot cross outside body markup.
 //
-// Checked on the FRAMES `renderFrames()` yields, because that is the
-// in-process API and the surface every transport adapts; HTTP dropping a
-// field would be a fact about HTTP, not a guarantee. On the response leg:
+// Checked on the response `renderToString()` resolves with, because that is
+// the in-process API and the surface every transport adapts; HTTP dropping
+// a field would be a fact about HTTP, not a guarantee. On the response leg:
 //
-//   1. the `complete` frame carries exactly the service-owned roster;
-//   2. nothing the render module handled appears outside `chunk.html` — the
-//      chunk frames are pinned exactly in `bytes.test.cjs`, the HTTP headers
-//      here;
-//   3. a module that RETURNS a value (`null` included) is refused, and the
-//      refusal carries none of it;
+//   1. the `complete` response carries exactly the service-owned roster
+//      beside `html`;
+//   2. nothing the render module handled appears outside `html` — the body
+//      bytes are pinned exactly in `bytes.test.cjs`, the HTTP headers here;
+//   3. a module that returns anything but a string is refused, and the
+//      refusal carries its type tag and none of its content;
 //   4. a module that THROWS is refused with service-owned wording, code and
 //      detail, and cannot choose its HTTP status;
 //   5. the same holds for an exception that ESCAPES the render call;
@@ -21,10 +21,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { withService, collect, observed, refusalOf, post } = require('./_support.cjs');
+const { withService, observed, refusalOf, post } = require('./_support.cjs');
 const {
   CODE,
-  MODULE_RETURN_REFUSAL,
   RENDER_THREW_REFUSAL,
   ISOLATE_LOST_REFUSAL,
   REPLACEMENT_FAILED_REFUSAL,
@@ -35,9 +34,9 @@ const LEAKY = require('./fixtures/leaky.cjs');
 const THROWS_DATA = require('./fixtures/throws-data.cjs');
 
 /**
- * Every place a sentinel appears in a frame sequence OUTSIDE body markup.
- * Chunks are stripped of `html` rather than skipped, so a field sprouting
- * on a chunk frame is seen too.
+ * Every place a sentinel appears in a set of frames OUTSIDE body markup.
+ * Each frame is stripped of `html` rather than skipped, so a field
+ * sprouting beside the body is seen too.
  */
 function scanForEgress(frames, sentinels) {
   const findings = [];
@@ -92,18 +91,21 @@ const req = (extra = {}) => ({
 // 1. The roster
 // ---------------------------------------------------------------------------
 
-test('the complete frame carries EXACTLY the service-owned roster', async () => {
+test('the complete response carries EXACTLY the service-owned roster beside html', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     for (const echoed of [{}, { requestId: 'corr-1' }]) {
-      const { renderMs, ...rest } = (await collect(service, req(echoed))).complete;
+      const complete = await service.renderToString(req(echoed));
+      const { renderMs, html, ...rest } = complete;
       assert.strictEqual(typeof renderMs, 'number');
-      assert.deepStrictEqual(rest, { type: 'complete', chunks: 1, buildId: 'reference-build-1', ...echoed });
+      assert.ok(html.includes(SENTINELS[0]), 'the body is the channel and it is carrying');
+      assert.deepStrictEqual(rest, { type: 'complete', buildId: 'reference-build-1', ...echoed });
+      assert.deepStrictEqual(scanForEgress([complete], SENTINELS), [], 'nothing outside html carries state');
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. Outside the frames — the HTTP headers
+// 2. Outside the response — the HTTP headers
 // ---------------------------------------------------------------------------
 
 test('the HTTP transport carries none of it either — corollary, not evidence', async () => {
@@ -126,36 +128,71 @@ test('the HTTP transport carries none of it either — corollary, not evidence',
 });
 
 // ---------------------------------------------------------------------------
-// 3. The refusal — a module that RETURNS
+// 3. The refusal — a module that returns anything but a string
 // ---------------------------------------------------------------------------
 
-test('a render module that returns a value is REFUSED, not silently dropped', async () => {
-  // The refusal names the SHAPE; echoing the value would be the same egress
-  // through the error channel.
+/** The fixed wording every non-string return is refused with. */
+const NO_BODY = /^the render module returned no body markup: `render` must return a string, or a promise of one$/;
+
+test('a module returning an object around its body is REFUSED, and the refusal carries none of it', async () => {
+  // The refusal names the TYPE TAG; echoing the value would be the same
+  // egress through the error channel.
   await withService('leaky', { isolates: 1 }, async (service) => {
     const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '"secret-state-3ab1"' } }),
+      service.renderToString({ protocol: 1, entry: 'app/root', state: { ':todos': '"secret-state-3ab1"' } }),
     );
     assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
-    // It emitted before it returned, so the response is torn.
-    assert.deepStrictEqual(err.detail, { entry: 'app/root', returned: '[object Object]', afterChunks: 1 });
+    assert.match(err.message, NO_BODY, 'the contract owns the wording');
+    assert.deepStrictEqual(err.detail, { entry: 'app/root', returned: '[object Object]' });
     const text = `${err.message}${JSON.stringify(err.detail)}${err.stack ?? ''}`;
     assert.ok(!text.includes(LEAKY.SECRET), 'the refusal echoed the module’s own value');
     assert.ok(!text.includes('secret-state-3ab1'), 'the refusal echoed the request state');
+    assert.ok(!text.includes('<p>leaky</p>'), 'the refusal echoed the markup it was wrapped around');
+
+    // And over the wire: a 500 whose body and headers carry none of it.
+    const http = await serve({ service, port: 0 });
+    try {
+      const res = await post(`http://127.0.0.1:${http.port}/render`, {
+        protocol: 1,
+        entry: 'app/root',
+        state: { ':todos': '"secret-state-3ab1"' },
+      });
+      assert.deepStrictEqual([res.status, res.headers.get('x-rf-ssr-refusal')], [500, CODE.RENDER_THREW]);
+      const wire = `${res.text}${JSON.stringify(Object.fromEntries(res.headers.entries()))}`;
+      for (const s of [LEAKY.SECRET, 'secret-state-3ab1', '<p>leaky</p>']) {
+        assert.ok(!wire.includes(s), `the wire carried ${s}`);
+      }
+    } finally {
+      await http.close();
+    }
   });
 });
 
-test('a module that returns null is REFUSED too — `undefined` is the whole accepted set', async () => {
-  // `return null` is the likeliest deliberate return a module has, so a door
-  // that admitted it would fail open on the most probable path.
-  await withService('null-return', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } }),
+test('every non-string return is refused alike — a string is the whole accepted set', async () => {
+  // `undefined`, `null`, a number, an object, and promises resolving to
+  // them. The string entries are the control: a door that refused
+  // everything would pass every refused row.
+  const refused = {
+    'app/undefined': '[object Undefined]',
+    'app/null': '[object Null]',
+    'app/number': '[object Number]',
+    'app/object': '[object Object]',
+    'app/promise-of-null': '[object Null]',
+    'app/promise-of-object': '[object Object]',
+  };
+  await withService('non-string-return', { isolates: 1 }, async (service) => {
+    for (const [entry, returned] of Object.entries(refused)) {
+      const err = await refusalOf(() => service.renderToString({ protocol: 1, entry }));
+      assert.strictEqual(err?.code, CODE.RENDER_THREW, entry);
+      assert.match(err.message, NO_BODY, entry);
+      assert.deepStrictEqual(err.detail, { entry, returned }, entry);
+    }
+    assert.strictEqual((await service.renderToString({ protocol: 1, entry: 'app/string' })).html, '<p>a string</p>');
+    assert.strictEqual(
+      (await service.renderToString({ protocol: 1, entry: 'app/promise-of-string' })).html,
+      '<p>a promised string</p>',
     );
-    assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL);
-    assert.deepStrictEqual(err.detail, { entry: 'app/root', returned: '[object Null]', afterChunks: 1 });
+    assert.strictEqual(service.stats().replacements, 0, 'a refused return costs no isolate');
   });
 });
 
@@ -186,18 +223,12 @@ const refusalLeaks = (err, sentinels = THROW_SENTINELS) => [
   ...sentinels.filter((s) => (err.stack ?? '').includes(s)).map((s) => ({ type: 'stack', sentinel: s, in: err.stack })),
 ];
 
-test('a THROW after emitting is still a torn response, and still carries nothing', async () => {
+test('a THROW is refused with the contract’s wording and carries nothing the module authored', async () => {
   await withService('throws-data', { isolates: 1 }, async (service) => {
-    const chunks = [];
-    const err = await refusalOf(async () => {
-      for await (const frame of service.renderFrames(throwReq('app/torn'))) {
-        if (frame.type === 'chunk') chunks.push(frame.html);
-      }
-    });
-    assert.deepStrictEqual(chunks, ['<p>first</p>'], 'the bytes really did leave');
+    const err = await refusalOf(() => service.renderToString(throwReq('app/plain')));
     assert.strictEqual(err.code, CODE.RENDER_THREW);
     assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
-    assert.deepStrictEqual(err.detail, { entry: 'app/torn', afterChunks: 1 }, 'the tear is still named');
+    assert.deepStrictEqual(err.detail, { entry: 'app/plain' });
     assert.deepStrictEqual(refusalLeaks(err), []);
   });
 });
@@ -230,30 +261,6 @@ test('and it cannot choose the HTTP status either — every throw is a 500', asy
   });
 });
 
-test('a streaming response torn by a throw is DESTROYED, not completed', async () => {
-  // Headers are already sent, so the socket is destroyed: the caller must
-  // see a broken transfer, not a shorter page it would cache and serve.
-  await withService('throws-data', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    try {
-      const res = await fetch(`http://127.0.0.1:${http.port}/render?stream=1`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(throwReq('app/torn')),
-      });
-      assert.strictEqual(res.status, 200);
-      const read = await res.text().then(
-        (text) => ({ ok: true, text }),
-        (err) => ({ ok: false, err }),
-      );
-      assert.strictEqual(read.ok, false, 'a torn stream must not read as a complete body');
-      assert.ok(!String(read.err).includes(THROW_SENTINELS[1]), 'not even the transport error may carry the module’s wording');
-    } finally {
-      await http.close();
-    }
-  });
-});
-
 // ---------------------------------------------------------------------------
 // 5. The SECOND RECEIVER — an exception that escapes the render call
 //
@@ -272,7 +279,7 @@ test('an exception that ESCAPES the render call carries nothing the module autho
   let err;
   try {
     err = await withService('throws-async', { isolates: 1 }, (service) =>
-      refusalOf(() => collect(service, asyncReq('app/uncaught'))),
+      refusalOf(() => service.renderToString(asyncReq('app/uncaught'))),
     );
   } finally {
     restore();
@@ -282,8 +289,8 @@ test('an exception that ESCAPES the render call carries nothing the module autho
   assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
   assert.deepStrictEqual(
     detailShape(err),
-    { afterChunks: 0, isolate: 'number', threadId: 'number' },
-    'the detail is service-owned: which isolate died, its thread, and the tear count',
+    { isolate: 'number', threadId: 'number' },
+    'the detail is service-owned: which isolate died, and its thread',
   );
   assert.deepStrictEqual(refusalLeaks(err, [ASYNC_SENTINEL]), [], 'the escaped exception reached the public refusal');
   // A stack would also name the deployment's filesystem.
@@ -299,11 +306,11 @@ test('an escaped NULLISH throw is refused like any other, and the sidecar surviv
   // CLJS emits `throw null` for `(throw nil)`; read unsafely in the parent's
   // `'error'` listener it would kill the whole process, not this row.
   await withService('throws-async', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, asyncReq('app/uncaught-null')));
+    const err = await refusalOf(() => service.renderToString(asyncReq('app/uncaught-null')));
     assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
     assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
 
-    const next = await refusalOf(() => collect(service, asyncReq('app/rejected')));
+    const next = await refusalOf(() => service.renderToString(asyncReq('app/rejected')));
     assert.strictEqual(next.code, CODE.RENDER_THREW, 'the next render is answered by a live replacement isolate');
   });
 });
@@ -334,10 +341,10 @@ async function replacementBootFailure() {
       'flaky-boot',
       { isolates: 1, admissionTimeoutMs: 5000, defaultTimeoutMs: 300, maxTimeoutMs: 5000 },
       async (service) => {
-        const hung = refusalOf(() => collect(service, { protocol: 1, entry: 'app/hang' }));
+        const hung = refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/hang' }));
         await tick();
         await tick();
-        const queued = refusalOf(() => collect(service, { protocol: 1, entry: 'app/root' }));
+        const queued = refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/root' }));
         await tick();
         await tick();
         const statsWhileQueued = service.stats();
@@ -415,7 +422,7 @@ test('a replacement that cannot boot is TERMINAL: a later caller is refused, /he
         const transport = await serve({ service, port: 0 });
         try {
           process.env[FAIL_FLAG] = '1';
-          const hung = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/hang' }));
+          const hung = await refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/hang' }));
           assert.strictEqual(hung.code, CODE.RENDER_TIMEOUT, 'the deadline is what kills it');
           await waitFor(
             () => captured.join('').includes('[rf.ssr-node] a replacement isolate failed to boot'),
@@ -423,7 +430,7 @@ test('a replacement that cannot boot is TERMINAL: a later caller is refused, /he
             'the replacement did not fail',
           );
 
-          const later = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/root' }));
+          const later = await refusalOf(() => service.renderToString({ protocol: 1, entry: 'app/root' }));
           assert.strictEqual(later?.code, CODE.ISOLATE_LOST, 'a later call must be refused, not served by a shrunken pool');
           assert.strictEqual(later.message, REPLACEMENT_FAILED_REFUSAL);
 
@@ -508,18 +515,17 @@ test('the CLONE gets no second say — the validator keeps what it checked', asy
   // A second read would mean the caller's own object reached `postMessage`.
   const twoFaced = twoFacedState();
   const run = await withService('reference', { isolates: 1 }, (service) =>
-    collect(service, { protocol: 1, entry: 'app/root', state: twoFaced.state }),
+    service.renderToString({ protocol: 1, entry: 'app/root', state: twoFaced.state }),
   );
   assert.strictEqual(twoFaced.reads(), 1, 'nothing may read the caller\'s value a second time');
-  assert.strictEqual(run.chunks.length, 1, 'and the request must render rather than refuse');
-  assert.strictEqual(observed(run).readRoute, '{:name :ok}', 'the module must be handed the value the validator approved');
+  assert.strictEqual(observed(run).readRoute, '{:name :ok}', 'the request must render, from the value the validator approved');
 });
 
 /** A `Service` over a stand-in pool whose one isolate rejects with a raw `error`. */
 function serviceOverRejectingIsolate(error) {
   const pool = {
     buildId: 'reference-build-1',
-    entries: { 'app/root': { stateAllowlist: [':route'], runtimeAllowlist: [] } },
+    entries: ['app/root'],
     acquire: async () => ({ render: () => Promise.reject(error) }),
     release: () => {},
   };
@@ -533,7 +539,7 @@ test('a rejection that is not a Refusal carries nothing the CALLER authored, and
     // The wording a real `DataCloneError` carries: the caller's own value.
     const service = serviceOverRejectingIsolate(new TypeError(`Symbol(${CLONE_SENTINEL}) could not be cloned.`));
     refusal = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':route': '{:name :ok}' } }),
+      service.renderToString({ protocol: 1, entry: 'app/root', state: { ':route': '{:name :ok}' } }),
     );
   } finally {
     restore();
@@ -555,33 +561,14 @@ test('a rejection that is not a Refusal carries nothing the CALLER authored, and
 
 const exitReq = (entry) => ({ protocol: 1, entry, state: { ':for-exit': 'x' } });
 
-test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread, torn or not', async () => {
-  // The count comes from `_failPendingRender`: the worker is gone and cannot report it.
+test('an isolate that EXITS mid-render names WHICH isolate and WHICH thread', async () => {
   await withService('exits', { isolates: 1 }, async (service) => {
-    const clean = await refusalOf(() => collect(service, exitReq('app/exits')));
-    assert.strictEqual(clean.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+    const err = await refusalOf(() => service.renderToString(exitReq('app/exits')));
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
     assert.deepStrictEqual(
-      detailShape(clean),
-      { afterChunks: 0, isolate: 'number', threadId: 'number' },
+      detailShape(err),
+      { isolate: 'number', threadId: 'number' },
       'the exit arm must identify the isolate the way its sibling arm does',
-    );
-
-    // The next render runs on the replacement isolate.
-    const chunks = [];
-    let complete = null;
-    const torn = await refusalOf(async () => {
-      for await (const frame of service.renderFrames(exitReq('app/exits-torn'))) {
-        if (frame.type === 'chunk') chunks.push(frame.html);
-        else complete = frame;
-      }
-    });
-    assert.strictEqual(chunks.length, 1, 'the chunk really did reach the caller');
-    assert.strictEqual(complete, null, 'no success completion follows the failure');
-    assert.strictEqual(torn.code, CODE.ISOLATE_LOST, 'the distinction is kept');
-    assert.deepStrictEqual(
-      detailShape(torn),
-      { afterChunks: 1, isolate: 'number', threadId: 'number' },
-      'the tear is named, with its exact count, beside the identifying fields',
     );
   });
 });

@@ -21,12 +21,8 @@
 // itself — takes this path, and it is the quietest of the three: the
 // thread is simply gone, with nothing written anywhere.
 //
-// TWO ENTRIES, the pair every terminal path here is measured on:
-//
-//   `app/exits`      — the thread goes before anything is emitted, so the
-//                      response is clean and `afterChunks` is 0.
-//   `app/exits-torn` — a chunk has already reached the caller, so the
-//                      response is TORN and the count says so.
+// `app/exits` is the render that never finishes: the only thing that can
+// settle it is the thread going out from under it.
 //
 // AND AN EXIT BEFORE READINESS, which reaches the same `'exit'`
 // event in the one phase where no render is pending to be refused. It is
@@ -47,23 +43,16 @@ const { threadId } = require('node:worker_threads');
 const EXIT_AT_FLAG = 'RF2_SSR_NODE_EXIT_AT';
 const exitAt = process.env[EXIT_AT_FLAG];
 
-const ENTRY = { stateAllowlist: [':for-exit'], runtimeAllowlist: [] };
-
 module.exports = {
   protocol: 1,
   buildId: 'exits-build-1',
-  entries: {
-    'app/exits': ENTRY,
-    'app/exits-torn': ENTRY,
-  },
+  entries: ['app/exits'],
 
   boot() {
     if (exitAt === 'boot-even-thread' && threadId % 2 === 0) process.exit(0);
   },
 
-  render({ entry }, emit) {
-    if (entry === 'app/exits-torn') emit('<p>first</p>');
-
+  render() {
     // On a later tick, so the render has genuinely handed its promise back
     // and the service is waiting on a thread that then disappears.
     setImmediate(() => process.exit(0));

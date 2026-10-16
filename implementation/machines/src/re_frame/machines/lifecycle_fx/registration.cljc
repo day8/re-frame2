@@ -89,10 +89,11 @@
   and `:before`/`:after`/`:snapshot` by `project-machine-tags`, but the
   `:exception-data` slot below carries the thrown action's `ex-data` — the
   developer's arbitrary exception payload, which could embed the same app
-  secrets the machine's `:data` marks gate. That slot is path-elided at the
-  trace egress chokepoint by `re-frame.classification/project-machine-error-tags`:
-  when the machine declares ANY `:sensitive`
-  mark the whole `:exception-data` slot scrubs to `:rf/redacted` before the
+  secrets the machine's `:data` marks gate — and `:exception-message`,
+  `:reason` and the raw `:exception` carry text that can quote them. Those
+  slots are elided at the trace egress chokepoint by
+  `re-frame.classification/project-machine-error-tags`: when the machine
+  declares ANY `:sensitive` mark each scrubs WHOLE to `:rf/redacted` before the
   trace crosses the bus / epoch-capture / AI-MCP boundary or a log sink —
   the same egress seam (the marks projection) the core validation-failure
   class routes through. The redaction lives at

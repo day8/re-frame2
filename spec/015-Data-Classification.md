@@ -181,7 +181,7 @@ Each subsystem **owns the arrangement that fits it** — the projection root and
 | Subsystem | Projection root | Lowered at | Dropped at | Generated key |
 |---|---|---|---|---|
 | `reg-machine` | one actor snapshot's `:data` | actor spawn / first-boot, and each installed actor when `:rf/install-frame-state` or `:rf/hydrate` brings its snapshot back | actor destroy (any cause) | per spawned actor id |
-| `reg-resource` | entry's `:params` / `:data` | params/scope at scoped-key mint; data when fetch lands | entry eviction | opaque cache key |
+| `reg-resource` | entry's `:data` — its params and scope are identity, covered by the standing scope rule and the coarse claim ([016 §Xray and AI tooling](016-Resources.md#xray-and-ai-tooling)) | data when fetch lands | entry eviction | opaque cache key |
 | `reg-mutation` | one work row's `:params` | work creation | work completion | per work id |
 | `reg-route` | the current route's `:query` / `:params` | route activation | route change / deactivation | current route (effectively singleton) |
 
@@ -242,7 +242,7 @@ Real egress surfaces emit **records**, not bare values: handled-event records, e
   {:kind   :rf.observe/handled-event
    :frame  :app/main
    :event  [:auth/login {:password "secret"}]
-   :status :ok
+   :outcome :ok
    :effects [:db :rf.http/managed]}
   {:rf.egress/profile :rf.egress/off-box-observability})
 ```
@@ -289,7 +289,7 @@ Production observability sink policy belongs on the frame, under the `:observabi
 
 A sink entry is a **closed map**: `:sink`, plus the optional `:rf.egress/profile`, and nothing else. Vendor configuration (`{:service "checkout-spa" :env "prod"}`) is the registered sink fn's own — it closes over it — and per-frame branching reads the projected record's `:frame` slot, which every record carries.
 
-Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, status, elapsed, effect keys, work / correlation ids).
+Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, time, outcome, elapsed, effect keys, work / correlation ids).
 
 ### The `:rf.observe/error` record carries the producer's component attribution
 
@@ -363,7 +363,7 @@ The HTTP **carrier** capability (redacting secret-bearing header / query-param n
 
 **Response bodies** are registration-owned transient payloads classified per-slot via `:sensitive?` / `:large?` props on the request's `:decode` schema (the schema is the owner's natural declaration surface for the *transient* reply shape; an unschematized body is whole-sensitive, fail-closed; off-box traces omit response bodies entirely unless a classified projection is explicitly requested). See [014-HTTPRequests §Response-body classification](014-HTTPRequests.md#response-body-classification-ep-0015-5).
 
-**Schemas describe shape, not durable app-db egress policy.** A `reg-app-schema` (and a machine `[:schemas :data]`) slot's `:sensitive?` / `:large?` props are **not** a route into the durable app-db / runtime-db egress registry — durable state is classified by the four commit-plane effects (app-db) and subsystem projection-relative declarations (runtime), so the framework never teaches two equivalent ways to classify the same durable path. Per-slot schema props are the *one and only* route where a schema **is** the owner's natural declaration surface for a *transient, non-frame-state* product — an HTTP `:decode` schema, whose props classify the decoded response body — and for a slot's own **validation-failure-trace** redaction (the schema produces that record, so it owns its egress shape). Resource and mutation state takes a third route, never a schema: its params and data are durable runtime state, classified by the spec's own projection-relative declarations (`:sensitive [[:data :ssn] [:params :account-id]]`) and lowered per instance, per [§Subsystem projection-relative classification](#subsystem-projection-relative-classification). So a resource or mutation `:params-schema`'s props redact only its own validation failures, and a resource `:data-schema`, which has no runtime validator, drives neither. One owner, one route.
+**Schemas describe shape, not durable app-db egress policy.** A `reg-app-schema` (and a machine `[:schemas :data]`) slot's `:sensitive?` / `:large?` props are **not** a route into the durable app-db / runtime-db egress registry — durable state is classified by the four commit-plane effects (app-db) and subsystem projection-relative declarations (runtime), so the framework never teaches two equivalent ways to classify the same durable path. Per-slot schema props are the *one and only* route where a schema **is** the owner's natural declaration surface for a *transient, non-frame-state* product — an HTTP `:decode` schema, whose props classify the decoded response body — and for a slot's own **validation-failure-trace** redaction (the schema produces that record, so it owns its egress shape). Resource and mutation state takes a third route, never a schema: its data (and a mutation's params) are durable runtime state, classified by the spec's own projection-relative declarations (`:sensitive [[:data :ssn]]`) and lowered per instance, per [§Subsystem projection-relative classification](#subsystem-projection-relative-classification). So a resource or mutation `:params-schema`'s props redact only its own validation failures, and a resource `:data-schema`, which has no runtime validator, drives neither. One owner, one route.
 
 ## Direct reads and fail-closed frame resolution
 

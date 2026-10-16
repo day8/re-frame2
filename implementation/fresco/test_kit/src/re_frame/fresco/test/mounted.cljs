@@ -204,8 +204,8 @@
   [[bodies-run]] read runtime tables — but a reading is only worth what
   built the page it describes, so both belong beside a mount all the same.
   Like `re-frame.fresco.test` it lives in the kit's own source root
-  (`fresco/test_kit/src`), outside the artefact's `:paths`, so
-  nothing in a production bundle can reach it."
+  (`fresco/test_kit/src`), and no shipping namespace requires it, so
+  nothing in a production bundle reaches it."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [cljs.test :as t]
@@ -582,9 +582,8 @@
   but dead code. Every consumer of it is a test, so the door belongs at
   the tier its consumers run on rather than on the public door, and this
   namespace is where the thing being measured was mounted. It costs a
-  production bundle nothing: the kit sits in `fresco/test_kit/src`,
-  outside the artefact's `:paths`, so a consumer that never
-  writes a test never carries it.
+  production bundle nothing: no shipping namespace requires the kit, so
+  a consumer that never writes a test never carries it.
 
   Spec 009's `rf:render:<view-name>` measures are a different instrument
   and not a substitute. They are compiled out unless

@@ -433,10 +433,10 @@ A path counts as sensitive when the handler that writes it says so, with a
 [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers marking
 data in full.
 
-Each `:handled-events` record's `:status` says how the dispatch ended (`:ok`,
+Each `:handled-events` record's `:outcome` says how the dispatch ended (`:ok`,
 `:error`, `:rejected`, `:rolled-back`, `:flow-error`);
 [Report errors in production](how-to/report-errors-in-production.md) shows the records
-your sinks receive and which statuses a release build can produce.
+your sinks receive and which outcomes a release build can produce.
 
 ??? info "Coming from the Sentry / Datadog SDKs?"
 

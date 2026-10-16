@@ -13,9 +13,8 @@
 
     1. Core's runner doesn't implement the SSR-specific assertion
        channels — `:ssr/active-head`, `:ssr/request-result`,
-       `:ssr/rendered-head-contains`, `:ssr/html-attr-present`,
-       `:trace-not-emitted`. Fixtures that assert ONLY through those
-       channels would pass silently because the matcher is absent.
+       `:ssr/rendered-head-contains`. Fixtures that assert ONLY through
+       those channels would pass silently because the matcher is absent.
     2. The gate would run at the wrong artefact. An ssr-touching PR could
        break a fixture and only surface at core's gate — at which
        point the failure has to be triaged across two artefacts.
@@ -64,17 +63,15 @@
        - `:ssr/active-head` (the head model produced by the active
          route's head fn),
        - `:ssr/request-result` (the resolved per-request response
-         accumulator via `get-response`),
+         accumulator via `get-response`, under `:response`),
        - `:ssr/rendered-head-contains` (substring assertions on
-         `head-model->html`),
-       - `:ssr/html-attr-present` (the rendered root element carries
-         the named data-attribute).
+         `head-model->html`).
 
   ## Posture split
 
   This runner executes under BOTH `clojure -M:test` and the REAL
   production gate `-Dre-frame.debug=false`
-  (`scripts/test-ssr-prod-gate.sh`), and the two postures do not observe
+  (`clojure -M:test:prod-gate`), and the two postures do not observe
   the same channels.
 
     - `:trace-emissions` / `:trace-not-emitted` read `@traces`, the DEV
@@ -106,7 +103,7 @@
 
     - Every other channel — `:final-app-db`, `:sub-values`,
       `:ssr/active-head`, `:ssr/request-result`,
-      `:ssr/rendered-head-contains`, `:ssr/html-attr-present`,
+      `:ssr/rendered-head-contains`,
       `:fixture/calls`, `:expect-error` — is posture-independent and runs
       under the gate exactly as in dev.
 
@@ -865,20 +862,17 @@
                  :actual   actual
                  :passed?  (= expected-head actual)}))
             ;; ---- :ssr/request-result ---------------------------------
-            ;; Submap match against the resolved response accumulator.
-            ;; `:html` / `:payload` slots aren't computed here (the
-            ;; runner doesn't render the HTML envelope — that's the
-            ;; host adapter's job, exercised by `ssr-end-to-end-test`
-            ;; and `ssr-ring/ring_test`). When the fixture asserts
-            ;; `:html :absent` (redirect short-circuit), we honour it
-            ;; by treating the absent slot as `:absent`.
+            ;; Submap match against the resolved response accumulator,
+            ;; the one slot of the request result this runner observes.
+            ;; The host adapter builds `:html` and `:payload` from it
+            ;; (Spec 011 §Request-handler return shape), and its own tests
+            ;; grade them, so a fixture expecting either slot fails here
+            ;; rather than matching a value the runner made up.
             expected-rr   (:ssr/request-result expect)
             req-check
             (when expected-rr
               (let [response (rf.ssr/get-response :rf/default)
-                    rr       {:response response
-                              :html     :absent
-                              :payload  :absent}]
+                    rr       {:response response}]
                 {:expected expected-rr
                  :actual   rr
                  :passed?  (rf.conformance/submap? expected-rr rr)}))

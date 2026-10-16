@@ -51,18 +51,21 @@
 
 (defn- register-app!
   "Four `:int` paths over an empty app-db; :xpd8/seed writes one conforming
-  slot and one violating one, so three of the four fail."
+  slot, two explicit `nil`s and one violating string, so three of the four
+  fail. The `nil`s are written because a path the candidate lacks is not
+  checked."
   []
   (reset! fx-ran 0)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
-    (doseq [p [[:conforms] [:absent-a] [:absent-b] [:leaks]]]
+    (doseq [p [[:conforms] [:nil-a] [:nil-b] [:leaks]]]
       (rf/reg-app-schema p :int)))
   (rf/reg-fx :xpd8/must-not-run (fn [_ctx _args] (swap! fx-ran inc) nil))
   (rf/reg-event :xpd8/seed
-    (fn [_ _] {:db {:conforms 1 :leaks planted-value} :fx [[:xpd8/must-not-run {}]]}))
+    (fn [_ _] {:db {:conforms 1 :nil-a nil :nil-b nil :leaks planted-value}
+               :fx [[:xpd8/must-not-run {}]]}))
   (rf/reg-event :xpd8/all-good
-    (fn [_ _] {:db {:conforms 1 :absent-a 2 :absent-b 3 :leaks 4}}))
+    (fn [_ _] {:db {:conforms 1 :nil-a 2 :nil-b 3 :leaks 4}}))
   nil)
 
 (defn- first-index [pred coll]
@@ -284,7 +287,7 @@
           captured (capture #(rf/dispatch-sync [:xpd8/seed] {:frame frame-id}))
           records  (errors-where captured :rf.error/schema-validation-failure :app-db)]
       (testing "one record per FAILING registered entry, each naming its registration"
-        (is (= #{[:absent-a] [:absent-b] [:leaks]} (set (map :registered-path records))))
+        (is (= #{[:nil-a] [:nil-b] [:leaks]} (set (map :registered-path records))))
         (is (= #{{:where :app-db :rollback? true :recovery :no-recovery :frame frame-id
                   :event-id :xpd8/seed :failing-id :xpd8/seed :keys rejection-record-keys}}
                (set (map #(assoc (select-keys % [:where :rollback? :recovery :frame :event-id :failing-id])
@@ -297,7 +300,7 @@
       (testing "the :reason names the path and the TYPE of the failing leaf, never the leaf"
         (let [by-path (into {} (map (juxt :registered-path :reason)) records)]
           (is (= [true true] [(str/includes? (get by-path [:leaks] "") "got string")
-                              (str/includes? (get by-path [:absent-a] "") "got nil")]))
+                              (str/includes? (get by-path [:nil-a] "") "got nil")]))
           (is (every? (fn [[path reason]]
                         (and (str/includes? reason "the candidate transition was rejected")
                              (str/includes? reason (pr-str path))))

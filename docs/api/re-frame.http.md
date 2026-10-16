@@ -525,7 +525,7 @@ Not for application code. The framework's own tests reach these across a namespa
 - `re-frame.http.managed/clear-all-in-flight!` — aborts every in-flight request, then empties the registry.
 - `re-frame.http.managed/in-flight-snapshot` — the in-flight requests keyed by request id, for every frame or for one frame.
 - `re-frame.http.managed/actor-in-flight-snapshot` — the in-flight requests an actor issued, keyed by actor id.
-- `re-frame.http.managed/seed-in-flight-for-test!` — records a fabricated in-flight request through the same path a real one takes, so both indexes stay consistent.
+- `re-frame.http.managed/seed-in-flight-for-test!` — records a fabricated in-flight request in the one registry real requests are filed in, so every snapshot and abort path sees it.
 - `re-frame.http.managed/abort-on-actor-destroy` — aborts the requests an actor issued; the actor-destroy cascade calls it.
 - `re-frame.http.managed/clear-all-http-interceptors!` — empties every frame's interceptor chain.
 - `re-frame.http.managed/interceptors-snapshot` — a frame's interceptor chain, in order.

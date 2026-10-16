@@ -5,7 +5,7 @@
 
   Every assertion here is posture-independent — it must hold in the ordinary
   `clojure -M:test` suite AND under the real production gate
-  (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
+  (`clojure -M:test:prod-gate`, `-Dre-frame.debug=false`) — UNLESS it sits
   inside a `(when rf.interop/debug-enabled? …)` arm. Those arms observe the DEV
   `:trace` stream, whose emit sites the production gate removes by design."
   (:require [clojure.set :as set]

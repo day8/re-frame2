@@ -715,7 +715,8 @@ Candidate record shape:
  :frame      :app/main
  :event-id   :checkout/submit
  :event      [:checkout/submit {:cart-id "c-123"}]
- :status     :ok
+ :time       1760000000000
+ :outcome    :ok
  :elapsed-ms 12
  :effects    [:db :rf.http/managed]}
 ```

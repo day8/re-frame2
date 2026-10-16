@@ -138,7 +138,7 @@ The frame created with `:url-bound? true` owns the browser's address bar. Its na
 
 ### Not-found route
 
-Register a route under the reserved id `:rf.route/not-found` to render a page for URLs that do not resolve. Its path is only a placeholder. A link click, Back or Forward, the initial load or SSR commits it for any URL that does not resolve to a route, and so does `[:rf.route/navigate {:url …}]` for a URL no route matches. See [Routing → Not found is a route you register](../routing/concepts.md#not-found-is-a-route-you-register). The requested URL is in `:params`:
+Register a route under the reserved id `:rf.route/not-found` to render a page for URLs that do not resolve. Its path is only a placeholder. A link click, Back or Forward, the initial load or SSR commits it for any URL that does not resolve to a route, and so does `[:rf.route/navigate {:url …}]` for a URL that does not resolve. See [Routing → Not found is a route you register](../routing/concepts.md#not-found-is-a-route-you-register). The requested URL is in `:params`:
 
 | `:params` | Cause |
 |---|---|
@@ -155,7 +155,7 @@ Register a route under the reserved id `:rf.route/not-found` to render a page fo
   [:h1 "No page at " (:url @(subscribe [:rf.route/params]))])
 ```
 
-- A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404.
+- Every URL that lands here, a `{:url …}` navigate's included, also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404.
 - A malformed URL, or one whose matching threw, also emits `:rf.warning/malformed-url` on the development trace stream, from a URL-driven change and from `[:rf.route/navigate {:url …}]` alike. Its tags carry the URL under `:url`, with query and fragment values redacted, and `:reason :match-error` when matching threw.
 - When no `:rf.route/not-found` route is registered, the slice still takes that id and the runtime emits `:rf.warning/no-not-found-route`.
 - A `{:to …}` navigation never lands here: an unregistered route or a failing param rejects it instead (see [`:rf.route/navigate`](#rfroutenavigate-request)).

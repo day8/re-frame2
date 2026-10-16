@@ -12,7 +12,7 @@
   `interop/debug-enabled?`, read once at namespace load, so under
   `-Dre-frame.debug=false` no view is wrapped. Each render below is pinned to
   its exact bytes in BOTH postures — annotated in dev, bare under the gate —
-  so this namespace also runs in `scripts/test-ssr-prod-gate.sh`."
+  so this namespace also runs in `clojure -M:test:prod-gate`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]

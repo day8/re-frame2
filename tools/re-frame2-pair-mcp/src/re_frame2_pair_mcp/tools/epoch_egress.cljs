@@ -394,16 +394,35 @@
   `:other` and `:parent-dispatch-id` are views of the projected
   `:trace-events` and cannot carry a byte the projection removed.
 
+  The projector may answer the WHOLE `:trace-events` slot with a sentinel
+  rather than a sequence — `:rf/redacted` when the frame classifies its
+  app-db root sensitive (`{:sensitive [[]]}`). The fold runs only over a
+  sequential projection; any other answer ships as the bundle's
+  `:trace-events` beside the template's empty domino slots, because
+  rebuilding those from the original events is exactly what the
+  projection forbids.
+
+  The projector is late-bound into core by the optional Epoch artefact,
+  and the door throws `:rf.error/epoch-artefact-missing` for a stamped
+  record when it is absent. A core-only app still has a trace ring, so the
+  emitted source asks `re-frame.core/features` whether Epoch is loaded
+  before it calls the door, and without it every bundle's `:trace-events`
+  ships as `:rf/redacted`. Only the trace payload fails closed; the
+  bundle's `:dispatch-id` and `:frame` still ship, and every other
+  snapshot slice is unaffected.
+
   `incl?` is threaded exactly as `project-page-src` threads it: the
   `:include-sensitive` opt-in lifts the app-db sensitive axis inside the
   projection and never bypasses it."
   [bundles-sym incl?]
   (let [b        (name bundles-sym)
         opts-edn (egress-opts-edn incl?)]
-    (str "(mapv (fn [b#]"
-         " (let [pe# (:trace-events (re-frame.core/project-egress"
-         " {:kind :rf/epoch-record :frame (:frame b#) :trace-events (:trace-events b#)} " opts-edn "))]"
-         " (reduce re-frame.trace.projection/absorb"
-         " (assoc re-frame.trace.projection/empty-event-bundle"
-         " :dispatch-id (:dispatch-id b#) :frame (:frame b#) :trace-events pe#)"
-         " pe#))) " b ")")))
+    (str "(let [epoch# (get-in (re-frame.core/features) [:epoch :loaded?])]"
+         " (mapv (fn [b#]"
+         " (let [pe# (if epoch#"
+         " (:trace-events (re-frame.core/project-egress"
+         " {:kind :rf/epoch-record :frame (:frame b#) :trace-events (:trace-events b#)} " opts-edn "))"
+         " :rf/redacted)"
+         " acc# (assoc re-frame.trace.projection/empty-event-bundle"
+         " :dispatch-id (:dispatch-id b#) :frame (:frame b#) :trace-events pe#)]"
+         " (if (sequential? pe#) (reduce re-frame.trace.projection/absorb acc# pe#) acc#))) " b "))")))

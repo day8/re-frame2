@@ -15,8 +15,8 @@
 ;;      per-path epoch — the parent's :after is still live at its original
 ;;      epoch.
 ;;   3. Exiting the parent bumps the parent's per-path epoch and the
-;;      parent-level timer's eventual firing is stale
-;;      (:rf.machine.timer/stale-after).
+;;      parent-level timer's eventual firing is stale: its elapsed event
+;;      changes nothing.
 ;;
 ;; Per [005 §Delayed :after transitions §Hierarchy interaction]
 ;; (../../005-StateMachines.md#hierarchy-interaction).
@@ -58,12 +58,7 @@
                       :state        :authenticated
                       :delay-key    30000
                       :epoch        1
-                      :server?      false}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :authenticated :delay 30000 :epoch 1 :delay-source :literal}}
-    {:operation :rf.machine/transition
-     :tags      {:from [:idle] :to [:authenticated :dashboard]}}]}
+                      :server?      false}]]}
 
   ;; Step 2: Sibling-leaf transition :dashboard → :settings inside the parent.
   ;; The LCA is :authenticated; the parent is NOT exited. The parent's :after
@@ -73,8 +68,8 @@
   ;; Note: the epoch-counter advance on this leaf transition is a per-machine
   ;; advance (per [005 §Hierarchy interaction]). The contract this fixture
   ;; verifies is that the *parent's* timer-handle (its in-flight firing) is
-  ;; not re-scheduled — equivalently, the harness sees no second
-  ;; :rf.machine.timer/scheduled trace for the parent.
+  ;; not re-scheduled — equivalently, the step emits no second
+  ;; :rf.machine/after-schedule effect for the parent.
   {:call         :machine-transition
    :definition   {:initial :idle
                   :data    {:rf/after-epoch {[:authenticated] 1}}
@@ -93,13 +88,7 @@
    :expect-next-snapshot {:state [:authenticated :settings]
                           ;; parent's per-path epoch unchanged — parent stays entered
                           :data  {:rf/after-epoch {[:authenticated] 1}}}
-   :expect-effects       []
-   :expect-trace
-   ;; Critically: NO :rf.machine.timer/scheduled trace re-emits for the parent.
-   ;; Only the leaf-level transition trace surfaces.
-   [{:operation :rf.machine/transition
-     :tags      {:from [:authenticated :dashboard]
-                 :to   [:authenticated :settings]}}]}
+   :expect-effects       []}
 
   ;; Step 3: Exit the parent compound via :logout. Snapshot lands at [:idle];
   ;; epoch advances to 2; the parent's in-flight timer (epoch 1) is now stale.
@@ -121,10 +110,7 @@
    :expect-next-snapshot {:state [:idle] :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:authenticated]}]]
-   :expect-trace
-   [{:operation :rf.machine/transition
-     :tags      {:from [:authenticated :settings] :to [:idle]}}]}
+                      :rf/invoke-id [:authenticated]}]]}
 
   ;; Step 4: The parent-level :after timer (still in flight from step 1) fires
   ;; with its captured epoch (1). The current epoch is 2; the handler ignores
@@ -147,8 +133,4 @@
    ;; the parent-level timer scheduled at epoch 1 for [:authenticated].
    :event        [:rf.machine.timer/after-elapsed 30000 1 [:authenticated]]
    :expect-next-snapshot {:state [:idle] :data {:rf/after-epoch {[:authenticated] 2}}}
-   :expect-effects       []
-   :expect-trace
-   [{:operation :rf.machine.timer/stale-after
-     :tags      {:state :authenticated :delay 30000
-                 :scheduled-epoch 1 :current-epoch 2}}]}]}
+   :expect-effects       []}]}

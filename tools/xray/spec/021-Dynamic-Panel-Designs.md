@@ -3287,11 +3287,13 @@ The substrate still emits the same two trace ops:
   validation failure (app-db commit / cofx / sub-return / fx-args /
   event payload). Tags: `:where`, `:path`, `:value`, `:failing-id`,
   `:rollback?`, `:explain`, `:sensitive?`.
-- `:rf.schema/violation` — hot-reload drift: a re-registration
-  changed the schema at `(frame-id, path)` and the live app-db
-  value fails the new schema. Tags: `:path`, `:frame`,
-  `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`,
-  `:recovery`, `:sensitive?`.
+- `:rf.schema/violation` — registration-time drift: a first
+  registration of `(frame-id, path)` over a present live app-db
+  value, or a re-registration that changed the schema, and that
+  value fails the schema; an absent value is never checked. Tags:
+  `:path`, `:frame`, `:pre-reload-schema` (re-registration only),
+  `:post-reload-schema`, `:mismatching-value`, `:recovery`,
+  `:sensitive?`.
 
 Both ops project into the same row schema (`schema-violation-row` —
 unchanged); only the aggregation moved.

@@ -16,11 +16,11 @@ const BODY =
 module.exports = {
   protocol: 1,
   buildId: 'bytes-build-1',
-  entries: { 'app/root': { stateAllowlist: [], runtimeAllowlist: [] } },
+  entries: ['app/root'],
   // Exported so the witness compares against the module's own bytes
   // rather than against a second copy of the same literal.
   BODY,
-  render(_call, emit) {
-    emit(BODY);
+  render() {
+    return BODY;
   },
 };

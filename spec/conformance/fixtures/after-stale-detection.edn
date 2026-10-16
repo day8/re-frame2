@@ -15,7 +15,7 @@
 {:fixture/id           :machine/after-stale-detection
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/delayed-after}
- :fixture/doc          "An :after timer is in flight when a real event transitions the machine out of the state. The epoch advances. When the now-stale timer fires, the handler ignores it and emits :rf.machine.timer/stale-after. The snapshot stays at the target of the real event — the timer's transition does NOT fire."
+ :fixture/doc          "An :after timer is in flight when a real event transitions the machine out of the state. The epoch advances. When the now-stale timer fires, the handler ignores it. The snapshot stays at the target of the real event — the timer's transition does NOT fire."
 
  :fixture/registry
  {}
@@ -43,10 +43,7 @@
                       :state        :loading
                       :delay-key    5000
                       :epoch        1
-                      :server?      false}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :loading :delay 5000 :epoch 1 :delay-source :literal}}]}
+                      :server?      false}]]}
 
   ;; Step 2: A real :loaded event arrives BEFORE the 5000ms timer would fire.
   ;; Transition runs; snapshot lands at :ready; epoch advances to 2. The
@@ -65,10 +62,7 @@
    :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]}]]
-   :expect-trace
-   [{:operation :rf.machine/transition
-     :tags      {:from :loading :to :ready}}]}
+                      :rf/invoke-id [:loading]}]]}
 
   ;; Step 3: The timer eventually fires with its captured epoch (1). The
   ;; handler compares against the current epoch (2); mismatch; ignored.
@@ -85,7 +79,4 @@
    :snapshot     {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
    :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
    :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
-   :expect-effects       []
-   :expect-trace
-   [{:operation :rf.machine.timer/stale-after
-     :tags      {:delay 5000 :scheduled-epoch 1 :current-epoch 2}}]}]}
+   :expect-effects       []}]}

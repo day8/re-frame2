@@ -29,12 +29,13 @@
   family-private resource elider. The fine-grained per-slot declarations
   are LOWERED per instance into the per-frame elision registry
   (`reconcile-registry`), and the egress boundaries READ THAT REGISTRY: the
-  SSR projector walks the entry's `:data` and BOTH classification-bearing
-  components of its scoped key through `project-egress` SEEDED AT THE ABSOLUTE
-  OFFSET where the lowered decls live (`project-entry-data`,
-  `project-entry-scope` at `:resource/key` index 0, `project-entry-params` at
-  index 2), so a declared slot
-  redacts / elides with no second derivation from the spec. This is the
+  SSR projector walks the entry's `:data` through `project-egress` SEEDED AT
+  THE ABSOLUTE OFFSET where the lowered decls live (`project-entry-data`), so
+  a declared slot redacts / elides with no second derivation from the spec.
+  A resource's params and scope are its IDENTITY, not a classified slot: off
+  box the scope always tokenises by the framework's standing scope rule
+  (`re-frame.resources.trace-egress/project-scope`), and params ride unless
+  the owner makes the coarse whole-entry claim. This is the
   resources peer of routing's `project-routing-egress` (the
   `[:rf.runtime/routing]`-offset slice walk) and machines'
   `project-snapshot-data` (the `frame-snapshot-classification` registry
@@ -105,15 +106,15 @@
 ;;
 ;; Classification does not flow from a scope resolver's inputs to its output
 ;; (Spec 015 §No propagation, no taint). A resource's whole-entry disposition
-;; comes only from its owner declaration. A sensitive derived scope must be
-;; declared directly with a projection-relative `[:scope ...]` or
-;; `[:params ...]` path.
+;; comes only from its owner declaration. A derived scope needs no declaration:
+;; every non-global scope tokenises off-box by the standing scope rule, and a
+;; resource whose params are sensitive claims the whole resource `:sensitive?`.
 
 ;; ---------------------------------------------------------------------------
 ;; A resource / mutation DEFINITION declares its sensitive / large slots
-;; PROJECTION-RELATIVE to the instance projection (the matrix root: entry's
-;; `:params` / `:data`), via top-level `:sensitive` / `:large` vectors on the
-;; `reg-resource` / `reg-mutation` spec:
+;; PROJECTION-RELATIVE to the instance projection (a resource entry's `:data`;
+;; a mutation instance's `:params` / `:scope` / result), via top-level
+;; `:sensitive` / `:large` vectors on the `reg-resource` / `reg-mutation` spec:
 ;;
 ;;   (rf/reg-resource :user-profile
 ;;     {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
@@ -127,17 +128,18 @@
 ;; runtime storage paths in app code.
 ;;
 ;; Lowering = re-rooting + axis-split. The declaration paths are rooted at the
-;; instance projection (`[:data …]` → the data value; `[:params …]` → the
-;; scoped-key params; `[:scope …]` / a `[:scope]`-rooted path → the scope
-;; component). `instance-declaration-paths` re-roots the `:data`-rooted paths
-;; under the entry's absolute `:data` path and the `:params` / `:scope`-rooted
-;; paths under the scoped-key carrier, writing them into the per-frame elision
-;; registry (`reconcile-registry`) — the egress boundaries read them back from
-;; there (`project-entry-data` for `:data`; `project-entry-scope` /
-;; `project-entry-params` for the key's index-0 / index-2 components). A
-;; bare-rooted path (no
-;; `:data` / `:params` head) defaults to the DATA projection — the common
-;; `{:sensitive [[:ssn]]}` shorthand for a data field.
+;; instance projection (`[:data …]` → the data value; on a mutation,
+;; `[:params …]` → its params and `[:scope …]` → its scope).
+;; `instance-declaration-paths` re-roots a resource's paths under the entry's
+;; absolute `:data` path, writing them into the per-frame elision registry
+;; (`reconcile-registry`) — the egress boundaries read them back from there
+;; (`project-entry-data`). A bare-rooted path (no `:data` / `:params` head)
+;; defaults to the DATA projection — the common `{:sensitive [[:ssn]]}`
+;; shorthand for a data field.
+;;
+;; A RESOURCE declares no `[:params …]` / `[:scope …]` path: its params and
+;; scope are its identity, so `reg-resource` rejects one
+;; (`identity-rooted-declaration`) and points at the coarse `:sensitive?` claim.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private declaration-axis-keys
@@ -186,14 +188,29 @@
               {:axis k :reason reason})))
         declaration-axis-keys))
 
+(defn identity-rooted-declaration
+  "The first `[axis path]` among a RESOURCE `spec`'s `:sensitive` / `:large`
+  declarations whose path is rooted at `:params` or `:scope`, or nil. A
+  resource's params and scope are its identity rather than a classified slot,
+  so `reg-resource` refuses such a path: the scope always tokenises off-box,
+  and a resource whose params are sensitive claims the whole resource
+  `:sensitive?`. A mutation's params are an event payload, so `reg-mutation`
+  keeps these paths. Assumes the spec passed
+  `classification-declaration-defect`. Pure."
+  [spec]
+  (first (for [axis  [:sensitive :large]
+               path  (get spec axis)
+               :when (#{:params :scope} (first (rf.path/normalize-concrete path)))]
+           [axis path])))
+
 (defn- split-projection-paths
   "Split a `spec`'s projection-relative declarations for one axis (`k`) into
   `{:data [paths] :params [paths]}`, each path re-rooted under its projection
   (the `:data` / `:params` head stripped). A bare-rooted path (no recognised
   head) defaults to the DATA projection (the `[[:ssn]]` shorthand). A
-  `:scope`-rooted path rides the PARAMS projection (the scoped key carries
-  scope + params together — Spec 016 clause 4: \"params, scopes, and data carry
-  the same classification\"). Pure."
+  `:scope`-rooted path joins the `:params` bucket WITH its `[:scope …]` head,
+  because the mutation carriers that read the bucket hold params and scope as
+  siblings. Pure."
   [spec k]
   (reduce
     (fn [acc p]
@@ -211,8 +228,8 @@
   "The projection-relative `:sensitive` / `:large` declarations a
   resource / mutation `spec` carries, lowered + axis-split into the SAME
   `{:sensitive {path decl} :large {path decl}}` shape the schema-prop marks
-  use — keyed `:data` (the data projection) and `:params` (the scoped-key
-  params projection). Returns `{:data {…} :params {…}}` (a `:sensitive` /
+  use — keyed `:data` (the data projection) and `:params` (a mutation's
+  params and scope). Returns `{:data {…} :params {…}}` (a `:sensitive` /
   `:large` map under each). The axis-split shape `instance-declaration-paths`
   re-roots when LOWERING the declarations into the per-frame elision registry
   (`reconcile-registry`). Empty when the spec declares neither axis. Pure /
@@ -376,8 +393,7 @@
 ;; A resource's projection-relative `:sensitive` / `:large` declarations are the
 ;; SINGLE source of truth, and `reconcile-registry` (below) LOWERS them per
 ;; instance into the per-frame elision registry at the entry's ABSOLUTE
-;; runtime-db path (`[:rf.runtime/resources :entries <key-id> :data …]` for data,
-;; the scoped-key `:resource/key` carrier for params/scope) under
+;; runtime-db path (`[:rf.runtime/resources :entries <key-id> :data …]`) under
 ;; `:source :resource`. The egress boundaries READ THAT REGISTRY — they do NOT
 ;; re-derive the declaration from the spec a second time at projection.
 ;;
@@ -396,14 +412,14 @@
 ;; (`project-snapshot-data` nil-frame ride) and routing (`project-routing-egress`
 ;; no-live-frame ride) both take. The COARSE whole-entry `:redact` / `:omit`
 ;; dispositions (`whole-entry-disposition`) are the separate authority that
-;; replaces the WHOLE data / key irrespective of frame — they are NOT a
+;; replaces the WHOLE data / params irrespective of frame — they are NOT a
 ;; per-slot path concern and do not flow through this registry walk.
 ;; ---------------------------------------------------------------------------
 
 (defn- registry-classifies-under?
   "True iff `frame-id`'s per-frame elision registry carries ANY `:sensitive` or
   `:large` declaration whose absolute path begins with `prefix` (the entry's
-  `:data` / scoped-key offset). A cheap registry membership read used to GATE the
+  `:data` offset). A cheap registry membership read used to GATE the
   egress walk: when nothing is declared under the offset, the value rides
   VERBATIM (the walker would otherwise reconstruct collections and collapse a
   list↔vector byte-identity — Spec 016 §Resource identity; the cache-key-identity
@@ -457,94 +473,6 @@
          :rf.egress/profile boundary-profile})
       data)))
 
-(defn- project-entry-key-component
-  "Project ONE component of an entry's scoped key for egress against `frame-id`'s
-  per-frame elision registry — the shared body behind `project-entry-scope`
-  (index 0) and `project-entry-params` (index 2).
-
-  The scoped key is the vector `[scope resource-id params]` and it lives at the
-  entry's absolute `:resource/key` carrier, so `instance-declaration-paths`
-  lowers a `:scope`-rooted declaration to `[… :resource/key 0 …]` and a
-  `:params`-rooted one to `[… :resource/key 2 …]` (`reconcile-registry`). Here
-  we walk the bare component value through `re-frame.projection/project-egress`
-  SEEDED at that same offset, so the lowered `:source :resource` decls match and
-  a marked slot redacts (`:sensitive` → `:rf/redacted`) / elides (`:large` →
-  `:rf.size/large-elided`) without the raw value riding in the wire key.
-
-  ONE rule, applied at both indices by parameterising the index alone — the
-  scope and params components of a key carry the same classification (Spec 016
-  clause 4 \"params, scopes, and data carry the same classification\"), so they
-  must not be able to drift into two rules.
-
-  GATED on a registry declaration under the component's offset
-  (`registry-classifies-under?`): when nothing is declared there the component
-  rides VERBATIM (reference / byte-identity preserving — the scoped key is a
-  CEDN-1 byte-keyed identity, so a list↔vector collapse from an unnecessary walk
-  would break the cache-key-identity round-trip). Frame-SCOPED: a nil /
-  unresolvable `frame-id` rides the component VERBATIM. Pure w.r.t. the value."
-  [component index key-id frame-id boundary-profile]
-  (let [prefix (conj (rf.resources.state/entry-path-by-id key-id) :resource/key index)]
-    (if (and frame-id (registry-classifies-under? frame-id prefix))
-      (rf.projection/project-egress
-        component
-        {:frame             frame-id
-         :path              prefix
-         :rf.egress/profile boundary-profile})
-      component)))
-
-(defn project-entry-params
-  "Project a resource entry's scoped-key PARAMS value (index 2 of
-  `[scope resource-id params]`) for egress against `frame-id`'s per-frame
-  elision registry — the CO-EQUAL params counterpart to `project-entry-data`
-  (Spec 016 clause 4 \"params, scopes, and data carry the same
-  classification\"), and the sibling of `project-entry-scope` below.
-
-  Used on a `:serialize` entry (no coarse whole-entry claim) — the COARSE
-  `:redact` / `:omit` dispositions still replace the WHOLE params component with
-  an opaque content-addressed digest (`re-frame.resources.ssr/project-scoped-key`),
-  irrespective of frame, which subsumes the per-slot surface. Declaration-GATED
-  and frame-SCOPED per `project-entry-key-component`. `key-id` is the entry's
-  CEDN-1 byte key-id. Pure w.r.t. the value."
-  [params key-id frame-id boundary-profile]
-  (project-entry-key-component params 2 key-id frame-id boundary-profile))
-
-(defn project-entry-scope
-  "Project a resource entry's scoped-key SCOPE value (index 0 of
-  `[scope resource-id params]`) for egress — the CO-EQUAL scope counterpart to
-  `project-entry-params`.
-
-  ## Why the SSR wire key projects the scope too
-
-  `instance-declaration-paths` lowers a `:scope`-rooted declaration
-  to the entry's absolute `[… :resource/key 0 …]` path exactly as it lowers a
-  `:params`-rooted one to `[… :resource/key 2 …]`, so the epoch / registry walk
-  over the runtime-db honours BOTH, and
-  `trace-egress/redact-key-declarations` honours both on every trace and tool
-  key. The SSR wire key must agree: projecting only index 2 would let a
-  `:serialize` owner declaring `{:sensitive [[:scope :tenant-id]]}` ride the
-  resolved tenant id RAW in the hydration payload — the one carrier of that
-  value that is not dev-gated.
-
-  ## Reaching through the `[tier {identity}]` tuple
-
-  A scope component is `:rf.scope/global` or the tuple `[tier {identity-map}]`,
-  so the declared `:tenant-id` sits at the INDEXED runtime path
-  `[… :resource/key 0 1 :tenant-id]` while the lowered decl is the index-FREE
-  `[… :resource/key 0 :tenant-id]`. `elide-wire-value`'s index-free fork
-  (`fork-index-paths`) matches the two — the same mechanism that lets ONE
-  `[… :data :token]` decl cover every page of an infinite feed's `:data` vector,
-  and the same reading `redact-key-declarations` walks index-free on the trace
-  side. The scope TIER keyword at index 0 of the tuple is not a declared path,
-  so it survives and attribution is preserved.
-
-  Declaration-GATED and frame-SCOPED per `project-entry-key-component`: an
-  UNDECLARED scope rides byte-identical (`:rf.scope/global` is untouched, and so
-  is an undeclared sibling of a declared identity slot), which is what preserves
-  the CEDN-1 key identity. `key-id` is the entry's CEDN-1 byte key-id. Pure
-  w.r.t. the value."
-  [scope key-id frame-id boundary-profile]
-  (project-entry-key-component scope 0 key-id frame-id boundary-profile))
-
 ;; ---------------------------------------------------------------------------
 ;; Invalid-params error-payload projection.
 ;;
@@ -556,9 +484,8 @@
 ;; egress (the AI-boundary + logs threat model). Without projection a params
 ;; slot the owner marked `:sensitive?` (e.g. `[:token {:sensitive? true} …]`)
 ;; would leak RAW whenever validation failed on a DIFFERENT, non-sensitive
-;; sibling field — the same sibling-leak class the SSR `:serialize` key
-;; (`project-entry-params`) and the schema-validation hot-path traces
-;; (`re-frame.schemas.validate/redact-tags`) also close.
+;; sibling field — the same sibling-leak class the schema-validation hot-path
+;; traces (`re-frame.schemas.validate/redact-tags`) also close.
 ;;
 ;; This routes the error payload through the SAME two shared primitives the
 ;; rest of the resources family egress uses — never a registry-private elider:
@@ -647,7 +574,7 @@
 
   This is the schema's OWN VALIDATION-FAILURE-TRACE egress product (Spec 015
   §Schemas describe shape), distinct from DURABLE wire/SSR/tool egress, which
-  `project-entry-params` governs through the frame registry. `error` may be nil (no
+  the owner's declarations govern. `error` may be nil (no
   explainer registered); the `:error` key is then nil. Pure (modulo the late-bound
   redaction hook)."
   [params error spec]
@@ -678,7 +605,7 @@
 ;; Per-instance lowering into the per-frame elision registry.
 ;;
 ;; Per the EP-0025 subsystem matrix a resource declares its `:sensitive` /
-;; `:large` PROJECTION-RELATIVE to the entry projection (its `:params` / `:data`)
+;; `:large` PROJECTION-RELATIVE to the entry projection (its `:data`)
 ;; and the runtime LOWERS the declaration into the SAME per-frame elision
 ;; registry (`[:rf.runtime/elision …]`) PER INSTANCE — re-rooting each declared
 ;; projection-relative path to the instance's ABSOLUTE runtime path and writing
@@ -687,8 +614,7 @@
 ;; `[:rf.runtime/machines :snapshots <actor-id> :data …]`) and routes lower at
 ;; activation (`re-frame.routing.classification/lower-for-route` →
 ;; `[:rf.runtime/routing :current …]`). The registry is the single source read
-;; by `project-entry-data` / `project-entry-params` and by generic classification
-;; tooling.
+;; by `project-entry-data` and by generic classification tooling.
 ;;
 ;; The lowering is a PURE runtime-db transform (`reconcile-registry`, mirroring
 ;; routing's `apply-route-classification`) so the durable runtime-db transition
@@ -700,14 +626,10 @@
 ;; names) with no separate drop hook, and other-sourced entries (`:effect` /
 ;; `:flow` / `:route` / `:machine`) are left untouched.
 ;;
-;; Absolute re-rooting (per instance, keyed on the entry's byte `key-id`):
-;;   - a `:data`-rooted declared path `[:k …]`   → `[:rf.runtime/resources
-;;                                                  :entries <key-id> :data :k …]`
-;;     (the durable entry's `:data` value lives at `… <key-id> :data`);
-;;   - a `:params` / `:scope`-rooted declared path → the entry's scoped-key
-;;     `:resource/key` carrier at `… <key-id> :resource/key`. The scoped key is
-;;     the vector `[scope resource-id params]`, so a `:params`-rooted path
-;;     indexes position 2 and a `:scope`-rooted path position 0.
+;; Absolute re-rooting (per instance, keyed on the entry's byte `key-id`): a
+;; `:data`-rooted declared path `[:k …]` → `[:rf.runtime/resources :entries
+;; <key-id> :data :k …]` (the durable entry's `:data` value lives at
+;; `… <key-id> :data`).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private resource-source
@@ -725,39 +647,16 @@
   [key-id]
   (conj (rf.resources.state/entry-path-by-id key-id) :data))
 
-(defn- entry-key-prefix
-  "The ABSOLUTE runtime-db prefix for an entry's scoped-key `:resource/key`
-  carrier — `[:rf.runtime/resources :entries <key-id> :resource/key]`. The
-  scoped key is `[scope resource-id params]`, so a `:params`-rooted declared
-  path re-roots under index 2, a `:scope`-rooted one under index 0."
-  [key-id]
-  (conj (rf.resources.state/entry-path-by-id key-id) :resource/key))
-
 (defn- instance-declaration-paths
   "The ABSOLUTE `{:sensitive [paths] :large [paths]}` runtime-db paths a single
-  entry contributes, re-rooting `spec`'s projection-relative declarations under
-  the entry's byte `key-id`. `:data`-rooted paths re-root under the entry's
-  `:data`; `:params`-rooted paths re-root under the scoped key's params (index
-  2 of `:resource/key`); `:scope`-rooted paths under the scope (index 0). Pure;
-  returns `{:sensitive [] :large []}` when the spec declares neither axis."
+  entry contributes, re-rooting `spec`'s projection-relative `:data`
+  declarations under the entry's byte `key-id`. Pure; returns
+  `{:sensitive [] :large []}` when the spec declares neither axis."
   [key-id spec]
-  (let [s     (split-projection-paths spec :sensitive)
-        l     (split-projection-paths spec :large)
-        data-prefix (entry-data-prefix key-id)
-        key-prefix  (entry-key-prefix key-id)
-        ;; a `:params`-rooted path was stripped of its `:params` head in
-        ;; `split-projection-paths`; the scoped key holds params at index 2 and
-        ;; scope at index 0, so re-root accordingly. A `:scope`-rooted path was
-        ;; kept WITH its `[:scope …]` head, so strip it and target index 0.
-        ->key-abs (fn [p]
-                    (if (= :scope (first p))
-                      (into (conj key-prefix 0) (subvec (vec p) 1))
-                      (into (conj key-prefix 2) p)))
-        ->abs     (fn [axis]
-                    (into (mapv #(into data-prefix %) (:data axis))
-                          (mapv ->key-abs (:params axis))))]
-    {:sensitive (->abs s)
-     :large     (->abs l)}))
+  (let [data-prefix (entry-data-prefix key-id)
+        ->abs       (fn [k] (mapv #(into data-prefix %) (:data (split-projection-paths spec k))))]
+    {:sensitive (->abs :sensitive)
+     :large     (->abs :large)}))
 
 (def ^:private resource-owner
   "The multi-owner elision-registry owner identity a resource / mutation

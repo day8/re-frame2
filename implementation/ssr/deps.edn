@@ -142,14 +142,11 @@
   ;; leaves the server inside a hydration payload. Without this lane that
   ;; egress would run under no gate at all.
   ;;
-  ;; NOT THE WHOLE SUITE. Under the real gate a documented slice of this
-  ;; artefact's test namespaces is red, essentially all of it asserting dev
-  ;; instrumentation (`:rf.ssr/*` traces, the `:errors` sink, source coords,
-  ;; `data-rf2-source-coord` attributes) inline with semantics. Those are
-  ;; legitimate dev-posture tests, not defects. The runnable roster lives in
-  ;; `scripts/test-ssr-prod-gate.sh`, which appends `-n` selectors for every
-  ;; namespace MINUS a documented known-red list, so a NEW namespace joins the
-  ;; lane by default. Do not invoke this alias bare; run the script.
+  ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
+  ;; directory, is the whole production-gate lane, in CI (the
+  ;; `jvm-ssr-prod-gate` job) and on a laptop alike. There is no exclusion
+  ;; roster and no `-n` selector: the runner discovers every `.*-test$`
+  ;; namespace, so a NEW namespace joins the lane by default.
   :prod-gate
   {:jvm-opts  ["-Dre-frame.debug=false"]
    :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}

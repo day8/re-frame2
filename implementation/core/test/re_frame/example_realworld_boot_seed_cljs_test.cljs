@@ -2,12 +2,11 @@
   "RealWorld-on-managed-HTTP boots under its own app-db schema registry.
 
    Each slice is seeded by its own feature's `:*/initialise`, so each seed is a
-   separate commit, and the candidate validator walks EVERY registered path
-   over the whole candidate app-db at every `:db` commit, reading an unwritten
-   path as `nil` (Spec 010 §Per-step recovery). A registry whose slice schemas
-   refused `nil` would reject the first seed on its still-absent siblings and
-   app-db would never leave `{}` — in a development build only, since
-   `validate-app-schema!` is gated on `debug-enabled?`.
+   separate commit. The candidate validator checks a registered path only
+   where the candidate has it (Spec 010 §When schemas are checked), so a seed
+   is never checked against a sibling it has not written yet. Only a
+   development build validates, since `validate-app-schema!` is gated on
+   `debug-enabled?`.
 
    `reg-app-schemas` is frame-local and the example registers against
    `:rf/default`, so this ns installs the example's own registry on the frame

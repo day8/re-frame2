@@ -12,7 +12,7 @@
 // doing so is the normal case, and the boundary has to hold anyway.
 //
 // Three sentinels, one per live field, each sourced from a DIFFERENT
-// allowlisted state key, so a green scan cannot be one field's accident:
+// state key, so a green scan cannot be one field's accident:
 //
 //   `:for-code`     → `error.code`     — the field that selects the HTTP status
 //   `:for-message`  → `error.message`  — the field a diagnostic reaches for first
@@ -35,26 +35,20 @@ const SPOOFED_CODE = Object.freeze({
   'app/as-deadline': ':rf.ssr-node/render-timeout', // 504 — "it ran too long"
 });
 
-const ENTRY = {
-  stateAllowlist: [':for-code', ':for-message', ':for-detail'],
-  runtimeAllowlist: [],
-};
 
 module.exports = {
   protocol: 1,
   buildId: 'throws-data-build-1',
-  entries: {
-    'app/plain': ENTRY, // throws before emitting; invented code
-    'app/torn': ENTRY, // emits, THEN throws — the torn response
-    'app/as-caller-fault': ENTRY,
-    'app/as-saturated': ENTRY,
-    'app/as-deadline': ENTRY,
-  },
+  entries: [
+    'app/plain', // invented code
+    'app/as-caller-fault',
+    'app/as-saturated',
+    'app/as-deadline',
+  ],
 
   SPOOFED_CODE,
 
-  render({ entry, state }, emit) {
-    if (entry === 'app/torn') emit('<p>first</p>');
+  render({ entry, state }) {
     const err = new Error(`render failed while handling ${state[':for-message']}`);
     // `code` is a bare property on an ordinary `Error` — nothing stops a
     // module setting it, and a module that has its own error taxonomy will.

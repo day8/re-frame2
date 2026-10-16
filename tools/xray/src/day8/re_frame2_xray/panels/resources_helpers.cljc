@@ -81,38 +81,23 @@
   "Runtime-db-relative path to the cache entries map. Per Spec 016."
   [resources-key :entries])
 
-(defn resource-payload-path-suffix
-  "The lowered-declaration path SUFFIX, relative to an entry's `key-id`, a
-  payload `slot-key` re-roots under — mirrors
-  `re-frame.resources.classification/instance-declaration-paths`'s re-rooting:
-  a `:data`-rooted declaration lands directly under the entry (`[key-id
-  :data]`); a `:scope`- / `:params`-rooted one lands under the scoped-key
-  `:resource/key` carrier at index 0 / 2 (the scoped key is `[scope
-  resource-id params]`). `:error` / `:refresh-error` are not lowered
-  by the resources registry but live at the entry's own key, so they re-root
-  there too — a harmless no-match that stays correct if the registry ever
-  classifies them.
-
-  The absolute egress `:path` for a slot is `slot-egress-path`. Canonical
-  home for the pure path logic so every caller — the
-  on-box Resources-panel
-  egress (`resources/on-box-resource-egress-fn`) — re-roots each slot
-  to the SAME absolute coordinate the resources artefact lowers its per-instance
-  `:sensitive?` / `:large?` declarations to — one source of truth, no drift."
-  [slot-key]
-  (case slot-key
-    :scope  [:resource/key 0]
-    :params [:resource/key 2]
-    [slot-key]))
-
 (defn slot-egress-path
   "The absolute runtime-db path the payload `slot-key` of the entry at
-  `key-id` egresses at: the entry's own path, re-rooted by
-  `resource-payload-path-suffix`. A slot-only path, missing the key-id,
-  matches no lowered declaration."
+  `key-id` egresses at — `[:rf.runtime/resources :entries <key-id> <slot-key>]`,
+  mirroring `re-frame.resources.classification/instance-declaration-paths`,
+  which lowers a resource's `:data`-rooted declarations directly under the
+  entry. Canonical home for the pure path logic so the on-box Resources-panel
+  egress (`resources/on-box-resource-egress-fn`) matches the coordinate the
+  resources artefact lowers its per-instance `:sensitive` / `:large`
+  declarations to — one source of truth, no drift.
+
+  Every other slot re-roots at the entry's own key too, as a harmless
+  no-match: `:error` / `:refresh-error` are not lowered, and a resource
+  declares nothing under its `:scope` / `:params` — they are its identity, not
+  a classified slot, so the local operator sees them on-box. A slot-only path,
+  missing the key-id, matches no lowered declaration."
   [key-id slot-key]
-  (into (conj (vec entries-rel-path) key-id)
-        (resource-payload-path-suffix slot-key)))
+  (conj (vec entries-rel-path) key-id slot-key))
 
 (def routing-key
   "Reserved runtime-db key for the routing slice subtree

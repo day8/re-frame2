@@ -44,10 +44,9 @@
             [re-frame.resources.scope-registry :as rf.resources.scope-registry]
             [re-frame.resources.ssr :as rf.resources.ssr]
             [re-frame.resources.state :as rf.resources.state]
-            ;; The per-slot arm of the key projection lives in the
-            ;; production-reachable trace-egress ns (beside the reply's), and
-            ;; this TOOL boundary opts into the same helper so the two off-box
-            ;; boundaries cannot answer differently. The edge points from the
+            ;; The standing scope rule lives in the production-reachable
+            ;; trace-egress ns, and this TOOL boundary opts into the same rule
+            ;; so the two off-box boundaries cannot answer differently. The edge points from the
             ;; bundle-isolated sibling INTO a production-reachable ns, which is
             ;; the safe direction: nothing here is pulled toward a bundle.
             [re-frame.resources.trace-egress :as rf.resources.trace-egress]
@@ -373,59 +372,46 @@
 ;; case where scope/params are embedded in the node KEY / `:id` / `:output` /
 ;; `:inputs` / `:work-ledger`, which a generic value-path walk cannot reach).
 ;;
-;; The projection reuses the SAME resource OWNER classification the SSR /
-;; durable-egress path uses — never a tooling-private elider — through the
-;; shared `rf.resources.ssr/disposition+project-key` pipeline:
+;; The SCOPE takes the framework's standing scope rule
+;; (`rf.resources.trace-egress/project-scope`), the rule the off-box trace
+;; projector gives every scope: every non-global scope tokenizes content-free,
+;; whatever the owner. The PARAMS reuse the SAME resource OWNER classification
+;; the SSR / durable-egress path uses — never a tooling-private elider —
+;; through the shared `rf.resources.ssr/disposition+project-key` pipeline:
 ;;   - `classification/whole-entry-disposition` (inside the shared helper)
 ;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. There is
 ;;     no named-scope-resolver derived-sensitivity inheritance arm (EP-0025:
 ;;     no sensitivity propagation);
 ;;   - `rf.resources.ssr/project-scoped-key` (inside the shared helper) then projects the
-;;     scoped key per that disposition — `:redact` / `:omit` replace scope +
+;;     scoped key per that disposition — `:redact` / `:omit` replace the
 ;;     params with `{:rf/redacted …}` tokens (a content-FREE shape token for
 ;;     the sensitive class, a canonical-bytes digest for the large one —
-;;     `rf.resources.ssr/redact-value`), while `:serialize` rides verbatim
-;;     (non-sensitive identity is preserved);
-;;   - `rf.resources.trace-egress/redact-key-declarations` then applies the
-;;     resource's per-slot `:params` / `:scope` PROJECTION-RELATIVE declarations
-;;     to a `:serialize` key — the arm the coarse disposition above is blind to,
-;;     since a spec declaring only paths makes no root-prop claim and classifies
-;;     `:serialize`. It lives in the trace-egress ns rather than inside
-;;     `project-scoped-key` because `project-scoped-key`'s `:serialize` deferral
-;;     is deliberate: the SSR durable path resolves the same declaration from
-;;     the per-frame elision REGISTRY, which this boundary has no `key-id` or
-;;     live frame to read. Both boundaries therefore opt into ONE helper and
-;;     answer identically.
+;;     `rf.resources.ssr/redact-value`), while `:serialize` params ride
+;;     verbatim.
 ;; The resource-id (position 1 of the 3-tuple) always survives, so a tool still
 ;; sees WHICH resource each node names and edges still join nodes by the same
 ;; projected key.
 ;;
-;; A projection is MANY-TO-ONE: two sensitive entries whose scope + params
-;; share a shape get one shape token, and a per-slot declaration substitutes
-;; one constant. `resource-cache-algebra-view` therefore keeps entries whose
+;; A projection is MANY-TO-ONE: two sensitive entries whose params share a
+;; shape get one shape token, and two principals of one scope tier get one
+;; scope token. `resource-cache-algebra-view` therefore keeps entries whose
 ;; projected keys coincide apart by ORDINAL (`collision-key`), never by
 ;; anything derived from the raw scope or params.
 
 (defn- project-key-for-egress
-  "Project a `scoped-key` for TOOL egress against the resource owner spec +
-  the `frame-id` classification. Returns `[projected-key
-  disposition]`. `:redact` / `:omit` replace scope + params with opaque
-  tokens; `:serialize` substitutes the owner's per-slot `:params` / `:scope`
-  PROJECTION-RELATIVE declarations (a no-op when the spec declares none) — the
-  resource-id always survives. Pure. Delegates to the shared
-  `rf.resources.ssr/disposition+project-key` pipeline (the SAME owner
-  classification + key projection the SSR durable-egress + off-box trace-egress
-  paths use), then to `rf.resources.trace-egress/redact-key-declarations` for the per-slot
-  arm that pipeline defers, which is the SAME helper the off-box
-  trace projector applies — one declaration, one answer at both boundaries.
+  "Project a `scoped-key` for TOOL egress: the scope by the standing scope rule
+  (`rf.resources.trace-egress/project-scope`), the params by the owner's coarse
+  claim through the shared `rf.resources.ssr/disposition+project-key` pipeline
+  (`:redact` / `:omit` tokenize them; `:serialize` rides verbatim) — the rules
+  the off-box trace projector gives the same key. The resource-id always
+  survives. Returns the projected key. Pure.
 
   `:params-schema` marks play no part: a schema is not a route into durable
   classification (EP-0025; Spec 015 §Schemas describe shape, not durable
-  egress policy). The projection-relative declaration on the spec is
-  the single durable classification surface."
+  egress policy)."
   [scoped-key frame-id]
-  (let [[projected-key disposition spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
-    [(rf.resources.trace-egress/redact-key-declarations projected-key disposition spec) disposition]))
+  (let [[projected-key _disposition _spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
+    (assoc projected-key 0 (rf.resources.trace-egress/project-scope (nth scoped-key 0)))))
 
 (defn- project-work-id
   "Project the scoped key embedded in a resource work-id
@@ -496,13 +482,13 @@
   in-flight work-ledger work-id and record `:resource/key`, and the
   host-transient handle address — carries `node-key`; the realized
   `[:scope …]` / `[:param …]` inputs carry the projected scope and params.
-  A `:sensitive?` / `:large?` resource therefore never egresses its raw
-  scope/params here (the value-path walk cannot reach them); a plain resource
-  rides verbatim."
+  No resource egresses a raw non-global scope here, a `:sensitive?` /
+  `:large?` resource never egresses its raw params (the value-path walk cannot
+  reach either), and a plain resource's params ride verbatim."
   [runtime-db proj-key node-key frame-id entry static-node]
   (let [[proj-scope resource-id proj-params] proj-key
         project-key (fn [scoped-key]
-                      (let [projected (first (project-key-for-egress scoped-key frame-id))]
+                      (let [projected (project-key-for-egress scoped-key frame-id)]
                         (if (= projected proj-key) node-key projected)))
         work-id  (:current-work entry)]
     (cond-> {:id            node-key
@@ -596,7 +582,7 @@
         members    (for [entry (vals entries)
                          :let  [scoped-key  (:resource/key entry)
                                 static-node (resource-algebra-view (second scoped-key))
-                                proj-key    (first (project-key-for-egress scoped-key frame-id))
+                                proj-key    (project-key-for-egress scoped-key frame-id)
                                 node-at     #(live-node-for runtime-db proj-key % frame-id
                                                             entry static-node)]]
                      {:proj-key proj-key :node (node-at proj-key) :node-at node-at})]

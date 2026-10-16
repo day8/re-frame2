@@ -94,6 +94,10 @@
   the path. No schemas registered, or the schemas artefact not loaded,
   is a soft pass: there is nothing to validate against.
 
+  A path absent from `db` is not checked, as at commit (Spec 010 §When
+  schemas are checked): a path schema constrains a value only where its
+  path exists. A present value, `nil` included, is checked.
+
   Single walk over the schema set: the validity question is
   `(empty? (failing-schema-paths frame-id db))`, so callers get both the
   yes/no answer and the failing paths from one traversal."
@@ -104,8 +108,10 @@
       []
       (vec
         (keep (fn [[path schema-entry]]
-                (when-not (validate-schema (:schema schema-entry) (get-in db path))
-                  path))
+                (let [value (get-in db path ::absent)]
+                  (when-not (or (= ::absent value)
+                                (validate-schema (:schema schema-entry) value))
+                    path)))
               app-schemas)))))
 
 (defn- machine-registration

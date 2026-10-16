@@ -12,10 +12,13 @@
     1. projects the settled frame under the caller's `:render-state`
        policy — `re-frame.ssr.render-state/project`, the
        fail-closed per-partition allowlist that is DISTINCT in policy from
-       the hydration payload's `:payload` and shares its envelope;
+       the hydration payload's `:payload` and shares its envelope, and the
+       one render-visibility policy (the sidecar checks shape, never which
+       keys);
     2. serialises both partitions per key to EDN text
-       (`render-state/serialize`), so the sidecar can enforce its
-       entry-owned allowlists without decoding application data;
+       (`render-state/serialize`) — every value a string, so the sidecar's
+       freeze, key-shape check and byte ceiling work without decoding
+       application data;
     3. POSTs ONE JSON request to `<endpoint>/render` — `protocol` 1,
        `entry`, `args` (root arguments as EDN text, when given), `state`
        (the app-db partition), `runtime` (the runtime-db partition),

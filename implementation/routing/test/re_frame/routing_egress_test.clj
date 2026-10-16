@@ -23,7 +23,7 @@
 
   Assertions on registrar state (`rf/handler-meta`) and in-process values
   carry no posture guard, so they also run in
-  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`). Every read
+  `clojure -M:test:prod-gate` (`-Dre-frame.debug=false`). Every read
   off the trace bus sits inside a `(when rf.interop/debug-enabled? …)` arm,
   because `trace/emit!` is dev-gated; the `(not (re-find …))` census in the
   inverse-load-order case would otherwise pass vacuously with no trace."

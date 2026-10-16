@@ -55,10 +55,9 @@ Confirm all three, or stop:
    reporter Step 0 runs is a separate, tool-only coordinate passed through
    `-Sdeps` and never added to the app's build: the pinned git coordinate by
    default, or a `:local/root` on a checkout the author has already chosen
-   ([`../SKILL.md`](../SKILL.md) §Start with the reporter). The test kit is
-   test-only in the same way: where the build adds its source root (Step 5),
-   that path goes on the test alias or test build alone, never on the base
-   or release paths.
+   ([`../SKILL.md`](../SKILL.md) §Start with the reporter). The test kit
+   needs no coordinate of its own: it comes with the Fresco runtime, and
+   only tests require it (Step 5).
 
 ## Step 0 — Run the reporter, and read both halves
 
@@ -262,9 +261,9 @@ are real:
   re-render verb is spelled `rerender!`, and cardinal rule 6 applies to the kit
   exactly as it does to the door.
 
-Note the packaging: the kit lives on a **separate source root** that is
-deliberately not on the library's `:paths`, so a consumer who never writes a
-test never carries it. Wire it in through the project's test alias / build.
+Note the packaging: the kit comes with the Fresco runtime — on its `:paths`
+and in its jar — so there is nothing to wire in. A consumer who never writes
+a test never carries it, because nothing outside a test requires it.
 
 **Mount under the application's own image composition.** Every kit mount
 builds a fresh frame, from the default image unless told otherwise — every

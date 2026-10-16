@@ -15,7 +15,7 @@
   so \"external\" here means dispatched from the test thread while that event
   holds the drain. Real registered handlers on the plain-atom adapter. The
   ordering and the always-on depth record are asserted unguarded, so this
-  namespace also runs under `scripts/test-core-prod-gate.sh`; the
+  namespace also runs under `clojure -M:test:prod-gate`; the
   `:halted-depth` epoch record is a dev-trace product and is read only in
   debug builds."
   (:require [clojure.test :refer [deftest is use-fixtures]]

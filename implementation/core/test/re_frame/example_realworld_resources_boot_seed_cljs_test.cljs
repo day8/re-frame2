@@ -1,14 +1,12 @@
 (ns re-frame.example-realworld-resources-boot-seed-cljs-test
   "RealWorld-on-resources boots under its own app-db schema registry.
 
-   The candidate validator walks every registered path over the whole
-   candidate app-db at every `:db` commit, reading an unwritten path as `nil`
-   (Spec 010 §Per-step recovery). `[:auth]`, `[:auth :login-form]` and
-   `[:auth :register-form]` are seeded by separate events, a boot window in
-   which each would veto the others; `[:settings-form]` is seeded only on
-   settings-route entry, so registered bare it would veto every commit the app
-   ever makes. So every entry in `app-db-schemas` wears a `:maybe`. Only a
-   development build validates, so only a development build shows the failure.
+   The candidate validator checks a registered path only where the candidate
+   has it (Spec 010 §When schemas are checked). `[:auth]`, `[:auth
+   :login-form]` and `[:auth :register-form]` are seeded by separate events
+   and `[:settings-form]` only on settings-route entry, so a seed is never
+   checked against a sibling it has not written yet, and the registry's bare
+   slice schemas boot. Only a development build validates.
 
    This ns requires the example's `schema` ns and nothing else from the app:
    both RealWorld apps register the same event ids with different
@@ -17,14 +15,13 @@
    assembly for later suites. The seeds below are local events reproducing the
    app's own writes; what is under test is the registry, imported verbatim."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             ;; The CLJS default validator soft-passes without this, which would
-            ;; let the bare registry boot as happily as the shipped one.
+            ;; make the control below vacuous.
             [re-frame.schemas.malli]
             [realworld-resources.schema :as app-schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
@@ -58,32 +55,24 @@
   (rf/dispatch-sync [:rf2-ghxt.boot/seed-login-form] {:frame f})
   (rf/dispatch-sync [:rf2-ghxt.boot/seed-register-form] {:frame f}))
 
-(def ^:private pre-fix-bare-registry
-  "The four boot-relevant registrations without `:maybe`."
-  {[:auth]                app-schema/AuthSlice
-   [:auth :login-form]    app-schema/FormSlice
-   [:auth :register-form] app-schema/FormSlice
-   [:settings-form]       app-schema/FormSlice})
+(rf/reg-event :rf2-ghxt.boot/break-settings-form
+  (fn [{:keys [db]} _]
+    {:db (assoc db :settings-form :not-a-form)}))
+
+(def ^:private booted-db
+  "app-db after `boot!`: every seed landed, and `[:settings-form]` was never
+  seeded."
+  {:auth {:user          nil
+          :token         nil
+          :login-form    {:draft {:email "" :password ""} :touched #{}}
+          :register-form {:draft {:username "" :email "" :password ""} :touched #{}}}})
 
 (deftest boot-under-the-shipped-registry
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
     (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
     (boot! f)
-    (is (= {:auth {:user          nil
-                   :token         nil
-                   :login-form    {:draft {:email "" :password ""} :touched #{}}
-                   :register-form {:draft {:username "" :email "" :password ""} :touched #{}}}}
-           (rf/app-db-value f))
-        "every seed landed, each its own commit, with [:settings-form] never seeded")))
-
-(deftest boot-under-the-pre-fix-bare-registry
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas pre-fix-bare-registry {:frame f})
-    (boot! f)
-    (is (= {} (rf/app-db-value f))
-        "each seed was rolled back by the siblings still absent; this also proves the validator is live")))
-
-(deftest every-shipped-registration-tolerates-absence
-  (is (= (zipmap (keys app-schema/app-db-schemas) (repeat true))
-         (into {} (map (fn [[path schema]] [path (m/validate schema nil)]))
-               app-schema/app-db-schemas))))
+    (is (= booted-db (rf/app-db-value f))
+        "every seed landed, each its own commit: a sibling the candidate still lacks is not checked")
+    (rf/dispatch-sync [:rf2-ghxt.boot/break-settings-form] {:frame f})
+    (is (= booted-db (rf/app-db-value f))
+        "control: the validator is live, so a present non-conforming slice is rejected")))

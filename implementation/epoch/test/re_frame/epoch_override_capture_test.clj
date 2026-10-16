@@ -1,11 +1,21 @@
-(ns re-frame.epoch-override-capture-test
+(ns ^:requires-debug re-frame.epoch-override-capture-test
   "`:rf/epoch-record` pins the envelope's `:fx-overrides` /
   `:interceptor-overrides` from the run-start trace (Spec-Schemas
   §`:rf/epoch-record`). What rides that trace, including the exclusion of the
   per-frame tier, is pinned by `re-frame.override-capture-trace-test` (core);
   the captured shapes and their re-supply on replay by
   `re-frame.epoch-replay-cljs-test`. This pins the hot path: no overrides, no
-  keys."
+  keys.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Without it nothing records an epoch and the assertion reads nil.

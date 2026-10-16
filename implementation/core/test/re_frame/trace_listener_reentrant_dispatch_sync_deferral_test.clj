@@ -29,7 +29,7 @@
   (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug listener-initiated-dispatch-sync-never-runs-listeners-under-drain-lock
   (rf/reg-event :6t6qk/settle (fn [_ _] {}))

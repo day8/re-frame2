@@ -3,13 +3,11 @@
 // witness (`re-frame.ssr.ring.login-host-crossing-test`) spawns the sidecar
 // on.
 //
-// It carries NO policy of its own. The entry id, the build id and both
-// per-partition allowlists arrive in the environment, and the test sets them
-// from `fresco.login.policy` — the same Vars `examples/substrates/fresco/
-// login/server.cljs` derives the real bundle's entry table from. So the
-// sidecar in this witness enforces the application's own list rather than a
-// second copy of it, and a host that drifted off that list is refused here
-// exactly as it would be against the shipped bundle.
+// It carries NO identity of its own. The entry id and the build id arrive in
+// the environment, and the test sets them from the application — the entry
+// id is `fresco.login.policy/root-entry`, the same Var `examples/substrates/
+// fresco/login/server.cljs` publishes as the real bundle's entry table.
+// Which keys reach it is the JVM host's `:render-state` policy alone.
 //
 // What it is NOT is the login application's render. That is a Fresco render
 // on React, witnessed in CLJS by
@@ -29,34 +27,24 @@
 const escapeHtmlText = (value) =>
   String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const readJsonListEnv = (environmentKey) => {
-  const rawValue = process.env[environmentKey];
-  if (!rawValue) return [];
-  return JSON.parse(rawValue);
-};
 
 const entry = process.env.RF2_LOGIN_ENTRY || 'fresco.login/root';
 
 module.exports = {
   protocol: 1,
   buildId: process.env.RF2_LOGIN_BUILD_ID || 'login-fresco-dev',
-  entries: {
-    [entry]: {
-      stateAllowlist: readJsonListEnv('RF2_LOGIN_STATE_ALLOWLIST'),
-      runtimeAllowlist: readJsonListEnv('RF2_LOGIN_RUNTIME_ALLOWLIST'),
-    },
-  },
+  entries: [entry],
 
-  async render({ entry, state, runtime }, emit) {
+  async render({ entry, state, runtime }) {
     const sortedKeyList = (partition) => Object.keys(partition ?? {}).sort().join(' ');
-    emit(
+    return (
       `<main data-entry="${escapeHtmlText(entry)}">` +
         `<div class="login-state-keys">${escapeHtmlText(sortedKeyList(state))}</div>` +
         `<div class="login-runtime-keys">${escapeHtmlText(sortedKeyList(runtime))}</div>` +
         `<div class="login-draft">${escapeHtmlText(state[':auth'])}</div>` +
         `<div class="login-notice">${escapeHtmlText(state[':auth.login/server-notice'])}</div>` +
         `<div class="login-machines">${escapeHtmlText(runtime[':rf.runtime/machines'])}</div>` +
-        `</main>`,
+        `</main>`
     );
   },
 };

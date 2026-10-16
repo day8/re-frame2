@@ -10,13 +10,15 @@
  :fixture/registry
  {:event {:counter/init    {:doc "Seed at 0."}
           :counter/destroy {:doc "Cleanup logger."}}
-  :sub   {:count {:doc "Current count."}}}
+  :sub   {:count {:doc "Current count."}}
+  :fx    {:log {:doc "Logging stub. Unregistered, :log would trace :rf.error/no-such-fx and never route."}}}
 
  :fixture/handlers
  {:event {:counter/init    [[:set [:count] 0]
                             [:set [:logged-init?] true]]
           :counter/destroy [[:fx :log {:msg "destroyed"}]]}
-  :sub   {:count [[:get [:count]]]}}
+  :sub   {:count [[:get [:count]]]}
+  :fx    {:log [[:noop]]}}
 
  :fixture/frame-config
  {:initial-events [[:counter/init]]

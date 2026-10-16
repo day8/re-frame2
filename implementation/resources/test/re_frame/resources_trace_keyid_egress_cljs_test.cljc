@@ -133,10 +133,11 @@
 (deftest off-box-owner-released-tokenizes-the-sensitive-key-and-keeps-the-plain-one
   (let [projected            (project (release-owner-row))
         [pscope rid pparams] (released-member projected :secret/article)]
-    (is (= [:secret/article true true true true plain-key]
-           [rid (redacted-token? pparams) (redacted-token? pscope) (:sensitive? projected)
+    (is (= [:secret/article true :rf.scope/global true true plain-key]
+           [rid (redacted-token? pparams) pscope (:sensitive? projected)
             (clean? projected) (released-member projected :plain/article)])
-        "the sensitive scope and params tokenize, the row is stamped and clean, and the plain key rides verbatim")))
+        "the sensitive params tokenize and the global scope rides (the standing scope
+         rule), the row is stamped and clean, and the plain key rides verbatim")))
 
 ;; ===========================================================================
 ;; the ssr.cljc emit sites fold over :entries by key-id too
@@ -173,10 +174,10 @@
         tags      (:tags (first skews))
         [pscope rid pparams] (:resource/key (project tags))
         summary   (:tags (first (capture-op! :rf.resource/hydrated hydrate)))]
-    (is (= [1 secret-key :secret/article true true true]
-           [(count skews) (:resource/key tags) rid (redacted-token? pscope) (redacted-token? pparams)
+    (is (= [1 secret-key :secret/article :rf.scope/global true true]
+           [(count skews) (:resource/key tags) rid pscope (redacted-token? pparams)
             (clean? (project tags))])
-        "the clock-skew row names its entry by scoped key, which tokenizes off-box")
+        "the clock-skew row names its entry by scoped key, whose params tokenize off-box")
     (is (= [[[secret-key ssr-owner]] true]
            [(:orphaned-owners summary) (clean? (project summary))])
         "the summary pairs the orphaned SSR owner with its entry's scoped key")))

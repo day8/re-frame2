@@ -1,4 +1,4 @@
-(ns re-frame.join-strict-mint-epoch-replay-test
+(ns ^:requires-debug re-frame.join-strict-mint-epoch-replay-test
   "A `:spawn-all` join's strict-mint replay through the REAL epoch seams: the
   `:rf/epoch-record` read off `rf/epoch-history`, an EDN round-trip of its
   replay material, and `rf/restore-epoch!`.
@@ -7,7 +7,17 @@
   and live logic against a hand-built token and a test-only runtime-db
   restore; this proves the epoch record carries the completion's mid-run mint
   and that restore rewinds the join, so the two compose. It lives on the epoch
-  lane because only that lane has machines and epoch on one classpath."
+  lane because only that lane has machines and epoch on one classpath.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]

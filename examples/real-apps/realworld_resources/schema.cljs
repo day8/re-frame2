@@ -98,41 +98,23 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 ;;
-;; WHY EVERY SLICE WEARS A `:maybe`. Validation is not scoped to the paths the
-;; committing event touched: at every `:db` commit the runtime walks EVERY
-;; registered path with `get-in` over the whole candidate app-db and rejects the
-;; entire transaction if any one of them fails (Spec 010 §Per-step recovery
-;; row 4 — the candidate is discarded, and `:fx` does not walk either). A path
-;; nothing has written yet reads `nil`, and `nil` is not a `[:map …]`.
+;; A path schema checks a slice only where the candidate app-db has it (Spec 010
+;; §When schemas are checked), so these schemas are bare:
 ;;
-;; Two different reasons apply here, and it's worth keeping them apart:
+;;   - `[:auth]`, `[:auth :login-form]` and `[:auth :register-form]` are each
+;;     seeded by their OWN event: `:auth/initialise` is its own
+;;     `:initial-events` step (it restores the saved session first), and the two
+;;     form drafts are separate dispatches fanned out from `:app/initialise`
+;;     (core.cljs). A seed is never checked against a sibling it has not
+;;     written yet.
 ;;
-;;   THE BOOT WINDOW — `[:auth]`, `[:auth :login-form]`, `[:auth :register-form]`.
-;;   app-db starts `{}` and each of these is seeded by its OWN event:
-;;   `:auth/initialise` is its own `:initial-events` step (it restores the
-;;   saved session first), and the two form drafts are separate dispatches
-;;   fanned out from `:app/initialise` (core.cljs). Separate events, separate
-;;   commits. Register these bare and the FIRST seed is rejected by the siblings
-;;   that have not been seeded yet, and so is every later one — app-db never
-;;   leaves `{}` and the app renders empty everywhere. The `:maybe` buys exactly
-;;   the window before a slice's seed lands; once it has, the schema is doing its
-;;   full job. `examples/patterns/boot/schema.cljs` wears its `:maybe`s for this
-;;   same reason.
-;;
-;;   ABSENT BY DESIGN — `[:settings-form]`. This one is not a boot-window case at
-;;   all: nothing seeds it at boot and nothing should. `:settings/load` seeds the
-;;   draft FROM the authenticated user on settings-route entry (settings.cljs),
-;;   and that route is auth-guarded — so for an anonymous visitor, and for a
-;;   signed-in one who never opens Settings, the path is legitimately nil for the
-;;   whole life of the app. Seeding it at boot would only manufacture an empty
-;;   draft from a user who isn't there yet, to be overwritten on entry. Its
-;;   `:maybe` is therefore permanent, not a window.
-;;
-;; Note this all bites in DEVELOPMENT ONLY: `validate-app-schema!` puts its whole
-;; body inside `(if interop/debug-enabled? … true)`, so a release build installs
-;; every candidate unchecked. Dev and release would otherwise disagree about
-;; whether this app can boot at all — and dev is the build every consumer
-;; develops against.
+;;   - `[:settings-form]` is absent by design: nothing seeds it at boot and
+;;     nothing should. `:settings/load` seeds the draft FROM the authenticated
+;;     user on settings-route entry (settings.cljs), and that route is
+;;     auth-guarded — so for an anonymous visitor, and for a signed-in one who
+;;     never opens Settings, the path is absent for the whole life of the app.
+;;     Seeding it at boot would only manufacture an empty draft from a user who
+;;     isn't there yet, to be overwritten on entry.
 ;;
 ;; One wrinkle: reg-app-schemas is frame-local, so a bare ns-load call with no
 ;; frame context would fail. This app runs in `:rf/default` (the
@@ -146,14 +128,15 @@
    set can be registered against a frame other than `:rf/default` — registration
    is frame-local, and a harness driving its own frame gets no schemas at all
    unless it asks for these by name."
-  {[:auth]                 [:maybe AuthSlice]
-   [:auth :login-form]     [:maybe FormSlice]
-   [:auth :register-form]  [:maybe FormSlice]
-   [:settings-form]        [:maybe FormSlice]
+  {[:auth]                 AuthSlice
+   [:auth :login-form]     FormSlice
+   [:auth :register-form]  FormSlice
+   [:settings-form]        FormSlice
    ;; Present only while a settings save is on the wire: the username it was
    ;; issued as, written by `:settings/submit` and retired by
-   ;; `:settings/replied`. `[:maybe :string]` because an absent slot reads nil,
-   ;; and nil is the answer `owns-session?` refuses.
+   ;; `:settings/replied`. `:maybe` because `:settings/submit` writes
+   ;; `(auth/session-owner db)`, which is nil when nobody is signed in — the
+   ;; answer `owns-session?` refuses.
    [:settings-save-owner]  [:maybe :string]})
 
 (rf/with-frame :rf/default

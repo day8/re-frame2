@@ -50,12 +50,7 @@
                       :state        :waiting
                       :delay-key    5000
                       :epoch        1
-                      :server?      false}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :waiting :delay 5000 :epoch 1 :delay-source :literal}}
-    {:operation :rf.machine/transition
-     :tags      {:from :idle :to :waiting}}]}
+                      :server?      false}]]}
 
   ;; Step 2: the synthetic timer-elapsed event at the resolved 5000 ms fires
   ;; the :on-timeout transition; the snapshot lands at :timed-out; the
@@ -73,9 +68,4 @@
    :expect-next-snapshot {:state :timed-out :data {:rf/after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:waiting]}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/fired
-     :tags      {:state :waiting :delay 5000 :epoch 1 :fired? true}}
-    {:operation :rf.machine/transition
-     :tags      {:from :waiting :to :timed-out}}]}]}
+                      :rf/invoke-id [:waiting]}]]}]}

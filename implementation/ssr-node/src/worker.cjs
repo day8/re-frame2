@@ -44,30 +44,26 @@
 // still refused rather than queued: a guard that trusts its one caller is
 // a guard that stops holding the day a second caller appears.
 //
-// ## `emit` IS THE MODULE'S ONLY WAY OUT, AND THIS FILE IS WHERE THAT IS TRUE
+// ## THE RETURNED STRING IS THE MODULE'S ONLY WAY OUT, AND THIS FILE IS WHERE THAT IS TRUE
 //
 // Everything else in this package can only carry what this file posts, so
 // the topology — *Node returns the body markup, and nothing else* — is
-// enforceable in exactly one place and it is here. The `complete` message
-// below is built from counters and clocks this file owns; the render
-// module's return value contributes nothing to it and cannot.
+// enforceable in exactly one place and it is here. `render` returns the
+// body markup as a string, or a promise of one. That string is the `html`
+// of the `complete` message below, and every other field on it is a clock
+// this file owns.
 //
-// It is REFUSED rather than dropped, and that distinction matters. A return
-// value forwarded to the caller — as `meta`, say — over an HTTP transport
-// that happens not to serialise it would look fine, with "the current
-// transport drops it" silently standing in for a guarantee, while the
-// in-process `renderFrames`/`renderToString` API, and any future socket or
-// pipe adapter, carried it in full. A channel that is quietly discarded is
-// a channel someone restores later because nothing appeared to be using
-// it. A channel that refuses is a channel that stays closed.
+// Anything other than a string is REFUSED rather than coerced or dropped,
+// and that distinction matters. A returned object forwarded to the caller —
+// as `meta`, say — over an HTTP transport that happens not to serialise it
+// would look fine, with "the current transport drops it" silently standing
+// in for a guarantee, while the in-process `renderToString` API, and any
+// future socket or pipe adapter, carried it in full. `String()` would
+// publish whatever the object prints as. A channel that refuses is a
+// channel that stays closed.
 
 const { parentPort, workerData } = require('node:worker_threads');
-const {
-  CODE,
-  validateModule,
-  MODULE_RETURN_REFUSAL,
-  RENDER_THREW_REFUSAL,
-} = require('./protocol.cjs');
+const { CODE, validateModule, RENDER_THREW_REFUSAL } = require('./protocol.cjs');
 
 const postMessage = (message) => parentPort.postMessage(message);
 
@@ -143,15 +139,7 @@ function boot() {
   postMessage({
     t: 'ready',
     buildId: renderModule.buildId,
-    entries: Object.fromEntries(
-      Object.entries(renderModule.entries).map(([entryId, entryConfig]) => [
-        entryId,
-        {
-          stateAllowlist: [...entryConfig.stateAllowlist],
-          runtimeAllowlist: [...entryConfig.runtimeAllowlist],
-        },
-      ]),
-    ),
+    entries: [...renderModule.entries],
   });
 }
 
@@ -168,21 +156,6 @@ async function handleRender(renderId, request) {
   }
   busy = true;
 
-  let chunkSeq = 0;
-  let emittedMarkup = false;
-  const emit = (html) => {
-    if (typeof html !== 'string') {
-      throw new TypeError(
-        `emit() takes body markup as a string; got ${Object.prototype.toString.call(html)}`,
-      );
-    }
-    emittedMarkup = true;
-    // Straight out, unjoined and unbuffered. A chunk held here so that
-    // the isolate could hand back "the body" would be exactly the
-    // one-complete-string assumption this protocol exists without.
-    postMessage({ t: 'chunk', id: renderId, seq: chunkSeq++, html });
-  };
-
   // Frozen before the module sees it — see the header; both partitions,
   // because each is a snapshot of the same settled frame. The request
   // object itself is frozen too, so a module cannot rewrite its own entry
@@ -198,72 +171,39 @@ async function handleRender(renderId, request) {
 
   const renderStartedAtNs = process.hrtime.bigint();
   try {
-    // `await` even for a synchronous module: a module that returns a
-    // promise is the streaming shape's, and the deadline governs both
-    // identically because it is the PARENT's timer.
-    // Not defaulted. `undefined` is the contract's own answer here and
-    // coercing it to `{}` would erase the difference between a module
-    // that returned nothing and one that returned an empty object — which
-    // is precisely the difference the egress door below is checking.
-    const moduleReturnValue = await renderModule.render(renderCall, emit);
+    // `await` even for a synchronous module, so a module that returns a
+    // promise of its body is governed identically — the deadline is the
+    // PARENT's timer, and it reaches both.
+    const html = await renderModule.render(renderCall);
     const renderMs = Number(process.hrtime.bigint() - renderStartedAtNs) / 1e6;
-
-    if (!emittedMarkup) {
-      postMessage({
-        t: 'error',
-        id: renderId,
-        code: CODE.RENDER_THREW,
-        message: 'the render module returned without emitting any body markup',
-        detail: { entry: request.entry },
-      });
-      return;
-    }
 
     // THE EGRESS DOOR. See the header.
     //
-    // Discoverable only after the render, so a module that both emitted
-    // and returned produces a TORN response rather than a clean refusal —
-    // `afterChunks` says so and the transport is required to treat it as
-    // unpresentable. That is the honest outcome: the bytes really did
-    // leave, and the alternative is serving a page from a module whose
-    // contract this service does not hold.
+    // A string is the whole of the accepted set — the empty string
+    // included, because an empty body is a body. `undefined` (a function
+    // that fell off its end), `null`, a number, an object and a promise of
+    // any of those are refused alike.
     //
-    // `undefined` IS THE WHOLE OF THE ACCEPTED SET, and `null` is not in
-    // it. A function that falls off its end returns `undefined`; every
-    // other value arriving here was typed by someone, and `return null`
-    // most of all — it is the spelling a render module reaches for to
-    // mean "nothing to say", which is the sentence `emit` has already
-    // finished. So admitting `null` would admit the one value most likely
-    // to actually arrive. A door with a single exception is not
-    // fail-closed, it is fail-closed EXCEPT, and this exception would sit
-    // on the most probable path rather than an exotic one.
-    //
-    // The refusal names the SHAPE and never the value. A diagnostic that
-    // echoed what the module tried to return would be the same egress
-    // wearing a different frame type.
-    if (moduleReturnValue !== undefined) {
+    // The refusal names the TYPE TAG and never the value. A diagnostic that
+    // echoed what the module returned would be the same egress wearing a
+    // different message type.
+    if (typeof html !== 'string') {
       postMessage({
         t: 'error',
         id: renderId,
         code: CODE.RENDER_THREW,
-        message: MODULE_RETURN_REFUSAL,
+        message: 'the render module returned no body markup: `render` must return a string, or a promise of one',
         detail: {
           entry: request.entry,
-          returned: Object.prototype.toString.call(moduleReturnValue),
+          returned: Object.prototype.toString.call(html),
         },
-        afterChunks: chunkSeq,
       });
       return;
     }
 
-    // Counters and clocks this file owns, and nothing else. There is no
-    // field here for the module to fill in, which is the point.
-    postMessage({
-      t: 'complete',
-      id: renderId,
-      chunks: chunkSeq,
-      renderMs,
-    });
+    // The body, and a clock this file owns. There is no field here for the
+    // module to fill in beyond its markup, which is the point.
+    postMessage({ t: 'complete', id: renderId, html, renderMs });
   } catch (err) {
     // THE EXCEPTION DOOR, and it is the same door as the egress door
     // above — a render module leaves this isolate by returning or by
@@ -289,8 +229,8 @@ async function handleRender(renderId, request) {
     //
     // So: one code, one wording, and a `detail` this file builds. The
     // `entry` is the caller's own identifier handed back — the same
-    // reasoning `requestId` gets on the `complete` frame — and
-    // `afterChunks` is counted here. Neither originates in the module.
+    // reasoning `requestId` gets on the `complete` frame — and it does not
+    // originate in the module.
     //
     // NOTHING IS LOST BY IT, because a refusal is not where an operator
     // reads a stack anyway. The real exception goes to stderr below, in
@@ -303,16 +243,11 @@ async function handleRender(renderId, request) {
       message: RENDER_THREW_REFUSAL,
       detail: { entry: request.entry },
       // NO `stack`, for the reason the boot path gives: the render
-      // receiver reads `code`, `message`, `detail` and `afterChunks`, so a
-      // stack posted here would cross the boundary only to be dropped — a
-      // path-bearing application trace serialised on every render throw,
-      // and a field that would make it look as though the trace reached
-      // the refusal. It does not, and the egress rows are why it must not.
-      // A caller that already received chunks cannot be told "instead of"
-      // any more, and this says so rather than pretending otherwise. The
-      // service turns a post-chunk failure into a torn response the
-      // transport must not present as complete.
-      afterChunks: chunkSeq,
+      // receiver reads `code`, `message` and `detail`, so a stack posted
+      // here would cross the boundary only to be dropped — a path-bearing
+      // application trace serialised on every render throw, and a field
+      // that would make it look as though the trace reached the refusal. It
+      // does not, and the egress rows are why it must not.
     });
   } finally {
     busy = false;
@@ -321,7 +256,7 @@ async function handleRender(renderId, request) {
 
 parentPort.on('message', (message) => {
   if (message && message.t === 'render') {
-    // Deliberately not awaited: `handleRender` posts its own frames, and an
+    // Deliberately not awaited: `handleRender` posts its own answer, and an
     // unhandled rejection here would be a second failure channel with no
     // request id on it.
     handleRender(message.id, message.request).catch((err) => {

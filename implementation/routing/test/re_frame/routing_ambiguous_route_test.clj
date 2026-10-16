@@ -245,11 +245,11 @@
 
 (deftest the-programmatic-url-door-projects-an-ambiguous-route-url
   ;; `[:rf.route/navigate {:url …}]` fails closed on an ambiguous route as the
-  ;; URL-driven door does, and reports the route-miss warnings for it (not the
-  ;; `:rf.error/no-such-handler` record, which is the URL-driven door's alone).
-  ;; Each warning carries the requested URL projected as that record is.
+  ;; URL-driven door does, and reports the same route miss: the always-on
+  ;; `:rf.error/no-such-handler` record, and on the trace bus that error and
+  ;; the route-miss warnings, each carrying the requested URL projected.
   (with-recorded-errors
-    (fn [_seen]
+    (fn [seen]
       (register-sensitive-routes-in! 'probe.routes-a)
       (rf/make-frame {:id :probe/frame})
       (register-sensitive-routes-in! 'probe.routes-b)
@@ -258,14 +258,20 @@
                        [:rf.route/navigate {:url (str "/reset/" path-secret "?plain=x")}])]
           (is (= :rf.route/not-found (current-route-id :probe/frame))
               "the navigation fails closed")
+          (is (= ["/reset/rf%2Fredacted?plain=rf/redacted"] (mapv :url (route-misses @seen)))
+              "the always-on route-miss record carries the URL redacted")
           (when rf.interop/debug-enabled?
-            (is (= #{[:rf.warning/malformed-url "/reset/rf%2Fredacted?plain=rf/redacted"]
+            (is (= #{[:rf.error/no-such-handler "/reset/rf%2Fredacted?plain=rf/redacted"]
+                     [:rf.warning/malformed-url "/reset/rf%2Fredacted?plain=rf/redacted"]
                      [:rf.warning/no-not-found-route "/reset/rf%2Fredacted?plain=rf/redacted"]}
                    (route-miss-urls traces))
-                "both route-miss warnings fire, each carrying the URL redacted"))))
+                "the route miss and both warnings fire, each carrying the URL redacted"))))
       (testing "control: a URL no route matches keeps its path"
+        (reset! seen [])
         (let [traces (dispatch-tracing!
                        [:rf.route/navigate {:url "/elsewhere/kept-segment?plain=x"}])]
+          (is (= ["/elsewhere/kept-segment?plain=rf/redacted"] (mapv :url (route-misses @seen))))
           (when rf.interop/debug-enabled?
-            (is (= #{[:rf.warning/no-not-found-route "/elsewhere/kept-segment?plain=rf/redacted"]}
+            (is (= #{[:rf.error/no-such-handler "/elsewhere/kept-segment?plain=rf/redacted"]
+                     [:rf.warning/no-not-found-route "/elsewhere/kept-segment?plain=rf/redacted"]}
                    (route-miss-urls traces)))))))))

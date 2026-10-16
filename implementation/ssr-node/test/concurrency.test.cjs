@@ -8,7 +8,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed, refusalOf, fixture } = require('./_support.cjs');
+const { withService, observed, refusalOf, fixture } = require('./_support.cjs');
 const { CODE } = require('../src/protocol.cjs');
 const { Isolate } = require('../src/isolate.cjs');
 
@@ -19,7 +19,7 @@ test('a pool of N under 2N concurrent requests never overlaps within an isolate'
   // 10 s admission timeout, so each is served the moment a release frees one.
   await withService('reference', { isolates: 3, admissionTimeoutMs: 10000 }, async (service) => {
     const results = await Promise.all(
-      Array.from({ length: 6 }, () => collect(service, req({ state: { ':todos': '[]', ':delay': '25' } }))),
+      Array.from({ length: 6 }, () => service.renderToString(req({ state: { ':todos': '[]', ':delay': '25' } }))),
     );
     assert.deepStrictEqual(results.map((r) => observed(r).overlapMax), Array(6).fill(1));
     const threads = new Set(results.map((r) => observed(r).threadId));
@@ -33,11 +33,11 @@ test('an isolate refuses a second dispatch outright', async () => {
   try {
     const first = isolate.render(
       { entry: 'app/root', state: { ':delay': '60' }, protocol: 1 },
-      { timeoutMs: 5000, onChunk: () => {} },
+      { timeoutMs: 5000 },
     );
     assert.strictEqual(isolate.busy, true);
     const err = await refusalOf(() =>
-      isolate.render({ entry: 'app/root', state: {}, protocol: 1 }, { timeoutMs: 5000, onChunk: () => {} }),
+      isolate.render({ entry: 'app/root', state: {}, protocol: 1 }, { timeoutMs: 5000 }),
     );
     assert.strictEqual(err.code, CODE.SERVICE_SATURATED);
     await first;
@@ -57,19 +57,18 @@ test('a post that THROWS leaves the isolate free, not stuck busy', async () => {
     const err = await refusalOf(() =>
       isolate.render(
         { entry: 'app/root', state: { ':route': Symbol('rf2-ey07') }, protocol: 1 },
-        { timeoutMs: 5000, onChunk: () => {} },
+        { timeoutMs: 5000 },
       ),
     );
     assert.ok(err, 'the render must fail — the request cannot cross the thread boundary');
     assert.strictEqual(isolate.busy, false, 'a post that threw must leave nothing in flight');
     assert.strictEqual(isolate.dead, false, 'and must not have cost the isolate its life either');
 
-    const chunks = [];
-    await isolate.render(
+    const after = await isolate.render(
       { entry: 'app/root', state: { ':todos': '[]' }, protocol: 1 },
-      { timeoutMs: 5000, onChunk: (frame) => chunks.push(frame) },
+      { timeoutMs: 5000 },
     );
-    assert.strictEqual(chunks.length, 1, 'the isolate must still serve the request after it');
+    assert.strictEqual(observed(after).entry, 'app/root', 'the isolate must still serve the request after it');
   } finally {
     await isolate.close();
   }
@@ -77,15 +76,15 @@ test('a post that THROWS leaves the isolate free, not stuck busy', async () => {
 
 test('a saturated pool REFUSES once its admission budget expires', async () => {
   await withService('reference', { isolates: 1, admissionTimeoutMs: 20 }, async (service) => {
-    const slow = collect(service, req({ state: { ':todos': '[]', ':delay': '250' } }));
+    const slow = service.renderToString(req({ state: { ':todos': '[]', ':delay': '250' } }));
     // Let the first request actually take the only isolate.
     await new Promise((r) => setTimeout(r, 30));
-    const err = await refusalOf(() => collect(service, req()));
+    const err = await refusalOf(() => service.renderToString(req()));
     assert.strictEqual(err.code, CODE.SERVICE_SATURATED);
     assert.strictEqual(err.detail.poolSize, 1);
     await slow;
-    const after = await collect(service, req());
-    assert.strictEqual(after.chunks.length, 1, 'saturation is back-pressure, not damage');
+    const after = await service.renderToString(req());
+    assert.strictEqual(observed(after).entry, 'app/root', 'saturation is back-pressure, not damage');
   });
 });
 
@@ -94,14 +93,14 @@ test('a full waiting line refuses the next caller at once rather than queueing i
   // budget here is ten seconds, so a refusal well inside it can only be the
   // line's length speaking, not its timer.
   await withService('reference', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    const slow = collect(service, req({ state: { ':todos': '[]', ':delay': '250' } }));
+    const slow = service.renderToString(req({ state: { ':todos': '[]', ':delay': '250' } }));
     await new Promise((r) => setTimeout(r, 30));
-    const queued = collect(service, req());
+    const queued = service.renderToString(req());
     await new Promise((r) => setTimeout(r, 10));
     assert.strictEqual(service.stats().waiting, 1, 'the second caller must be waiting in acquire()');
 
     const started = Date.now();
-    const err = await refusalOf(() => collect(service, req()));
+    const err = await refusalOf(() => service.renderToString(req()));
     const elapsed = Date.now() - started;
     assert.strictEqual(err?.code, CODE.SERVICE_SATURATED, 'a caller past a full waiting line must be refused, not queued');
     assert.strictEqual(err.detail.poolSize, 1);
@@ -109,6 +108,6 @@ test('a full waiting line refuses the next caller at once rather than queueing i
     assert.strictEqual(service.stats().waiting, 1, 'the refused caller must not have joined the line');
 
     await slow;
-    assert.strictEqual((await queued).chunks.length, 1, 'the caller already waiting is still served');
+    assert.strictEqual(observed(await queued).entry, 'app/root', 'the caller already waiting is still served');
   });
 });

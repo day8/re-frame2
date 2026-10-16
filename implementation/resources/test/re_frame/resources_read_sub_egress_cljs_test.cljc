@@ -140,10 +140,10 @@
             "the clear: the prior result stays redacted after its claims are gone"))
       (is (clean-windows? [settle clear] [token]) "no sub run in either window carries the secret"))))
 
-(deftest a-mutation-states-affected-keys-carry-their-owners-declarations
+(deftest a-mutation-states-affected-keys-carry-their-owners-claims
   (rf/reg-resource :acct/summary
     {:scope         :rf.scope/global
-     :sensitive     [[:params :acct]]
+     :sensitive?    true
      :params-schema [:map [:acct :string]]
      :tags          (fn [{:keys [acct]} _] #{[:summary acct]})}
     (fn [_ _] {:request {:method :get :url "/summary"}}))
@@ -170,6 +170,6 @@
         "control: the invalidated key is affected, raw in-process")
     (when rf.interop/debug-enabled?
       (let [k (first (:affected-keys (:rf.sub/value (last-run-tags state-q events))))]
-        (is (= [:acct/summary redacted false]
-               [(second k) (get-in k [2 :acct]) (carries? acct (sub-runs events))])
-            "the affected key carries its owner's declaration, the resource id riding")))))
+        (is (= [:acct/summary true false]
+               [(second k) (contains? (nth k 2) :rf/redacted) (carries? acct (sub-runs events))])
+            "the affected key carries its owner's coarse claim, the resource id riding")))))

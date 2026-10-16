@@ -466,7 +466,7 @@
   so `:advanced` + `goog.DEBUG=false` (and `-Dre-frame.debug=false` on the
   JVM) carries neither the call nor the reason string's literals. The elision
   probe pins the reason's distinctive tail ABSENT from the release bundle;
-  `scripts/test-core-prod-gate.sh` pins zero records under the JVM gate.
+  `clojure -M:test:prod-gate` in core pins zero records under the JVM gate.
 
   ## The record is BUILT FROM structural inputs, never filtered from `tags`
 
@@ -502,8 +502,9 @@
   text through this slot (see that fn's docstring for why the obvious
   host-side repairs are value-controlled too). The tag is what the
   unowned-error console fallback prints when
-  nothing owns the `:errors` stream: seventeen red lines each naming a
-  registered path and ending `got nil` is a self-diagnosing incident.
+  nothing owns the `:errors` stream: a red line naming a registered path and
+  ending `got string` says which slice a handler wrote with the wrong type
+  without printing the value.
 
   Reached through the `:error-emit/dispatch-error-record` late-bind hook, the
   general non-event union-record chokepoint — never a static require, which
@@ -833,14 +834,18 @@
         true)
       true)))
 
-(defn- unchanged-slice?
-  "True when `path` holds the same value in both dbs: present in each and
-  `identical?`. A commit leaves that slice as installed. An absent slice is
-  never unchanged."
+(defn- unchecked-slice?
+  "True when the commit has nothing at `path` to check: the candidate lacks
+  the path, or (given `db-before`) holds the same value there as the
+  installed db, present in each and `identical?`. A path schema constrains a
+  value only where its path exists — whether a key must exist is said by an
+  enclosing schema, usually the root `[]`, with required map entries. A
+  present `nil` is a value and is checked."
   [db-before db-after path]
   (let [after (get-in db-after path ::absent)]
-    (and (not= ::absent after)
-         (identical? after (get-in db-before path ::absent)))))
+    (or (= ::absent after)
+        (and (some? db-before)
+             (identical? after (get-in db-before path ::absent))))))
 
 (defn validate-app-schema!
   "Before a handler's :db installs, walk the named frame's registered
@@ -878,16 +883,21 @@
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
 
+  A registered path the candidate lacks is skipped in every arity: a path
+  schema constrains a value only where its path exists, and a key's
+  required presence is declared by an enclosing schema (usually the root
+  `[]`) with required map entries. A present value, `nil` included, is
+  checked.
+
   db-before (the 5-arity, and the shape the router's late-bind call uses —
   it invokes the hook as `(validate db-after event-id frame continue?
   db-before)`) is the app-db the candidate replaces. A registered path
   whose slice the candidate leaves `identical?` to it is skipped, because
-  this commit does not write it: a re-registration the live slice no
-  longer satisfies is named by `:rf.schema/violation` when it happens, and
-  the slice is checked again when an event writes it. A parent path is
-  still checked when a write lands beneath it, `[]` whenever the db
-  changed, and an absent slice on every call. Without db-before every
-  entry is checked.
+  this commit does not write it: a registration the live slice does not
+  satisfy is named by `:rf.schema/violation` when it happens, and the
+  slice is checked again when an event writes it. A parent path is still
+  checked when a write lands beneath it, and `[]` whenever the db changed.
+  Without db-before every present entry is checked.
 
   continue? (the 4- and 5-arity) is
   the exact-owner continuation predicate: between entries and around every
@@ -938,9 +948,8 @@
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
        ;; gate). Pass-state stays `true` only when every entry passed.
-        (loop [entries (seq (cond->> (rf.schemas.storage/frame-schema-entries frame-id)
-                              (some? db-before)
-                              (remove #(unchanged-slice? db-before db (key %)))))
+        (loop [entries (seq (remove #(unchecked-slice? db-before db (key %))
+                                    (rf.schemas.storage/frame-schema-entries frame-id)))
                ok?     true]
           (if-not (continue?)
             :rf/stale-incarnation

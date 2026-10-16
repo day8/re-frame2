@@ -52,21 +52,22 @@
 
 (def ^:private resource-owner #{{:source :resource}})
 
-(deftest reconcile-lowers-data-and-params-declarations
-  (reg! :profile/card {:sensitive [[:data :ssn] [:params :account-id]]
+(deftest reconcile-lowers-data-declarations
+  (reg! :profile/card {:sensitive [[:data :ssn]]
                        :large     [[:data :avatar-bytes]]
                        :params-schema [:map [:account-id :string] [:slug :string]]})
-  (let [k        (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card
+  (let [k        (rf.resources.state/scoped-resource-key [:rf.scope/session {:user-id "u-1"}]
+                                                         :profile/card
                                                          {:account-id "a-1" :slug "x"})
         k-id     (rf.resources.state/key-id k)
         out      (reconcile (runtime-db-with {k {:data {:ssn "x" :avatar-bytes "y"}}}))
         data-pre [:rf.runtime/resources :entries k-id :data]]
-    ;; a :params-rooted path lands on the scoped key's params component (index 2)
-    (is (= [resource-owner resource-owner resource-owner]
-           [(get (sensitive-decls out) (conj data-pre :ssn))
-            (get (sensitive-decls out) [:rf.runtime/resources :entries k-id :resource/key 2 :account-id])
-            (get-in out [:rf.runtime/elision :declarations (conj data-pre :avatar-bytes)])])
-        "each declaration is lowered at the entry's absolute path")))
+    (is (= {:sensitive {(conj data-pre :ssn) resource-owner}
+            :large     {(conj data-pre :avatar-bytes) resource-owner}}
+           {:sensitive (sensitive-decls out)
+            :large     (get-in out [:rf.runtime/elision :declarations])})
+        "each declaration is lowered at the entry's absolute :data path, and
+         nothing lowers under the scoped key: params and scope are identity")))
 
 (deftest reconcile-is-idempotent
   (reg! :profile/card2 {:sensitive [[:data :ssn]]})

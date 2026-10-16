@@ -8,13 +8,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed } = require('./_support.cjs');
+const { withService, observed } = require('./_support.cjs');
 
 const req = (state) => ({ protocol: 1, entry: 'app/root', state });
 
 test('the snapshot the module is handed is FROZEN, and a write to it throws', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const { frozen, mutationThrew, readTodos } = observed(await collect(service, req({ ':todos': '[1 2 3]' })));
+    const { frozen, mutationThrew, readTodos } = observed(await service.renderToString(req({ ':todos': '[1 2 3]' })));
     // The value read is the one sent, so the freeze did not hand it an empty object.
     assert.deepStrictEqual({ frozen, mutationThrew, readTodos }, { frozen: true, mutationThrew: true, readTodos: '[1 2 3]' });
   });
@@ -23,7 +23,7 @@ test('the snapshot the module is handed is FROZEN, and a write to it throws', as
 test('the caller’s own object is untouched by a render', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const state = { ':todos': '[1]' };
-    await collect(service, req(state));
+    await service.renderToString(req(state));
     assert.deepStrictEqual([state, Object.isFrozen(state)], [{ ':todos': '[1]' }, false]);
   });
 });
@@ -33,8 +33,8 @@ test('two concurrent requests do not leak into one another, in either direction'
   await withService('reference', { isolates: 2 }, async (service) => {
     const [a, b] = (
       await Promise.all([
-        collect(service, req({ ':todos': '"AAA"', ':route': '{:name :a}', ':delay': '30' })),
-        collect(service, req({ ':todos': '"BBB"', ':route': '{:name :b}', ':delay': '30' })),
+        service.renderToString(req({ ':todos': '"AAA"', ':route': '{:name :a}', ':delay': '30' })),
+        service.renderToString(req({ ':todos': '"BBB"', ':route': '{:name :b}', ':delay': '30' })),
       ])
     ).map(observed);
     assert.notStrictEqual(a.threadId, b.threadId, 'the two renders must have run in different isolates');
@@ -50,9 +50,9 @@ test('two concurrent requests do not leak into one another, in either direction'
 
 test('a key omitted from a request is absent, not inherited from the last one', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const first = await collect(service, req({ ':todos': '"kept"', ':route': '{:name :x}' }));
+    const first = await service.renderToString(req({ ':todos': '"kept"', ':route': '{:name :x}' }));
     assert.strictEqual(observed(first).readRoute, '{:name :x}');
-    const second = await collect(service, req({ ':todos': '"kept"' }));
+    const second = await service.renderToString(req({ ':todos': '"kept"' }));
     assert.strictEqual(observed(second).readRoute, null, 'the previous route must not persist');
   });
 });
@@ -61,8 +61,8 @@ test('the module boots once per isolate, not once per request', async () => {
   // The fixture counts boots on the isolate's own global, which a
   // per-request re-require would not reset.
   await withService('reference', { isolates: 1 }, async (service) => {
-    const a = observed(await collect(service, req({ ':todos': '[]' })));
-    const b = observed(await collect(service, req({ ':todos': '[]' })));
+    const a = observed(await service.renderToString(req({ ':todos': '[]' })));
+    const b = observed(await service.renderToString(req({ ':todos': '[]' })));
     assert.strictEqual(a.threadId, b.threadId, 'one isolate served both');
     assert.strictEqual(b.boots, 1, 'a second boot by the time of the second render is a per-request boot');
   });

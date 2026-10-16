@@ -2626,27 +2626,6 @@ test('every route-path census app-root arms implementation_jvm (rf2-w9ip)', () =
   }
 });
 
-// Each production-gate roster script's `known_red` array decides which
-// namespaces its `jvm-*-prod-gate` job runs, so an edit widening the
-// exclusions removes coverage unless that edit itself schedules the job. Every
-// `jvm-*-prod-gate` job is gated on implementation_jvm.
-const PROD_GATE_ROSTER_SCRIPTS = pinnedRoster('PROD_GATE_ROSTER_SCRIPTS', [
-  'scripts/test-core-prod-gate.sh',
-  'scripts/test-routing-prod-gate.sh',
-  'scripts/test-ssr-prod-gate.sh',
-  'scripts/test-epoch-prod-gate.sh',
-]);
-
-test('each production-gate roster script, edited alone, arms implementation_jvm', () => {
-  for (const file of PROD_GATE_ROSTER_SCRIPTS) {
-    assert.equal(
-      classify(file).implementation_jvm,
-      'true',
-      `${file} is a jvm-*-prod-gate job's roster: editing it alone must schedule that job`,
-    );
-  }
-});
-
 // ---------------------------------------------------------------------------
 // NON-LOCAL INPUT EDGES ARM THE JOB THAT READS THEM.
 //

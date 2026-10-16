@@ -41,7 +41,7 @@
 (use-fixtures :each reset-runtime)
 
 ;; Every deftest is ^:requires-debug: emit! is a no-op under
-;; -Dre-frame.debug=false (see scripts/test-core-prod-gate.sh).
+;; -Dre-frame.debug=false (see the `:prod-gate` alias in deps.edn).
 
 (defn- valid-envelope? [ev]
   (and (integer? (:id ev))

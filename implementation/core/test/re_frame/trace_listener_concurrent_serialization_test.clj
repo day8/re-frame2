@@ -30,7 +30,7 @@
       2000))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug per-listener-callback-never-overlaps-across-concurrent-emits
   ;; Listener L latches inside its callback for A (thread t1) while B is

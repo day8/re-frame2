@@ -2930,6 +2930,13 @@ a demotion of the Reagent, reagent-slim and UIx adapters: they stay supported,
 and they remain the standing comparator every Fresco measurement is taken
 against ([HD-012](#hd-012--the-bar-and-uixs-role-in-it)).
 
+> **Superseded in part, 2026-10-16 (`rf2-34jhz`).** The reagent-slim clause of
+> (b) is superseded: reagent-slim is retired before the first tag, and its
+> adapter kind is reserved and never recycled, as recorded in
+> [EP-0030 §Resolved Decisions](../../EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions).
+> The Reagent and UIx adapters are unaffected: they stay first-class and remain
+> the standing comparator.
+
 **(c) The held K1 price is accepted, and the amendment is ratified by this
 ruling rather than by a sitting.** Graduating *as a success* with the canonical
 K1 record on the table is the operator's acceptance of the price that record

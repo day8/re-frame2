@@ -32,7 +32,6 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.performance :as rf.performance
              #?@(:cljs [:include-macros true])]
-            [re-frame.privacy :as rf.privacy]
             [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
@@ -1054,11 +1053,6 @@
   (production-observability shippers) are not mis-fed the event id for an
   interceptor failure.
 
-  Schema-derived redaction is reflected in the `:tags :event` slot:
-  when the handler's path-scoped db slice overlaps a sensitive schema
-  slot, the router-installed redaction interceptor stores the scrubbed
-  event form under `:rf/redacted-event`; this helper surfaces it.
-
   The always-on corpus-wide listener registry — and, through it, the
   frame-owned `:observability :errors` sinks that off-box shippers (Sentry /
   Honeybadger / Rollbar) consume — MUST fire even when the trace surface is
@@ -1076,7 +1070,7 @@
         ;; nil-safe extractor — a thrown non-Error value (legal in
         ;; CLJS) has no `.-message`, so a raw read would silently nil the slot.
         msg        (rf.error/ex-message-safe exception)
-        emit-event (rf.privacy/redacted-event-from-ctx ctx)
+        emit-event (rf.interceptor/get-coeffect ctx :event)
         end-ms     (rf.interop/now-ms)
         elapsed-ms (elapsed-ms-from start-ms end-ms)
         {:keys [operation failing-id reason]}
@@ -1453,9 +1447,6 @@
   flow-derived db, and the change trace fires AFTER `:rf.flow/computed`
   (per Spec 009 §Canonical per-event trace sequence).
 
-  Schema-derived redaction is reflected in the change traces' `:tags :event`
-  slot via `rf.privacy/redacted-event-from-ctx`.
-
   On rejection the caller (`commit-and-flow!`) restores ONLY the transient
   flow bookkeeping (`restore-flow-snapshots!` — the flow transform advanced
   each computed flow's dirty-check row inside the chain for a write that
@@ -1505,7 +1496,7 @@
     (if-not (rf.frame/event-continuation-live? frame owner-token)
       ::stale-incarnation
       (if (or app-effect? rt-effect? class-effect?)
-      (let [emit-event (rf.privacy/redacted-event-from-ctx ctx)
+      (let [emit-event (rf.interceptor/get-coeffect ctx :event)
             ;; A whole-value `:rf.db/runtime` effect REPLACES the
             ;; runtime-db partition (decision #5), but the elision declaration
             ;; registry at `[:rf.runtime/elision]` is a CROSS-CUTTING durable
@@ -1809,10 +1800,8 @@
             ;; `:rf.event/run-end` / `:rf.event/db-changed`; tests like
             ;; `inv-6-frame-created-not-folded-into-next-epoch` assert
             ;; every event-family trace in an epoch carries the
-            ;; epoch's `:rf.event/v`). Read the redacted event from
-            ;; ctx so schema-sensitive event payloads ride the same
-            ;; scrubbed value the rest of the family does.
-            emit-event  (when has-db? (rf.privacy/redacted-event-from-ctx ctx))
+            ;; epoch's `:rf.event/v`).
+            emit-event  (when has-db? (rf.interceptor/get-coeffect ctx :event))
             event-id    (when has-db? (some-> emit-event first))
             ;; t1 / t2 stamp the pending db BEFORE the commit
             ;; folds this event's EP-0025 classification effects into the
@@ -1910,7 +1899,7 @@
               ;; the attribution-event lazily so the no-handler-`:db`
               ;; case still carries it.
               (when (not (identical? new-db pending-db))
-                (let [t2-event   (or emit-event (rf.privacy/redacted-event-from-ctx ctx))
+                (let [t2-event   (or emit-event (rf.interceptor/get-coeffect ctx :event))
                       t2-evt-id  (or event-id (some-> t2-event first))]
                    (rf.trace/emit! :rf.event :rf.event/db-pending-post-flow
                                (cond-> {:rf.trace/event-id t2-evt-id
@@ -2457,22 +2446,6 @@
                           (if (rf.interceptor-registry/chain-needs-resolution? overridden-chain)
                             (rf.interceptor-registry/resolve-chain overridden-chain live?)
                             overridden-chain))
-        ;; The frame-declared sensitive-path overlap with the chain's
-        ;; `:path` slices. It feeds both the in-chain schema-redaction
-        ;; interceptor and the OUT-OF-CHAIN projection (`:emit-event`) that
-        ;; emit sites firing BEFORE the chain read (`:run-start`,
-        ;; `emit-pipeline-trailers`).
-        redaction-result (when (and (live?) (some? base-chain))
-                           (call-while-exact-owner
-                             frame owner-token
-                             #(rf.privacy/schema-redaction-paths frame base-chain)))
-        redaction-paths (when-not (= ::stale-incarnation redaction-result)
-                          redaction-result)
-        redacted-chain  (if (seq redaction-paths)
-                          (into [(rf.privacy/schema-redaction-interceptor
-                                   redaction-paths)]
-                                base-chain)
-                          base-chain)
         ;; Per Spec 013 §Drain integration: PREPEND the
         ;; framework's flow-transform interceptor at the HEAD of the
         ;; dispatch-time chain so its `:after` is the OUTERMOST `:after`
@@ -2490,7 +2463,7 @@
         ;; meta chain so tooling that reads `(handler-meta :event id)
         ;; :interceptors` still sees the user-authored chain with the
         ;; handler-wrapper at its tail.
-        full-chain      (into [flows-after-interceptor] redacted-chain)
+        full-chain      (into [flows-after-interceptor] base-chain)
         initial-result  (when (and (live?) (some? base-chain))
                           (call-while-exact-owner
                             frame owner-token
@@ -2513,20 +2486,7 @@
      ;; already removed/replaced), so the matcher must walk `prepended-chain`.
      ;; Pure + feeds only the dev-only run-start emit, so it DCEs in
      ;; `:advanced` production.
-     :override-summary (override-summary prepended-chain icpt-overrides)
-     :emit-event   (if (seq redaction-paths)
-                     (rf.privacy/redact-event (:event envelope) redaction-paths)
-                     (:event envelope))
-     ;; `:schema-sensitive?` (named like the `schema-redaction-paths` fn
-     ;; it derives from — see `re-frame.privacy` — though neither is
-     ;; schema-derived) strictly tracks the CLASSIFIED sensitive
-     ;; path overlap (EP-0025 — the per-frame sensitive-declarations
-     ;; registry written by the commit-plane classification effects, not
-     ;; schema-attached slot props nor a frame annotation). It
-     ;; drives the scope-meta `:sensitive?` stamp on every emitted trace
-     ;; event. Sensitivity is path-marked via the frame's app-db
-     ;; classification (there is no handler-meta annotation).
-       :schema-sensitive? (boolean (seq redaction-paths))})))
+     :override-summary (override-summary prepended-chain icpt-overrides)})))
 
 (defn- run-chain
   "Execute the interceptor chain bracketed in performance marks. When
@@ -2891,7 +2851,7 @@
                                 record, surfaced through generic trace
                                 inspection; its `:db` values are
                                 classified like `:rf.event/db`."
-  [event-id event emit-event frame outcome start-ms handler-elapsed-ms final-ctx]
+  [event-id event frame outcome start-ms handler-elapsed-ms final-ctx]
   ;; The cofx / after-delta projections are dev-only: their cost rides
   ;; `rf.interop/debug-enabled?` so production CLJS bundles DCE the
   ;; projection AND the `rf.trace/emit!` body below (the emit itself is
@@ -2906,7 +2866,7 @@
                            (not-empty (:rf/interceptor-after-deltas final-ctx)))]
         (rf.trace/emit! :rf.event :rf.event/run-end
                      (cond-> {:rf.trace/event-id event-id
-                              :rf.event/v        emit-event
+                              :rf.event/v        event
                               :frame             frame
                               :rf.trace/phase    :run-end}
                        (some? handler-elapsed-ms)
@@ -2936,7 +2896,7 @@
           (when emit-event!
             (call-while-exact-owner
               frame owner-token
-              #(emit-event! emit-event event-id frame end-ms outcome elapsed-ms)))
+              #(emit-event! event event-id frame end-ms outcome elapsed-ms)))
           (when (and (live?) route-handled!)
             ;; The effect keys the cascade produced (`final-ctx`'s
             ;; `:effects` map keys) ride the handled-event record's
@@ -2950,6 +2910,7 @@
                 #(route-handled! event
                                  event-id
                                  frame
+                                 end-ms
                                  outcome
                                  elapsed-ms
                                  effects
@@ -2963,9 +2924,7 @@
   Publish the event handler's HandlerScope —
   `:trigger-handler` (on both the error and the success path) so
   every trace emitted inside the cascade carries the triggering
-  handler's source-coord; `:sensitive?` so emits inside the
-  scope get a top-level `:sensitive? true` stamp per Spec 009 §Privacy;
-  `:no-emit?` so trace emission short-circuits when the
+  handler's source-coord; `:no-emit?` so trace emission short-circuits when the
   handler opts out. `:call-site` and `:dispatch-id` are inherited from
   the parent scope (bound by `process-event!` outer wrapper) per
   `inherit-scope`. Scope covers the interceptor chain, db commit, flows,
@@ -2988,8 +2947,7 @@
     (rf.frame/current-event-owner-allows-closing?)
     envelope
     (fn []
-      (let [{:keys [full-chain initial-ctx fx-overrides emit-event
-                schema-sensitive? override-summary]}
+      (let [{:keys [full-chain initial-ctx fx-overrides override-summary]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)
         ;; Mark the envelope handed to `do-fx` when THIS handler is a machine
         ;; (its registration meta carries `:rf/machine? true`, stamped by
@@ -3001,18 +2959,11 @@
         ;; handler kind (Spec 002 §Run-to-completion).
         envelope   (cond-> envelope
                      (:rf/machine? handler-meta)
-                     (assoc ::rf.fx/machine-emitter? true))
-        ;; The classification-derived `:rf/sensitive?` key (from
-        ;; `:schema-sensitive?`) drives the scope's `:sensitive?`
-        ;; trace-event stamp (read by `handler-scope-from-meta`).
-        ;; Path-marked via the frame's app-db classification; there is no
-        ;; handler-meta `:sensitive?` annotation.
-        scope-meta (cond-> handler-meta
-                     schema-sensitive? (assoc :rf/sensitive? true))]
+                     (assoc ::rf.fx/machine-emitter? true))]
     (when (rf.frame/event-continuation-live?
             frame (rf.frame/current-event-owner-token))
       (rf.trace/with-handler-scope
-      (rf.trace/handler-scope-from-meta :event event-id scope-meta)
+      (rf.trace/handler-scope-from-meta :event event-id handler-meta)
       (let [start-ms  (rf.interop/now-ms)
             ;; The POST-GENERATION flat `:rf.cofx` replay token:
             ;; the causal cofx map AS IT WAS after `assemble-initial-ctx`'s
@@ -3063,7 +3014,7 @@
                                    ;; `:rf.view/render-args`), but the id/count
                                    ;; VALUES are constructed only here and DCE.
                                    (cond-> {:rf.trace/event-id event-id
-                                            :rf.event/v        emit-event
+                                            :rf.event/v        event
                                             :frame             frame
                                             :source            (:source envelope)
                                             :rf.trace/trace-id (:trace-id envelope)
@@ -3137,7 +3088,7 @@
             (call-while-exact-owner
               frame (rf.frame/current-event-owner-token)
               #(emit-boundary-rejection-record! event-id frame)))
-          (emit-pipeline-trailers! event-id event emit-event frame outcome
+          (emit-pipeline-trailers! event-id event frame outcome
                                   start-ms handler-elapsed-ms final-ctx)))))))))
 
 (defn- process-event*

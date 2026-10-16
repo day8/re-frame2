@@ -118,8 +118,12 @@
 
   Returns [resolved-ms reaction-or-nil]. The reaction is non-nil only for
   subscription-vector delays; the caller installs an add-watch on it to
-  trigger re-resolution."
-  [frame-id delay-key snapshot]
+  trigger re-resolution.
+
+  A throwing resolver's error row names the owning actor under `:actor-id`,
+  like every machine row, so the machine's classification governs its
+  exception text."
+  [frame-id actor-id delay-key snapshot]
   (cond
     (number? delay-key)
     [delay-key nil]
@@ -139,6 +143,7 @@
                  (catch #?(:clj Throwable :cljs :default) e
                    (rf.trace/emit-error! :rf.error/machine-after-fn-threw
                                       {:exception e
+                                       :actor-id  actor-id
                                        :frame     frame-id
                                        :recovery  :skipped})
                    nil))]
@@ -155,6 +160,7 @@
                             ;; (+ `:rf.sub/query-v` for the full vector).
                             (rf.trace/emit-error! :rf.error/machine-after-sub-threw
                                                {:exception      e
+                                                :actor-id       actor-id
                                                 :rf.sub/id      (first delay-key)
                                                 :rf.sub/query-v (vec delay-key)
                                                 :frame          frame-id
@@ -684,7 +690,7 @@
       nil
 
       :else
-      (let [[resolved-ms reaction] (resolve-delay-ms frame-id delay-key snapshot)]
+      (let [[resolved-ms reaction] (resolve-delay-ms frame-id parent-id delay-key snapshot)]
         (cond
           ;; Delay resolution is itself callback-bearing: a
           ;; fn-form delay reading a sub through `compute-sub` emits a

@@ -141,16 +141,15 @@ Two elision layers compose:
    no scope, resource-id or params at all (rf2-497rv7).
 
    The per-slot declaration match happens at the entry's ABSOLUTE
-   runtime-db coordinate, rooted at the entry's `key-id` (rf2-aw9cfs):
-   `[:rf.runtime/resources :entries <key-id> :data …]` for `:data` /
-   `:error` / `:refresh-error`, and `[… :resource/key 2 …]` / `[…
-   :resource/key 0 …]` for params / scope (the scoped key is `[scope
-   resource-id params]`) — mirroring exactly where the resources artefact's
-   own per-instance lowering (`re-frame.resources.classification/
-   reconcile-registry`) writes a resource's declared `:sensitive?` /
-   `:large?` slots. A slot-only path (omitting `<key-id>`) never matches a
-   real lowered declaration, so a declared-sensitive resource would
-   silently ride raw.
+   runtime-db coordinate, rooted at the entry's `key-id`:
+   `[:rf.runtime/resources :entries <key-id> <slot>]` — mirroring exactly
+   where the resources artefact's own per-instance lowering
+   (`re-frame.resources.classification/reconcile-registry`) writes a
+   resource's declared `:data` slots. A resource declares nothing under its
+   scope or params — they are its identity, not a classified slot — so the
+   local operator sees them on-box. A slot-only path (omitting `<key-id>`)
+   never matches a real lowered declaration, so a declared-sensitive
+   resource would silently ride raw.
 
 3. **Per-slot egress for the TRACE-borne projections**
    (`lifecycle-timeline` / `invalidation-graph`, rf2-e0mq7a). These two
@@ -669,8 +668,8 @@ on-box render threads its own payload-egress fn
 (`resources/on-box-resource-egress-fn`, rf2-9zix0u) through the same
 `instance-row` / `lifecycle-timeline` / `invalidation-graph` parameters,
 re-rooting each slot to the same absolute runtime-db coordinate
-(`h/resource-payload-path-suffix`) so the registry's lowered
-`:sensitive?` / `:large?` declarations match.
+(`h/slot-egress-path`) so the registry's lowered `:sensitive` / `:large`
+declarations match.
 
 The key-axis filter helpers that served those accessors went too
 (rf2-y8doi.15): `scoped-key-matches?`, `filter-instance-rows`,

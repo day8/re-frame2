@@ -914,7 +914,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 | `:rf.epoch/*` | `:error` | Epoch-history restore failures (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) |
 | `:rf.http/*` | `:warning` / `:info` | Managed-HTTP advisories (key-ignored-on-jvm, retry-attempt) per [014](014-HTTPRequests.md) |
 | `:rf.route.nav-token/*` | `:error` | Stale-result-suppression on async navigation (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)) |
-| `:rf.frame/<operation>` | `:frame` | Frame-lifecycle trace operations emitted by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`) per [002](002-Frames.md). |
+| `:rf.frame/<operation>` | `:rf.frame` | Frame-lifecycle trace operations emitted by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`) per [002](002-Frames.md). |
 | `:rf.frame/<gensym>` | n/a | Identifier namespace, NOT a trace-operation prefix — anonymous frame ids minted by `make-frame` (e.g. `:rf.frame/123`). Carried as the value of the `:frame` key on trace events, never as the `:operation`. Listed here so consumers parsing operation namespaces don't mis-route a gensym'd frame id as an operation. |
 
 ### Per-category `:tags` schemas
@@ -2316,7 +2316,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:rf.fx/args :any]
    [:frame      {:optional true} :keyword]])
 
-;; --- frame-lifecycle event (op-type :frame, not error/warning) ---
+;; --- frame-lifecycle event (op-type :rf.frame, not error/warning) ---
 
 (def DrainInterruptedTags
   [:map
@@ -2365,62 +2365,7 @@ The key is namespaced under `:rf/`, so user-installed interceptors that read or 
 > **Owner:** [spec/conformance/README](conformance/README.md)
 > **Status:** v1-required (conformance corpus)
 
-Conformance-corpus event/sub/view handler bodies are described as data so any in-scope host (per [§Scope](#scope)) can interpret them without shipping CLJS lambdas. The DSL is a small fixed vocabulary of operations the harness in each host implements. Grammar:
-
-```clojure
-(def HandlerBodyOp
-  [:or
-   ;; --- db / context manipulation ---
-   [:tuple [:= :set]               [:vector :any] :any]                  ;; [:set path value]
-   [:tuple [:= :update]            [:vector :any] :any]                  ;; [:update path fn-spec]    -- fn-spec is e.g. [:fn :inc]
-   [:tuple [:= :merge-into-db]     :map]                                  ;; [:merge-into-db {...}]
-   [:tuple [:= :get]               [:vector :any]]                       ;; [:get path]               -- read; used in sub bodies / preds
-   ;; --- event / cofx access ---
-   [:tuple [:= :event-arg]         :int]                                 ;; [:event-arg N]                     -- the Nth element of the event vector
-   [:tuple [:= :event-arg]         :int :any]                            ;; [:event-arg N default]             -- the Nth element; default returned when the element is nil (default-for-nil; never type-dispatched)
-   [:tuple [:= :get-event-arg]     :int :keyword]                        ;; [:get-event-arg N :key]            -- (get (nth event N) :key)
-   [:tuple [:= :get-event-arg]     :int :keyword :any]                   ;; [:get-event-arg N :key default]    -- key-access with default if missing/nil
-   [:tuple [:= :cofx-without]      :keyword]                             ;; [:cofx-without :db]       -- assert :db absent (test fixture)
-   ;; --- effects / dispatch ---
-   [:tuple [:= :dispatch]          [:vector :any]]                       ;; [:dispatch [:event ...]]
-   [:tuple [:= :fx]                [:vector :any]]                       ;; [:fx [[fx-id args] ...]]  -- explicit effect-map :fx slot
-   ;; --- view / sub return shapes ---
-   [:tuple [:= :hiccup]            [:vector :any]]                       ;; [:hiccup [...]]           -- view body returning hiccup
-   ;; --- inline fn references ---
-   [:tuple [:= :fn]                :keyword]                             ;; [:fn :inc]                -- look up an interpreter-known fn
-   ;; --- control / negative cases ---
-   [:tuple [:= :throw]]                                                   ;; [:throw]                   -- error-path fixtures
-   [:tuple [:= :return-raw]        :any]                                  ;; [:return-raw value]        -- (event-fx) return `value` VERBATIM as the effect-map; bypasses the well-shaped builder so a fixture can author a MALFORMED effect-map (the proactive fx shape-policing negative cases)
-   [:tuple [:= :noop]]])                                                  ;; [:noop]
-
-(def HandlerBody
-  [:vector HandlerBodyOp])
-```
-
-The body of a fixture event handler / sub computation is a vector of these ops, executed in order. Semantics:
-
-| Op | Used in | Effect |
-|---|---|---|
-| `:set` | event-db, event-fx | `(assoc-in db path value)` |
-| `:update` | event-db, event-fx | `(update-in db path f)` where `f` resolves a `[:fn :name]` form to a host-built-in fn |
-| `:merge-into-db` | event-db, event-fx | `(merge db m)` |
-| `:get` | sub, predicate | Read from current `db` — produces the sub's return value |
-| `:event-arg` | event, sub | Selects an event-vector argument by index. An optional 3rd element is a **default-for-nil** — returned when the Nth element is `nil`. The 3rd element is never type-dispatched; for key-access into a map argument use `:get-event-arg`. |
-| `:get-event-arg` | event, sub | `(get (nth event N) :key)` — single-key access into the Nth event arg; an optional 4th element is a default returned when the key is missing/nil |
-| `:cofx-without` | event-fx | Asserts a cofx key is absent — test fixture |
-| `:dispatch` | event-fx | Adds `[:dispatch event]` to the effect-map's `:fx` |
-| `:fx` | event-fx | Adds entries to the effect-map's `:fx` directly |
-| `:hiccup` | view | Returns the literal hiccup vector as the view's render-tree |
-| `:fn` | as a value inside other ops | Names a built-in fn (e.g. `:inc`, `:dec`, `:identity`) |
-| `:throw` | any | Throws — exercises `:rf.error/*` paths |
-| `:return-raw` | event-fx | Returns the literal `value` VERBATIM as the handler's effect-map (reflection forms inside it resolved), bypassing the well-shaped `{:db .. :fx ..}` builder. The ONLY op that can author a MALFORMED effect-map — used by the proactive fx shape-policing negative fixtures (`:rf.error/effect-map-shape` / `:rf.error/effect-handler-bad-return`, Spec [009 §Error contract](009-Instrumentation.md)). A body carrying it is always realised as event-fx so the raw return reaches the runtime's shape-policing site. |
-| `:noop` | any | Does nothing — used to anchor empty-body fixtures |
-
-Built-in fns the `[:fn :name]` form resolves to (the canonical fixture-spec-1.0 set, grouped by purpose — see [conformance/README.md §Handler-body DSL builtins](conformance/README.md) for the authoritative table): numeric `:inc` `:dec` `:+` `:-` `:*` `:/`; comparison `:>=` `:<=` `:>` `:<`; equality `:=` `:not=`; boolean `:and` `:or` `:not`; collection `:conj` `:assoc` `:dissoc` `:count`; `:identity`; and the fixture helper `:item-amount`. Hosts may extend this set additively per a corpus revision (type-predicate builtins such as `:keyword?` / `:number?` / `:string?` are NOT in 1.0).
-
-The op vocabulary is **stable and additive** within a corpus version — existing ops cannot be redefined, but a new op may be introduced to express a fixture class the prior set could not (e.g. `:return-raw`, which authors the malformed effect-maps the proactive fx shape-policing categories police). The conformance corpus's `:fixture/handlers` shape (per [conformance/README.md](conformance/README.md)) consumes this DSL — `:rf/handler-body-dsl` and `:rf/fixture-handler-body` are synonyms; this entry is canonical.
-
-State-machine transition-table guards and actions are referenced by **inline fn or keyword reference into the machine's local `:guards` / `:actions` map** in `:rf/transition-table` below; those are the *runtime* grammar for machine transitions per [005-StateMachines.md](005-StateMachines.md), not part of this conformance handler-body DSL. Transition slots take fn-valued or keyword-valued `:guard` and `:action` slots — keyword values resolve **machine-locally** against the spec's `:guards` / `:actions` map (no global registry); effects emitted by an action — including the reserved fx-id `:raise` and the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` — appear inside the action's returned `:fx` vector.
+Conformance-corpus handler bodies are data, so any in-scope host (per [§Scope](#scope)) interprets them without shipping CLJS lambdas. The DSL — the steps each handler kind's body admits, the value forms, and the `[:fn …]` builtins — is defined in the conformance fixture grammar, [`conformance/fixture-file.edn`](conformance/fixture-file.edn): `:conformance/handlers` and its `:conformance.step/*` and `:conformance.form/*` entries. [conformance/README.md §Handler-body DSL ops](conformance/README.md#handler-body-dsl-ops) is the operator reference. `:rf/fixture-handler-body` is a synonym for this entry.
 
 ### `:rf/transition-table`
 
@@ -4466,207 +4411,9 @@ The runtime commits one epoch record per dequeued event (per [002 §Drain versus
 > **Owner:** [spec/conformance/README](conformance/README.md)
 > **Status:** v1-required (conformance corpus)
 
-The host-agnostic conformance fixture format. Per [conformance/README.md](conformance/README.md), each fixture is one EDN file describing a canonical interaction (registry, handlers-as-data, dispatches/calls, expected emissions).
+The host-agnostic conformance fixture format: each fixture is one EDN file describing a canonical interaction — registry, handlers as data, dispatches or calls, and the expected observations — per [conformance/README.md](conformance/README.md).
 
-```clojure
-(def FixtureFile
-  [:map
-   [:fixture/id           :keyword]
-   [:fixture/spec-version :string]
-   [:fixture/doc          {:optional true} :string]
-   ;; The capability set this fixture exercises. The harness runs the
-   ;; fixture only when this is a subset of the port's claimed list; an
-   ;; unrecognised capability fails the run rather than skipping it.
-   ;; Per [conformance/README.md](conformance/README.md) §Capability tagging.
-   [:fixture/capabilities [:set :keyword]]
-
-   ;; Optional: 237/247 fixtures carry a registry. A Mode-B fixture that
-   ;; only exercises pure primitives through `:fixture/calls` registers
-   ;; nothing at all.
-   [:fixture/registry
-    {:optional true}
-    [:map
-     [:event           {:optional true} [:map-of :keyword :map]]
-     [:sub             {:optional true} [:map-of :keyword :map]]
-     [:fx              {:optional true} [:map-of :keyword :map]]
-     [:cofx            {:optional true} [:map-of :keyword :map]]
-     [:view            {:optional true} [:map-of :keyword :map]]
-     ;; App-db schemas are NOT a registrar kind; the
-     ;; `:app-schemas` fixture key carries `path → schema` for the
-     ;; runner's `reg-app-schema` realisation step.
-     [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]
-     [:route           {:optional true} [:map-of :keyword :map]]
-     [:machine         {:optional true} [:map-of :keyword :map]]
-     [:machine-action  {:optional true} [:map-of :keyword :map]]
-     [:machine-guard   {:optional true} [:map-of :keyword :map]]
-     ;; Static flow shape; the output-fn body rides `:fixture/flow-bodies`.
-     [:flow            {:optional true} [:map-of :keyword :map]]
-     [:resource        {:optional true} [:map-of :keyword :map]]
-     [:error-projector {:optional true} [:map-of :keyword :map]]
-     [:head            {:optional true} [:map-of :keyword :map]]]]
-
-   ;; Handler bodies are expressed in the :rf/handler-body-dsl grammar
-   ;; defined above (single canonical definition). Optional: 218/247
-   ;; fixtures carry handler bodies. A fixture whose registry entries are
-   ;; all declarative (machines, routes, flows) supplies none.
-   [:fixture/handlers
-    {:optional true}
-    [:map-of :keyword [:map-of :keyword HandlerBody]]]
-
-   [:fixture/frame-config {:optional true} :map]
-
-   ;; Multi-frame fixtures: the frames to create, in order. The FIRST
-   ;; frame's `:id` is also the established scope that registration-time
-   ;; frame-local surfaces and bare `dispatch-sync` resolve against
-   ;; (EP-0002); single-frame fixtures get `:rf/default`.
-   [:fixture/frames       {:optional true} [:vector [:map [:id :keyword]]]]
-
-   ;; Simulated host-runtime facts. `:platform` merges into the frame
-   ;; config unless `:fixture/frame-config` sets `:platform` itself.
-   [:fixture/runtime      {:optional true}
-    [:map [:platform {:optional true} [:enum :client :server]]]]
-
-   ;; Output-fn bodies for the flows declared under `:fixture/registry
-   ;; :flow`, in the same DSL as `:fixture/handlers`. Flows are
-   ;; frame-scoped, so they register AFTER the frame exists.
-   [:fixture/flow-bodies  {:optional true} [:map-of :keyword HandlerBody]]
-
-   ;; Commit-plane `:sensitive` / `:large` classifications installed into
-   ;; the frame's elision registry before the dispatches, per
-   ;; [conformance/README.md](conformance/README.md)
-   ;; §The `:fixture/classification-effects` harness step. An ORDERED
-   ;; VECTOR of op-maps, not a single map — the sequence is load-bearing,
-   ;; because a `:clear-*` op means nothing except after the op that
-   ;; classified the path (the axis-independence fixtures pin exactly
-   ;; that ordering). Each op carries EXACTLY ONE of the four
-   ;; commit-plane effect keys; each value is a vector of `:rf/path`
-   ;; vectors. The harness applies them in order.
-   ;;
-   ;; EXACTLY ONE is ENFORCED, as a closed four-way `:or` of
-   ;; single-required-key maps rather than one open map of optional
-   ;; entries. The open form would admit `{}`, several axes at once,
-   ;; and arbitrary unknown keys — and the harness applies these
-   ;; ops through a PRIORITY-ORDERED `cond`, so a multi-axis op would
-   ;; silently apply only its first arm while an empty or unknown-key op
-   ;; would apply nothing at all: a fixture author writing two axes would get
-   ;; one, with no error. Each arm is `{:closed true}`, which is what refuses
-   ;; the second axis and the unknown key; requiring the arm's own key is
-   ;; what refuses the empty map.
-   ;;
-   ;; The DURABLE NEGATIVE is `classification-op-map-guard` in
-   ;; `implementation/core/test/re_frame/conformance_test.clj` and its CLJS
-   ;; mirror `classification-op-map-guard-cljs` — the live corpus carries
-   ;; only valid single-axis ops, so nothing in it would red if the harness's
-   ;; matching pre-apply check were deleted. Those two tests feed the runner an
-   ;; empty, a multi-axis, an unknown-axis and a mixed op-map, and assert a
-   ;; FAILED fixture naming the classification-op error, with a valid
-   ;; single-axis op as the control.
-   [:fixture/classification-effects
-    {:optional true}
-    [:vector
-     [:or
-      [:map {:closed true} [:sensitive       [:vector [:vector :any]]]]
-      [:map {:closed true} [:large           [:vector [:vector :any]]]]
-      [:map {:closed true} [:clear-sensitive [:vector [:vector :any]]]]
-      [:map {:closed true} [:clear-large     [:vector [:vector :any]]]]]]]
-
-   ;; `true` marks a fixture asserting a RUNTIME validation trace that a
-   ;; statically-typed host claiming schemas through its type system
-   ;; cannot produce — the malformed value never compiles. Such a host
-   ;; filters these out BEFORE the capability-subset check.
-   [:fixture/dynamic-host-only? {:optional true} :boolean]
-
-   [:fixture/dispatches   {:optional true} [:vector [:vector :any]]]
-
-   ;; `:fixture/calls` carries direct invocations of pure primitives (Mode B).
-   ;; Each entry dispatches on `:call`; per-op record shapes match the
-   ;; fixture-runner's case dispatch (`implementation/core/test/re_frame/conformance_test.clj` `run-call`).
-   ;; The six operators cover state-machine transitions, URL ↔ route helpers, and SSR rendering.
-   [:fixture/calls
-    {:optional true}
-    [:vector
-     [:multi {:dispatch :call}
-      ;; Pure machine-transition. Returns {:status :ok :snapshot … :fx […]} /
-      ;; {:status :error :error {…}}; the expect keys pin the :ok branch.
-      [:machine-transition
-       [:map
-        [:call                 [:= :machine-transition]]
-        [:definition           :any]                                          ;; transition table per [005-StateMachines.md](005-StateMachines.md)
-        [:snapshot             :any]                                          ;; {:state :data} input snapshot
-        [:event                [:vector :any]]                                ;; event vector to apply
-        [:expect-next-snapshot :any]                                          ;; expected snapshot after transition
-        [:expect-effects       [:vector :any]]]]                              ;; expected fx vector returned by the action
-
-      ;; URL → route-match. `:expect` is the match map or `nil` for unmatched.
-      [:match-url
-       [:map
-        [:call    [:= :match-url]]
-        [:url     :string]
-        [:expect  :any]]]                                                     ;; {:route-id :params :query :validation-failed?} or nil
-
-      ;; route-id + params [+ query] → URL string.
-      [:route-url
-       [:map
-        [:call      [:= :route-url]]
-        [:route-id  :keyword]
-        [:params    :map]
-        [:query     {:optional true} :map]                                    ;; 3-arity form when present
-        [:expect    :string]]]                                                ;; the rebuilt URL
-
-      ;; Round-trip property: route-url ∘ match-url is identity for the URL.
-      [:round-trip
-       [:map
-        [:call  [:= :round-trip]]
-        [:url   :string]]]
-
-      ;; Asserts winner's :rf.route/rank tuple compares greater than loser's
-      ;; via lex compare. Per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm).
-      [:assert-rank-greater
-       [:map
-        [:call    [:= :assert-rank-greater]]
-        [:winner  :keyword]                                                   ;; route-id expected to outrank
-        [:loser   :keyword]]]                                                 ;; route-id expected to be outranked
-
-      ;; SSR pure render. `:input` is hiccup or a registered-view event vector.
-      [:render-to-string
-       [:map
-        [:call    [:= :render-to-string]]
-        [:input   :any]                                                       ;; hiccup or [:view-id args ...]
-        [:opts    {:optional true} :map]                                      ;; {:doctype? bool} etc.
-        [:expect  :string]]]]]]                                               ;; expected HTML output
-
-   ;; Sub query-vectors the harness invokes against the post-dispatch
-   ;; state, so a sub that THROWS is observed as a sub failure rather
-   ;; than as an absent value.
-   [:fixture/compute-subs {:optional true} [:vector [:vector :any]]]
-
-   ;; Simulates the client's first render after `:rf/hydrate` so
-   ;; hydration-mismatch detection is exercised: the simulated client
-   ;; hash is compared against the server hash carried in the hydrate
-   ;; payload. Per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection).
-   [:fixture/render-after-hydrate
-    {:optional true}
-    [:map
-     [:simulated-client-render-hash :string]
-     [:first-diff-path {:optional true} [:vector :any]]]]
-
-   [:fixture/expect
-    {:optional true}
-    [:map
-     [:final-app-db        {:optional true} :any]
-     [:final-app-db-absent {:optional true} [:vector [:vector :any]]]         ;; paths whose tip key must be ABSENT
-     [:final-runtime-db    {:optional true} :any]
-     [:sub-values          {:optional true} [:map-of [:vector :any] :any]]
-     [:sub-graph-topology  {:optional true} :map]
-     [:trace-emissions     {:optional true} [:vector :map]]
-     [:effects-routed      {:optional true} [:vector :any]]]]])               ;; routed-fx pairs in declaration order, per [conformance/README.md](conformance/README.md) §Fixture lifecycle
-```
-
-`:rf/fixture-handler-body` is a synonym for `:rf/handler-body-dsl` (defined above) — the fixture format reuses the canonical DSL grammar rather than redefining it. Reserved built-ins are enumerated in [conformance/README.md §Handler-body DSL builtins](conformance/README.md#handler-body-dsl-builtins).
-
-The schema is open by convention — fixture files may add `:fixture/<key>`-namespaced metadata keys, and new setup or expectation keys land in the corpus ahead of any port implementing them. Openness is not permission to ignore: a harness meeting a top-level key it does not implement **fails the run naming the key**, for the same reason an unrecognised capability fails rather than skipping (per [conformance/README.md §Capability tagging](conformance/README.md#capability-tagging)). Silently dropping a setup key changes the scenario; silently dropping an expectation key lets the fixture pass having verified nothing.
-
-The key roster above is therefore a snapshot, and the corpus is the authority. Re-derive it at your pin from the **parsed top-level map** of each fixture — a text search for `:fixture/…` cannot tell a map key from a value, and the corpus contains event *ids* in the `:fixture/` namespace (`:fixture/interceptor-fired`, `:fixture/clear-interceptor`, both registered under `:fixture/registry :event`) that such a search reports as though they were top-level keys. A harness built on that mistake rejects a conforming fixture. The prose roster with per-key semantics lives in [conformance/README.md §Top-level fixture keys](conformance/README.md#top-level-fixture-keys).
+Its schema is the closed fixture grammar, [`conformance/fixture-file.edn`](conformance/fixture-file.edn): a Malli registry written as plain EDN that declares the top-level keys, the `:fixture/expect` keys, one record per Mode-B `:call` op, the [handler-body DSL](#rfhandler-body-dsl), the dispatch-entry shapes and the capability vocabulary, and annotates every expectation with what it observes and the comparison law it is graded by. A new key, op or capability lands in the grammar before any fixture carries it, and the reference's core test suite validates every fixture against it.
 
 ## Resolved decisions
 

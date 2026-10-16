@@ -1,10 +1,20 @@
-(ns re-frame.actor-revertibility-restore-test
+(ns ^:requires-debug re-frame.actor-revertibility-restore-test
   "Restoring frame state reverts actor liveness. A spawned actor has no
   per-instance registration: it is alive while its snapshot sits in the
   runtime-db partition, and its TYPE rides that snapshot under
   `:rf/machine-type`. So `restore-epoch!` must remove an actor when rewinding
   past its spawn, revive it when rewinding past its destroy, and resolve its
-  TYPE for the missing-handler and version-drift preconditions."
+  TYPE for the missing-handler and version-drift preconditions.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]

@@ -85,12 +85,7 @@
                       :state        :loading
                       :delay-key    10000
                       :epoch        1
-                      :server?      false}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :loading :delay 10000 :epoch 1 :delay-source :literal}}
-    {:operation :rf.machine/transition
-     :tags      {:from :idle :to :loading}}]}
+                      :server?      false}]]}
 
   ;; Step 2: the synthetic timer-elapsed event at the resolved 10000 ms fires
   ;; the spawn-level :on-timeout transition; the snapshot lands at :timed-out;
@@ -122,9 +117,4 @@
                       :rf/invoke-id [:loading]}]
                     [:rf.machine/destroy
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/fired
-     :tags      {:state :loading :delay 10000 :epoch 1 :fired? true}}
-    {:operation :rf.machine/transition
-     :tags      {:from :loading :to :timed-out}}]}]}
+                      :rf/invoke-id [:loading]}]]}]}

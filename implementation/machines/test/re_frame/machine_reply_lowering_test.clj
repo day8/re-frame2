@@ -81,6 +81,60 @@
                         [:actor-id :output :error? :rf.reply/status :rf.reply/work-status
                          :rf.reply/work-kind :rf.reply/work-id :rf.reply/completed-at])))))
 
+(deftest fixed-id-spawn-mints-one-work-id-per-attempt
+  ;; A `:fixed-actor-id` names the same address on every attempt, so the
+  ;; spawn's attempt is the generation that keeps two attempts' work ids apart.
+  (rf/reg-machine :rl/uploader
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/uparent
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:spawn {:machine-id     :rl/uploader
+                                 :fixed-actor-id :rl/the-uploader
+                                 :on-done        :idle}}}})
+  (dotimes [_ 2]
+    (rf/dispatch-sync [:rl/uparent [:go]])
+    (rf/dispatch-sync [:rl/the-uploader [:finish]]))
+  (is (= :idle (:state (snapshot :rl/uparent))) "each attempt completed back to :idle")
+  (is (= [[:rf.work/machine :rl/the-uploader [:loading] 1]
+          [:rf.work/machine :rl/the-uploader [:loading] 2]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))
+      "two attempts at one fixed address carry two work ids"))
+
+(deftest fixed-id-spawn-cancel-row-carries-its-attempt-work-id
+  ;; An `:explicit` destroy closes the attempt it tears down, so its cancel row
+  ;; carries that attempt's work id, the one its done or error reply would.
+  (rf/reg-machine :rl/canceller
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/cparent
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:on    {:cancel :idle}
+                         :spawn {:machine-id     :rl/canceller
+                                 :fixed-actor-id :rl/the-canceller
+                                 :on-done        :idle}}}})
+  (rf/dispatch-sync [:rl/cparent [:go]])
+  (rf/dispatch-sync [:rl/the-canceller [:finish]])
+  (rf/dispatch-sync [:rl/cparent [:go]])
+  (is (= 2 (get-in (snapshot :rl/the-canceller) [:data :rf/invoke-attempt]))
+      "the second attempt is live")
+  (rf/dispatch-sync [:rl/cparent [:cancel]])
+  (is (nil? (snapshot :rl/the-canceller)) "leaving :loading destroyed the second attempt")
+  (is (= [[:rf.work/machine :rl/the-canceller [:loading] 1]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))
+      "the first attempt completed")
+  (is (= [[:rf.work/machine :rl/the-canceller [:loading] 2]]
+         (->> (rf.machines.test-support/events-of :rf.machine/destroyed)
+              (filter #(= :explicit (:reason (:tags %))))
+              (mapv #(:rf.reply/work-id (:tags %)))))
+      "the cancel row closes the second attempt's work id"))
+
 (deftest spawned-error-drives-on-error-transition
   (rf/reg-machine :rl/echild
     {:initial :running

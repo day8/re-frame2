@@ -1,4 +1,4 @@
-(ns re-frame.epoch-egress-redaction-cljs-test
+(ns ^:requires-debug re-frame.epoch-egress-redaction-cljs-test
   "The epoch record's off-box egress contract through `rf/project-egress`.
 
   Pinned here: the app-db `:sensitive` substitution in `:db-before` /
@@ -10,7 +10,17 @@
   value that rides raw through the same call, or an opt-in revealing it.
 
   Dual-lane `.cljc`: the `-cljs-test` suffix puts it in the shadow-cljs
-  `:node-test` build, and the artefact's `clojure -M:test` runs it on the JVM."
+  `:node-test` build, and the artefact's `clojure -M:test` runs it on the JVM.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]

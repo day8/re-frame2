@@ -272,7 +272,7 @@
         (finally (when @frame (rf/destroy-frame! @frame))))))
 
   (testing "the app-db slice schema validates the app-db partition independently of the machine :data boundary"
-    ;; The example registers `[:config] [:maybe Config]` as an APP schema
+    ;; The example registers `[:config] Config` as an APP schema
     ;; (validates the app-db partition only). App schemas are frame-scoped,
     ;; so register the example's own `Config` on this test frame, then write
     ;; a structurally-wrong slice: the post-commit app-db validator must

@@ -1,9 +1,9 @@
 (ns re-frame.error-emit-dev-console-dom-cljs-test
   "The unowned-error dev console fallback in `re-frame.error-emit`.
 
-  When NOTHING ROUTED a refusal record — no `:errors` listener registered
-  (corpus-wide), and the record's own frame delivered it to no REGISTERED
-  `:observability :errors` sink (frame-scoped) — a dev build prints it once
+  When NOTHING ROUTED a refusal record — no `:errors` listener claimed it
+  (by returning `true`), and the record's own frame delivered it to no
+  REGISTERED `:observability :errors` sink (frame-scoped) — a dev build prints it once
   with `console.error`. A DOM host passes
   `[\"[re-frame2]\" <summary> <record> <exception>]`: a readable summary line
   (the category, then the exception's message, else the record's `:reason`,
@@ -120,6 +120,21 @@
                      (pr-str (second args))))
             (is (= :rf.error/no-such-handler (:error (nth args 2))))))))))
 
+(deftest a-typod-setup-step-reaches-the-dev-console
+  (if-not (browser?)
+    (is true skip-msg)
+    (testing "an :initial-events step naming no handler prints its line, though the
+              setup step's own capture listener is registered around it, and the
+              frame is still made"
+      (let [{:keys [console]}
+            (capture-console #(rf/make-frame {:id             :fu75.setup/app
+                                              :initial-events [[:fu75.setup/initalise]]}))]
+        (is (= 1 (count console))
+            (str "exactly one console.error; got " (pr-str (mapv second console))))
+        (is (= ":rf.error/no-such-handler (event :fu75.setup/initalise, frame :fu75.setup/app)"
+               (second (first console))))
+        (is (contains? (set (rf/frame-ids)) :fu75.setup/app))))))
+
 (deftest unowned-union-record-reaches-the-dev-console
   (if-not (browser?)
     (is true skip-msg)
@@ -194,30 +209,44 @@
             "and verbatim onto the record for an off-box shipper")))))
 
 ;; ===========================================================================
-;; Owned by a listener — corpus-wide, and the registration is the ownership
+;; Owned by a listener — only the records it claims, by returning `true`
 ;; ===========================================================================
 
-(deftest ownership-is-implicit-and-corpus-wide
+(deftest a-listener-owns-only-the-records-it-claims
   (if-not (browser?)
     (is true skip-msg)
-    (testing "a listener that THROWS still owns the stream: the substrate swallows
-              the throw, and the fallback must not read that as nobody-owns-it"
+    (do
       (register-refusal-handlers!)
-      (rf.error-emit/register-error-listener! :fu75/broken
-                                              (fn [_record] (throw (ex-info "listener boom" {}))))
-      (is (empty? (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))))))
+      (testing "a listener that THROWS claims nothing: the substrate swallows the
+                throw, and the fallback still prints"
+        (rf.error-emit/register-error-listener! :fu75/broken
+                                                (fn [_record] (throw (ex-info "listener boom" {}))))
+        (is (= 1 (count (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))))
+        (rf.error-emit/unregister-error-listener! :fu75/broken))
+      (testing "a listener that returns anything but `true` claims nothing, even a
+                truthy value"
+        (let [seen (atom [])]
+          (rf.error-emit/register-error-listener! :fu75/watcher
+                                                  (fn [record] (swap! seen conj record)))
+          (is (= 1 (count (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))))
+          (is (= 1 (count @seen)) "premise: the listener received the record")
+          (rf.error-emit/unregister-error-listener! :fu75/watcher)))
+      (testing "a listener that returns `true` claims the record, and nothing prints"
+        (rf.error-emit/register-error-listener! :fu75/claimer (fn [_record] true))
+        (is (empty? (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws])))))
+        (rf.error-emit/unregister-error-listener! :fu75/claimer)))))
 
 (deftest dropping-the-last-listener-resumes-the-fallback
   (if-not (browser?)
     (is true skip-msg)
     (do
       (register-refusal-handlers!)
-      (rf.error-emit/register-error-listener! :fu75/owner (fn [_record] nil))
+      (rf.error-emit/register-error-listener! :fu75/owner (fn [_record] true))
       (is (empty? (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws]))))
-          "quiet while owned, by a listener that ignores the record")
+          "quiet while a listener claims the record")
       (rf.error-emit/unregister-error-listener! :fu75/owner)
       (is (= 1 (count (:console (capture-console #(rf/dispatch-sync [:fu75.console/throws])))))
-          "the registry is empty again, so the fallback resumes"))))
+          "nothing claims it any more, so the fallback resumes"))))
 
 ;; ===========================================================================
 ;; Owned by the frame's sink policy — frame-scoped
@@ -296,8 +325,10 @@
   (rf/with-frame :fu75.rollback/frame
     (rf/reg-app-schema [:articles] :int)
     (rf/reg-app-schema [:tags]     :int))
+  ;; Both paths present with the wrong type: a path the candidate lacks is
+  ;; not checked, so only a present value can fail its registration.
   (rf/reg-event :fu75.rollback/write
-                (fn [_ _] {:db {:unrelated 1}})))
+                (fn [_ _] {:db {:articles "not-an-int" :tags "not-an-int"}})))
 
 (deftest unowned-app-db-rollback-reaches-the-dev-console
   (if-not (browser?)
@@ -317,17 +348,17 @@
               (str "one line per violated registration; got "
                    (pr-str (mapv second console))))
           (doseq [[_ summary] rollback]
-            (is (re-find #"got nil" summary)
+            (is (re-find #"got string" summary)
                 (str "the line ends with the TYPE of what it found; got "
                      (pr-str summary))))
           (is (= #{[:articles] [:tags]}
                  (set (map (fn [args] (:registered-path (nth args 2))) rollback)))
               "each line names a distinct registration")))
 
-      (testing "owned: any listener silences it"
+      (testing "owned: a claiming listener silences it"
         (let [seen (atom [])]
           (rf.error-emit/register-error-listener! :fu75/rollback-owner
-                                                  (fn [r] (swap! seen conj r)))
+                                                  (fn [r] (swap! seen conj r) true))
           (let [{:keys [console]}
                 (capture-console
                   #(rf/dispatch-sync [:fu75.rollback/write]

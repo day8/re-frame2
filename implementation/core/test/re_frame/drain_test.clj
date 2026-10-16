@@ -9,7 +9,7 @@
   ## Posture split
 
   The semantics, and the drain-depth halt's always-on `:errors` record, are
-  asserted unguarded and run under `scripts/test-core-prod-gate.sh` too.
+  asserted unguarded and run under `clojure -M:test:prod-gate` too.
   Dev-trace assertions sit in `(when rf.interop/debug-enabled? …)` arms,
   because every `trace/emit-error!` site is elided under
   `-Dre-frame.debug=false`."

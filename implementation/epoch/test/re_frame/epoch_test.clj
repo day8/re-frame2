@@ -1,7 +1,17 @@
-(ns re-frame.epoch-test
+(ns ^:requires-debug re-frame.epoch-test
   "Tool-Pair §Time-travel — epoch recording, ring depth, listeners, restore,
   replace-frame-state! and replay refusal. Post-settle render / sub-run
-  attribution lives in `re-frame.epoch-attribution-test`."
+  attribution lives in `re-frame.epoch-attribution-test`.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
