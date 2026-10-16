@@ -1,12 +1,12 @@
 (ns re-frame.bench.fresco.front.codec
   "THE HICCUP CODEC — the shared front half's runtime interpretation of
-  arbitrary hiccup into React elements, built on reagent-slim's
-  *measured* tag/prop/child plumbing.
+  arbitrary hiccup into React elements, on *measured* tag/prop/child
+  plumbing.
 
-  ## What is shared with reagent-slim, and what is deliberately left out
+  ## What it carries, and what is deliberately left out
 
-  Shared with `reagent2.impl.template`, because it is the plumbing the P0
-  and HD-008 instruments actually clocked: the `#id.class` tag regex and
+  Carried because it is the plumbing the P0 and HD-008 instruments
+  clocked in a Reagent-family template: the `#id.class` tag regex and
   its parse; the kebab→camel prop-name rule with its `aria`/`data`
   exemptions, its `--custom-property` passthrough and its three seeded
   entries; the `:style` map→JS-object conversion; the class coercion and
@@ -71,7 +71,7 @@
   this codec is compared on is the clock that was measured.
 
   **The third cache HD-004 names — cached stable component heads — costs
-  nothing here, and that is the interesting part.** reagent-slim needs
+  nothing here, and that is the interesting part.** Reagent needs
   one because `:f>` takes a *plain* function and must not mint a fresh
   React type per render. Fresco's `defview` mints the function component
   once, at definition, and [[mark-boundary!]] records that on the fn
@@ -987,10 +987,12 @@
   `=` over an app-owned value can throw — a type with a
   throwing `-equiv`, a foreign object mutated in place — and this runs
   inside React's comparator, where an escaping throw is a render crash and
-  not a slow render. reagent-slim faces the identical hazard on the
-  identical comparison and rules the same way: stock Reagent fails
-  CLOSED (skips), reagent-slim fails OPEN (render), because skipping on a failed comparison risks a
-  stale UI and an extra render is always the safe branch. `areEqual`
+  not a slow render. Stock Reagent faces the identical hazard on the
+  identical comparison and rules both ways: its class
+  `shouldComponentUpdate` fails CLOSED (skips), its function components'
+  `areEqual` fails OPEN (render). Open is the right one, because skipping
+  on a failed comparison risks a stale UI and an extra render is always
+  the safe branch. `areEqual`
   inverts that polarity, so failing open here is answering **false**.
 
   **This is the incumbent's shape, not an invention.** Reagent 2.0.1's
@@ -2187,11 +2189,7 @@
   spelling is a rule the other spellings walk past. The `data-*` /
   `aria-*` families join them by prefix;
   [[re-frame.bench.fresco.front.slot/prop-name]] leaves those two
-  uncamelCased, so the slot still carries the prefix to test.
-
-  The roster is this repo's own, not a guess: the `reagent-slim` adapter
-  ships this same set at exactly this seam
-  (`adapters/reagent-slim/IMPL-SPEC.md` §7.2, `DESIGN-RATIONALE.md` §5)."
+  uncamelCased, so the slot still carries the prefix to test."
   #{"className" "id" "role"})
 
 (defn- ^boolean html-attr-slot?
@@ -2258,8 +2256,7 @@
   **No dev warning accompanies this**, and the omission is deliberate.
   A keyword at a host prop is the CORRECT and taught spelling of
   HD-011's flagship case, so warning on the happy path would be a nag,
-  not a diagnostic. `reagent-slim` narrows the same seam and does not
-  warn either. The guide teaches the rule instead."
+  not a diagnostic. The guide teaches the rule instead."
   [slot v]
   (cond
     (fn? v)                       v

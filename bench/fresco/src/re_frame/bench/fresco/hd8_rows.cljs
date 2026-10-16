@@ -32,25 +32,27 @@
       insertion-ordered serialiser. Without it two arms are timed while
       building two different pages.
 
-  ## One adapter per process, so three runs
+  ## One adapter per process, so two runs
 
-  Spec 006 allows exactly one installed adapter per process, and the two
-  Reagent paths need the ratom spine while the frontier arm and the donor
-  arms ride React hooks. So the app runs three times over ONE bundle —
-  `?adapter=uix`, `?adapter=reagent`, `?adapter=slim` — and every HD-008
-  comparison lands WITHIN a run:
+  Spec 006 allows exactly one installed adapter per process, and the
+  Reagent path needs the ratom spine while the frontier arm and the donor
+  arms ride React hooks. So the app runs twice over ONE bundle —
+  `?adapter=uix` and `?adapter=reagent` — and every HD-008 comparison
+  lands WITHIN a run:
 
       run       arms                                           answers
       uix       floor uix donor-r1 donor-r2                    donor vs frontier
       reagent   floor reagent uix donor-r1 donor-r2            donor vs stock Reagent
-      slim      floor reagent-slim uix donor-r1 donor-r2       donor vs reagent-slim
 
-  FOUR, FIVE AND FIVE ARMS. Arm count is part of a row's provenance — it
+  FOUR AND FIVE ARMS. Arm count is part of a row's provenance — it
   sets `k` in the interleaving schedule — so figures taken on a plan with a
   different arm count, such as a 5/6/6 plan carrying a `donor-fh` arm, are
-  NOT comparable figure-for-figure with these.
+  NOT comparable figure-for-figure with these. Nor are donor figures
+  taken through another runtime hiccup interpreter: the donor rungs lower
+  their markup through stock Reagent's `as-element`
+  ([[re-frame.bench.fresco.hd8-witnesses]]).
 
-  The frontier arm rides all three, which also prices what the SUB
+  The frontier arm rides both, which also prices what the SUB
   IMPLEMENTATION contributes: the same UIx arm measured over Reagent
   reactions and over the React spine's containers.
 
@@ -112,8 +114,6 @@
             [reagent.core :as reagent]
             [reagent.dom.client :as rdc]
             [reagent.ratom :as reagent-ratom]
-            [reagent2.dom.client :as slim-rdc]
-            [reagent2.ratom :as slim-ratom]
             [uix.core :refer [$]]))
 
 ;; ===========================================================================
@@ -171,16 +171,6 @@
                 r))
    :unmount (fn [r] (rdc/unmount r))})
 
-(defn- slim-arm
-  "reagent-slim's own mount door — the same source form, the other engine."
-  [id form-of]
-  {:id      id
-   :mount   (fn [container props _n]
-              (let [r (slim-rdc/create-root container)]
-                (slim-rdc/render r (form-of props))
-                r))
-   :unmount (fn [r] (slim-rdc/unmount r))})
-
 (defn- provided
   "Wrap `child` (a React element) in the shared frame context for `fid`,
   through the published UIx provider. Not a DOM element, so parity is
@@ -199,15 +189,12 @@
       :reagent      (reagent-arm :reagent
                                  (fn [{:keys [n]}]
                                    [rf/frame-provider {:frame fid} [rf.bench.fresco.hd8-witnesses/rg-m n]]))
-      :reagent-slim (slim-arm :reagent-slim
-                              (fn [{:keys [n]}]
-                                [rf/frame-provider {:frame fid} [rf.bench.fresco.hd8-witnesses/rg-m n]]))
       :uix          (react-root-arm :uix (fn [{:keys [n]}]
                                            (provided fid ($ rf.bench.fresco.hd8-witnesses/ux-m {:n n}))))
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
-                                                (rf.bench.fresco.hd8-witnesses/slim-element (rf.bench.fresco.hd8-witnesses/r1-m n fid))))
+                                                (rf.bench.fresco.hd8-witnesses/donor-element (rf.bench.fresco.hd8-witnesses/r1-m n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (rf.bench.fresco.hd8-witnesses/slim-element (rf.bench.fresco.hd8-witnesses/r2-m n))))))))
+                                                (provided fid (rf.bench.fresco.hd8-witnesses/donor-element (rf.bench.fresco.hd8-witnesses/r2-m n))))))))
 
 ;; -- the U page (mounted for parity; measured by the write rows) ------------
 
@@ -220,15 +207,12 @@
       :reagent      (reagent-arm :reagent
                                  (fn [{:keys [n]}]
                                    [rf/frame-provider {:frame fid} [rf.bench.fresco.hd8-witnesses/rg-u n]]))
-      :reagent-slim (slim-arm :reagent-slim
-                              (fn [{:keys [n]}]
-                                [rf/frame-provider {:frame fid} [rf.bench.fresco.hd8-witnesses/rg-u n]]))
       :uix          (react-root-arm :uix (fn [{:keys [n]}]
                                            (provided fid ($ rf.bench.fresco.hd8-witnesses/ux-u {:n n}))))
       :donor-r1     (react-root-arm :donor-r1 (fn [{:keys [n]}]
-                                                (rf.bench.fresco.hd8-witnesses/slim-element (rf.bench.fresco.hd8-witnesses/r1-u n fid))))
+                                                (rf.bench.fresco.hd8-witnesses/donor-element (rf.bench.fresco.hd8-witnesses/r1-u n fid))))
       :donor-r2     (react-root-arm :donor-r2 (fn [{:keys [n]}]
-                                                (provided fid (rf.bench.fresco.hd8-witnesses/slim-element (rf.bench.fresco.hd8-witnesses/r2-u n))))))))
+                                                (provided fid (rf.bench.fresco.hd8-witnesses/donor-element (rf.bench.fresco.hd8-witnesses/r2-u n))))))))
 
 ;; ===========================================================================
 ;; The arm sets — one adapter per process (Spec 006)
@@ -239,7 +223,7 @@
   partition is itself an HD-008 finding, arrived at by measurement rather
   than by design.
 
-  Putting the frontier arm and both donor rungs into ALL THREE runs, so
+  Putting the frontier arm and both donor rungs into BOTH runs, so
   that every comparison lands within one process, does not work, and the
   instrument says so rather than quietly producing numbers: on a ratom
   spine the lowering check reports `:db-after \"T\"` — the click
@@ -252,18 +236,17 @@
 
   That is worth stating plainly, because it bounds what \"composed from
   parts already in the repo\" can mean: Spec 006 allows exactly one adapter
-  per process, the two Reagent paths need the ratom spine, the donor rungs
+  per process, the Reagent path needs the ratom spine, the donor rungs
   need the React one, and the composition therefore cannot share a process
   with the thing it must beat.
 
   So each run measures the arms NATIVE to its adapter, and the donor
-  comparison against either Reagent path is made through the floor — the
+  comparison against the Reagent path is made through the floor — the
   same hand-written `createElement` code, in the same bundle, touching no
   adapter at all. Within-run where the physics allows it; floor-normalised
   and LABELLED AS SUCH where it does not."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
-   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
-   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
+   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]})
 
 (def write-arm-ids-for
   "The WRITE rows are narrower than the mount rows, and only there.
@@ -278,8 +261,7 @@
   the arms native to the installed adapter and the donor comparison there
   is made through the floor."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
-   :reagent [:floor :reagent]
-   :slim    [:floor :reagent-slim]})
+   :reagent [:floor :reagent]})
 
 (defn donor-run?
   "Is this the run whose donor arms are REACTIVE, and therefore the run
@@ -445,7 +427,6 @@
   of [[re-frame.bench.fresco.hd8-witnesses]] for why there is no
   `codecs-differ?`."
   [[:donor-r1 :reagent] [:donor-r2 :reagent]
-   [:donor-r1 :reagent-slim] [:donor-r2 :reagent-slim]
    [:donor-r1 :uix] [:donor-r2 :uix]
    [:donor-r2 :donor-r1]])
 
@@ -506,7 +487,7 @@
   "The INSTALLED substrate's own synchronous render drain.
 
   This is a property of the run, not of the arm: under a RATOM spine
-  (`?adapter=reagent|slim`) the frame's app-db is a reactive atom, so a
+  (`?adapter=reagent`) the frame's app-db is a reactive atom, so a
   write marks dependent reactions dirty and queues them on the substrate's
   batching queue — and NOTHING propagates, not even to a
   `useSyncExternalStore` subscriber, until that queue is flushed. An empty
@@ -529,12 +510,6 @@
     ;; snapshot: the click reaches `app-db` (`:db-after` says so) and the DOM
     ;; never follows.
     :reagent (react-dom/flushSync (fn [] (reagent-ratom/flush!) (reagent/flush)))
-    ;; reagent-slim's drain brings its OWN `flushSync` boundary (it wraps
-    ;; `(do (f) (batching/flush!))`), so wrapping it in a second one would
-    ;; nest the commit and bill this run for a boundary no slim application
-    ;; pays. Its `f` slot is exactly where the subscription-graph settle
-    ;; belongs.
-    :slim    (slim-rdc/flush-render! (fn [] (slim-ratom/flush!)))
     ;; The React spine notifies its containers synchronously, so the empty
     ;; `flushSync` is the whole drain: it makes React commit the already
     ;; queued notification inside this window rather than on its own
@@ -557,17 +532,19 @@
     - `:animation-frame` — stock Reagent. `reagent.impl.batching` schedules
       its component queue on `requestAnimationFrame`, so the queue is still
       full a microtask later and the drain finds the work.
-    - `:microtask` — reagent-slim. `reagent2.impl.batching` is *\"a
-      microtask-based scheduler … no requestAnimationFrame fallback is
-      required\"*, so a microtask yield hands the queue to the substrate
-      BEFORE the drain: it issues its `forceUpdate` outside any `flushSync`
-      boundary, React parks the work at the default lane, and the drain
-      that follows finds nothing to commit."
+    - `:microtask` — a substrate whose render queue drains on a
+      MICROTASK. A microtask yield hands the queue to the substrate
+      BEFORE the drain: it issues its `forceUpdate` outside any
+      `flushSync` boundary, React parks the work at the default lane, and
+      the drain that follows finds nothing to commit. No arm this
+      instrument runs is one. The class stays because the window shape is
+      the lane's (`rf.bench.fresco.lane/verified-write!`), and an arm that
+      declares it is adjudicated by [[yield-correction]], not waved
+      through."
   [arm-id adapter]
   (if (= arm-id :floor)
     :none
     (case adapter
-      :slim    :microtask
       :reagent :animation-frame
       :none)))
 
@@ -613,14 +590,10 @@
   BULK row is untouched by any of it.
 
   TWO SHAPES, BECAUSE ONE FIXED WAIT IS NOT NEUTRAL ACROSS SCHEDULER
-  FAMILIES. Against a standalone rig with one fixed yield, the
-  reagent-slim write row reads `78 of 78` unverified — and, unsuppressed,
-  `0.16–0.50x` the floor while the page never changes — purely because the
-  harness puts a microtask between the write and the drain.
-  `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md` carries
-  the evidence, including the positive control (a plain component reading
-  a plain `reagent2.core/atom`, no re-frame anywhere on the path) that
-  reproduces it in all four bundle compositions. The shared
+  FAMILIES. Against one fixed yield, a microtask-scheduled arm's write row
+  reads every write unverified — and, unsuppressed, a fraction of the
+  floor while the page never changes — purely because the harness puts a
+  microtask between the write and the drain. The shared
   `rf.bench.fresco.lane/verified-write!` takes the same `:scheduler`
   declaration and gives it these same two shapes; an arm that declares no
   `:scheduler` gets the lane's default window, and none outside this file
@@ -994,7 +967,7 @@
   one clock, it reads 1.0 to 2.0 ticks of a MEASURED 0.1 ms grain, and its
   neighbouring attainable values are 33 % to 100 % apart — so every ratio
   normalised by it is determined only to within a factor of about two. The
-  row's own six rounds show it: the `reagent-slim` numerator moved 1.18x
+  row's own six rounds show it: the numerator moved 1.18x
   across them while the published ratio moved 2.06x, and the whole of that
   swing is the denominator stepping between one tick and two.
 
@@ -1145,11 +1118,12 @@
   [[window-of]] gives a microtask-scheduled arm a window that does NOT
   contain this turn while every other arm's does, and that asymmetry has to
   be a NUMBER rather than an assurance — it is the only thing separating
-  the reagent-slim write row from a like-for-like comparison against the
-  floor beside it. Chrome clamps `performance.now()` to 100 µs, so a
-  reading of `0.0` here is the instrument saying the difference is below
-  its own resolution; anything else has to be subtracted before a ratio is
-  quoted, and the report must say which happened.
+  a microtask-scheduled arm's write row from a like-for-like comparison
+  against the floor beside it. Chrome clamps `performance.now()` to
+  100 µs, so a reading of `0.0` here is the instrument saying the
+  difference is below its own resolution; anything else has to be
+  subtracted before a ratio is quoted, and the report must say which
+  happened.
 
   WHY THE SECOND WINDOW EXISTS. The narrow row batches
   `narrow-batch-k` writes under one clock, so its window contains that many
@@ -1199,7 +1173,7 @@
                    :n       (:n s1)
                    :clamp   "Chrome clamps performance.now() to 100 µs"
                    :note    (str "the turn every non-microtask-scheduled arm's write "
-                                 "window contains and the reagent-slim arm's does not; "
+                                 "window contains and a microtask-scheduled arm's does not; "
                                  "0.0 means ONE such turn is below this "
                                  "instrument's resolution")
                    ;; The batched reading — the one the batched narrow row
@@ -1290,11 +1264,17 @@
 ;; THE CORRECTION-OR-REFUSAL CONTRACT — the asymmetry adjudicated, not noted
 ;; ===========================================================================
 
+(defn write-schedulers
+  "`{arm-id scheduler}` for `arm-ids` under `adapter` ([[arm-scheduler]]) —
+  the table [[yield-correction]] reads each arm's window shape from."
+  [arm-ids adapter]
+  (into {} (map (fn [id] [id (arm-scheduler id adapter)])) arm-ids))
+
 (defn- window-shape
   "`:write-then-drain` (no harness microtask in the window) or
-  `:write-yield-drain` (`k` of them), for `arm-id` under `adapter`."
-  [arm-id adapter]
-  (if (= (arm-scheduler arm-id adapter) :microtask)
+  `:write-yield-drain` (`k` of them), for an arm on `scheduler`."
+  [scheduler]
+  (if (= scheduler :microtask)
     :write-then-drain
     :write-yield-drain))
 
@@ -1323,7 +1303,7 @@
     ;; The test is not `pos?`. `pos?` would pass a bulk row whose floor reads
     ;; one clock quantum against a bound of one clock quantum: the corrected
     ;; floor comes out at ~1e-8 ms, still positive, and the row would publish
-    ;; a corrected `reagent-slim / floor` of 15,518,934x. A denominator that
+    ;; a corrected `arm / floor` of 15,518,934x. A denominator that
     ;; survives subtraction by a rounding error is not a denominator.
     ;;
     ;; So a bearer survives only when the correction is the SMALLER part of its
@@ -1393,7 +1373,9 @@
 
 (defn yield-correction
   "Adjudicate one write row against the harness-microtask asymmetry, and
-  answer a verdict rather than an observation.
+  answer a verdict rather than an observation. `schedulers` is
+  `{arm-id scheduler}` ([[write-schedulers]]); an arm it does not name
+  takes the yielding window.
 
   ## What is owed, and why
 
@@ -1404,21 +1386,23 @@
   studio record says plainly that any nonzero reading of that turn owes
   the reader a subtraction. A contract nothing enforces is a sentence,
   not a contract: without this verdict a driver records [[yield-cost!]]
-  beside the row, exits 0, and publishes unadjusted ratios over a slim run
-  measuring `{:p50 0 :max 0.1 :n 10}`.
+  beside the row, exits 0, and publishes unadjusted ratios over a mixed
+  row measuring `{:p50 0 :max 0.1 :n 10}`.
 
   ## The five verdicts
 
   `:not-owed` — every arm in the row shares one window shape, so the turns
   are in the numerator and the denominator alike. Only a row that MIXES
-  shapes owes anything, and that is the `slim` run's write rows and
-  no others.
+  shapes owes anything, and no arm this instrument runs is
+  microtask-scheduled ([[arm-scheduler]]), so every live row is
+  `:not-owed`; [[yield-correction-self-test]] replays the other four
+  verdicts over fixture rows.
 
   `:moot` — the row mixes shapes, but no figure it still PUBLISHES is
   formed from a yield-bearing arm ([[published-arms]]), so the correction
   has nothing to move and a refusal would have nothing to protect. This is
-  the BULK row on the slim run: its only bearer is the floor, the floor is
-  its denominator, and the floor sits on the clock's own grain — so
+  a BULK row whose only bearer is the floor: the floor is its
+  denominator, and the floor sits on the clock's own grain — so
   [[mask-below-grain]] has already withdrawn every figure normalised by it,
   permanently and on stronger grounds than the harness turn. Without this
   verdict the row's disposition would be drawn from the clock rather than
@@ -1436,9 +1420,10 @@
   `:corrected` — the row owes, the aggregate reads nonzero, and the
   subtraction is APPLIED. Its direction is fixed and known: the turns sit
   in the bearers' windows only, so removing them makes the bearers
-  smaller. Where the floor is a bearer — which it is on the slim run — the
-  corrected ratio is LARGER, and the published unadjusted figure is
-  therefore a LOWER BOUND on the exempt arm's cost. Both ends are
+  smaller. Where the floor is a bearer — which it is beside any
+  microtask-scheduled arm — the corrected ratio is LARGER, and the
+  published unadjusted figure is therefore a LOWER BOUND on the exempt
+  arm's cost. Both ends are
   published; a reader is given the interval rather than a point that
   quietly sits at one end of it.
 
@@ -1498,17 +1483,17 @@
   estimate of a correction; the max is the largest the correction can
   honestly be, and a contract that decides whether a row may be published
   has to be evaluated at the end that could change the answer."
-  [row adapter yc]
+  [row schedulers yc]
   (let [k        (:writes-per-sample row)
         arms     (:arms row)
-        shapes   (into {} (map (fn [id] [id (window-shape id adapter)])) arms)
+        shapes   (into {} (map (fn [id] [id (window-shape (get schedulers id))])) arms)
         bearers  (into #{} (keep (fn [[id s]] (when (= s :write-yield-drain) id))) shapes)
         exempt   (into #{} (keep (fn [[id s]] (when (= s :write-then-drain) id))) shapes)
         ;; Only over the figures the row still PUBLISHES ([[published-arms]]).
         ;; A bearer whose column a publication mask has already withdrawn has
         ;; no figure left for the subtraction to move or for a refusal to
-        ;; protect, and the difference is not theoretical: the BULK row's
-        ;; floor is its only bearer on the slim run and it sits ON the clock's
+        ;; protect, and the difference is not theoretical: a BULK row's
+        ;; floor can be its only bearer, and it sits ON the clock's
         ;; grain, so without this the row's disposition would be a coin toss
         ;; between publishing unadjusted (a 0.0 aggregate) and failing the
         ;; whole sweep (a 0.1 aggregate) — the same page, the same arms, two
@@ -1663,10 +1648,10 @@
   [[yield-correction]] — over recorded fixtures, and answer
   `{:ok? :checks}`.
 
-  **A gate nobody has watched refuse is not a gate**, and this one refuses
-  rarely by design: the harness asymmetry reads `0.0` on most runs of this
-  host and resolves only intermittently, so a live run cannot be relied on
-  to exercise the branch that matters. `parity-can-fail?` makes exactly
+  **A gate nobody has watched refuse is not a gate**, and no live run can
+  make this one refuse: every arm this instrument runs shares one window
+  shape, so every live row is `:not-owed`, and even a mixed row's
+  asymmetry reads `0.0` on most runs of this host. `parity-can-fail?` makes exactly
   this argument about the parity gate and `hd8_run.cjs`'s gate 4 makes it
   about the DOM read-back. This is the same argument for the correction
   contract, and the technique is `order_guard.cjs`'s: fixtures replayed
@@ -1692,20 +1677,26 @@
         live-yc    {:p50 0 :min 0 :max 0.1 :n 10
                     :batched {:k narrow-batch-k :window-p50 0 :window-max 0.1 :n 10}}
         no-agg-yc  {:p50 0 :min 0 :max 0.1 :n 10}
-        verdict-of (fn [row adapter yc] (yield-correction row adapter yc))
+        verdict-of (fn [row schedulers yc] (yield-correction row schedulers yc))
+        ;; The scheduler table every MIXED-shape fixture runs under: one arm
+        ;; whose render queue drains on a microtask, every other arm on the
+        ;; yielding window. No live run has such an arm ([[arm-scheduler]]),
+        ;; which is exactly why the branches are replayed here.
+        mt         {:microtask-arm :microtask}
         checks
-        [;; 1. Both arms carry the harness turns, so nothing is asymmetric.
+        [;; 1. Both arms carry the harness turns, so nothing is asymmetric —
+         ;;    read through the LIVE scheduler table for the reagent run.
          (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent]
                                           [{:floor 1.0 :reagent 5.0} {:floor 1.0 :reagent 5.0}])
-                             :reagent zero-yc)]
+                             (write-schedulers [:floor :reagent] :reagent) zero-yc)]
            {:name "one window shape in the row is NOT-OWED"
             :ok   (= :not-owed (:verdict v))
             :detail (name (:verdict v))})
 
          ;; 2. Mixed shapes, aggregate flat zero across every window.
-         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
-                             :slim zero-yc)]
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                          [{:floor 1.0 :microtask-arm 5.0} {:floor 1.2 :microtask-arm 6.0}])
+                             mt zero-yc)]
            {:name "mixed shapes with a 0.0 aggregate is BELOW-RESOLUTION"
             :ok   (= :below-resolution (:verdict v))
             :detail (name (:verdict v))})
@@ -1713,22 +1704,22 @@
          ;; 3. Mixed shapes, aggregate resolves, the bearer survives and no
          ;;    range crosses 1.0 — so the subtraction is applied and the
          ;;    corrected ratio is LARGER, which is the fixed direction.
-         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
-                             :slim live-yc)
-               was  (get-in (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                         [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
-                            [:summary :reagent-slim :min])
-               now  (get-in v [:summary-corrected :reagent-slim :min])]
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                          [{:floor 1.0 :microtask-arm 5.0} {:floor 1.2 :microtask-arm 6.0}])
+                             mt live-yc)
+               was  (get-in (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                         [{:floor 1.0 :microtask-arm 5.0} {:floor 1.2 :microtask-arm 6.0}])
+                            [:summary :microtask-arm :min])
+               now  (get-in v [:summary-corrected :microtask-arm :min])]
            {:name "a resolving aggregate is CORRECTED, and the corrected ratio is larger"
             :ok   (and (= :corrected (:verdict v)) (number? now) (> now was))
             :detail (str (name (:verdict v)) " " was " -> " now)})
 
          ;; 4. THE 15,518,934x ROW. A bulk floor of one quantum against a
          ;;    bound of one quantum: `pos?` would pass it, this must not.
-         (let [v (verdict-of (fixture-row :U-bulk 1 [:floor :reagent-slim]
-                                          [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}])
-                             :slim live-yc)]
+         (let [v (verdict-of (fixture-row :U-bulk 1 [:floor :microtask-arm]
+                                          [{:floor 0.1 :microtask-arm 1.5} {:floor 0.1 :microtask-arm 1.6}])
+                             mt live-yc)]
            {:name "a bearer with less left than was removed is REFUSED (the 15,518,934x row)"
             :ok   (and (= :refused (:verdict v))
                        (= :correction-exceeds-window (:reason v)))
@@ -1736,10 +1727,10 @@
 
          ;; 5. The correction moves a range across 1.0, so the row is
          ;;    reporting the asymmetry rather than the arms.
-         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                          [{:floor 1.0 :reagent-slim 0.9} {:floor 1.0 :reagent-slim 1.1}])
-                             :slim {:p50 0 :min 0 :max 0.3 :n 10
-                                    :batched {:k narrow-batch-k :window-p50 0 :window-max 0.3 :n 10}})]
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                          [{:floor 1.0 :microtask-arm 0.9} {:floor 1.0 :microtask-arm 1.1}])
+                             mt {:p50 0 :min 0 :max 0.3 :n 10
+                                 :batched {:k narrow-batch-k :window-p50 0 :window-max 0.3 :n 10}})]
            {:name "a correction that moves a range across 1.0 is REFUSED"
             :ok   (and (= :refused (:verdict v))
                        (= :correction-changes-the-verdict (:reason v)))
@@ -1747,9 +1738,9 @@
 
          ;; 6. No measured aggregate for this row's k. Refused as
          ;;    unevaluable, never corrected with the nearest number to hand.
-         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                          [{:floor 1.0 :reagent-slim 5.0} {:floor 1.2 :reagent-slim 6.0}])
-                             :slim no-agg-yc)]
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                          [{:floor 1.0 :microtask-arm 5.0} {:floor 1.2 :microtask-arm 6.0}])
+                             mt no-agg-yc)]
            {:name "no aggregate measured for this row's k is REFUSED as unevaluable"
             :ok   (and (= :refused (:verdict v)) (= :unevaluable (:reason v)))
             :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
@@ -1760,9 +1751,9 @@
          ;;    boolean test would accept exactly this complete direction
          ;;    reversal as :corrected: 0.95x unadjusted, 1.0556x corrected.
          ;;    [[side-of-1]] is three-state so that it cannot.
-         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                          [{:floor 1.0 :reagent-slim 0.95} {:floor 1.0 :reagent-slim 0.95}])
-                             :slim live-yc)]
+         (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                          [{:floor 1.0 :microtask-arm 0.95} {:floor 1.0 :microtask-arm 0.95}])
+                             mt live-yc)]
            {:name "a band that crosses 1.0 WHOLE (no straddle at either end) is REFUSED"
             :ok   (and (= :refused (:verdict v))
                        (= :correction-changes-the-verdict (:reason v)))
@@ -1776,49 +1767,51 @@
          ;;    `UNPUBLISHED (1/78 unverified) [UNADJUSTED]` then
          ;;    `1.200 – 1.300 [CORRECTED]` for the SAME arm. The corrected
          ;;    summary must carry the marker in that arm's place, the
-         ;;    dropped head-to-head pairs must stay dropped, and a
-         ;;    PUBLISHED arm's corrected band must still be numeric — the
-         ;;    row is masked by [[mask-failed-read-backs]], the rule
-         ;;    [[measure-write!]] itself applies.
+         ;;    head-to-head pairs the mask dropped must stay dropped while a
+         ;;    pair it kept survives, and a PUBLISHED arm's corrected band
+         ;;    must still be numeric — the row is masked by
+         ;;    [[mask-failed-read-backs]], the rule [[measure-write!]]
+         ;;    itself applies.
          (let [row  (-> (fixture-row :U-narrow narrow-batch-k
-                                     [:floor :reagent-slim :donor-r1 :donor-r2]
-                                     [{:floor 1.0 :reagent-slim 5.0 :donor-r1 2.0 :donor-r2 3.0}
-                                      {:floor 1.2 :reagent-slim 6.0 :donor-r1 2.4 :donor-r2 3.6}])
-                        (assoc :unverified {:floor 0 :reagent-slim 1 :donor-r1 0 :donor-r2 0}
-                               :writes     {:floor 78 :reagent-slim 78 :donor-r1 78 :donor-r2 78})
+                                     [:floor :microtask-arm :uix :donor-r1 :donor-r2]
+                                     [{:floor 1.0 :microtask-arm 5.0 :uix 2.5 :donor-r1 2.0 :donor-r2 3.0}
+                                      {:floor 1.2 :microtask-arm 6.0 :uix 3.0 :donor-r1 2.4 :donor-r2 3.6}])
+                        (assoc :unverified {:floor 0 :microtask-arm 0 :uix 0 :donor-r1 1 :donor-r2 0}
+                               :writes     {:floor 78 :microtask-arm 78 :uix 78 :donor-r1 78 :donor-r2 78})
                         mask-failed-read-backs)
-               v    (verdict-of row :slim live-yc)
-               slim (get-in v [:summary-corrected :reagent-slim])
-               d1   (get-in v [:summary-corrected :donor-r1])]
+               v    (verdict-of row mt live-yc)
+               d1   (get-in v [:summary-corrected :donor-r1])
+               d2   (get-in v [:summary-corrected :donor-r2])
+               h2h  (:head-to-head-corrected v)]
            {:name "a corrected band inherits its original's publication mask (failed DOM read-back)"
             :ok   (and (= :corrected (:verdict v))
-                       (= :failed-dom-read-back (:unpublished slim))
-                       (nil? (:min slim))
-                       (number? (:min d1))
-                       (contains? (:head-to-head-corrected v) :donor-r2-over-donor-r1)
-                       (not (contains? (:head-to-head-corrected v) :donor-r1-over-reagent-slim)))
+                       (= :failed-dom-read-back (:unpublished d1))
+                       (nil? (:min d1))
+                       (number? (:min d2))
+                       (contains? h2h :donor-r2-over-uix)
+                       (not (contains? h2h :donor-r1-over-uix))
+                       (not (contains? h2h :donor-r2-over-donor-r1)))
             :detail (str (name (:verdict v))
-                         " reagent-slim-corrected=" (pr-str slim)
-                         " h2h-corrected=" (pr-str (vec (keys (:head-to-head-corrected v)))))})
+                         " donor-r1-corrected=" (pr-str d1)
+                         " h2h-corrected=" (pr-str (vec (keys h2h))))})
 
-         ;; 9. THE CLOCK-GRAIN MASK. The live bulk row: a floor
-         ;;    of one and two 0.1 ms ticks under a measured 0.1 ms grain. The
+         ;; 9. THE CLOCK-GRAIN MASK. A live-shaped bulk row: a floor of one
+         ;;    and two 0.1 ms ticks under a measured 0.1 ms grain. The
          ;;    floor is every floor-normalised figure's DENOMINATOR, so the
          ;;    whole column goes — and the head-to-head pairs, which are
-         ;;    arm-over-arm with the floor cancelling exactly, STAY. The
-         ;;    numbers are a recorded live run, not invented.
-         (let [row   (grain-fixture :U-bulk 1 [:floor :reagent-slim :donor-r1]
-                                    [{:floor 0.1 :reagent-slim 1.75 :donor-r1 1.2}
-                                     {:floor 0.2 :reagent-slim 1.7  :donor-r1 1.3}]
+         ;;    arm-over-arm with the floor cancelling exactly, STAY.
+         (let [row   (grain-fixture :U-bulk 1 [:floor :uix :donor-r1]
+                                    [{:floor 0.1 :uix 1.75 :donor-r1 1.2}
+                                     {:floor 0.2 :uix 1.7  :donor-r1 1.3}]
                                     0.1)
-               slim  (get-in row [:summary :reagent-slim])]
+               ux    (get-in row [:summary :uix])]
            {:name "a floor at the clock's own grain unpublishes the floor-normalised column"
-            :ok   (and (= :below-clock-grain (:unpublished slim))
-                       (nil? (:min slim))
-                       (= [:floor] (:arms slim))
+            :ok   (and (= :below-clock-grain (:unpublished ux))
+                       (nil? (:min ux))
+                       (= [:floor] (:arms ux))
                        (= :below-clock-grain (:unpublished (get-in row [:summary :floor])))
-                       (contains? (:head-to-head row) :donor-r1-over-reagent-slim))
-            :detail (str "reagent-slim=" (pr-str slim)
+                       (contains? (:head-to-head row) :donor-r1-over-uix))
+            :detail (str "uix=" (pr-str ux)
                          " h2h=" (pr-str (vec (keys (:head-to-head row)))))})
 
          ;; 10. AND THE CORRECTION OVER THAT ROW IS MOOT. The same fixture
@@ -1826,11 +1819,11 @@
          ;;     check 4 have no published figure to refuse over here: the
          ;;     bearer is the floor and the floor's column is gone. Two
          ;;     draws of the clock, one answer.
-         (let [row  (grain-fixture :U-bulk 1 [:floor :reagent-slim]
-                                   [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}]
+         (let [row  (grain-fixture :U-bulk 1 [:floor :microtask-arm]
+                                   [{:floor 0.1 :microtask-arm 1.5} {:floor 0.1 :microtask-arm 1.6}]
                                    0.1)
-               live (verdict-of row :slim live-yc)
-               zero (verdict-of row :slim zero-yc)]
+               live (verdict-of row mt live-yc)
+               zero (verdict-of row mt zero-yc)]
            {:name "and the correction over a grain-masked row is MOOT on BOTH draws of the clock"
             :ok   (and (= :moot (:verdict live)) (= :moot (:verdict zero))
                        (= :no-published-figure-bears-it (:reason live)))
@@ -1846,10 +1839,10 @@
          ;;      not — so 1.5 and 2.0 ticks are still grain and 3.0 is a
          ;;      measurement. Both polarities, because a boundary nobody has
          ;;      watched decide is not a boundary.
-         (let [at (fn [floor] (-> (grain-fixture :U-bulk 1 [:floor :reagent-slim]
-                                                 [{:floor floor :reagent-slim 1.7}]
+         (let [at (fn [floor] (-> (grain-fixture :U-bulk 1 [:floor :uix]
+                                                 [{:floor floor :uix 1.7}]
                                                  0.1)
-                                  (get-in [:summary :reagent-slim])))]
+                                  (get-in [:summary :uix])))]
            {:name "the grain must be the SMALLER part of the window: 1.5 and 2.0 ticks are still grain, 3.0 is not"
             :ok   (and (= :below-clock-grain (:unpublished (at 0.15)))
                        (= :below-clock-grain (:unpublished (at 0.2)))
@@ -1864,15 +1857,15 @@
          ;;     clock — publishes exactly as before, and its correction is
          ;;     adjudicated exactly as before. Same rule, same clock, the
          ;;     other answer: what separates the two rows is the measurement.
-         (let [row (grain-fixture :U-narrow narrow-batch-k [:floor :reagent-slim]
-                                  [{:floor 0.9 :reagent-slim 4.45} {:floor 1.0 :reagent-slim 5.3}]
+         (let [row (grain-fixture :U-narrow narrow-batch-k [:floor :microtask-arm]
+                                  [{:floor 0.9 :microtask-arm 4.45} {:floor 1.0 :microtask-arm 5.3}]
                                   0.1)
-               v   (verdict-of row :slim live-yc)]
+               v   (verdict-of row mt live-yc)]
            {:name "a floor nine to ten ticks clear of the grain is untouched, and still corrected"
-            :ok   (and (number? (get-in row [:summary :reagent-slim :min]))
-                       (nil? (:unpublished (get-in row [:summary :reagent-slim])))
+            :ok   (and (number? (get-in row [:summary :microtask-arm :min]))
+                       (nil? (:unpublished (get-in row [:summary :microtask-arm])))
                        (= :corrected (:verdict v)))
-            :detail (str "band=" (pr-str (get-in row [:summary :reagent-slim]))
+            :detail (str "band=" (pr-str (get-in row [:summary :microtask-arm]))
                          " verdict=" (name (:verdict v)))})
 
          ;; 12. FAIL CLOSED ON AN UNMEASURABLE CLOCK. `clock-resolution!`
@@ -1881,12 +1874,12 @@
          ;;     has not earned a magnitude, so EVERY arm is below the grain —
          ;;     never "no tick, so nothing is below it", which is the
          ;;     fail-open reading of the same fact.
-         (let [row (grain-fixture :U-bulk 1 [:floor :reagent-slim]
-                                  [{:floor 5.0 :reagent-slim 50.0}]
+         (let [row (grain-fixture :U-bulk 1 [:floor :uix]
+                                  [{:floor 5.0 :uix 50.0}]
                                   nil)]
            {:name "a clock that could not state its own resolution unpublishes everything"
-            :ok   (= :below-clock-grain (:unpublished (get-in row [:summary :reagent-slim])))
-            :detail (pr-str (get-in row [:summary :reagent-slim]))})]]
+            :ok   (= :below-clock-grain (:unpublished (get-in row [:summary :uix])))
+            :detail (pr-str (get-in row [:summary :uix]))})]]
     {:ok?    (every? :ok checks)
      :checks (mapv (fn [c] (update c :ok boolean)) checks)}))
 
@@ -1981,7 +1974,7 @@
                     (.remove container)
                     (reseed! :donor-r2))]
     (react-dom/flushSync
-      (fn [] (.render root (provided fid (rf.bench.fresco.hd8-witnesses/slim-element (rf.bench.fresco.hd8-witnesses/r2-u 8))))))
+      (fn [] (.render root (provided fid (rf.bench.fresco.hd8-witnesses/donor-element (rf.bench.fresco.hd8-witnesses/r2-u 8))))))
     (let [before (cell-text container 3)
           node   (.querySelector container "[data-i=\"3\"]")]
       (.click node)
@@ -2028,10 +2021,9 @@
    ;; codec, for the reason [[head-to-head-pairs]] gives.
    :markup-codec      {:floor        "hand-written react/createElement — no codec"
                        :reagent      "stock Reagent's template (reg-view)"
-                       :reagent-slim "reagent2.impl.template/as-element (reg-view)"
                        :uix          "uix.core/$ — a MACRO; createElement at compile time, no runtime walk"
-                       :donor-r1     "reagent2.impl.template/as-element"
-                       :donor-r2     "reagent2.impl.template/as-element"}
+                       :donor-r1     "reagent.core/as-element inside :r> boundaries"
+                       :donor-r2     "reagent.core/as-element inside :r> boundaries"}
    ;; Which window shape each write arm was measured through, stated rather
    ;; than left to be inferred from the adapter. A row whose
    ;; reader cannot tell whether its window contained a harness microtask

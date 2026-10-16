@@ -1776,7 +1776,7 @@
     React consults `checkScheduledUpdateOrContext` BEFORE it consults the
     comparator, so a fiber with pending work re-renders and the
     comparator is never even asked. A row whose reads moved cannot be
-    bailed out, whatever its props say. Donor precedent: reagent-slim's
+    bailed out, whatever its props say. Donor precedent: Reagent's
     default update check is argv `=`, and reactive invalidation bypasses
     it via `forceUpdate` — the same shape, by design.
   - **The frame** arrives through `useContext`, and React propagates a

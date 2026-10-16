@@ -1094,15 +1094,13 @@
   component queue on `requestAnimationFrame`, so the queue is still full
   a microtask later and the drain finds the work. It is FATAL for an arm
   whose notification is queued on the very queue the harness yields to.
-  `reagent2.impl.batching` (reagent-slim) is microtask-based, so the
-  yield hands it the commit FIRST: it issues its `forceUpdate` outside
-  any `flushSync` boundary, React parks the work at the default lane, and
-  the drain that follows finds nothing to commit. The arm then reads `N
+  For a substrate whose render queue drains on a microtask, the yield
+  hands it the commit FIRST: it issues its `forceUpdate` outside any
+  `flushSync` boundary, React parks the work at the default lane, and the
+  drain that follows finds nothing to commit. The arm then reads `N
   unverified of N` against a DOM that is merely LATE — and, with the
-  read-back suppressed, `0.16–0.50x` the floor from a page that never
-  changed. A standalone rig pins it, and
-  `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md` carries
-  the evidence.
+  read-back suppressed, a fraction of the floor from a page that never
+  changed. `lane-window-dom-cljs-test` pins both families with fakes.
 
   The two shapes do not bill the same wait, so an arm measured through
   one is not like-for-like against an arm measured through the other

@@ -10,7 +10,6 @@
   | arm | walks | input |
   |---|---|---|
   | `fresco` | `front.codec/as-element` | the plain witness |
-  | `slim` | `reagent2.impl.template/as-element` | the plain witness |
   | `reagent` | `reagent.impl.template/as-element` (stock 2.0.1) | the plain witness |
   | `fresco-native` | `front.codec/as-element` | the page's OWN markup (intent vectors) |
 
@@ -31,7 +30,7 @@
   them. An arm doing different work is not an arm, so
   the compared value is the realized page with every event position
   replaced by one shared plain function — legal, and identical work, for
-  all three interpreters. `fresco-native` then prices what Fresco's own
+  both interpreters. `fresco-native` then prices what Fresco's own
   authoring surface costs ON TOP of that, so the intent term is named
   rather than hidden inside the comparison.
 
@@ -80,7 +79,6 @@
             [reagent.impl.input :as rinput]
             [reagent.impl.protocols :as rp]
             [reagent.impl.template :as rtpl]
-            [reagent2.impl.template :as slim]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -219,7 +217,7 @@
   **Every arm runs inside the body door**, including the two that do not
   need it. Fresco's intent lowering refuses to run with no ambient
   dispatch (`front.intent/require-dispatch`), so the native arm has no
-  choice; running the donors inside the same door keeps the four arms on
+  choice; running the donor inside the same door keeps the three arms on
   ONE call convention, because arms on different conventions compare the
   conventions as much as the walks. The clock starts
   INSIDE the door, so the door itself is never in the window."
@@ -291,11 +289,9 @@
                                      (fn [t] (rtpl/cached-parse nil (name t) t)))]
      ;; --- prop-name lookup -------------------------------------------
      [:prop-name-fresco (ns-per-op micro-reps prop-keys (fn [k] (rf.bench.fresco.front.codec/cached-prop-name k)))]
-     [:prop-name-slim    (ns-per-op micro-reps prop-keys (fn [k] (slim/cached-prop-name k)))]
      [:prop-name-reagent (ns-per-op micro-reps prop-keys (fn [k] (rtpl/cached-prop-name k)))]
      ;; --- value conversion -------------------------------------------
      [:prop-value-fresco (ns-per-op micro-reps prop-vals (fn [v] (rf.bench.fresco.front.codec/convert-prop-value v)))]
-     [:prop-value-slim    (ns-per-op micro-reps prop-vals (fn [v] (slim/convert-prop-value v)))]
      [:prop-value-reagent (ns-per-op micro-reps prop-vals (fn [v] (rtpl/convert-prop-value v)))]
      ;; --- the whole per-element prop pipeline -------------------------
      [:convert-props-fresco
@@ -309,7 +305,6 @@
                                    (fn [t] (rinput/input-component? t)))]
      ;; --- child dispatch ----------------------------------------------
      [:string-child-fresco (ns-per-op micro-reps strings (fn [s] (rf.bench.fresco.front.codec/as-element s)))]
-     [:string-child-slim    (ns-per-op micro-reps strings (fn [s] (slim/as-element s)))]
      [:string-child-reagent (ns-per-op micro-reps strings
                                        (fn [s] (rp/as-element rtpl/class-compiler s)))]
      ;; --- the shared floor --------------------------------------------
@@ -681,500 +676,6 @@
      [:navmap-keyset-scan     (ns-per-op micro-reps nav-maps navmap-keyset-scan)]]))
 
 ;; ---------------------------------------------------------------------------
-;; SLIM, DECOMPOSED
-;; ---------------------------------------------------------------------------
-;;
-;; On its `-ship` shapes the arm rows put `reagent2.impl.template` at
-;; 1.73-1.90x stock Reagent, and the stage table names ONE term
-;; (`cached-prop-name`, ~2x stock). That term weighs 1,489 prop occurrences
-;; over 1,202 elements — nowhere near the whole gap. These rows name the rest,
-;; and on the cuts they convict the arm reads 1.19-1.24x.
-;;
-;; A `-ship` ROW IS THE COSTLIER SHAPE, not the shipping one — the name marks
-;; the side a delta is measured FROM, and the cheapened twin beside it is what
-;; ships. They are kept as a PAIR because a delta measured in one process on
-;; one roster is the only way these terms compare — see the run-to-run spread
-;; on the arms — and because a reader deserves the alternatives that were
-;; costed, not just the winner.
-;;
-;; Slim's per-element shapes are `defn-` private, so they are replicated here
-;; the way the cache candidates above already are ("written here so every arm
-;; is local"). Everything the replicas cannot reach privately is called for
-;; real: `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
-;; `slim/convert-prop-value` and `slim/void-tags` are all public. That last
-;; point is also why a `-ship` row does not freeze: its miss path calls the
-;; REAL `slim/cached-prop-name`, so it tracks that function rather than a
-;; copy of it.
-;;
-;; WHAT A ROW HERE IS, AND IS NOT. A replica is held honest by AGREEMENT —
-;; every cheapened variant answers what its `-ship` twin answers, over the
-;; page's own literals AND the hostile names it does not carry, checked
-;; before any figure is read — so a `ship → cheap` delta names a term and its
-;; sign reliably. It is NOT calibrated in absolute terms against the real
-;; function, and must not be read as if it were: measured on one run,
-;; `slim-prop-lookup-ship` read 86.0 ns/op where `prop-name-slim` — the same
-;; algorithm, but the REAL `slim/cached-prop-name` — read 66.8. Same shape,
-;; different call site, 29% apart.
-;;
-;; So the authority for "does a change move the shipping function?" is the
-;; STAGE table's own real-function rows (`prop-name-slim`,
-;; `convert-props-*`) and the ARM rows, compared across a run before the
-;; change and one after it. These rows are the map that says WHERE to cut; those rows are
-;; the verdict on the cut.
-
-(def ^:private slim-reserved #{"__proto__" "prototype" "constructor"})
-
-;; Three shapes for a roster of three: the `-set` form, a PersistentHashSet
-;; `contains?` — a string hash plus a hash-map probe; the `identical?` chain,
-;; which wins and ships (as front/codec.cljs `reserved-name?` does); and the
-;; null-prototype index below, which loses to the chain on the clock AND
-;; carries a second roster.
-(defn- ^boolean slim-reserved-set? [n] (contains? slim-reserved n))
-(defn- ^boolean slim-reserved-chain? [n]
-  (or (identical? "__proto__" n)
-      (identical? "prototype" n)
-      (identical? "constructor" n)))
-
-;; A null-prototype index DERIVED from the same set, so it cannot drift from
-;; it. It loses to the chain at three names but WINS at fourteen, which is
-;; why `void-tag?` ships this shape and `reserved-prop-key?` ships the chain
-;; — the crossover is real and is the whole reason both are costed here.
-;; `__proto__` is an ordinary own key on a null-prototype object (the magic
-;; accessor lives on `Object.prototype`), so a roster indexes itself with no
-;; special case.
-(defn- ^js index-of-strings [ss]
-  (reduce (fn [o s] (unchecked-set o s true) o) (js/Object.create nil) ss))
-
-(def ^:private slim-reserved-index (index-of-strings slim-reserved))
-(defn- ^boolean slim-reserved-idx? [n]
-  (true? (unchecked-get slim-reserved-index n)))
-
-;; The `-ship` shape's `own-key?`, replicated FAITHFULLY — including that it
-;; re-resolves `Object.prototype.hasOwnProperty` on every call (two property
-;; loads) rather than hoisting it the way the codec's `has-own` does. The
-;; resolution is part of what the `-ship` cache rows are pricing, so hoisting
-;; it here would flatter the costlier shape.
-(defn- ^boolean slim-own-key? [obj k]
-  (.call (.. js/Object -prototype -hasOwnProperty) obj k))
-
-(defn- slim-cache-key [k]
-  (let [n (name k)]
-    (if-let [ns* (and (keyword? k) (namespace k))]
-      (str ns* "/" n)
-      n)))
-
-;; --- the tag cache ---------------------------------------------------------
-
-(def ^:private slim-tag-ship-cache #js {})
-(def ^:private slim-tag-np-cache (js/Object.create nil))
-
-(defn- slim-tag-ship [t]
-  (let [n (slim-cache-key t)]
-    (if (and (not (slim-reserved-set? n))
-             (slim-own-key? slim-tag-ship-cache n))
-      (aget slim-tag-ship-cache n)
-      (let [v (slim/parse-tag t [t])]
-        (when-not (slim-reserved-set? n) (aset slim-tag-ship-cache n v))
-        v))))
-
-(defn- slim-tag-np [t]
-  (let [n (slim-cache-key t)
-        v (unchecked-get slim-tag-np-cache n)]
-    (if (undefined? v)
-      (let [v' (slim/parse-tag t [t])]
-        (when-not (slim-reserved-chain? n) (unchecked-set slim-tag-np-cache n v'))
-        v')
-      v)))
-
-;; --- the prop-name cache ---------------------------------------------------
-
-(def ^:private slim-prop-ship-cache
-  (doto #js {} (aset "class" "className") (aset "for" "htmlFor")
-               (aset "charset" "charSet")))
-
-(def ^:private slim-prop-np-cache
-  (doto (js/Object.create nil)
-    (unchecked-set "class" "className")
-    (unchecked-set "for" "htmlFor")
-    (unchecked-set "charset" "charSet")))
-
-(defn- slim-prop-ship [k]
-  (if (or (keyword? k) (symbol? k))
-    (let [n (name k)]
-      (if (slim-reserved-set? n)
-        n
-        (if-some [cached (when (slim-own-key? slim-prop-ship-cache n)
-                           (aget slim-prop-ship-cache n))]
-          cached
-          (let [v (slim/cached-prop-name k)]
-            (aset slim-prop-ship-cache n v)
-            v))))
-    k))
-
-(defn- slim-prop-np [k]
-  (if (or (keyword? k) (symbol? k))
-    (let [n (name k)
-          v (unchecked-get slim-prop-np-cache n)]
-      (if (undefined? v)
-        (let [v' (slim/cached-prop-name k)]
-          (when-not (slim-reserved-chain? n) (unchecked-set slim-prop-np-cache n v'))
-          v')
-        v))
-    k))
-
-;; --- the per-element prop-map preamble -------------------------------------
-;;
-;; Before a single prop is converted, `convert-props` shuffles the persistent
-;; map three times: `collapse-class-keys` (up to THREE `contains?` probes),
-;; a `:class` normalisation `assoc`, and `set-id-class`'s shorthand merge.
-;; The cheapened collapse probes `:className` FIRST — the discriminator that
-;; is false on essentially every real element — and so pays ONE probe on the
-;; common path instead of two or three. Same answers, fewer questions.
-
-(defn- slim-collapse-ship [props]
-  (cond
-    (and (contains? props :class) (contains? props :className))
-    (-> props
-        (assoc :class (slim/class-names (:class props) (:className props)))
-        (dissoc :className))
-
-    (contains? props :className)
-    (-> props
-        (assoc :class (:className props))
-        (dissoc :className))
-
-    :else props))
-
-(defn- slim-collapse-cheap [props]
-  (if (contains? props :className)
-    (if (contains? props :class)
-      (-> props
-          (assoc :class (slim/class-names (:class props) (:className props)))
-          (dissoc :className))
-      (-> props
-          (assoc :class (:className props))
-          (dissoc :className)))
-    props))
-
-(defn- slim-set-id-class [props parsed]
-  (let [id    (.-id parsed)
-        class (.-className parsed)]
-    (cond-> props
-      (and (some? id) (nil? (:id props)))
-      (assoc :id id)
-
-      class
-      (assoc :class (slim/class-names class (or (:class props) (:className props)))))))
-
-(defn- slim-preamble [collapse props parsed]
-  (let [collapsed  (collapse props)
-        class      (:class collapsed)
-        normalised (cond-> collapsed class (assoc :class (slim/class-names class)))]
-    (slim-set-id-class normalised parsed)))
-
-(defn- slim-preamble-ship  [props parsed] (slim-preamble slim-collapse-ship props parsed))
-(defn- slim-preamble-cheap [props parsed] (slim-preamble slim-collapse-cheap props parsed))
-
-;; --- the whole per-element prop pipeline -----------------------------------
-
-(defn- slim-top-prop-conv [reserved? native? o k v]
-  (let [k' (slim/cached-prop-name k)]
-    (if (and (string? k') (reserved? k'))
-      o
-      (do (aset o k' (slim/convert-prop-value k v native?)) o))))
-
-(defn- slim-convert-props [preamble reserved? props parsed]
-  (let [native?        (string? (.-tag parsed))
-        with-shorthand (preamble props parsed)]
-    (when (seq with-shorthand)
-      (reduce-kv (fn [o k v] (slim-top-prop-conv reserved? native? o k v))
-                 #js {} with-shorthand))))
-
-;; Shipping threads `native?` into the reduce through a CLOSURE minted per
-;; element — `(fn [o k v] (top-prop-conv native? o k v))`. Decide the rule
-;; once per element instead and the reduce takes a static fn, so the mount
-;; allocates nothing to carry a boolean it already knows.
-;;
-;; COSTED AND DECLINED, and ONE run cannot say so honestly. On one run,
-;; `slim-convert-props-cheap` and `slim-convert-props-static` read
-;; 151.8303 ns/op EACH — the same figure to four places, because both
-;; windows fall in the same 100 µs `performance.now` bucket. Read alone
-;; that looks like a tight zero. On another the static form read 326.1
-;; against the closure's 287.4, i.e. 13% SLOWER. So the term is not merely
-;; small, it does not reliably have a SIGN: V8 does not charge for the
-;; closure, and the run-to-run spread on this row is wider than anything the
-;; restructure could win. Shipping keeps the version that reads as one
-;; function rather than three. The row stays so the guess is not re-derived.
-(defn- slim-native-prop-conv  [o k v] (slim-top-prop-conv slim-reserved-chain? true o k v))
-(defn- slim-interop-prop-conv [o k v] (slim-top-prop-conv slim-reserved-chain? false o k v))
-
-(defn- slim-convert-props-static [preamble props parsed]
-  (let [native?        (string? (.-tag parsed))
-        with-shorthand (preamble props parsed)]
-    (when (seq with-shorthand)
-      (reduce-kv (if native? slim-native-prop-conv slim-interop-prop-conv)
-                 #js {} with-shorthand))))
-
-;; --- the per-element `:key` read -------------------------------------------
-;;
-;; The `-ship` form asks `vector?` twice, reads `meta`, then `nth 0`, a `case`,
-;; `nth 1` and a `map?` before the `:key` lookup it wanted — all of it to find
-;; a props slot the caller is holding. The `-spec` form is the read alone, and
-;; it is what ships for the constructors that HAVE the slot (`native-element`,
-;; which is every DOM element and every `:>`, and `fragment-element`); the
-;; `-ship` form is `get-react-key`, which is what the callers holding only a
-;; bare vector need — `expand-seq`'s missing-key DEBUG warning and the cold
-;; component heads.
-
-(defn- slim-key-ship [v]
-  (let [k (when (vector? v) (some-> (meta v) :key))]
-    (or k
-        (case (when (vector? v) (nth v 0 nil))
-          (:> :f>) (when (map? (nth v 2 nil)) (:key (nth v 2 nil)))
-          :r>      (some-> (nth v 2 nil) (.-key))
-          (when (map? (nth v 1 nil)) (:key (nth v 1 nil)))))))
-
-(defn- slim-key-spec [v props]
-  (or (some-> (meta v) :key)
-      (:key props)))
-
-;; --- the per-element void-tag probe ----------------------------------------
-
-(defn- ^boolean slim-void-set? [t] (contains? slim/void-tags t))
-(defn- ^boolean slim-void-case? [t]
-  (case t
-    ("area" "base" "br" "col" "embed" "hr" "img" "input" "link"
-     "meta" "param" "source" "track" "wbr") true
-    false))
-
-(def ^:private slim-void-index (index-of-strings slim/void-tags))
-(defn- ^boolean slim-void-idx? [t]
-  (true? (unchecked-get slim-void-index t)))
-
-;; --- the per-element hiccup-shape read --------------------------------------
-;;
-;; The `-ship` `hiccup-shape` answers three questions at once — the slot
-;; value, whether it is a props map, and where children begin — and hands them
-;; back in a freshly minted 3-element PersistentVector that each of its four
-;; call sites destructures and discards. The destructure is three `nth` calls
-;; ON TOP of the allocation, and the two derived answers are one expression
-;; each. The `-inline` arm wins and ships; `props-slot?` is the one part with
-;; a name, because the RULE is the thing four sites could drift on.
-;;
-;; Both arms fold the three values into ONE number, so the row prices the SHAPE
-;; DERIVATION and not a tail that differs between them.
-
-(defn- slim-shape-ship [argv first-pos]
-  (let [[head has-props first-child]
-        (let [head        (nth argv first-pos nil)
-              has-props   (or (nil? head) (map? head))
-              first-child (+ first-pos (if has-props 1 0))]
-          [head has-props first-child])]
-    (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
-
-(defn- slim-shape-inline [argv first-pos]
-  (let [head        (nth argv first-pos nil)
-        has-props   (or (nil? head) (map? head))
-        first-child (+ first-pos (if has-props 1 0))]
-    (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
-
-;; --- the per-element head dispatch -----------------------------------------
-;;
-;; The `-ship` `vec-to-elem` asks four `(= tag :>)`-shaped questions before it
-;; reaches the `hiccup-tag?` branch that EVERY DOM element takes, and
-;; `cljs.core/=` falls through `identical?` to an `-equiv` protocol dispatch on
-;; a miss — so the common head pays four of them. `keyword-identical?` answers
-;; the same question with an `instance?` pair and an interned-string compare;
-;; `case` over all-keyword tests lowers to ONE `(if (keyword? x) (.-fqn x) nil)`
-;; and a JS `switch`, which is both the cheapest of the three on every run and
-;; the one that says "these four heads are constants" structurally. `case`
-;; ships. The three arms end identically so the row prices the DISPATCH, and
-;; the roster is `tags` — the page's own DOM heads, i.e. exactly the population
-;; that misses all four.
-
-(defn- ^boolean slim-hiccup-tag? [x]
-  (or (keyword? x) (symbol? x) (string? x)))
-
-(defn- slim-head-ship [tag]
-  (cond
-    (= tag :>)  0
-    (= tag :<>) 1
-    (= tag :r>) 2
-    (= tag :f>) 3
-    (slim-hiccup-tag? tag) 4
-    :else 5))
-
-(defn- slim-head-kwid [tag]
-  (cond
-    (keyword-identical? tag :>)  0
-    (keyword-identical? tag :<>) 1
-    (keyword-identical? tag :r>) 2
-    (keyword-identical? tag :f>) 3
-    (slim-hiccup-tag? tag) 4
-    :else 5))
-
-(defn- slim-head-case [tag]
-  (case tag
-    :>  0
-    :<> 1
-    :r> 2
-    :f> 3
-    (if (slim-hiccup-tag? tag) 4 5)))
-
-;; The heads a hiccup renderer must answer for and the census page does not
-;; carry — the four interop sentinels themselves; the same four RECONSTRUCTED
-;; at runtime, which a constants-table identity test would miss and `=` would
-;; not; their STRING and SYMBOL look-alikes, which must NOT match a keyword
-;; sentinel; a reserved head; and the non-named heads reaching the component
-;; branches.
-(def ^:private hostile-heads
-  [:> :<> :r> :f>
-   (keyword ">") (keyword "<>") (keyword "r>") (keyword "f>")
-   ">" "<>" "r>" "f>" ":>" (symbol ">") (symbol "<>")
-   :rf/suspense-boundary :div "div" (symbol "div") nil 7 (fn [] nil)])
-
-(defn- warm-slim! [^js tags ^js prop-keys]
-  (dotimes [i (.-length prop-keys)]
-    (let [k (aget prop-keys i)] (slim-prop-ship k) (slim-prop-np k)))
-  (dotimes [i (.-length tags)]
-    (let [t (aget tags i)] (slim-tag-ship t) (slim-tag-np t))))
-
-(defn- slim-table
-  [{:keys [^js tags ^js prop-keys ^js el-props ^js el-vecs ^js el-tags]}]
-  (warm-slim! tags prop-keys)
-  (let [parsed   (let [a #js []]
-                   (dotimes [i (.-length el-tags)] (.push a (slim-tag-ship (aget el-tags i))))
-                   a)
-        tag-strs (let [a #js []]
-                   (dotimes [i (.-length el-tags)] (.push a (.-tag (aget parsed i))))
-                   a)]
-    [;; the two caches, shipping vs null-prototype
-     [:slim-prop-lookup-ship (ns-per-op micro-reps prop-keys slim-prop-ship)]
-     [:slim-prop-lookup-np   (ns-per-op micro-reps prop-keys slim-prop-np)]
-     [:slim-tag-lookup-ship  (ns-per-op micro-reps tags slim-tag-ship)]
-     [:slim-tag-lookup-np    (ns-per-op micro-reps tags slim-tag-np)]
-     ;; the reserved-key probe, per prop, on the write chokepoint
-     [:slim-reserved-set   (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-set? (name k))))]
-     [:slim-reserved-chain (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-chain? (name k))))]
-     [:slim-reserved-idx   (ns-per-op micro-reps prop-keys (fn [k] (slim-reserved-idx? (name k))))]
-     ;; the per-element prop-map preamble
-     [:slim-preamble-ship  (ns-per-op2 micro-reps el-props parsed slim-preamble-ship)]
-     [:slim-preamble-cheap (ns-per-op2 micro-reps el-props parsed slim-preamble-cheap)]
-     ;; the WHOLE per-element prop pipeline — the row the fresco/reagent
-     ;; stage table carries and slim's does not
-     [:slim-convert-props-ship
-      (ns-per-op2 micro-reps el-props parsed
-                  (fn [p t] (slim-convert-props slim-preamble-ship slim-reserved-set? p t)))]
-     [:slim-convert-props-cheap
-      (ns-per-op2 micro-reps el-props parsed
-                  (fn [p t] (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))]
-     ;; cheap vs static differ ONLY by the per-element closure.
-     [:slim-convert-props-static
-      (ns-per-op2 micro-reps el-props parsed
-                  (fn [p t] (slim-convert-props-static slim-preamble-cheap p t)))]
-     ;; the per-element key read
-     [:slim-key-ship (ns-per-op micro-reps el-vecs slim-key-ship)]
-     [:slim-key-spec (ns-per-op2 micro-reps el-vecs el-props slim-key-spec)]
-     ;; the per-element void probe
-     [:slim-void-set  (ns-per-op micro-reps tag-strs slim-void-set?)]
-     [:slim-void-case (ns-per-op micro-reps tag-strs slim-void-case?)]
-     [:slim-void-idx  (ns-per-op micro-reps tag-strs slim-void-idx?)]
-     ;; the per-element hiccup-shape read
-     [:slim-shape-ship   (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-ship v 1)))]
-     [:slim-shape-inline (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-inline v 1)))]
-     ;; the per-element head dispatch
-     [:slim-head-ship (ns-per-op micro-reps tags slim-head-ship)]
-     [:slim-head-kwid (ns-per-op micro-reps tags slim-head-kwid)]
-     [:slim-head-case (ns-per-op micro-reps tags slim-head-case)]]))
-
-(defn- slim-agreement
-  "Every cheapened slim variant answers what the shipping shape answers —
-  over the page's own literals and over the hostile names it does not carry."
-  [{:keys [^js tags ^js prop-keys ^js el-props ^js el-vecs ^js el-tags]}]
-  (warm-slim! tags prop-keys)
-  (let [bad (atom [])]
-    (dotimes [i (.-length prop-keys)]
-      (let [k (aget prop-keys i)]
-        (when-not (= (slim-prop-ship k) (slim-prop-np k))
-          (swap! bad conj [:prop k]))
-        (when-not (= (slim-reserved-set? (name k)) (slim-reserved-chain? (name k)))
-          (swap! bad conj [:reserved-chain k]))
-        (when-not (= (slim-reserved-set? (name k)) (slim-reserved-idx? (name k)))
-          (swap! bad conj [:reserved-idx k]))))
-    (dotimes [i (.-length tags)]
-      (let [t (aget tags i)
-            a (slim-tag-ship t) b (slim-tag-np t)]
-        (when-not (and (= (.-tag a) (.-tag b)) (= (.-id a) (.-id b))
-                       (= (.-className a) (.-className b)))
-          (swap! bad conj [:tag t]))))
-    ;; the preamble, the whole pipeline and the key read, per element
-    (dotimes [i (.-length el-tags)]
-      (let [p (aget el-props i)
-            t (slim-tag-ship (aget el-tags i))
-            v (aget el-vecs i)]
-        (when-not (= (slim-preamble-ship p t) (slim-preamble-cheap p t))
-          (swap! bad conj [:preamble i]))
-        (let [shipped (js/JSON.stringify
-                        (slim-convert-props slim-preamble-ship slim-reserved-set? p t))]
-          (when-not (= shipped
-                       (js/JSON.stringify
-                         (slim-convert-props slim-preamble-cheap slim-reserved-chain? p t)))
-            (swap! bad conj [:pipeline i]))
-          (when-not (= shipped
-                       (js/JSON.stringify
-                         (slim-convert-props-static slim-preamble-cheap p t)))
-            (swap! bad conj [:pipeline-static i])))
-        (when-not (= (slim-key-ship v) (slim-key-spec v p))
-          (swap! bad conj [:key i]))
-        ;; the shape read, at BOTH positions its call sites use (1 for a DOM
-        ;; tag and `:<>`, 2 for `:>`)
-        (when-not (= (slim-shape-ship v 1) (slim-shape-inline v 1))
-          (swap! bad conj [:shape-1 i]))
-        (when-not (= (slim-shape-ship v 2) (slim-shape-inline v 2))
-          (swap! bad conj [:shape-2 i]))))
-    ;; the head dispatch, over the page's own heads and the heads it lacks
-    (dotimes [i (.-length tags)]
-      (let [t (aget tags i)
-            s (slim-head-ship t)]
-        (when-not (= s (slim-head-kwid t)) (swap! bad conj [:head-kwid t]))
-        (when-not (= s (slim-head-case t)) (swap! bad conj [:head-case t]))))
-    (doseq [t hostile-heads]
-      (let [s (slim-head-ship t)]
-        (when-not (= s (slim-head-kwid t)) (swap! bad conj [:hostile-head-kwid (pr-str t)]))
-        (when-not (= s (slim-head-case t)) (swap! bad conj [:hostile-head-case (pr-str t)]))))
-    ;; the shape read over hostile SLOTS — nil and a map are the props shape,
-    ;; everything else is a child
-    (doseq [h [nil {} {:a 1} [] "x" 0 :k]]
-      (let [v ["div" h "c"]]
-        (when-not (= (slim-shape-ship v 1) (slim-shape-inline v 1))
-          (swap! bad conj [:hostile-shape (pr-str h)]))))
-    ;; and past the end of the vector, which `nth`'s not-found arm answers
-    (when-not (= (slim-shape-ship ["div"] 1) (slim-shape-inline ["div"] 1))
-      (swap! bad conj [:shape-past-end]))
-    ;; hostile names the page does not carry
-    (doseq [n ["__proto__" "prototype" "constructor" "toString" "hasOwnProperty"
-               "valueOf" "isPrototypeOf"]]
-      (let [k (keyword n)]
-        (when-not (= (slim-prop-ship k) (slim-prop-np k))
-          (swap! bad conj [:hostile-prop k]))
-        (when-not (= (slim-reserved-set? n) (slim-reserved-chain? n))
-          (swap! bad conj [:hostile-reserved-chain n]))
-        (when-not (= (slim-reserved-set? n) (slim-reserved-idx? n))
-          (swap! bad conj [:hostile-reserved-idx n]))
-        (let [a (slim-tag-ship k) b (slim-tag-np k)]
-          (when-not (and (= (.-tag a) (.-tag b)) (= (.-id a) (.-id b))
-                         (= (.-className a) (.-className b)))
-            (swap! bad conj [:hostile-tag k])))))
-    ;; the void probe, over every void tag and every tag the page carries
-    (doseq [t (concat slim/void-tags ["div" "span" "p" "a" "section" ""
-                                      "__proto__" "constructor" "toString"])]
-      (when-not (= (slim-void-set? t) (slim-void-case? t))
-        (swap! bad conj [:void-case t]))
-      (when-not (= (slim-void-set? t) (slim-void-idx? t))
-        (swap! bad conj [:void-idx t])))
-    @bad))
-
-;; ---------------------------------------------------------------------------
 ;; Reporting
 ;; ---------------------------------------------------------------------------
 
@@ -1205,8 +706,6 @@
                   roster  (collect-roster plain)
                   arms    [{:id :fresco        :witness plain
                             :walk (fn [h] (rf.bench.fresco.front.codec/as-element h))}
-                           {:id :slim           :witness plain
-                            :walk (fn [h] (slim/as-element h))}
                            {:id :reagent        :witness plain
                             :walk (fn [h] (rp/as-element rtpl/class-compiler h))}
                            {:id :fresco-native :witness native
@@ -1242,8 +741,6 @@
                   stages  (stage-table roster)
                   cand-bad (candidate-agreement roster)
                   cands   (candidate-table roster)
-                  slim-bad (slim-agreement roster)
-                  slims    (slim-table roster)
                   ;; The intent roster is the NATIVE witness's, and every
                   ;; row of its table lowers — so the whole table runs
                   ;; inside the body door.
@@ -1251,8 +748,7 @@
                   intent-bad (intent-agreement iroster)
                   intents  (rf.bench.fresco.walk-profile-app/in-body (fn [] (intent-table iroster)))
                   hic     (:p50 (get rows :fresco))
-                  rgt     (:p50 (get rows :reagent))
-                  slm     (:p50 (get rows :slim))]
+                  rgt     (:p50 (get rows :reagent))]
 
               (rf.bench.fresco.lane/record! :walk-vs-reagent-parity parity)
               (rf.bench.fresco.lane/record! :walk-vs-reagent-arms
@@ -1266,9 +762,6 @@
               (rf.bench.fresco.lane/record! :walk-vs-reagent-candidates
                             {:disagreements cand-bad
                              :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) cands)})
-              (rf.bench.fresco.lane/record! :walk-vs-reagent-slim
-                            {:disagreements slim-bad
-                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) slims)})
               (rf.bench.fresco.lane/record! :walk-vs-reagent-intent
                             {:disagreements intent-bad
                              :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) intents)})
@@ -1291,9 +784,7 @@
                   (js/console.log (str ";;   " (name id) ": p50 " (fmt p50 4)
                                        " [" (fmt min 4) " - " (fmt max 4) "] ms/walk  ("
                                        (fmt (* 1e6 (/ p50 elements)) 0) " ns/el)"))))
-              (js/console.log (str ";;   fresco/reagent " (fmt (/ hic rgt) 4)
-                                   "   fresco/slim " (fmt (/ hic slm) 4)
-                                   "   slim/reagent " (fmt (/ slm rgt) 4)))
+              (js/console.log (str ";;   fresco/reagent " (fmt (/ hic rgt) 4)))
               (js/console.log (str ";;   ABSOLUTE per-element delta vs reagent: "
                                    (fmt (* 1e6 (/ (- hic rgt) elements)) 1) " ns/el"))
 
@@ -1304,11 +795,6 @@
               (js/console.log ";; ==== CANDIDATES (costed, not landed) ====")
               (js/console.log (str ";;   agreement failures: " (pr-str cand-bad)))
               (doseq [[k v] cands]
-                (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
-
-              (js/console.log ";; ==== SLIM DECOMPOSED ====")
-              (js/console.log (str ";;   agreement failures: " (pr-str slim-bad)))
-              (doseq [[k v] slims]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
 
               (js/console.log ";; ==== INTENT SURFACE DECOMPOSED ====")

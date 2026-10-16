@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.hd8-app
   "HD-008's `:advanced` entry — the composed donor arm's published run.
 
-  One bundle, three runs. `?adapter=uix|reagent|slim` picks which adapter
+  One bundle, two runs. `?adapter=uix|reagent` picks which adapter
   `rf/init!` installs, because Spec 006 allows exactly one per process and
-  the two Reagent paths need the ratom spine while the frontier arm and
+  the Reagent path needs the ratom spine while the frontier arm and
   both donor rungs ride React hooks. Everything else — the arms, the
   witnesses, the parity gate, both clocks — is
   [[re-frame.bench.fresco.hd8-rows]]'s, used as they are, so the method is one
@@ -32,7 +32,6 @@
 
   Normative owner: `docs/design/fresco/decisions.md` HD-008."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
@@ -186,16 +185,13 @@
 (defn- query-adapter []
   (let [s (some-> js/window .-location .-search)]
     (cond
-      (nil? s)                            :uix
-      (re-find #"adapter=reagent-slim" s) :slim
-      (re-find #"adapter=slim" s)         :slim
-      (re-find #"adapter=reagent" s)      :reagent
-      :else                               :uix)))
+      (nil? s)                       :uix
+      (re-find #"adapter=reagent" s) :reagent
+      :else                          :uix)))
 
 (defn- install! [which]
   (rf/init! (case which
               :reagent rf.adapter.reagent/adapter
-              :slim    rf.adapter.reagent-slim/adapter
               rf.adapter.uix/adapter))
   which)
 
@@ -225,10 +221,10 @@
     ;; may measure nothing — the same placement, and the same argument, as
     ;; the arm-order guard's self-test in `hd8_run.cjs`.
     ;;
-    ;; It exists because THE BRANCH THAT MATTERS ALMOST NEVER FIRES LIVE: the
-    ;; harness asymmetry reads 0.0 on most runs of this host, so a run cannot
-    ;; be relied on to exercise a refusal, and a gate nobody has watched
-    ;; refuse is not evidence. Fixtures replayed through the live rule are.
+    ;; It exists because THE BRANCH THAT MATTERS CANNOT FIRE LIVE: every arm
+    ;; this instrument runs shares one window shape, so every live row is
+    ;; `:not-owed`, and a gate nobody has watched refuse is not evidence.
+    ;; Fixtures replayed through the live rule are.
     ;;
     ;; It THROWS rather than recording a failure and reading on: `-main`'s
     ;; `catch` is the fail-closed path (`assert-teardown-clean!` uses it for
@@ -353,7 +349,7 @@
                                         ;; Recording the asymmetry between the two
                                         ;; window shapes and nothing else would let
                                         ;; the run exit 0 with unadjusted ratios over
-                                        ;; a slim run whose aggregate reads nonzero,
+                                        ;; a mixed row whose aggregate reads nonzero,
                                         ;; while any nonzero reading owes the reader
                                         ;; a subtraction. So it is adjudicated here,
                                         ;; and a row whose correction cannot be discharged FAILS
@@ -361,8 +357,9 @@
                                         ;; positive control takes, for the same reason:
                                         ;; a figure the instrument cannot stand behind
                                         ;; is not a measurement.
-                                        (let [verdicts {:write-narrow (rf.bench.fresco.hd8-rows/yield-correction narrow which @yc*)
-                                                        :write-bulk   (rf.bench.fresco.hd8-rows/yield-correction bulk which @yc*)}
+                                        (let [scheds   (rf.bench.fresco.hd8-rows/write-schedulers write-ids which)
+                                              verdicts {:write-narrow (rf.bench.fresco.hd8-rows/yield-correction narrow scheds @yc*)
+                                                        :write-bulk   (rf.bench.fresco.hd8-rows/yield-correction bulk scheds @yc*)}
                                               refused  (into {} (filter (fn [[_ v]] (= :refused (:verdict v)))) verdicts)]
                                           (record! :yield-correction verdicts)
                                           (doseq [[k v] verdicts] (correction! k v))

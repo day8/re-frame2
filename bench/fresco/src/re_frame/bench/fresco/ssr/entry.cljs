@@ -91,7 +91,7 @@
 
   §Hydration-mismatch detection tiers detection **by render-tree
   representation, not by adapter brand**. The hash channel belongs to the
-  HICCUP tier — Reagent and Reagent-slim, whose views are pure fns
+  HICCUP tier — Reagent, whose views are pure fns
   returning a hashable data tree, so the server hashes its tree and the
   client re-hashes its first render and the two compare. Every root that
   reaches React as an ELEMENT is in the other tier, a native UIx root

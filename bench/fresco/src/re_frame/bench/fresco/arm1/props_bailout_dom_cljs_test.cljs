@@ -350,8 +350,9 @@
 (deftest a-props-comparison-that-throws-fails-open
   (testing "`=` over an app-owned value can throw, and this comparator runs
            inside React's `areEqual`, where an escaping throw is a render
-           CRASH rather than a slow render. reagent-slim faces the identical
-           hazard on the identical comparison and fails OPEN: an extra
+           CRASH rather than a slow render. Reagent's function components
+           face the identical hazard on the identical comparison and fail
+           OPEN: an extra
            render is always the safe branch, and
            skipping on a failed comparison risks a stale UI. `areEqual`
            inverts the polarity, so failing open is answering false"
