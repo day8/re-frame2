@@ -1614,7 +1614,7 @@ else
       #                                        _test.clj             → jvm-machines
       #   spec/Pattern-FormAction.md         ssr_doc_example_form_action_test.clj
       #                                                              → jvm-ssr
-      #   spec/Spec-Schemas.md               FOUR suites in THREE artefacts — see
+      #   spec/Spec-Schemas.md               THREE readers in TWO artefacts — see
       #                                        its own arm below.
       #   examples/substrates/uix/{counter,  uix_consumer_deps_recipe_test.clj
       #     login,dashboard}/{core.cljs,                             → jvm-uix
@@ -1768,13 +1768,12 @@ else
       spec/Spec-Schemas.md)
         # The widest single miss in the roster.
         #
-        # FOUR suites in THREE artefacts extract schema forms from this file:
+        # THREE readers in TWO artefacts extract schema forms from this file:
         #   error_catalogue_channel_conformance_test.clj      (core)
-        #   epoch_silence_contract_test.clj                   (epoch)
         #   destroyed_reason_channel_conformance_test.clj     (machines)
         #   spawn_all_schema_extract.clj                      (machines)
-        # — jvm-core, jvm-epoch and jvm-machines, all on
-        # `implementation_jvm`.
+        # — the last is the extractor spawn_all_authority_catalogue_test.clj
+        # loads. jvm-core and jvm-machines, both on `implementation_jvm`.
         #
         # It arms no CLJS output: nothing extracts from this Markdown at
         # macro-expansion time — every reader is a JVM suite that slurps it at
