@@ -304,13 +304,17 @@
   "Emit the `:rf.resource/replied` trace for an accepted read reply
   that DID continue into app workflow — the READ mirror of
   `:rf.mutation/replied`. Carries the continuation `:targets`, the work id,
-  resource key, and `:status`, plus `:cache-hit?` (true only for the fresh-skip
-  immediate dispatch). Never fires for a stale/suppressed reply (that path
-  delivers nothing) nor when the read carried no `:reply-to`. Returns nil."
-  [frame-id resource-key work-id status targets cache-hit?]
+  the resource id, and `:status`, plus `:cache-hit?` (true only for the
+  fresh-skip immediate dispatch). Attempt-scoped like every reply row: it names
+  the attempt by `:work/id` + `:resource/id`, never by scoped key (the attempt's
+  `:rf.resource/work-started` row states the key). Never fires for a
+  stale/suppressed reply (that path delivers nothing) nor when the read carried
+  no `:reply-to`. Returns nil."
+  [frame-id work-id status targets cache-hit?]
   (when (seq targets)
     (rf.trace/emit! :rf.event :rf.resource/replied
-                 {:rf.frame/id frame-id :resource/key resource-key
+                 {:rf.frame/id frame-id
+                  :resource/id (rf.resources.work-ledger/work-id-resource-id work-id)
                   :work/id work-id :status status
                   :targets (vec targets) :cache-hit? (boolean cache-hit?)})))
 
@@ -599,7 +603,7 @@
         ;; the read-completion continuation (`:cache-hit? true`).
         (when hit-cont-fx
           (emit-resource-replied!
-            frame-id scoped-key (:rf.reply/work-id hit-reply) :ok [reply-to'] true))
+            frame-id (:rf.reply/work-id hit-reply) :ok [reply-to'] true))
         ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
         ;; revived by a new owner, mirroring the success-path arming, and
         ;; append the immediate cache-hit continuation dispatch. Only emitted
@@ -867,7 +871,7 @@
                       :status :running :owner owner :cause cause
                       :superseded (when superseding? prior-work)})
         (rf.trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource/key scoped-key
+                     {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
         ;; a fresh load that also attaches a NEW owner — record the
@@ -1116,7 +1120,7 @@
                                                generation work-id
                                                next-param page-index)}))]
         (rf.trace/emit! :rf.event :rf.resource/load-more
-                     {:rf.frame/id frame-id :resource/key scoped-key
+                     {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
                       :page-param next-param :page-index page-index
                       :page-count page-index :owner owner :cause cause})
@@ -1125,7 +1129,7 @@
                       :generation generation :work/id work-id
                       :status :running :owner owner :cause cause})
         (rf.trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource/key scoped-key
+                     {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
         (when owner-newly-attached?
@@ -1278,7 +1282,7 @@
                       :generation generation :work/id work-id
                       :status :running :owner owner :cause cause})
         (rf.trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource/key scoped-key
+                     {:rf.frame/id frame-id :resource/id resource
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
         {:rf.db/runtime rdb'
@@ -2530,15 +2534,18 @@
 (defn- emit-resource-stale-suppressed!
   "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
   resource reply via the SHARED `rf.resources.reply-handlers/emit-stale-suppressed!`,
-  carrying the resource bespoke facts (`:resource/key` / `:generation` /
+  carrying the resource bespoke facts (`:resource/id` / `:generation` /
   `:outcome`) PLUS the canonical reply-envelope vocabulary alongside them
-  (Managed-Effects §Tracing / EP-0011). The work identity rides
+  (Managed-Effects §Tracing / EP-0011). Attempt-scoped: it names the attempt,
+  never its scoped key — the resource id is read off the work id, so even a
+  reply whose ledger row is gone is attributed. The work identity rides
   ONLY as `:rf.reply/work-id` (one name per fact — no bare `:work/id`
   duplicate of what the reply-envelope vocabulary carries)."
-  [frame-id resource-key _work-id generation outcome stale]
+  [frame-id work-id generation outcome stale]
   (rf.resources.reply-handlers/emit-stale-suppressed!
     :rf.resource/stale-suppressed
-    {:rf.frame/id frame-id :resource/key resource-key
+    {:rf.frame/id frame-id
+     :resource/id (rf.resources.work-ledger/work-id-resource-id work-id)
      :generation generation :outcome outcome}
     stale))
 
@@ -2620,6 +2627,7 @@
   (let [runtime-db (or rt {})
         {work-id :work/id resource-key :resource/key :keys [generation] :as payload}
         (resolve-reply-payload runtime-db frame-id reply-payload)
+        resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         value      (rf.resources.reply/transport-success-value payload http-result :data)
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery:
@@ -2663,7 +2671,7 @@
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :success})]
         (emit-resource-stale-suppressed!
-          frame-id resource-key work-id generation :success stale)
+          frame-id work-id generation :success stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload {:reason :stale-reply :outcome :success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
@@ -2735,10 +2743,10 @@
                           (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :completed})
         (rf.trace/emit! :rf.event :rf.resource/succeeded
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
         ;; EP-0016 D1 — record the read-completion
@@ -2746,7 +2754,7 @@
         ;; AFTER `:rf.resource/succeeded` so the trace row follows settlement.
         ;; No-op when the read carried no `:reply-to`.
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         ;; arm the advisory stale / GC / poll timers (host-side side table) for
         ;; this freshly-loaded entry — the WRITE rides an fx exactly as the
         ;; generation high-water bump + work-handle side-table writes do.
@@ -2838,6 +2846,7 @@
   (let [runtime-db (or rt {})
         {work-id :work/id resource-key :resource/key :keys [generation] :as payload}
         (resolve-reply-payload runtime-db frame-id reply-payload)
+        resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         error      (rf.resources.reply/transport-failure-envelope payload http-result)
         ;; EP-0017 declared-only delivery + EP-0010 §Managed Effects And Reply
         ;; Tokens: a FAILED / CANCELLED completion is still a
@@ -2885,7 +2894,7 @@
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome (if aborted? :aborted :failure)})]
         (emit-resource-stale-suppressed!
-          frame-id resource-key work-id generation
+          frame-id work-id generation
           (if aborted? :aborted :failure) stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload
@@ -2942,14 +2951,14 @@
                              (rf.resources.state/positive-or-nil (:gc-after-ms spec)))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-abort-requested
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         ;; EP-0016 D1 — an accepted terminal cancellation
         ;; continues a call-site `:reply-to` (`:status :cancelled`), Spec 016
         ;; §Read completion continuations (the cancellation delivery rule).
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
@@ -3011,10 +3020,10 @@
                              (rf.resources.state/positive-or-nil (:gc-after-ms spec)))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :failed})
         (rf.trace/emit! :rf.event op
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         ;; EP-0016 D1 — an accepted terminal failure
@@ -3024,7 +3033,7 @@
         ;; (`:refresh-failed`) is still an accepted terminal reply for this
         ;; attempt and fans out too.
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         ;; arm the GC (+ stale) timer on a first-load `:error` settle so an
         ;; owner-free errored entry is reaped (cancel-then-arm via the fx; the
         ;; re-check derives freshness/idle/owner-free from the durable facts).
@@ -3088,6 +3097,7 @@
          page-param :rf.resource/page-param
          page-index :rf.resource/page-index :as payload}
         (resolve-reply-payload runtime-db frame-id reply-payload)
+        resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         page         (rf.resources.reply/transport-success-value payload http-result :data)
         completed-at time-ms
         reply        (rf.resources.reply/success-reply payload page
@@ -3112,7 +3122,7 @@
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :page-success})]
         (emit-resource-stale-suppressed!
-          frame-id resource-key work-id generation :page-success stale)
+          frame-id work-id generation :page-success stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload {:reason :stale-reply :outcome :page-success}))
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
@@ -3195,16 +3205,16 @@
                                        :rf.resource/page-index leg-index}]]))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :completed})
         (rf.trace/emit! :rf.event :rf.resource/page-appended
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :page-index page-index :page-count (rf.resources.state/page-count entry')
                       :next-page-param (:next-page-param entry')
                       :terminal? (rf.resources.state/terminal? (:next-page-param entry'))})
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [:rf.resource/schedule-timers
                            {:frame-id     frame-id
@@ -3284,6 +3294,7 @@
         {work-id :work/id resource-key :resource/key :keys [generation]
          page-index :rf.resource/page-index :as payload}
         (resolve-reply-payload runtime-db frame-id reply-payload)
+        resource-id (rf.resources.work-ledger/work-id-resource-id work-id)
         error        (rf.resources.reply/transport-failure-envelope payload http-result)
         completed-at time-ms
         reply        (rf.resources.reply/failure-reply payload error
@@ -3311,7 +3322,7 @@
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome (if aborted? :aborted :page-failure)})]
         (emit-resource-stale-suppressed!
-          frame-id resource-key work-id generation
+          frame-id work-id generation
           (if aborted? :aborted :page-failure) stale)
         (rf.resources.reply-handlers/settle-suppressed-work!
           runtime-db frame-id payload {:reason :stale-reply
@@ -3348,11 +3359,11 @@
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-abort-requested
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
@@ -3396,11 +3407,11 @@
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-abort-requested
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs))))
 
@@ -3433,15 +3444,15 @@
             gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms spec))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :failed})
         (rf.trace/emit! :rf.event :rf.resource/failed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :error error})
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
                             {:frame-id     frame-id
@@ -3480,14 +3491,14 @@
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :failed})
         (rf.trace/emit! :rf.event :rf.resource/refresh-failed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs))))
 
@@ -3511,10 +3522,10 @@
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation :status :failed})
         (rf.trace/emit! :rf.event :rf.resource/page-failed
-                     {:rf.frame/id frame-id :resource/key resource-key
+                     {:rf.frame/id frame-id :resource/id resource-id
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :page-error error})
@@ -3522,7 +3533,7 @@
         ;; this fan-out is a no-op; a page-0 refresh fans out in the branch
         ;; above.
         (emit-resource-replied!
-          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+          frame-id work-id (:status reply) (:reply-targets record) false)
         (cond-> {:rf.db/runtime rdb'}
           (seq cont-fxs) (assoc :fx (vec cont-fxs)))))))
 
@@ -3722,5 +3733,5 @@
         (resolve-reply-payload runtime-db frame-id reply-payload)
         stale      (stale-suppress-reply runtime-db resource-key payload nil)]
     (emit-resource-stale-suppressed!
-      frame-id resource-key work-id generation nil stale)
+      frame-id work-id generation nil stale)
     {:rf.db/runtime runtime-db}))

@@ -125,6 +125,18 @@
   [subject generation]
   [:rf.work/resource subject generation])
 
+(defn work-id-resource-id
+  "The registered resource id a READ work-id names
+  (`[:rf.work/resource <resource-id> <generation>]` → `<resource-id>`), or nil —
+  nil for a mutation work-id (whose subject is `[:rf.mutation <instance-id>]`)
+  and for any value that is not a resource work-id. Attempt-scoped trace rows
+  stamp it as `:resource/id`, so a row names its resource without carrying the
+  attempt's scoped key, including a stale reply whose ledger row is gone."
+  [work-id]
+  (when (and (vector? work-id) (= :rf.work/resource (first work-id)))
+    (let [subject (nth work-id 1 nil)]
+      (when (keyword? subject) subject))))
+
 (def work-id-id
   "The CEDN-1 BYTE-IDENTITY map-key for a `work-id` — its `canonical-bytes`
   string. The work-ledger runtime-db map is keyed on THIS string, NOT the
