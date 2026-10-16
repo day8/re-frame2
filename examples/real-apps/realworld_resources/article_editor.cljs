@@ -295,7 +295,9 @@
     {:db (assoc db :editor (editor-slice))}))
 
 (rf/reg-event :editor/load-article
-  {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Resets the editor
+  {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`), dispatched as
+         `[:editor/load-article target]` with the activation target the route
+         appends; the slug comes off its `:params`. Resets the editor
          slice to a blank draft under the incoming slug, then asks to be told when
          the article read the ROUTE owns settles, so it can seed the draft +
          baseline. The route declares `:realworld/article` as a `:resources` entry
@@ -315,8 +317,8 @@
          is registered ONCE at boot by `:editor/register-flow`, not per entry. The
          seeded baseline is what gives the dirty-check something to compare
          against."}
-  (fn [{rt :rf.db/runtime :keys [db]} _]
-    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
+  (fn [{:keys [db]} [_ target]]
+    (let [slug (get-in target [:params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
        :fx [;; Join the route-owned read to seed the baseline — no owner, so this
             ;; ensure adds no owner and there is nothing to release. The route's
@@ -357,9 +359,9 @@
          off-render Form-3 reaction watching the read settle."}
   (fn [{rt :rf.db/runtime :keys [db]} [_ slug {:keys [status value]}]]
     ;; Only seed while the editor is STILL on the edit route for THIS slug — the
-    ;; framework already tracks the current route, so this reads it (the same
-    ;; `:rf.db/runtime` coeffect `:editor/load-article` reads) rather than adding
-    ;; any lifecycle machinery.
+    ;; framework already tracks the current route, so this reads the live route
+    ;; slice off the `:rf.db/runtime` coeffect rather than adding any lifecycle
+    ;; machinery.
     (let [current        (get-in rt [:rf.runtime/routing :current])
           still-editing? (and (= :realworld.editor/edit (:route-id current))
                               (= slug (get-in current [:params :slug])))]

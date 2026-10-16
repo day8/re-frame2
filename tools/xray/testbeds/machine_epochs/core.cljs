@@ -219,8 +219,8 @@
   ;; `:spawned` join-state map — is durable framework RUNTIME-DB state at
   ;; `[:rf.runtime/machines …]`, NOT app-db. Read the spawned child id off
   ;; the `:rf.db/runtime` coeffect every event handler receives (the
-  ;; canonical idiom — mirrors the routing `:on-match` loader reading the
-  ;; route slice off `:rf.db/runtime`). app-db never holds `:spawned`, so a
+  ;; canonical idiom for framework runtime state, where a handler also reads
+  ;; the live route slice). app-db never holds `:spawned`, so a
   ;; read against app-db would resolve nil and the assert would fail loud.
   (fn handler-finish-login [{:keys [db] rt :rf.db/runtime} _ev]
     (let [child-id (get-in rt (rf.machines.paths/spawned-path :session/flow [:authenticating]))]
