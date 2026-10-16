@@ -54,7 +54,7 @@ def parse_rows(text: str, source: str = ROWS_FILE) -> list:
             )
         directory, aliases, slow, predicate, ci = fields
         if slow not in ("slow", "-"):
-            raise RowsError(f"{source}:{n}: the slow field is `slow` or `-`, not `{slow}`")
+            raise RowsError(f"{source}:{n}: the slow field is \"slow\" or \"-\", not \"{slow}\"")
         rows.append(Row(directory, tuple(aliases.split(",")), slow == "slow", predicate, ci, n))
     return rows
 

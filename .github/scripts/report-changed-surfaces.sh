@@ -2699,42 +2699,43 @@ emit() {
   else
     printf '%s=%s\n' "$key" "$value"
   fi
+  emitted_outputs+=("$key=$value")
 }
+emitted_outputs=()
 
-# Every boolean this script emits, in emit order. These names, plus `always`,
-# are the predicates a row of scripts/jvm-lanes.txt may name.
-surface_outputs=(
-  implementation_jvm
-  cljs_node_test
-  adapter_diagnostic
-  cljs_browser
-  examples_compile
-  cljs_prod
-  bundle_isolation
-  adapter_testbed_smokes
-  tools_jvm
-  tools_jvm_machines_viz
-  tools_jvm_testbed_support
-  tools_cljs_machines_viz
-  machines_viz_viewer_page
-  template_expensive
-  mcp_conformance
-  mcp_live
-  story_xray_browser
-  story_full_gate
-  story_static_gate
-  tenant_switcher_smoke
-  skills_structural
-  playground
-  migration_fresco_codemod
-  fresco_controlled
-  fresco_hmr
-  migration_v1_codemod
-  ssr_node
-)
+# Every boolean this script emits. `emit` also records each one, so these
+# names, plus `always`, are the predicates a row of scripts/jvm-lanes.txt
+# may name.
+emit implementation_jvm "$implementation_jvm"
+emit cljs_node_test "$cljs_node_test"
+emit adapter_diagnostic "$adapter_diagnostic"
+emit cljs_browser "$cljs_browser"
+emit examples_compile "$examples_compile"
+emit cljs_prod "$cljs_prod"
+emit bundle_isolation "$bundle_isolation"
+emit adapter_testbed_smokes "$adapter_testbed_smokes"
+emit tools_jvm "$tools_jvm"
+emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
+emit tools_jvm_testbed_support "$tools_jvm_testbed_support"
+emit tools_cljs_machines_viz "$tools_cljs_machines_viz"
+emit machines_viz_viewer_page "$machines_viz_viewer_page"
+emit template_expensive "$template_expensive"
+emit mcp_conformance "$mcp_conformance"
+emit mcp_live "$mcp_live"
+emit story_xray_browser "$story_xray_browser"
+emit story_full_gate "$story_full_gate"
+emit story_static_gate "$story_static_gate"
+emit tenant_switcher_smoke "$tenant_switcher_smoke"
+emit skills_structural "$skills_structural"
+emit playground "$playground"
+emit migration_fresco_codemod "$migration_fresco_codemod"
+emit fresco_controlled "$fresco_controlled"
+emit fresco_hmr "$fresco_hmr"
+emit migration_v1_codemod "$migration_v1_codemod"
+emit ssr_node "$ssr_node"
 
 # THE JVM LEGS. scripts/jvm-lanes.txt holds one row per JVM artefact, and each
-# row names the output above that schedules it. A `matrix` row whose output
+# row names the output emitted above that schedules it. A `matrix` row whose output
 # fired adds one leg per alias to `jvm_legs`, the JSON array that test.yml's
 # `jvm` matrix job runs. A row naming a hand-written job adds none, because
 # that job reads its output directly. A row naming an output this script does
@@ -2749,7 +2750,8 @@ if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
 else
   lanes_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
-# shellcheck source=../../scripts/jvm-lanes.sh
+# The path is computed above, so shellcheck cannot follow it.
+# shellcheck disable=SC1091
 . "$lanes_root/scripts/jvm-lanes.sh"
 lane_rows="$(jvm_lanes_rows "$lanes_root/scripts/jvm-lanes.txt")"
 
@@ -2759,19 +2761,19 @@ while IFS=$'\t' read -r lane_dir lane_aliases _ lane_predicate lane_ci; do
   lane_fired=true
   if [ "$lane_predicate" != always ]; then
     lane_known=false
-    for output in "${surface_outputs[@]}"; do
-      if [ "$output" = "$lane_predicate" ]; then
+    for emitted in "${emitted_outputs[@]}"; do
+      if [ "${emitted%%=*}" = "$lane_predicate" ]; then
         lane_known=true
+        lane_fired="${emitted#*=}"
         break
       fi
     done
     if [ "$lane_known" != true ]; then
-      printf 'report-changed-surfaces.sh: the scripts/jvm-lanes.txt row for %s names `%s`,\n' \
+      printf 'report-changed-surfaces.sh: the scripts/jvm-lanes.txt row for %s names %s,\n' \
         "$lane_dir" "$lane_predicate" >&2
       printf 'which is not an output of this script, so nothing could ever schedule it.\n' >&2
       exit 2
     fi
-    lane_fired="${!lane_predicate}"
   fi
   if [ "$lane_ci" != matrix ] || [ "$lane_fired" != true ]; then
     continue
@@ -2782,8 +2784,4 @@ while IFS=$'\t' read -r lane_dir lane_aliases _ lane_predicate lane_ci; do
   done
 done <<< "$lane_rows"
 jvm_legs="[$jvm_legs]"
-
-for output in "${surface_outputs[@]}"; do
-  emit "$output" "${!output}"
-done
 emit jvm_legs "$jvm_legs"
