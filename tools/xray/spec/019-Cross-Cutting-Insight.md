@@ -215,9 +215,8 @@ total from "huh, nothing happened" to "ah, my guard is wrong."
 
 **Bug class:** Stale `:after` timer (epoch advanced; timer scheduled in a
 prior visit) OR guard re-evaluation on `:after` resolution OR
-`:rf.machine.timer/cancelled` (`:reason :on-resolution`, per rf2-82a0u
-the unified cancellation event covering every cancel path) paired with
-new schedule.
+`:rf.machine.timer/cancelled` (per rf2-82a0u the unified cancellation
+event covering every cancel path).
 
 **Example bug:** You entered `:loading` with `:after 5000ms → :timeout`.
 30 seconds passed. The snapshot is still `:loading`. The Trace tab shows
@@ -228,10 +227,9 @@ the schedule and the fire.
 **Insight Xray provides:** On each state with a live `:after` timer, the
 node has a **countdown ring** with an animated arc. Stale timers render
 dashed/grey with a tooltip "this timer was scheduled in a prior visit and
-is stale." Cancelled-on-resolution timers show the old ring fading out
-(200ms), new ring fading in. Click any ring → timer detail popover with
-`:scheduled-at`, `:delay`, `:epoch`, `:source` (`:literal` / `:sub` /
-`:timeout-config` / `:fn`).
+is stale." Cancelled timers show the ring fading out (200ms). Click any
+ring → timer detail popover with `:scheduled-at`, `:delay`, `:epoch`,
+`:source` (`:literal` / `:timeout-config` / `:fn`).
 
 **Affordance:** Machines tab — `:after` countdown rings + scrubber-aware
 retro-replay (M-C2). Time IS the bug surface; the ring makes wall clock

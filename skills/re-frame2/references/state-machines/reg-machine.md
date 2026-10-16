@@ -100,7 +100,7 @@ Every state node is a map. Recognised slots (see the `re-frame.machines` façade
 - `:on` — a map of `event-keyword → transition-spec` (see Transitions below).
 - `:entry` / `:exit` — singular action references or fns, fired on entering / leaving the node.
 - `:always` — eventless microstep table (`:always [{:guard ... :target ...} ...]`).
-- `:after` — delayed transition table, `:after {<ms-or-sub-vec-or-fn> <transition-spec>}`.
+- `:after` — delayed transition table, `:after {<ms-or-iso-duration-or-fn> <transition-spec>}`. A delay that follows a setting reads it from `:data` with a fn.
 - `:timeout` / `:on-timeout` — a named wall-clock deadline (a positive-integer ms **or** an ISO-8601 duration string such as `"PT5S"` — the XState `"5s"`/`"10ms"` shorthand is rejected). `:timeout` requires `:on-timeout`; it lowers onto the `:after` timer (distinct intent, one mechanism — `:timeout` and `:after` coexist). A `:spawn` spec may carry its own `:timeout` / `:on-timeout` to bound the child's lifetime.
 - `:type :choice` + `:choice` — a **transient / choice** state: a decision node that resolves immediately on entry to the first guard-passing candidate (`:choice [{:guard ... :target ...} ... {:target <default>}]`). The candidate vector is declarative data (not a function — that form is rejected) and must include an unguarded default; a choice state only routes (no `:entry` / `:exit` / `:on` / `:always` / `:after` / `:timeout` / `:spawn` / …). Lowers onto `:always`.
 - `:spawn` — declarative child spawn (see `spawn.md`).

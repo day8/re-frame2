@@ -77,7 +77,7 @@
    :operation :rf.machine.timer/cancelled
    :time      time
    :tags      {:timer-id             :debounce
-               :reason               :on-resolution
+               :reason               :on-supersede
                :rf.trace/dispatch-id dispatch-id}})
 
 (defn- invoke-cancel-ev
@@ -92,7 +92,7 @@
 (deftest cancel-cause-defaults-by-operation
   (are [ev cause] (= cause (h/cancel-cause ev))
     (assoc-in (http-abort-ev {}) [:tags :cancel-cause] :timeout) :timeout        ; an explicit tag wins
-    (timer-cancel-ev {})                                         :on-resolution  ; then the :reason tag
+    (timer-cancel-ev {})                                         :on-supersede   ; then the :reason tag
     (invoke-cancel-ev {})                                        :join-resolved)) ; then the per-op default
 
 ;; ---- extract-cascade ----------------------------------------------------

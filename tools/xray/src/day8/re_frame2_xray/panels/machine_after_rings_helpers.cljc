@@ -19,9 +19,7 @@
        :duration-ms <int>     ;; resolved delay
        :epoch       <int>     ;; the machine's :after-epoch when scheduled
        :status      <kw>      ;; :armed | :fired | :stale | :cancelled | :skipped
-       :delay-key   <any>     ;; the original :after map key (literal/sub-vec/fn)
-       :sub-id      <kw|nil>} ;; subscription id when :delay-source = :sub
-                              ;; (read from the trace's canonical :rf.sub/id)
+       :delay-key   <any>}    ;; the original :after map key (literal/fn)
 
   ## Source events (per Spec 005 §Delayed :after transitions)
 
@@ -196,8 +194,7 @@
       `:armed-at` / `:fires-at` so the view can render the ring at
       its last position with the crossed-out overlay. The closing
       event carries `:reason` (closed set: `:on-exit /
-      :on-destroy / :on-resolution / :on-supersede / :on-frame-
-      destroy`), copied onto the record as `:cancel-reason`; the rings
+      :on-destroy / :on-supersede / :on-frame-destroy`), copied onto the record as `:cancel-reason`; the rings
       panel does not branch on it.
     - `:skipped-on-server` (`:platform :server`) flips to `:skipped`.
 
@@ -214,13 +211,7 @@
             t          (:time ev)
             delay      (:delay tags)
             delay-src  (:delay-source tags)
-            delay-key  (:delay-key tags)
-            ;; The dynamic-delay subscription identity rides
-            ;; under the canonical `:rf.sub/id` (`:sub-id` fallback for
-            ;; fixtures that stamp only that). The projection record's
-            ;; internal field is `:sub-id` (not a trace tag) for downstream
-            ;; readers.
-            sub-id     (or (:rf.sub/id tags) (:sub-id tags))]
+            delay-key  (:delay-key tags)]
         (cond
           (nil? machine-id) open
           (nil? state)      open
@@ -235,8 +226,7 @@
                   :epoch       epoch
                   :status      :armed
                   :delay-source delay-src
-                  :delay-key   delay-key
-                  :sub-id      sub-id})
+                  :delay-key   delay-key})
 
           (= :rf.machine.timer/fired op)
           (let [[k v] (update-or-cancel open machine-id state epoch delay)]
@@ -284,8 +274,7 @@
                   :epoch       epoch
                   :status      :skipped
                   :delay-source delay-src
-                  :delay-key   delay-key
-                  :sub-id      sub-id})
+                  :delay-key   delay-key})
 
           :else open)))
     {}

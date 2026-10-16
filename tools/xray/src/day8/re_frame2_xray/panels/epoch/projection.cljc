@@ -1008,7 +1008,7 @@
   "Build a cascade row from a `:rf.machine.timer/cancelled` trace event.
   Carries the cancelled state, the original delay, and
   the closed-set `:reason` (`:on-exit / :on-destroy /
-  :on-resolution / :on-supersede / :on-frame-destroy`)."
+  :on-supersede / :on-frame-destroy`)."
   [ev]
   {:kind        :timer
    ;; The timer/cancelled trace carries the owning actor instance under

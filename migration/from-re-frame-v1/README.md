@@ -1983,7 +1983,7 @@ The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren
 
 **Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The earlier draft proposed `:timeout-ms` at the call site; the resolved design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:spawn`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins). One primitive, not two.
 
-**Cross-references.** [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the dropped-slot record.
+**Cross-references.** [005 §Delayed `:after` transitions](../../spec/005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar; [005 §Whichever fires first wins](../../spec/005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:spawn` — use parent state's `:after`](../../spec/005-StateMachines.md#wall-clock-timeouts-on-spawn--use-parent-states-after) for the dropped-slot record.
 
 ### M-45. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
 

@@ -122,8 +122,7 @@ A query vector is **identity**. It is the sub-cache key — a frame's sub-cache 
 - `:rf.sub/query-v` on `:rf.sub/run`, `:rf.sub/skip`, and `:rf.sub/dispose`;
 - the `:rf.sub/inputs` and `:rf.sub/cause-sub` of any downstream sub that consumes it;
 - the always-on error `:query-v` / `:event` slots — which survive into **production** builds;
-- epoch capture rows, which key on the query vector;
-- machine-timer rows with `:delay-source :sub`.
+- epoch capture rows, which key on the query vector.
 
 This is the **positional fail-open one surface over**. A query argument *is* a positional argument (see the positional note in [§Registration-owned transient classification](#registration-owned-transient-classification) above), and it ships raw for the same structural reason: there is no stable named path for a mark to name.
 

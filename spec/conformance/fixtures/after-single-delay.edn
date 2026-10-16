@@ -52,8 +52,7 @@
    :expect-next-snapshot {:state :loading :data {:rf/after-epoch {[:loading] 1} :entered? true}}
    ;; Entry to an :after-bearing state emits a
    ;; :rf.machine/after-schedule fx so the runtime layer can install
-   ;; the host-clock timer (interop/set-timeout!) and the subscription
-   ;; watcher (for :delay-source :sub).
+   ;; the host-clock timer (interop/set-timeout!).
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:loading]

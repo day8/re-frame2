@@ -226,19 +226,53 @@ An `:after` delay can be:
 A positive integer, in milliseconds, or an ISO-8601 duration string such as `"PT30S"`. A `"5s"` shorthand is refused (`:rf.error/machine-bad-after-delay`).
 
 ```clojure
-[:settings/login-timeout-ms]
-```
-
-A subscription vector. The delay re-resolves while the state is active. If the subscription value changes, the timer restarts from now.
-
-```clojure
 (fn [{:keys [snapshot]}]
   (* 1000 (-> snapshot :data :retry-count)))
 ```
 
 A function, evaluated once when the state is entered. It does not re-resolve. Delay functions receive `{:snapshot …}`, not the usual guard/action context (`{:data :event :state :meta}`).
 
-A subscription or function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-sub-threw` or `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.error/machine-bad-after-delay` with `:recovery :skipped`.
+Any other key is refused at registration with `:rf.error/machine-bad-after-delay`. That includes a vector: a delay never reads a subscription directly.
+
+A function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.error/machine-bad-after-delay` with `:recovery :skipped`.
+
+### Config-driven delays
+
+A delay that follows a setting, such as a user preference or a feature flag, keeps the value in the machine's `:data` and reads it with a function delay. The value gets into `:data` the way any machine input does: through the spawn's `:data`, from an event, or sampled from a subscription when the state is entered.
+
+To sample a subscription, give the entering transition's target a named `:entry` action that declares the subscription as a recorded source. The value is read once, recorded, and replayed as recorded:
+
+```clojure
+{:initial :idle
+ :actions {:sample-settings
+           {:rf.cofx/requires [{:rf/sub [:settings/idle-warning-ms]
+                                :as     :settings/idle-warning-ms}]
+            :fn (fn [{cofx :rf.cofx}]
+                  {:data {:idle-warning-ms (:settings/idle-warning-ms cofx)}})}}
+ :states  {:idle    {:on {:start :waiting}}
+           :waiting {:entry :sample-settings
+                     :after {(fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))
+                             :warning}}
+           :warning {}}}
+```
+
+The delay function runs after the entry action has committed, so it reads the sampled value.
+
+A timer does not follow a setting that changes while it is waiting. When a change must restart the wait, send the new value as an event and re-enter the state:
+
+```clojure
+{:initial :waiting
+ :data    {:idle-warning-ms 30000}
+ :actions {:store-ms (fn [{[_ ms] :event}] {:data {:idle-warning-ms ms}})}
+ :states  {:waiting {:after {(fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))
+                             :warning}
+                     :on    {:configure {:target :waiting :reenter? true :action :store-ms}}}
+           :warning {}}}
+
+;; (rf/dispatch [:idle-watch [:configure 60000]])
+```
+
+Re-entry arms the state's `:after` timers again, from now. It is coarser than re-timing one timer: it also re-runs the state's `:exit` and `:entry`, restarts its other timers and spawned work, and resets any child states. You cannot re-time a single timer while leaving the rest of the state alone. A `:type :parallel` root is never re-entered, so a root `:after` keeps the delay it was armed with.
 
 ### Timer staleness
 
@@ -300,4 +334,4 @@ Positive integer milliseconds.
 
 An ISO-8601 duration string.
 
-Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscription vectors or delay functions. A bad duration fails at registration with `:rf.error/machine-bad-timeout-duration`. Use integer milliseconds or ISO-8601.
+Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are delay functions. A bad duration fails at registration with `:rf.error/machine-bad-timeout-duration`. Use integer milliseconds or ISO-8601.

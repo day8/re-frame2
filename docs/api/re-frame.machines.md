@@ -529,9 +529,8 @@ distinguish a rejected definition from a failed callback or an ignored event:
 | `:rf.error/machine-action-wrote-db` | The illegal `:db` write is dropped; other action or patch values proceed. Return machine `:data`, or dispatch an application event. |
 | `:rf.error/machine-state-not-in-definition`, `:rf.error/machine-snapshot-version-mismatch` | The next event restarts an incompatible snapshot from `:initial`. Migrate persisted state when continuity matters. |
 | `:rf.error/machine-bad-state-form` | A supplied snapshot has a malformed state. Supply a keyword, path vector or region map matching the definition. |
-| `:rf.error/machine-after-sub-threw`, `:rf.error/machine-after-fn-threw` | Dynamic delay evaluation failed; no timer is armed. Fix the subscription or delay fn. |
+| `:rf.error/machine-after-fn-threw` | A delay fn threw; no timer is armed. Fix the delay fn. |
 | `:rf.error/machine-bad-after-delay` | A dynamic delay is invalid and the timer is skipped. Return positive milliseconds. |
-| `:rf.error/machine-after-watch-failed` | A delay subscription could not be watched. Its current timer is armed, but delay changes will not reschedule it; inspect the subscription adapter. |
 | `:rf.error/machine-spawn-all-bad-child-id` | A completion names a child outside the join; it is ignored. Let a child's final state report completion instead of constructing runtime completion events. |
 | `:rf.error/machine-parallel-output-key-conflict` | Final regions name different output keys; the first region's key wins. Use one output key across the machine. |
 
@@ -618,7 +617,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   (re-frame.machines/after-schedule-fx fx-ctx args)
   ```
 - **Description**: The handler for `:rf.machine/after-schedule`, which the runtime emits once per `:after` entry when a state with `:after` is entered. It resolves the delay and schedules a wall-clock timer through the clock abstraction.
-    - The delay can be a literal `pos-int?`, an ISO-8601 duration string such as `"PT5S"`, a subscription vector, or `(fn [{:keys [snapshot]}] ms)`. For a subscription delay it also adds a watch that cancels and reschedules the timer when the subscription's value changes.
+    - The delay can be a literal `pos-int?`, an ISO-8601 duration string such as `"PT5S"`, or `(fn [{:keys [snapshot]}] ms)`, which is called once, against the committed snapshot.
     - On expiry it dispatches `[<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]`, which takes effect only if the scheduling state is still active and the epoch matches.
 
 #### `re-frame.machines/after-cancel-fx`
@@ -693,7 +692,7 @@ These run the registration-time checks and the `:data` schema checks. The three 
   ```
 - **Description**: Cancels in-flight `:after` timers.
     - The 0-arity clears every frame's timers. Test teardown uses this form: the fixture built by [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture), and the per-artefact test fixtures.
-    - The 1-arity clears one frame's timers. Destroying a frame calls this form, releasing that frame's host clock handles and subscription watches without touching other frames.
+    - The 1-arity clears one frame's timers. Destroying a frame calls this form, releasing that frame's host clock handles without touching other frames.
     - Spawn-id counters reset with the registrar and frame reset, so this function only clears the per-frame timer table.
 
 #### `re-frame.machines/owning-actor-id`

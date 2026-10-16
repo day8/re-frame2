@@ -560,19 +560,18 @@
 
 (defn- format-delay-key
   "User-facing label for an `:after` map key. A literal is milliseconds; a
-  sub-vector prints as data; a fn key has no readable form at all."
+  fn key has no readable form at all."
   [delay-key]
   (cond
     (number? delay-key)  (str delay-key "ms")
-    (vector? delay-key)  (pr-str delay-key)
     (keyword? delay-key) (str delay-key)
     (fn? delay-key)      "(fn)"
     :else                (str delay-key)))
 
 (defn- after-row-testid-suffix
   "A stable, testid-safe suffix. A literal or keyword delay key names
-  itself; anything without a readable spelling (a sub-vector, a fn) falls
-  back to the row index, which is stable for a given active path."
+  itself; anything else (an ISO-8601 string, a fn) falls back to the row
+  index, which is stable for a given active path."
   [delay-key idx]
   (if (or (number? delay-key) (keyword? delay-key))
     (str (if (keyword? delay-key) (name delay-key) delay-key))
