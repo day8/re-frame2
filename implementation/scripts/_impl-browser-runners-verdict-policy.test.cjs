@@ -164,7 +164,7 @@ test('the default `test:browser` lane CARRIES the drift check; only `:advanced` 
   for (const [lane, cmd] of Object.entries(pkg.scripts).filter(([, c]) => c.includes(FLAG))) {
     assert.match(
       cmd,
-      /shadow-cljs release/,
+      /lib\/shadow\.cjs release/,
       `${lane} waives the drift check, so it must actually be a release (\`:advanced\`) `
         + 'build — the waiver exists only because Closure renames `cljs.test.run_block`',
     );

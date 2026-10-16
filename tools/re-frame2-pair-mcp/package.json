@@ -13,10 +13,10 @@
   ],
   "scripts": {
     "build": "node scripts/build.cjs",
-    "watch": "shadow-cljs watch server",
+    "watch": "node ../../implementation/scripts/lib/shadow.cjs watch server",
     "gen:descriptors": "node scripts/descriptor-manifest-gen.cjs",
     "check:descriptors": "node scripts/descriptor-manifest-gen.cjs --check",
-    "test": "shadow-cljs compile server-test && node out/server-test.js",
+    "test": "node ../../implementation/scripts/lib/shadow.cjs --clean out/server-test.js compile server-test && node out/server-test.js",
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs",

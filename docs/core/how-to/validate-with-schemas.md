@@ -81,7 +81,7 @@ A todo's title must never be blank. In this example the rule appears twice, on p
    [:ul (for [{:keys [id title]} @(subscribe [:todo/all])]
           ^{:key id} [:li title])]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 

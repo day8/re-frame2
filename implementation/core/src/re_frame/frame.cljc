@@ -4935,4 +4935,4 @@
   app frame registers it explicitly via `(rf/make-frame {:id :rf/default …})`."
   []
   (when-not (frame :rf/default)
-    (upsert-frame! :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))
+    (upsert-frame! :rf/default {:doc "Test-fixture app frame (the conventional app-frame id; not a runtime floor)."})))

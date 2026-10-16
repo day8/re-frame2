@@ -377,7 +377,7 @@
                :rf.event/v       [event-id]}})
 
 (deftest first-open!-leaves-target-unselected-when-no-pre-mount-cascades
-  ;; `:rf/default` is an ordinary id, never an absence-repair fallback.
+  ;; `:rf/default` is the conventional app-frame id, never an absence-repair fallback.
   (with-stub-document
     (fn [_doc]
       (let [{:keys [render-fn]} (mk-render-stub)]

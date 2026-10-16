@@ -167,7 +167,7 @@ mounted under the dialog, and the route is `:app/article`.
        [article-dialog])
      [:p [:code (pr-str id @(subscribe [:rf.route/params]))]]]))
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :initial-events [[:rf.route/navigate {:to :app/articles}]]}
  [root-view]]
 ```

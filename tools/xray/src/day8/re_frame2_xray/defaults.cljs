@@ -35,7 +35,7 @@
   `:rf/xray`, where the shell's chrome state lives) from the
   inspected TARGET frame (the host app frame the scrubber / app-db /
   machine-inspector panels observe). The target frame is NOT defaulted to
-  `:rf/default`: `:rf/default` is an ordinary id, never an
+  `:rf/default`: `:rf/default` is the conventional app-frame id, never an
   absence-repair fallback (Spec 002 §Frame target resolution).
   The target frame starts UNSELECTED. What may take it out of that state
   is a RULE, not a list of sources: a selected target is either an

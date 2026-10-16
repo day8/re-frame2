@@ -53,6 +53,14 @@
              (dissoc r :hint)))
       (is (re-find #"nothing is registered" (:hint r))))))
 
+(deftest sort-ids-orders-mixed-type-paths-and-keeps-keyword-order
+  (let [kws [:zeta :b/x :a :a.b/c :a/d :counter/inc :counter]]
+    (is (= (vec (sort kws)) (pure/sort-ids kws))
+        "keyword ids keep compare's order"))
+  (is (= [[:todos] [:todos 0] [:todos 1] [:todos "label"] [:todos :filter] [:user :name]]
+         (pure/sort-ids [[:user :name] [:todos :filter] [:todos 1] [:todos] [:todos "label"] [:todos 0]]))
+      "app-db paths order length-first, then segment by segment, segments of different types by type"))
+
 (deftest epoch-elapsed-ms-spans-run-start-to-last-run-end
   (let [run (fn [op t] {:op-type :rf.event :operation op :time t})]
     (is (nil? (pure/epoch-elapsed-ms {:trace-events [(run :rf.event/run-end 1000)]}))
@@ -262,6 +270,9 @@
          (pure/resolve-snapshot-frames [:stories] [:rf/default :stories :rf/xray] [:rf/default :stories]))
       "an explicit vector is honoured verbatim (a tool frame named explicitly opts in)")
   (is (= [:app-db :sub-cache :machines :epochs :traces] pure/all-snapshot-slices)))
+
+(deftest orient-counts-app-schemas
+  (is (some #{:app-schema} pure/orient-registrar-kinds)))
 
 (deftest top-keys-sorted-or-nil
   (is (= [:cart :route :user] (pure/top-keys {:user 2 :cart 1 :route 3})))

@@ -90,7 +90,7 @@ its default again.
     "Forget todo 1"]
    [:pre "[:ui :todo.ui/expanded?] " (pr-str (h/sub [:app/expanded-slice]))]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-items]]
 ```
 

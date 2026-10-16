@@ -509,7 +509,7 @@ Visualisers walking the transition table consume the `:rf/machine` projection; t
 > **Owner:** [013-Flows §The registration shape](013-Flows.md#the-registration-shape)
 > **Status:** v1-required
 
-The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:derive`, `:output-path`) and the registration metadata (`:doc`, `:schema`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
+The flow definition `reg-flow` registers under the registrar's `:flow` kind: the call's metadata map with the flow id (its first slot) and the `:derive` fn (its third slot) folded in, so the definition carries both the wiring (`:id`, `:inputs`, `:derive`, `:output-path`) and the registration metadata (`:doc`, `:schema`, source coords), per [013 §The registration shape](013-Flows.md#the-registration-shape). It carries no `:frame`: a definition names no frame, the frames that run it each name it in their `:flows` config ([013 §Activation](013-Flows.md#activation)), and a `:frame` in the metadata map is rejected with `:rf.error/invalid-flow-metadata`.
 
 ```clojure
 (def FlowMeta
@@ -533,7 +533,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
 > **Owner:** [010-Schemas §The four normative claims](010-Schemas.md#the-four-normative-claims)
 > **Status:** v1-required
 
-The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). The schema is the **positional value slot**: user code passes `(rf/reg-app-schema path schema)` or `(rf/reg-app-schema path {:frame F} schema)` — the `path` is the 1st positional (the registration id), the `schema` is the last positional value slot, and the optional middle metadata map carries `:frame` / `:doc` / open `:my/*` keys. The stamped `:path` field is the registration path (1st positional); `:schema` is the positional schema arg; `:frame` is the resolved frame. (The stored side-table entry keys the schema under `:schema`; only the *registration call* takes it as a positional slot. The reads are `app-schemas` / `app-schema-meta`, which take `:frame` as a required opts-map key.)
+The registration metadata `reg-app-schema` stores under the registrar kind `:app-schema`, keyed by the canonical path (per [010 §`reg-app-schema`](010-Schemas.md) and [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)). The schema is the **positional value slot**: user code passes `(rf/reg-app-schema path schema)` or `(rf/reg-app-schema path {:doc "…"} schema)` — the `path` is the 1st positional (the registration id), the `schema` is the last positional value slot, and the optional middle metadata map carries `:doc` / open `:my/*` keys. The stamped `:path` field is the canonical registration path (1st positional); `:schema` is the positional schema arg. (The stored registration keys the schema under `:schema`; only the *registration call* takes it as a positional slot. The reads are `app-schemas` / `app-schema-meta`, which take `:frame` as a required opts-map key naming the frame whose resolved set is read.)
 
 ```clojure
 (def AppSchemaMeta
@@ -542,11 +542,10 @@ The metadata stamped on the schemas artefact's per-frame side-table entry by `re
    [:map
     [:path         [:vector :any]]                                           ;; runtime-stamped from the 1st positional arg; the app-db path the schema validates
     [:schema       :any]                                                     ;; runtime-stamped from the positional schema arg; the Malli (or equivalent) schema value
-    [:frame        :keyword]                                                 ;; from the (optional) metadata map's :frame key (or the carried scope frame)
     ]])
 ```
 
-`reg-app-schema` is **per-frame** (per [010 §Per-frame app-db schemas](010-Schemas.md)); the `:frame` slot records which frame this slot belongs to so tools enumerating across frames don't conflate registrations.
+A registration is frame-agnostic, so the shape carries no `:frame`: every frame that resolves the path validates against it, and a frame that should validate differently resolves a different registration through a later image (per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)). A frame on the registration is `:rf.error/app-schema-frame-target`.
 
 ##### Per-slot metadata vocabulary
 
@@ -1861,8 +1860,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; root, or the legacy `:rf/runtime` root). App schemas validate only
   ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
   ;; gate — distinct from the SHAPE error `:rf.error/app-schema-bad-path`.
-  ;; `:received` carries the offending path; `:frame` the resolved
-  ;; registration frame (nil when no scope is established); `:reason` states
+  ;; `:received` carries the offending path; `:reason` states
   ;; the honest remedy — runtime-db is framework-owned, so drop the runtime
   ;; path — and deliberately does NOT direct the user at a non-public,
   ;; framework-owned API. Per Spec 009 §Error
@@ -1871,7 +1869,6 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   [:map
    [:category    [:= :rf.error/app-schema-runtime-path]]
    [:received    :any]
-   [:frame       [:maybe :keyword]]
    [:reason      :string]
    [:rf.error/id [:= :rf.error/app-schema-runtime-path]]])
 
@@ -2695,7 +2692,8 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; the path is the region name — so two regions with structurally-identical
    ;; compound paths never collide. The recorded value is:
    ;;   - a [:vector :keyword] absolute LEAF PATH for a DEEP-history compound
-   ;;     (`:deep? true`), or
+   ;;     (`:deep? true`) — under `:type :parallel`, the leaf path inside
+   ;;     the region (the key carries the region name, the value does not), or
    ;;   - a single :keyword DIRECT CHILD for a SHALLOW-history compound
    ;;     (`:deep?` absent / false; the runtime cascades the child's :initial
    ;;     chain on restore).
@@ -2707,7 +2705,7 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; epoch replay with the rest of the snapshot.
    [:rf/history {:optional true}
     [:map-of [:vector :keyword]                                           ;; compound declaration path (region-qualified head under :type :parallel)
-             [:or [:vector :keyword]                                      ;; DEEP — recorded absolute leaf path
+             [:or [:vector :keyword]                                      ;; DEEP — recorded absolute leaf path (in-region under :type :parallel)
                   :keyword]]]                                             ;; SHALLOW — recorded direct child
    [:meta     {:optional true}
     [:map
@@ -4220,6 +4218,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:fx-overrides {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]       ;; the InterceptorOverrides map (per §:rf/interceptor-ref)
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
+    [:flows        {:optional true} [:vector :keyword]]                    ;; flow ids the frame runs (none by default), resolved through its own view; per [013 §Activation](013-Flows.md#activation)
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame

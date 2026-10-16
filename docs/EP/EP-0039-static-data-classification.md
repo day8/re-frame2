@@ -120,7 +120,7 @@ The rules:
 
 The name keeps the noun the contract already uses: Spec 015's title, and `:rf.error/bad-classification`. It needs no `app-` qualifier, because app-db is the only partition an app names absolutely; subsystems classify on their own registrations.
 
-**Flows.** A `reg-flow` output's `:sensitive` / `:large` is already a static declaration on the flow, relative to its `:output-path`. Flows are frame-scoped registrations, not image ones ([Spec 013 §Frame-scoping](../../spec/013-Flows.md#frame-scoping)). So the flows artefact contributes the frame's flow-output paths to that frame's app-db classification through one late-bound hook, `:flows/output-classification`. Nothing else about flows changes.
+**Flows.** A `reg-flow` output's `:sensitive` / `:large` is already a static declaration on the flow, relative to its `:output-path`. Flows are top-level registrations that a frame runs by naming them in its `:flows` config, resolved through the frame's own view like any other kind ([Spec 013 §Activation](../../spec/013-Flows.md#activation)). So the flows artefact contributes the output paths of the flows a frame runs to that frame's app-db classification through one late-bound hook, `:flows/output-classification`. Nothing else about flows changes.
 
 ### 3. Resolution through the target frame's image
 
@@ -171,7 +171,7 @@ Every hook has the same two-arity contract:
     - a machine snapshot: its `:rf/machine-type`, or its own id for a singleton;
     - a resource entry: its `:resource/key`;
     - a mutation instance: its `:mutation/id`;
-    - the current route slice: its `:id`.
+    - the current route slice: its `:route-id` ([Spec-Schemas §`:rf/route-slice`](../../spec/Spec-Schemas.md#rfroute-slice)).
 - **Purity.** Apply is pure: no registry write, no frame lookup and no container read. It returns runtime-db-absolute paths, which core walks with the ordinary matcher. A consumer projecting a single instance hands the hook a root value holding just that instance.
 
 Core keeps the table that maps each root to its hook key. A root whose hook is unbound has no classification, which is safe for the same reason it is safe for the `:machines/project-ssr-runtime-db` hook: without its artefact, a runtime-db carries no instances under that root. A new runtime-db root publishes its hook the same way.

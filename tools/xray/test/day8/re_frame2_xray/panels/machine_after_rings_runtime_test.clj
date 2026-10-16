@@ -3,7 +3,9 @@
   emits. Every `:rf.machine.timer/*` row reports the armed milliseconds under
   `:delay`, so a timer whose delay is not a literal — an ISO-8601 string, a
   `:delays` name, a fn — still draws a ring, and its `/cancelled` row closes
-  the record its `/scheduled` row opened."
+  the record its `/scheduled` row opened. Every row also names its timer by
+  the `:after` key under `:delay-key`, so two keys resolving to the same
+  milliseconds stay two rings."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [day8.re-frame2-xray.panels.machine-after-rings-helpers :as rings]
             [re-frame.core :as rf]
@@ -50,3 +52,33 @@
           (str label ": the armed timer draws a full countdown ring"))
       (is (= [:cancelled] (mapv :status (rings/project-timers all id)))
           (str label ": leaving the state closes that ring")))))
+
+(deftest equal-duration-timers-keep-their-own-rings
+  ;; `:warning` and `:expiry` both resolve to 250ms. They are two runtime
+  ;; timers, so they are two rings, and `:warning`'s guard-suppressed firing
+  ;; closes its own ring and leaves `:expiry` counting down.
+  (rf/reg-machine :rings-rt/twins
+                  {:initial :idle
+                   :delays  {:warning 250 :expiry 250}
+                   :guards  {:never (constantly false)}
+                   :states  {:idle    {:on {:go :waiting}}
+                             :waiting {:after {:warning {:guard :never :target :done}
+                                               :expiry  :done}}
+                             :done    {}}})
+  (let [buf  (atom [])
+        ring (fn [] (into {} (map (juxt :delay-key (juxt :status :duration-ms)))
+                          (rings/project-timers @buf :rings-rt/twins)))]
+    (rf/register-listener! :trace ::twins (fn [ev] (swap! buf conj ev)))
+    (try
+      (with-redefs [rf.interop/schedule-after! (fn [_thunk _ms] ::handle)]
+        (rf/dispatch-sync [:rings-rt/twins [:go]]))
+      (is (= {:warning [:armed 250] :expiry [:armed 250]} (ring))
+          "each timer arms its own ring")
+      (let [epoch (some #(when (= :rf.machine.timer/scheduled (:operation %))
+                           (get-in % [:tags :epoch]))
+                        @buf)]
+        (rf/dispatch-sync [:rings-rt/twins
+                           [:rf.machine.timer/after-elapsed :warning epoch [:waiting]]]))
+      (is (= {:warning [:guard-suppressed 250] :expiry [:armed 250]} (ring))
+          "the suppressed :warning closes its own ring, not :expiry's")
+      (finally (rf/unregister-listener! :trace ::twins)))))

@@ -152,7 +152,7 @@ alone fetches nothing.
    [:p "Status: "
     (pr-str (:status (h/sub [:rf/resource {:resource :todo/list :params {}}])))]])
 
-[h/frame-root {:id           :app
+[h/frame-root {:id           :rf/default
                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [resource-demo]]
 ```

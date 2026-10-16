@@ -205,7 +205,7 @@ wrong and right versions side by side.
    [:button {:on-click #(dispatch [:todo/add])} "Add a todo"]
    [:p @(subscribe [:todo/count]) " todos"]])
 
-[rf/frame-root {:id :app}
+[rf/frame-root {:id :rf/default}
  [add-todo]]
 ```
 

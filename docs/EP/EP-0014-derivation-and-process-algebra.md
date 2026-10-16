@@ -950,6 +950,8 @@ one-install-per-event invariant intact. The algebra only requires that the
 evaluation policy and its sequencing be declared honestly, which the resolved
 form does.
 
+> **Forward pointer.** Spec 013 has no `:rf.fx/reg-flow`: a flow registers at the top level and runs in each frame whose `:flows` config names it, so the settle that remains is the one after an `:fx` walk writes frame state ([Spec 013 §Activation](../../spec/013-Flows.md#activation)).
+
 ### Resource Declaration
 
 Existing resource:

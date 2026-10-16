@@ -97,6 +97,8 @@ function runWrapper(mode) {
         RF2_PROOF_MODE: mode,
         RF2_PROOF_VICTIM: VICTIM,
         RF2_PROOF_OUTPUT: OUTPUT_ABS,
+        // A lane of this suite's own, so the proof never queues behind a real build.
+        RF2_SHADOW_LANE_LOCK: path.join(lane, 'build-lane.lock'),
       },
     },
   );

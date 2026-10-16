@@ -104,7 +104,7 @@ The frame api holds every frame-bound operation:
 ```clojure
 (use-frame)   ;; identical to (rf/capture-frame) for the ambient provider frame
 ;; =>
-{:frame         :app
+{:frame         :rf/default
  :dispatch      (fn ([event]) ([event opts]))   ;; async-dispatch into the captured frame
  :dispatch-sync (fn ([event]) ([event opts]))   ;; synchronous variant — drains before returning
  :subscribe     (fn [query-v])}                 ;; frame-locked reaction — deref it (see below)
@@ -122,7 +122,7 @@ Hooks run only during render. Outside any component (an async setup function, a 
 ```clojure
 ;; A WebSocket message arrives long after render, outside any component.
 ;; Capture the frame by name at setup time and dispatch through it.
-(let [{:keys [dispatch]} (rf/capture-frame :app)]
+(let [{:keys [dispatch]} (rf/capture-frame :rf/default)]
   (ws/on-message (fn [msg] (dispatch [:todo/synced msg]))))
 ```
 
@@ -146,7 +146,7 @@ Mount the root inside a `frame-root`, which creates the frame on first mount and
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (uix-adapter/render! app-root
-      ($ uix-adapter/frame-root {:id             :app
+      ($ uix-adapter/frame-root {:id             :rf/default
                                  :initial-events [[:initialise 0]]}
          ($ counter))
       el)))

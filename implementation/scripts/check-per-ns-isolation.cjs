@@ -164,23 +164,14 @@ function implementationDir() {
 
 function compileBundle(implDir) {
   process.stderr.write('compiling node-test bundle...\n');
-  // Hardened, shell-free spawn (per the script-spawn-policy gate): resolve
-  // shadow-cljs's JS entry-point and run it under THIS node binary, so the OS
-  // never interprets a bare `npx` / `.cmd` shim (the command-hijack
-  // class on Windows).
-  let runner;
-  try {
-    runner = require.resolve('shadow-cljs/cli/runner.js');
-  } catch (e) {
-    process.stderr.write(
-      'error: cannot resolve shadow-cljs (run `npm install` in implementation/).\n'
-    );
-    return false;
-  }
-  const r = spawnSync(process.execPath, [runner, 'compile', 'node-test'], {
-    cwd: implDir,
-    stdio: 'inherit',
-  });
+  // Through the node-test compile wrapper, exactly as `npm run test:cljs`
+  // compiles it: inside the build lane, with the bundle deleted first, so a
+  // failed compile cannot leave the previous bundle here to be swept.
+  const r = spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'compile-node-test.cjs'), 'node-test', NODE_TEST_BUNDLE],
+    { cwd: implDir, stdio: 'inherit' },
+  );
   if (r.status !== 0) {
     process.stderr.write('error: node-test compile failed.\n');
     return false;

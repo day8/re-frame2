@@ -48,7 +48,7 @@ We've registered the counter; we haven't run it yet. To run it, mount it under a
 
 ```cljs-rf2
 [:div {:style {:background "LavenderBlush"}}
-   [rf/frame-root {:id :app :initial-events [[:initialise 3]]}
+   [rf/frame-root {:id :rf/default :initial-events [[:initialise 3]]}
      [counter]]]
 ```
 
@@ -57,7 +57,7 @@ In this in-browser environment, hiccup at the end of an interactive block is
 rendered, which is why the app appears above. It describes:
 
 - a `<div>` with a background style, wrapping …
-- a `frame-root`, which creates the `:app` frame and makes it available to every view
+- a `frame-root`, which creates the `:rf/default` frame and makes it available to every view
   beneath it (think of a React Context **Provider**)
 - the `counter` view registered above
 

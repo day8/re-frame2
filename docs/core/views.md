@@ -73,7 +73,7 @@ footer, under a parent:
    [todo-list]
    [todo-footer]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-app]]
 ```
 
@@ -92,7 +92,7 @@ Notes:
 
 Now change the child of `frame-root` from `[todo-app]` to
 `[:div [todo-app] [todo-app]]` and re-evaluate. Tick a box in either copy: both
-update. They mount under the same `:app` [frame](glossary.md#frame) and read the same
+update. They mount under the same `:rf/default` [frame](glossary.md#frame) and read the same
 app-db, so there is no local copy to fall out of sync. Keep the `frame-root` wrapper:
 without it the views mount under no frame, and the first render raises
 `:rf.error/no-frame-context`.

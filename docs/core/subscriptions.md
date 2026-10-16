@@ -39,7 +39,7 @@ thing to read:
    [:span @(subscribe [:value]) " is " (name @(subscribe [:parity]))]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 
-[rf/frame-root {:id :app :initial-events [[:initialise 5]]}
+[rf/frame-root {:id :rf/default :initial-events [[:initialise 5]]}
  [parity-counter]]
 ```
 

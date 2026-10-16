@@ -2,9 +2,9 @@
   "Malli args schemas for the four standard `:rf.nav/*` navigation fx.
   Per Spec 012 §Multi-frame routing §Scroll restoration and
   [Spec-Schemas §Standard fx args schemas], which states normatively
-  that 'the standard fx ship with `:schema` set to the corresponding
-  schema above'. These are the `:rf.fx.nav/*-args` schemas the spec
-  names as registered.
+  that 'the `:rf.nav/*` and `:rf.server/*` fx ship with `:schema` set
+  to the corresponding schema above'. These are the `:rf.fx.nav/*-args`
+  schemas the spec names as registered.
 
   The schemas here are **plain Malli forms** — vectors, keywords, and
   `clojure.core` predicates; no Malli code dependency. The routing
