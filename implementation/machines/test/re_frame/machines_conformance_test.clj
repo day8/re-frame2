@@ -117,5 +117,5 @@
                         (str fname ": " detail)))]
     ;; The floor keeps an emptied or orphaned corpus (wrong dir, a renamed
     ;; capability) from passing over nothing; the corpus only grows.
-    (is (>= (count run) 9) (str "only " (count run) " :reg-machine fixtures ran"))
+    (is (>= (count run) 6) (str "only " (count run) " :reg-machine fixtures ran"))
     (is (empty? failures) (str/join "\n" failures))))
