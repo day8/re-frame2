@@ -27,7 +27,7 @@
 
 **Body / head hydration mismatch.** The server-rendered tree and the
 client first-render tree disagree at a node. The
-`:rf.ssr/hydration-mismatch` trace fires with `:first-diff-path`. The
+`:rf.ssr/hydration-mismatch` trace fires with React's message. The
 console error is one line; the divergent node is rarely the one the
 error points to. SSR debugging is **uniformly opaque** in every framework
 — React's "hydration error" message tells you a node mismatched but
@@ -213,10 +213,8 @@ indices, indexed once per call:
   Each event's `:tags` MUST carry `:path` (the hiccup-path the runtime
   flagged), `:server-tree` and `:client-tree` (the subtrees at that
   path), `:frame` (the affected frame), `:view-id` (the divergent
-  view's registration), and `:failing-id`. The optional
-  `:first-diff-path` slot carries the runtime's own bisection path
-  when the SSR pipeline computed one upstream; the projection
-  prefers it over its own walk (see §Bisector walk below).
+  view's registration), and `:failing-id`. The projection finds the
+  divergent node with its own walk (see §Bisector walk below).
 - **`target-frame`** — the active frame the user has selected in the
   picker. The projection filters mismatches to that frame per
   §Frame awareness; passing `nil` returns mismatches for all frames.
@@ -296,18 +294,6 @@ re-walks subtrees after the user zooms (the re-root affordance under
 canonical `pr-str` over each node, treated as the structural
 fingerprint. Two structurally-equal nodes produce the same string; two
 different nodes produce different strings.
-
-### Runtime path override
-
-When a trace event's `:tags` carry `:first-diff-path`, the projection
-**prefers it over its own walk**. The local walk is the fallback when
-the slot is absent — as it is from React's adoption report, which names
-no path.
-
-This is a MUST: the runtime is the source of truth (per
-[`Principles.md`](./Principles.md) §Observation only — no new runtime
-surfaces). Xray's walker exists so the panel works against the
-runtime's contract — not so it overrides the runtime when it speaks.
 
 ### Cycle handling
 

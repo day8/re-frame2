@@ -459,7 +459,7 @@ this section catalogues the bug classes.)
 
 **Bug class:** Body hydration mismatch. Server-rendered tree and client
 first-render tree disagree at a node. The `:rf.ssr/hydration-mismatch`
-trace fires with `:first-diff-path`; the panel needs to render the
+trace fires with React's message; the panel needs to render the
 divergent node side-by-side with **sub-attribution** (which sub returned
 which value on which side, and why).
 
