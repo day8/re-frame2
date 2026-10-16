@@ -374,7 +374,7 @@
      [:snapshot :map]
      [:event [:vector :any]]
      [:expect-next-snapshot
-      {:observe "the snapshot machine-transition returns for :definition, :snapshot and :event, with the fixture's :machine-action and :machine-guard bodies merged into the definition; on a bounded-depth abort, the input snapshot"
+      {:observe "the snapshot machine-transition returns for :definition, :snapshot and :event, with each of the fixture's realised :machine-action bodies merged into the definition's :actions and each :machine-guard body into its :guards, under the body's id, the definition's own entry winning a shared id; on a bounded-depth abort, the input snapshot"
        :law     :equal}
       :map]
      [:expect-effects
