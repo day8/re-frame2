@@ -333,8 +333,11 @@
   `[:rf.work/http logical-id issuance]` within the frame, never on full
   work-id equality.
 
-  `:url` is the merged request URL and rides through `prepare-emit-tags`, so it
-  is redacted under the request's `:sensitive?` exactly as the retry row's is.
+  `:request-id` and the work id ride as given: a resource read's request id
+  `[:rf.req <frame-id> [:rf.work/resource <resource-id> <generation>]]` names
+  no scope or params. `:url` is the merged request URL and rides through
+  `prepare-emit-tags`, so it is redacted under the request's `:sensitive?`
+  exactly as the retry row's is.
   `:reply-to` summarises the reply target(s) by EVENT-ID only, never the
   target vector's args."
   [{:keys [request request-id frame sensitive?] :as normalised}]
