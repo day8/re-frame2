@@ -331,7 +331,6 @@ sends one.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
-         '[re-frame.http.managed]
          '[re-frame.resources]
          '[re-frame.routing]
          '[re-frame.http.test-support :as http-test-support]
