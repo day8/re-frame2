@@ -583,10 +583,10 @@
   callback-bearing teardown boundary is rechecked and the durable writes ride
   A's token. Before teardown, `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
-  generation feeds the reply identity; a single-`:spawn` child's comes from
-  `spawn-attempt-generation` over the `:rf/invoke-attempt` in its `old-db`
-  snapshot, so the cancel row closes the same work id the attempt's done or
-  error reply would carry. The trace carries the requested
+  generation feeds the reply identity; a single-`:spawn` child's is the
+  `:rf/work-generation` its spawn stamped, read from its `old-db` snapshot,
+  so the cancel row closes the same work id the attempt's done or error
+  reply would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion."
   [frame-id actor-id requested-reason parent-id invoke-id old-db fence]
@@ -595,13 +595,13 @@
                           frame-id actor-id requested-reason fence)]
       (let [reason     (:reason teardown)
             join-child (:join-child teardown)
-            ;; A single-`:spawn` child has no membership record; its spawn's
-            ;; `:rf/invoke-attempt` sets its generation, exactly as
-            ;; `finalize-machine` reads it for the attempt's done or error reply.
+            ;; A single-`:spawn` child has no membership record; the
+            ;; `:rf/work-generation` its spawn stamped sets its generation,
+            ;; exactly as `finalize-machine` reads it for the attempt's done
+            ;; or error reply.
             work-generation (or (:work-generation join-child)
-                                (when-some [attempt (get-in old-db (rf.machines.paths/snapshot-path
-                                                                     actor-id :data :rf/invoke-attempt))]
-                                  (rf.machines.reply/spawn-attempt-generation actor-id attempt)))]
+                                (get-in old-db (rf.machines.paths/snapshot-path
+                                                 actor-id :data :rf/work-generation)))]
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`

@@ -99,17 +99,20 @@
 ;;  - `generation`       — the monotonic spawn discriminator, so a re-spawn
 ;;                         under the same declaring path lands on a fresh work
 ;;                         id (one ATTEMPT, one `:rf.reply/work-id`, per
-;;                         EP-0007). One rule covers both spawn kinds: a
-;;                         generated `<type>#<n>` actor carries `n` (the
-;;                         spawn-counter reading that minted this instance);
-;;                         an explicit `:fixed-actor-id` names the SAME address
-;;                         on every attempt, so it carries its spawn's
-;;                         runtime-minted attempt instead — a single `:spawn`
-;;                         child's `:rf/invoke-attempt`, a `:spawn-all` child's
-;;                         join-attempt token. The attempt distinguishes reuse
-;;                         of the fixed address without inventing another
-;;                         identity. Where no attempt is in hand (a
-;;                         hand-emitted `:rf.machine/spawn` mints none), a
+;;                         EP-0007). One rule covers both spawn kinds
+;;                         (`spawn-work-generation`): a generated `<type>#<n>`
+;;                         actor carries `n` (the spawn-counter reading that
+;;                         minted this instance); an explicit `:fixed-actor-id`
+;;                         names the SAME address on every attempt, so it
+;;                         carries its spawn's runtime-minted attempt instead —
+;;                         a single `:spawn` child's `:rf/invoke-attempt`, a
+;;                         `:spawn-all` child's join-attempt token. The spawn
+;;                         applies the rule while its args say whether the id
+;;                         was authored, and stamps the result on the child
+;;                         (`:rf/work-generation`, or `:rf/join-child`'s
+;;                         `:work-generation`), so no reader decides provenance
+;;                         from the actor keyword. Where no attempt is in hand
+;;                         (a hand-emitted `:rf.machine/spawn` mints none), a
 ;;                         fixed actor carries 1.
 ;; ---------------------------------------------------------------------------
 
@@ -142,17 +145,19 @@
   (when (some? actor-id)
     (or (generated-actor-generation actor-id) 1)))
 
-(defn spawn-attempt-generation
-  "The exact work-id generation of one single-`:spawn` attempt, given the
-  `attempt` its spawn stamped on the child as `:rf/invoke-attempt`: the
-  `<type>#<n>` suffix `n` of a generated actor, else `attempt`. A
-  `:fixed-actor-id` names the same address on every attempt, so the attempt
-  is what tells two of them apart, as a fixed `:spawn-all` child's join
-  attempt token does. A single `:spawn` records no fixed-vs-generated
-  provenance, so a fixed literal that itself ends in `#<digits>` reads as
-  generated here."
-  [actor-id attempt]
-  (or (generated-actor-generation actor-id) attempt))
+(defn spawn-work-generation
+  "The exact work-id generation of one spawn attempt, chosen from the spawn's
+  own provenance while its args are in hand. `fixed?` — the spawn authored a
+  `:fixed-actor-id` — takes the runtime-minted `attempt`, because a fixed
+  address is the same on every attempt; a generated actor takes the
+  `<type>#<n>` counter `n` of `spawned-id`. Provenance never comes from the
+  keyword's spelling, so a fixed literal ending in `#<digits>` still takes its
+  attempt. The spawn stamps the result on the child, and the attempt's replies
+  and cancel row all read it from there."
+  [fixed? spawned-id attempt]
+  (if fixed?
+    attempt
+    (actor-generation spawned-id)))
 
 (defn spawn-work-id
   "Build the machine work-id for one spawned-actor attempt:
@@ -164,10 +169,11 @@
   exact generation: a `:spawn-all` child's private membership carries it
   (the allocator counter for a known generated actor, or the join attempt
   for an explicitly fixed actor, so the join path never decides provenance
-  by parsing the actor keyword), and a single `:spawn` child's comes from
-  `spawn-attempt-generation`. The 2-arity, for a caller with no attempt in
-  hand, parses `generation` off the `<type>#<n>` instance id, or 1 for an id
-  with no such suffix. `=`-comparable and EDN-serializable."
+  by parsing the actor keyword), and a single `:spawn` child's is the
+  `:rf/work-generation` its spawn stamped (`spawn-work-generation`). The
+  2-arity, for a caller with no attempt in hand, parses `generation` off the
+  `<type>#<n>` instance id, or 1 for an id with no such suffix.
+  `=`-comparable and EDN-serializable."
   ([actor-id work-bearing-path]
    [:rf.work/machine actor-id (vec work-bearing-path)
     (actor-generation actor-id)])

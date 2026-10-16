@@ -135,6 +135,56 @@
               (mapv #(:rf.reply/work-id (:tags %)))))
       "the cancel row closes the second attempt's work id"))
 
+(deftest suffix-shaped-fixed-id-spawn-takes-its-attempt-as-generation
+  ;; Fixed-vs-generated is the spawn's own provenance, never the keyword's
+  ;; spelling: a fixed literal ending in `#<digits>` still takes its attempt,
+  ;; and its reply and cancel row agree on it.
+  (rf/reg-machine :rl/suffixed
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/sparent
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:on    {:cancel :idle}
+                         :spawn {:machine-id     :rl/suffixed
+                                 :fixed-actor-id :rl/the-uploader#3
+                                 :on-done        :idle}}}})
+  (rf/dispatch-sync [:rl/sparent [:go]])
+  (rf/dispatch-sync [:rl/the-uploader#3 [:finish]])
+  (rf/dispatch-sync [:rl/sparent [:go]])
+  (rf/dispatch-sync [:rl/sparent [:cancel]])
+  (is (= [[:rf.work/machine :rl/the-uploader#3 [:loading] 1]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))
+      "the first attempt's reply carries attempt 1, not the literal's suffix")
+  (is (= [[:rf.work/machine :rl/the-uploader#3 [:loading] 2]]
+         (->> (rf.machines.test-support/events-of :rf.machine/destroyed)
+              (filter #(= :explicit (:reason (:tags %))))
+              (mapv #(:rf.reply/work-id (:tags %)))))
+      "the second attempt's cancel row carries attempt 2"))
+
+(deftest generated-spawn-keeps-its-allocator-generation
+  ;; A generated actor's generation is its `<type>#<n>` counter, which here
+  ;; differs from its spawn's attempt (attempt 1 of the `:b` invoke, counter 2).
+  (rf/reg-machine :rl/gen
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/gparent
+    {:initial :a
+     :states  {:a {:spawn {:machine-id :rl/gen :on-done :b}}
+               :b {:spawn {:machine-id :rl/gen :on-done :c}}
+               :c {}}})
+  (rf/dispatch-sync [:rl/gparent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [:rl/gen#1 [:finish]])
+  (rf/dispatch-sync [:rl/gen#2 [:finish]])
+  (is (= :c (:state (snapshot :rl/gparent))))
+  (is (= [[:rf.work/machine :rl/gen#1 [:a] 1]
+          [:rf.work/machine :rl/gen#2 [:b] 2]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))))
+
 (deftest spawned-error-drives-on-error-transition
   (rf/reg-machine :rl/echild
     {:initial :running

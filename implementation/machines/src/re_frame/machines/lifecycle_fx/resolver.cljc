@@ -125,8 +125,10 @@
   lineage — its own address, its owner's address, the invocation path it was
   spawned from, (for a `:spawn-all` child) its private exact-attempt join
   membership, and (for a single `:spawn` child) the spawn attempt it belongs
-  to. Each is present only on the spawn flavour that stamps it."
-  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child :rf/invoke-attempt])
+  to and that attempt's work generation. Each is present only on the spawn
+  flavour that stamps it."
+  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child :rf/invoke-attempt
+   :rf/work-generation])
 
 (defn carry-actor-identity
   "Copy the spawned-actor identity envelope from `prev` onto `next`,
