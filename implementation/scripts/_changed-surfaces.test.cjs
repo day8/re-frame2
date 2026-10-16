@@ -1434,9 +1434,9 @@ test('each story-xray-browser tier runs as a step gated on its own output (rf2-6
 // resolves to the empty string unless the producing job DECLARES it, so an
 // undeclared output makes every `== 'true'` false — a gate that can never fire,
 // silently.
-test('detect_changed_surfaces exports the narrow outputs the story and test-react jobs read (rf2-9n2cv, rf2-65ajl, rf2-6r9j.87)', () => {
+test('detect_changed_surfaces exports the narrow outputs the story jobs read (rf2-9n2cv, rf2-65ajl)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
-  for (const output of ['story_static_gate', 'story_full_gate', 'test_react_jvm']) {
+  for (const output of ['story_static_gate', 'story_full_gate']) {
     assert.match(
       block,
       new RegExp(`${output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${output} \\}\\}`),
@@ -1554,92 +1554,6 @@ test('a testbed README does NOT fire examples_compile (extension narrowing, rf2-
 test('adapter-smoke harness edit fires adapter_testbed_smokes', () => {
   const result = classify('implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
-});
-
-// Test-React is a local-only CLJC test fixture: no Maven coordinate, no
-// production or example consumer, no browser testbed. Exactly two lanes reach
-// it — `jvm-adapters-test-react` (test_react_jvm) and Shadow's consolidated
-// `:node-test` — so it is carved out of BOTH case statements a
-// implementation/adapters/* path reaches, and each file arms exactly the lanes
-// that consume it.
-test('Test-React arms exactly the lanes that consume each file (rf2-6r9j.87)', () => {
-  for (const [file, armed] of [
-    ['implementation/adapters/test-react/src/re_frame/adapter/test_react.cljc', ['cljs_node_test', 'test_react_jvm']],
-    ['implementation/adapters/test-react/test/re_frame/adapter/test_react_cljs_test.cljc', ['cljs_node_test', 'test_react_jvm']],
-    // deps.edn feeds the JVM lane only: shadow reads its source paths and
-    // dependencies from implementation/shadow-cljs.edn.
-    ['implementation/adapters/test-react/deps.edn', ['test_react_jvm']],
-    // Prose opens no lane, and must not reach the examples_compile alternation
-    // in the FIRST case statement either.
-    ['implementation/adapters/test-react/README.md', []],
-  ]) {
-    assert.deepEqual(armedOutputs(classify(file)), armed, file);
-  }
-});
-
-// The outputs the published adapters fire and Test-React does not.
-const TEST_REACT_RETIRED_OUTPUTS = [
-  'implementation_jvm',
-  'adapter_diagnostic',
-  'cljs_browser',
-  'examples_compile',
-  'cljs_prod',
-  'bundle_isolation',
-  'adapter_testbed_smokes',
-  'tools_jvm',
-  'template_expensive',
-  'mcp_conformance',
-  'mcp_live',
-];
-
-// `case` is first-match, so a carve-out written with a loose glob would swallow
-// its siblings silently.
-test('published adapters keep the full fan-out after the Test-React carve-out (rf2-6r9j.87)', () => {
-  const file = 'implementation/adapters/uix/src/re_frame/adapter/uix.cljs';
-  const result = classify(file);
-  for (const output of TEST_REACT_RETIRED_OUTPUTS) {
-    assert.equal(
-      result[output],
-      'true',
-      `${file} must still fire ${output} — only Test-React was narrowed`,
-    );
-  }
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-// The core reverse edge rides adapter_diagnostic; the narrow forward edge is
-// test_react_jvm. The job reads the disjunction.
-test('jvm-adapters-test-react is gated on the disjunction (rf2-6r9j.87)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-adapters-test-react');
-  const header = block.slice(0, block.indexOf('steps:'));
-  assert.match(header, /outputs\.adapter_diagnostic == 'true'/, 'core reverse edge');
-  assert.match(header, /outputs\.test_react_jvm == 'true'/, 'narrow forward edge');
-  assert.match(header, /\|\|/, 'the two edges must be a disjunction');
-});
-
-// mark_all() has to stay TOTAL. `force_all` and the workflow-file arms rely on
-// it, so a signal missing there makes a forced full run SKIP the job — the
-// narrowing's own fail-open.
-test('a forced full run still arms test_react_jvm (rf2-6r9j.87)', () => {
-  assert.equal(classify('.github/workflows/test.yml').test_react_jvm, 'true');
-});
-
-// The same control one level down. scripts/test-fast-pr.sh gates its whole
-// JVM tier on the classifier's output, and the Test-React arm does not set
-// `implementation_jvm`, so unless the spine reads the narrow signal too, a
-// Test-React-only LOCAL diff skips its own JVM suite silently.
-test('the local spine consumes test_react_jvm for its JVM tier (rf2-6r9j.87)', () => {
-  const spine = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'test-fast-pr.sh'), 'utf8');
-  assert.match(
-    spine,
-    /test_react_jvm\)\s+test_react_jvm="\$value" ;;/,
-    'the spine must read test_react_jvm out of the classifier output',
-  );
-  assert.match(
-    spine,
-    /\[ "\$test_react_jvm" = true \][^\n]*run_jvm=true/,
-    'the spine must arm its JVM tier on test_react_jvm',
-  );
 });
 
 // Every EXECUTABLE examples/scripts gate file fires every browser gate that

@@ -59,18 +59,6 @@
                 ;; Per-adapter testbed (UIx). See the Reagent
                 ;; testbed comment above.
                 "adapters/uix/testbed"
-                ;; The test-react adapter (headless CLJC class-3
-                ;; lifecycle simulator). src+test paths here so the
-                ;; :node-test build discovers re-frame.adapter.test-react-cljs-test
-                ;; (the ns ends in `-cljs-test`, matching the `cljs-test$`
-                ;; regexp; a plain `-test` suffix does NOT match, so the CLJS
-                ;; half would be silently excluded). The
-                ;; JVM half runs via scripts/test-jvm-implementation.sh.
-                ;; NOT for production: bundle-isolation holds structurally —
-                ;; nothing under examples/ or production builds :requires
-                ;; re-frame.adapter.test-react.
-                "adapters/test-react/src"
-                "adapters/test-react/test"
                 "schemas/src"
                 "schemas/test"
                 "machines/src"

@@ -2447,14 +2447,10 @@ The catalogue's terminal tier records `:rf.error/*` ids emitted by a **substrate
 
 ##### Test-harness
 
-The test-react substrate is a test-only React double; the conformance-corpus DSL evaluator runs the cross-port conformance fixtures. The siblings `:rf.error/conformance-unknown-dsl-op` / `-unknown-fn-builtin` are catalogued in the main table above.
+The conformance-corpus DSL evaluator runs the cross-port conformance fixtures. The siblings `:rf.error/conformance-unknown-dsl-op` / `-unknown-fn-builtin` are catalogued in the main table above.
 
 | `:operation` | `:op-type` | Channel | Trigger / meaning | Default `:recovery` | `:tags` |
 |---|---|---|---|---|---|
-| `:rf.error/mount-child-outside-render` | `:error` | diagnostic | `mount-child!` was called outside an `:rf/component` render body (`*rendering-mount*` was nil). | `:call-from-inside-a-render-body` | `:where` |
-| `:rf.error/sync-unmount-during-render` | `:error` | diagnostic | A root was synchronously unmounted while a render was in flight (React 18+ raises the equivalent). | `:defer-the-unmount-until-render-settles` | `:where` |
-| `:rf.error/test-react-not-installed` | `:error` | diagnostic | `test-react/mount!` was called without the Test-React adapter installed via `init!`. | `:install-the-test-react-adapter` | `:where` |
-| `:rf.error/update-after-unmount` | `:error` | diagnostic | `trigger-update!` was called on a mount that was already unmounted. | `:trigger-only-on-a-mounted-root` | `:where`, `:mount-id` |
 | `:rf.error/conformance-cannot-count-nil` | `:error` | diagnostic | A conformance-corpus `:count` builtin was applied to `nil`. | `:no-recovery` — count a countable value | `:where` |
 | `:rf.error/conformance-cannot-count-string` | `:error` | diagnostic | A conformance-corpus `:count` builtin was applied to a string / char. | `:no-recovery` — count a countable value | `:where` |
 | `:rf.error/conformance-throw-step` | `:error` | diagnostic | A conformance-corpus `:throw` DSL step raised its fixture-supplied message (the corpus's deliberate-throw op). | `:no-recovery` — expected for a `:throw` fixture | `:where`, `:from-fixture?` |

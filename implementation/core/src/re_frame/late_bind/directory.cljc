@@ -64,7 +64,7 @@
        that could be missing. See the per-key notes on those rows.
 
     3. ADAPTER-INJECTION — substrate adapters (Reagent / UIx /
-       test-react) publish CLJS-side primitives the core
+       Fresco) publish CLJS-side primitives the core
        runtime consumes (`:adapter/current-frame`, `:adapter/ratom`,
        `:adapter/after-render`, …) and React-shaped view machinery
        (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
@@ -720,7 +720,7 @@
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION
    ;;
-   ;; Substrate adapters (Reagent / UIx / test-react) publish CLJS-side primitives the core runtime consumes
+   ;; Substrate adapters (Reagent / UIx / Fresco) publish CLJS-side primitives the core runtime consumes
    ;; (`:adapter/current-frame`, `:adapter/ratom`, `:adapter/after-
    ;; render`, …) and React-shaped view machinery
    ;; (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
@@ -733,8 +733,7 @@
    {:key         :reagent/set-hiccup-emitter!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.uix
-                   re-frame.fresco.substrate
-                   re-frame.adapter.test-react]
+                   re-frame.fresco.substrate]
     :chained?    true
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
 
@@ -757,8 +756,7 @@
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.uix
-                   re-frame.fresco.substrate
-                   re-frame.adapter.test-react]
+                   re-frame.fresco.substrate]
     :chained?    true
     :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}
    {:key         :adapter/current-component
