@@ -96,7 +96,7 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 `reg-flow` returns its `flow-id` — the primary id under which the flow registers — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Under the 3-slot grammar the id is the first positional argument, exactly like the rest of the `reg-*` family.
 
-`reg-flow` is a **top-level registration**, like `reg-event`: it writes the registrar's `:flow` kind and reads no frame, so it needs no scope and no live frame, and registering at namespace load is the normal case. A `:frame` key in the metadata map is rejected loudly with `:rf.error/invalid-flow-metadata`, as a mislocated `:derive` is: which frames run a flow is each frame's own `:flows` config ([§Activation](#activation)), never the registration's.
+`reg-flow` is a **top-level registration**, like `reg-event`: it writes the registrar's `:flow` kind and reads no frame — not a surrounding `with-frame`, and not an enclosing `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — so it needs no scope and no live frame, and registering at namespace load is the normal case. A `:frame` key in the metadata map is rejected loudly with `:rf.error/invalid-flow-metadata`, as a mislocated `:derive` is: which frames run a flow is each frame's own `:flows` config ([§Activation](#activation)), never the registration's.
 
 ```clojure
 (rf/reg-flow :rectangle/area
