@@ -423,6 +423,15 @@
            (select-keys (:data (event-node-for graph (:id (first (:edges parsed)))))
                         [:afterMs :eventLabel])))))
 
+(deftest xyflow-graph-event-node-names-a-named-delay
+  ;; A `:delays` name has no static ms: the label is the name.
+  (let [parsed (layout/project-definition {:initial :a :delays {:warn 1000}
+                                           :states  {:a {:after {:warn :b}} :b {}}})
+        graph  (projection/xyflow-graph parsed {} {})]
+    (is (nil? (:definition-error parsed)) "the chart projects a machine with named delays")
+    (is (= "⌚ warn"
+           (:eventLabel (:data (event-node-for graph (:id (first (:edges parsed))))))))))
+
 (deftest xyflow-graph-event-node-eventId-is-the-fireable-event-only
   ;; The on-chart simulator sends a clicked event-node's `:eventId`; timers,
   ;; eventless and engine-raised transitions and the `:*` wildcard carry none.

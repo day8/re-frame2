@@ -70,6 +70,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
 const HERE = __dirname;
 const IMPL_ROOT = path.resolve(HERE, '..');
@@ -319,9 +320,12 @@ const PREP_STEPS = [
     prep: true,
   },
   {
+    // Through the shared shadow-cljs launcher: the build lane, and a bundle
+    // deleted before compiling, so a failed compile leaves no stale server
+    // for the conformance gates below to test.
     name: 'compile re-frame2-pair-mcp server bundle (shadow-cljs :server)',
-    exe: 'npx',
-    args: ['shadow-cljs', 'compile', 'server'],
+    node: true,
+    args: [SHADOW_CLI, '--clean', 'out/server.js', 'compile', 'server'],
     cwd: PAIR_MCP,
     prep: true,
   },

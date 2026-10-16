@@ -269,7 +269,7 @@ the output path, and a pure function:
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
-   :frame       :app}
+   :frame       :rf/default}
   (fn [todos] (count (remove :done? (vals todos)))))
 ```
 
@@ -282,11 +282,12 @@ Related: [Flows](flows.md).
 
 One running instance of an app: its [app-db](#app-db), an event queue, and caches.
 Every frame uses the same registered handlers (unless an [image](#image) narrows
-them), each against its own state. Most apps have one frame, `:app`; tests, stories,
-SSR requests and tools like [Xray](#xray) use more.
+them), each against its own state. Most apps have one frame, by convention
+`:rf/default` (only a name: the runtime never falls back to it); tests, stories, SSR
+requests and tools like [Xray](#xray) use more.
 
 ```clojure
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-app]]
 ```
 
@@ -343,7 +344,7 @@ state.
 (def todos-image
   (rf/image {:select-ns {:include ["app.todos"]}}))
 
-(rf/make-frame {:id :app :images [todos-image]})
+(rf/make-frame {:id :rf/default :images [todos-image]})
 ```
 
 Related: [Images](images.md).
@@ -466,7 +467,7 @@ The view layer that renders to React: Fresco (re-frame2's own), Reagent or
 UIx. An [adapter](#adapter) connects re-frame2 to it. Events, subscriptions
 and app-db are the same on every substrate; only how views are written differs.
 
-Related: [Fresco](fresco/index.md), [Use UIx](how-to/use-uix-or-slim.md).
+Related: [Fresco](fresco/index.md), [Use UIx](how-to/use-uix.md).
 
 ### **view**
 
@@ -605,7 +606,7 @@ Redact a value under a frame's [data classification](#data-classification) befor
 leaves the app, with `project-egress`. Reads inside the app are never projected.
 
 ```clojure
-(rf/project-egress value {:frame :app :path [:auth]})
+(rf/project-egress value {:frame :rf/default :path [:auth]})
 ```
 
 Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).

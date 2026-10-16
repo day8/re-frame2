@@ -34,7 +34,7 @@ The rest of this page explains the categories of change you will see at step 3; 
 re-frame2 ships each capability as a separate artefact, so the ones you don't use are never bundled. The skill makes these changes; the list tells you what to expect.
 
 1. **Swap the core coord.** Remove `re-frame/re-frame`. Add `day8/re-frame2`.
-2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or `day8/re-frame2-uix` if you've already moved to UIx. ([Adapters](how-to/use-uix-or-slim.md) covers the [substrate](glossary.md#substrate).)
+2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or `day8/re-frame2-uix` if you've already moved to UIx. ([Adapters](how-to/use-uix.md) covers the [substrate](glossary.md#substrate).)
 3. **Add per-feature artefacts only for features you use.** Don't add them all "to be safe" — the skill reports which ones the codebase trips. Split: `day8/re-frame2-{machines, flows, routing, http, resources, ssr, schemas, epoch}`.
 4. **Don't bump anything else in the same change.** Keep React, shadow-cljs, and the rest on current versions until the migration settles. A migration that is also a dependency upgrade is two failure modes in one diff.
 
@@ -140,7 +140,7 @@ Each of these v1 features has a replacement:
 - `reg-global-interceptor` gone — interceptors are frame-scoped; register with `reg-interceptor` and reference from a frame's `:interceptors`.
 - `reg-sub-raw` → `reg-sub` or the substrate adapter.
 - `^:flush-dom` event metadata → `[:dispatch-later {:ms 0 :event ev}]`: the current drain ends and views re-render before the next event runs.
-- The `day8.re-frame/test` helpers (`day8.re-frame.test`) → `re-frame.test-support` in the core artefact. `run-test-sync` is dropped: call `dispatch-sync` directly.
+- The `day8.re-frame/test` helpers (`day8.re-frame.test`) → `re-frame.test-support` in the core artefact. `run-test-sync` is dropped: call `dispatch-sync` directly. A `dispatch-sync` whose event fails returns `nil` instead of throwing, so a v1 test asserting the throw asserts on the error record instead ([M-9](../../migration/from-re-frame-v1/README.md#m-9-dispatch-sync-inside-an-event-handler-is-rejected--convert-to-fx-dispatch-event)).
 - A `reg-fx` or `reg-cofx` that touches a browser global (`js/window`, `js/localStorage`, `js/document`) needs `:platforms #{:client}` in its metadata. v2 runs effects on every platform by default, including the JVM for [SSR](../ssr/glossary.md#ssr), so a browser-only effect that doesn't say so runs during server rendering and throws. Client-only apps never hit this.
 - `reg-event-error-handler` → an `:observability :errors` sink ([Errors](errors.md#errors-in-production)). Its other half, swallowing an exception or substituting a result, has no replacement: recovery is the framework's fixed per-category default.
 - `add-post-event-callback` → a dev-only `:trace` or `:epoch` listener ([Observability](observability.md#write-a-listener)).
@@ -186,15 +186,15 @@ Fix it at the root: create a frame and scope the view tree to it. The usual form
 (def el (js/document.getElementById "app"))
 
 (reagent-adapter/render! app-root
-  [rf/frame-root {:id             :app
+  [rf/frame-root {:id             :rf/default
                   :initial-events [[:todo/initialise]]}   ;; a reg-event returning {:db …}
    [todo-app]]
   el)
 
 ;; Also fine: create the frame first, then scope the tree to it
-(rf/make-frame {:id :app :initial-events [[:todo/initialise]]})
+(rf/make-frame {:id :rf/default :initial-events [[:todo/initialise]]})
 (reagent-adapter/render! app-root
-  [rf/frame-provider {:frame :app}
+  [rf/frame-provider {:frame :rf/default}
    [todo-app]]
   el)
 ```
@@ -324,7 +324,7 @@ v1's `on-changes` interceptor said "when these input paths change, compute a val
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
-   :frame       :app              ;; a flow belongs to one frame
+   :frame       :rf/default       ;; a flow belongs to one frame
    :doc         "Open todos, for handlers that need the count."}
   (fn [todos]
     (count (remove :done? (vals todos)))))

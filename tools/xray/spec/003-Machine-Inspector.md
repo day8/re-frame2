@@ -2199,7 +2199,7 @@ time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
 native SVG `<title>` tooltip; the `:rf.xray/timer-hover` event also
 writes the hover to an app-db slot, but no sub reads it and clicking a
 ring does nothing. The popover's intended fields were `:scheduled-at`, `:delay`,
-`:epoch`, `:source` (`:literal` / `:sub` / `:timeout-config` / `:fn`).
+`:epoch`, `:delay-source` (`:literal` / `:fn` / `:named`).
 
 **Affordance:** `:after` countdown rings + scrubber-aware retro-replay
 (M-C2). Time IS the bug surface; the ring makes wall clock visible on a

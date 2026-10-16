@@ -91,7 +91,7 @@ The usual way to install Xray is to list `day8.re-frame2-xray.preload` in shadow
 The `opts` map accepts these keys, all optional:
 
 ```clojure
-{:target-frame  :app/main          ;; the inspected HOST frame
+{:target-frame  :rf/default        ;; the inspected HOST frame
  :theme         :dark              ;; or :light
  :density       :compact           ;; or :cosy
  :buffer-depths {:epoch 50}}       ;; epochs kept per frame
@@ -148,7 +148,7 @@ Every key of the command is optional, and other keys are ignored:
 The frame is selected first, then the epoch, then the tab.
 
 ```clojure
-(xray/focus! {:frame :app/main :panel :app-db :epoch-id epoch-id})
+(xray/focus! {:frame :rf/default :panel :app-db :epoch-id epoch-id})
 ```
 
 [The tab ids](reference.md#the-dynamic-tabs) lists each `:panel` value with the tab it opens.
@@ -197,7 +197,7 @@ With the preload wired, the only code your app needs is its ordinary boot. The p
 (defn ^:export main []
   (rf/init! reagent-adapter/adapter)               ;; install the substrate adapter
   (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app/main} [views/root]]
+    [rf/frame-root {:id :rf/default} [views/root]]
     (js/document.getElementById "app")))
 ```
 

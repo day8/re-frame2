@@ -22,8 +22,8 @@
 
   It is NOT effect-free of observability: the reducer emits `rf.trace/emit!`
   diagnostic events (guard outcomes, action runs, history record/restore,
-  timer scheduling, microsteps, depth-limit aborts, unhandled-event
-  no-ops) on the process-wide Spec 009 trace stream, exactly as the rest
+  timer firings and SSR timer skips, microsteps, depth-limit aborts,
+  unhandled-event no-ops) on the process-wide Spec 009 trace stream, exactly as the rest
   of the framework (router, fx, subs, events) does inline. Per Spec 005
   §`:before` / `:after` and §Strict encapsulation
   this is deliberate: trace is production-elided observability (Closure
@@ -56,6 +56,7 @@
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.result :as rf.machines.result
              #?@(:cljs [:include-macros true])]
+            [re-frame.machines.timeout :as rf.machines.timeout]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -641,11 +642,12 @@
 
 (defn classify-delay-source
   "Classify an `:after` delay-key into its source form — the closed set
-  `{:literal :fn}` owned by the `:after` grammar (Spec 005 §Delayed
+  `{:literal :fn :named}` owned by the `:after` grammar (Spec 005 §Delayed
   `:after` transitions). A `number?` key is the literal-ms form; a `fn?`
-  key is the computed-once-at-entry form. Any other shape (an ISO-8601
-  duration string included) falls back to `:literal` (the schema constrains
-  the canonical forms; this is defensive).
+  key is the computed-once-at-entry form; a `keyword?` key names an entry of
+  the machine's root `:delays` map. Any other shape (an ISO-8601 duration
+  string included) falls back to `:literal` (the schema constrains the
+  canonical forms; this is defensive).
 
   The single home for the classification, shared by the pure side
   (`build-after-fx`, which tags the `:rf.machine.timer/scheduled` /
@@ -655,9 +657,36 @@
   what a given delay-key's source is."
   [delay-key]
   (cond
-    (number? delay-key) :literal
-    (fn? delay-key)     :fn
-    :else               :literal))
+    (number? delay-key)  :literal
+    (fn? delay-key)      :fn
+    (keyword? delay-key) :named
+    :else                :literal))
+
+(defn static-delay-ms
+  "An `:after` key's milliseconds when the definition alone fixes them: a
+  literal, an ISO-8601 duration, or a `:delays` name whose entry is one of
+  those. nil for a delay fn, inline or named — only the timer that called it
+  knows what it returned."
+  [machine delay-key]
+  (rf.machines.timeout/resolve-duration-ms
+    (if (keyword? delay-key) (get-in machine [:delays delay-key]) delay-key)))
+
+(defn elapsed-event
+  "The synthetic event an armed `:after` timer dispatches on expiry,
+  `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`. The
+  milliseconds the timer was armed with ride as the event's metadata, so the
+  `/fired` and `/stale-after` rows can report them while the event's shape —
+  and its equality — stays the four elements Spec 005 names."
+  [delay-key epoch decl-path delay-ms]
+  (with-meta [:rf.machine.timer/after-elapsed delay-key epoch (vec decl-path)]
+             {::delay-ms delay-ms}))
+
+(defn- elapsed-delay-ms
+  "The milliseconds behind an elapsed timer event: those its timer armed with,
+  or, for an elapsed event no timer dispatched (a hand-dispatched or pure-call
+  event), those the definition fixes (`static-delay-ms`)."
+  [machine event delay-key]
+  (or (::delay-ms (meta event)) (static-delay-ms machine delay-key)))
 
 (defn state-path
   "Coerce a snapshot's :state — either a keyword or a vector path — into
@@ -1032,15 +1061,18 @@
           we've exited and re-entered without that delay-key).
     {:stale? true ...} — node exited, or per-node epoch mismatch
           (re-entry); caller emits :rf.machine.timer/stale-after.
-    {:transition t :decl-path p :delay :epoch} — guard pass; caller
-          fires the transition through the standard cascade and emits
-          :rf.machine.timer/fired with :fired? true.
-    {:guard-suppressed? true :state :delay :epoch} — guard returned
+    {:transition t :decl-path p :delay-key :delay :epoch} — guard pass;
+          caller fires the transition through the standard cascade and
+          emits :rf.machine.timer/fired with :fired? true. `:delay-key` is
+          the `:after` key; `:delay` its milliseconds (`elapsed-delay-ms`),
+          nil when nothing knows them.
+    {:guard-suppressed? true :state :delay-key :delay :epoch} — guard returned
           false; caller emits :rf.machine.timer/fired with :fired? false
           and other in-flight :after timers continue per Spec 005
           §Multi-stage interaction with :guard."
   [machine path event snapshot]
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
+        delay-ms      (elapsed-delay-ms machine event delay-key)
         region        (:rf/region machine)
         ;; The timer's owning actor is a LIVE INSTANCE
         ;; (`:rf/parent-id` is the live actor address stamped by
@@ -1092,7 +1124,8 @@
                                                     :raw-value     t}))
                :actor-id   actor-id
                :decl-path  prefix
-               :delay      delay-key
+               :delay-key  delay-key
+               :delay      delay-ms
                :epoch      carried-epoch}
               ;; No candidate's guard passed (every guarded candidate's
               ;; guard returned false and there is no unguarded fallback).
@@ -1112,7 +1145,8 @@
                ;; stale rows for the SAME timer (Spec 005 §Async completions share
                ;; the uniform reply envelope).
                :decl-path         prefix
-               :delay             delay-key
+               :delay-key         delay-key
+               :delay             delay-ms
                :epoch             carried-epoch})))]
     (cond
       decline-region? nil
@@ -1147,7 +1181,8 @@
            :actor-id        actor-id
            :state           (last decl-path)
            :decl-path       decl-path
-           :delay           delay-key
+           :delay-key       delay-key
+           :delay           delay-ms
            :scheduled-epoch carried-epoch
            :current-epoch   cur-epoch}))
 
@@ -2320,16 +2355,20 @@
     [::ok-data d]))
 
 (defn- build-after-fx
-  "Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR):
-  `:after` is a no-op under `:platform :server`. Emit the
-  canonical `:rf.machine.timer/scheduled` (or /skipped-on-server) trace
-  synchronously here AND emit `:rf.machine/after-schedule` fx; the fx
-  handler resolves the delay (literal / fn) and installs the
-  host-clock timer.
+  "Emit one `:rf.machine/after-schedule` fx per `:after` entry of each
+  entered node; the fx handler resolves the delay (literal / ISO-8601 /
+  `:delays` name / fn), installs the host-clock timer and emits the
+  `:rf.machine.timer/scheduled` row with the milliseconds it armed — a
+  resolved fn's value exists only there.
+
+  Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR):
+  `:after` is a no-op under `:platform :server`, so the handler arms nothing
+  and the `:rf.machine.timer/skipped-on-server` row is emitted here instead,
+  carrying the milliseconds the definition fixes (`static-delay-ms`; none for
+  a delay fn).
 
   Walks the entered pairs (each `[prefix-path node]`) looking for `:after`
-  declarations. The `:scheduled` trace fires per delay-key; the fx carries
-  the same key for the fx-side resolution."
+  declarations. The fx carries the declared key for the fx-side resolution."
   [machine entered-pairs internal? snap-final]
   (when-not internal?
     (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
@@ -2360,29 +2399,19 @@
                     epoch      (node-epoch machine snap-final prefix)]
                 (mapv
                   (fn [[delay-key _target]]
-                    (let [delay-source (classify-delay-source delay-key)
-                          ;; Pure-context delay value: literal keys ARE the
-                          ;; resolved ms; a fn is resolved at the fx layer.
-                          ms-tag       delay-key]
-                      (if server?
+                    (when server?
+                      (let [ms (static-delay-ms machine delay-key)]
                         (rf.trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
-                                     {;; Owning actor INSTANCE.
-                                      :actor-id     parent-id
-                                      :state        leaf-state
-                                      :delay        ms-tag
-                                      :delay-source delay-source
-                                      :epoch        epoch
-                                      :platform     :server
-                                      :frame        frame-id
-                                      :recovery     :skipped})
-                        (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                     {;; Owning actor INSTANCE.
-                                      :actor-id     parent-id
-                                      :state        leaf-state
-                                      :delay        ms-tag
-                                      :delay-source delay-source
-                                      :epoch        epoch
-                                      :frame        frame-id})))
+                                     (cond-> {;; Owning actor INSTANCE.
+                                              :actor-id     parent-id
+                                              :state        leaf-state
+                                              :delay-key    delay-key
+                                              :delay-source (classify-delay-source delay-key)
+                                              :epoch        epoch
+                                              :platform     :server
+                                              :frame        frame-id
+                                              :recovery     :skipped}
+                                       (some? ms) (assoc :delay ms)))))
                     [:rf.machine/after-schedule
                      {:rf/parent-id parent-id
                       :rf/invoke-id (vec prefix)
@@ -2430,8 +2459,8 @@
   "Per Spec 005 §Root parallel `:after`: resolve the synthetic
   `[:rf.machine.timer/after-elapsed delay-key carried-epoch []]` event for a
   parallel ROOT's `:after` (decl-path `[]`). Returns the SAME shape
-  `pick-after-transition` returns — `{:transition … :decl-path [] :delay
-  :epoch}` (live, guard passed), `{:guard-suppressed? true …}` (guard
+  `pick-after-transition` returns — `{:transition … :decl-path [] :delay-key
+  :delay :epoch}` (live, guard passed), `{:guard-suppressed? true …}` (guard
   failed), `{:stale? true …}` (epoch mismatch / root teardown), or nil (no
   matching `:after` entry). The caller (`parallel/parallel-machine-
   transition`) routes a live match through the root `:on` apply path and
@@ -2446,6 +2475,7 @@
   per-path epoch check at the flat `[]` slot."
   [machine event snapshot]
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
+        delay-ms  (elapsed-delay-ms machine event delay-key)
         actor-id  (or (:rf/parent-id machine) (:id machine))]
     ;; Defensive: only a `[]`-carried root timer resolves here (the macrostep
     ;; routes via `root-after-elapsed?`); a region-prefixed path is not ours.
@@ -2469,7 +2499,8 @@
                                                     :raw-value     t}))
                :actor-id   actor-id
                :decl-path  []
-               :delay      delay-key
+               :delay-key  delay-key
+               :delay      delay-ms
                :epoch      carried-epoch}
               ;; No candidate's guard passed → fired-and-discarded (no
               ;; transition, no epoch advance; the root timer is one-shot).
@@ -2485,7 +2516,8 @@
                ;; sets `:decl-path []`). Per Spec 005 §Async completions share the
                ;; uniform reply envelope.
                :decl-path         []
-               :delay             delay-key
+               :delay-key         delay-key
+               :delay             delay-ms
                :epoch             carried-epoch}))
 
           ;; Per-path epoch advanced (root torn down / epoch bumped) → stale.
@@ -2494,7 +2526,8 @@
            :actor-id        actor-id
            :state           :rf/parallel-root
            :decl-path       []
-           :delay           delay-key
+           :delay-key       delay-key
+           :delay           delay-ms
            :scheduled-epoch carried-epoch
            :current-epoch   cur-epoch})))))
 
@@ -4061,7 +4094,7 @@
                       ;; `:machine-id` is reserved for the registered TYPE.
                       :actor-id           (:actor-id match)
                       :state              (:state match)
-                      :delay              (:delay match)
+                      :delay-key          (:delay-key match)
                       :scheduled-epoch    (:scheduled-epoch match)
                       :current-epoch      (:current-epoch match)
                       :frame              frame-id
@@ -4081,6 +4114,11 @@
                        ;; the reply-envelope `:rf.reply/completed-at` (mirroring
                        ;; the spawned-machine `:rf.machine/done` trace). Omitted
                        ;; when the firing dispatch carried no causal token.
+                       ;; `:delay` is the milliseconds the timer armed with,
+                       ;; omitted when nothing knows them (a hand-dispatched
+                       ;; elapsed event for a delay fn).
+                       (some? (:delay match))
+                       (assoc :delay (:delay match))
                        (some? (:completed-at summary))
                        (assoc :rf.reply/completed-at (:completed-at summary))))))
     ;; A FIRED (live) `:after` timer is a CLOSED `:after`
@@ -4105,7 +4143,7 @@
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  (:state match)
-                      :delay  (:delay match)
+                      :delay-key (:delay-key match)
                       :epoch  (:epoch match)
                       :fired? false
                       :frame  frame-id
@@ -4115,12 +4153,14 @@
                       :rf.reply/work-id     (:rf.reply/work-id summary)
                       :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
-                       ;; Causal completion time (see stale branch).
+                       ;; Milliseconds and causal completion time (see stale branch).
+                       (some? (:delay match))
+                       (assoc :delay (:delay match))
                        (some? (:completed-at summary))
                        (assoc :rf.reply/completed-at (:completed-at summary))))))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
-               (:delay match))
+               (contains? match :delay-key))
       ;; A parallel-ROOT `:after` carries the empty decl-path
       ;; `[]`, so `(last decl-path)` is nil; mark the firing state with the
       ;; root sentinel `:rf/parallel-root` (matching the stale / guard-
@@ -4141,7 +4181,7 @@
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  fired-state
-                      :delay  (:delay match)
+                      :delay-key (:delay-key match)
                       :epoch  (:epoch match)
                       :fired? true
                       :frame  frame-id
@@ -4151,7 +4191,9 @@
                       :rf.reply/work-id     (:rf.reply/work-id summary)
                       :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
-                       ;; Causal completion time (see stale branch).
+                       ;; Milliseconds and causal completion time (see stale branch).
+                       (some? (:delay match))
+                       (assoc :delay (:delay match))
                        (some? (:completed-at summary))
                        (assoc :rf.reply/completed-at (:completed-at summary)))))))))
 
@@ -4599,7 +4641,7 @@
 
           match
           (let [phase (or transition-phase
-                          (if (:delay match) :after-action :transition))
+                          (if (contains? match :delay-key) :after-action :transition))
                 ;; `:on` matches carry a partial slot discriminator whose
                 ;; declaration path is known only at the pick site. `:always`
                 ;; matches are already complete and pass through unchanged.

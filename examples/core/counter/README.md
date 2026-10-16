@@ -86,10 +86,10 @@ Each step does one job:
   frame — creating it on the first mount and reusing it untouched on a hot
   reload, never re-seeding — and runs `:initial-events` once on creation
   to seed `app-db` before the first render. The example names the frame
-  `:rf/default`, but that name has no special meaning — you ask for it
-  like any other. Wrapping the tree is also what lets the `dispatch` and
-  `subscribe` calls inside the views find their frame instead of raising
-  `:rf.error/no-frame-context`.
+  `:rf/default`, the conventional app-frame id; the runtime never falls
+  back to it, so the root asks for it by name. Wrapping the tree is also
+  what lets the `dispatch` and `subscribe` calls inside the views find
+  their frame instead of raising `:rf.error/no-frame-context`.
 
 If you're coming from re-frame v1, this is the thing to notice: there's
 no global, implicit app any more. The payoff is that frames are

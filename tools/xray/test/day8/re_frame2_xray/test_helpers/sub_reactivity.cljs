@@ -100,7 +100,7 @@
   than nil.
 
   The inspected target does not default to `:rf/default`; these
-  reactivity fixtures use the ordinary `:rf/default`
+  reactivity fixtures use the conventional `:rf/default` app
   frame as the host under inspection, so the helper SELECTS it explicitly
   as the observed target. This pins `:target-frame :rf/default` up front,
   so a later `focus-cascade!` on `:rf/default` re-keys onto the SAME frame

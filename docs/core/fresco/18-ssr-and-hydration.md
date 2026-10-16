@@ -62,7 +62,7 @@ request frame.
     {:hiccup            [views/page {}]
      :snapshot          db-snapshot
      :payload           [:todos :showing]
-     :client-frame-id   :app
+     :client-frame-id   :rf/default
      :identifier-prefix "main"
      :app-element-id    "app"
      :script-src        "/js/app.js"
@@ -139,14 +139,14 @@ hydrating boot has three ordered steps:
   (rf/init! substrate/adapter)
 
   ;; 1. Create the client frame both hydration steps name.
-  (rf/make-frame {:id :app :platform :client})
+  (rf/make-frame {:id :rf/default :platform :client})
 
   ;; 2. Read __rf_payload and replace that frame's state.
-  (ssr/hydrate! {:frame :app})
+  (ssr/hydrate! {:frame :rf/default})
 
   ;; 3. Adopt the existing server DOM.
   (h/render! app-root
-             [h/frame-provider {:frame :app}
+             [h/frame-provider {:frame :rf/default}
               [views/page {}]]
              (js/document.getElementById "app")
              {:hydrate? true :identifier-prefix "main"}))
@@ -203,14 +203,14 @@ the payload map or `nil` without applying anything:
   (rf/init! substrate/adapter)
   (let [el (js/document.getElementById "app")]
     (if (ssr/read-server-payload)
-      (do (rf/make-frame {:id :app :platform :client})
-          (ssr/hydrate! {:frame :app})
+      (do (rf/make-frame {:id :rf/default :platform :client})
+          (ssr/hydrate! {:frame :rf/default})
           (h/render! app-root
-                     [h/frame-provider {:frame :app} [views/page {}]]
+                     [h/frame-provider {:frame :rf/default} [views/page {}]]
                      el
                      {:hydrate? true :identifier-prefix "main"}))
       (h/render! app-root
-                 [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+                 [h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
                   [views/page {}]]
                  el))))
 ```
@@ -333,18 +333,18 @@ its client root will use. The client side looks like this:
 
 (defn ^:export run []
   (rf/init! substrate/adapter)
-  (rf/make-frame {:id :app :platform :client})
-  (ssr/hydrate! {:frame :app})
+  (rf/make-frame {:id :rf/default :platform :client})
+  (ssr/hydrate! {:frame :rf/default})
 
   ;; One handle per root.
   (h/render! app-root
-             [h/frame-provider {:frame :app}
+             [h/frame-provider {:frame :rf/default}
               [views/page {}]]
              (js/document.getElementById "app")
              {:hydrate? true :identifier-prefix "main"})
 
   (h/render! help-root
-             [h/frame-provider {:frame :app}
+             [h/frame-provider {:frame :rf/default}
               [views/help-panel {}]]
              (js/document.getElementById "help")
              {:hydrate? true :identifier-prefix "help"}))

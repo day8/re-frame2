@@ -198,7 +198,7 @@ and `:fetching` pass too quickly to see.
      [:p "Status: " [:code (pr-str (:status state))]]
      [article-page]]))
 
-[rf/frame-root {:id :app
+[rf/frame-root {:id :rf/default
                 :initial-events [[:rf.route/navigate {:to :app/article :params {:slug "hello"}}]]
                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [shell]]

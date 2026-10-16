@@ -54,7 +54,7 @@ dev build's entry point loads and your release build never names:
  (:require [day8.re-frame2-xray.core :as xray]))
 
 (xray/init!
- {:target-frame :app/main ; observed frame for the spine
+ {:target-frame :rf/default ; observed frame for the spine
  :theme :dark ; / :light (pinned each boot)
  :density :compact ; / :cosy (pinned each boot)
  :buffer-depths {:epoch 50}}) ; per-frame ring depth (pinned each boot)

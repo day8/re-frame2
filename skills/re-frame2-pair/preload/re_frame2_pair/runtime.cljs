@@ -248,7 +248,7 @@
 ;; So the resolver is RESERVED-FRAME-AWARE: a `:rf/*`-namespaced frame is
 ;; a tool frame and is EXCLUDED from the ambiguity count, with ONE
 ;; deliberate exception — `:rf/default`, which per Conventions.md §Reserved
-;; namespaces is an ordinary app frame id with no framework privilege. It
+;; namespaces is the conventional app-frame id with no framework privilege. It
 ;; is an APP frame, not a tool frame, despite sharing the `:rf/*` root. We
 ;; key off the reserved-namespace RULE (namespace = "rf", minus the
 ;; `:rf/default` carve-out), never a literal `:rf/xray`, so the behaviour
@@ -280,7 +280,7 @@
    §Reserved namespaces — framework-owned ids live under the single `:rf/*`
    root), NOT a hardcoded id, so it holds for every `:rf/*` tool frame any
    project mounts. The SOLE carve-out is `:rf/default`: per Conventions.md
-   §Reserved namespaces it is an ordinary app frame id with no framework
+   §Reserved namespaces it is the conventional app-frame id with no framework
    privilege — it shares the `:rf/*` root but is a normal app frame an app
    may explicitly register, so it is never treated as a tool frame.
 
@@ -657,9 +657,10 @@
 
 (defn registrar-list
   "Enumerate registered ids under a kind. (rf/registrations {:source :store :kind kind}) returns
-   `{id meta}`; we return the sorted id vector."
+   `{id meta}`; we return the id vector sorted by `pure/compare-ids`, which
+   orders the app-db paths `:app-schema` ids are where `compare` would throw."
   [kind]
-  (-> (rf/registrations {:source :store :kind kind}) keys sort vec))
+  (-> (rf/registrations {:source :store :kind kind}) keys pure/sort-ids))
 
 ;; ---------------------------------------------------------------------------
 ;; Call-time id validation
@@ -974,10 +975,10 @@
    more than one namespace registers (NOT the process-global registrar).
    Routes through the PUBLIC facade
    read `(rf/registrations {:frame f :kind k})`, projecting its keys. Returns
-   the sorted id vector. FAILS LOUD up the eval boundary on an unresolvable
-   frame."
+   the id vector sorted by `pure/compare-ids`, as `registrar-list` does.
+   FAILS LOUD up the eval boundary on an unresolvable frame."
   [frame-id kind]
-  (-> (rf/registrations {:frame frame-id :kind kind}) keys sort vec))
+  (-> (rf/registrations {:frame frame-id :kind kind}) keys pure/sort-ids))
 
 (defn frame-registrar-registrations
   "The `{id meta}` map for `kind` as frame `frame-id` resolves it — its OWN
@@ -3793,7 +3794,8 @@
    `:mutation` / `:resource-scope`) so a resources-heavy
    app's orientation summary names its cached-read / write / scope-resolver
    counts (zero on an app that uses none — `registrar-count` is defensively
-   zero on an empty registrar). `:event` / `:sub` / `:fx` additionally
+   zero on an empty registrar), and `:app-schema` so it names how many app-db
+   schemas the app registers. `:event` / `:sub` / `:fx` additionally
    surface their full sorted id vectors (the most navigable surfaces for
    'what can I drive / read'); the rest contribute counts only so the
    summary stays compact and under the wire cap. Drill via `list-handlers

@@ -29,7 +29,7 @@ Here is the record for an event handler that threw:
              :handler-id        :todo/add
              :event-id          :todo/add
              :event             [:todo/add]
-             :frame             :app
+             :frame             :rf/default
              :phase             :before
              :reason            "Event handler threw."
              :exception-message "Cannot read properties of null (reading 'trim')"}}
@@ -68,7 +68,7 @@ always-on channel with a smaller record; see
 Xray shows every record. A development build also prints each error that no `:errors`
 sink handled, on every host: one line of `[re-frame2]`, the category, its reason, and
 the event or sub id, frame and source location it carries, for example
-`[re-frame2] :rf.error/no-such-handler (event :todo/toggel, frame :app)`. The browser
+`[re-frame2] :rf.error/no-such-handler (event :todo/toggel, frame :rf/default)`. The browser
 prints it with `console.error`, followed by the record; Node prints the line with
 `console.error`, and the JVM writes it to `*err*`. Warnings are read in Xray or with
 a `:trace` listener ([Observability](observability.md)). The exception is a warning
@@ -205,7 +205,7 @@ wrong and right versions side by side.
    [:button {:on-click #(dispatch [:todo/add])} "Add a todo"]
    [:p @(subscribe [:todo/count]) " todos"]])
 
-[rf/frame-root {:id :app}
+[rf/frame-root {:id :rf/default}
  [add-todo]]
 ```
 

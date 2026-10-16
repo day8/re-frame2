@@ -13,19 +13,19 @@ Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re
 
 ```clojure
 ;; What did the recent events do? History is oldest-first.
-(def history (rf.epoch/epoch-history :app/main))
+(def history (rf.epoch/epoch-history :rf/default))
 (map :event-id history)                  ;; => (:cart/add :cart/add :cart/checkout)
 (select-keys (peek history) [:trigger-event :db-before :db-after])
 
 ;; :cart/checkout went wrong. Rewind to the state just before it,
 ;; which is the previous epoch's after-state.
-(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history 1)))
-;; => {:ok? true :frame :app/main :epoch-id … :to :after}
+(rf.epoch/restore-epoch! :rf/default (:epoch-id (nth history 1)))
+;; => {:ok? true :frame :rf/default :epoch-id … :to :after}
 
 ;; Fix and reload the :cart/checkout handler, then run the recorded event
 ;; again. Its effects, such as an HTTP request, run again too.
-(rf.epoch/replay-epoch! :app/main (:epoch-id (nth history 2)))
-;; => {:ok? true :frame :app/main :event-id :cart/checkout …}
+(rf.epoch/replay-epoch! :rf/default (:epoch-id (nth history 2)))
+;; => {:ok? true :frame :rf/default :event-id :cart/checkout …}
 ```
 
 The cell below runs that loop. Add two apples and check out, then rewind to before
@@ -51,7 +51,7 @@ last event and checkout runs again, recording a new epoch.
   (let [items   @(subscribe [:cart/items])
         ordered @(subscribe [:cart/ordered])
         ;; Not a subscription: read again whenever the cart changes.
-        history (rf.epoch/epoch-history :app/main)
+        history (rf.epoch/epoch-history :rf/default)
         n       (count history)]
     [:div
      [:button {:on-click #(dispatch [:cart/add "apple"])} "Add an apple"]
@@ -60,14 +60,14 @@ last event and checkout runs again, recording a new epoch.
      [:p "Cart: " (pr-str items) ", ordered: " (pr-str ordered)]
      [:p "History: " (pr-str (map :event-id history))]
      [:button {:disabled (< n 2)
-               :on-click #(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
+               :on-click #(rf.epoch/restore-epoch! :rf/default (:epoch-id (nth history (- n 2))))}
       "Rewind to before the last event"]
      " "
      [:button {:disabled (zero? n)
-               :on-click #(rf.epoch/replay-epoch! :app/main (:epoch-id (peek history)))}
+               :on-click #(rf.epoch/replay-epoch! :rf/default (:epoch-id (peek history)))}
       "Replay the last event"]]))
 
-[rf/frame-root {:id :app/main}
+[rf/frame-root {:id :rf/default}
  [cart-history]]
 ```
 
@@ -91,8 +91,8 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 - **Example**:
   ```clojure
   ;; All recorded epochs for a frame, oldest-first; peek the latest.
-  (rf.epoch/epoch-history :app/main)
-  (last (rf.epoch/epoch-history :app/main))
+  (rf.epoch/epoch-history :rf/default)
+  (last (rf.epoch/epoch-history :rf/default))
   ```
 
 ## The epoch record
@@ -159,8 +159,8 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
     - `:rf.epoch/restore-version-mismatch`: a machine snapshot's version differs from the current definition.
 - **Example**:
   ```clojure
-  (let [target (last (rf.epoch/epoch-history :app/main))
-        r      (rf.epoch/restore-epoch! :app/main (:epoch-id target))]
+  (let [target (last (rf.epoch/epoch-history :rf/default))
+        r      (rf.epoch/restore-epoch! :rf/default (:epoch-id target))]
     (when-not (:ok? r)
       (println "restore refused:" (:reason r))))
   ```
@@ -192,9 +192,9 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 - **Example**:
   ```clojure
   ;; Replay the most recent epoch through the app's own handlers, strictly.
-  (let [source (last (rf.epoch/epoch-history :app/main))]
-    (rf.epoch/replay-epoch! :app/main (:epoch-id source)))
-  ;; => {:ok? true :frame :app/main :source-epoch-id 41 :event-id :cart/add :epoch-id 42}
+  (let [source (last (rf.epoch/epoch-history :rf/default))]
+    (rf.epoch/replay-epoch! :rf/default (:epoch-id source)))
+  ;; => {:ok? true :frame :rf/default :source-epoch-id 41 :event-id :cart/add :epoch-id 42}
   ```
 
 ## Replacing frame-state
@@ -222,16 +222,16 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 - **Example**:
   ```clojure
   ;; Replace app-db only; runtime-db is kept.
-  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
 
   ;; Empty app-db while keeping machines and routes alive.
-  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {}})
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {}})
 
   ;; Replace runtime-db only; app-db is kept.
-  (rf.epoch/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/runtime new-runtime-db})
 
   ;; Replace both partitions atomically.
-  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {:counter 0} :rf.db/runtime {}})
   ```
 
 ## Epoch listeners
@@ -276,11 +276,11 @@ The ring and the `:epoch` listeners always hold the raw record, so on-box tools 
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).
-(rf/project-egress (last (rf.epoch/epoch-history :app/main)))
+(rf/project-egress (last (rf.epoch/epoch-history :rf/default)))
 ;; Tool wire: elided slots carry the marker's structural fields, no digest.
 (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
 ;; The whole ring.
-(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history :app/main))
+(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history :rf/default))
 ```
 
 ## Configuration

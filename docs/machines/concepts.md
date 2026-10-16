@@ -262,7 +262,7 @@ starts it where the frame is created, with the kick in the frame's
 reads at first paint can stay lazy.
 
 ```clojure
-(rf/make-frame {:id :app
+(rf/make-frame {:id :rf/default
                 :initial-events [[:auth.login/flow [:rf.machine/start]]]})
 ```
 

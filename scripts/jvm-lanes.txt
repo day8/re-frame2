@@ -1,0 +1,105 @@
+# Every JVM lane in the repo, one row per artefact.
+#
+# This file says WHICH lanes exist and WHEN they run. HOW each one runs, meaning
+# its classpath, selectors and posture, stays in the artefact's own deps.edn,
+# so the rows never become a second build definition.
+#
+# Five whitespace-separated fields. `#` starts a comment.
+#
+#   dir        the artefact directory: the one holding its deps.edn
+#   aliases    each `clojure -M:<alias>` that CI runs there, comma-separated,
+#              `test` first. On a `matrix` row each alias is one leg of
+#              test.yml's `jvm` job, named `JVM <dir> (<alias>)`
+#   slow       `slow` when the artefact's `:slow-test` alias holds the
+#              ^:slow / ^:stress tests that `:test` excludes, otherwise `-`
+#   predicate  the classifier output that schedules the row, or `always`
+#   ci         `matrix`, or the id of the hand-written test.yml job that runs
+#              an artefact whose lane needs more than a plain alias call
+#
+# Readers: scripts/jvm-lanes.sh (shell and workflows) and scripts/jvm_lanes.py
+# (Python). The rows under implementation/ are the roster of
+# scripts/test-jvm-implementation.sh and the fast-PR spine's JVM tier. Every
+# other row is the roster of scripts/test-jvm-tools.sh. Both rosters run
+# `clojure -M:test` in row order. The `slow` rows run nightly in
+# expensive-tests.yml's `jvm-slow-tests` and locally in
+# scripts/test-rigorous-local.sh. scripts/check_jvm_lanes.py holds every row
+# against the deps.edn files and against test.yml.
+#
+# A change here re-tiers the matrix, so the classifier arms every output for
+# it, the same as for a workflow edit.
+
+# dir                                   aliases              slow  predicate                   ci
+
+# `test:prod-gate` runs the suite under -Dre-frame.debug=false, the documented
+# JVM/SSR production setting (TESTING.md, "Production-gate JVM").
+implementation/core                     test,test:prod-gate  slow  implementation_jvm          matrix
+
+# The adapter namespaces are :cljs-only, so these two are classpath probes plus
+# a few guards. They are skip-ok diagnostics (TESTING.md).
+implementation/adapters/reagent         test                 -     adapter_diagnostic          matrix
+implementation/adapters/uix             test                 -     adapter_diagnostic          matrix
+
+implementation/schemas                  test                 -     implementation_jvm          matrix
+implementation/machines                 test                 slow  implementation_jvm          matrix
+implementation/routing                  test,test:prod-gate  slow  implementation_jvm          matrix
+implementation/flows                    test                 slow  implementation_jvm          matrix
+implementation/http                     test                 -     implementation_jvm          matrix
+implementation/ssr                      test,test:prod-gate  slow  implementation_jvm          matrix
+
+# The JVM->Node->JVM crossing runs as the hand-written `jvm-node-crossing` job
+# (`:crossing-test` needs Node), which this row's `:test` alias excludes.
+implementation/ssr-ring                 test                 -     implementation_jvm          matrix
+
+implementation/epoch                    test,test:prod-gate  -     implementation_jvm          matrix
+implementation/resources                test                 -     implementation_jvm          matrix
+
+# The deterministic control for the cold-load race the spec/ reader exists to
+# close: it holds the interned-but-unbound window open, so the racy shape fails
+# on an assertion rather than on thread scheduling.
+implementation/spec-resource            test                 -     implementation_jvm          matrix
+
+# These four tiers are `.cljc` and run in both runtimes. The Node lanes run only
+# the `:cljs` arm of each reader conditional, and these rows run the `:clj` arm.
+implementation/security                 test                 -     implementation_jvm          matrix
+implementation/reply-conformance        test                 -     implementation_jvm          matrix
+implementation/derivation-conformance   test                 -     implementation_jvm          matrix
+implementation/event-conformance        test                 -     implementation_jvm          matrix
+
+# The adversarial contract suite for the JVM quiet runner itself. Every other
+# lane only routes through that runner on the green path.
+implementation/test-quiet               test                 -     implementation_jvm          matrix
+
+# The JVM arm of the slot-rule equivalence pin. `npm run test:cljs` asserts the
+# same corpus in Node, and a host difference is invisible to either arm alone.
+# `always`, because the lane's own classpath inputs arm no JVM output.
+implementation/fresco                   test                 -     always                      matrix
+
+tools/xray                              test                 -     tools_jvm                   matrix
+
+# engine_grammar_parity_test and mermaid_public_smoke_test match neither CLJS
+# selector, so this is their only lane.
+tools/machines-viz                      test                 -     tools_jvm_machines_viz      matrix
+
+tools/story                             test                 -     tools_jvm                   matrix
+
+# The job also asserts tool-descriptors.edn with `clojure -M:gen --check`.
+tools/story-mcp                         test                 -     tools_jvm                   jvm-tools-story-mcp
+
+# The job also runs the artefact's own CLJS suite.
+tools/mcp-base                          test                 -     tools_jvm                   jvm-tools-mcp-base
+
+# open_in_editor_server_test.clj is `.clj`, so no CLJS build can load it. The
+# job installs Node deps to arm the launch-editor probes.
+tools/testbed-support                   test                 -     tools_jvm_testbed_support   jvm-tools-testbed-support
+
+# The job pre-resolves the classpath under a bounded retry.
+tools/mcp-conformance/wire-vocab        test                 -     mcp_conformance             mcp-conformance-wire-vocab
+
+# The job installs Playwright and sets RF2_TEMPLATE_RUN_EMITTED_TESTS=1 for the
+# emitted-app slice, which a local run leaves off.
+tools/template                          test                 -     template_expensive          jvm-tools-template
+
+# The two codemods read consumer source text through rewrite-clj and load no
+# re-frame2 runtime, which is why they share the tools roster.
+migration/reagent-to-fresco/codemod     test                 -     migration_fresco_codemod    matrix
+migration/from-re-frame-v1/codemod      test,integration     -     migration_v1_codemod        jvm-migration-v1-codemod

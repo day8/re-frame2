@@ -5,18 +5,21 @@
   On entry to an `:after`-bearing state node, the pure transition engine
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
   fx per `:after` entry. The fx handler here resolves the delay (pos-int?
-  literal / ISO-8601 duration string / fn-form) once, against the committed
-  snapshot, and schedules a real timer via
+  literal / ISO-8601 duration string / `:delays` name / fn-form) once, against
+  the committed snapshot, schedules a real timer via
   `rf.interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
-  `set-timeout!`'s spec-named machines surface). On expiry the
-  timer dispatches the synthetic
+  `set-timeout!`'s spec-named machines surface) and emits the
+  `:rf.machine.timer/scheduled` row with the milliseconds it armed. On expiry
+  the timer dispatches the synthetic
 
       [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]
 
   back into the parent machine via the late-bound `:router/dispatch!`
   hook. Per Spec 005 §Hierarchy interaction the scheduling node's
   declaring path (`<decl-path>`) travels with EVERY timer alongside its
-  per-path epoch — the event is always this 4-element shape.
+  per-path epoch — the event is always this 4-element shape, and it carries
+  the armed milliseconds as metadata (`transition/elapsed-event`) for the
+  `/fired` and `/stale-after` rows.
   Pick-after-transition (in transition) resolves the delay-key
   against the active state path's `:after` table; epoch-mismatch surfaces
   as `:rf.machine.timer/stale-after`, epoch-match drives the transition
@@ -36,6 +39,7 @@
   /scheduled."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.timeout :as rf.machines.timeout]
@@ -62,10 +66,10 @@
   ;;    :epoch <int>
   ;;    :state <state-keyword>
   ;;    :region <region name for a region :after, else nil>
-  ;;    :delay-source <:literal | :fn>
+  ;;    :delay-source <:literal | :fn | :named>
   ;;    :token <this attempt's ownership token, `next-attempt-token`>
-  ;;    :announce <announcement cell, only on an arm that emits its own
-  ;;               /scheduled — see `defer-to-announcer?`>}
+  ;;    :announce <announcement cell for this arm's own /scheduled —
+  ;;               see `defer-to-announcer?`>}
   ;;
   ;; Frame-scoping the outer key keeps the timer table out of process-global
   ;; state. Two consequences:
@@ -97,18 +101,30 @@
    :spawn (vec invoke-id)
    :delay  delay-key})
 
-;; `:after` delay-source classification (`{:literal :fn}`) lives once
+;; `:after` delay-source classification (`{:literal :fn :named}`) lives once
 ;; in `re-frame.machines.transition/classify-delay-source` — the leaf engine
 ;; that owns the `:after` grammar and already tags the pure-side
-;; `:rf.machine.timer/scheduled` trace from it. The fx side reuses the same
+;; `:rf.machine.timer/skipped-on-server` trace from it. The fx side reuses the same
 ;; classifier so the two can never disagree on a delay-key's source.
+
+(defn- named-delay
+  "The value the `:delays` name `delay-name` stands for in the timer owner's
+  machine definition — the registered singleton, or the registered TYPE a
+  spawned actor's snapshot names (`spec-from-id-or-snapshot`, the lookup
+  dispatch and hydration use). nil when the definition, or the name in it, is
+  gone."
+  [actor-id snapshot delay-name]
+  (get-in (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
+          [:delays delay-name]))
 
 (defn- resolve-delay-ms
   "Resolve an :after map key to a positive-integer ms delay. For pos-int?
   literal: returns the value. For an ISO-8601 duration string (\"PT5S\"):
-  its milliseconds, read by the parser the `:timeout` duration uses. For
-  fn: invokes (f {:snapshot snapshot}) once; a config-driven delay is a fn
-  reading its value from the snapshot's `:data`.
+  its milliseconds, read by the parser the `:timeout` duration uses. For a
+  keyword: the machine's `:delays` entry of that name, resolved as the same
+  value written inline would be — so a named fn is called here too, never
+  earlier. For fn: invokes (f {:snapshot snapshot}) once; a config-driven
+  delay is a fn reading its value from the snapshot's `:data`.
 
   Returns the resolved value, or nil when the key resolves to nothing; the
   caller treats anything but a positive number as a bad delay.
@@ -123,6 +139,14 @@
 
     (string? delay-key)
     (rf.machines.timeout/resolve-duration-ms delay-key)
+
+    (keyword? delay-key)
+    ;; Registration admits only a pos-int / ISO string / fn as a `:delays`
+    ;; value, so the recursion is one level deep; a keyword value (a
+    ;; definition that bypassed validation) resolves to nothing.
+    (let [v (named-delay actor-id snapshot delay-key)]
+      (when-not (keyword? v)
+        (resolve-delay-ms frame-id actor-id v snapshot)))
 
     (fn? delay-key)
     ;; A throwing fn-form `:after` emits `:rf.error/machine-after-fn-threw`
@@ -209,9 +233,9 @@
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
   cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
   / `:frame` slots — plus the `:reason` discriminator. `:delay` reads the
-  entry's `:resolved-ms` so the cancelled trace
-  reports the wall-clock window the timer actually held, not the
-  unresolved delay-key."
+  entry's `:resolved-ms` — the wall-clock window the timer actually held —
+  and `:delay-key` the `:after` key it was declared under, as on every
+  timer row."
   [frame-id k entry reason]
   (let [delay-source (:delay-source entry)
         ;; The timer-table `:spawn` is the region-PREFIXED invoke-id for a
@@ -255,6 +279,7 @@
                           :actor-id   (:parent k)
                           :state      (:state entry)
                           :delay      (:resolved-ms entry)
+                          :delay-key  (:delay k)
                           :epoch      (:epoch entry)
                           :reason     reason
                           :frame      frame-id
@@ -319,16 +344,14 @@
 (defn- defer-to-announcer?
   "Decide, for an attempt this claimant has just won (`claim-entry!`), whether
   its `:rf.machine.timer/cancelled` is owed by the ANNOUNCER rather than by
-  this claimant. True iff the attempt carries an announcement cell
-  (`:announce` — present only on an arm that emits its own `/scheduled`: the
-  hydration re-arm), this is not the
-  announcing thread, and this claimant's CAS `nil -> reason` on the cell lands
-  first. That CAS both records the claim and carries `reason` to
-  `finish-announcement!`,
+  this claimant. True iff this is not the announcing thread and this
+  claimant's CAS `nil -> reason` on the attempt's announcement cell
+  (`:announce`, on every reservation, because every arm emits its own
+  `/scheduled`) lands first. That CAS both records the claim and carries
+  `reason` to `finish-announcement!`,
   which emits the `/cancelled` immediately AFTER its `/scheduled`. Losing the
   CAS means the cell already reads `::announced`: the row is out, and the
-  claimant emits itself. An ordinary state-entry arm has no cell — the pure
-  side announced it before the fx ran — and always emits here."
+  claimant emits itself."
   [claimed reason]
   (when-let [cell (:announce claimed)]
     (and (not (contains? *announcing-attempt-tokens* (:token claimed)))
@@ -425,11 +448,11 @@
   (claim-cancel-and-release! frame-id k reason (:token entry)))
 
 (defn- schedule-after-timer!
-  "Internal helper: resolve the delay and install the host-clock timer. The
-  `:rf.machine.timer/scheduled` (or `/skipped-on-server`) trace is
-  emitted by the pure-code side (apply-transition-once) at machine-
-  transition time; this fn emits a fresh `/scheduled` only for the SSR
-  hydration re-arm (`:emit-scheduled-trace?`), where no transition ran.
+  "Internal helper: resolve the delay, emit the `:rf.machine.timer/scheduled`
+  row with the milliseconds it resolved to, and install the host-clock timer —
+  for a state entry (`after-schedule-fx`) and an SSR hydration re-arm
+  (`rearm-hydrated-after-timer!`) alike. Under `:platform :server` it arms
+  nothing; the pure side emitted `/skipped-on-server` instead.
 
   Idempotent against the timer-table key — cancels any prior entry
   before installing the new one. The leading cancel emits a
@@ -461,8 +484,7 @@
   a re-capture names B as the owner and the A-derived arm proceeds into it. The
   SSR hydration reconcile is the one such caller.
 
-  The supersede is not this fn's only callback boundary. With
-  `:emit-scheduled-trace?` true (the SSR hydration arm) it emits
+  The supersede is not this fn's only callback boundary. It emits
   `:rf.machine.timer/scheduled` ITSELF, synchronously,
   AFTER the post-supersede recheck — so a listener on that row has the same
   reach as one on `/cancelled`, and on a frame holding no prior timer it is the
@@ -503,7 +525,7 @@
   armed after the row, and no new trace vocabulary or `:reason` value is
   involved: the deferred row carries the claimant's own reason."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
-   {:keys [emit-scheduled-trace? owner-gone?]}]
+   {:keys [owner-gone?]}]
   (let [delay-source (rf.machines.transition/classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)
         ;; The owning incarnation, captured BEFORE the callback-bearing
@@ -590,13 +612,13 @@
                              :region          region
                              :delay-source    delay-source
                              :token           token
-                             ;; The announcement cell, present only
-                             ;; when THIS arm emits its own `/scheduled` below:
-                             ;; the hand-off between a claimant that reaches
-                             ;; the sentinel before that row is out and the
-                             ;; announcer that then owes its closure
-                             ;; (`defer-to-announcer?` / `finish-announcement!`).
-                             :announce        (when emit-scheduled-trace? (atom nil))}]
+                             ;; The announcement cell for this arm's own
+                             ;; `/scheduled` below: the hand-off between a
+                             ;; claimant that reaches the sentinel before that
+                             ;; row is out and the announcer that then owes its
+                             ;; closure (`defer-to-announcer?` /
+                             ;; `finish-announcement!`).
+                             :announce        (atom nil)}]
             ;; The reservation is taken BEFORE the `/scheduled`
             ;; fan-out below, not after it. Outside a drain the row's listener
             ;; runs synchronously, so an attempt that is only reserved afterwards is
@@ -613,23 +635,23 @@
             ;; clock is still armed after the emit, so a host that fires
             ;; synchronously cannot beat `/scheduled` to the stream.
             (swap! after-timers assoc-in [frame-id k] reservation)
-            (when emit-scheduled-trace?
-              ;; Mark THIS thread as the row's announcer for the
-              ;; duration of the fan-out, so a listener on the row that claims
-              ;; this attempt (the destroy sweep, typically) knows the row is
-              ;; already out and emits its `/cancelled` at once, in place.
-              (binding [*announcing-attempt-tokens*
-                        (conj *announcing-attempt-tokens* token)]
-                (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
-                             {;; the timer's owning actor INSTANCE;
-                              ;; `:machine-id` is reserved for the
-                              ;; registered TYPE.
-                              :actor-id     parent-id
-                              :state        state
-                              :delay        resolved-ms
-                              :delay-source delay-source
-                              :epoch        epoch
-                              :frame        frame-id})))
+            ;; Mark THIS thread as the row's announcer for the
+            ;; duration of the fan-out, so a listener on the row that claims
+            ;; this attempt (the destroy sweep, typically) knows the row is
+            ;; already out and emits its `/cancelled` at once, in place.
+            (binding [*announcing-attempt-tokens*
+                      (conj *announcing-attempt-tokens* token)]
+              (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
+                           {;; the timer's owning actor INSTANCE;
+                            ;; `:machine-id` is reserved for the
+                            ;; registered TYPE.
+                            :actor-id     parent-id
+                            :state        state
+                            :delay        resolved-ms
+                            :delay-key    delay-key
+                            :delay-source delay-source
+                            :epoch        epoch
+                            :frame        frame-id}))
             ;; That `/scheduled` emit is the LAST callback-bearing
             ;; step before the durable arm. Outside a drain `rf.trace/emit!`
             ;; invokes listeners SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
@@ -708,9 +730,11 @@
                             ;; interaction: carry the scheduling node's decl-path
                             ;; (`invoke-id`) so the pure side routes the firing to
                             ;; the correct per-path epoch — colliding delay-keys
-                            ;; across hierarchy levels resolve unambiguously.
-                            (dispatch! [parent-id [:rf.machine.timer/after-elapsed
-                                                   delay-key epoch (vec invoke-id)]]
+                            ;; across hierarchy levels resolve unambiguously. The
+                            ;; armed ms ride along for the `/fired` /
+                            ;; `/stale-after` rows.
+                            (dispatch! [parent-id (rf.machines.transition/elapsed-event
+                                                    delay-key epoch invoke-id resolved-ms)]
                                        {:frame  frame-id
                                         :source :after-timer}))))
                       resolved-ms)
@@ -739,8 +763,10 @@
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
   `:after` transitions, on entry to an :after-bearing state node the
   runtime emits one of these per :after entry. The handler
-  resolves the delay (literal pos-int? / ISO-8601 string / fn) once against
-  the committed snapshot and schedules a real wall-clock timer via
+  resolves the delay (literal pos-int? / ISO-8601 string / `:delays` name /
+  fn) once against the committed snapshot, emits the
+  `:rf.machine.timer/scheduled` row with the milliseconds it resolved to,
+  and schedules a real wall-clock timer via
   `rf.interop/schedule-after!` (Spec 005 §Clock abstraction).
 
   The synthetic event dispatched on expiry is
@@ -770,11 +796,8 @@
         ;; Machine snapshots are durable runtime-db state.
         snapshot   (get-in (rf.frame/frame-runtime-db-value frame-id)
                            (rf.machines.paths/snapshot-path parent-id))]
-    ;; Initial state-entry scheduling — the :scheduled trace was already
-    ;; emitted synchronously by apply-transition-once (the pure side).
     (schedule-after-timer! frame-id parent-id invoke-id state
-                            delay-key epoch server? snapshot
-                            {:emit-scheduled-trace? false})
+                            delay-key epoch server? snapshot {})
     nil))
 
 (defn rearm-hydrated-after-timer!
@@ -791,14 +814,12 @@
       because a re-entry must invalidate the prior visit's in-flight
       timer; hydration re-establishes host work for a visit that already
       happened, so bumping would strand the very snapshot being restored.
-    - The `/scheduled` trace is emitted HERE rather than by the pure side.
-      No transition ran, so `build-after-fx` never fired — without this
-      the reconstructed timer would arm untraced (and emitting a
-      state-entry cascade to get the trace would replay the server's
-      entry effects, the worse bug). The row is the ORDINARY
-      `:rf.machine.timer/scheduled` shape, so the
-      scheduled→fired / →cancelled pairing on `(actor-id, state, epoch)`
-      holds for a hydrated timer exactly as for an entered one.
+    - No transition ran, so no `:rf.machine/after-schedule` fx exists to
+      arm it: this fn arms it directly (emitting a state-entry cascade to
+      get one would replay the server's entry effects). The `/scheduled`
+      row is the ORDINARY one `schedule-after-timer!` emits for every arm,
+      so the scheduled→fired / →cancelled pairing on `(actor-id, state,
+      epoch)` holds for a hydrated timer exactly as for an entered one.
 
   Never server-armed: hydration re-arm runs on the client by contract
   (Spec 011 §`:after` is no-op under SSR), and the caller has already
@@ -815,8 +836,7 @@
   rather than only the arm that lost it."
   [frame-id parent-id invoke-id state delay-key epoch snapshot owner-gone?]
   (schedule-after-timer! frame-id parent-id invoke-id state delay-key epoch
-                         false snapshot {:emit-scheduled-trace? true
-                                         :owner-gone?           owner-gone?})
+                         false snapshot {:owner-gone? owner-gone?})
   nil)
 
 (defn cancel-timers-absent-from!

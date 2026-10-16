@@ -43,7 +43,7 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
 ;; render! through it creates the React root.
 (defonce app-root (reagent-adapter/client-root))
 
-(def app-frame :app)
+(def app-frame :rf/default)
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)

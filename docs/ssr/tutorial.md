@@ -352,14 +352,14 @@ entry point:
 #?(:cljs
    (defn run []
      (rf/init! reagent-adapter/adapter)      ;; the browser substrate this time
-     (rf/make-frame {:id :app :platform :client}) ;; the client's own, named frame
+     (rf/make-frame {:id :rf/default :platform :client}) ;; the client's own, named frame
      (let [el      (js/document.getElementById "app")
-           payload (ssr/hydrate! {:frame          :app
+           payload (ssr/hydrate! {:frame          :rf/default
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
-           tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+           tree    [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]]
        (when-not payload
          ;; nil: nobody server-rendered this page, so seed before the first render
-         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app}))
+         (rf/dispatch-sync [:app/client-bootstrap] {:frame :rf/default}))
        ;; payload: adopt the painted DOM; nil: mount a fresh root
        (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))))
 ```
@@ -379,8 +379,8 @@ Three details in that code:
 
 - **The same frame id goes to `hydrate!` and to `frame-provider`.** Pass no `:frame`
   and `hydrate!` raises `:rf.error/no-frame-context`; the runtime never picks a frame
-  for you. The name `:app` is yours. (The example file names its client frame
-  `:rf/default`, which is also just a name.)
+  for you. The id is yours to choose; this tutorial and its example file use
+  `:rf/default`, the conventional id for an app's single frame.
 - **`:render-tree-fn` calls the view**, because the verify step must hash the same
   tree shape the server hashed in Step 3. The vector form would hash differently even
   though nothing on the page differs.
@@ -435,7 +435,7 @@ render the client's view. The trace stream carries a structured error:
  :recovery  :warned-and-replaced               ;; what the runtime did about it
  :tags      {:server-hash "a3f29c01"           ;; the tree the server shipped…
              :client-hash "0b77e4d2"           ;; …vs the client's first render
-             :frame       :app
+             :frame       :rf/default
              :failing-id  :rf/hydrate
              ,,,}}
 ```

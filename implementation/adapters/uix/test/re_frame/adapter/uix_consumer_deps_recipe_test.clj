@@ -19,7 +19,7 @@
 (def ^:private recipe-pages
   "Documents publishing copyable UIx dependency recipes."
   ["spec/Conventions.md"
-   "docs/core/how-to/use-uix-or-slim.md"
+   "docs/core/how-to/use-uix.md"
    "examples/substrates/uix/counter/README.md"
    "examples/substrates/uix/login/README.md"
    "examples/substrates/uix/dashboard/README.md"])

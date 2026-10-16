@@ -14,7 +14,7 @@ Asked for a draft, the same response includes one focused, copy-pasteable GitHub
 
 ## Supplying a recap
 
-If you are supplying a recap, include the goal, the build/frame involved, the calls that caused friction and their results, plus any successful retry. For example: *"I asked for the cart count in `:app/main`; discovery found two builds, I selected `app`, and the retry succeeded. The build-selection error cost two turns. Retro on that workflow."* The skill keeps the earlier failure as evidence of friction without reporting it as the current state. Missing or truncated results stay unknown.
+If you are supplying a recap, include the goal, the build/frame involved, the calls that caused friction and their results, plus any successful retry. For example: *"I asked for the cart count in `:rf/default`; discovery found two builds, I selected `app`, and the retry succeeded. The build-selection error cost two turns. Retro on that workflow."* The skill keeps the earlier failure as evidence of friction without reporting it as the current state. Missing or truncated results stay unknown.
 
 ## What it does
 

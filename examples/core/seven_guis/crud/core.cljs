@@ -237,9 +237,9 @@
 ;; there, reuses it, and skips the seed — so your list keeps its rows (and your
 ;; edits) across a save. See docs/core/glossary.md#frame-root.
 ;;
-;; `app-frame` is just an id we picked. `:rf/default` sounds special but isn't —
-;; it's an ordinary frame id with no privileges. The runtime never conjures a
-;; frame for you, so we name one here and hand it to the provider like any other.
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it, so
+;; we name the frame here and hand it to the provider.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree

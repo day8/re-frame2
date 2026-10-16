@@ -60,7 +60,7 @@ ever owned, such as an ownerless prefetch, is measured from its load settling.
     {:request {:method :get :url (str "/api/articles/" slug)}
      :decode :json}))
 
-(rf/make-frame {:id :app :revalidate-on #{:focus :reconnect}})
+(rf/make-frame {:id :rf/default :revalidate-on #{:focus :reconnect}})
 ```
 
 Load `re-frame.resources` and `re-frame.http.managed` before using these forms,

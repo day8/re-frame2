@@ -169,7 +169,7 @@
   ;; by `core/set-target-frame!`. EP-0002 — writing nil resets
   ;; to UNSELECTED (dissocs `:target-frame`), NOT to a synthesised
   ;; `:rf/default`: the inspected target is never absence-repaired to the
-  ;; ordinary `:rf/default` id (Spec 002 §Frame target resolution). A known
+  ;; conventional `:rf/default` app-frame id (Spec 002 §Frame target resolution). A known
   ;; frame-id seeds `:epoch-history` from the framework's per-frame epoch
   ;; ring so the immediate subscribe-after-dispatch read sees a hydrated
   ;; slot; a nil resets the history to `[]` (`rf.epoch/epoch-history nil` → `[]`).

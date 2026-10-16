@@ -538,8 +538,8 @@
 
 (defonce app-root (rf.adapter.reagent/client-root))
 
-;; The id this app's frame is created under. Despite the name, `:rf/default`
-;; carries no special privilege — it's just an ordinary id. The URL ownership
+;; The id this app's frame is created under: `:rf/default`, the conventional
+;; app-frame id, which the runtime never falls back to. The URL ownership
 ;; comes from `:url-bound? true` on the `frame-root` below, never from what
 ;; the frame happens to be called.
 (def app-frame :rf/default)

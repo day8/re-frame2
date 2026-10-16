@@ -19,22 +19,18 @@ printf 'gate root: %s\n' "$repo_root"
 # artefact's `:slow-test` alias (`-i :slow -i :stress`), mirroring the nightly
 # `jvm-slow-tests` job in `.github/workflows/expensive-tests.yml`. `:test`
 # (fast) + `:slow-test` (here) partition the suite — every test runs once.
+# The artefacts are the `slow` rows of scripts/jvm-lanes.txt, the rows that
+# nightly job reads too.
 printf '==> implementation JVM slow/stress tests (:slow-test alias)\n'
-slow_artefacts=(
-  implementation/core
-  implementation/machines
-  implementation/routing
-  implementation/flows
-  implementation/ssr
-)
-for artefact in "${slow_artefacts[@]}"; do
+slow_artefacts="$(bash "$repo_root/scripts/jvm-lanes.sh" dirs slow)"
+while IFS= read -r artefact; do
   printf '==> JVM slow %s\n' "$artefact"
   if ! (cd "$repo_root/$artefact" && clojure -M:slow-test); then
     printf '\nFAIL JVM slow %s\nrepro: cd %s && clojure -M:slow-test\n' \
       "$artefact" "$artefact" >&2
     exit 1
   fi
-done
+done <<< "$slow_artefacts"
 
 printf '==> implementation rigorous browser/bundle gates\n'
 # Local mirror of the rigorous browser-bundle-and-story sweep in

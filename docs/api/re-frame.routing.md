@@ -25,7 +25,7 @@ Routing ships in the optional `day8/re-frame2-routing` artefact. Require `re-fra
     {:fx [[:dispatch [:rf.route/navigate {:to :app/article :params {:id id}}]]]}))
 
 ;; At the render root: this frame owns the browser's address bar.
-[rf/frame-root {:id :app/main :url-bound? true} [root-view]]
+[rf/frame-root {:id :rf/default :url-bound? true} [root-view]]
 ```
 
 `reg-route` and `route-link` are called on the `re-frame.core` facade. The URL helpers, URL strategies and test hooks are called on this namespace as `rf.routing/…`, and events, effects and subscriptions are addressed by keyword. Inside `reg-view`, `subscribe` and `dispatch` are bound without the `rf/` prefix.
@@ -615,7 +615,7 @@ A strategy is a map of five functions, `{:encode :decode :push! :replace! :insta
     - `:install-listener!` listens for `hashchange`.
 - **Example**:
   ```clojure
-  (rf/make-frame {:id :app
+  (rf/make-frame {:id :rf/default
                   :url-bound?   true
                   :url-strategy rf.routing/hash-url-strategy})
   ```
@@ -635,7 +635,7 @@ A strategy is a map of five functions, `{:encode :decode :push! :replace! :insta
     - A blank or `nil` `base` returns `strategy` unchanged.
 - **Example**:
   ```clojure
-  (rf/make-frame {:id :app
+  (rf/make-frame {:id :rf/default
                   :url-bound?   true
                   :url-strategy (rf.routing/with-base-path
                                   rf.routing/history-url-strategy
@@ -677,8 +677,8 @@ At most one frame owns the browser URL at a time. A frame claims it by being cre
 - **Example**:
   ```clojure
   ;; one frame opts into URL ownership at boot:
-  (rf/make-frame {:id :app/main :url-bound? true})
-  (rf.routing/url-owner-frame-id)  ;; => :app/main
+  (rf/make-frame {:id :rf/default :url-bound? true})
+  (rf.routing/url-owner-frame-id)  ;; => :rf/default
   ```
 
 ## Browser URL listener

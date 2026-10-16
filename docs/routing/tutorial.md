@@ -40,7 +40,7 @@ based on the active route, and mount the app:
 (rf/reg-route :app/home {} "/")
 
 ;; Inside reg-view, `subscribe` and `dispatch` are bound to the view's frame.
-;; Outside a view, name the frame: `(rf/dispatch event {:frame :app})`.
+;; Outside a view, name the frame: `(rf/dispatch event {:frame :rf/default})`.
 (rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :app/home [:h1 "Home"]
@@ -53,7 +53,7 @@ based on the active route, and mount the app:
    (defn run []
      (rf/init! reagent-adapter/adapter)
      (reagent-adapter/render! app-root
-       [rf/frame-root {:id :app :url-bound? true}
+       [rf/frame-root {:id :rf/default :url-bound? true}
         [root-view]]
        (js/document.getElementById "app"))))
 ```
@@ -61,7 +61,7 @@ based on the active route, and mount the app:
 `:rf.route/id` is the id of the route that matches the current URL, and the root view
 is a `case` over it. There is no router component to configure.
 
-`:url-bound? true` makes the `:app` frame the owner of the browser address bar. At
+`:url-bound? true` makes the `:rf/default` frame the owner of the browser address bar. At
 startup the frame reads the current URL into its route state, and when the route
 changes, the address bar follows.
 
@@ -232,7 +232,7 @@ see [Not found is a route you register](concepts.md#not-found-is-a-route-you-reg
 ## Step 6 — the Back button and deep links
 
 Nothing to add: `:url-bound? true` from Step 1 already provides this. Because the
-`:app` frame owns the address bar:
+`:rf/default` frame owns the address bar:
 
 - at startup it reads the current URL, so a deep link or a refresh opens the right page;
 - each navigation updates the address bar;
@@ -499,7 +499,7 @@ article listed. Refresh, and the filter stays.
        (defn run []
          (rf/init! reagent-adapter/adapter)
          (reagent-adapter/render! app-root
-           [rf/frame-root {:id :app :url-bound? true}
+           [rf/frame-root {:id :rf/default :url-bound? true}
             [root-view]]
            (js/document.getElementById "app"))))
     ```
@@ -617,7 +617,7 @@ and Forward need a URL-bound frame, so Step 6 has nothing to try here.
        [:button {:on-click #(dispatch [:rf.route/handle-url-change url])}
         (str "Type " url)])]))
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :initial-events [[:rf.route/navigate {:to :app/home}]]}
  [address-bar]
  [root-view]]

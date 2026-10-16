@@ -76,8 +76,11 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The frame cells use unless they name their own. `renderLast` creates it on
-;; demand (see `ensure-init!`).
-(def ^:private app-frame :rf/default)
+;; demand (see `ensure-init!`). It is the playground's own id, not
+;; `:rf/default`: a cell that roots its app at `:rf/default`, the
+;; conventional single-app id, has to meet a frame that does not exist yet,
+;; or its `:initial-events` never run.
+(def ^:private app-frame :playground/cells)
 
 ;; A cell's `:on-click` handler calls `dispatch` after render, outside any
 ;; `with-frame` scope, and the runtime never infers a frame (a bare call raises
@@ -412,7 +415,7 @@
     1. React roots. Navigation discards the cells' DOM without telling React,
        so each cached root is unmounted, releasing its components and
        subscriptions.
-    2. Frames. Cells reuse ids such as `:app` and `:rf/default`, and creating
+    2. Frames. Cells reuse ids such as `:rf/default`, and creating
        a frame whose id already exists keeps its app-db and skips its
        `:initial-events` (Spec 002 §Duplicate id policy). Destroying every
        frame makes the next page start from its documented initial state.

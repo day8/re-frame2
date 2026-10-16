@@ -28,7 +28,7 @@ Pick it when your views are hiccup; the Core guide uses it. If your components a
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (reagent-adapter/render! app-root
-      [rf/frame-root {:id :app/main}
+      [rf/frame-root {:id :rf/default}
        [counter]]
       el)))
 
@@ -109,14 +109,14 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
     - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
 - **Example**:
   ```clojure
-  (reagent-adapter/render! app-root [rf/frame-root {:id :app/main} [counter]] el)
+  (reagent-adapter/render! app-root [rf/frame-root {:id :rf/default} [counter]] el)
   ;; Later calls update the same root and reuse its frame.
 
   ;; Alternative boot for an SSR page: hydrate on this handle's FIRST render.
   (defonce hydrated-root (reagent-adapter/client-root))
   (reagent-adapter/render! hydrated-root
-    [rf/frame-provider {:frame :app/main} [counter]] el {:hydrate? true})
-  ;; Hydration has already installed :app/main; later renders update this root.
+    [rf/frame-provider {:frame :rf/default} [counter]] el {:hydrate? true})
+  ;; Hydration has already installed :rf/default; later renders update this root.
   ```
 
 ### `unmount!`
@@ -182,6 +182,6 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 
 - [`re-frame.adapter.uix`](re-frame.adapter.uix.md) — the hooks-first React adapter, with the same client-root functions.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; installs `set-hiccup-emitter!` for you.
-- [Use UIx](../core/how-to/use-uix-or-slim.md) — choosing a substrate, and moving an app's views to UIx.
+- [Use UIx](../core/how-to/use-uix.md) — choosing a substrate, and moving an app's views to UIx.
 - [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) in the glossary.

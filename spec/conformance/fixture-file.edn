@@ -74,6 +74,9 @@
   :conformance/fixture-file
   [:map {:closed true}
    [:fixture/id :keyword]
+   ;; The spec version the fixture was authored against. A harness runs a
+   ;; fixture whose version it claims, or that carries none, and reports any
+   ;; other as skipped with its version, never failed (README §Versioning).
    [:fixture/spec-version {:optional true} :string]
    [:fixture/doc :string]
    [:fixture/capabilities [:set :conformance/capability]]
@@ -119,9 +122,10 @@
    :ssr/error-projection :ssr/head-contract :ssr/hydration :ssr/render-to-string
    :ssr/render-tree-hash :ssr/response-contract]
 
-  ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas` is
-  ;; not a registrar kind; it maps an app-db path to the schema the runner
-  ;; registers there with `reg-app-schema`.
+  ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas`
+  ;; carries the registrar kind `:app-schema`, keyed by app-db path: each entry
+  ;; maps a path to the schema itself, which the runner registers there with
+  ;; `reg-app-schema`.
   :conformance/registry
   [:map {:closed true}
    [:event           {:optional true} [:map-of :keyword :map]]
@@ -374,11 +378,11 @@
      [:snapshot :map]
      [:event [:vector :any]]
      [:expect-next-snapshot
-      {:observe "the snapshot machine-transition returns for :definition, :snapshot and :event, with the fixture's :machine-action and :machine-guard bodies merged into the definition; on a bounded-depth abort, the input snapshot"
+      {:observe "the snapshot machine-transition returns for :definition, :snapshot and :event, with each of the fixture's realised :machine-action bodies merged into the definition's :actions and each :machine-guard body into its :guards, under the body's id, the definition's own entry winning a shared id; on a bounded-depth abort, the input snapshot; on any other failed macrostep, nil, which no expected map equals"
        :law     :equal}
       :map]
      [:expect-effects
-      {:observe "the :fx vector that transition returns; on a bounded-depth abort, []"
+      {:observe "the :fx vector that transition returns; on any failed macrostep, []"
        :law     :equal}
       [:vector :any]]]]
 

@@ -147,7 +147,7 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
 
 ;; Register at boot, before the first authenticated request. Registration is
 ;; per frame; a bare top-level call raises :rf.error/no-frame-context.
-(rf/with-frame :app
+(rf/with-frame :rf/default
   (rf/reg-http-interceptor :my-app/bearer-auth
     {:before bearer-auth}))
 ```
@@ -166,7 +166,7 @@ The same chain has a response side, which is where you catch an expired token:
 ;; `:after` receives the reply envelope:
 ;;   {:status :ok :value …}
 ;;   {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}
-(rf/with-frame :app
+(rf/with-frame :rf/default
   (rf/reg-http-interceptor :my-app/expired-session
     {:after (fn [ctx response]
               (when (and (contains? ctx :auth/generation)
@@ -257,7 +257,7 @@ Restore the session from the frame's `:initial-events`. A `:url-bound? true` fra
      :fx        [[:auth.session/load]]}))
 
 (rf/make-frame
-  {:id             :app
+  {:id             :rf/default
    :doc            "The app frame."
    :url-bound?     true                            ;; this frame owns the browser URL
    :initial-events [[:auth/init]]})                ;; runs before the first URL is resolved
@@ -269,8 +269,8 @@ If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-a
 
     ```clojure
     ;; Don't do this
-    (rf/make-frame {:id :app :url-bound? true})   ;; first URL resolved here
-    (rf/with-frame :app
+    (rf/make-frame {:id :rf/default :url-bound? true}) ;; first URL resolved here
+    (rf/with-frame :rf/default
       (rf/dispatch-sync [:auth/init]))            ;; session arrives too late
     ```
 

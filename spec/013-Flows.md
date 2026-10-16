@@ -2,11 +2,11 @@
 
 > Status: Drafting. **v1-required.** Builds on the registration grammar in [001-Registration](001-Registration.md), the drain in [002-Frames §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics), and the reserved-namespace policy in [Conventions](Conventions.md).
 >
-> **The minimum claim:** flows are *registered, runtime-toggleable computed-state declarations that materialise their output into `app-db`*. They are the v2 incarnation of v1's `on-changes` interceptor — same compute-on-input-change semantics — but registered in the runtime (not on individual events) and toggleable via two reserved fx-ids.
+> **The minimum claim:** flows are *registered, frame-activated computed-state declarations that materialise their output into `app-db`*. They are the v2 incarnation of v1's `on-changes` interceptor — same compute-on-input-change semantics — but registered once at the top level (not on individual events) and run by each frame that names them in its `:flows` config.
 >
 > **Restraint.** Flows are a **convenience** for a small number of small use-cases. They are not a replacement for subscriptions, not a new dataflow paradigm, not a substitute for state machines, and not the default for derived state. The architecture's main load-bearing pieces are events, subs, machines, and effects; flows sit alongside them as a focused tool for a narrow set of problems. **When in doubt, use a subscription** — flows pay an `app-db` write per recomputation and add a small piece of registered runtime; that cost is only worthwhile when the [reasons in §When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) below apply.
 >
-> `:rf.flow/*` is the **internal-effect cousin** of the managed external effects — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties applied to derived computation (effect-as-data via the registration map, framework-owned scheduler, structured failure taxonomy under `:rf.flow/*`, trace-bus observability, `:sensitive?` / `:large?` composition on flow outputs, runtime-toggleable retry / abort / teardown via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`, in-flight flow registry, per-frame scoping).
+> `:rf.flow/*` is the **internal-effect cousin** of the managed external effects — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties applied to derived computation (effect-as-data via the registration map, framework-owned scheduler, structured failure taxonomy under `:rf.flow/*`, trace-bus observability, `:sensitive?` / `:large?` composition on flow outputs, retry / abort / teardown through the atomic event abort and `destroy-frame!`, the registrar as the flow registry, per-frame activation).
 
 ## Abstract
 
@@ -14,7 +14,7 @@ A **flow** is a registered rule that says: "when these input paths change, run t
 
 Flows differ from subscriptions in *where the value lives*. A sub's value lives in the per-frame sub-cache and is consumed by views. A flow's value lives in `app-db` at a known path, where it survives SSR / hydration / time-travel revert, is visible in the app-db inspector, can be read by downstream event handlers and other flows, and is covered by registered schemas. When the derived value is part of the application's *state* (as opposed to part of a view's render input), use a flow.
 
-**Flows are frame-scoped.** A flow belongs to one frame: its registration, evaluation, output `app-db` path, and undo / time-travel boundaries are all frame-local. The same flow id can register against two different frames with two different `:derive` functions and two different `:output-path` slots; clearing the flow on one frame leaves the other untouched. See [§Frame-scoping](#frame-scoping) for the rationale and API.
+**Flows are registered once and activated per frame.** `reg-flow` registers a definition under the registrar's `:flow` kind at the top level, naming no frame. A frame runs exactly the flows its `:flows` config names, resolved through its own view of the registrations; evaluation, the output write, and the undo / time-travel boundary all belong to that frame. A frame that names no flows runs none. See [§Activation](#activation).
 
 ## When (and when not) to use a flow
 
@@ -40,7 +40,7 @@ Three use cases motivate flows:
 
 - **Materialised computed state.** `:area` from `:width × :height`. `:total` from `:items`. `:can-submit?` from form validity, network state, and feature flags. The derived value is part of the app's state and downstream code reads it as plain `app-db`.
 - **State that survives the wire.** SSR hydration carries `app-db`; computed values written by flows arrive on the client without re-computation. Sub-cache contents do not survive hydration.
-- **Toggleable derivation.** A wizard step, a feature gate, an "advanced mode" — a derivation that should only run while a feature is engaged. v1's `on-changes` interceptor cannot do this because interceptors are wired into specific events at registration time. Flows are runtime-registered and runtime-clearable.
+- **Gated derivation.** A wizard step, a feature gate, an "advanced mode" — a derivation whose output depends on whether a feature is engaged. The gate is ordinary `app-db` data the flow reads as one of its `:inputs`, so it rewinds with `app-db` under an epoch restore and arrives with it over SSR (see [§Activation](#activation)).
 
 ## The registration shape
 
@@ -71,7 +71,6 @@ Optional metadata keys (per the [001-Registration §Registration grammar](001-Re
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
 | `:schema` | Malli schema for the output value, validated on every recompute in dev (see [§Flow output validation](#flow-output-validation)). |
-| `:frame` | The frame the flow registers against (the *override* — see [§Frame-scoping](#frame-scoping)). The mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). |
 | `:sensitive` / `:large` / `:large?` | EP-0025 output data-classification declarations (see [§Flow output data classification](#flow-output-data-classification-ep-0025) and [015-Data-Classification](015-Data-Classification.md)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
@@ -97,67 +96,52 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 `reg-flow` returns its `flow-id` — the primary id under which the flow registers — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Under the 3-slot grammar the id is the first positional argument, exactly like the rest of the `reg-*` family.
 
-`reg-flow` reads the frame the flow registers against from the `:frame` metadata key — the frame is the mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `:frame` metadata key (*override*) or a surrounding *scope* — a `with-frame`, or the closest enclosing frame boundary (a `frame-provider` (SCOPE) or a `frame-root` (ENSURE)) — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A `reg-flow` outside any scope with no `:frame` metadata key is the registration-time case and fails with `:rf.error/no-frame-context`:
+`reg-flow` is a **top-level registration**, like `reg-event`: it writes the registrar's `:flow` kind and reads no frame — not a surrounding `with-frame`, and not an enclosing `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — so it needs no scope and no live frame, and registering at namespace load is the normal case. A `:frame` key in the metadata map is rejected loudly with `:rf.error/invalid-flow-metadata`, as a mislocated `:derive` is: which frames run a flow is each frame's own `:flows` config ([§Activation](#activation)), never the registration's.
 
 ```clojure
 (rf/reg-flow :rectangle/area
-  {:inputs [[:width] [:height]] :output-path [:area]}   ;; raises :rf.error/no-frame-context outside any frame scope
+  {:inputs [[:width] [:height]] :output-path [:area]}   ;; registers; no frame involved
   (fn [w h] (* w h)))
-(rf/with-frame :scratch
-  (rf/reg-flow :rectangle/area
-    {:inputs [[:width] [:height]] :output-path [:area]}  ;; registers against :scratch via the surrounding scope
-    (fn [w h] (* w h))))
-(rf/reg-flow :rectangle/area
-  {:inputs [[:width] [:height]] :output-path [:area]
-   :frame  :scratch}                                     ;; explicit frame (override) — a metadata key
-  (fn [w h] (* w h)))
+
+(rf/make-frame {:id :scratch :flows [:rectangle/area]}) ;; :scratch runs it
 ```
 
-`clear-flow` — whose primary arg IS the flow-id it removes — keeps its trailing `opts` map for the `:frame` override (there is no metadata slot on a teardown surface):
+The inverse is the ordinary registrar clear, `(rf/clear :flow :rectangle/area)`. It removes the registration, and each frame whose `:flows` names the id vacates the flow's output on its next event ([§Re-registration](#re-registration)).
+
+<a id="frame-scoping"></a>
+
+## Activation
+
+A frame runs the flows its config names, and no others. `:flows` is a vector of flow ids on the frame config that `make-frame` and `frame-root` take (per [002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)); omitting it, or passing `[]`, runs no flows. Its order carries no meaning: evaluation order is the topological sort's ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)).
 
 ```clojure
-(rf/clear :flow :rectangle/area)
-(rf/clear :flow :rectangle/area {:frame :scratch})
+(rf/reg-flow :cart/subtotal
+  {:inputs [[:cart :items]] :output-path [:cart :subtotal]}
+  (fn [items] (reduce + (map :price items))))
+
+(rf/reg-flow :cart/total
+  {:inputs [[:cart :subtotal] [:cart :discount-rate]] :output-path [:cart :total]}
+  (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0))))))
+
+(rf/make-frame {:id :rf/default :flows [:cart/subtotal :cart/total]})
+;; or mounted: [rf/frame-root {:id :rf/default :flows [:cart/subtotal :cart/total]} [cart-view]]
 ```
 
-## Frame-scoping
-
-Flows are **frame-scoped**: registration, evaluation, and `clear-flow`'s `dissoc-in` all belong to one frame. The runtime registry shape is:
-
-```
-{frame-id {flow-id flow-map}}
-```
-
-Three consequences follow:
-
-1. **Per-frame undo / time-travel boundaries.** Time-travel is a frame-local primitive (per [002 §Frames](002-Frames.md)). A flow's `:output-path` write is part of the owning frame's `app-db` history; reverting frame `:left` does not disturb flow outputs in frame `:right`.
-2. **Same flow-id, multiple frames, independent definitions.** Registering `:compute` against `:left` with `(fn [x] (* 2 x))` and against `:right` with `(fn [x] (* 100 x))` produces two independent flows. Each frame's flow walk (`run-flows-on-db`) visits only its own slot of the registry.
-3. **`clear-flow` is frame-local.** `(clear-flow :compute {:frame :left})` removes the flow's definition from frame `:left` and `dissoc-in`s its `:output-path` from `:left`'s `app-db` only. Frame `:right`'s `:compute` and its output keep working — `:right`'s per-frame entry is authoritative in place, untouched by the clear on `:left`.
-
-**Single-store: the per-frame registry is the SOLE source of truth.** The per-frame runtime registry `{frame-id {flow-id flow-map}}` is the **single authoritative store** for flows — both for evaluation AND for introspection (matching the [schemas precedent](010-Schemas.md)). The `:flow` registrar kind (per [001-Registration §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)) is **RESERVED but the registrar slot is empty** — `reg-flow` does NOT write it. Flows are **frame-divergent-per-id** (consequence 2 above — the same flow id can carry different `:derive` / `:inputs` / `:output-path` per frame), so a frame-blind `{flow-id metadata}` registrar slot could only ever hold ONE frame's view; there is no such slot.
-
-**Introspecting flows.** Tools and source-coord readers introspect flows through the **frame-scoped** `re-frame.flows/flows` (one frame's `{flow-id flow-map}`) and `re-frame.flows/flow-meta` (one flow) — the flows analogue of `schemas/app-schemas` / `schemas/app-schema-meta` — and the whole-registry snapshot `re-frame.flows/flows-snapshot` (returning the `{frame-id {flow-id flow-map}}` shape), **not** `handler-meta :flow` / `handlers :flow` (always nil / empty) and **not** the private per-frame atom. Both frame-scoped reads take ONE opts map whose `:frame` is **REQUIRED** — `(flows {:frame f})` and `(flow-meta {:frame f :id flow-id})`. There is no ambient default and no trailing frame-target sugar, because a live frame VALUE is itself a map and a type-sniffing positional argument could never be read locally ([Principles §Name over place](Principles.md)); a frameless or non-map call raises the catalogued `:rf.error/no-frame-context`. `flow-meta` returns each `(frame-id, flow-id)` entry's OWN definition — including the source-coords `reg-flow` stamps into the store — so the same flow id on two frames yields each frame's divergent flow-map, the very thing a frame-blind slot could never represent. These three accessors are the encapsulation boundary: the per-frame registry atom is private (the facade re-exports the read accessors and the reset fns), so consumers depending on them survive any future change to the atom's internal representation. (The raw `last-inputs-snapshot` re-export is `^:no-doc`, an internal / test / rollback seam only — it returns owner-local cached input values verbatim and is **not** an egress boundary. The raw dirty-check cache is never shipped off-box; tools and direct reads that cross a trust boundary ride the elided trace path — `:rf.flow/computed` `:input-values` / `:rf.flow/failed` `:inputs`, which elide each cached input under the owning frame's policy and fail closed for an unresolvable frame.)
-
-**Hot-reload trace surface.** A same-frame re-registration emits `:rf.registry/handler-replaced` (carrying `:frame` alongside `:kind :flow` / `:id` / `:different-fn?`) so devtools refresh their per-flow view — emitted **directly by `reg-flow`** under single-store rather than as a side effect of a registrar `:flow` write. Because a flow is authoritative at `(frame-id, flow-id)`, the dedup-by-shape decision is taken from **this frame's** authoritative slot — comparing the prior and new stored flow values of the same `(frame-id, flow-id)` — **not** the frame-blind process-global registrar dedup table ([009 §Hot-reload dedup](009-Instrumentation.md), which keys generic `:kind`/`:id` registrar kinds). Two live frames replacing the same flow id each emit their own frame-attributed event, an identical reload suppresses independently within each frame, and a destroy/recreate of a frame id never inherits its predecessor incarnation's emitted shape. A first-time per-frame registration emits `:rf.flow/registered` instead (per-frame gated).
-
-Frame resolution matches the rest of the API and obeys the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): a `reg-flow` with no `:frame` metadata key resolves the frame only from a surrounding `with-frame` scope or an enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — there is **no** `:rf/default` fall-through, so a frameless registration outside any scope fails with `:rf.error/no-frame-context`. Tests and per-tenant runtimes pass an explicit `:frame` metadata key (the middle slot), or wrap the registration in `with-frame`.
+1. **Activation is explicit, and the default is none.** A flow runs on every event in each frame that runs it. Were flows active everywhere by default, `:cart/total` would write into a Story frame's or a second tenant's `app-db`, and a `:derive` that is not total on `nil` would abort every event in a frame that never held its inputs — and a `:derive` is not required to be total on `nil` ([§The registration shape](#the-registration-shape)).
+2. **Ids resolve through the frame's own view**, as every other kind does ([002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)): live from the registration store for a frame made without `:images`, through its sealed generation for a frame made with them. Two image compositions can therefore select different definitions of one id; that is image semantics, not a flows mechanism. In one live process, two derivations are two ids.
+3. **Checks run at activation.** A frame whose `:flows` names an id its view does not resolve fails construction with `:rf.error/unregistered-flow`, the way an unregistered interceptor reference does ([002 §Validation and resolution timing](002-Frames.md#validation-and-resolution-timing)); an id two namespaces register is ambiguous, and fails with the `:rf.error/ambiguous-registration` a frame raises for any kind. The cycle check and the output-overlap check ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)) run over the frame's active set at construction, and again when a re-registration reaches the frame ([§Re-registration](#re-registration)). Both checks are per frame, so two flows may write the same path provided no frame runs both. A non-empty `:flows` on a frame built without the flows artefact fails construction with `:rf.error/flows-artefact-missing`.
+4. **Introspection is the ordinary registrar query.** `(rf/registrations {:source :store :kind :flow})` lists every definition, `(rf/handler-meta {:source :store :kind :flow :id id})` returns one, and the `{:frame f}` forms resolve them through a frame's own view ([001 §The query API](001-Registration.md#the-query-api)). `(:flows (rf/frame-meta f))` names the ids a frame runs. There is no flows-specific read API.
+5. **Per-frame state is the evaluation memo.** A frame holds, per active flow, the memo row its dirty check reads — the last inputs and output, and the definition identity and output path they were computed with ([§Dirty-check semantics](#dirty-check-semantics)). Definitions live only in the registrar.
+6. **A feature gate is data.** A flow whose output depends on whether a feature is engaged reads the gate as an input — `[:cart :discount-rate]` above, written by the event that applies the discount and removed by the one that withdraws it. Because the gate is `app-db`, it rewinds with `app-db` under an epoch restore and arrives with it over SSR.
+7. **SSR.** The server's per-request frame and the client's frame carry the same `:flows`. Flow outputs arrive in the hydrated `app-db`; the client's memo starts empty, so its first event evaluates every active flow, and a deterministic `:derive` writes the value the server wrote.
 
 ## Frame-destroy teardown
 
-Flows are frame-scoped, so `destroy-frame!` is the boundary at which every per-frame piece of flow state MUST clear. This is a **normative requirement** — the frame-isolation contract from [002 §Destroy](002-Frames.md#destroy) is only honoured if flow registrations and the dirty-check `last-inputs` cache release in lockstep with the frame. Without lockstep teardown a long-running JVM SSR host (per-request frame churn), a pair-tool time-travel cycle, or any `make-frame` ephemeral usage leaks flow definitions and cached input vectors indefinitely.
+`destroy-frame!` drops the destroyed frame's flow evaluation memo — every memo row it holds, its pending path vacations included — in lockstep with the frame. This is a **normative requirement**: the frame-isolation contract from [002 §Destroy](002-Frames.md#destroy) is only honoured if the memo releases with the frame, and without it a long-running JVM SSR host (per-request frame churn), a pair-tool time-travel cycle, or any ephemeral `make-frame` usage leaks cached input vectors indefinitely.
 
-Two teardown invariants apply on `(destroy-frame! frame-id)`:
+Definitions live in the registrar, not in the frame, so teardown touches no definition and no other frame's memo: a sibling frame running the same flow keeps its own rows, and a frame later made under the same id starts with an empty memo and whatever `:flows` its own config names. Teardown is idempotent: destroying a frame that never ran a flow changes nothing.
 
-1. **Per-frame flow registry.** `(get @flows frame-id)` clears in full — every flow registered against `frame-id` is dropped from the SOLE authoritative store. Sibling frames' entries are unaffected (per [§Frame-scoping](#frame-scoping)): a surviving frame registering the same flow id keeps its OWN authoritative entry in place.
-2. **Dirty-check cache.** Every `last-inputs[flow-id][frame-id]` row for the destroyed frame is dissoc'd. The whole `last-inputs[flow-id]` key is dropped when no other frame still holds an entry. Sibling frames' rows for the same flow id are preserved (a flow id registered against frames `:left` and `:right`, with frame `:left` destroyed, keeps `last-inputs[flow-id][:right]` intact).
-
-**No registrar-slot prune (single-store).** There is no frame-blind `:flow` registrar slot to prune or realign on destroy. The per-frame `flows` atom is the sole store, so a surviving frame's entry is authoritative in place and there is nothing to realign. The frame-attribution + `:different-fn?` hot-reload signals are driven directly by `reg-flow` (per [§Frame-scoping](#frame-scoping)).
-
-Teardown is idempotent against a frame the registry never recorded — a `destroy-frame!` on a freshly-constructed frame with no flows ever registered against it leaves the flow registry and `last-inputs` unchanged.
-
-**A `reg-flow` against a non-live frame is rejected (`:rf.error/flow-frame-not-live`).** The teardown contract above is only honoured if the MUTATING registration path refuses to seat new flow state on a frame that is absent (never registered, or already torn down by `destroy-frame!`). Without the guard, `reg-flow` would unconditionally install a `flows[frame-id flow-id]` row and an elision declaration stamped with the dead frame-id — and a later `make-frame` reusing that id would inherit the resurrected flow, breaking the frame-isolation contract this section enforces. So `reg-flow` against a non-live frame throws the registration-time hard error `:rf.error/flow-frame-not-live` (carrying `:frame` / `:flow`, recovery `:fix-registration` — register against a live frame; per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) rather than creating dormant state for a typo'd or destroyed frame id. `clear-flow` keeps its permissive absent-frame no-op (teardown must stay idempotent); only this mutating path rejects.
-
-The teardown contract is symmetric with the machines artefact's `:machines/teardown-on-frame-destroy!` hook and the schemas artefact's `:schemas/on-frame-destroyed!` hook — every per-feature artefact that holds frame-scoped state hangs its cleanup off the single normative `destroy-frame!` teardown boundary documented at [002 §Destroy](002-Frames.md#destroy). A new feature artefact MUST add its hook to the destroy cascade; a feature that holds frame-scoped state without one leaks on every `destroy-frame!`.
+The teardown contract is symmetric with the machines artefact's `:machines/teardown-on-frame-destroy!` hook — every per-feature artefact that holds frame-scoped state hangs its cleanup off the single normative `destroy-frame!` teardown boundary documented at [002 §Destroy](002-Frames.md#destroy). A new feature artefact MUST add its hook to the destroy cascade; a feature that holds frame-scoped state without one leaks on every `destroy-frame!`.
 
 ## Drain integration
 
@@ -179,12 +163,13 @@ process-event! (with flows as the outermost :after):
                                              ;; :db effect, or the current
                                              ;; app-db value when no :db
                                              ;; effect was produced
-         Walk THIS FRAME'S registered flows in topologically-
-         sorted order — i.e. (get @flows frame-id) only;
-         sibling frames' flows are not visited.
-         For each flow in this frame's slot:
+         Walk THIS FRAME'S active flows — its :flows ids resolved
+         through its own view — in topologically-sorted order;
+         other frames' activations are not consulted.
+         For each active flow:
            new-inputs ← read input paths from pending-db
-           if new-inputs ≠ last-inputs[[frame-id flow-id]]:
+           if new-inputs ≠ last-inputs[[frame-id flow-id]], or that
+              row was computed with a different definition:
              new-output ← (apply :derive new-inputs)   ;; MAY throw
              pending-db ← (assoc-in pending-db (:output-path flow) new-output)
              last-inputs[[frame-id flow-id]] ← new-inputs
@@ -217,7 +202,7 @@ Five properties this gives:
 2. **`:fx` entries see flow outputs.** An `:fx` entry that reads `app-db` after install sees flow-computed values (flows transform the effect at step 2; install at step 3; `:fx` at step 4). This is what makes `[:dispatch [:react-to-area-change]]` work cleanly.
 3. **Single pass per event.** Each flow runs at most once per drain. The topological order ensures multi-layer flows settle in one walk.
 4. **Run-to-completion is preserved, with exactly one `app-db` write.** The flow transform rewrites the *pending* `:db` effect; the single `:db` install at step 3 is the only `app-db` write the run makes — the flow output is part of that one install, not a second mutation after it. Views never observe an intermediate state.
-5. **Frame isolation.** An event dispatched on frame `:left` only walks flows registered against `:left`. Flows on frame `:right` are dormant from `:left`'s perspective — they walk only when `:right`'s drain runs its own flow transform. This is what makes multi-tenant frames safe to colocate without cross-talk in derived state.
+5. **Frame isolation.** An event dispatched on frame `:left` only walks the flows `:left` runs. A flow that `:right` also runs is evaluated for `:right` only when `:right`'s drain runs its own flow transform, against `:right`'s `app-db` and memo. This is what makes multi-tenant frames safe to colocate without cross-talk in derived state.
 
 **Why a pending-`:db`-effect transform and not a post-install drain step.** A post-commit flow step — the full interceptor chain runs, `:db` commits to `app-db`, a separate pass mutates the live `app-db`, then `:fx` walks — would split the `app-db` write into two mutations (handler commit, then a separate flow mutation), make the run install the db twice, and fire the `:rf.event/db-changed` trace *before* flows, so the trace would not reflect the flow output and tools could not place flows on the trace timeline correctly. Transforming the pending `:db` effect (as the outermost `:after`) makes (a) the run perform exactly one `app-db` install — of the flow-augmented value, (b) the `:rf.event/db-changed` trace reflect the flow-augmented db and fire *after* `:rf.flow/computed`, and (c) the whole flow position observable on the trace stream (per [009 §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)). `:fx` sees flow output either way.
 
@@ -239,7 +224,7 @@ The contract is the ordering AND the gap — consumers can rely on "the flow fai
 
 ## Topological sort and cycle detection
 
-Flows form a static dependency graph derivable from their `:output-path` and `:inputs` declarations. The graph is **per-frame** — flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over `(get @flows frame-id)`.
+Flows form a static dependency graph derivable from their `:output-path` and `:inputs` declarations. The graph is **per-frame**: it spans the frame's active set, and flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over its active set.
 
 **Dependency rule.** Flow B depends on flow A iff A's `:output-path` and any of B's `:inputs` share a path prefix in either direction:
 
@@ -247,38 +232,45 @@ Flows form a static dependency graph derivable from their `:output-path` and `:i
 - A's path is a prefix of B's input: `A.path = [:foo]`, `B.inputs = [[:foo :bar]]` — B reads inside A's value.
 - B's input is a prefix of A's path: `A.path = [:foo :bar]`, `B.inputs = [[:foo]]` — A's write is part of B's input map.
 
-The runtime topologically sorts the registry by this dependency relation. The sort is **not memoised** in v1 — the per-frame flow map is tiny (a handful of nodes) and Kahn's algorithm over it is cheaper than the bookkeeping a memo would need — a memoised topsort needs explicit invalidation on every `reg-flow` / `clear-flow`, and at the per-frame node counts v1 targets the unmemoised call is the cheapest correct option. Implementations that observe a real bottleneck in topsort cost MAY add a `core.memoize`-style cache keyed on the flow-registry identity, but the contract is just: deterministic order over the dependency graph each drain.
+The runtime topologically sorts the active set by this dependency relation. The sort is **not memoised** in v1 — the per-frame active set is tiny (a handful of nodes) and Kahn's algorithm over it is cheaper than the bookkeeping a memo would need — a memoised topsort needs explicit invalidation on every re-registration and every change to a frame's `:flows`, and at the per-frame node counts v1 targets the unmemoised call is the cheapest correct option. Implementations that observe a real bottleneck in topsort cost MAY add a `core.memoize`-style cache keyed on the active set's resolved definitions, but the contract is just: deterministic order over the dependency graph each drain.
 
-**Cycle detection.** If A depends on B and B depends on A (any indirection), `reg-flow` throws `:rf.error/flow-cycle` at registration time. The thrown `ex-info`'s `ex-data` carries `:cycle` — an ordered vector of flow ids with a **closing repeat** that names the offending chain (e.g. `[:a :b :a]` for the two-flow cycle `:a → :b → :a`). The error fires before any snapshot is created — caught at registration, not at runtime.
+**Cycle detection.** If A depends on B and B depends on A (any indirection) and a frame runs both, activation refuses the frame: construction throws `:rf.error/flow-cycle`. The thrown `ex-info`'s `ex-data` carries `:cycle` — an ordered vector of flow ids with a **closing repeat** that names the offending chain (e.g. `[:a :b :a]` for the two-flow cycle `:a → :b → :a`). The error fires before the frame runs any event. Registering the two flows is not an error: a definition names no frame, and a cycle exists only within a frame that runs every flow in it.
 
 ```clojure
-;; This will throw at registration:
 (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
-(rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
+(rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)   ;; both register
+;; This throws at activation:
+(rf/make-frame {:id :f :flows [:a :b]})
 ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
 ```
 
 The closing repeat is the contract: tools rendering the cycle (e.g. Xray) display the path verbatim. For an n-flow cycle the `:cycle` vector has `(inc n)` elements, with `(first cycle) = (last cycle)`. The starting node is implementation-defined (deterministic but unspecified) — multiple cycles can yield any one of them as the reported chain.
 
-Cycles can also form *during* flow registration if the new flow completes a cycle that was incomplete before it was registered. The detection runs every `reg-flow` call.
+A re-registration can complete a cycle in a frame that already runs the flows it joins; the check runs again when the re-registration reaches the frame ([§Re-registration](#re-registration)).
 
-**Disjoint output paths.** Flows in the same frame **MUST** write to pairwise-disjoint output `:output-path`s — no two flows' `:output-path`s may stand in a prefix relationship (identical paths included). `reg-flow` throws `:rf.error/flow-path-overlap` at registration time when a new flow's `:output-path` overlaps an already-registered sibling's. This is checked on every `reg-flow` call, inside the same atomic check-and-insert as cycle detection — the error fires before any state mutates, and the prior registration survives.
+**Disjoint output paths.** The flows a frame runs **MUST** write to pairwise-disjoint output `:output-path`s — no two active flows' `:output-path`s may stand in a prefix relationship (identical paths included). Activation throws `:rf.error/flow-path-overlap` when two flows in a frame's active set overlap. The check runs with cycle detection, before the frame runs any event, so a refused construction leaves nothing behind. Two flows writing one path is not itself an error — only a frame running both is.
 
-The reason this is an error and not merely a topological edge: the dependency rule above compares one flow's `:output-path` against another's **`:inputs`**, never `:output-path` against `:output-path`. Two flows whose *outputs* overlap but whose *inputs* are disjoint therefore get **no edge** between them — both are ready at topsort start, and their relative order falls out of map-iteration order, which is not a contract. The flow that runs second silently wins the shared slot under last-write-wins, with no detection and no documented ordering. Rejecting at registration removes the footgun rather than papering over it with a tie-break that would leave the collision silent.
+The reason this is an error and not merely a topological edge: the dependency rule above compares one flow's `:output-path` against another's **`:inputs`**, never `:output-path` against `:output-path`. Two flows whose *outputs* overlap but whose *inputs* are disjoint therefore get **no edge** between them — both are ready at topsort start, and their relative order falls out of map-iteration order, which is not a contract. The flow that runs second silently wins the shared slot under last-write-wins, with no detection and no documented ordering. Rejecting at activation removes the footgun rather than papering over it with a tie-break that would leave the collision silent.
 
 ```clojure
-;; All of these throw at registration — the second flow's :output-path
-;; overlaps the first's (one is a prefix of the other, identical included):
+;; Each of these frames is refused at activation — its two flows'
+;; :output-paths overlap (one is a prefix of the other, identical included):
 (rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
 (rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
+(rf/make-frame {:id :f1 :flows [:a :b]})
 ;; → ex-info ":rf.error/flow-path-overlap"  (identical paths)
 
 (rf/reg-flow :c {:inputs [[:w]] :output-path [:x]}    identity)
 (rf/reg-flow :d {:inputs [[:h]] :output-path [:x :y]} identity)
+(rf/make-frame {:id :f2 :flows [:c :d]})
 ;; → ex-info ":rf.error/flow-path-overlap"  (:x is a prefix of [:x :y])
+
+;; :a and :b both write [:x], which is fine while no frame runs both:
+(rf/make-frame {:id :f3 :flows [:a]})
+(rf/make-frame {:id :f4 :flows [:b]})
 ```
 
-The thrown `ex-info`'s `ex-data` carries `:overlap` — `{:flow-ids [id-a id-b] :paths [path-a path-b]}` naming the colliding pair (deterministically ordered so the report is stable across runs) — alongside the canonical `:rf.error/id` / `:where` `'rf/reg-flow` / `:recovery :fix-registration` slots ([009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)). The caller gives one of the two flows a disjoint `:output-path` and retries. Sibling paths that merely share a non-prefix element are **not** an overlap: `[:x :y]` and `[:x :z]` are disjoint (each writes its own leaf under a shared parent), and only the prefix relationship — where one write would clobber or be subsumed by the other — is rejected.
+The thrown `ex-info`'s `ex-data` carries `:overlap` — `{:flow-ids [id-a id-b] :paths [path-a path-b]}` naming the colliding pair (deterministically ordered so the report is stable across runs) — alongside the canonical `:rf.error/id` / `:where` / `:recovery :fix-registration` slots ([009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)). The fix is to give one of the two flows a disjoint `:output-path`, or to stop the frame running both. Sibling paths that merely share a non-prefix element are **not** an overlap: `[:x :y]` and `[:x :z]` are disjoint (each writes its own leaf under a shared parent), and only the prefix relationship — where one write would clobber or be subsumed by the other — is rejected.
 
 ## Dirty-check semantics
 
@@ -290,13 +282,13 @@ if new-inputs ≠ last-inputs[[frame-id flow-id]]:
   recompute and write
 ```
 
-The `last-inputs` table is keyed by `[frame-id flow-id]` so the same flow id registered against two frames maintains two independent dirty-check windows.
+The `last-inputs` table is keyed by `[frame-id flow-id]`, so one flow that two frames run keeps two independent dirty-check windows. Each row also records the definition identity and output path it was computed with ([§Re-registration](#re-registration)).
 
 Three implications:
 
 1. **No-op `app-db` writes don't trigger.** A handler that writes the same value back to `:width` does not re-fire flows that depend on `:width`.
 2. **Path-overlap is sufficient, not necessary, for re-firing.** A flow whose inputs sit at `[:user :profile :name]` does not re-fire when an unrelated path like `[:cart :items]` changes. The dirty-check is per-flow, not per-app-db-change.
-3. **First evaluation always fires.** A newly-registered flow's `last-inputs` is uninitialised; its first walk recomputes unconditionally and produces the initial output value.
+3. **First evaluation always fires.** A flow newly active in a frame — at construction, after a frame re-registration adds it, or after a re-registration replaces its definition — has no row computed with its current definition, so its first walk recomputes unconditionally and produces the initial output value.
 
 A flow owns its `:output-path`: on an equal-input visit the runtime writes the output the flow last computed back into the pending `app-db` wherever that path no longer holds it (a handler replaced the db, rebuilt the map holding the output, or wrote the slot itself), without calling `:derive`, so to override a flow's value you change its inputs or its definition.
 
@@ -343,13 +335,13 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 
 | `:operation` | Fires when |
 |---|---|
-| `:rf.flow/registered` | `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, after cycle detection passes. |
+| `:rf.flow/registered` | `reg-flow` registers a flow definition in the registrar for the first time (a re-registration rides `:rf.registry/handler-replaced`). |
 | `:rf.flow/computed` | A flow's `:derive` fn ran and the result was written to its `:output-path` (dirty-check observed input value-difference). Carries `:before` (the value at `:path` immediately before this drain's write — `nil` when the slot had never been written) alongside `:result`, so consumers render the wrote-line "wrote `[:path]` `<before>` → `<after>`" without walking the surrounding epoch's `:db-before` snapshot. Both ride through `elide-wire-value` against the flow's `:path`. |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; value-equal recompute suppression). Carries `:repaired? true` when that visit wrote the flow's remembered output back; a plain skip carries no `:repaired?` key. |
-| `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
+| `:rf.flow/cleared` | `(rf/clear :flow id)` removed the flow's registration. Each frame that runs the flow vacates its output path on its next event. |
 | `:rf.flow/failed` | A flow's evaluation threw during recompute — the authored `:derive` fn (`:phase :derive`), or the framework's install of its returned value at the declared `:output-path` (`:phase :output-write`). Carries `:phase` and `:path` alongside the exception summary. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the atomicity contract (the event aborts — no install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped; `last-inputs` rolled back so every flow re-attempts; router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
 
-Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Xray's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
+The evaluation events (`:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/failed`) carry `:flow-id` and `:frame` under `:tags`; the two registration events carry `:flow-id` and no `:frame`, because a registration names none. Pair-shaped tools, Xray's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
 <a id="flow-output-data-classification-ep-0025"></a>
 
@@ -418,104 +410,43 @@ The asymmetry follows from the **shape-uniformity** difference: routing's slice 
 
 A tool wanting to enumerate "which subs depend on this route's id" reads the sub-graph: `re-frame.subs.tooling/sub-topology` gives every sub's declared `:inputs`, so the subs built on `[:rf.route/id]` read straight off it, and `sub-cache-snapshot`'s `:realized-inputs` adds the edges parametric subs realise at runtime. A tool wanting to enumerate "which subs depend on this flow's output" is asking about **`app-db` path consumers**, not flow-output consumers: a consumer is a sub whose layer-1 fn reads the flow's `:output-path`, not a sub that names "the flow with this id". A layer-1 fn is opaque, so no framework surface maps an `app-db` path to the subs that read it.
 
-This is an **observability asymmetry** the doc names but does not paper over. A tool rendering a "flow consumer" panel matches the flow's `:output-path` against the `app-db` paths its consumers read, not against a framework sub-id. Which flows exist comes from the flows artefact's read accessors — `re-frame.flows/flows` (one frame's flows), `re-frame.flows/flow-meta` (one flow) and `re-frame.flows/flows-snapshot` (every frame's) — never from the registrar, which holds no flows: a `:kind :flow` registrar query raises `:rf.error/registrar-kind-not-queryable` ([§Frame-scoping](#frame-scoping)). Neither surface is a framework sub family.
+This is an **observability asymmetry** the doc names but does not paper over. A tool rendering a "flow consumer" panel matches the flow's `:output-path` against the `app-db` paths its consumers read, not against a framework sub-id. Which flows exist comes from the registrar — `(rf/registrations {:source :store :kind :flow})` — and which a frame runs from `(:flows (rf/frame-meta f))` ([§Activation](#activation)). Neither surface is a framework sub family.
 
 There is **no** framework sub family `:rf.flow/<flow-id>` whose layer-1 fn is `(fn [db _] (get-in db (:output-path flow)))`. Flows write app-db and subs read app-db; the two surfaces stay separate (per the [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) framing). The zero-framework-sub posture is the v1 contract.
 
-## Dynamic toggle via fx
+## Sequencing — settling on the dispatching frame
 
-Two reserved fx-ids let event handlers register and clear flows during normal event processing:
+> **NORMATIVE.** Whatever an `:fx` walk changes in frame state — `app-db` or runtime-db, through any effect — every flow the frame runs reflects before any continuation the walk queued runs, and by the time the dispatch returns. No application-authored follow-up event is required, and none may be required by any future revision of this section.
 
-| Fx-id | Args | Effect |
-|---|---|---|
-| `:rf.fx/reg-flow` | The 3-slot triple `[flow-id metadata derive-fn]` (the same shape `reg-flow` takes) | Register the flow against the dispatching frame. The settling drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)), so the flow's initial output is materialised before the dispatch settles — per [§Sequencing](#sequencing--settling-on-the-dispatching-frame). |
-| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:output-path` in that frame's `app-db`. The settling drain's topsort observes the removal, so the row and the value it owned go together. |
+The `:fx` walk is the *last* drain stage, **after** the flow transform has evaluated for the current event (per [§Drain integration](#drain-integration), step 4 runs after step 2), so an effect that writes frame state during the walk lands after the pass that would have read it. The machine lifecycle effects are the motivating writers: `:rf.machine/destroy` and `:rf.machine/spawn` write the actor's snapshot straight into runtime-db there, so a flow over a machine snapshot — [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)'s own example input — would keep publishing the pre-write value, and a continuation the same handler queued would read it and could persist that wrong decision. An ordinary machine transition is not such a writer: it commits through the event's pending runtime-db, which the flow pass reads.
 
-```clojure
-(rf/reg-event :wizard/enter-step-2
-  (fn [_ _]
-    {:fx [[:rf.fx/reg-flow [:step-2/computed
-                            {:inputs      [[:step-2 :foo] [:step-2 :bar]]
-                             :output-path [:step-2 :result]}
-                            (fn [foo bar] (compute foo bar))]]]}))
+**How it settles.** When a completed `:fx` walk has changed the frame's state on a frame that runs at least one flow, the runtime enqueues **one** framework-private settling event, `[:rf/settle-flows]`, at the head of the dispatching frame's queue. Run-to-completion drains it within the same pass, ahead of every continuation the walk queued, so it has settled before the originating dispatch returns. The settling event runs the **ordinary** interceptor chain and therefore the ordinary flow transform — the same topological sort and dirty check every other event gets. It contributes no `:db` effect of its own, so a settle over an already-settled frame recomputes nothing, installs nothing, and emits no `:rf.event/db-changed`.
 
-(rf/reg-event :wizard/leave-step-2
-  (fn [_ _]
-    {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
-```
-
-**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` metadata key — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony. That frame-scoping, together with a shipped handler-time consumer and args that are `reg-flow` / `clear-flow`'s own positional arguments verbatim, is why this pair has an fx form at all — the framework-wide rule is [Conventions §When a registrar has an fx form](Conventions.md#when-a-registrar-has-an-fx-form).
-
-### Sequencing — settling on the dispatching frame
-
-> **NORMATIVE.** A flow registered by `:rf.fx/reg-flow` **has its initial output materialised, and every dependent flow recomputed, by the time the dispatching event settles.** A flow cleared by `:rf.fx/clear-flow` **has its `:output-path` vacated, and every dependent flow recomputed against that absence, by the same boundary.** The same holds for `clear-flow`, and for a `reg-flow` that moves an existing flow's `:output-path`, called from **any** effect, reserved or application-registered. And **whatever an `:fx` walk changes in frame state — `app-db` or runtime-db, through any effect — every flow on that frame reflects before any continuation the walk queued runs, and by the time the dispatch returns.** No application-authored follow-up event is required, and none may be required by any future revision of this section.
-
-`:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — and the `:fx` walk is the *last* drain stage, **after** the flow-transform `:after` has already evaluated for the current event (per [§Drain integration](#drain-integration), step 4 runs after step 2). So the registry mutation lands after the pass that would have acted on it. Left there, that is a one-drain lag with two arms, and the second is not merely late but incoherent: the registry row is already gone while the derived value it owned is still present.
-
-The same is true of any effect that **writes frame state** during the walk. The machine lifecycle effects are the motivating writers: `:rf.machine/destroy` and `:rf.machine/spawn` write the actor's snapshot straight into runtime-db there, so a flow over a machine snapshot — [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)'s own example input — would keep publishing the pre-write value, and a continuation the same handler queued would read it and could persist that wrong decision. An ordinary machine transition is not such a writer: it commits through the event's pending runtime-db, which the flow pass reads.
-
-**How it settles.** When the `:fx` walk has registered or cleared a flow — through the reserved effects, or through `clear-flow` or an `:output-path`-moving `reg-flow` called from any effect — **or** has changed the frame's state (`app-db` or runtime-db) on a frame that holds at least one flow, the runtime enqueues **one** framework-private settling event on the dispatching frame after the walk completes. Run-to-completion drains it within the same pass, so it has settled before the originating dispatch returns. The settling event runs the **ordinary** interceptor chain and therefore the ordinary flow transform — the same topological sort and dirty check every other event gets. It contributes no `:db` effect of its own, so a settle over an already-settled frame recomputes nothing, installs nothing, and emits no `:rf.event/db-changed`.
-
-The state trigger keys on the frame's state, not on a list of writers, so any present or future effect that writes frame state is covered without enrolling it. It is guarded by the frame holding a flow: a walk that writes state on a frame with no flows — or in an application without the flows artefact — enqueues nothing. A walk that neither touches the flow registry nor writes frame state — a `:dispatch`, a timer, a request — enqueues nothing either. A `clear-flow` or path move made from a handler *body* needs none of this: the event's own flow pass has not yet run, and applies it.
+The trigger keys on the frame's state, not on a list of writers, so any present or future effect that writes frame state is covered without enrolling it. It is guarded by the frame running a flow: a walk that writes state on a frame that runs none — or in an application without the flows artefact — enqueues nothing, and so does a walk that writes no frame state (a `:dispatch`, a timer, a request).
 
 Four properties follow, and they are why the settle is a separate event rather than an inline re-run of the transform:
 
-1. **Exactly one `app-db` install per event holds.** The settle is a separately dequeued event with its own single install; nothing writes `app-db` twice inside the registering event. [§Drain integration](#drain-integration) property 4, the pending-effect-transform model ([§Resolved decisions §Flows transform the pending `:db` effect](#flows-transform-the-pending-db-effect-as-the-outermost-after-resolved)) and the atomic-commit contract ([§Failure semantics](#failure-semantics)) all hold.
-2. **The failure boundary stays where it belongs.** A newly registered flow whose `:derive` throws aborts the **settle**, not the event that registered it: the registering event's own `:db` write has already committed. The throw is reported through the ordinary `:rf.error/flow-eval-exception` path with the usual `:phase` discriminator (`:derive` vs `:output-write`) — see [§Failure semantics](#failure-semantics). There is no second failure path.
-3. **It is frame-scoped like any other event.** The settle is dispatched on the frame the effects ran against, so it can no more reach a sibling frame than any other event can ([§Frame-scoping](#frame-scoping)).
-4. **One settle per walk, whatever the walk did.** A single `:fx` vector that clears one flow, registers two and patches a machine snapshot settles all of it in one pass, in topological order, with one install — because a settle observes the registry and the frame state as the *whole* walk left them. A walk nested inside another — a machine exit cascade runs its own — may add a settle of its own; that is harmless, because settling is idempotent under the dirty check.
-
-```clojure
-(rf/reg-event :wizard/enter-step-2
-  (fn [_ _]
-    {:fx [[:rf.fx/reg-flow [:step-2/computed
-                            {:inputs      [[:step-2 :foo] [:step-2 :bar]]
-                             :output-path [:step-2 :result]}
-                            (fn [foo bar] (compute foo bar))]]]}))
-;; [:step-2 :result] is populated when this dispatch settles.
-```
+1. **Exactly one `app-db` install per event holds.** The settle is a separately dequeued event with its own single install; nothing writes `app-db` twice inside the event whose walk wrote the state. [§Drain integration](#drain-integration) property 4, the pending-effect-transform model ([§Resolved decisions §Flows transform the pending `:db` effect](#flows-transform-the-pending-db-effect-as-the-outermost-after-resolved)) and the atomic-commit contract ([§Failure semantics](#failure-semantics)) all hold.
+2. **The failure boundary stays where it belongs.** A `:derive` that throws on the newly written state aborts the **settle**, not the event whose walk wrote it: that event's own `:db` write has already committed. The throw is reported through the ordinary `:rf.error/flow-eval-exception` path with the usual `:phase` discriminator (`:derive` vs `:output-write`) — see [§Failure semantics](#failure-semantics). There is no second failure path.
+3. **It is frame-scoped like any other event.** The settle is dispatched on the frame the effects ran against, so it can no more reach a sibling frame than any other event can ([§Activation](#activation)).
+4. **One settle per walk, whatever the walk did.** A single `:fx` vector that spawns two actors and writes a resource settles all of it in one pass, in topological order, with one install — because a settle observes the frame state as the *whole* walk left it. A walk nested inside another — a machine exit cascade runs its own — may add a settle of its own; that is harmless, because settling is idempotent under the dirty check.
 
 **The settling event is framework-private and is not API.** It is not registered — neither in the registrar nor in the EP-0023 image standard registry — so it adds no row to an application's event catalogue, tooling projection, or generated code; it is materialised through the router's unresolved-handler seam. Its id is nonetheless reserved (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) so an application registration cannot shadow it. Applications must not depend on its id, its presence in a trace stream, or its position in the queue. **The observable contract is the settle boundary stated above, not the transport that achieves it.**
 
 **No follow-up event is needed.** A follow-up no-op event dispatched from the same handler is redundant work: settling is idempotent under the dirty check, so it changes nothing.
 
-**`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:output-path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
-
-### The same boundary for a direct `clear-flow`
-
-> **NORMATIVE.** `clear-flow` called as a plain function OUTSIDE an event drain **has vacated the flow's `:output-path`, and recomputed against that absence every dependent flow that has evaluated since it was registered, by the time the call returns.** A flow registered or re-registered since the last drain is **not** evaluated by this settle: its first evaluation belongs to the next drain, per [§Why a direct `reg-flow` does not settle](#why-a-direct-reg-flow-does-not-settle), and until then its slot, and anything derived from it, keeps its current value. No application-authored follow-up event is required, and none may be required by any future revision of this section.
-
-The boundary above is stated for the fx route, but it is not a property of the *transport*: `clear-flow` is documented as a synchronous deregister-and-vacate function, callable from boot code, tests, and per-tenant setup, so the same invariant has to hold when it is called directly. Without it the call returns leaving an `app-db` in which a live flow still publishes a value derived from a slot that no longer exists — repaired only when some later, *unrelated* event happens to drain the frame. That is worse than a plain lag: it self-heals in a busy application and so presents as intermittent, and any test that dispatches after the clear passes whether or not the defect is present.
-
-Three points bound the rule.
-
-1. **Only established dependents are recomputed; nothing else cascades.** Vacation stays leaf-only and applies to the cleared flow's own `:output-path`. A dependent flow is still registered, so it keeps publishing its slot — now derived from the cleared input's absence, exactly as the fx route leaves it. Its slot is not removed. A flow that has not evaluated since it was registered or re-registered is not evaluated at all: it, and any established flow downstream of it, keep their current values until the next drain — the stale but *owned* state a cold re-registration already leaves ([§Why a direct `reg-flow` does not settle](#why-a-direct-reg-flow-does-not-settle)).
-2. **The failure boundary is the direct caller's.** If a remaining flow's `:derive` throws while settling, the deregistration and vacation stand — they are already committed, and are what the caller asked for — the settle's candidate `app-db` is discarded unwritten, and the ordinary `:rf.error/flow-eval-exception` (per [§Failure semantics](#failure-semantics), with its `:phase` discriminator) propagates to the caller. This is the ordinary structured failure reported through the ordinary path; a direct synchronous call reports its own failure to its own caller rather than deferring it. There is no rollback of the clear, and no new error category.
-3. **In-drain calls settle through the drain.** A `clear-flow` issued inside a drain queues its vacation rather than settling at the call site, which would write a live `app-db` the deferred commit is about to replace. From a handler *body*, the event's pending-`:db` flow pass has not yet run, and it applies the vacation. From an *effect* — `:rf.fx/clear-flow` or an application-registered fx — that pass has already run, so the call requests the `:fx` walk's one settle ([§Sequencing](#sequencing--settling-on-the-dispatching-frame)), which applies it before the dispatch returns. That is where the fx route's one-settle, topological behaviour above comes from.
-
-Unknown flow ids and absent frames are silent no-ops: with no flow to clear there is nothing to settle, and teardown stays idempotent. As with the fx route, **the observable contract is the boundary, not the transport** — no public settle event, function, flag, or extra `clear-flow` arity exists, and the settle is one ordinary pass under the standard dirty check, not fixed-point iteration.
-
-This section governs `clear-flow` only. `reg-flow`'s direct path is outside its scope; do not read symmetry into it — the section immediately below states what that path does instead, and why the difference is deliberate.
-
-### Why a direct `reg-flow` does not settle
-
-> **NORMATIVE.** `reg-flow` called as a plain function OUTSIDE an event drain **registers the flow without evaluating it.** The flow's initial output — or, for a re-registration, its recomputed output — is materialised by the next drain, per [§Re-registration](#re-registration). A direct `reg-flow` **must not** settle.
-
-The asymmetry with the section above is deliberate, and is stated here because it reads as an oversight. The two operations differ in what they leave behind.
-
-`clear-flow` removes a value that is already in `app-db`, and what it leaves is **orphaned**: no live flow owns the slot. Settling it does not choose a first-evaluation moment for anyone, because the settle re-evaluates only flows that have already run and leaves a flow registered since the last drain to that drain. That is a statement about *when* the settle evaluates, not a promise that cleanup cannot fail: an established dependent can still throw on its producer's absence, and that failure is the direct caller's (point 2 of [§The same boundary for a direct `clear-flow`](#the-same-boundary-for-a-direct-clear-flow)).
-
-`reg-flow` adds a flow that has **never run**. Settling would force a *first evaluation* at a moment the caller did not choose. The direct form is documented for boot code, tests, and per-tenant setup — code that runs *before* `app-db` is seeded — so that evaluation would land on absent inputs. A `:derive` is specified as a pure function of its declared inputs ([§The registration shape](#the-registration-shape)); it is not required to be total on `nil`, and requiring it to be would widen the derive contract for every flow in every application. Registration is a **declaration**; evaluation is the drain's job, and that is what keeps registration order-independent with respect to seeding.
-
-The re-registration case is the same rule seen from the other side, and is the one most easily confused with the value an unsettled `clear-flow` would leave behind: immediately after a cold re-registration the slot still holds the *previous* definition's value. That value is stale but **owned** — the flow is registered and the next drain refreshes it unconditionally, because [§Re-registration](#re-registration) resets the dirty check. An unsettled `clear-flow` would leave a value with no owner at all, which is exactly the difference that would make it *incoherent* rather than merely late.
-
-`:rf.fx/reg-flow` settles, and must, without contradicting any of this — but **not** because running inside a drain makes the hazard impossible. It does not: a drain evaluates against the *event's own* pending `app-db`, which may be empty, so an event whose only effect is `:rf.fx/reg-flow` evaluates the new flow's `:derive` against absent inputs and fails in the ordinary way (per [§Failure semantics](#failure-semantics)). The difference is **responsibility**, not safety. An effect registration is issued from inside an event, so that event is the place to establish the inputs or to follow one that did; it *requests* evaluation now, and a failure surfaces at the effect's explicit settle boundary as an ordinary event failure, attributed to the flow and the `:derive` phase. A direct registration has no such event to be responsible for — boot code, a test fixture, per-tenant setup — so it declares, and the next drain evaluates. As with the clear boundary, what settles is determined by **when the call runs**, not by which operation it is — the same reasoning applied to a case whose facts differ, reaching the opposite answer.
-
 ## Re-registration
 
-`reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the next drain's topsort observes the new dependency edges automatically (per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); v1 does not memoise the sort). In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
+`reg-flow` with an already-registered id is an ordinary registrar re-registration — a **surgical update**, the same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new definition replaces the old in the registrar, and a frame that resolves the live store runs it from its next event; a frame running a sealed image generation keeps the definition its generation sealed. In-flight events finish against the definition they entered the drain with. The replacement emits the registrar's ordinary `:rf.registry/handler-replaced`.
 
-When the same-frame replacement also **moves the output `:output-path`** (the new definition declares a different `:output-path` than the old), the *old* path is vacated from the frame's `app-db` — the same `dissoc-in` cleanup `clear-flow` performs (per [§clear-flow cleanup](#frame-scoping) above). Otherwise the previous definition's last write would linger at the abandoned slot and downstream reads would see stale derived state that no live flow maintains. A same-frame replacement that keeps the `:output-path` does not vacate anything — the next recompute overwrites the slot in place.
+Each frame's memo rows record the definition identity and output path they were computed with, so a frame reconciles a changed registration on its next event, with no reload hook:
+
+- **A changed definition recomputes.** A row computed with a different definition does not suppress the walk, so the new `:derive` runs whatever the inputs, and the topsort observes the new dependency edges ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection); v1 does not memoise the sort). A `:derive` fix saved during development therefore takes effect on the next event, including one that clears a `:derive` that was aborting every event ([§Failure semantics](#failure-semantics)).
+- **A moved output path is vacated.** When the new definition declares a different `:output-path`, the next pass `dissoc-in`s the old path from the frame's `app-db` within the same pending `:db` effect that writes the new one, so no stale value lingers at a slot no live flow maintains. A replacement that keeps the path vacates nothing; the recompute overwrites it in place.
+- **A removed registration vacates its output.** When `(rf/clear :flow id)` or the hot-reload sweep removes a registration that a frame's `:flows` names, the frame's next pass vacates the output path its memo row recorded and warns `:rf.warning/unregistered-flow`, naming the frame and the id. The frame keeps running its other flows, which read the vacated slot like any absent input, and re-registering the id resumes it.
+- **The activation checks run again.** A re-registration that completes a cycle or an output overlap in a frame's active set refuses that frame's next pass: the event aborts as any pre-install throw does ([§Failure semantics](#failure-semantics)), raising `:rf.error/flow-cycle` or `:rf.error/flow-path-overlap`, and each later event on the frame does the same until a further registration repairs the set.
+
+A frame's `:flows` changes only by re-registering the frame ([002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)): a flow the new vector adds runs from the next event, and a flow it drops stops running, its output path vacated on that event. The activation checks run on the new vector as part of the re-registration. Editing `:flows` on a mounted `frame-root` raises `:rf.error/frame-root-reconfigured`, as editing `:interceptors` does ([002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference)).
 
 ## What flows are NOT
 
@@ -525,7 +456,7 @@ Three near-neighbours flows are *not*:
 |---|---|
 | **Subscription** ([006](006-ReactiveSubstrate.md)) | Subs live in the sub-cache; consumed by views. Flows live in `app-db`; consumed by everything (handlers, other flows, schemas, SSR payload). When the value is part of the application's *state*, use a flow; when it's part of view rendering only, use a sub. |
 | **State machine** ([005](005-StateMachines.md)) | Machines have transitions, hierarchical states, `:always`/`:after`/`:spawn`, snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db. Flows have one pure function and one output path. Use a machine when there are discrete states; use a flow when the value is a pure function of inputs. |
-| **`on-changes` interceptor** (v1) | `on-changes` is wired into specific events' interceptor chains. Flows are registered against a frame and toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. The compute-on-change semantics are identical; the registration shape and lifecycle are different. |
+| **`on-changes` interceptor** (v1) | `on-changes` is wired into specific events' interceptor chains. A flow is registered once at the top level and runs on every event of each frame whose `:flows` names it. The compute-on-change semantics are identical; the registration shape and lifecycle are different. |
 
 Flows are also explicitly *not*:
 
@@ -541,14 +472,14 @@ Flows are also explicitly *not*:
 | `:inputs` (map of keyword → path-or-`flow<-`) | `:inputs` (vector of paths). Map-keyed inputs that referenced other flows via `flow<-` collapse to plain paths — the topological sort handles dependency ordering automatically. |
 | `:output` (function of resolved-inputs map) | The **third positional slot** — the `derive-fn` value of `(reg-flow flow-id metadata derive-fn)`, taking its inputs positionally rather than destructuring a resolved-inputs map. It is **not** a metadata key: a `:derive` left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`. |
 | `:path` | `:output-path` |
-| `:live?`, `:live-inputs` | Dropped. Use `:rf.fx/clear-flow` to toggle off; `:rf.fx/reg-flow` to toggle on. |
+| `:live?`, `:live-inputs` | Dropped. A gate is data: the events that flip the predicate write its value into `app-db`, and the flow reads it as one of its `:inputs` (see [§Activation](#activation)). |
 | `:cleanup` | Dropped. Default is `dissoc-in` on `:output-path`; opt-out is not provided. |
 | Per-flow `:fx` | Dropped. Dispatch an event from a handler if you need fx on flow output change. |
 | Lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Not applicable. Lifecycle policies are a sub-cache concern; flows have one cache state (registered-or-not). |
 | `flow<-` reified flow-to-flow input | Dropped. Flow B reads flow A by listing A's `:output-path` in its `:inputs`. |
-| `:reg-flow` / `:clear-flow` (unprefixed fx-ids) | Renamed to `:rf.fx/reg-flow` / `:rf.fx/clear-flow` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned). |
+| `:reg-flow` / `:clear-flow` (unprefixed fx-ids) | Dropped, with no fx form: a flow is registered at the top level and activated by frame config, and a gate is data (the `:live?` row above). The prefixed spellings `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are reserved and never recycled ([Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)). |
 
-The migration agent rewrites mechanically; flow definitions that used `:live?` lift to a wrapping event-handler that calls `:rf.fx/clear-flow` when the predicate flips false.
+The migration agent rewrites mechanically; a flow definition that used `:live?` gains its gate as an input instead, and the events that flipped the predicate write the gate into `app-db`.
 
 ## Conformance coverage
 
@@ -557,15 +488,18 @@ The behaviours below are exercised by **realized** `spec/conformance/fixtures/fl
 | Behaviour | Realized coverage |
 |---|---|
 | Single flow, multiple inputs, one output; dirty-check re-fires on input change | `flow-recompute-on-input-change.edn` |
-| `:rf.fx/reg-flow` / `:rf.fx/clear-flow` from event handlers (lifecycle) | `flow-toggle-via-fx.edn`; `flow-lifecycle-emits-traces.edn` (trace lifecycle) |
+| A feature gate held as `app-db` data turns a flow's output on and off | `flow-toggle-via-fx.edn` |
+| Registration and clear lifecycle traces | `flow-lifecycle-emits-traces.edn` |
 | Multi-layer flows — A runs before B when B depends on A's output (topological order) | `flow-multi-input-topo.edn`; topo-sort unit tests `flows_topo_test.clj` |
-| Registering a cycle throws `:rf.error/flow-cycle` | unit tests `flows_topo_test.clj` / `flows_test.clj` (a registration-time throw is asserted directly, not via a corpus outcome) |
+| Activating a cycle throws `:rf.error/flow-cycle` | unit tests `flows_topo_test.clj` / `flows_test.clj` (an activation-time throw is asserted directly, not via a corpus outcome) |
 | An `app-db` write producing a `=`-equal value does not re-fire dependent flows | `flow-noop-on-value-equal-input.edn` |
-| Same flow id registered against two frames with different `:derive` fns yields two independent results; `clear-flow` on one frame leaves the other intact | `flow-frame-scoped.edn`; `flow-frame-destroy-teardown.edn` (per-frame teardown) |
+| Two frames running different flows stay isolated, and two derivations of one quantity are two ids | `flow-frame-scoped.edn` |
+| Destroying a frame drops its memo and leaves a sibling frame's flows running | `flow-frame-destroy-teardown.edn` |
+| A re-registration recomputes on the next event, and a moved output path is vacated | `flow-hot-reload-preserves-output.edn` |
 
 ## Open questions
 
-> **SA-4 classification.** The item below is a **post-v1, untracked note** per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md) — deferred design work the corpus tolerates shipping without resolving (the v1 design is settled — vector `:inputs`), marking a candidate enhancement rather than a blocking gap. It has no tracking bead filed yet, so it **does not qualify as `:post-v1 tracked`** (which requires a `rf2-<id>`); it records the concrete reconsideration trigger that files its bead when it fires. Settling after `:rf.fx/reg-flow` is resolved, in [§Resolved decisions](#lifecycle-effects-settle-on-the-dispatching-frame-resolved).
+> **SA-4 classification.** The item below is a **post-v1, untracked note** per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md) — deferred design work the corpus tolerates shipping without resolving (the v1 design is settled — vector `:inputs`), marking a candidate enhancement rather than a blocking gap. It has no tracking bead filed yet, so it **does not qualify as `:post-v1 tracked`** (which requires a `rf2-<id>`); it records the concrete reconsideration trigger that files its bead when it fires. Settling after a state-writing effect is resolved, in [§Resolved decisions](#state-writes-in-the-fx-walk-settle-on-the-dispatching-frame-resolved).
 
 ### Map-keyed `:inputs` instead of vector
 
@@ -578,7 +512,7 @@ The vector form (`:inputs [[:width] [:height]] :derive (fn [w h] ...)`) matches 
 
 ### Topological sort over registration order (RESOLVED)
 
-Topological sort, not registration order, because dynamic registration via `:rf.fx/reg-flow` makes registration order dispatch-time-dependent and an unreliable contract. The dependency graph is statically derivable from each flow's `:output-path` and `:inputs`; recomputing the sort once per drain is cheap at v1's per-frame node counts (a handful of flows, Kahn's algorithm over them is cheaper than memo bookkeeping). The sort is not memoised — per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection).
+Topological sort, not registration order or `:flows` order: registration order is namespace load order, which decides nothing, and `:flows` names a set, so neither is a contract. The dependency graph is statically derivable from each flow's `:output-path` and `:inputs`; recomputing the sort once per drain is cheap at v1's per-frame node counts (a handful of flows, Kahn's algorithm over them is cheaper than memo bookkeeping). The sort is not memoised — per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection).
 
 ### One-pass evaluation, not fixed-point iteration (RESOLVED)
 
@@ -588,13 +522,13 @@ Topological sort lets every flow settle in one walk. Fixed-point iteration would
 
 Per [§Open questions §Map-keyed `:inputs`](#map-keyed-inputs-instead-of-vector), the vector form ships in v1 for migration ergonomics. The map-keyed alternative is a design option for a future iteration.
 
-### `clear-flow` always `dissoc-in`s the output path (RESOLVED)
+### A flow leaving a frame vacates its output path (RESOLVED)
 
-No opt-out. Stale derived values are confusing; vacating the slot is the natural toggle-off semantics. Apps that want to preserve the value should copy it elsewhere before clearing.
+No opt-out. When a frame stops running a flow — its registration cleared or swept, or the frame re-registered without it — or a re-registration moves its `:output-path`, the frame's next event vacates the slot. A value no live flow maintains is stale derived state that downstream readers cannot tell from a live one. Apps that want to preserve the value copy it elsewhere first.
 
 ### Frame-destroy teardown is mandatory (RESOLVED)
 
-`destroy-frame!` MUST release every per-frame piece of flow state — the per-frame flow-registry entry and all `last-inputs` rows for the destroyed frame. Sibling frames' entries and rows are preserved (single-store: a surviving frame keeps its own authoritative entry in place — there is no frame-blind registrar `:flow` slot to prune or realign). Per [§Frame-destroy teardown](#frame-destroy-teardown). Without this, long-running SSR JVM hosts (per-request frame churn), pair-tool time-travel, and `make-frame` ephemeral usage leak flow definitions and cached input vectors indefinitely. Symmetric with the machines / schemas / SSR teardown hooks the per-feature artefacts publish off the single normative `destroy-frame!` boundary at [002 §Destroy](002-Frames.md#destroy).
+`destroy-frame!` MUST release the destroyed frame's flow evaluation memo — every memo row it holds. Definitions live in the registrar, so every definition, and a sibling frame's rows, are untouched. Per [§Frame-destroy teardown](#frame-destroy-teardown). Without this, long-running SSR JVM hosts (per-request frame churn), pair-tool time-travel, and `make-frame` ephemeral usage leak cached input vectors indefinitely. Symmetric with the machines and SSR teardown hooks the per-feature artefacts publish off the single normative `destroy-frame!` boundary at [002 §Destroy](002-Frames.md#destroy).
 
 ### Flows transform the pending `:db` effect, as the outermost `:after` (RESOLVED)
 
@@ -614,19 +548,18 @@ Letting prior-flow writes commit on a flow throw would commit a partial `app-db`
 
 Flow evaluation failures MUST surface on the always-on production error-emit substrate (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)), NOT on the dev-only trace surface alone. The error-emit substrate survives CLJS `:advanced` + `goog.DEBUG=false` and routes the tight record (failing event-id + frame) to the `:observability :errors` sinks ([015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)). The per-flow `:rf.flow/failed` trace fires first with full flow-attributed detail (including `:flow-id`), but it rides the dev-only trace surface and DCEs in production. Without this routing, a production-build flow-eval failure would be silently dropped — no off-box monitor record. Per [§Failure semantics](#failure-semantics) rule 4.
 
-### Lifecycle effects settle on the dispatching frame (RESOLVED)
+### State writes in the `:fx` walk settle on the dispatching frame (RESOLVED)
 
-The `:fx` walk runs after the event's flow pass, so a flow it registers or clears would otherwise wait a drain. There are two ways to close that lag. A *second* mid-event `app-db` install is one, and it is the disallowed one; a second **event** is the other, and it costs none of the invariants. `:rf.fx/reg-flow` / `:rf.fx/clear-flow` enqueue one framework-private settling event on the dispatching frame, which drains inside the same run-to-completion pass. Each event installs `app-db` exactly once, the atomic-commit contract holds, and a settle-time `:derive` throw reports through the ordinary `:rf.error/flow-eval-exception` path — see [§Sequencing](#sequencing--settling-on-the-dispatching-frame).
+The `:fx` walk runs after the event's flow pass, so state an effect writes during the walk would otherwise reach the frame's flows a drain late. There are two ways to close that lag. A *second* mid-event `app-db` install is one, and it is the disallowed one; a second **event** is the other, and it costs none of the invariants. A walk that changes frame state on a frame that runs a flow enqueues one framework-private settling event on that frame, which drains inside the same run-to-completion pass. Each event installs `app-db` exactly once, the atomic-commit contract holds, and a settle-time `:derive` throw reports through the ordinary `:rf.error/flow-eval-exception` path — see [§Sequencing](#sequencing--settling-on-the-dispatching-frame).
 
-Three things make settling the runtime's job. The lag is **not symmetric**: on the clear arm it would leave the registry row gone while the value it owned remained, which is not lateness but incoherence at the dispatch boundary. It is **not opt-in-shaped**: living with it would take an application-authored no-op event, dispatched from every call site — ceremony in every consumer's event catalogue, trace stream, tests and generated code to spare the runtime one follow-up drain, which inverts the framework's job. And that no-op event is **exactly the mechanism the settle uses**, so leaving it to applications would have every one of them hand-write a drain the runtime can perform once itself.
-
-The same settle covers every other way an `:fx` walk can leave flows behind — a `clear-flow` or `:output-path`-moving `reg-flow` called from an application effect, and any effect that writes the frame's state on a frame that holds a flow — per [§Sequencing](#sequencing--settling-on-the-dispatching-frame). It keys on the frame's state rather than on a list of writers, so no writer has to be enrolled and none can be missed.
+Settling is the runtime's job because the alternative is an application-authored no-op event dispatched after every state-writing effect — ceremony in every consumer's event catalogue, trace stream, tests and generated code to spare the runtime one follow-up drain — and that no-op event is **exactly the mechanism the settle uses**. The trigger keys on the frame's state rather than on a list of writers, so no writer has to be enrolled and none can be missed.
 
 Automatic settling is the only behaviour. There is deliberately no `:settle?` flag, no synchronous variant, no alternate effect id, and no switch that leaves the lag in place: two spellings of one contract is the cost the single spelling exists to avoid. A follow-up no-op event does no harm — settling is idempotent under the dirty check — but it is redundant, not supported.
 
 ## Cross-references
 
 - [001-Registration](001-Registration.md) — registration grammar (`reg-flow` is a kind under `:flow`).
+- [002-Frames §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar) — the `:flows` frame-config key a frame activates its flows with ([§Activation](#activation)).
 - [002-Frames §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode) — where the flow after-interceptor sits.
 - [002-Frames §Destroy](002-Frames.md#destroy) — the normative teardown boundary `:rf.flow/*` state hangs off; cross-referenced from [§Frame-destroy teardown](#frame-destroy-teardown).
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — sub-cache invalidation; flows trigger sub-cache invalidation when they write.
@@ -635,5 +568,5 @@ Automatic settling is the only behaviour. There is deliberately no `:settle?` fl
 - [009-Instrumentation §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) — the always-on error-emit substrate `:rf.error/flow-eval-exception` rides; cross-referenced from [§Failure semantics](#failure-semantics) rule 4.
 - [009-Instrumentation §Flow trace events](009-Instrumentation.md#flow-trace-events) — full taxonomy and payloads for the `:rf.flow/*` event vocabulary; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [009-Instrumentation §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key) — `:rf.flow/*` trace events inherit `:sensitive?` from the in-scope handler at drain time; cross-referenced from [§Flow tracing](#flow-tracing) above.
-- [Conventions](Conventions.md) — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` reserved fx-ids.
+- [Conventions](Conventions.md) — the reserved settle event id `:rf/settle-flows`, and the retired fx-ids `:rf.fx/reg-flow` / `:rf.fx/clear-flow`, reserved and never recycled.
 - [MIGRATION §M-19](../migration/from-re-frame-v1/README.md) — generic call-shape migration; `:inputs` is positional vector matching the v1 `on-changes` form.

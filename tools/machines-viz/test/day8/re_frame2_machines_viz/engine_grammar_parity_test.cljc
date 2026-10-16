@@ -237,6 +237,10 @@
    ;; An `:after` delay key may be an ISO-8601 duration, as a `:timeout` may.
    :valid-after-iso      {:initial :a :states {:a {:after {"PT1S" :b}} :b {}}}
    :valid-after-iso-frac {:initial :a :states {:a {:after {"PT0.5S" :b}} :b {}}}
+   ;; A keyword `:after` key names an entry of the root `:delays` map.
+   :valid-named-delay    {:initial :a :delays {:warn 1000} :states {:a {:after {:warn :b}} :b {}}}
+   :valid-region-named-delay {:type    :parallel :delays {:warn "PT1S"}
+                              :regions {:r {:initial :a :states {:a {:after {:warn :b}} :b {}}}}}
    ;; A spawn deadline is the spawn-level `:timeout` / `:on-timeout`.
    :valid-spawn-timeout  {:initial :a :states {:a {:spawn {:machine-id :m :timeout 500 :on-timeout :b}} :b {}}}
    :valid-timeout-iso    {:initial :a :states {:a {:timeout "PT2S" :on-timeout :b} :b {}}}
@@ -309,6 +313,9 @@
    ;; The XState shorthand and a zero-length ISO duration are not delays.
    :after-shorthand  {:initial :a :states {:a {:after {"5s" :b}} :b {}}}
    :after-iso-zero   {:initial :a :states {:a {:after {"PT0S" :b}} :b {}}}
+   ;; A name the root `:delays` map does not declare, and `:delays` below the root.
+   :after-unresolved-name {:initial :a :delays {:warn 1000} :states {:a {:after {:wran :b}} :b {}}}
+   :delays-below-root     {:initial :a :states {:a {:delays {:warn 1000} :after {1000 :b}} :b {}}}
    :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
    :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
    :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
@@ -544,7 +551,10 @@
    :root-spawn-timeout-ms              :rf.error/spawn-timeout-ms-removed
    ;; `:after nil` is absent, but still a declared key on a final or choice state
    :final-after-nil  :rf.error/machine-final-state-has-transitions
-   :choice-after-nil :rf.error/machine-choice-extra-keys})
+   :choice-after-nil :rf.error/machine-choice-extra-keys
+   ;; a name `:delays` does not declare, and `:delays` off the root
+   :after-unresolved-name :rf.error/machine-bad-after-delay
+   :delays-below-root     :rf.error/machine-unknown-node-key})
 
 (deftest refusal-category-parity
   (doseq [[label category] refusal-categories]

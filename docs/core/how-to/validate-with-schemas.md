@@ -81,7 +81,7 @@ A todo's title must never be blank. In this example the rule appears twice, on p
    [:ul (for [{:keys [id title]} @(subscribe [:todo/all])]
           ^{:key id} [:li title])]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 
@@ -201,7 +201,7 @@ Every violation is a structured `:rf.error/schema-validation-failure` [trace eve
         :value      ""               ;; the offending value
         :explain    {...}            ;; the validator's explanation (a Malli explain map on CLJS)
         :failing-id :todo/add        ;; the handler / sub / fx that produced it
-        :frame      :app             ;; which frame the failure happened in
+        :frame      :rf/default      ;; which frame the failure happened in
         :rollback?  true}}           ;; on :app-db — the :db effect was discarded
 ```
 
@@ -308,20 +308,20 @@ Registered schemas can be queried, by you, by tools, and by AI agents: "what sha
 ```clojure
 (require '[re-frame.schemas :as schemas])
 
-(schemas/app-schema-meta {:frame :app :path [:todos]})
+(schemas/app-schema-meta {:frame :rf/default :path [:todos]})
 ;; => {:path [:todos] :schema [:map-of :int Todo] :ns ... :line ... :file ...}
 
-(schemas/app-schemas {:frame :app})
-;; => {[:todos] {:path [:todos] :schema [...] ...}, ...}   what :app resolves, by path
+(schemas/app-schemas {:frame :rf/default})
+;; => {[:todos] {:path [:todos] :schema [...] ...}, ...}   what :rf/default resolves, by path
 
-(update-vals (schemas/app-schemas {:frame :app}) :schema)
+(update-vals (schemas/app-schemas {:frame :rf/default}) :schema)
 ;; => {[:todos] [:map-of :int Todo], ...}                  the schemas alone
 
-(schemas/app-schemas-digest {:frame :app})
+(schemas/app-schemas-digest {:frame :rf/default})
 ;; => "sha256:abc1234567890def"                                       a hash of the whole set
 ```
 
-Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value) and answers with the schemas that frame resolves; a call without one raises `:rf.error/no-frame-context`. App-db schemas are registrations of the kind `:app-schema`, so `(rf/registrations {:frame :app :kind :app-schema})` answers the same. Event, sub, and fx schemas ride on their handlers' registrations: `(rf/handler-meta {:source :store :kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
+Each reader takes one map with a required `:frame` (a frame-id keyword or a frame value) and answers with the schemas that frame resolves; a call without one raises `:rf.error/no-frame-context`. App-db schemas are registrations of the kind `:app-schema`, so `(rf/registrations {:frame :rf/default :kind :app-schema})` answers the same. Event, sub, and fx schemas ride on their handlers' registrations: `(rf/handler-meta {:source :store :kind :event :id :todo/toggle})` returns `{:schema [:cat ...] :doc ... :ns ...}`.
 
 The digest is a deterministic hash of the whole schema set a frame resolves, identical on any runtime for the same schemas. When a server-rendered page [hydrates](../../ssr/glossary.md#hydration), the client compares the server's digest with its own and emits a `:rf.ssr/schema-digest-mismatch` warning if they differ, which means the server and client bundles are out of sync. Agents use the same readers to learn what shape to write before they dispatch, and Malli's `mg/generate` turns a schema into test data.
 

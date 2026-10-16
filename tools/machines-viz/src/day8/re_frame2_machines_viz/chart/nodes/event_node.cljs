@@ -48,12 +48,15 @@
   "Convention-glyph variants for the event-node header. The three
   xstate/Stately conventions:
 
-    - `:after`  → `⌚` clock glyph + `<ms>` (e.g. `⌚ 1000ms`)
+    - `:after`  → `⌚` clock glyph + `<ms>` (e.g. `⌚ 1000ms`); a `:delays`
+                  name, which reaches here as a string (an ISO duration
+                  arrives already in ms), reads the edge's own label
+                  (`⌚ idle-warning`)
     - `:always` → `∞` continuation glyph
     - `:on`     → the event keyword's name (with namespace when present)"
   [{:keys [variant after-ms event-label]}]
   (case variant
-    :after  (str "⌚ " after-ms "ms")
+    :after  (if (string? after-ms) event-label (str "⌚ " after-ms "ms"))
     :always "∞"
     event-label))
 

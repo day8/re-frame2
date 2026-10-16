@@ -282,8 +282,8 @@
 ;; frame it already has and skips re-seeding, so the timer keeps right on ticking
 ;; while you edit. Frames: docs/core/frames.md.
 ;;
-;; `app-frame` is just an id we chose — `:rf/default`, the same one the schema
-;; block up top binds to.
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use; the runtime never falls back to it.
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree

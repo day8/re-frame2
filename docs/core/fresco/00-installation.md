@@ -122,7 +122,7 @@ example keeps them together so the whole boot sequence is visible:
   ;; Render the whole tree, frame-root included. On a hot reload the
   ;; frame-root finds its frame already live and reuses it.
   (h/render! app-root
-             [h/frame-root {:id :app :initial-events [[:initialise 3]]}
+             [h/frame-root {:id :rf/default :initial-events [[:initialise 3]]}
               [counter]]
              (js/document.getElementById "app")))
 
@@ -179,7 +179,7 @@ adapter instead; see [Use another adapter](#use-another-adapter).
 
 ## What the boot creates
 
-`h/render!` creates the React root, and `[h/frame-root {:id :app …}]` creates
+`h/render!` creates the React root, and `[h/frame-root {:id :rf/default …}]` creates
 the **frame**: its own app-db, event queue and subscription cache, scoped to
 everything beneath it in the tree.
 
@@ -224,7 +224,7 @@ backend, `:images`, and the rest. They all go on the `frame-root` head:
 ```clojure
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id             :app
+             [h/frame-root {:id             :rf/default
                             :url-bound?     true
                             :initial-events [[:initialise 3]]}
               [counter]]
@@ -305,7 +305,7 @@ than re-throwing it, so these show up in the console.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | The page stays empty and the console reports `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#fresco-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
-| The page stays empty and the console reports `:rf.error/no-frame-context` | The tree has no `h/frame-root` or `h/frame-provider` head, for example a reload that renders `[counter]` without the head | Wrap it: `[h/frame-root {:id :app …} [counter {}]]` |
+| The page stays empty and the console reports `:rf.error/no-frame-context` | The tree has no `h/frame-root` or `h/frame-provider` head, for example a reload that renders `[counter]` without the head | Wrap it: `[h/frame-root {:id :rf/default …} [counter {}]]` |
 | A hot reload raises `:rf.error/frame-root-reconfigured` | The `h/frame-root` options changed between `h/render!` calls, for example `:initial-events` dropped after the first mount | Pass the identical `frame-root` head on every call; `:initial-events` do not re-run on a live frame |
 | The page stays empty and the console reports `:rf.error/initial-events-step-failed` | An `:initial-events` handler threw, or a coeffect it requires is missing. Creating a frame is strict, so the half-built frame is torn down and nothing renders | Fix the event the error names (`:step-index`, `:event`) |
 | `(counter {})` ignores its props, or fails with React's invalid-hook error | A `defview` is a React component used as a Hiccup head, not a function to call | Render `[counter {}]`. Use a plain `defn` for inline markup |
@@ -340,12 +340,12 @@ existing frame and never creates, reconfigures or destroys one:
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :app :initial-events [[:initialise 3]]}
+             [h/frame-root {:id :rf/default :initial-events [[:initialise 3]]}
               [counter]]
              (js/document.getElementById "app")
              {:identifier-prefix "main"})
   (h/render! status-root
-             [h/frame-provider {:frame :app}
+             [h/frame-provider {:frame :rf/default}
               [status-badge]]
              (js/document.getElementById "status")
              {:identifier-prefix "status"}))
@@ -377,7 +377,7 @@ frame of the root that renders it.
 Every React-based adapter provides the same frame context, so a page that also
 renders Reagent or UIx components can install that library's adapter in place
 of `substrate/adapter` and keep writing Fresco views; [Use
-UIx](../how-to/use-uix-or-slim.md) has their coordinates. Do not use
+UIx](../how-to/use-uix.md) has their coordinates. Do not use
 the headless plain-atom adapter in a browser: its subscriptions never notify,
 so views never re-render.
 

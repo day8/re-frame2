@@ -111,7 +111,7 @@ Create `src/my/app.cljs`:
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+             [h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
               [views/todo-list]]
              (js/document.getElementById "app")))
 
@@ -178,7 +178,7 @@ it and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to run it again.
    (for [{:keys [id]} (h/sub [:todo/visible])]
      [todo-row {:key id :id id}])])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 

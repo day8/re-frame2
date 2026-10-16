@@ -305,7 +305,7 @@ The view has no visibility logic, no can-submit logic, no validator, and no erro
 Seed the slice before the form renders, for example from the frame's `:initial-events` (or from the `:on-match` of the route that shows the form):
 
 ```clojure
-[rf/frame-root {:id :app :initial-events [[:form.login/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:form.login/initialise]]}
  [login-form]]
 ```
 

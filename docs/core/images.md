@@ -79,7 +79,7 @@ the id clears it.
 (def todos-image
   (rf/image {:select-ns {:include ["app.todos"]}}))
 
-(rf/make-frame {:id :app
+(rf/make-frame {:id :rf/default
                 :images [todos-image]})
 ```
 
@@ -218,7 +218,7 @@ different scopes:
 | Frame ids | `:todos/work`, `:todos/home` | the process's frame registry | unique among live frames |
 
 Two images may both contain a `:todo/add` event. Two live frames may not both use the
-id `:app`. So a docs page can reuse the same event and sub ids in every example, while
+id `:rf/default`. So a docs page can reuse the same event and sub ids in every example, while
 each mounted example gets its own frame id:
 
 ```clojure
@@ -269,7 +269,7 @@ The shapes you'll meet:
 still runs one resolved result:
 
 ```clojure
-(rf/make-frame {:id :app
+(rf/make-frame {:id :rf/default
                 :images [todos-image routing-image sync-image]})
 ```
 
@@ -302,7 +302,7 @@ most is `:rf.gen/shadows`, the override report: a vector with one entry per
 override:
 
 ```clojure
-(:rf.gen/shadows (rf/frame-generation :app))
+(:rf.gen/shadows (rf/frame-generation :rf/default))
 ;; => [{:registration [:fx :todo.storage/save]   ;; the shadowed (kind, id)
 ;;      :image        :app/main                  ;; the image the loser was defined in
 ;;      :shadowed-by  :test/doubles}]            ;; the image of the final winner
@@ -325,8 +325,8 @@ frame id), `rf/frame-generation` throws `:rf.error/frame-no-generation` rather t
     registrar, by passing a `{:frame …}` map:
 
     ```clojure
-    (keys (rf/registrations {:frame :app :kind :event}))
-    (rf/handler-meta {:frame :app :kind :sub :id :todo/todos})
+    (keys (rf/registrations {:frame :rf/default :kind :event}))
+    (rf/handler-meta {:frame :rf/default :kind :sub :id :todo/todos})
     ```
 
     A query map must name exactly one source: `{:frame f …}` for this frame's image,
@@ -408,7 +408,7 @@ To change a frame's composition outright, call `rf/make-frame` again with the sa
 `:id` and a new `:images` vector. There is no separate reload function:
 
 ```clojure
-(rf/make-frame {:id :app :images [todos-image routing-image sync-v2-image]})
+(rf/make-frame {:id :rf/default :images [todos-image routing-image sync-v2-image]})
 ```
 
 The new vector is assembled into a new generation and installed on the existing
@@ -423,9 +423,9 @@ To see what changed, read `frame-generation` before and after and compare them w
 `generation-diff`:
 
 ```clojure
-(let [before (rf/frame-generation :app)
-      _      (rf/make-frame {:id :app :images [todos-image routing-image sync-v2-image]})
-      after  (rf/frame-generation :app)]
+(let [before (rf/frame-generation :rf/default)
+      _      (rf/make-frame {:id :rf/default :images [todos-image routing-image sync-v2-image]})
+      after  (rf/frame-generation :rf/default)]
   (rf/generation-diff before after))
 ;; => {:added    #{[:event :todo/sync-now]}
 ;;     :changed  #{[:sub :todo/visible]}

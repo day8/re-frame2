@@ -60,7 +60,7 @@ The value now needs to be part of the application's state. That is a [flow](glos
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]             ;; app-db paths to watch
    :output-path [:remaining-count]     ;; where the result is written
-   :frame       :app}                  ;; a flow belongs to one frame
+   :frame       :rf/default}           ;; a flow belongs to one frame
   (fn [todos]
     (count (remove :done? (vals todos)))))
 ```

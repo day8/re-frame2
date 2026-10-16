@@ -596,9 +596,9 @@
   ;; ---- view-facing composite -------------------------------------------
 
   ;; `:rf.xray/observed-frame` is the L1 frame picker's current
-  ;; selection. App-db schemas are per-frame (the `schemas-by-frame`
-  ;; side-table is keyed by frame-id), so the picker scopes the app-db
-  ;; rows — switching frames changes which frame's app-db schemas
+  ;; selection. Each frame resolves its own set of app-db schemas
+  ;; (`schemas-by-frame` is keyed by frame-id), so the picker scopes the
+  ;; app-db rows — switching frames changes which frame's app-db schemas
   ;; list. Event + sub schemas are process-global (Spec 001) and stay
   ;; cross-frame regardless of the picker.
   (rf/reg-sub :rf.xray.static.schemas/tab-data

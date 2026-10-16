@@ -59,7 +59,7 @@ Routing needs a dependency and a frame option. The frame option goes on
   (rf/init! substrate/adapter)
   (h/render! app-root
              [h/frame-root
-              {:id             :app
+              {:id             :rf/default
                :url-bound?     true              ;; this frame owns the browser URL
                :initial-events [[:todo/initialise]]}
               [views/app-shell]]
@@ -212,7 +212,7 @@ follows. Hover a link to see the real `href` the router built.
       [:li {:key id} title])]
    [:p "Route: " (pr-str (h/sub [:rf.route/id]))]])
 
-[h/frame-root {:id             :app
+[h/frame-root {:id             :rf/default
                :initial-events [[:todo/initialise]
                                 [:rf.route/navigate {:to :app/all}]]}
  [todo-page]]
@@ -493,7 +493,7 @@ vector headed by an internal keyword and wrapping a map:
 [:a {:href     "/todos/1"
      :class    "title"
      :on-click [navigate-head                       ; route-link's own head
-                {:frame   :app
+                {:frame   :rf/default
                  :payload [:rf.route/url-requested {:url "/todos/1"}]
                  :native? false
                  :veto    nil}]}

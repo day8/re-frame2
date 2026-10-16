@@ -229,7 +229,7 @@ node has a **countdown ring** with an animated arc. Stale timers render
 dashed/grey with a tooltip "this timer was scheduled in a prior visit and
 is stale." Cancelled timers show the ring fading out (200ms). Click any
 ring → timer detail popover with `:scheduled-at`, `:delay`, `:epoch`,
-`:source` (`:literal` / `:timeout-config` / `:fn`).
+`:delay-source` (`:literal` / `:fn` / `:named`).
 
 **Affordance:** Machines tab — `:after` countdown rings + scrubber-aware
 retro-replay (M-C2). Time IS the bug surface; the ring makes wall clock

@@ -73,7 +73,7 @@ footer, under a parent:
    [todo-list]
    [todo-footer]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-app]]
 ```
 
@@ -92,7 +92,7 @@ Notes:
 
 Now change the child of `frame-root` from `[todo-app]` to
 `[:div [todo-app] [todo-app]]` and re-evaluate. Tick a box in either copy: both
-update. They mount under the same `:app` [frame](glossary.md#frame) and read the same
+update. They mount under the same `:rf/default` [frame](glossary.md#frame) and read the same
 app-db, so there is no local copy to fall out of sync. Keep the `frame-root` wrapper:
 without it the views mount under no frame, and the first render raises
 `:rf.error/no-frame-context`.
@@ -181,7 +181,7 @@ on the symbol.
     UIx you write native components and reach the frame through adapter
     hooks (`use-sub`, `use-frame`). The pure-function rule, the
     compute-in-subs rule, and frame isolation hold on every substrate. See
-    [Use UIx](how-to/use-uix-or-slim.md).
+    [Use UIx](how-to/use-uix.md).
 
 ### Which views are `reg-view`s
 
@@ -229,7 +229,7 @@ registered parent builds with the injected `dispatch`, as the inputs above take
     Name the setup event and list it on the frame:
 
     ```clojure
-    [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+    [rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
      [todo-app]]
     ```
 
@@ -396,7 +396,7 @@ a frame, wrap it in `frame-provider`; see [Frames](frames.md).
 Handlers, subs and app-db never name a rendering library. The adapter you install at
 boot (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes DOM. Switching
 substrates changes only the `init!` call and the view notation
-([Use UIx](how-to/use-uix-or-slim.md)).
+([Use UIx](how-to/use-uix.md)).
 
 ### Fresco: another way to write views
 

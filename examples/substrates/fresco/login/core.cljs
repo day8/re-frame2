@@ -27,7 +27,7 @@
 
    For the view layer itself, see the Fresco guide at
    docs/core/fresco/ (start at `00-installation.md`); for the substrate
-   boundary in general, docs/core/how-to/use-uix-or-slim.md.
+   boundary in general, docs/core/how-to/use-uix.md.
 
    Examples are test-free: login's behaviour is covered by the substrate
    contract suite (`npm run test:cljs`) and the framework gates, not by a test

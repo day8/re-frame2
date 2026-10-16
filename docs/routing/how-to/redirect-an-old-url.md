@@ -43,7 +43,7 @@ any navigation to it on to the new address:
        ctx))})
 
 (rf/make-frame
-  {:id           :app
+  {:id           :rf/default
    :url-bound?   true
    :interceptors [:app/redirect-moved]})
 ```
@@ -139,7 +139,7 @@ sends; as a `route-link` click; and as a `{:url …}` navigate. Each lands on
       [:button {:on-click #(dispatch [:rf.route/navigate {:to :app/home}])} "Home"]]
      [:pre (pr-str {:route-id route-id :params params :query query :fragment fragment})]]))
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :interceptors   [:app/redirect-moved]
                 :initial-events [[:rf.route/navigate {:to :app/home}]]}
  [old-urls]]

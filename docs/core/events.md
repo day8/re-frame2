@@ -41,7 +41,7 @@ You send an event with `dispatch`. Inside a `reg-view`, `dispatch` (and
 Outside a view, for example at the REPL, call `rf/dispatch` and name the frame:
 
 ```clojure
-(rf/dispatch [:inc] {:frame :app})
+(rf/dispatch [:inc] {:frame :rf/default})
 ```
 
 Dispatch does not run the handler. It enqueues the event on the frame's FIFO
@@ -70,7 +70,7 @@ views. Queue draining is covered in
     [:button {:on-click #(js/setTimeout (fn [] (dispatch [:inc])) 1000)} "+ later"]
 
     ;; Outside any view: name the frame
-    (js/setTimeout #(rf/dispatch [:inc] {:frame :app}) 1000)
+    (js/setTimeout #(rf/dispatch [:inc] {:frame :rf/default}) 1000)
     ```
 
     [Frames](frames.md) covers carrying a frame with `rf/capture-frame`.

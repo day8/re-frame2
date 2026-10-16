@@ -27,9 +27,9 @@
           :user/set-good {:doc "Sets :user to a well-typed map (passes)."}
           :user/set-bad  {:doc "Sets :user to a value violating the schema."}}
   :sub   {:user {:doc "Current user slice."}}
-  ;; App-db schemas are NOT a registrar kind; the
-  ;; `:app-schemas` fixture key carries `path → schema` for the
-  ;; runner's `reg-app-schema` realisation step.
+  ;; App-db schemas are the registrar kind `:app-schema`, keyed by
+  ;; path; the `:app-schemas` fixture key carries `path → schema` for
+  ;; the runner's `reg-app-schema` realisation step.
   :app-schemas
   {[:user] [:map [:id :int] [:email :string]]}}
 

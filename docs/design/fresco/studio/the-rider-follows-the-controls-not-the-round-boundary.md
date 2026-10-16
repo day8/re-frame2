@@ -1,6 +1,6 @@
 # The rider follows the controls, not the round boundary — and `last` was never going to say so
 
-Seat: MEASUREMENT RECORD, EP-0039. Bead `rf2-rs8q6`, option (b) of the mayor's
+Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-rs8q6`, option (b) of the mayor's
 2026-08-20 22:40 AUSEST ruling: *move the three controls off the round boundary,
 then read the result — and if the 748 B term is still unnamed, close on the
 record.*

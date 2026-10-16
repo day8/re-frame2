@@ -90,7 +90,7 @@ which runs first when the page loads.
 (defn- app-tree
   "The root tree. Boot and every reload render the same options."
   []
-  [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+  [h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
    [views/todo-app {}]])
 
 (defn ^:dev/after-load mount!
@@ -167,7 +167,7 @@ boot recipe renders.
    [:h1 "Todos"]
    [todo-list {}]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-app {}]]
 ```
 
@@ -467,7 +467,7 @@ still changes the page but the address bar never moves.
 
 ```clojure
 ;; the boot recipe's app-tree, with the URL owned by this frame
-[h/frame-root {:id :app :url-bound? true :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :url-bound? true :initial-events [[:todo/initialise]]}
  [views/todo-app {}]]
 ```
 
@@ -630,7 +630,7 @@ server's state, and then adopts the DOM, in that order.
                         ;; top-level app-db keys sent to the client,
                         ;; or :rf.ssr.payload/whole-app-db
                         :payload           [:todos :showing]
-                        :client-frame-id   :app
+                        :client-frame-id   :rf/default
                         :identifier-prefix "todos"
                         :script-src        "/js/main.js"
                         :title             "Todos"})]
@@ -650,10 +650,10 @@ server's state, and then adopts the DOM, in that order.
 
 (defn ^:export -main []
   (rf/init! substrate/adapter)
-  (rf/make-frame {:id :app})                           ;; 1. frame
-  (ssr/hydrate! {:frame :app})                         ;; 2. state
+  (rf/make-frame {:id :rf/default})                    ;; 1. frame
+  (ssr/hydrate! {:frame :rf/default})                  ;; 2. state
   (h/render! app-root                                  ;; 3. DOM
-             [h/frame-provider {:frame :app}
+             [h/frame-provider {:frame :rf/default}
               [views/todo-app {}]]
              (js/document.getElementById "app")
              {:hydrate? true :identifier-prefix "todos"})

@@ -5,7 +5,7 @@
   "description": "CLJS test harness for re-frame2-mcp-base reader-conditional branches.",
   "license": "MIT",
   "scripts": {
-    "test:cljs": "shadow-cljs compile cljs-test && node out/cljs-test.js"
+    "test:cljs": "node ../../implementation/scripts/lib/shadow.cjs --clean out/cljs-test.js compile cljs-test && node out/cljs-test.js"
   },
   "devDependencies": {
     "shadow-cljs": "3.4.10"

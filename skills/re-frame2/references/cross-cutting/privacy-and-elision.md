@@ -142,7 +142,7 @@ The framework projects, but needs to know *which trust boundary* a record is abo
 
 ```clojure
 (rf/project-egress record
-  {:frame :app/main
+  {:frame :rf/default
    :rf.egress/profile :rf.egress/off-box-observability})
 ```
 
@@ -163,7 +163,7 @@ Real egress surfaces emit **records**, not bare values. The public, record-level
 
 ```clojure
 (rf/project-egress
-  {:kind :rf.observe/handled-event :frame :app/main
+  {:kind :rf.observe/handled-event :frame :rf/default
    :event [:auth/login {:password "secret"}] :outcome :ok}
   {:rf.egress/profile :rf.egress/off-box-observability})
 ```

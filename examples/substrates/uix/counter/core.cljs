@@ -18,7 +18,7 @@
        so `use-sub` and `use-frame` resolve to it
 
    For the full substrate tour see
-   `docs/core/how-to/use-uix-or-slim.md`."
+   `docs/core/how-to/use-uix.md`."
   (:require [uix.core :refer [$ defui]]
             [re-frame.core    :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]))
@@ -91,10 +91,9 @@
 ;; the runtime won't conjure a frame for you, so the app has to stand one up.
 ;; See `docs/core/frames.md`.
 ;;
-;; `app-frame` is just an id we picked. `:rf/default` looks special but
-;; isn't — it's an ordinary frame id like any other. The runtime never
-;; guesses which frame you mean, so we name one here and hand it to the
-;; provider. See
+;; `:rf/default` is the conventional app-frame id, the name the guide, the
+;; test fixture and migrated apps use. The runtime never falls back to it,
+;; so we name the frame here and hand it to the provider. See
 ;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 

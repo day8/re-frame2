@@ -39,7 +39,7 @@ fits](../core/fresco/index.md#when-fresco-fits) has the longer comparison.
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :app/main}
+             [h/frame-root {:id :rf/default}
               [counter]]
              (js/document.getElementById "app")))
 
@@ -265,7 +265,7 @@ and [`frame-provider` and `frame-root`](../core/frames.md#frame-provider-and-fra
 - **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
-  [h/frame-root {:id :app/main :initial-events [[:app/boot]]} child …]
+  [h/frame-root {:id :rf/default :initial-events [[:app/boot]]} child …]
   ```
 - **Description**: Creates the named frame if it is absent, or reuses it without
   re-seeding if it is live, and provides it to the subtree.
@@ -288,7 +288,7 @@ and [`frame-provider` and `frame-root`](../core/frames.md#frame-provider-and-fra
 - **Example**:
   ```clojure
   ;; Created on first mount and seeded once; reused, not re-seeded, on hot reload.
-  [h/frame-root {:id :app/main :initial-events [[:app/init]]}
+  [h/frame-root {:id :rf/default :initial-events [[:app/init]]}
    [root-view]]
   ```
 
@@ -297,7 +297,7 @@ and [`frame-provider` and `frame-root`](../core/frames.md#frame-provider-and-fra
 - **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
-  [h/frame-provider {:frame :app/main} child …]
+  [h/frame-provider {:frame :rf/default} child …]
   ```
 - **Description**: Scopes a subtree to a frame that already exists; it creates,
   refreshes and destroys nothing.
@@ -412,10 +412,10 @@ the root whose handle you pass, so a page can hold as many roots as it needs. Se
              (js/document.getElementById "app"))
 
   ;; Hydrating a server-rendered page (ssr is re-frame.ssr):
-  (rf/make-frame {:id :app/main})                              ;; 1. frame
-  (ssr/hydrate! {:frame :app/main})                            ;; 2. state
+  (rf/make-frame {:id :rf/default})                            ;; 1. frame
+  (ssr/hydrate! {:frame :rf/default})                          ;; 2. state
   (h/render! app-root                                          ;; 3. DOM
-             [h/frame-provider {:frame :app/main} [page]]
+             [h/frame-provider {:frame :rf/default} [page]]
              (js/document.getElementById "app")
              {:hydrate? true :identifier-prefix "main"})
   ```

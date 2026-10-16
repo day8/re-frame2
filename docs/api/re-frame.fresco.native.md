@@ -37,7 +37,7 @@ the namespace loads but defines neither hook.
 (h/defhost counter counter*)
 ```
 
-Render `[counter]` under `[h/frame-root {:id :app/main} …]` after installing an
+Render `[counter]` under `[h/frame-root {:id :rf/default} …]` after installing an
 adapter, as in the [Fresco counter example](re-frame.fresco.md). The native
 component reads the same counter state as the surrounding Fresco views.
 

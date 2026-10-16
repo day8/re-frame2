@@ -86,8 +86,8 @@ Every response carries `:schema`, `:producer` and `:read` — the evidence-schem
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `read-mounted-boundaries` | `mcp__re-frame2-pair__read-mounted-boundaries {}` | Every boundary mounted **right now**: `{:boundary {:key [[:app/main :todo [:todo 7]]]} :views [{:view "app.views/todo-row" :source {:ns app.views :file "…" :line 12 :column 1}}] :instances 3 :read-orders 1 :frame :app/main :reads [{:sub-id :todo :query [:todo 7] :frame-id :app/main :epoch 4}]}` |
-| `read-read-attribution` | `mcp__re-frame2-pair__read-read-attribution {}` | The reverse edge, exactly: per subscription `{:sub-id :todo :query [:todo 7] :frame-id :app/main :epoch 4 :fan-out 3 :readers [{:key … :views …}]}` — `:fan-out` is the slot count, `:readers` the distinct boundaries holding them, each named by its `:views` |
+| `read-mounted-boundaries` | `mcp__re-frame2-pair__read-mounted-boundaries {}` | Every boundary mounted **right now**: `{:boundary {:key [[:rf/default :todo [:todo 7]]]} :views [{:view "app.views/todo-row" :source {:ns app.views :file "…" :line 12 :column 1}}] :instances 3 :read-orders 1 :frame :rf/default :reads [{:sub-id :todo :query [:todo 7] :frame-id :rf/default :epoch 4}]}` |
+| `read-read-attribution` | `mcp__re-frame2-pair__read-read-attribution {}` | The reverse edge, exactly: per subscription `{:sub-id :todo :query [:todo 7] :frame-id :rf/default :epoch 4 :fan-out 3 :readers [{:key … :views …}]}` — `:fan-out` is the slot count, `:readers` the distinct boundaries holding them, each named by its `:views` |
 | `explain-render` | `mcp__re-frame2-pair__explain-render {}` | Per boundary the proven half — `:latest-reads` at its `:peak-epoch`, and the `:snapshot` React itself compares — beside the leads: `:candidates`, with the loss accounting described below |
 
 All three also accept `build` and `max-tokens`. None takes a `view-id`; there is no such argument on this door.

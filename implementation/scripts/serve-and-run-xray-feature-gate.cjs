@@ -107,15 +107,12 @@ const { chromium } = require(require.resolve('playwright', {
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-// Resolve shadow-cljs's own JS entry-point so the compile step spawns it
-// shell-free under THIS node binary (`process.execPath`) — never `npx`/
-// `npx.cmd` under a shell. Mirrors the http-server resolution
-// just above and the shell-free spawn the server launch uses.
-// Sidesteps the Windows command-hijack accident class and the
-// `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation.
-const SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
-  paths: [IMPL_ROOT],
-});
+// The compile step runs the shared shadow-cljs launcher shell-free under THIS
+// node binary (`process.execPath`) — never `npx`/`npx.cmd` under a shell — so
+// it takes the build lane and owns the compiler's process tree. Sidesteps the
+// Windows command-hijack accident class and the `.cmd`-under-no-shell
+// `EINVAL` from the CVE-2024-27980 mitigation.
+const { SHADOW_CLI } = require('./lib/shadow.cjs');
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
@@ -149,11 +146,10 @@ function cleanAndStageRoot() {
 
 function compileSurfaces() {
   const builds = [...new Set(ACTIVE_SURFACES.map((surface) => surface.build))];
-  // Spawn shadow-cljs shell-free under this node binary: the
-  // resolved absolute `.js` runner is the only thing the OS interprets,
-  // so a workspace-local `npx.cmd` cannot hijack the compile and
-  // there is no `shell:true` warning/quoting class.
-  const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
+  // Shell-free under this node binary: the launcher's absolute `.js` is the
+  // only thing the OS interprets, so a workspace-local `npx.cmd` cannot hijack
+  // the compile and there is no `shell:true` warning/quoting class.
+  const args = [SHADOW_CLI, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',

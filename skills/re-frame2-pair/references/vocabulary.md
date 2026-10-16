@@ -7,10 +7,10 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
 ## re-frame2 runtime surfaces
 
 - **re-frame2** — the framework the running app is built on.
-- **frame** — a registered, named cascade root, whatever id the app chose
-  (e.g. `:app/main`). Most apps run a single frame; `:rf/default` is an
-  ordinary app frame an app may register, with no framework privilege (EP-0002
-  — not auto-created, not a fallback).
+- **frame** — a registered, named cascade root. Most apps run a single
+  frame, conventionally named `:rf/default`, but any id works: the pair
+  resolves a sole app frame whatever its id. `:rf/default` has no framework
+  privilege (EP-0002 — not auto-created, not a fallback).
 - **epoch** — one assembled **pipeline run** for a given dispatch (its update
   and commit phases, plus the render phase it settles into); the unit of
   `epoch-history` and `restore-epoch`.

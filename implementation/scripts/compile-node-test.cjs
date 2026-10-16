@@ -29,7 +29,10 @@
 //      against old code, regardless of whether the calling script chained
 //      the exit code correctly. This makes the dangerous consequence
 //      (silent stale-bundle reuse) IMPOSSIBLE by construction rather than
-//      relying on every present and future caller to remember `&&`.
+//      relying on every present and future caller to remember `&&`. The
+//      bundle is the compile's declared disposable output, so the delete,
+//      the compile and the verdict on it are `runShadow`'s
+//      (`lib/shadow.cjs`), which every shadow-cljs entry shares.
 //
 //   2. When invoked with `--config-merge`, ALSO clear the build's on-disk
 //      shadow-cljs cache directory before AND after compiling — the other
@@ -71,9 +74,9 @@
 // counts.
 //
 // Usage: node scripts/compile-node-test.cjs <build-id> <output-to> [extra shadow-cljs args...]
-const { spawn } = require('node:child_process');
-const fs = require('node:fs');
 const path = require('node:path');
+
+const { acquireLane, runShadow } = require('./lib/shadow.cjs');
 
 const IMPL_DIR = path.resolve(__dirname, '..');
 
@@ -83,20 +86,6 @@ const IMPL_DIR = path.resolve(__dirname, '..');
 function configMergeOutputDir(outputPath) {
   const { dir, name } = path.parse(outputPath);
   return path.join(dir, `${name}.config-merge`).split(path.sep).join('/');
-}
-
-// Run shadow-cljs with its output going straight to this process's own, so a
-// lane that compiles for minutes reports as it goes.
-function run(command, args, options) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { ...options, stdio: 'inherit' });
-    child.on('error', (error) => resolve({ error }));
-    // BOTH arguments. `close` reports a signal death as (null, 'SIGTERM') —
-    // the status is NULL, and the signal name is the only place the cause is
-    // written down. Dropping the second argument would throw that away and
-    // leave the caller a status it cannot tell apart from "no idea".
-    child.on('close', (status, signal) => resolve({ status, signal }));
-  });
 }
 
 async function main(argv) {
@@ -116,86 +105,35 @@ async function main(argv) {
     ? ['--config-merge', `{:output-dir ${JSON.stringify(configMergeOutputDir(outputPath))}}`]
     : [];
 
-  // Part 2: isolate a focused/config-merged compile from the shared id's
-  // cache — before AND after, so the shared id is guaranteed clean for the
-  // next caller regardless of whether THIS one succeeds.
-  let resetLaneBuildCache = null;
-  if (usesConfigMerge) {
-    ({ resetLaneBuildCache } = require(
-      '../core/test/re_frame/bench/lane_cache.cjs'
-    ));
-    resetLaneBuildCache(IMPL_DIR, buildId);
-  }
-
-  // Part 1: never leave a stale bundle sitting where a fresh one belongs.
-  if (fs.existsSync(outputPath)) {
-    fs.rmSync(outputPath, { force: true, maxRetries: 5, retryDelay: 100 });
-  }
-
-  // Resolve shadow-cljs's own bin entry-point (a plain Node script) and
-  // spawn it directly under THIS node binary — never `npx`/`npx.cmd` under
-  // a shell. Mirrors serve-and-run-browser-tests.cjs's http-server
-  // resolution: a workspace-local `.cmd` can hijack a
-  // `shell:true` launch on Windows, and `.cmd` under `shell:false` fails
-  // with EINVAL (the CVE-2024-27980 mitigation). Resolving the actual
-  // `.js` entry-point sidesteps both.
-  let shadowCljsBin;
+  // The cache clears below act on this worktree's shared build cache, so they
+  // happen inside the build lane, where no other compile can be reading it.
+  const release = await acquireLane({ command: `compile-node-test ${buildId}`, cwd: IMPL_DIR });
   try {
-    shadowCljsBin = require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_DIR] });
-  } catch (err) {
-    console.error(`compile-node-test: could not resolve shadow-cljs: ${err.message}`);
-    return 1;
-  }
-  const result = await run(
-    process.execPath,
-    [shadowCljsBin, 'compile', buildId, ...runtimeArgs, ...extraArgs],
-    { cwd: IMPL_DIR }
-  );
+    // Part 2: isolate a focused/config-merged compile from the shared id's
+    // cache — before AND after, so the shared id is guaranteed clean for the
+    // next caller regardless of whether THIS one succeeds.
+    let resetLaneBuildCache = null;
+    if (usesConfigMerge) {
+      ({ resetLaneBuildCache } = require(
+        '../core/test/re_frame/bench/lane_cache.cjs'
+      ));
+      resetLaneBuildCache(IMPL_DIR, buildId);
+    }
 
-  if (usesConfigMerge) {
-    resetLaneBuildCache(IMPL_DIR, buildId);
-  }
+    // Part 1: never leave a stale bundle sitting where a fresh one belongs.
+    const code = await runShadow(['compile', buildId, ...runtimeArgs, ...extraArgs], {
+      cwd: IMPL_DIR,
+      clean: [outputPath],
+      label: 'compile-node-test',
+    });
 
-  if (result.error) {
-    console.error(`compile-node-test: failed to spawn shadow-cljs: ${result.error.message}`);
-    return 1;
+    if (usesConfigMerge) {
+      resetLaneBuildCache(IMPL_DIR, buildId);
+    }
+    return code;
+  } finally {
+    release();
   }
-
-  // A SIGNAL-KILLED CHILD IS NOT A PASSING BUILD, and Node's own convention
-  // would make it read as one. `close` reports a signal death as
-  // (null, 'SIGTERM'): the status is NULL rather than a number, `null !== 0`
-  // so this branch is entered — and returning that null to `process.exit()`,
-  // which reads a non-number as SUCCESS, would print "did not complete (exit
-  // null)" and tell automation the compile had passed, in the same breath. An
-  // OOM kill, a CI job cancellation, or an administrative taskkill of the
-  // shadow-cljs JVM all land here.
-  //
-  // So the seam is: a NUMERIC status is the child's own verdict and passes
-  // through untouched (0 continues into the output check below; 1, 3,
-  // anything else is returned as-is). Any NON-numeric completion is abnormal
-  // by construction and normalises to a stable 1.
-  if (result.status !== 0) {
-    const numeric = typeof result.status === 'number';
-    const cause = numeric
-      ? `did not complete (exit ${result.status})`
-      : result.signal
-        ? `was terminated by signal ${result.signal} before it could complete`
-        : 'did not complete and reported no exit status';
-    console.error(
-      `compile-node-test: shadow-cljs compile ${buildId} ${cause}; ` +
-        `${outputTo} was cleared before the attempt, not left stale.`
-    );
-    return numeric ? result.status : 1;
-  }
-
-  if (!fs.existsSync(outputPath)) {
-    console.error(
-      `compile-node-test: shadow-cljs compile ${buildId} exited 0 but ${outputTo} is missing — treating as fatal.`
-    );
-    return 1;
-  }
-
-  return 0;
 }
 
 if (require.main === module) {

@@ -370,7 +370,7 @@ A tool combines the views into one value, a map of `:nodes` and a vector of `:ed
 
 ```clojure
 {:mode  :live
- :frame :app
+ :frame :rf/default
  :nodes
  {[:sub [:todo/shared-list "team"]] {:kind :derivation :storage :ephemeral :evaluation :on-demand}
   [:sub [:rf/resource {:resource :todo/list :params {:list-id "team"}}]]

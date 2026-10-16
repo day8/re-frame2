@@ -182,7 +182,7 @@ neither table has, so it shows `archived`.
    [:p (h/sub [:i18n/t :todos/empty])]
    [:p (h/sub [:i18n/t :todos/archived])]])
 
-[h/frame-root {:id :app}
+[h/frame-root {:id :rf/default}
  [locale-demo]]
 ```
 
