@@ -97,7 +97,7 @@ Beyond the user-facing `{:state :data :tags? :meta?}` shape above, the runtime s
 
 - `:rf/frame` — the owning frame's id (defaulting to `:rf/default`)
 - `:rf/platform` — the active platform (`:client` / `:server`) per [011](011-SSR.md)
-- `:rf/parent-id` — on the live machine-spec record: the machine's own id for a singleton, the parent's id for a spawned actor (trace addressing). NOTE this is a different binding from the `:rf/parent-id` stamped inside a spawned actor's `:data` (always the parent's id) — disambiguate by location
+- `:rf/parent-id` — on the live machine-spec record: the actor's own address, its registered id for a singleton and its spawned id for a spawned actor (trace addressing). Every effect the reducer emits carries it as `:rf/parent-id`, naming the actor whose registry slots and timers the effect addresses (per [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order)). NOTE this is a different binding from the `:rf/parent-id` stamped inside a spawned actor's `:data` (always the parent's id) — disambiguate by location
 - `:rf/region` — present iff the spec is a synthetic region-machine of a `:type :parallel` parent; the region-name keyword scoping `:after`-epochs per [§Per-region scoping](#per-region-always--after--spawn-scoping)
 - `:rf/transition-pure` — the sentinel parent-id used by the pure-transition path so `intercept-invoke-all-event` (and analogous join-bookkeeping interceptors) recognises a no-op call and short-circuits without consulting `app-db`. Stamped only by callers exercising the pure-fn `machine-transition` (conformance corpus, JVM pure-fn tests, SSR machine-pure surface); absent during normal handler-driven drains.
 
@@ -1262,6 +1262,24 @@ Composition across all action slots' returned effect maps:
 - `:data` updates merge in slot order — exit-cascade (deepest-first) → action → entry-cascade (shallowest-first) → initial-cascade. Last write wins on key collision.
 - `:fx` entries concatenate in slot order. Within the concatenated `:fx`, the Level-1 walk (`:raise` → local queue, `:rf.machine/spawn` / `:rf.machine/destroy` and the rest → `do-fx`) preserves order.
 
+#### Machine-emitted fx and their order
+
+A transition's `:fx` also carries the effects the reducer emits for the `:after`, `:spawn` and `:spawn-all` slots of the states it exits and enters. They come after the action fx, so the whole vector is five groups in a fixed order:
+
+1. **Action fx** — the slot-order concatenation above.
+2. **`:rf.machine/after-cancel`** — one per exited state that declares `:after`.
+3. **`:rf.machine/destroy`** — one per exited state that declares `:spawn` or `:spawn-all`.
+4. **Spawns** — one `:rf.machine/spawn` per entered state that declares `:spawn`; for an entered state that declares `:spawn-all`, one `:rf.machine/spawn-all-init` followed by one `:rf.machine/spawn` per child, in `:children` order.
+5. **`:rf.machine/after-schedule`** — one per `:after` entry of each entered state that declares `:after`.
+
+Groups 2–5 take their states **outermost first**, on exit as well as on entry, unlike the exit cascade's actions. A `:timeout` / `:on-timeout`, on a state or on its `:spawn`, is an `:after` entry by the time the reducer runs (per [§`:timeout` / `:on-timeout`](#timeout--on-timeout-state--spawn)), so it schedules in group 5 and cancels in group 2. A state with `:entry`, `:exit`, `:spawn` and `:after` therefore emits `[<:entry fx> spawn after-schedule]` when entered and `[<:exit fx> after-cancel destroy]` when exited, which the `machine-timeout-spawn-fire` conformance fixture pins. Each effect's argument map is in [Spec-Schemas §Standard fx args schemas](Spec-Schemas.md#standard-fx-args-schemas).
+
+The same rule covers the larger units a transition sits in:
+
+- **A macrostep** — the event's transition, then each `:always` microstep and dequeued `:raise` (Level 3) — concatenates its transitions' vectors in the order they ran.
+- **Birth** is a transition from the empty configuration, so its descent emits groups 1, 4 and 5. The root leads it: the root's `:entry` fx, then the root `:spawn`'s `:rf.machine/spawn` with `:rf/invoke-id []`, both before the descent (per [§The machine root](#the-machine-root)).
+- **A `:type :parallel` machine** runs one such transition per region, in region declaration order, each region's fx carrying region-qualified ids (per [§Per-region scoping](#per-region-always--after--spawn-scoping)). At birth each region body's `:entry` leads its own region, and the root's own `:after` schedules after every region, with `:rf/invoke-id []` and `:state :rf/parallel-root` (per [§Root parallel `:on`](#root-parallel-on--the-ancestor-fallback)).
+
 ### Level 3 — within a single machine event
 
 When a machine receives an event:
@@ -1427,7 +1445,7 @@ When a machine **first comes into existence** — a singleton on its first dispa
 ;; initial-entry log: [:enter-outer :enter-mid :enter-leaf]
 ```
 
-The initial-entry cascade composes with **all** the slots the entry cascade carries — `:spawn`, `:spawn-all`, `:after` on any node along the initial chain emit their corresponding fx (`:rf.machine/spawn`, `:rf.machine/spawn-all-init`, `:after-schedule`) at creation time. So a `:requesting` initial state that declares `:entry :fire-request` AND `:spawn {:machine-id :rf.http/managed ...}` has the entry action run AND the child machine spawned, before the actor's first user-routed event arrives.
+The initial-entry cascade composes with **all** the slots the entry cascade carries — `:spawn`, `:spawn-all`, `:after` on any node along the initial chain emit their corresponding fx (`:rf.machine/spawn`, `:rf.machine/spawn-all-init`, `:rf.machine/after-schedule`) at creation time, in the order [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order) sets. So a `:requesting` initial state that declares `:entry :fire-request` AND `:spawn {:machine-id :rf.http/managed ...}` has the entry action run AND the child machine spawned, before the actor's first user-routed event arrives.
 
 The cascade also composes with `:always`: once the initial leaf is entered, the runtime runs the eventless (`:always`) + raise settle (the initial macrostep — see [§When creation happens](#when-creation-happens--eager-start-vs-lazy-first-event)) before committing the birth, so an initial leaf whose `:always` guard already holds is settled past on start.
 
@@ -3120,7 +3138,7 @@ The transition reducer lowers `:spawn` itself: the spec it runs keeps the litera
 2. **Exiting the state emits a destroy.** The reducer appends a `:rf.machine/destroy` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` at call time and tears that actor down only while the parent still owns it — its `:data` carries the `:rf/parent-id` / `:rf/invoke-id` stamps naming this parent and invoke path. An address alone is not ownership: an actor that has since replaced the child there (a hand-emitted spawn at the same `:fixed-actor-id`, or another parent's child) stays live, with no `:exit` and no `:rf.machine/destroyed` trace, and a replaced or already-dead occupant only has the stale slot and its `:rf/spawned` entry pruned. (For `:fixed-actor-id` literals — the explicit-address case — the spawn uses that id directly and the slot binds it like any other, so the destroy reads and authenticates it the same way.)
 3. **Destroying the parent destroys the child.** Whatever destroys the parent — an explicit `[:rf.machine/destroy <parent-id>]`, a spawn replacing it at its occupied `:fixed-actor-id`, or its own parent's exit — runs the parent's `:exit` cascade and then tears down every child its `[:rf.runtime/machines :spawned <parent-id>]` slots track and still own, through the same tracked destroy as (2), deepest invoke-id first. A `:spawn-all` child is owned while its private `:rf/join-child` record names this parent, invoke path and logical child and the join's current attempt (per [§Spawn-id tracking](#spawn-id-tracking)). An unrelated replacement at a tracked address survives the parent, untraced, and the stale slot or join entry is cleared. A child's own teardown does the same for the children it tracks, so a nested tree ends with its root. A reaped child's `:rf.machine/destroyed` carries `:reason :explicit`, like any other cascade-driven destroy.
 
-The spawn and destroy fx follow any user-supplied `:entry` / `:exit` actions (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)).
+The spawn and destroy fx follow any user-supplied `:entry` / `:exit` actions (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)); [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order) places them among the `:after` fx.
 
 The runtime-owned spawn registry at `[:rf.runtime/machines :spawned ...]` is a lazily-allocated runtime-db slot — absent until the first declarative-`:spawn` spawn, per-frame isolated (each frame's runtime-db carries its own slot) and revertible (the slot walks back atomically with the rest of the frame-state on a frame revert).
 
@@ -3186,7 +3204,7 @@ Concretely:
 
 - A child state's `:spawn` fires its spawn when the child is *entered* (which may happen as part of a deeper cascade — e.g., entering a compound parent for the first time also enters the parent's `:initial` cascade target).
 - A parent state's `:spawn` fires its destroy when the parent is *exited* — and the parent is exited only when a transition's LCA is above it. Sibling-leaf transitions inside the parent do NOT destroy a parent-level `:spawn` actor.
-- Multiple `:spawn`-bearing ancestors along a deep path each contribute their own spawn/destroy pair, ordered by the cascade direction (entry: outermost first; exit: innermost first).
+- Multiple `:spawn`-bearing ancestors along a deep path each contribute their own spawn/destroy pair, outermost first on entry and on exit alike (per [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order)).
 
 The desugaring is uniform — no special-casing for hierarchy. Whatever cascading rules the entry/exit machinery applies are exactly what `:spawn` inherits.
 
@@ -4285,7 +4303,7 @@ Two test levels cover a machine: the pure transition engine, and the machine reg
 - **`:status`** discriminates: `:ok` or `:error`, never a third value. It is the same discriminator the framework's [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) uses, so a test that already reads an HTTP or resource reply reads a transition result the same way.
 - **`:snapshot`** is the post-transition snapshot in the shape the `:rf/machine` sub serves ([§Snapshot shape](#snapshot-shape)). An event no transition matched is `:status :ok` with the snapshot unchanged and `:fx []` — a benign no-op, not a failure ([§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)).
 - **`:handled?`** is `true` when the event selected a transition — even a targetless one that changed nothing — and `false` when nothing took it: no transition matched, or every candidate's guard declined. It is the engine's own flag, so a test can tell a declined event from an accepted no-op, which an unchanged `:snapshot` and an empty `:fx` cannot. A failure carries none.
-- **`:fx`** is the ordered effects vector: the actions' `:fx` entries plus the machine-emitted `[:rf.machine/spawn …]` / `[:rf.machine/destroy …]` / `[:rf.machine/after-schedule …]` pairs, in the order the cascade produced them. Described, never performed.
+- **`:fx`** is the ordered effects vector: the actions' `:fx` entries plus the machine-emitted `:rf.machine/after-cancel`, `:rf.machine/destroy`, `:rf.machine/spawn-all-init`, `:rf.machine/spawn` and `:rf.machine/after-schedule` pairs, in the order [§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order) sets. In this pure call every machine-emitted pair's `:rf/parent-id` is the sentinel `:rf/transition-pure`. Described, never performed.
 - **`:error`** is the diagnostic map, and `:kind` names the [Spec 009](009-Instrumentation.md) error category the runtime emits for the same failure: `:rf.error/machine-action-exception` when a guard, action or `:data` fn threw (alongside `:exception`, the throwing `:action-ref` / `:guard-ref`, and the `:state-path` / `:transition` / `:decl-path` the cascade knew), or `:rf.error/machine-always-depth-exceeded` / `:rf.error/machine-raise-depth-exceeded` when a bounded-depth limit tripped (alongside `:actor-id`, `:depth`, `:path`). A failure carries no `:snapshot` and no `:fx`: the macrostep is atomic, and the caller still holds the pre-event snapshot.
 
 **Programmer-input errors throw; they are not results.** A snapshot whose `:state` is neither keyword nor path, a snapshot whose `:state` names no state the definition declares — for a parallel machine, a region whose value names no state of that region, nested compound paths included (`:rf.error/machine-state-not-in-definition`, with the region in its `ex-data`; the category the runtime's snapshot reconcile emits for the same snapshot), an `:on` clause in an unrecognised form, a guard or action that is neither fn nor keyword, a keyword ref with no entry in the definition's `:guards` / `:actions` — these are bugs in the call, and `machine-transition` throws the same `:rf.error/*` `ex-info` (`:rf.error/id` in its `ex-data`) the registration validators throw ([§Errors](#errors)). `:status :error` is reserved for the engine's own failed macrostep: user code that ran and threw, or a runaway `:always` / `:raise` cycle. The line is the one the runtime draws — a result is something a handler could commit or roll back; a throw is something that should never have been dispatched.
