@@ -299,33 +299,37 @@ any sibling was still adopting, while a page-wide boolean lets one root's
 closer silence another root's genuine mismatch — the
 `a-completed-roots-later-recovery-is-not-a-mismatch-while-a-sibling-adopts`
 and `two-overlapping-hydrating-roots-recover-and-complain-independently` rows
-in the same namespace. The window is minted unconditionally, where the spine
-(`re-frame.substrate.spine`) mints only when it is going to install a
-reporter, because this one has a production reader: presence starts an
-adopted child `:present` rather than `:mounting`
+in the same namespace. The window is minted on every hydrating root in every
+build, as the spine's (`re-frame.substrate.spine`) is, because both of its
+readers run in production: the reporter fans its record only while the window
+is open, and presence starts an adopted child `:present` rather than
+`:mounting`
 (`a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition`),
-so the window and its provider ride in a release build and only the reporter
-is debug-gated.
+so the window, its provider and the reporter all ride in a release build.
 
-**The reporter, and why the two root options are gated differently.** With no
+**The reporter, and why neither root option is gated.** With no
 root options React's default handler is the only channel, so a divergence
 React recovers from — a text mismatch, a missing or extra or wrong-type
 element — would be an uncaught window error and nothing else, and Spec 011's
 `:rf.ssr/hydration-mismatch` would never fire. `hydration-reporter` closes
-over one root's window, emits the diagnostic while that window is open, and
-always delegates to React's default afterwards, because installing any
+over one root's window; while that window is open it fans the structural-only
+always-on record (through the spine's `dispatch-hydration-mismatch-record!`)
+and emits the dev diagnostic, and it always delegates to React's default
+afterwards, because installing any
 `onRecoverableError` takes the default off and a reporter that only emitted
 would swallow the error the fail-open rule requires to stay uncaught
 (`rf2-2rtt6.97`, on [the SSR spike page](studio/ssr-spike-witness.md)).
 Attribute-only divergences are outside React's own contract and stay outside
 this channel ([production-server-arm.md](production-server-arm.md)). The
-reporter is a diagnostic: its emit compiles away behind
-`interop/debug-enabled?`, and what would remain is a replica of the default
-React runs anyway, so a release build installs none. `:identifier-prefix` is
-behaviour — it decides what `useId` answers, and a release build that dropped
-it would hydrate every server `useId` into a mismatch — so it is never gated.
-Both doors hand React the bare arity when there is nothing to say, which is
-why `root-options` answers nil rather than an empty object.
+reporter is installed in every build, because its record is how a production
+build's error sinks learn of a mismatch; only the dev trace, which carries
+React's message, compiles away behind `interop/debug-enabled?`.
+`:identifier-prefix` is behaviour — it decides what `useId` answers, and a
+release build that dropped it would hydrate every server `useId` into a
+mismatch — so it is never gated either. The hydrating door therefore always
+hands React an options object, while `root!` hands it the bare arity when
+there is no prefix, which is why `root-options` answers nil rather than an
+empty object.
 
 **`ensure-frame!` seeds before the first render and guards on the
 incarnation.** `root!` ensures its frame before `createRoot`: created through
