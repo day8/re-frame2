@@ -630,7 +630,9 @@
 
   `ctx` keys: `:actor-id` (the destroyed actor INSTANCE), `:parent-id`
   (optional), `:work-bearing-path` (the spawn declaring path — optional),
-  private join `:work-generation` (optional), `:frame`, `:reason` (the cancel reason)."
+  optional exact `:work-generation` (the attempt's, as its spawn stamped it:
+  a `:spawn-all` child's join membership, or a single `:spawn` child's
+  `:rf/work-generation`), `:frame`, `:reason` (the cancel reason)."
   [{:keys [actor-id parent-id work-bearing-path work-generation frame reason]
     :as ctx}]
   (cond-> {:status        :cancelled
