@@ -52,16 +52,18 @@ Wire via shadow-cljs `:node-test` `:test-runner-ns` (or equivalent in your tool)
 
 ## The result
 
-A green run collapses to its summary line:
+A green run collapses to its summary line. On the JVM, cognitect-test-runner's one line naming the directories it scanned sits above it:
 
 ```
+Running tests in #{"test"}
+
 Ran 504 tests containing 2588 assertions.
 0 failures, 0 errors.
 ```
 
-Failures still emit the full `Testing <ns>` banner + `FAIL in (...)` block + `expected:`/`actual:` lines, byte-for-byte unchanged. The agent reading the output sees three lines on a green pass; on a red run it sees exactly what it needs.
+Failures still emit the full `Testing <ns>` banner + `FAIL in (...)` block + `expected:`/`actual:` lines, byte-for-byte unchanged. The agent reading the output sees those few lines on a green pass; on a red run it sees exactly what it needs.
 
-For scale: re-frame2's corpus has ~5,000 tests across 17 runners. Before quieting, a full green run buried the agent in several thousand lines of pass-noise per invocation. After quieting, a green pass per runner is three lines.
+For scale: re-frame2's corpus has ~5,000 tests across 17 runners. Before quieting, a full green run buried the agent in several thousand lines of pass-noise per invocation. After quieting, a green pass per runner is those few lines.
 
 ## Regression test
 
