@@ -607,11 +607,12 @@
   PARENT captures the CHILD's id, keyed by the `<invoke-id>` the child
   records under `:rf/invoke-id` and the runtime tracks at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`. Inside a
-  parallel region the key is the IN-REGION path (the region machine's own
-  frame of reference, which a region action can name), while the child's
-  `:rf/invoke-id` and the registry slot carry it region-qualified; the spawn
-  install, a rejection's clear and the teardown projection all address this
-  same in-region entry (`paths/spawned-mirror-path`).
+  parallel region that key is region-qualified, `[<region> & <in-region-path>]`,
+  exactly as the child's `:rf/invoke-id` and the registry slot carry it, so
+  two regions spawning from same-named states keep separate entries and a
+  region action names its own region to read its entry. The spawn install, a
+  rejection's clear and the teardown projection all address this same entry
+  (`paths/spawned-mirror-path`).
 
   Keyed by `invoke-id` (the absolute prefix-path of the `:spawn`-bearing
   state node) rather than a single lossy 'last-spawned' slot so a parent that
@@ -2644,7 +2645,8 @@
         ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
         ;; parity) so a later action can read the id and imperatively
         ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
-        [(bind-spawned-id-into-parent-data s-alloc invoke-id id)
+        ;; The key is the region-qualified one the registry slot uses.
+        [(bind-spawned-id-into-parent-data s-alloc attempt-key id)
          (into acc-fx spawn-fx)]))))
 
 (defn- handle-spawn-all-decl
@@ -2674,11 +2676,16 @@
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `rf.machines.result/fail` Result (stamped with
   `:action-ref :rf.machine.spawn-all/data-fn`, `:invoke-id`, and the failing
-  `:child-id`) on `:data` failure."
-  [parent-id s acc-fx prefix n event]
+  `:child-id`) on `:data` failure.
+
+  The parent's `[:data :rf/spawned …]` mirror entry is keyed by the
+  REGION-QUALIFIED invoke path inside a parallel region, the key the registry
+  slot carries."
+  [parent-id region s acc-fx prefix n event]
   (let [spawn-all-spec (:spawn-all n)
         children  (:children spawn-all-spec)
         invoke-id (vec prefix)
+        mirror-key (if region (into [region] invoke-id) invoke-id)
         ;; (1) Allocate per-child ids deterministically; thread the snapshot.
         [s-alloc children-with-ids]
         (reduce
@@ -2747,7 +2754,7 @@
         ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
         ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
         ;; `:children`), so an action can read it without an external atom.
-        [(bind-spawned-id-into-parent-data s-alloc invoke-id children-map)
+        [(bind-spawned-id-into-parent-data s-alloc mirror-key children-map)
          (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
 
 (defn final-state-node?
@@ -3738,7 +3745,7 @@
                        (handle-spawn-decl parent-id (:rf/region machine) s acc-fx prefix n event)
 
                        (:spawn-all n)
-                       (handle-spawn-all-decl parent-id s acc-fx prefix n event)
+                       (handle-spawn-all-decl parent-id (:rf/region machine) s acc-fx prefix n event)
 
                        :else
                        [s acc-fx]))

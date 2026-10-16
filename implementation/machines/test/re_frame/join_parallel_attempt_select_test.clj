@@ -17,7 +17,7 @@
 (defn- region
   "A region whose `:spawn-all` pairs `:worker` with a never-completing `:helper`,
   so a `:worker` fold leaves the join open. Each region spawns from its own
-  `racing-state`: registration refuses two regions spawning at one in-region path."
+  `racing-state`."
   [racing-state on-complete]
   {:initial :idle
    :states  {:idle        {:on {:start racing-state}}
