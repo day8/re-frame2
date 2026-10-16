@@ -155,14 +155,15 @@ them each time the route activates:
   "/articles/:slug")
 ```
 
-`:app/load-article` is an ordinary event handler. It reads the slug from the route
-state, which lives in [runtime-db](../core/glossary.md#runtime-db), the framework's
-partition beside app-db. Handlers receive it under `:rf.db/runtime`:
+`:app/load-article` is an ordinary event handler. The runtime appends the activation
+target to each `:on-match` event: a map of the `:route-id`, `:params`, `:query`,
+`:fragment`, `:url` and the navigation's `:nav-token`. The handler reads the slug
+from its own event:
 
 ```clojure
 (rf/reg-event :app/load-article
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+  (fn [{:keys [db]} [_ target]]
+    (let [{:keys [slug]} (:params target)]
       {:db (assoc db
                   :article/current (get sample-articles slug)
                   :article/last-read slug)})))
@@ -421,8 +422,8 @@ article listed. Refresh, and the filter stays.
     (rf/reg-route :rf.route/not-found {} "/_404")
 
     (rf/reg-event :app/load-article
-      (fn [{:keys [db] rt :rf.db/runtime} _]
-        (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+      (fn [{:keys [db]} [_ target]]
+        (let [{:keys [slug]} (:params target)]
           {:db (assoc db
                       :article/current (get sample-articles slug)
                       :article/last-read slug)})))
@@ -532,8 +533,8 @@ and Forward need a URL-bound frame, so Step 6 has nothing to try here.
 (rf/reg-route :rf.route/not-found {} "/_404")
 
 (rf/reg-event :app/load-article
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+  (fn [{:keys [db]} [_ target]]
+    (let [{:keys [slug]} (:params target)]
       {:db (assoc db
                   :article/current (get sample-articles slug)
                   :article/last-read slug)})))

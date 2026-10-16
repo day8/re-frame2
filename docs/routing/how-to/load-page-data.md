@@ -16,9 +16,8 @@ packages, `day8/re-frame2-resources` and `day8/re-frame2-http`:
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 (rf/reg-event :article/remember
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    {:db (assoc db :article/last-read
-                (get-in rt [:rf.runtime/routing :current :params :slug]))}))
+  (fn [{:keys [db]} [_ target]]
+    {:db (assoc db :article/last-read (get-in target [:params :slug]))}))
 
 ;; cf. examples/capabilities/resources/resources/core.cljs
 (rf/reg-resource :article/detail
@@ -40,7 +39,8 @@ packages, `day8/re-frame2-resources` and `day8/re-frame2-http`:
 
 This replaces the tutorial's `:app/article` registration and its local
 `:on-match` loader. The new activation event remembers the slug for the
-**Continue reading** button, while resources load the article. Register the
+**Continue reading** button, reading it from the activation target the runtime
+appends to every `:on-match` event, while resources load the article. Register the
 resource, route and events before creating the frame:
 a URL-bound frame loads its first route during creation. Here the API returns
 an article JSON object with a `title` field. `:rf.scope/global` means these
@@ -124,9 +124,8 @@ article.
    [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
 
 (rf/reg-event :article/remember
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    {:db (assoc db :article/last-read
-                (get-in rt [:rf.runtime/routing :current :params :slug]))}))
+  (fn [{:keys [db]} [_ target]]
+    {:db (assoc db :article/last-read (get-in target [:params :slug]))}))
 
 (rf/reg-resource :article/detail
   {:params-schema [:map [:slug :string]]
