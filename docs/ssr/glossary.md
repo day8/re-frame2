@@ -78,8 +78,8 @@ See [`:payload`](concepts.md#payload--the-fail-closed-allowlist).
 The server's finished state, written into the page as EDN in
 `<script id="__rf_payload">`: `:rf/version`, `:rf/app-db` (filtered by the
 [payload allowlist](#payload-allowlist)), `:rf/runtime-db` (the framework's
-serialisable slice: route and machine snapshots) and `:rf/render-hash`. `hydrate!`
-reads and installs it.
+serialisable slice: route and machine snapshots). `hydrate!` reads and installs
+it.
 
 ### **client frame id**
 
@@ -89,7 +89,7 @@ the frame the server meant. It is omitted by default, because the server renders
 under a per-request frame the client never sees. Never set it to a per-request
 value: a payload whose id differs from the client's `:frame` throws
 `:rf.error/hydration-frame-id-mismatch`.
-See [Hydrate, then verify](concepts.md#the-client-side-hydrate-then-verify).
+See [Hydrate, then adopt](concepts.md#the-client-side-hydrate-then-adopt).
 
 ### **hydration**
 
@@ -98,23 +98,17 @@ rendering again. `ssr/hydrate!` installs the [hydration payload](#hydration-payl
 by dispatching the framework-owned `:rf/hydrate` before the first render, replacing
 the client frame's state rather than merging into it; the adapter's `render!` with
 `{:hydrate? true}` then attaches to the existing DOM.
-See [Hydrate, then verify](concepts.md#the-client-side-hydrate-then-verify).
-
-### **render hash**
-
-A structural hash of the server's render tree, stamped as `data-rf-render-hash` on
-the root element and as `:rf/render-hash` in the payload; `hydrate!` hashes the
-client's first render and compares the two. It ships only for a fn-form `:root-view`
-whose root view returns an element. See
-[What the hash covers](concepts.md#what-the-hash-covers).
+See [Hydrate, then adopt](concepts.md#the-client-side-hydrate-then-adopt).
 
 ### **hydration mismatch**
 
-The client's first render disagreeing with the server's HTML. For views that return
-hiccup, `hydrate!` compares the two [render hashes](#render-hash) and emits a
-`:rf.ssr/hydration-mismatch` trace carrying both. By default the client's render
-replaces the server's; with `:ssr {:on-mismatch :hard-error}` on the client frame it
-throws, which is how CI catches one.
+The client's first render disagreeing with the server's HTML. When React recovers
+from one while a root hydrates — differing text, or a missing, extra or wrong-type
+element — it re-renders that part on the client, and the root reports the recovery
+as a `:rf.ssr/hydration-mismatch` trace carrying React's message, plus an always-on
+error record. An attribute-only difference is not reported: React's development
+`console.error` is the only signal. CI catches a mismatch through the root's
+`:on-recoverable-error` callback.
 See [When the renders disagree](concepts.md#when-the-renders-disagree).
 
 ### **deploy-drift checks**
@@ -149,9 +143,9 @@ not gated. See [`:platforms`](concepts.md#platforms--one-handler-gated-per-runti
 
 The data that becomes `<title>`, `<meta>`, OpenGraph and JSON-LD on the
 server-rendered page: a pure `(db, route) → head-model` function registered with
-`reg-head` and named by a route. The runtime ships no DOM-head reconciler and
-compares only the body hash, so updating the live head after a client-side route
-change, and checking the head's `:rf/head-hash`, are the app's or host's job.
+`reg-head` and named by a route. The runtime ships no DOM-head reconciler, so
+updating the live head after a client-side route change is the app's or host's
+job.
 See [Head metadata](head.md).
 
 ### **error projector**

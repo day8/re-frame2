@@ -29,20 +29,19 @@
      re-frame2 owns the handler. `:rf/hydrate` *replaces* the client's
      frame-state rather than merging into it — on this question the server is
      the single source of truth.
-   - A structural render hash that catches the classic SSR bug. The client
-     hashes its own first render and compares it to the server's; if they
-     disagree, the runtime emits :rf.ssr/hydration-mismatch. See
+   - A report when the classic SSR bug strikes. If the client's first render
+     disagrees with the server's markup and React has to re-render part of
+     it, the hydrating root emits :rf.ssr/hydration-mismatch. See
      ../../../../docs/ssr/glossary.md#hydration-mismatch.
 
    Want to see it live? The hand-written `index.html` beside this file is a
    runnable stand-in for what `handle-request` below would emit if a real
    Clojure server sat in front — close in shape, but hand-authored, not
-   byte-exact (it deliberately omits the render-hash attribute + payload key
-   a genuine server stamps; see the comment in index.html). The pre-rendered
+   byte-exact (see the comment in index.html). The pre-rendered
    markup sits in `<div id='app'>`, and the baked
    `<script id='__rf_payload'>` carries the state. The browser-side `run`
-   reads that payload, hydrates + verifies the state, then adopts the server
-   markup with `hydrate-root` — no flash, no re-fetch."
+   reads that payload, hydrates the state, then adopts the server markup
+   with `hydrate-root` — no flash, no re-fetch."
   (:require [re-frame.core :as rf]
             ;; A handful of these requires are here purely for their side
             ;; effect: loading the namespace registers something we lean on
@@ -65,7 +64,7 @@
             [re-frame.http.test-support]
             ;; The SSR machinery: the `:rf.server/*` server-only effects, the
             ;; framework-owned `:rf/hydrate` event, the default error
-            ;; projector, and the render/hash hooks the calls below ride on.
+            ;; projector, and the render hooks the calls below ride on.
             [re-frame.ssr :as rf.ssr]
             ;; Server-side only: a `<script>`-body escaper that understands
             ;; EDN. `handle-request` drops the payload, `pr-str`'d, inside a
@@ -196,15 +195,13 @@
 ;; slice) becomes the serializable runtime-db projection. Whatever the client
 ;; had pre-seeded is overwritten, no negotiation. On hydration the server is
 ;; the authority, full stop. (Why replace rather than merge is worth the read:
-;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.)
+;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-adopt.)
 ;;
 ;; It's also paranoid in the good way — it fails closed. A payload that isn't a
 ;; map, or a slice (`:rf/app-db` / `:rf/runtime-db`) that's present but not a
 ;; map, leaves the frame-state exactly as it was rather than installing garbage.
 ;; (A wholly-absent slice key isn't malformed — that's the no-server-slice
-;; first-load shape, which falls back to the existing partition value.) Along
-;; the way it tucks the server's render hash aside for the verify step that
-;; follows the first render.
+;; first-load shape, which falls back to the existing partition value.)
 ;;
 ;; This example has no machines and doesn't hydrate a route, so its runtime-db
 ;; is empty and the payload carries no `:rf/runtime-db` at all. A richer app's
@@ -252,14 +249,6 @@
 ;; a reaction, so the view re-renders whenever app-db changes underneath it.
 ;; Same code, two behaviours, picked up from the context. See
 ;; ../../../../docs/core/glossary.md#view.
-;;
-;; Notice, too, that the root view returns the page's elements itself rather
-;; than handing off to another view. That is what gives the render hash
-;; something to check. The hash walks the tree the root returns, as data, and
-;; never calls a view it finds inside: `[(rf/view :some/page)]` hashes as one
-;; fixed token, whatever that page would render. A root whose whole body is
-;; another view would hash the same for every app state, and the client's
-;; check would pass whatever either side rendered.
 (rf/reg-view ^{:rf/id :app/root} root-view []
   (let [arts         @(subscribe [:articles/slice])
         show-bodies? @(subscribe [:articles/show-bodies?])]
@@ -385,17 +374,6 @@
               :body    (str "Articles unavailable (" (name outcome) ").")}
              (let [final-db      (rf/app-db-value f)                         ;; the app-db partition
                    final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; the RAW runtime-db partition — never shipped as-is
-                   hiccup   ((rf/view :app/root))
-                   ;; Hash the tree ONCE, then spend that one hash on both
-                   ;; channels below. `render-tree-hash` is a full walk of the
-                   ;; tree, so computing it here rather than letting the emitter
-                   ;; do its own is the difference between one walk and two.
-                   render-hash (rf.ssr/render-tree-hash hiccup)
-                   ;; `:render-hash` stamps data-rf-render-hash="<hex>" onto the
-                   ;; root element. That hex string is the tripwire: the client
-                   ;; recomputes the hash after its first render, and if the two
-                   ;; don't match, the runtime raises :rf.ssr/hydration-mismatch
-                   ;; instead of quietly serving a subtly-broken page.
                    ;; No `:doctype?` here — this handler wraps a *fragment*
                    ;; (`<div id='app'>…</div>`) inside its own hand-written
                    ;; document envelope below, which already opens with
@@ -403,11 +381,7 @@
                    ;; renders the whole `[:html …]` document; asking for it here
                    ;; would prefix a *second* doctype onto the fragment and nest
                    ;; it inside `<div id='app'>`.
-                   ;; The same hash rides in the payload too, so something
-                   ;; without a DOM to parse — a server log line, a CDN cache key
-                   ;; — can read it straight.
-                   html     (rf.ssr/render-to-string hiccup
-                                                 {:render-hash render-hash})
+                   html     (rf.ssr/render-to-string [(rf/view :app/root)])
                    ;; You'll notice the payload carries no `:rf/frame-id`, and
                    ;; that's the intended shape. The server rendered under a
                    ;; throwaway per-request gensym (`f`); the client hydrates its
@@ -450,7 +424,6 @@
                               (rf.ssr.payload-policy/project-app-db-egress
                                 (rf.ssr.payload-policy/apply-policy final-db policy)
                                 fid)
-                              render-hash
                               {:runtime-db (rf.ssr.payload-policy/project-runtime-db
                                              final-runtime fid)})]
                {:status  200
@@ -485,26 +458,24 @@
 ;; CLIENT ENTRY POINT
 ;; ============================================================================
 ;;
-;; On the client, the whole boot is a single call: `rf.ssr/hydrate!`, the mirror
-;; image of the server render. It rolls three steps into one, and the order is
-;; the point:
+;; On the client, the boot is two calls: `rf.ssr/hydrate!`, the mirror image of
+;; the server render, then the adapter's hydrating render. `hydrate!` rolls two
+;; steps into one, and the order is the point:
 ;;   1. READ    — pull the embedded `__rf_payload` `<script>` by its pinned id.
 ;;                A malformed payload fails closed (nothing replaces the frame
 ;;                state); a missing one just means "nobody server-rendered
 ;;                this" — a plain first load.
 ;;   2. HYDRATE — dispatch-sync `[:rf/hydrate payload]`, before the first
 ;;                render. The framework handler swaps in the server's
-;;                serialisable frame state and sets the server's render hash
-;;                aside for step 3.
-;;   3. VERIFY  — once that first render is on screen, hash the `:render-tree-fn`
-;;                result and hold it up against the server's hash. Disagree and
-;;                you get :rf.ssr/hydration-mismatch.
+;;                serialisable frame state.
 ;; `hydrate!` hands back the payload it applied (or nil on a plain client load),
 ;; which lets `run` answer "was this server-rendered?" without going back to
 ;; sniff the DOM. The reason to route through the helper rather than wire these
-;; up yourself: it keeps the fail-closed check, the hash stash, and the verify
-;; locked together in the one correct order. See
-;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
+;; up yourself: it keeps the fail-closed check and the seed locked together in
+;; the one correct order. Then the first render through the client root, with
+;; `{:hydrate? true}`, adopts the server's DOM; if React has to re-render part of
+;; it, that root reports :rf.ssr/hydration-mismatch. See
+;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-adopt.
 
 ;; A quick naming note. App events live under a namespace you pick; the reserved
 ;; `:rf/*` root is the framework's. `:rf/hydrate` is framework-owned. The
@@ -569,17 +540,11 @@
      ;; registration the server frames do, so the hydrated `:articles` commit,
      ;; and every interactive commit the reader triggers afterward, get
      ;; validated on the client just as they were on the server.
-     ;; READ, HYDRATE, VERIFY — all three against the same `app-frame` the mount
-     ;; below uses. The one subtlety is `:render-tree-fn`: VERIFY has to hash the
-     ;; *exact* tree the server hashed, or it'll cry mismatch over a difference
-     ;; that was never real. The server hashed `((rf/view :app/root))` — the view
-     ;; fn *called* — so we call it the same way here, not the
-     ;; `[(rf/view :app/root)]` vector form Reagent mounts. `hydrate!` seeds and
-     ;; verifies STATE only — it never touches the DOM — and returns the payload
-     ;; it applied, or nil on a plain client load.
+     ;; READ, then HYDRATE, against the same `app-frame` the mount below uses.
+     ;; `hydrate!` seeds STATE only — it never touches the DOM — and returns the
+     ;; payload it applied, or nil on a plain client load.
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-           payload (rf.ssr/hydrate! {:frame          app-frame
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           payload (rf.ssr/hydrate! {:frame app-frame})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el
          ;; No payload means no server render — a plain first load. Run the
@@ -604,14 +569,14 @@
 ;; covered:
 ;;   - `ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch` — the
 ;;     whole round trip: per-request frame, :app/server-init, the article fetch
-;;     through a canned stub, render-to-string, and a payload whose render
-;;     hash the client frame stashes when it hydrates.
+;;     through a canned stub, render-to-string, and a payload the client frame
+;;     installs when it hydrates.
 ;;   - `ssr-example-handle-request-tears-down-on-throw` — the per-request frame
 ;;     and its request slot are released even when the render throws; the
 ;;     delayed-reply and failure/deadline tests check that no frame outlives a
 ;;     200 or a 503.
-;;   - `ssr-example-client-hydration-verifies-the-render-hash` — the verify
-;;     step, on both a matching and a divergent hash.
+;;   - `ssr-example-client-hydration-seeds-the-frame` — `hydrate!` installs
+;;     the payload and records its version, and reports no mismatch itself.
 ;; Fail-closed hydration of a malformed payload is the framework's job rather
 ;; than the example's, so re-frame.ssr-hydration-test (implementation/ssr/test/)
 ;; covers it.

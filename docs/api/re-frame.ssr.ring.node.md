@@ -33,10 +33,9 @@ Assuming the app's `:app/init` event is registered, the sidecar is running, and 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (renderer opts) → (fn [{:keys [frame-id request opts]}] {:body-html … :render-hash nil})
+  (renderer opts) → (fn [{:keys [frame-id request opts]}] {:body-html …})
   ```
 - **Description**: Returns a value for `ssr-handler`'s `:renderer`. It validates `opts` and builds one HTTP client at construction; per request it projects the frame's state under `:render-state`, POSTs it to `<endpoint>/render` and returns the sidecar's body verbatim.
-    - `:render-hash` is always `nil`, so the page carries no `data-rf-render-hash` and no payload `:rf/render-hash`.
     - With a map policy, the projection applies the handler's `:payload-include-sensitive`, so the markup and the payload agree on a permitted value.
     - The render module reads the state back with `re-frame.ssr.render-state/deserialize`.
     - A request waits at most `:timeout-ms` + `:admission-ms` + 600 ms, body included.

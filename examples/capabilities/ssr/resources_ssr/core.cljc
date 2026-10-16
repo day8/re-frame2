@@ -257,13 +257,6 @@
 ;; is in flight. The same view code runs on both — the "one app, runs twice"
 ;; promise, now over a managed resource.
 ;; See docs/ssr/glossary.md#render-to-string.
-;;
-;; The root view returns the page's elements itself rather than handing off to
-;; another view, because the render hash walks the tree the root returns and
-;; never calls a view it finds inside: `[(rf/view :some/page)]` hashes as one
-;; fixed token. A root whose whole body is another view would hash the same
-;; for every cache state, and the client's check would pass whatever either
-;; side rendered.
 
 (rf/reg-view ^{:rf/id :app/root} root-view []
   (let [state @(subscribe [:rf/resource
@@ -405,7 +398,6 @@
                            ").")}
                (let [final-db      (rf/app-db-value f)
                      final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; this is where :rf.runtime/resources lives
-                     hiccup        ((rf/view :app/root))
                      ;; Render the app as a FRAGMENT, not a full document. The
                      ;; `handle-request` envelope below owns the ONE document shell —
                      ;; the outer `<!DOCTYPE html>`, `<head>` metadata, the payload
@@ -413,13 +405,8 @@
                      ;; `<div id='app'>`, so it must NOT prepend its own doctype:
                      ;; `:doctype? true` here would nest a second `<!DOCTYPE html>`
                      ;; inside `#app`, and the response would be malformed HTML that
-                     ;; only survives via browser parser recovery. Keep the
-                     ;; `:render-hash` stamp — the hydration hash the client
-                     ;; verifies still belongs on the fragment's root element.
-                     ;; Hash ONCE and spend it on both channels: the emitter takes
-                     ;; the hash rather than computing a second walk of its own.
-                     render-hash   (rf.ssr/render-tree-hash hiccup)
-                     html          (rf.ssr/render-to-string hiccup {:render-hash render-hash})
+                     ;; only survives via browser parser recovery.
+                     html          (rf.ssr/render-to-string [(rf/view :app/root)])
                      ;; (2) Build the payload exactly the way the Ring host does:
                      ;; the app-db slice through the fail-closed allowlist, and the
                      ;; runtime-db through the SSR projection (the allowed resource
@@ -440,7 +427,6 @@
                      payload       (rf.ssr.payload-policy/build-payload
                                      f
                                      (rf.ssr.payload-policy/apply-policy final-db policy-opts)
-                                     render-hash
                                      (assoc policy-opts
                                             :runtime-db (rf.ssr.payload-policy/project-runtime-db
                                                           final-runtime)))
@@ -482,16 +468,15 @@
 ;;
 ;; `rf.ssr/hydrate!` reads the payload, dispatch-syncs `[:rf/hydrate payload]`
 ;; to install the resource projection into the frame's `:rf.runtime/resources`
-;; slice, then verifies the render hash to confirm client and server agree on
-;; what the page should look like. That is a state install and a check: it
-;; issues nothing and leaves no owner behind.
+;; slice. That is a state install: it issues nothing and leaves no owner
+;; behind.
 ;;
 ;; `:resources-ssr.app/page-opened` is the beat that does cause something. For
 ;; the fresh hydrated entry it causes a cache hit — the owner attaches, the
 ;; timers arm, and no request leaves the browser, which is exactly what
 ;; preloading was for. For a cold or stale entry it causes the one load the page
 ;; actually needs. Then the adapter renders, once.
-;; See docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
+;; See docs/ssr/concepts.md#the-client-side-hydrate-then-adopt.
 
 #?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
@@ -524,12 +509,11 @@
    (defn run []
      (rf/init! rf.adapter.reagent/adapter)
      (rf/make-frame {:id app-frame :doc "resources-ssr client app-frame" :platform :client})
-     ;; READ, HYDRATE, VERIFY against the app-frame. `hydrate!` seeds STATE only
+     ;; READ, then HYDRATE, against the app-frame. `hydrate!` seeds STATE only
      ;; — it never touches the DOM — and hands back the payload it applied, or
      ;; nil on a plain client load with no server render to adopt.
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-           payload (rf.ssr/hydrate! {:frame          app-frame
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           payload (rf.ssr/hydrate! {:frame app-frame})
            ;; ACQUIRE — after the hydrate, before the first render, and the
            ;; order is load-bearing in both directions. Ahead of `hydrate!` this
            ;; would fetch a list the payload is about to hand us; after the

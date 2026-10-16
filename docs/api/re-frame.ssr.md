@@ -41,7 +41,6 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
     - It drops props that have no HTML form, as react-dom does: `on*` handlers and other fn-valued props, `:key` and `:ref`, and the `:children` and `:dangerouslySetInnerHTML` props. `:dangerouslySetInnerHTML` becomes the element's body instead of an attribute: its `:__html` is written raw, as react-dom writes it, so the markup is yours to make safe. It wins over any children, a void element ignores it, and a `nil` `:__html` gives an empty body. A `javascript:` URL in `:href`, `:src`, `:action`, `:form-action` or `:xlink-href` is replaced by react-dom's blocked-URL placeholder.
 - **Options** (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
-    - `:render-hash` — a hash to stamp as `data-rf-render-hash` on the tree's first DOM element, for client-side mismatch detection. Compute it with `render-tree-hash` over the tree the root view returns, `((rf/view :app/root))`, and use the same value for the payload's `:rf/render-hash`. Without it, no marker is stamped.
 - **Errors**:
     - `:rf.error/invalid-tag-name` — a malformed tag name.
     - `:rf.error/invalid-hiccup-head` — a vector head that is neither a keyword nor a callable (a string, `nil`, a number, a collection), or an unrecognised `:rf/*` keyword head.
@@ -50,12 +49,10 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
     - `:rf.error/ssr-nonrenderable-component` — a component still returned a fn after its Form-2 render fn was called; return hiccup from the render fn.
 - **Example**:
   ```clojure
-  ;; Render a settled frame, stamping the hash the client will check against.
+  ;; Render a settled frame as a whole document.
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:app/server-init] {:frame f})
-    (let [tree ((rf/view :app/root))]               ;; call the view: a hashable tree
-      (ssr/render-to-string tree {:doctype?    true
-                                  :render-hash (ssr/render-tree-hash tree)})))
+    (ssr/render-to-string [(rf/view :app/root)] {:doctype? true}))
   ```
 
 `render-to-string` runs in the browser too, so the cell below shows the HTML for a
@@ -77,25 +74,6 @@ attributes, a void element, dropped props, a blocked `javascript:` URL,
 [:pre {:style {:white-space "pre-wrap"}}
  (ssr/render-to-string tree)]
 ```
-
-### `render-tree-hash`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (render-tree-hash render-tree) → 32-bit FNV-1a structural hash (lowercase hex)
-  ```
-- **Description**: Returns a structural hash of a render tree. The hash is computed over the tree's canonical EDN, so the same tree hashes the same on JVM and CLJS. Hydration compares the server's hash with the client's first render; a mismatch means the client's first render is not the tree the server rendered.
-    - Attribute order does not matter and `nil` values are dropped: `[:div {:class nil}]` and `[:div {}]` hash the same.
-    - It does not call views. A view in the tree (a function head) hashes as one fixed token followed by its arguments, so the hash covers the markup the tree spells out and the arguments it passes to views, not what those views render. Hash the tree a view returns, `((rf/view :app/root))`: `[(rf/view :app/root)]` hashes to the same constant for every app ([What the hash covers](../ssr/concepts.md#what-the-hash-covers)).
-- **Example**:
-  ```clojure
-  ;; Capture the hash at render time; it rides the hydration payload as
-  ;; :rf/render-hash and is re-checked client-side after the first render.
-  (let [hiccup      ((rf/view :app/root))
-        render-hash (ssr/render-tree-hash hiccup)]
-    {:rf/render-hash render-hash})
-  ```
 
 ### `adapter`
 
@@ -172,19 +150,17 @@ The server writes the hydration payload into the page as EDN, in a `<script id="
 {:rf/version       1           ;; pattern-protocol version, compared by :rf.ssr/check-version
  :rf/app-db        {…}         ;; the app-db keys the server's :payload policy allows
  :rf/runtime-db    {…}         ;; framework state: the route, machine snapshots (optional)
- :rf/render-hash   "a3f29c01"  ;; the server's render-tree hash (optional)
- :rf/head-hash     "…"         ;; the head model's hash (optional)
  :rf/frame-id      :rf/default ;; only when the server was given a :client-frame-id
  :rf/schema-digest "…"}        ;; only when the server was given a :schema-digest
 ```
 
-On the client, `hydrate!` installs that state into the frame before the first render and checks the render against the server's; then the view adapter adopts the server's DOM, as in the [`hydrate!` example](#hydrate). Three checks guard hydration, and by default each reports the problem and lets the page carry on:
+On the client, `hydrate!` installs that state into the frame before the first render; then the view adapter adopts the server's DOM, as in the [`hydrate!` example](#hydrate). Three reports guard hydration, and each lets the page carry on:
 
-- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
+- `:rf.ssr/hydration-mismatch` — React recovered from a difference between the client's first render and the server's markup (differing text, or a missing, extra or wrong-type element) while a root hydrated. The hydrating root reports it, not `hydrate!`: the adapter's `render!` with `{:hydrate? true}` installs the reporter on every hydrating root, in every build. In development it emits a `:warning` trace whose tags are React's message (`:error`) and the reporting root's door (`:where`), with `:recovery :warned-and-replaced` at the trace's top level; in every build it also emits an always-on error record under the same id, carrying `:where`, `:recovery` and, when the root knows it, `:frame`, never the message. An attribute-only difference is not a recovery and is not reported; React's development `console.error` is the only signal ([When the renders disagree](../ssr/concepts.md#when-the-renders-disagree)).
 - `:rf.ssr/version-mismatch` — the payload and client disagree on the SSR pattern-protocol version, which is separate from the library release version.
 - `:rf.ssr/schema-digest-mismatch` — the app's schema set has changed since the payload was built.
 
-`:rf/hydrate` runs the last two, which check that the payload came from a compatible build ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) explains the boot sequence.
+`:rf/hydrate` runs the last two, which check that the payload came from a compatible build ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then adopt](../ssr/concepts.md#the-client-side-hydrate-then-adopt) explains the boot sequence.
 
 The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) projects it under its own `:render-state` policy, and the render module reads it back with `deserialize` from `re-frame.ssr.render-state`, an implementation namespace with no page of its own.
 
@@ -195,18 +171,16 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   ```clojure
   (hydrate! opts) → applied-payload | nil
   ```
-- **Description**: Boots the client from the server's payload. Call it after `rf/init!` and `make-frame`, before the view adapter mounts. It runs three steps in order:
+- **Description**: Boots the client from the server's payload. Call it after `rf/init!` and `make-frame`, before the view adapter mounts. It runs two steps in order:
     1. **Read** the payload: `:payload` if supplied, else (CLJS) the DOM's `__rf_payload` `<script>`, via [`read-server-payload`](#read-server-payload).
     2. **Hydrate**: `dispatch-sync [:rf/hydrate payload]` against `:frame` before the first render ([`:rf/hydrate`](#rfhydrate)).
-    3. **Verify**: call `:render-tree-fn` under `:frame` and pass its tree to [`verify-hydration!`](#verify-hydration) (omit `:render-tree-fn` to skip).
     - Returns the payload it applied, or `nil` when there is none to apply: no payload script (a client-only first load), a payload `:rf/hydrate` refused as malformed, or a `:frame` that is not live (never made, or destroyed). Branch on it to choose between adopting the server's DOM and mounting fresh.
-    - `hydrate!` installs state only. Adopting the server's DOM is a separate call to the view adapter, such as the Reagent adapter's `render!` with `{:hydrate? true}` ([`re-frame.adapter.reagent`](re-frame.adapter.reagent.md)).
-    - Installation is idempotent per frame: a second `hydrate!` into the same frame with the same payload finds it installed, skips the seed and the verify, and still returns the payload. This is what lets several roots on one page hydrate one frame.
+    - `hydrate!` installs state only and compares nothing. Adopting the server's DOM is a separate call to the view adapter, such as the Reagent adapter's `render!` with `{:hydrate? true}` ([`re-frame.adapter.reagent`](re-frame.adapter.reagent.md)), and that root reports any mismatch React recovers from.
+    - Installation is idempotent per frame: a second `hydrate!` into the same frame with the same payload finds it installed, skips the seed, and still returns the payload. This is what lets several roots on one page hydrate one frame.
 - **Options**:
     - `:frame` — required; the frame to hydrate, as its id or as the frame value `make-frame` returns, the same frame the root `frame-provider` names. The version and schema-digest checks run only on a `:client`-platform frame, the default on CLJS.
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
-    - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
     - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict.
 - **Errors**:
     - `:rf.error/no-frame-context` — no `:frame`. Emitted, then thrown.
@@ -225,9 +199,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   (defonce app-root (reagent-adapter/client-root))
   (rf/make-frame {:id :rf/default :platform :client})
 
-  (let [payload (ssr/hydrate!
-                  {:frame :rf/default
-                   :render-tree-fn #((rf/view :app/root))})]
+  (let [payload (ssr/hydrate! {:frame :rf/default})]
     (reagent-adapter/render!
       app-root
       [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]
@@ -244,7 +216,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
                            | {:root-id … :status :failed :error throwable} …]
   ```
 - **Description**: Boots a page with several roots, isolating each root's failure from the others ([Several roots on one page](../ssr/concepts.md#several-roots-on-one-page)). `roots` is a collection of per-root opts maps: each is the map `hydrate!` takes, plus an optional 0-arity `:mount-fn` that runs right after that root's hydrate, inside the same failure boundary. Pass the mount as `:mount-fn` rather than mounting after the call: a mount that throws outside the boundary is not isolated.
-    - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch or payload conflict before anything was installed, or a `:hard-error` hash mismatch after the frame was seeded), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
+    - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch or payload conflict, before anything was installed), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
     - Outcomes come back in input order. `:status :hydrated` means neither step threw; its `:payload` can be `nil` when `hydrate!` applied nothing. The mount callback still runs in that case.
     - `:mount-fn` receives no payload argument and establishes its own frame context, usually with `rf/frame-provider`. For a page that may have no payload, choose client-only mounting in your boot code; the callback is not automatically switched to it.
     - A failed root is not retried.
@@ -276,32 +248,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   ```clojure
   ;; Branch on "was this page server-rendered?" without booting.
   (when-let [payload (ssr/read-server-payload)]
-    (:rf/render-hash payload))
-  ```
-
-### `verify-hydration!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (verify-hydration! frame render-tree)      → nil
-  (verify-hydration! frame render-tree opts) → nil
-  ```
-- **Description**: Compares the client's render hash with the server hash stored by `:rf/hydrate`, and reports a mismatch. `hydrate!` calls it for you when given `:render-tree-fn`; call it directly when the host mounts first and must verify the tree it actually mounted.
-    - `frame` is the frame's id, or the frame value `make-frame` returns.
-    - The second argument is a render tree (it is hashed with [`render-tree-hash`](#render-tree-hash)) or a precomputed hash string.
-    - When the payload carried no `:rf/render-hash` it compares nothing and reports nothing. The Ring handler writes that hash only when its `:root-view` resolves to a tree headed by an HTML element ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)).
-    - On a mismatch it emits the `:rf.ssr/hydration-mismatch` trace, with tags `:server-hash`, `:client-hash`, `:frame`, `:failing-id` (default `:rf/hydrate`), the error tags `:category`, `:rf.error/id`, `:where` and `:reason`, and, when supplied, `:first-diff-path`. `:recovery` sits at the trace's top level, not among its tags. It also emits an always-on error record under the same id, carrying the hashes, `:frame`, `:failing-id` and `:recovery` only. That record reaches the frame's `:observability :errors` sinks in a production build, where the trace is elided.
-    - The hash says that the renders differ, not where: no path is computed. `opts` may carry `:first-diff-path` (from your own tree diff), `:failing-id` and `:server-hash`; `:server-hash` overrides the stored server hash ([Which node, and which substrate](../ssr/concepts.md#which-node-and-which-substrate)).
-    - Two per-frame `:ssr` settings control it. `{:detect-mismatch? false}` skips the comparison. `{:on-mismatch :hard-error}` records `:recovery :hard-error`, then turns the mismatch into a thrown `ex-info` whose data carries `:rf.error/id :rf.ssr/hydration-mismatch`, both hashes and `:frame`; the default, `:warn`, records `:recovery :warned-and-replaced` and returns.
-- **Example**:
-  ```clojure
-  ;; Host that mounts first, then verifies the mounted tree explicitly.
-  (rf/with-frame :rf/default
-    (ssr/verify-hydration! :rf/default ((rf/view :app/root))))
-
-  ;; Fail the CI run on a mismatch instead of warning: set it on the client frame.
-  (rf/make-frame {:id :rf/default :platform :client :ssr {:on-mismatch :hard-error}})
+    (:rf/version payload))
   ```
 
 ## Error projection
@@ -413,8 +360,6 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 | `:public-error-id` | server frame | `:rf.ssr/default-error-projector` | The [error projector](#reg-error-projector) this frame's errors go through. |
 | `:dev-error-detail?` | server frame | `false` | `true` adds `:details`, the raw trace event, to each projected public error. Leave it off in production. |
 | `:on-view-exception` | server frame | project the exception | `:throw` re-throws a render-time exception unchanged instead of projecting it ([`project-render-exception!`](#project-render-exception)), to surface bugs during development. Under the Ring handlers the exception reaches `:on-error` (by default a plain-text `500`). |
-| `:on-mismatch` | client frame | `:warn` | `:hard-error` makes a detected hydration mismatch throw ([`verify-hydration!`](#verify-hydration)). |
-| `:detect-mismatch?` | client frame | `true` | `false` skips the hydration hash comparison. |
 
 ```clojure
 ;; Server: a custom projector, with error detail while developing.
@@ -423,9 +368,6 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
                        :payload        [:articles]
                        :ssr            {:public-error-id   :app/public-error
                                         :dev-error-detail? true}})
-
-;; Client: fail loudly on a hydration mismatch, for CI.
-(rf/make-frame {:id :rf/default :platform :client :ssr {:on-mismatch :hard-error}})
 ```
 
 ## Events

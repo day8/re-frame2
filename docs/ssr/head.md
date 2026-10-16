@@ -112,7 +112,7 @@ app- or host-level head manager that reads the same head model with
 | `ssr/head-model` throws when you call it directly | `:rf.error/no-such-head`: the `:head-id` or the route's `:head` names nothing registered | Register the head, or fix the id |
 | The route never registers | `:rf.error/route-bad-metadata`, thrown at registration: the path was put in the metadata map | The path is the third positional argument of `reg-route` |
 | `<title>` goes stale after a client-side route change | No DOM-head reconciler | Add an app- or host-level head manager ([After hydration](#after-hydration)) |
-| A head mismatch between server and client is never reported | The runtime compares only the body's `:rf/render-hash` | Compare `:rf/head-hash` yourself ([The head hash](#the-head-hash)) |
+| A head mismatch between server and client is never reported | Hydration adopts the body's root element; the head is outside every React root | Recompute `(ssr/head-model frame-id)` on the client and compare it yourself ([Checking the head](#checking-the-head)) |
 
 ## Advanced
 
@@ -122,8 +122,8 @@ Two `ssr-handler` options change where the head comes from:
 
 - **A `:head` string replaces the resolved head entirely**: route head, default
   `<title>` and `viewport` meta alike. It is injected unescaped, so use it only for a
-  static app without routing and never build it from untrusted input. It also drops
-  the `:rf/head-hash` channel, since there is no model to recompute.
+  static app without routing and never build it from untrusted input. With no
+  model behind it, the client cannot recompute it.
 - **A custom `:html-shell` receives the resolved head as HTML** in its `opts` map
   under `:head`; put it inside your `<head>`. If you assemble the document yourself
   outside the handler, `(ssr/head-model->html (ssr/head-model frame-id))` gives the
@@ -132,15 +132,12 @@ Two `ssr-handler` options change where the head comes from:
 [The page shell](concepts.md#the-page-shell) covers the other shell options, and
 [`ssr-handler`](../api/re-frame.ssr.ring.md#ssr-handler) lists them all.
 
-### The head hash
+### Checking the head
 
-The body and the head are hashed separately. The body's render-tree hash travels as
-`:rf/render-hash`, and the client compares it on hydration ([When the renders
-disagree](concepts.md#when-the-renders-disagree)). A head built from a model also
-emits an optional `:rf/head-hash`, stamped as `data-rf-head-hash` on `<head>`. It is
-omitted when the head cannot be recomputed: an explicit `:head` string, or a head that
-failed to resolve.
-
-The bundled runtime does not compare the head hash. A host that wants the check
-recomputes `(ssr/render-tree-hash (ssr/head-model frame-id))` from the hydrated app-db
-and route, and compares it with `:rf/head-hash` itself.
+Hydration reports what React recovers from inside a root ([When the renders
+disagree](concepts.md#when-the-renders-disagree)), and the `<head>` is outside every
+root, so a head that differs between server and client is never reported. The head
+model is data, so a host that wants the check recomputes
+`(ssr/head-model frame-id)` from the hydrated app-db and route, and compares it with
+what it reads from the document. A head from an explicit `:head` string, or one that
+failed to resolve, has no model to recompute.

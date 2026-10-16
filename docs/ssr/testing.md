@@ -92,8 +92,7 @@ allowlist becomes an assertion on data:
 
 (deftest only-the-allowlist-ships
   (let [payload (read-payload (:body (handler request)))]
-    (is (= #{:articles} (set (keys (:rf/app-db payload)))))   ;; :articles/limit stays on the server
-    (is (string? (:rf/render-hash payload)))))
+    (is (= #{:articles} (set (keys (:rf/app-db payload)))))))  ;; :articles/limit stays on the server
 ```
 
 The payload escaper rewrites `<` inside strings as `\u003c`, which the EDN reader
@@ -150,29 +149,78 @@ The handler does not wait for a fetch started from `:initial-events`; data the
 first render needs belongs in a route resource declared `:blocking? true`, which
 it does wait for.
 
-## Replay the hydration on the JVM
+## Check hydration
 
-`hydrate!` also runs on the JVM when you pass the payload explicitly. Feed it the
-payload the handler shipped, into a client frame in strict mode. If the payload is
-not enough to reproduce the server's render (the root reads a key the allowlist
-left out, or reads the clock), the client render hashes differently and `hydrate!`
-throws.
+Neither check below is complete hydration verification. The browser check sees
+the recoveries React makes on a real page; the JVM check sees whether the payload
+rebuilds the server's page. An attribute-only divergence escapes both
+([What is not reported](concepts.md#what-is-not-reported)), so read React's
+development console warning as well.
+
+### In the browser: watch React's recoveries
+
+In a development or CI browser run, pass the root an `:on-recoverable-error` that
+collects what React reports while it adopts the server's markup:
 
 ```clojure
-(deftest the-payload-rebuilds-the-page
-  (let [payload (read-payload (:body (handler request)))]
-    (rf/make-frame {:id :app :platform :client :ssr {:on-mismatch :hard-error}})
-    (is (= payload (ssr/hydrate! {:frame          :app
-                                  :payload        payload
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})))
-    (is (= "Hello, server" (get-in (rf/app-db-value :app) [:articles 0 :title])))))
+(defonce hydration-errors (atom []))
+
+(let [payload (ssr/hydrate! {:frame :rf/default})]
+  (reagent-adapter/render!
+    app-root
+    [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]
+    (js/document.getElementById "app")
+    {:hydrate?             (some? payload)
+     :on-recoverable-error (fn [e _] (swap! hydration-errors conj e))}))
 ```
 
-The comparison needs the payload's `:rf/render-hash`; without one this test passes
-without checking anything, which is why `only-the-allowlist-ships` asserts the hash
-is a string. A hash ships only for a fn-form `:root-view` whose root view returns an
-element, and it compares only the root's own markup
-([what the hash covers](concepts.md#what-the-hash-covers)).
+Once the hydration commit has landed, assert `(empty? @hydration-errors)`: a
+browser test reads the atom, or the CI page fails its run on the first entry. The
+root still emits its `:rf.ssr/hydration-mismatch` report before calling your
+function, so the trace and the always-on record are unchanged.
+
+The callback alone cannot prove the attributes agree, because React calls it only
+for divergences it recovers from. In development, also watch `console.error` for
+React's attribute warning, whose message says the attributes "didn't match":
+
+```clojure
+(defonce attribute-warnings (atom []))
+
+(let [console-error js/console.error]
+  (set! js/console.error
+        (fn [& args]
+          (when (str/includes? (str (first args)) "didn't match")
+            (swap! attribute-warnings conj (first args)))
+          (.apply console-error js/console (to-array args)))))
+```
+
+Production builds of React do not log the warning, so this part of the check
+needs a development build.
+
+### On the JVM: replay the payload
+
+`hydrate!` also runs on the JVM when you pass the payload explicitly. Feed it the
+payload the handler shipped, render the root view against the hydrated frame, and
+compare the markup with what the server put inside `<div id="app">`. If the payload
+is not enough to reproduce the server's render (the root reads a key the allowlist
+left out, or reads the clock), the two strings differ and the test fails.
+
+```clojure
+(defn app-element-html [html]                     ;; the markup inside <div id="app">
+  (second (re-find #"(?s)<div id=\"app\">(.*)</div><script id=\"__rf_payload\"" html)))
+
+(deftest the-payload-rebuilds-the-page
+  (let [body    (:body (handler request))
+        payload (read-payload body)]
+    (rf/make-frame {:id :app :platform :client})
+    (is (= payload (ssr/hydrate! {:frame :app :payload payload})))
+    (is (= (app-element-html body)
+           (rf/with-frame :app (ssr/render-to-string [(rf/view :app/root)]))))))
+```
+
+This checks payload reconstruction and deterministic server output: both renders
+run on the JVM, with the JVM's emitter, so it cannot establish that the browser
+renders the same markup. That is the browser check's job.
 
 ## Test the boot guards and the error projector
 
@@ -223,25 +271,22 @@ server: a handler that would crash a server render crashes the JVM test first.
 ## What stays in the browser
 
 The JVM replay renders both sides with the JVM's emitter, so it cannot see anything
-that differs between the JVM and the browser. Keep a browser run for:
+that differs between the JVM and the browser. Keep a browser run, with the
+[browser check](#in-the-browser-watch-reacts-recoveries), for:
 
 - **Adopting the DOM**: the adapter's `render!` with `{:hydrate? true}` reconciling
-  against the server markup, and React's own hydration check for UIx and Fresco
-  roots.
+  against the server markup, and React reporting what it recovers from.
 - **Cross-runtime drift**: a view whose `#?(:clj …)` and `#?(:cljs …)` branches
   render differently, or host-dependent output such as number and date formatting.
 
-Turn on strict mode, `{:ssr {:on-mismatch :hard-error}}`, on the client frame in
-development and CI browser runs, so a
-[hydration mismatch](concepts.md#when-the-renders-disagree) fails the build instead
-of logging a warning. The [tutorial's Step 5](tutorial.md#step-5--break-it-on-purpose)
-trips one on purpose.
+The [tutorial's Step 5](tutorial.md#step-5--break-it-on-purpose) trips a
+[hydration mismatch](concepts.md#when-the-renders-disagree) on purpose.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| The hydration replay passes even after you break the view | The payload has no `:rf/render-hash`, so nothing was compared | Use the fn form `:root-view (fn [] ((rf/view :app/root)))`, with a root view that returns an element; assert `(string? (:rf/render-hash payload))` ([what the hash covers](concepts.md#what-the-hash-covers)) |
+| The JVM replay passes but the browser reports a mismatch | The JVM and the browser render the view differently; the replay compares two JVM renders | Find the `#?(:clj …)` / `#?(:cljs …)` or host-formatting difference, and keep the [browser check](#in-the-browser-watch-reacts-recoveries) in CI |
 | The rendered body lacks data that a fetch loads | The fetch was started from `:initial-events`, and the handler does not wait for it | Declare the data as a route resource with `:blocking? true`, or stub the fetch with `:fx-overrides` |
 | Constructing the handler throws `:rf.error/ssr-missing-payload-policy` | No `:payload` option | Name the app-db keys that may ship, or `:rf.ssr.payload/whole-app-db` |
 
@@ -253,7 +298,7 @@ If you [render on Node](concepts.md#render-on-node), the renderer is one handler
 option holding a function, so most of it tests on the JVM without a second process.
 
 - **Renderer selection.** `:renderer` takes any
-  `(fn [{:keys [frame-id request opts]}] → {:body-html … :render-hash …})`. Pass a
+  `(fn [{:keys [frame-id request opts]}] → {:body-html …})`. Pass a
   stub that returns a fixed string, and assert that the JVM's half of the page (the
   `<head>`, `__rf_payload`, the shell, the status and the cookies) is assembled
   around it correctly.
