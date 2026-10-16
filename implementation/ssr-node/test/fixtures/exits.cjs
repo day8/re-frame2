@@ -43,14 +43,10 @@ const { threadId } = require('node:worker_threads');
 const EXIT_AT_FLAG = 'RF2_SSR_NODE_EXIT_AT';
 const exitAt = process.env[EXIT_AT_FLAG];
 
-const ENTRY = { stateAllowlist: [':for-exit'], runtimeAllowlist: [] };
-
 module.exports = {
   protocol: 1,
   buildId: 'exits-build-1',
-  entries: {
-    'app/exits': ENTRY,
-  },
+  entries: ['app/exits'],
 
   boot() {
     if (exitAt === 'boot-even-thread' && threadId % 2 === 0) process.exit(0);

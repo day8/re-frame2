@@ -525,7 +525,7 @@ test('the CLONE gets no second say — the validator keeps what it checked', asy
 function serviceOverRejectingIsolate(error) {
   const pool = {
     buildId: 'reference-build-1',
-    entries: { 'app/root': { stateAllowlist: [':route'], runtimeAllowlist: [] } },
+    entries: ['app/root'],
     acquire: async () => ({ render: () => Promise.reject(error) }),
     release: () => {},
   };
