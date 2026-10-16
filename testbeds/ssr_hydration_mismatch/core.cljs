@@ -14,8 +14,9 @@
   renders `rendered on the client` — a text-only divergence standing in
   for a view that reads something the two hosts disagree on (the clock, a
   locale, `js/window`). `run` seeds the frame with `ssr/hydrate!`, then
-  hydrates the server markup with the Reagent adapter's `render!` and
-  `{:hydrate? true}`. React meets the divergent text, recovers by
+  hydrates the server markup with the Reagent adapter's `render!`,
+  `{:hydrate? true}` and an `:on-recoverable-error` that logs the recovery
+  as a console warning. React meets the divergent text, recovers by
   re-rendering the root, and the reporter emits the trace; the trace
   listener captures it onto `window.__rf_trace_events()` and into app-db,
   so a `data-testid='mismatch-banner'` element renders it from the DOM
@@ -169,6 +170,13 @@
 
 (defonce app-root (rf.adapter.reagent/client-root))
 
+(defn- log-recovery!
+  "The root's `:on-recoverable-error`. Without one, React's default report
+  goes through `reportError` as an uncaught page error, and the recovery
+  this surface makes on purpose is its expected outcome, not a crash."
+  [error _error-info]
+  (js/console.warn "React recovered during hydration:" (.-message error)))
+
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   (install-trace-listener!)
@@ -182,8 +190,10 @@
   (rf.ssr/hydrate! {:frame :rf/default})
   ;; HOT PATH — the hydrating render. The adapter installs the adoption
   ;; reporter on this root; React's recovery from the divergent text is
-  ;; what emits :rf.ssr/hydration-mismatch.
+  ;; what emits :rf.ssr/hydration-mismatch. The reporter composes with
+  ;; `:on-recoverable-error` rather than replacing it.
   (rf.adapter.reagent/render! app-root
     [rf/frame-provider {:frame :rf/default} [root]]
     (js/document.getElementById "app")
-    {:hydrate? true}))
+    {:hydrate? true
+     :on-recoverable-error log-recovery!}))
