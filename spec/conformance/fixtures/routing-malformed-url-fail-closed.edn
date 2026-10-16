@@ -45,7 +45,7 @@
 
   ;; --- Malformed in fragment -------------------------------------------
   ;; The `#fragment` portion is %-decoded the same way path + query are;
-  ;; malformed fails closed. (Empty fragment `#` decodes to "" -- that's
-  ;; not malformed, see routing-match-url.edn.)
+  ;; malformed fails closed. (A bare trailing `#` is the empty fragment
+  ;; "", not a malformed one -- see Spec 012 §Fragments.)
   {:call :match-url :url "/page#%"                :expect nil}
   {:call :match-url :url "/page#good%a"           :expect nil}]}
