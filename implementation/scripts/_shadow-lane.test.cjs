@@ -29,7 +29,19 @@ const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const HELPER = path.join(SCRIPTS_DIR, 'lib', 'shadow.cjs');
 
 const lane = makeScratchDir(REPO_ROOT, 'shadow-lane');
-after(() => cleanupScratchDirs());
+// A failed test can leave a child waiting on a lane nobody releases; none may
+// outlive the suite.
+const live = new Set();
+after(() => {
+  for (const child of live) {
+    try {
+      child.kill('SIGKILL');
+    } catch (_) {
+      // already gone
+    }
+  }
+  cleanupScratchDirs();
+});
 
 // The stand-in for shadow-cljs's runner. FAKE_MODE picks the behaviour: `ok` writes
 // FAKE_OUT and exits 0, `no-output` exits 0 writing nothing, `fail3` exits 3, and
@@ -148,6 +160,9 @@ function isAlive(pid) {
   }
 }
 
+// A lane that is never released hangs its waiter, so every test is bounded.
+const TIMEOUT_MS = 60000;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function eventually(predicate, what, timeoutMs = 15000) {
@@ -166,6 +181,7 @@ function start(args, env) {
     env: { ...process.env, SL_HELPER: HELPER, RF2_SHADOW_LANE_TOKEN: '', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  live.add(child);
   const proc = { child, out: '', err: '', code: undefined };
   child.stdout.on('data', (d) => { proc.out += d; });
   child.stderr.on('data', (d) => { proc.err += d; });
@@ -200,7 +216,7 @@ test('the lane policy follows the command, and a watch names its builds', () => 
   );
 });
 
-test('a holder records who it is, and releasing removes the lock', async () => {
+test('a holder records who it is, and releasing removes the lock', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'the-holder'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the holder to take the lane');
@@ -217,7 +233,7 @@ test('a holder records who it is, and releasing removes the lock', async () => {
   assert.deepEqual(leftovers(lock), []);
 });
 
-test('a second run waits, names the holder, and proceeds once the holder releases', async () => {
+test('a second run waits, names the holder, and proceeds once the holder releases', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'first-build'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the first run to take the lane');
@@ -237,7 +253,7 @@ test('a second run waits, names the holder, and proceeds once the holder release
   assert.equal(fs.existsSync(lock), false);
 });
 
-test('a killed holder\'s lock is reclaimed by the next run with no manual step', async () => {
+test('a killed holder\'s lock is reclaimed by the next run with no manual step', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'doomed'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the holder to take the lane');
@@ -253,7 +269,7 @@ test('a killed holder\'s lock is reclaimed by the next run with no manual step',
   assert.deepEqual(leftovers(lock), []);
 });
 
-test('a waiter that is killed leaves the holder\'s lock as it was', async () => {
+test('a waiter that is killed leaves the holder\'s lock as it was', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'holder'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the holder to take the lane');
@@ -270,7 +286,7 @@ test('a waiter that is killed leaves the holder\'s lock as it was', async () => 
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  test(`${signal} while waiting exits without ever taking the lane`, async () => {
+  test(`${signal} while waiting exits without ever taking the lane`, { timeout: TIMEOUT_MS }, async () => {
     const lock = freshLock();
     const a = start(['hold', 'holder'], { RF2_SHADOW_LANE_LOCK: lock });
     await eventually(() => a.out.includes('HELD'), 'the holder to take the lane');
@@ -285,7 +301,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     assert.equal(fs.existsSync(lock), false);
   });
 
-  test(`${signal} while compiling reaps the whole compiler tree and releases the lane`, async () => {
+  test(`${signal} while compiling reaps the whole compiler tree and releases the lane`, { timeout: TIMEOUT_MS }, async () => {
     const lock = freshLock();
     const pidfile = path.join(lane, `pids-${signal}.json`);
     const b = start(['signal-while-running', signal, PROJECT], {
@@ -302,7 +318,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-test('a lane held by an ancestor admits its descendants instead of deadlocking', async () => {
+test('a lane held by an ancestor admits its descendants instead of deadlocking', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'ancestor'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the ancestor to take the lane');
@@ -317,7 +333,7 @@ test('a lane held by an ancestor admits its descendants instead of deadlocking',
   assert.equal(fs.existsSync(lock), false);
 });
 
-test('a one-shot compile deletes its declared output first, and the verdict is the compiler\'s', async () => {
+test('a one-shot compile deletes its declared output first, and the verdict is the compiler\'s', { timeout: TIMEOUT_MS }, async () => {
   const out = path.join(lane, 'out', 'app.js');
   const run = async (mode, opts = {}) => {
     const lock = freshLock();
@@ -358,7 +374,7 @@ test('a one-shot compile deletes its declared output first, and the verdict is t
   assert.equal(watchClean.code, 2, 'a watch has no disposable output to declare');
 });
 
-test('a watch releases the lane after its first build and runs on', async () => {
+test('a watch releases the lane after its first build and runs on', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const pidfile = path.join(lane, 'pids-watch.json');
   const w = start(['watch', PROJECT], {
