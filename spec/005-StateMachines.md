@@ -3829,7 +3829,9 @@ The map under `:spawn-all` accepts the following keys:
 | `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` resolves on the success-side | required iff `:join :any` |
 | `:on-any-failed` | event vector the runtime dispatches into the parent when any child fails (sibling cancellation applies) | optional; if absent, child failures are tracked but do not short-circuit the join |
 
-Each child invoke-spec under `:children` accepts the same keys as a single `:spawn` (`:machine-id`, `:data`, `:id-prefix`, `:on-done`, `:start`, `:fixed-actor-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the runtime carries on that child's completion and on the join's resolution event (see [§Child completion protocol](#child-completion-protocol)).
+The block's key set is **closed**: any other bare key — `:cancel-on-decision?` (there is no opt-out, per [§Cancel-on-decision](#cancel-on-decision-default-true)), or a misspelt join event — is rejected at registration with `:rf.error/machine-spawn-all-bad-shape`, whose message names the valid keys. A namespaced key passes as a user extension, and `:timeout-ms` is refused with its own `:rf.error/spawn-timeout-ms-removed`.
+
+Each child invoke-spec under `:children` accepts the same keys as a single `:spawn` (`:machine-id`, `:data`, `:id-prefix`, `:on-done`, `:start`, `:fixed-actor-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the runtime carries on that child's completion and on the join's resolution event (see [§Child completion protocol](#child-completion-protocol)). A child's key set is closed too: any other bare key, `:on-error` included (below), is rejected at registration with `:rf.error/machine-unknown-spawn-key`, and a namespaced key passes.
 
 Two differences from the single-`:spawn` vocabulary, both enforced at registration:
 
@@ -4025,7 +4027,7 @@ The guard reads `:data`, not the join state at `[:rf.runtime/machines :spawned <
 
 `:spawn-all` has three registration-time error categories of its own, beside the general `:rf.error/machine-*` set:
 
-- `:rf.error/machine-spawn-all-bad-shape` — a child invoke-spec is missing `:id` or `:machine-id`, or carries an inline `:definition` (the reason names the fix: register the child with `reg-machine` and spawn it by `:machine-id`); or `:spawn-all` is not a vector; or the join-event slots are missing per the required-iff rules above.
+- `:rf.error/machine-spawn-all-bad-shape` — the `:spawn-all` slot is not a map, or its `:children` is not a non-empty vector; a child invoke-spec is missing `:id` or `:machine-id`, or carries an inline `:definition` (the reason names the fix: register the child with `reg-machine` and spawn it by `:machine-id`); `:join` is neither `:all` nor `:any`; the join-event slots are missing per the required-iff rules above; or the block declares a bare key outside its closed set (per [§`:spawn-all` map keys](#spawn-all-map-keys)).
 - `:rf.error/machine-spawn-all-duplicate-id` — two spawns collide on one actor address. At **registration** two child invoke-specs share a logical `:id` keyword (each `:id` must be unique inside the same `:spawn-all` block). The **same category** also surfaces at **spawn time**, twice: for resolved actor-address aliasing *within* one `:spawn-all` batch — see the invoke-level admission preflight below — and, outside `:spawn-all` entirely, for a **single `:spawn` whose GENERATED `<type>#<n>` address is already held by a live actor**, per [§Declarative `:spawn`](#declarative-spawn). All three are one failure: two distinct spawns resolving to one address, where one would silently overwrite the other.
 - `:rf.error/machine-spawn-all-with-spawn` — a state node declares both `:spawn` and `:spawn-all`; the combination is rejected.
 
