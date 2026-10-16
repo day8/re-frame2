@@ -255,8 +255,7 @@
       (when-let [spec (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)]
         (rf.machines.classification/drop-at-destroy! frame-id actor-id spec owner-token))))
   ;; (4) cancel armed `:after` timers — the 3-arity threads `owner-gone?` so the
-  ;; cancellation loop short-circuits on A→B loss AND each entry's within-cancel
-  ;; subscription release is skipped once A is gone.
+  ;; cancellation loop short-circuits on A→B loss.
   (when-not (owner-gone?)
     (rf.machines.timer/cancel-actor-timers! frame-id actor-id owner-gone?))
   ;; (5) apply the unified teardown projection through the EXACT durable write.

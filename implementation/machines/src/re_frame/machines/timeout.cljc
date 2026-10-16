@@ -21,7 +21,7 @@
   `:timeout` and `:after` express different
   intent and MAY coexist on the same state node. `:after` is the general
   delayed-transition table (`{ms -> transition}`, possibly several entries
-  with dynamic / sub-vector / fn delays); `:timeout` names the single
+  with literal or fn delays); `:timeout` names the single
   \"this state (or child) must finish before this time\" fact more clearly.
 
   re-frame2 keeps ONE timer mechanism. `:timeout` / `:on-timeout`
@@ -54,7 +54,7 @@
   Anything else — a `\"5s\"` / `\"10ms\"` shorthand string, a non-positive
   integer, a malformed ISO string, a fn / vector — fails LOUD at
   registration with `:rf.error/machine-bad-timeout-duration`. (Unlike
-  `:after`, `:timeout` does NOT admit sub-vector / fn dynamic delays — a
+  `:after`, `:timeout` does NOT admit fn dynamic delays — a
   timeout is a fixed wall-clock deadline.)"
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]))
@@ -146,7 +146,7 @@
 
   Everything else — the XState `\"5s\"` / `\"10ms\"` shorthand, a
   non-positive / non-integer number, a fn, a vector, nil — resolves to nil
-  (the caller fails loud). Unlike `:after`, NO sub-vector / fn dynamic
+  (the caller fails loud). Unlike `:after`, NO fn dynamic
   forms: a timeout is a fixed wall-clock deadline."
   [duration]
   (cond

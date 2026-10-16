@@ -1,7 +1,7 @@
 (ns re-frame.machine-lifecycle-tail-exact-handoff-cljs-test
   "Each lifecycle tail rechecks frame ownership after every callback-bearing
   stage, so a callback that destroys frame A and publishes a same-id B mid-tail
-  leaves B's registrar and subscription state untouched. Each
+  leaves B's registrar state untouched. Each
   fixture seeds B's state and drives the loss on the callback's own stack."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -15,7 +15,6 @@
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -166,49 +165,3 @@
       (is (not (rf.frame/call-with-event-owner-token frame-a token-a
                  (fn [] (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-a actor-id fence))))))))
 
-(defn- seed-sub-vec-timer!
-  "Seed one armed subscription-vector `:after` timer for `parent-id`, holding a
-  real reference on `[:rbxdxa/dyn]` in `frame-id`, so its release reaches the
-  sub-cache."
-  [frame-id parent-id]
-  (swap! rf.machines.timer/after-timers assoc-in
-         [frame-id {:parent parent-id :spawn [] :delay [:rbxdxa/dyn]}]
-         {:handle          nil
-          :reaction        (rf/subscribe [:rbxdxa/dyn] {:frame frame-id})
-          :sub-watcher-key ::a-watch
-          :resolved-ms     5000
-          :epoch           0
-          :state           :running
-          :region          nil
-          :delay-source    :sub
-          :token           ::a-token}))
-
-(deftest on-exit-timer-cancel-returns-only-its-own-reaction
-  ;; A cancellation listener that publishes same-id B (re-arming the query)
-  ;; must not cost B's reaction a ref; an ordinary cancel returns A's one ref.
-  (rf/reg-sub :rbxdxa/dyn (fn [_ _] 5000))
-  (doseq [[frame-a republish?] [[:rf2-rbxdxa/subvec-exit-frame true]
-                                [:rf2-rbxdxa/subvec-exit-live-frame false]]]
-    (let [actor-id (keyword "rf2-rbxdxa" "subvec-exit#1")
-          fired?   (atom false)
-          b-held   (atom nil)
-          slot     #(get @(:sub-cache (rf.frame/frame frame-a)) [:rbxdxa/dyn])]
-      (rf/make-frame {:id frame-a})
-      (seed-sub-vec-timer! frame-a actor-id)
-      (when republish?
-        (rf.trace.tooling/register-listener!
-          ::subvec-exit-fence
-          (fn [ev]
-            (when (and (= :rf.machine.timer/cancelled (:operation ev))
-                       (destroy-and-republish! fired? frame-a))
-              (reset! b-held (rf/subscribe [:rbxdxa/dyn] {:frame frame-a}))))))
-      (try
-        (rf.machines.timer/after-cancel-fx {:frame frame-a}
-                                           {:rf/parent-id actor-id :rf/invoke-id []})
-        (if republish?
-          (is (= [1 true] [(:ref-count (slot)) (identical? @b-held (:reaction (slot)))])
-              "A's release leaves B's slot at one reference, holding B's reaction")
-          (is (nil? (slot)) "an ordinary cancel returns A's one reference"))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::subvec-exit-fence)
-          (swap! rf.machines.timer/after-timers dissoc frame-a))))))

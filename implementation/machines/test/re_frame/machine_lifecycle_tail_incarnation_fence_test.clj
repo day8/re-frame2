@@ -70,8 +70,6 @@
   (swap! rf.machines.timer/after-timers assoc-in
          [frame-id (timer-key parent-id delay-key)]
          {:handle          nil
-          :reaction        nil
-          :sub-watcher-key nil
           :resolved-ms     delay-key
           :epoch           0
           :state           :done
