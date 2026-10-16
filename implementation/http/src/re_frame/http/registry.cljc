@@ -466,8 +466,9 @@
      frame; no in-repo destroy path is such a caller."
   ([actor-id]
    (when actor-id
-     (doseq [frame-id (distinct (keep #(when (= actor-id (:actor-id %)) (:frame %))
-                                      (all-records @requests)))]
+     ;; `map`, not `keep`: a record filed under the nil frame is reached too.
+     (doseq [frame-id (distinct (map :frame (filter #(= actor-id (:actor-id %))
+                                                    (all-records @requests))))]
        (abort-on-actor-destroy frame-id actor-id)))
    nil)
   ([frame-id actor-id]

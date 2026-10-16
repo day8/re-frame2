@@ -80,14 +80,16 @@
 
 (deftest actor-destroy-any-frame-arity-preserves-the-hook-contract
   (testing "the documented 1-arg hook arity sweeps the actor address in every
-            frame and clears each slot"
+            frame — including a handle recorded with no frame — and clears
+            each slot"
     (let [seen (atom [])]
-      (doseq [frame-id [:frame/a :frame/b]]
+      (doseq [frame-id [:frame/a :frame/b nil]]
         (rf.http.registry/record-in-flight!
           nil :worker/proc#1
           {:frame frame-id :abort-fn #(swap! seen conj [frame-id %])}))
       (rf.http.registry/abort-on-actor-destroy :worker/proc#1)
-      (is (= #{[:frame/a :actor-destroyed] [:frame/b :actor-destroyed]} (set @seen)))
+      (is (= #{[:frame/a :actor-destroyed] [:frame/b :actor-destroyed] [nil :actor-destroyed]}
+             (set @seen)))
       (is (empty? (rf.http.managed/actor-in-flight-snapshot))))))
 
 ;; ---- frame-lifecycle sweeps and cleanup ------------------------------------
