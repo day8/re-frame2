@@ -17,13 +17,13 @@
   frame-id keyword — or a token-less derived value — is ADDRESS-directed.
 
   Reserved frame ids:
-    :rf/default              — an ORDINARY frame id (per Spec 002 §`:rf/default`
-                              is an ordinary id). It carries NO
-                              framework privilege: the runtime never creates
-                              it, never infers it from a missing stamp, and
-                              never uses it as a resolution floor. A small
-                              app, example, or test may register and select
-                              it EXPLICITLY like any other id.
+    :rf/default              — the CONVENTIONAL app-frame id (per Spec 002
+                              §`:rf/default` is the conventional app-frame id).
+                              It carries NO framework privilege: the runtime
+                              never creates it, never infers it from a missing
+                              stamp, and never uses it as a resolution floor.
+                              A single-frame app, example, or test registers
+                              and selects it EXPLICITLY like any other id.
     :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
   (:require [clojure.string]
             [re-frame.error :as rf.error]
@@ -760,7 +760,7 @@
   neither the dynamic var nor an enclosing frame boundary (`frame-provider`
   or `frame-root`) names a frame (the React-context default is the
   no-provider sentinel, per Spec 002 §`:rf/default`
-  is an ordinary id). When the hook is unbound (no adapter loaded yet, or JVM build)
+  is the conventional app-frame id). When the hook is unbound (no adapter loaded yet, or JVM build)
   the result is `current-frame` — the dynamic-var tier alone; the React-
   context tier silently no-ops to nil.
 
@@ -4910,7 +4910,7 @@
 
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
 ;;
-;; Per Spec 002 §`:rf/default` is an ordinary id: `:rf/default`
+;; Per Spec 002 §`:rf/default` is the conventional app-frame id: `:rf/default`
 ;; is NOT created by `init!`, is NOT the React-context default, is NOT a
 ;; lookup tier, and is NOT inferred from a missing stamp. The runtime never
 ;; synthesises it.
@@ -4925,12 +4925,12 @@
 ;; unambiguous.
 
 (defn ensure-default-frame!
-  "TEST-ONLY fixture helper. Register the ordinary `:rf/default` frame if
+  "TEST-ONLY fixture helper. Register the conventional `:rf/default` app frame if
   absent (idempotent), so a test that pins `*current-frame*` to
   `:rf/default` and dispatches ambiently has a frame to land on.
 
   NOT a runtime path — `init!` does NOT call this (per Spec 002
-  §`:rf/default` is an ordinary id: the runtime never synthesises
+  §`:rf/default` is the conventional app-frame id: the runtime never synthesises
   a default frame). Application / SSR boot code that wants a default-named
   app frame registers it explicitly via `(rf/make-frame {:id :rf/default …})`."
   []
