@@ -300,8 +300,8 @@
   policy, epoch-ingest adoption), never a synthesised one. Those call
   sites are illustration, not a closed list; `defaults/default-target-
   frame` carries the rule in full, with the tier precedence and the spec
-  cite. It is NOT defaulted to `:rf/default`: `:rf/default` is an
-  ordinary id, never an absence-repair fallback (Spec 002 §Frame target
+  cite. It is NOT defaulted to `:rf/default`: `:rf/default` is the
+  conventional app-frame id, never an absence-repair fallback (Spec 002 §Frame target
   resolution). A `nil` return means 'no host frame selected yet' — the
   picker prompts a choice.
 
@@ -323,8 +323,8 @@
 
   `nil` resets the target to unselected (the panels render
   their no-frame-selected state and the picker prompts a choice). The
-  inspected target is never absence-repaired to the ordinary
-  `:rf/default` id (Spec 002 §Frame target resolution).
+  inspected target is never absence-repaired to `:rf/default`, the
+  conventional app-frame id (Spec 002 §Frame target resolution).
 
   ## Correct at boot instant
 

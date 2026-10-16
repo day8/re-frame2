@@ -416,7 +416,7 @@ keeps them strictly separate:
 | **target frame** (`:rf.xray/target-frame` slot inside `:rf/xray`) | The HOST app frame Xray inspects — what the App-db / Machine / Routes / scrubber panels observe. | An explicit choice (host config `init! {:target-frame …}` / `set-target-frame!`, the frame picker, a focus gesture) or a frame resolved from observed evidence (mount-time discovery, epoch-ingest adoption) — never synthesised. See the rule below. |
 
 The **target frame is NOT defaulted to `:rf/default`.** Under the
-carried invariant `:rf/default` is an ordinary id, never an
+carried invariant `:rf/default` is the conventional app-frame id, never an
 absence-repair fallback. The target starts **UNSELECTED** (`nil`), and
 what may take it out of that state is a RULE, not a list of sources:
 
