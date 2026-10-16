@@ -527,7 +527,7 @@ const SCENES = [
   {
     // The hydration-mismatch testbed's `:rf/hydrate` epoch. The mismatch
     // itself lands in Xray's hidden `:ungrouped` row, whose Trace tab reads
-    // its hashes; the testbed's own banner renders it from a trace listener.
+    // React's message; the testbed's own banner renders it from a trace listener.
     id: 'xray-tutorial-hydration',
     app: '/ssr-hydration-mismatch',
     clip: 'xray',
