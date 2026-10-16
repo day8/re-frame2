@@ -238,7 +238,8 @@
 ;; ============================================================================
 
 (rf/reg-event :comment-form/enter-article
-  {:doc "The article route's `:on-match`. The draft at `[:comment-form]` is ONE
+  {:doc "The article route's `:on-match`, reading the slug off the activation
+         target the route appends. The draft at `[:comment-form]` is ONE
          shared widget, so without this an unsent comment typed on alpha rides
          into beta's textarea, where Post Comment would publish it under beta.
          A NEW article identity starts the form over; a same-slug re-entry
@@ -246,8 +247,8 @@
          http twin's rule (`:comments/load`), keyed here on the
          slug the draft records rather than on a comments slice. The draft
          crossing to another ACCOUNT is `:auth/clear-session`'s to scrub."}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
+  (fn [{:keys [db]} [_ target]]
+    (let [slug (get-in target [:params :slug])]
       (if (= slug (get-in db [:comment-form :slug]))
         {}
         {:db (assoc db :comment-form {:slug slug :body ""})}))))

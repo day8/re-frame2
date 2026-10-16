@@ -9,9 +9,10 @@
      `:on-match` loader would leave the final program silently without one.
 
   2. `concepts-hand-rolled-loader-*` is the deterministic A-load → navigate-B →
-     late-A fixture: with the documented nav-token capture and the
-     `:rf.route/with-nav-token` `:value` delivery, A's stale reply never reaches
-     `:app/article-loaded` or app-db, and B's does."
+     late-A fixture: with the nav-token read off the activation target
+     `:on-match` appends and the `:rf.route/with-nav-token` `:value` delivery,
+     A's stale reply never reaches `:app/article-loaded` or app-db, and B's
+     does."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -66,11 +67,11 @@
         (fn [_ {:keys [slug on-reply]}]
           (swap! replies assoc slug on-reply)))
 
-      ;; The concepts.md hand-rolled async loader, verbatim.
+      ;; The hand-rolled async loader concepts.md §Advanced describes: the token
+      ;; and the slug come off the activation target `:on-match` appends.
       (rf/reg-event :app/load-article
-        {:rf.cofx/requires [:rf.route/nav-token]}
-        (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
-          (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+        (fn [_ [_ {:keys [nav-token params]}]]
+          (let [{:keys [slug]} params]
             {:fx [[:app/fetch-article {:slug slug :on-reply [:app/article-arrived nav-token slug]}]]})))
 
       (rf/reg-event :app/article-arrived
