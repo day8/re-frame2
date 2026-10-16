@@ -10,6 +10,10 @@ by re-rendering the root on the client, and calls the root's
 `onRecoverableError` — the adoption reporter the framework installs on
 every hydrating root, which emits `:rf.ssr/hydration-mismatch` per
 [`spec/011-SSR.md` §Hydration-mismatch detection](../../spec/011-SSR.md).
+The reporter then hands the error to the root's `:on-recoverable-error`,
+which logs it as a console warning: without one, React's default report
+raises it through `reportError` as an uncaught page error, and here the
+recovery is the expected outcome.
 
 The trace listener routes the captured trace through
 `::record-mismatch` so the dev-mode banner re-renders with the
