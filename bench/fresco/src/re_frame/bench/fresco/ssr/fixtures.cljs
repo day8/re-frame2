@@ -128,14 +128,9 @@
   taste. React 19's `ctx.Provider` **is the context object**, and that
   object carries a `Provider` key pointing back at itself — a cycle. Any
   walk that descends into a hiccup form's JS values therefore recurses
-  forever on this head, and
-  `re-frame.ssr.hash/render-tree-hash` is one such walk
-  (`entry_cljs_test` → `the-hash-this-root-would-have-had-is-a-constant`
-  takes it over [[host-screen]] as its non-vacuity control). Nothing on
-  a live path hashes an interpreted root — this tier deliberately ships
-  no `:rf/render-hash` at either end — so the cycle is left alone rather
-  than worked around, and this row keeps the measurement row's input
-  free of it."
+  forever on this head. Nothing on a live path walks an interpreted
+  root's JS values, so the cycle is left alone rather than worked around,
+  and this row keeps the measurement row's input free of it."
   [:div.render-hosts
    [:h1 "render"]
    [render-host {:value "dark"}

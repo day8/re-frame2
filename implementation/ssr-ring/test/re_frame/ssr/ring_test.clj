@@ -38,14 +38,6 @@
 
 (defn- payload [body] (some-> (payload-edn body) edn/read-string))
 
-(defn- hash-channels
-  "The render and head hashes a document carries, each as `[wire payload]`."
-  [body]
-  (let [p    (payload body)
-        wire #(second (re-find (re-pattern (str % "=\"([0-9a-f]{8})\"")) body))]
-    {:render [(wire "data-rf-render-hash") (:rf/render-hash p)]
-     :head   [(wire "data-rf-head-hash") (:rf/head-hash p)]}))
-
 (defn- route-with-head!
   "Register `route-id` with a `:head` fn and return the :initial-events that
   make it the current route."
@@ -126,7 +118,6 @@
     (is (= ["text/html; charset=utf-8"] (header-values response "content-type")))
     (is (str/starts-with? body "<!DOCTYPE html>"))
     (is (str/includes? body "<li>Article A</li>"))
-    (is (re-find #"data-rf-render-hash=\"[0-9a-f]{8}\"" body))
     (is (re-find #"<head[^>]*><meta charset=\"utf-8\">" body)
         "the shell owns the charset, first in the head")
     (is (= 1 (count (re-seq #"(?i)<meta\s+charset" body))) "and the default head adds none")))
@@ -211,46 +202,21 @@
     (is (= [] (filter #(str/includes? body %) ["9007199254740993" "__rf_payload"])))))
 
 ;; ===========================================================================
-;; ssr-handler — hydration hashes and the hydrate! round trip
+;; ssr-handler — root-view resolution and the hydrate! round trip
 ;; ===========================================================================
 
-(deftest fn-form-root-view-non-idempotent-still-hashes-consistently
-  ;; A second invocation would hash a different tree than the one on the wire.
+(deftest fn-form-root-view-is-resolved-once-per-request
   (let [calls (atom 0)]
     (rf/reg-view* :pages/noni (fn [n] [:div {:data-call n} "noni"]))
-    (let [[wire payload-hash]
-          (:render (hash-channels
-                     (:body (serve (assoc minimal :root-view
-                                          (fn [] ((rf/view :pages/noni) (swap! calls inc))))))))]
-      (is (some? wire))
-      (is (= wire payload-hash))
+    (let [body (:body (serve (assoc minimal :root-view
+                                    (fn [] ((rf/view :pages/noni) (swap! calls inc))))))]
+      (is (re-find #"<div data-call=\"1\"[^>]*>noni</div>" body))
       (is (= 1 @calls)))))
 
-(deftest ssr-handler-head-changes-move-only-the-head-hash
-  ;; The client hashes the bare body tree, so the render hash is body-only;
-  ;; head divergence rides its own channel, which an explicit :head string
-  ;; (no reconstructible model) omits.
-  (rf/reg-view* :pages/fixed (fn [] [:div "identical body"]))
-  (let [render   #(:body (serve (merge {:root-view (fn [] ((rf/view :pages/fixed)))
-                                        :payload   :rf.ssr.payload/whole-app-db}
-                                       %)))
-        strings  (for [title ["Alpha" "Beta"]]
-                   (hash-channels (render {:initial-events [] :head (str "<title>" title "</title>")})))
-        routed   (for [[id head] [[:route/a {:title "A"}]
-                                  [:route/b {:title "B"}]
-                                  [:route/fr {:title "A" :html-attrs {:lang "fr"}}]]]
-                   (hash-channels (render {:initial-events (route-with-head! id (fn [_ _] head))})))
-        [h]      (:render (first strings))]
-    (is (some? h))
-    (is (= (repeat 5 [h h]) (map :render (concat strings routed))))
-    (is (= [[nil nil] [nil nil]] (map :head strings)))
-    (is (every? (fn [[wire p]] (and wire (= wire p))) (map :head routed)))
-    (is (= 3 (count (set (map :head routed)))))))
-
-(deftest ssr-handler-hydrate-no-spurious-mismatch-under-hard-error
-  ;; The real wire payload into the documented client boot: a stable frame id
-  ;; and :render-tree-fn under :hard-error, which throws on a frame-id or
-  ;; render-hash mismatch. A route head is on the page.
+(deftest ssr-handler-payload-hydrates-the-client-frame
+  ;; The real wire payload into the documented client boot, with a stable
+  ;; frame id; `hydrate!` throws on a frame-id mismatch. A route head is on
+  ;; the page.
   (rf/reg-event :init/count (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
   (rf/reg-view* :app/root (fn [] [:div.app "stable"]))
   (let [serve-payload (fn [opts]
@@ -261,10 +227,9 @@
                                                        :payload   :rf.ssr.payload/whole-app-db}
                                                       opts)))))
         hydrate       (fn [frame-id p]
-                        (rf/make-frame {:id frame-id :platform :client :ssr {:on-mismatch :hard-error}})
-                        (rf.ssr/hydrate! {:frame frame-id :payload p :render-tree-fn #((rf/view :app/root))}))]
+                        (rf/make-frame {:id frame-id :platform :client})
+                        (rf.ssr/hydrate! {:frame frame-id :payload p}))]
     (let [p (serve-payload {})]
-      (is (some? (:rf/render-hash p)))
       (is (= p (hydrate :app/main p)))
       (is (= 42 (:count (rf/app-db-value :app/main)))))
     (testing "a configured :client-frame-id rides the wire and hydrates the frame it names"
@@ -466,7 +431,7 @@
         boom    (ex-info "head boom" {})]
     (rf/register-listener! :trace ::rh #(swap! traces conj %))
     (rf.error-emit/register-error-listener! ::rh #(swap! records conj %))
-    (is (= {:head-html "" :html-attrs nil :body-attrs nil :head-model nil}
+    (is (= {:head-html "" :html-attrs nil :body-attrs nil}
            (with-redefs [rf.ssr/head-model (fn [_] (throw boom))]
              (rf.ssr.ring.lifecycle/resolve-head :rf.frame/f))))
     (rf/unregister-listener! :trace ::rh)

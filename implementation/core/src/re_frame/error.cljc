@@ -409,11 +409,8 @@
 ;; than of React, and a hand-built `(unchecked-set o "self" o)` reproduces
 ;; it exactly.
 ;;
-;; `re-frame.ssr.hash/canonical-edn-into` meets the same crossing from the
-;; other side and STOPS at those two predicates: a hash wants
-;; one identity-free token, so collapsing every foreign value is right
-;; there. A DIAGNOSTIC wants the opposite — it exists to show the author
-;; their value — so this elides the strict minimum instead:
+;; A DIAGNOSTIC exists to show the author their value, so this elides the
+;; strict minimum:
 ;;
 ;;   **A foreign JS value is replaced only when a cycle is REACHABLE from
 ;;   it. Everything else, foreign or not, is handed to `pr-str` untouched.**
@@ -468,9 +465,7 @@
    (defn- descends?
      "Would `cljs.core`'s printer DESCEND into `x`? Exactly the two
      branches of `pr-writer-impl` that do: `object?` (own enumerable keys,
-     via `js-keys`) and `array?` (elements). Deliberately the same pair
-     `re-frame.ssr.hash/canonical-edn-into` intercepts — widening it would
-     make the two walks disagree about what `pr-str` can survive."
+     via `js-keys`) and `array?` (elements)."
      [x]
      (or (object? x) (array? x))))
 

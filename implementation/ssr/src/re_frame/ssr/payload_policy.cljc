@@ -796,9 +796,9 @@
 ;; DIFFERENT VALUE: a Long past 2^53 lands on its even neighbour, a BigDecimal
 ;; or Ratio becomes a double, a BigInt loses precision. An order id then
 ;; addresses a different order and money becomes a double — while the server
-;; reads its own value back perfectly, same-host tests pass, and the render
-;; hash agrees whenever the view prints the value identically or carries it
-;; only into an event. The ssr-node render-state wire refuses exactly these
+;; reads its own value back perfectly, same-host tests pass, and hydration
+;; reports nothing whenever the view prints the value identically or carries
+;; it only into an event. The ssr-node render-state wire refuses exactly these
 ;; numbers; this is the same rule on the payload's wire (Spec 011 §The
 ;; numeric crossing rule).
 ;;
@@ -928,8 +928,8 @@
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
   hydration payload — the two always-present keys (`:rf/version`,
-  `:rf/app-db`) plus the optional `:rf/render-hash`, `:rf/frame-id`,
-  `:rf/runtime-db`, `:rf/schema-digest`, and `:rf/head-hash`.
+  `:rf/app-db`) plus the optional `:rf/frame-id`, `:rf/runtime-db` and
+  `:rf/schema-digest`.
 
   **The first arg `wire-frame-id` is the WIRE `:rf/frame-id`, decoupled
   from the projection frame.** It is stamped only when
@@ -950,23 +950,9 @@
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract)
   and hand the result here. `:rf/version` is resolved via
   `resolve-version` (caller's `:version` opt → the SSR-owned
-  `pattern-protocol-version` constant). `render-hash` is the BODY-ONLY structural hash
-  — see `re-frame.ssr.ring.lifecycle/render-document-
-  hash` — and is OPTIONAL: nil omits the key (below).
-  Schema-digest is supplied by the caller when their app
-  participates in the schema-digest check; nil otherwise.
-
-  A nil `render-hash` OMITS `:rf/render-hash` rather than
-  stamping a nil-valued key. The slot is `{:optional true} :string` in
-  [Spec-Schemas §`:rf/hydration-payload`], not `[:maybe :string]`, so a
-  present-and-nil key is not a legal spelling of absence; and absence is
-  the shape an ADOPTION-TIER root needs. Per Spec 011 §Hydration-mismatch
-  detection the hash channel applies only to the HICCUP tier: a native UIx
-  root and a Fresco root both verify by
-  React-native adoption and carry no hash at either end. Forcing such a
-  caller to supply one would make it invent a value over the only tree it
-  has — an unresolved `[<component> {props}]` root, whose canonical EDN is
-  `[#fn[] {props}]` — which is a constant, not a fingerprint.
+  `pattern-protocol-version` constant). Schema-digest is supplied by the
+  caller when their app participates in the schema-digest check; nil
+  otherwise.
 
   EP-0001: the optional `:runtime-db` opt carries the
   already-projected SERIALIZABLE runtime-db slice (callers run
@@ -974,13 +960,6 @@
   here). When non-nil it rides the payload as `:rf/runtime-db` so the client
   `:rf/hydrate` handler installs a coherent frame-state (app-db + runtime-db);
   nil omits the optional key (the client-only / no-server-runtime shape).
-
-  The optional `:head-hash` opt carries the SEPARATE
-  client-reconstructible head-model hash (`re-frame.ssr.ring.lifecycle/
-  render-head-hash`), NOT covered by `render-hash`. It rides the payload
-  as `:rf/head-hash` when the caller supplied one; omitted (no key) when
-  nil — the explicit-`:head`-STRING or degraded-head-resolution shape
-  where the server knows the head is not client-reconstructible.
 
   Both slices obey the numeric crossing rule first
   (`check-portable-numbers!`): on a JVM host a number the browser's EDN reader
@@ -990,21 +969,16 @@
 
   Shared verbatim by `re-frame.ssr.ring.payload/build-payload` and
   Fresco's server render."
-  [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
+  [wire-frame-id db-slice {:keys [version schema-digest runtime-db]}]
   ;; On a JVM host both partitions obey the numeric crossing
   ;; rule before they are assembled. One site covers every SSR payload.
   #?(:clj (do (check-portable-numbers! :rf/app-db db-slice)
               (check-portable-numbers! :rf/runtime-db runtime-db)))
   (cond-> {:rf/version (resolve-version version)
            :rf/app-db  db-slice}
-    ;; The hash channel is HICCUP-TIER-ONLY, so a nil
-    ;; `render-hash` omits the key instead of stamping a nil-valued one that
-    ;; the `:string` schema slot does not admit. See the docstring.
-    (some? render-hash)   (assoc :rf/render-hash render-hash)
     ;; Stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
     ;; agreed wire id; a nil wire id omits it (anonymous per-request server
     ;; frame → the documented no-conflict shape). Never a per-request gensym.
     (some? wire-frame-id) (assoc :rf/frame-id wire-frame-id)
     (some? runtime-db)    (assoc :rf/runtime-db runtime-db)
-    schema-digest         (assoc :rf/schema-digest schema-digest)
-    head-hash             (assoc :rf/head-hash head-hash)))
+    schema-digest         (assoc :rf/schema-digest schema-digest)))

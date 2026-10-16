@@ -259,17 +259,13 @@
       (is (str/includes? body "<div id=\"app\"") "shell: the #app root wraps the body")
       (is (str/includes? body "<main data-entry=\"app/root\" data-args=\"{:root :crossing}\">")
           "Node's body, verbatim, with the entry and the EDN-text args it was handed")
-      (is (str/includes? body "data-rf-head-hash") "head: JVM-resolved, its marker rides")
+      (is (str/includes? body "<head><meta charset=\"utf-8\">") "head: JVM-built")
       (is (some? (payload-edn-of body)) "__rf_payload: JVM-built")
       (is (str/includes? (payload-edn-of body) "\"Crossing\"")
           "…from the JVM's own post-drain app-db")
       (is (str/includes? (str (or (get headers "content-type") (get headers "Content-Type")))
                          "text/html")
-          "headers: the JVM's")
-      (is (not (str/includes? body "data-rf-render-hash"))
-          "a native root carries no structural hash: no wire marker")
-      (is (not (str/includes? body "render-hash"))
-          "…and no payload :rf/render-hash"))
+          "headers: the JVM's"))
 
     (testing "(c) render-state != payload: a server-only key, named by no entry,
               is rendered by the fixture and ABSENT from __rf_payload"
@@ -413,9 +409,8 @@
   ;; where there is none. A 200 carrying no `x-rf-ssr-build` is not a
   ;; verifiable match — a proxy that strips the header, a malformed service,
   ;; an impostor answering in the sidecar's place all present identically —
-  ;; and this adapter returns `:render-hash nil` for a native root, so the
-  ;; structural hydration-hash channel offers no second check. Unverified
-  ;; bytes must not reach the JVM-owned document.
+  ;; and nothing downstream checks the bytes. Unverified bytes must not reach
+  ;; the JVM-owned document.
   (register-app!)
   (with-stub-sidecar 200 {} "<main>impostor</main>"
     (fn [url]

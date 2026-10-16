@@ -1,48 +1,29 @@
 (ns re-frame.ssr.hash
-  "SSR structural hashing — TWO canonicalisations over ONE hash function.
+  "The hydration-payload install ledger's content digest, and the numeric
+  print form the HTML emitter shares with it.
 
-  ## `render-tree-hash` — Spec 011 §Hydration-mismatch detection
+  ## `data-hash` — the install ledger's digest
 
-  The server hashes the render-tree at SSR time; the client recomputes
-  the hash on first render and compares. Mismatch = the runtime emits
-  `:rf.ssr/hydration-mismatch` with both hashes. FNV-1a 32-bit over the
-  canonical-EDN traversal of the render tree, output as lowercase hex.
-  Same algorithm both sides means byte-identical hashes for byte-identical
-  canonical EDN.
+  The multi-root install ledger (`re-frame.ssr.install`) asks \"is the
+  payload arriving under this id the SAME DATA as the one already
+  installed?\". `data-hash` answers it with a digest of the payload as
+  DATA: nil preserved everywhere (`{:x nil}` is not `{}`, `[nil 7]` is not
+  `[7]`, `#{nil 1}` is not `#{1}`), map insertion order irrelevant, set
+  order irrelevant, sequence position significant. A canonicalisation
+  that dropped nil would make each of those pairs collide
+  DETERMINISTICALLY, so a second root carrying a genuinely different
+  server slice would be waved through as `:already-installed` and hydrate
+  index-based content against the wrong data, silently, where the ledger
+  exists to fail loud.
 
-  Its canonicalisation PRUNES NIL — a nil map value, a nil sequence
-  element and a nil set member all vanish before the bytes are hashed.
-  That rule is correct and load-bearing FOR A RENDER TREE: `[:div {:class
-  nil}]` and `[:div {}]` emit the same HTML, so the common
-  `{:class (when selected? \"on\")}` shape must not manufacture a
-  mismatch. See `canonical-edn`.
-
-  ## `data-hash` — the hydration-payload install ledger
-
-  A DIFFERENT question, and the nil rule inverts with it. The multi-root
-  install ledger (`re-frame.ssr.install`) asks \"is the payload arriving
-  under this id the SAME DATA as the one already installed?\", and for
-  ordinary app data nil is content: `{:x nil}` is not `{}`, `[nil 7]` is
-  not `[7]`, `#{nil 1}` is not `#{1}`. Hashing a payload through the
-  render-tree rules would make all three pairs collide DETERMINISTICALLY —
-  not by hash accident, by canonicalisation — so a second root carrying a
-  genuinely different server slice would be waved through as
-  `:already-installed` and hydrate index-based content against the wrong
-  data, silently, where the ledger exists to fail loud.
-
-  `data-hash` therefore canonicalises data as DATA: nil preserved
-  everywhere, map insertion order irrelevant, set order
-  irrelevant, sequence position significant. It is NOT a replacement for
-  the render-tree rules and does not touch them — the two canonicalisers
-  answer different questions and both are right for their own.
-
-  ## What they share
+  ## Cross-runtime agreement
 
   `fnv-1a-32` (the bytes → hex step) and `canonical-number` (the
-  cross-runtime numeric print form). Both hashes are therefore
-  byte-identical on JVM and CLJS for the same logical input, which is
-  what lets two roots reading one `__rf_payload` script agree on either
-  host."
+  cross-runtime numeric print form) make the digest byte-identical on the
+  JVM and in CLJS for the same logical value, which is what lets two roots
+  reading one `__rf_payload` script agree on either host.
+  `canonical-number` is also the HTML emitter's number form
+  (`re-frame.ssr.emit`), so a number renders the same text on both hosts."
   (:require [clojure.string]))
 
 ;; Reflection warnings guard the primitive JVM hash loop against boxing.
@@ -52,33 +33,17 @@
 ;; concept — the directive is JVM-only.
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- canonical-EDN walker -------------------------------------------------
-;;
-;; Single-pass mutually-recursive walker (`canonical-edn-into`): each
-;; canonical fragment appends into a per-call `StringBuilder` on JVM /
-;; mutable JS string accumulator on CLJS; the accumulated string is then
-;; byte-hashed once, so no intermediate string is materialised per node.
-;; The output is the parity-pinned canonical literal at every fixture in
-;; `re-frame.ssr.hash-parity-fixtures`.
-;;
-;; `canonical-edn` (string-returning) is the public surface
-;; for tests + the JVM↔CLJS parity fixtures that pin the canonical-EDN
-;; literal directly; it delegates to the same builder-driven walker.
-
-(declare canonical-edn-into)
-
 (defn canonical-number
-  "Cross-runtime-stable print form of a number — shared by the render-tree
-  hash (`canonical-edn-into`'s numeric leaf) and the HTML emitter
-  (`re-frame.ssr.emit`'s number branch) so the hash and the emitted markup
-  stay byte-consistent.
+  "Cross-runtime-stable print form of a number — shared by the data digest
+  (`canonical-data-edn`'s numeric leaf) and the HTML emitter
+  (`re-frame.ssr.emit`'s number branch).
 
   ClojureScript has only IEEE doubles: it unifies a whole-valued double to
   an integer (`1.0` IS the JS number 1, printing `\"1\"`) and has no ratio
   type. The JVM prints `\"1.0\"` for that same `Double` and `\"1/2\"` for a
-  `Ratio`, so a render tree carrying either would hash AND render divergently
-  across runtimes — a spurious hydration mismatch that CRASHES under
-  `:ssr {:on-mismatch :hard-error}`. Canonicalise to the CLJS form:
+  `Ratio`, so a server render carrying either would paint different text
+  from the client's render of the same view — a text divergence React
+  hydration recovers from by re-rendering. Canonicalise to the CLJS form:
 
     - a whole-valued double/float within IEEE exact-integer range prints as
       its integer form (no trailing `.0`), matching CLJS;
@@ -112,307 +77,11 @@
      :cljs
      (pr-str number)))
 
-(defn- append-children!
-  "Append canonical-EDN of each non-nil child of `children` into
-  `accumulator`, separated by `separator`. Maps with nil values and
-  sequential children that are nil are pruned at the parent per Spec 011
-  §Hydration-mismatch detection."
-  [accumulator children separator]
-  (loop [remaining-children (seq children)
-         first?             true]
-    (when remaining-children
-      (let [child (first remaining-children)]
-        (if (nil? child)
-          (recur (next remaining-children) first?)
-          (do
-            (when-not first?
-              #?(:clj (.append ^StringBuilder accumulator ^String separator)
-                 :cljs (.push accumulator separator)))
-            (canonical-edn-into accumulator child)
-            (recur (next remaining-children) false)))))))
-
-(defn- member-canonical
-  "Render one set/seq member's canonical form to a fresh accumulator.
-  Used for the set branch where members must be lexicographically
-  sorted by their canonical form before appending. Returns nil for
-  nil so the caller can `keep`-prune."
-  [member]
-  (when-not (nil? member)
-    #?(:clj
-       (let [accumulator (StringBuilder.)]
-         (canonical-edn-into accumulator member)
-         (.toString accumulator))
-       :cljs
-       (let [accumulator (array)]
-         (canonical-edn-into accumulator member)
-         (.join accumulator "")))))
-
-(defn- append-sorted-set!
-  "Sets: emit `#{` + sorted-by-canonical-EDN members + `}`. Members can
-  be heterogeneous, so we materialise per-member canonical forms,
-  sort the strings, then append. The set branch is the only place
-  intermediate strings remain — sets need a comparator, and string
-  comparison is the spec-stable one across both runtimes."
-  [accumulator members]
-  (let [canonical-members (->> members (keep member-canonical) sort)]
-    #?(:clj
-       (do (.append ^StringBuilder accumulator "#{")
-           (loop [remaining-members (seq canonical-members) first? true]
-             (when remaining-members
-               (when-not first? (.append ^StringBuilder accumulator \space))
-               (.append ^StringBuilder accumulator ^String (first remaining-members))
-               (recur (next remaining-members) false)))
-           (.append ^StringBuilder accumulator \}))
-       :cljs
-       (do (.push accumulator "#{")
-           (loop [remaining-members (seq canonical-members) first? true]
-             (when remaining-members
-               (when-not first? (.push accumulator " "))
-               (.push accumulator (first remaining-members))
-               (recur (next remaining-members) false)))
-           (.push accumulator "}")))))
-
-(defn- key-canonical
-  "The canonical-EDN string of a map KEY, used as the map's sort key.
-  `(comp str key)` is NOT a total order — a keyword `:a`
-  and a string `\":a\"` both `str` to `\":a\"`, so `sort-by` falls back
-  to source iteration/insertion order and logically-equal maps can
-  canonicalise to different strings (and hash differently). The canonical
-  EDN of a key distinguishes those shapes (`:a` vs the quoted `\":a\"`)
-  while ordering keyword-only maps exactly as `str`
-  would (a keyword's canonical form equals its `str` form), which the
-  parity-pinned fixtures pin. A nil key (not pruned — only nil
-  VALUES are) canonicalises to the empty string, the same
-  sort position `(str nil)` => `\"\"` gives."
-  [map-key]
-  (or (member-canonical map-key) ""))
-
-(defn- append-map!
-  "Maps: emit `{` + sorted key-value pairs (`key value`, comma-joined) + `}`.
-  Entries sorted by the canonical-EDN form of the key — a
-  total, cross-runtime-stable order, unlike `(comp str key)` which
-  collides string-form-equal keys of different types. Nil-valued entries
-  pruned per Spec 011 §Hydration-mismatch detection."
-  [accumulator entries-map]
-  (let [entries (->> entries-map
-                     (remove (comp nil? val))
-                     (sort-by (comp key-canonical key)))]
-    #?(:clj  (.append ^StringBuilder accumulator \{)
-       :cljs (.push accumulator "{"))
-    (loop [remaining-entries (seq entries) first? true]
-      (when remaining-entries
-        (when-not first?
-          #?(:clj  (.append ^StringBuilder accumulator \,)
-             :cljs (.push accumulator ",")))
-        (let [[map-key entry-value] (first remaining-entries)]
-          (canonical-edn-into accumulator map-key)
-          #?(:clj  (.append ^StringBuilder accumulator \space)
-             :cljs (.push accumulator " "))
-          (canonical-edn-into accumulator entry-value))
-        (recur (next remaining-entries) false)))
-    #?(:clj  (.append ^StringBuilder accumulator \})
-       :cljs (.push accumulator "}"))))
-
-(def ^:private no-raw-html
-  "The not-found value `raw-html-value?` looks `:__html` up with, which tells
-  a value answering a nil markup apart from one with no `:__html` entry."
-  #?(:clj (Object.) :cljs (js-obj)))
-
-(defn- raw-html-value?
-  "True when `value`, which is not a map, answers `:__html` — the Reagent
-  bridge's `reagent.core/unsafe-html` value once `re-frame.adapter.reagent`
-  has loaded. Only a value that supports lookup is looked up, so an ordinary
-  leaf pays one type test."
-  [value]
-  (and #?(:clj  (instance? clojure.lang.ILookup value)
-          :cljs (implements? ILookup value))
-       (not (identical? no-raw-html (get value :__html no-raw-html)))))
-
-(defn canonical-edn-into
-  "Streaming canonical-EDN walker. Appends the canonical
-  serialisation of `value` into the `accumulator` — a `StringBuilder`
-  on JVM, a JS array on CLJS. Returns the accumulator. Nil scalars are pruned at
-  the parent (this fn no-ops on nil; callers walking a collection use
-  `append-children!` which skips nil children).
-
-  A foreign JS value — a plain object or a JS array — is NOT descended
-  into: it appends one fixed token (`#js{}` / `#js[]`). See the branch
-  comment below for why those two predicates and no others.
-
-  Output is byte-identical to `canonical-edn`, which delegates here; the
-  parity-pinned literals at `re-frame.ssr.hash-parity-fixtures` are
-  the cross-runtime contract."
-  [accumulator value]
-  (cond
-    (nil? value) accumulator                         ;; pruned at parent
-
-    (map? value)
-    (do (append-map! accumulator value) accumulator)
-
-    (vector? value)
-    (do #?(:clj  (.append ^StringBuilder accumulator \[)
-           :cljs (.push accumulator "["))
-        (append-children! accumulator value " ")
-        #?(:clj  (.append ^StringBuilder accumulator \])
-           :cljs (.push accumulator "]"))
-        accumulator)
-
-    (sequential? value)
-    (do #?(:clj  (.append ^StringBuilder accumulator \()
-           :cljs (.push accumulator "("))
-        (append-children! accumulator value " ")
-        #?(:clj  (.append ^StringBuilder accumulator \))
-           :cljs (.push accumulator ")"))
-        accumulator)
-
-    (set? value)
-    (do (append-sorted-set! accumulator value) accumulator)
-
-    (fn? value)
-    ;; A raw fn head — `[my-component props]`, the idiomatic Reagent/UIx
-    ;; SSR shape where `my-component` is the deref'd defn VALUE (a raw
-    ;; fn, not a Var). `(.toString fn)` is NOT cross-runtime stable: JVM =
-    ;; class-name + identity-hashcode, CLJS = the JS source — never equal.
-    ;; The server hashes the raw render tree and the client re-hashes the
-    ;; SAME raw tree, so a fn `.toString` in the canonical EDN would make byte-
-    ;; identical HTML hash differently → a spurious
-    ;; `:rf.ssr/hydration-mismatch` that CRASHES under
-    ;; `:ssr {:on-mismatch :hard-error}`. No cross-runtime-
-    ;; stable fn identity exists, so drop it: every raw fn head serialises
-    ;; to one fixed token. The fn's props (the rest of the child vector)
-    ;; still hash, and a Var head stays identity-stable — a Var is NOT `fn?`
-    ;; on the JVM, so `[#'ns/view …]` falls to `:else` → `(pr-str …)` →
-    ;; `#'ns/view`, identical on both runtimes.
-    (do #?(:clj  (.append ^StringBuilder accumulator "#fn[]")
-           :cljs (.push accumulator "#fn[]"))
-        accumulator)
-
-    (number? value)
-    ;; Canonicalise the numeric print form so the JVM `1.0`/`1/2` and the
-    ;; CLJS `1`/`0.5` agree — see `canonical-number`. The
-    ;; emitter (`re-frame.ssr.emit`) applies the SAME normalisation to the
-    ;; HTML so the structural hash and the rendered markup stay byte-
-    ;; consistent for the same logical tree.
-    (do #?(:clj  (.append ^StringBuilder accumulator ^String (canonical-number value))
-           :cljs (.push accumulator (canonical-number value)))
-        accumulator)
-
-    (raw-html-value? value)
-    ;; A raw-HTML value hashes AS the `{:__html …}` map it answers for. The
-    ;; emitter writes whatever a `:dangerouslySetInnerHTML` value answers for
-    ;; `:__html` as the element's body (`re-frame.ssr.emit/inner-html-body`),
-    ;; so React's map and the Reagent bridge's tagged value render the same
-    ;; page, and a `.cljc` view a JVM server renders writes the map there and
-    ;; the tag on the client, because the tag cannot be built on the JVM.
-    ;; Hashed by its print form, `#object[reagent.impl.template.UnsafeHTML]`,
-    ;; the tag would raise a `:rf.ssr/hydration-mismatch` on a page whose body
-    ;; matches — a throw under `:ssr {:on-mismatch :hard-error}` — and two tags
-    ;; carrying different markup would hash alike.
-    (do (append-map! accumulator {:__html (get value :__html)}) accumulator)
-
-    ;; ---- the foreign crossing ---------------------------------------------
-    ;;
-    ;; A FOREIGN JS VALUE IS OPAQUE TO THIS WALK: it serialises to one
-    ;; fixed identity-free token and is not descended into. Two branches,
-    ;; CLJS-only, spliced away entirely on the JVM — where a foreign value
-    ;; reaches `:else` as a Java object whose `pr-str` is its bounded
-    ;; `.toString`, and where no cyclic value can be built from the
-    ;; persistent collections this walk otherwise sees.
-    ;;
-    ;; WHY IT IS THESE TWO PREDICATES AND NO OTHERS. Without them a foreign
-    ;; value falls to `:else` → `pr-str`, and `cljs.core`'s printer has
-    ;; exactly two branches that DESCEND: `object?` (prints `#js {…}` by
-    ;; walking `js-keys`) and `array?` (prints `#js […]` by walking
-    ;; elements). Every other branch a foreign value can take — `#inst`,
-    ;; `#"regex"`, `#object[Symbol(x)]`, the terminal `#object[Ctor]` —
-    ;; emits bounded output and recurses into nothing. So stopping at
-    ;; `object?`/`array?` stops the descent precisely where `pr-str` would
-    ;; have started it, and `#inst`/regex/symbol keep their bounded `pr-str`
-    ;; print forms.
-    ;;
-    ;; WHY STOP AT ALL. Two reasons, and the second is why this is not
-    ;; merely defensive:
-    ;;
-    ;;   1. A FOREIGN OBJECT GRAPH CAN BE CYCLIC, and `pr-str` has no
-    ;;      seen-set. React 19's `createContext` returns an object carrying
-    ;;      a `Provider` key that points back AT THE CONTEXT ITSELF, so a
-    ;;      render tree holding a provider — `[ctx.Provider {:value …} …]`,
-    ;;      the ordinary way to write one — would make this walk recur until the
-    ;;      stack blew (`RangeError: Maximum call stack size exceeded`)
-    ;;      rather than return a hash. The
-    ;;      cycle is a property of the object graph, not of React: a
-    ;;      hand-built `(unchecked-set o "self" o)` has the same shape.
-    ;;
-    ;;   2. A FOREIGN OBJECT'S PRINT FORM CARRIES FUNCTION IDENTITY, which
-    ;;      is the very leak the `fn?` branch above exists to close.
-    ;;      `#js {"component" f}` prints
-    ;;      `#js {:component #object[f]}` — the JS function's `.name`, which
-    ;;      the `:advanced` compiler renames, so one render tree would hash
-    ;;      differently in dev and in release and could never agree with a
-    ;;      JVM-side hash of the same tree. Collapsing the object to a token
-    ;;      applies the rule the fn branch already states, at the one place
-    ;;      the value could smuggle a fn back in.
-    ;;
-    ;; The token discriminates object from array because that costs nothing
-    ;; and keeps two distinguishable shapes distinguishable; neither form
-    ;; carries identity.
-    #?@(:cljs
-        [(object? value)
-         (do (.push accumulator "#js{}") accumulator)
-
-         (array? value)
-         (do (.push accumulator "#js[]") accumulator)])
-
-    :else
-    (do #?(:clj  (.append ^StringBuilder accumulator ^String (pr-str value))
-           :cljs (.push accumulator (pr-str value)))
-        accumulator)))
-
-(defn canonical-edn
-  "Print a render-tree node in a stable order. Maps are sorted by the
-  canonical-EDN form of their keys (a total order);
-  sequences keep order. A raw fn head serialises to one fixed identity-
-  free token (`#fn[]`) — its `.toString` is not cross-runtime stable;
-  a Var reference keeps its `#'ns/name` print form (stable
-  both runtimes). Numeric leaves are canonicalised via `canonical-number`
-  so whole-valued doubles / ratios agree cross-runtime. A value that is
-  not a map but answers `:__html` — the Reagent bridge's raw-HTML value —
-  serialises as the `{:__html …}` map it answers for, so it hashes as the
-  map a JVM server writes for the same markup. A
-  foreign JS value (a plain object or a JS array) serialises to a fixed
-  token — `#js{}` / `#js[]` — rather than being descended into, for the
-  two reasons `canonical-edn-into`'s foreign branch gives:
-  the graph can be cyclic, and its print form leaks `:advanced`-munged
-  function names into the hash.
-
-  Per Spec 011 §Hydration-mismatch detection: **nil pruned**. Two render
-  trees that differ only by absent-key vs nil-value are structurally
-  equivalent — `[:div {:class nil}]` and `[:div {}]` hash identically;
-  `[:p \"text\" nil]` and `[:p \"text\"]` hash identically. Without this
-  pruning the server emits `{:class nil}` while the client emits `{}`
-  (the common `{:class (when condition? :selected)}` shape), producing
-  spurious `:rf.ssr/hydration-mismatch` traces. Returns nil for nil
-  input so the parent collection's `keep` / `remove` step prunes it.
-
-  Delegates to `canonical-edn-into` with a fresh accumulator; the
-  production hash path skips this string
-  allocation entirely (see `render-tree-hash`)."
-  [value]
-  (when-not (nil? value)
-    #?(:clj
-       (let [accumulator (StringBuilder.)]
-         (canonical-edn-into accumulator value)
-         (.toString accumulator))
-       :cljs
-       (let [accumulator (array)]
-         (canonical-edn-into accumulator value)
-         (.join accumulator "")))))
-
 ;; FNV-1a runs over a UTF-8 byte stream on both sides.
 ;; Why UTF-8 bytes, not UTF-16 code units?
 ;;
 ;;   - JVM uses primitive `byte[]` + `aget` — no boxing per step, ~3-5×
-;;     faster than a `.charAt`-per-step loop on medium trees.
+;;     faster than a `.charAt`-per-step loop on medium inputs.
 ;;   - CLJS uses `TextEncoder` → `Uint8Array` and a `Math.imul` per-byte
 ;;     loop — same per-byte semantics as JVM.
 ;;
@@ -426,8 +95,7 @@
 ;; whose numeric value equals the UTF-16 code unit. A
 ;; `.charCodeAt` / `.charAt`-int path therefore produces the same hash as
 ;; this byte-level path for ASCII input — the JVM↔CLJS parity pin in
-;; `hash_check_cljs_test.cljs` (`9d7457ef` for `[:div {:class "x"} [:p "hi"]]`)
-;; is ASCII.
+;; `hash_check_cljs_test.cljs` is ASCII.
 
 (defn fnv-1a-32
   "FNV-1a 32-bit hash of a string over its UTF-8 byte sequence. Returns
@@ -463,64 +131,21 @@
                   (js/Math.imul (bit-xor h (aget bytes i))
                                 16777619)))))))         ;; FNV prime
 
-(defn render-tree-hash
-  "Per Spec 011 §Hydration-mismatch detection: a stable structural hash
-  of the render tree. Deterministic across JVM and CLJS for trees with
-  identical canonical-EDN representation.
-
-  Single-pass: feeds the canonical-EDN walker into one
-  accumulator and byte-hashes the result once. The parity-pinned
-  literals at `re-frame.ssr.hash-parity-fixtures`
-  are the cross-runtime contract."
-  [render-tree]
-  #?(:clj
-     (let [accumulator (StringBuilder.)]
-       (canonical-edn-into accumulator render-tree)
-       (fnv-1a-32 (.toString accumulator)))
-     :cljs
-     (let [accumulator (array)]
-       (canonical-edn-into accumulator render-tree)
-       (fnv-1a-32 (.join accumulator "")))))
-
-;; ---- canonical DATA EDN ---------------------------------------------------
-;;
-;; The nil-PRESERVING sibling of the render-tree walker above, for callers
-;; asking "is this the same DATA?" rather than "does this render the same?".
-;; See the namespace docstring for why the two rules must differ.
-;;
-;; Deliberately a separate, plain string-building walk rather than a flag
-;; threaded through `canonical-edn-into`:
-;;
-;;   - the render-tree walk is the HOT path (once per server render, once per
-;;     client verify, over a whole tree) and is allocation-tuned around a
-;;     single accumulator; a branch or a dynamic read per node would be paid
-;;     by every node of every tree to serve a caller that runs ONCE PER ROOT
-;;     over one payload map;
-;;   - its output is pinned byte-for-byte by
-;;     `re-frame.ssr.hash-parity-fixtures`, and the cheapest way to keep that
-;;     pin honest is to leave the walk it pins untouched.
-;;
-;; What is shared is what MUST agree cross-runtime: `canonical-number` and
-;; `fnv-1a-32`.
-
 (defn canonical-data-edn
   "Canonical EDN of a DATA value — nil PRESERVED. -> a string.
 
-  The rules, and each is the DIFFERENCE from `canonical-edn` or the reason
-  it is the same:
+  The rules:
 
     - **nil is content.** `nil` prints as `\"nil\"` wherever it appears —
       as a map value, a sequence element, a set member or the whole value.
       `{:x nil}` and `{}` therefore differ, as do `[nil 7]` / `[7]` and
-      `#{nil 1}` / `#{1}`. This is the whole reason the fn exists.
-      There is no sentinel and so no sentinel collision: `nil`
-      is an EDN literal and `pr-str` already distinguishes it from the
-      STRING `\"nil\"` (which prints with its quotes).
+      `#{nil 1}` / `#{1}`. There is no sentinel and so no sentinel
+      collision: `nil` is an EDN literal and `pr-str` already distinguishes
+      it from the STRING `\"nil\"` (which prints with its quotes).
 
     - **Map insertion order is not content**, so entries are emitted sorted
-      by the canonical form of their KEY — the same total order
-      `canonical-edn` uses, and for the same reason: `str`
-      alone collides a keyword `:a` with the string `\":a\"`, while their
+      by the canonical form of their KEY — a total order, where `str`
+      alone would collide a keyword `:a` with the string `\":a\"`, whose
       canonical forms differ.
 
     - **Set order is not content**, so members are emitted sorted by their
@@ -540,8 +165,7 @@
       one (a raw fn, a foreign JS object) is a caller error; it hashes by
       its host print form, which makes two such payloads DISAGREE and fail
       loud as a conflict rather than alias silently. That is the safe
-      direction for a ledger, and the opposite of what the render-tree
-      walk deliberately does for fns."
+      direction for a ledger."
   [value]
   (cond
     (map? value)
@@ -574,8 +198,6 @@
   hex, FNV-1a 32-bit over `canonical-data-edn`, byte-identical on JVM and
   CLJS for the same logical value.
 
-  The install ledger's content digest (`re-frame.ssr.install/payload-content-digest`).
-  Use `render-tree-hash` for hydration-mismatch detection — see the
-  namespace docstring for the one rule that separates them."
+  The install ledger's content digest (`re-frame.ssr.install/payload-content-digest`)."
   [value]
   (fnv-1a-32 (canonical-data-edn value)))

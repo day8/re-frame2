@@ -36,7 +36,7 @@
                           "&payload=" blob-secret
                           "&return-to=/dashboard") {:rf.route/cause :link}])
   (let [payload (rf.ssr.payload-policy/build-payload
-                  :rf/default {:public/page :callback} "h1"
+                  :rf/default {:public/page :callback}
                   {:version    1
                    :runtime-db (rf.ssr.payload-policy/project-runtime-db
                                  (rf.frame/frame-runtime-db-value :rf/default) :rf/default)})]

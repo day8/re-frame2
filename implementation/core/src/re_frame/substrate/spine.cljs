@@ -1101,16 +1101,13 @@
 
 ;; ---- native-root hydration-mismatch adoption reporter ---------------------
 ;;
-;; A native UIx root is a React-ELEMENT root: it has no hashable client
-;; render-tree (ruling out the hiccup `:render-tree-fn` / `verify-hydration!`
-;; channel — that is for substrates whose view returns a hiccup data tree).
 ;; A `hydrateRoot` call with NO root options would make a hydration
 ;; MISMATCH SILENT: React's built-in warn-and-replace recovers the DOM but
 ;; the framework would emit no `:rf.ssr/hydration-mismatch` (Spec 011
 ;; §Hydration-mismatch detection, the native-root note).
 ;;
-;; So a native root VERIFIES by React-native
-;; ADOPTION exactly like the compiled tier — `hydrateRoot` diffs the root's
+;; So every hydrating root reports by React-native
+;; ADOPTION — `hydrateRoot` diffs the root's
 ;; render against the server DOM and reports the divergences React RECOVERS FROM
 ;; (a text-content mismatch, or a missing / extra / wrong-type element — NOT
 ;; attribute-only mismatches, which take React's dev-only warning path and fire
@@ -1137,9 +1134,7 @@
 ;; shuts the window on the first (hydration) commit instead.
 ;;
 ;; RATOM ROOTS. A hydrating Reagent root installs the same
-;; reporter and closer, through `make-ratom-spine`'s mount. Its hiccup tree is
-;; hashable, but the hash serialises every fn head to one token, so a divergence
-;; below the root view reaches re-frame only through React's adoption report.
+;; reporter and closer, through `make-ratom-spine`'s mount.
 ;;
 ;; CANONICAL ENTRY. This shared React-hook render path is the ONLY native mount
 ;; route that installs the reporter, so it is the canonical native UIx
@@ -1161,13 +1156,12 @@
     (when (exists? js/console) (.error js/console error))))
 
 (defn- emit-native-hydration-mismatch!
-  ;; The NATIVE-tier `:rf.ssr/hydration-mismatch` diagnostic.
+  ;; The spine's `:rf.ssr/hydration-mismatch` diagnostic.
   ;; Surfaces an adoption-window recoverable error as the SAME category the
-  ;; hiccup and compiled tiers emit, tier-discriminated by `:where` (the spine
+  ;; compiled tier emits, discriminated by `:where` (the spine
   ;; hydrate site), carrying the recoverable `:error` message and `:recovery`
   ;; `:warned-and-replaced` (React's own recovery). NO `:root-id` (a native
-  ;; React-element root carries no root-id) and NO hash (there is
-  ;; no native-tier structural hash to report).
+  ;; React-element root carries no root-id).
   ;;
   ;; Rides the diagnostic channel via `re-frame.trace/emit!`; the
   ;; `rf.interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
@@ -1188,9 +1182,8 @@
 
   STRUCTURAL ONLY. React's message stays on the dev trace: in development it
   carries app text, and this record reaches production error sinks
-  unprojected. Rides the `:error-emit/dispatch-error-record` late-bind hook,
-  as `verify-hydration!`'s record does. Public because Fresco's hydrating
-  door fans the same record."
+  unprojected. Rides the `:error-emit/dispatch-error-record` late-bind hook.
+  Public because Fresco's hydrating door fans the same record."
   [where frame]
   (when-let [dispatch-error-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record!

@@ -6,7 +6,7 @@
   through, its two error-capture hooks among them. It also eagerly loads the
   head namespace so its late-bound host hook is available.
 
-  The façade exposes pure HTML emission and hashing, client hydration,
+  The façade exposes pure HTML emission, client hydration,
   per-frame request and response side channels, error projection, and the
   headless adapter. Core reaches this optional artefact
   only through `re-frame.late-bind`; this artefact may depend on core."
@@ -22,7 +22,6 @@
             ;; Publishes the `:ssr/reg-head` hook at namespace load, and is
             ;; the home of the head READ (`head-model`).
             [re-frame.ssr.head :as rf.ssr.head]
-            [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.hydrate :as rf.ssr.hydrate]
             [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.response :as rf.ssr.response]
@@ -45,7 +44,6 @@
 ;; There is no emitter-side view annotation: dev-mode view annotation
 ;; lives at the reg-view registration boundary
 ;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
-(def render-tree-hash                rf.ssr.hash/render-tree-hash)
 ;; The two halves of the head contract's READ side, re-exported here so
 ;; they sit on the same door as `render-to-string`: `head-model` resolves a frame's `:rf/head-model`,
 ;; `head-model->html` serialises one. The REGISTRAR `reg-head` stays at
@@ -53,13 +51,8 @@
 ;; via the `:ssr/reg-head` late-bind hook).
 (def head-model                      rf.ssr.head/head-model)
 (def head-model->html                rf.ssr.head/head-model->html)
-;; framework-private: tests reach into `#'ssr/canonical-edn` for the
-;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).
-(def ^:private canonical-edn         rf.ssr.hash/canonical-edn)
-(def ^:private fnv-1a-32             rf.ssr.hash/fnv-1a-32)
 (def adapter                         rf.ssr.substrate/adapter)
-(def verify-hydration!               rf.ssr.hydrate/verify-hydration!)
-;; `hydrate!` preserves read → hydrate → verify ordering. The DOM reader is
+;; `hydrate!` preserves read → hydrate ordering. The DOM reader is
 ;; CLJS-only.
 (def hydrate!                        rf.ssr.boot/hydrate!)
 ;; A page is N roots; `hydrate-page!` boots them with per-root failure
@@ -187,7 +180,7 @@
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
-;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection.
+;; Spec 011 §The :rf/hydrate event.
 
 ;; SSR is a framework-authorised runtime-db writer. The `:rf/hydrate` handler installs the
 ;; hydration metadata into the reserved `[:rf.runtime/ssr :hydration]` slot
@@ -388,7 +381,7 @@ explicitly."
 ;; `:rf.error/ssr-artefact-missing`.
 ;;
 ;; The QUERY surface publishes no hook: `re-frame.ssr` is the only door for
-;; `render-to-string` / `render-tree-hash` / `project-error`, so there is
+;; `render-to-string` / `project-error`, so there is
 ;; nothing on the façade to late-bind.
 
 (rf.late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)

@@ -93,12 +93,12 @@
    :rf.runtime/elision  {:declarations           {[:auth :token] #{{:source :effect}}}
                          :sensitive-declarations {[:by-id "user-secret-id" :token]
                                                   #{{:source :effect}}}}
-   :rf.runtime/ssr      {:hydration {:server-hash "h1"}}})
+   :rf.runtime/ssr      {:hydration {:version 1}}})
 
 (deftest project-runtime-db-ships-durable-omits-transient
   (is (= {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
           :rf.runtime/routing  {:current {:route-id :route/home}}
-          :rf.runtime/ssr      {:hydration {:server-hash "h1"}}}
+          :rf.runtime/ssr      {:hydration {:version 1}}}
          (rf.ssr.payload-policy/project-runtime-db sample-runtime-db))))
 
 (deftest project-runtime-db-nil-and-empty
@@ -112,27 +112,25 @@
 (deftest build-payload-stamps-each-optional-slot-only-when-supplied
   ;; A nil optional value omits its key: a present-and-nil key is not a
   ;; spelling of absence in the `:rf/hydration-payload` schema.
-  (let [rt {:rf.runtime/ssr {:hydration {:server-hash "h1"}}}]
+  (let [rt {:rf.runtime/ssr {:hydration {:version 1}}}]
     (is (= {:rf/version       7
             :rf/app-db        {:public/page :dashboard}
-            :rf/render-hash   "body-h"
             :rf/frame-id      :app/main
             :rf/runtime-db    rt
-            :rf/schema-digest "digest-abc"
-            :rf/head-hash     "head-h"}
+            :rf/schema-digest "digest-abc"}
            (rf.ssr.payload-policy/build-payload
-             :app/main {:public/page :dashboard} "body-h"
-             {:version 7 :runtime-db rt :schema-digest "digest-abc" :head-hash "head-h"})))
+             :app/main {:public/page :dashboard}
+             {:version 7 :runtime-db rt :schema-digest "digest-abc"})))
     (is (= {:rf/version 1 :rf/app-db {:public/page :dashboard}}
            (rf.ssr.payload-policy/build-payload
-             nil {:public/page :dashboard} nil
-             {:runtime-db nil :schema-digest nil :head-hash nil})))))
+             nil {:public/page :dashboard}
+             {:runtime-db nil :schema-digest nil})))))
 
 (deftest resolve-version-coerces-and-rejects-to-integer
-  (is (= 7 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "7"})))
+  (is (= 7 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} {:version "7"})))
       "a whole-number string is coerced")
   (with-trace-recorder! [traces]
-    (is (= 1 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"})))
+    (is (= 1 (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} {:version "1.0.0"})))
         "a semver string is rejected and falls back to v1")
     (when rf.interop/debug-enabled?
       (is (= [{:op-type :warning :value "1.0.0" :recovery :rejected-and-fell-back}]

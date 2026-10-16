@@ -750,7 +750,7 @@
 
   Spelled out rather than reached for through a host truthiness cast, because
   this is `.cljc`: the JVM has no JS coercion, and the two runtimes must emit
-  the same bytes for the same tree (the render-tree hash compares them).
+  the same bytes for the same tree.
   Beyond strings and numbers everything is truthy — keywords, collections,
   objects — matching JS, where every object is truthy.
 
@@ -1051,14 +1051,13 @@
                                    (and (map? v) (= "style" (name k)))
                                    (style-map->css v)
                                    ;; A numeric attribute VALUE is canonicalised
-                                   ;; the same way the render-tree hash serialises
-                                   ;; it so a whole-valued double
-                                   ;; renders `value="0"` (not the JVM
-                                   ;; `value="0.0"`) and the emitted HTML matches
-                                   ;; the hash byte-for-byte cross-runtime.
-                                   ;; Without this the hash would AGREE while the
-                                   ;; server/client attribute strings diverged — a
-                                   ;; silent hydration inconsistency.
+                                   ;; cross-runtime (`canonical-number`) so a
+                                   ;; whole-valued double renders `value="0"`
+                                   ;; (not the JVM `value="0.0"`), as the client
+                                   ;; does. Without this the server/client
+                                   ;; attribute strings would diverge — an
+                                   ;; attribute-only divergence React neither
+                                   ;; patches nor reports.
                                    (number? v) (rf.ssr.hash/canonical-number v)
                                    :else       v)]
                              (str (validate-attr-name! k)

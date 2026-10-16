@@ -173,9 +173,8 @@ Routing and SSR pure-call fixtures use the same shape with different `:call` ops
   {:call :round-trip :url "/articles/intro"}]}
 ```
 
-The `:call` ops, the arguments each record takes and the expectation keys it may carry are the `:conformance/call` entry of [`fixture-file.edn`](fixture-file.edn). The registration-error ops and the image op have sections below. Two more carry a contract beyond their grammar entry:
+The `:call` ops, the arguments each record takes and the expectation keys it may carry are the `:conformance/call` entry of [`fixture-file.edn`](fixture-file.edn). The registration-error ops and the image op have sections below. One more carries a contract beyond its grammar entry:
 
-- `:render-tree-hash` pins the render-tree canonical traversal of [011 §Hydration-mismatch detection](../011-SSR.md#hydration-mismatch-detection). The hash VALUE is a per-host commitment, so `ssr-render-tree-hash.edn` also carries same-hash LAW pairs — attribute-key-order independence and nil pruning — that a port hashing under a different algorithm must still uphold.
 - `:derivation-graph` composes the cross-family [derivation/process graph](../Derivations.md#graph-inspection--internal-but-structured) over the host's loaded contributors. It is graded against a SPLIT capability pair so a host's claim cannot overclaim the surface: the broad `:derivation/algebra-graph` (`derivation-graph-algebra-full.edn`) and the narrow `:derivation/algebra-graph-subs-machines` (the subs+machines static subset, `derivation-graph-algebra.edn`). A graph host spanning only subscriptions and machines claims the subset and allowlists the broad capability as a known-skip.
 
 The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
@@ -323,7 +322,7 @@ A port's harness MUST distinguish two flavours of out-of-claim capability so sil
 - Intentional out-of-claim — the port's `claimed-capabilities` excludes the capability (for example a flat-FSM-only port skipping `:fsm/hierarchical`). The harness MAINTAINS an explicit `known-skipped-capabilities` allowlist; capabilities in this set produce "skipped (out-of-claim)" reports without failing the suite.
 - Typo / claim-set drift — a fixture's capability appears in neither the claimed set nor the allowlist. The suite FAILS with a diagnostic naming the unknown capability, because a silent skip would hide the typo. The remedy is either to add the capability to `claimed-capabilities` (with the runtime backing to match) or to add it to `known-skipped-capabilities` (an explicit decision not to claim it).
 
-The reference harness (`implementation/core/test/re_frame/conformance_test.clj` and `implementation/core/test/re_frame/conformance_corpus_cljs_test.cljs`, over the shared `conformance_runner.cljc`) keeps one capability in `known-skipped-capabilities` — `:ssr/render-tree-hash` — because the SSR artefact's own conformance runner claims and grades it; every other capability a corpus fixture references is claimed. The allowlist exists so that any divergence requires an explicit decision rather than silent drift.
+The reference harness (`implementation/core/test/re_frame/conformance_test.clj` and `implementation/core/test/re_frame/conformance_corpus_cljs_test.cljs`, over the shared `conformance_runner.cljc`) claims every capability a corpus fixture references, so its `known-skipped-capabilities` allowlist is empty. The allowlist exists so that any divergence requires an explicit decision rather than silent drift.
 
 See [§Capability tagging worked example](#capability-tagging-worked-example) immediately below for the actual tags carried by representative fixtures in the corpus.
 
@@ -380,10 +379,9 @@ Each fixture defines an invariant the implementation upholds. The harness:
 3. Applies `:fixture/classification-effects` (see [§The `:fixture/classification-effects` harness step](#the-fixtureclassification-effects-harness-step)).
 4. Runs `:fixture/dispatches` — each via `dispatch-sync`, settling to fixed point before the next. Where `:fixture/clock` is present, this step runs against the controlled clock described in [§The `:fixture/clock` controlled host clock](#the-fixtureclock-controlled-host-clock).
 5. Runs `:fixture/clock` steps (if present) — still inside the controlled clock, so a fired callback releases its own handle through it.
-6. Simulates the client's first render after `:rf/hydrate` (if `:fixture/render-after-hydrate` is present), handing its client hash to the hydration-mismatch check against the server hash the hydrate payload carries.
-7. Runs `:fixture/calls` (if present) — direct invocations of pure primitives, each carrying its own expectation; a mismatch is a fixture-level failure.
-8. Subscribes once to each `:fixture/compute-subs` query, so a sub that *throws* is observed as a sub failure rather than as an absent value.
-9. Compares (Mode A) — each `:fixture/expect` key by the law the grammar names for it. `:trace-emissions` partial-matches each trace event by its specified keys; `:final-app-db` is a submap compare (declared keys must match; extra actual keys tolerated); `:final-app-db-absent` asserts each path's tip key is ABSENT; `:effects-routed` matches the routed-fx pairs in declaration order. A dispatch carrying `:expect-error` asserts that dispatch threw the named `:rf.error/id`.
+6. Runs `:fixture/calls` (if present) — direct invocations of pure primitives, each carrying its own expectation; a mismatch is a fixture-level failure.
+7. Subscribes once to each `:fixture/compute-subs` query, so a sub that *throws* is observed as a sub failure rather than as an absent value.
+8. Compares (Mode A) — each `:fixture/expect` key by the law the grammar names for it. `:trace-emissions` partial-matches each trace event by its specified keys; `:final-app-db` is a submap compare (declared keys must match; extra actual keys tolerated); `:final-app-db-absent` asserts each path's tip key is ABSENT; `:effects-routed` matches the routed-fx pairs in declaration order. A dispatch carrying `:expect-error` asserts that dispatch threw the named `:rf.error/id`.
 
 For Mode B fixtures, comparison happens inline at each call; there is no top-level `:fixture/expect` to evaluate after drain.
 

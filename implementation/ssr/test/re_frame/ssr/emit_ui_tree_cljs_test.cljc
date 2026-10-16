@@ -420,4 +420,4 @@
   (let [tree (v1 {:tag :html})]
     (testing "unknown keys are ignored — not rejected, not honoured"
       (is (= "<!DOCTYPE html><html></html>"
-             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true :emit-hash? true :bogus 1}))))))
+             (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? true :pretty? true :bogus 1}))))))

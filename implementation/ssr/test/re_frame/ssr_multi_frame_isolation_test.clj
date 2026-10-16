@@ -17,11 +17,15 @@
 (def ^:private frame-b   :counter/b)
 (def ^:private frame-log :log)
 
+(defn- route-slice [route-id]
+  {:rf.runtime/routing {:current {:route-id route-id}}})
+
 (def ^:private per-frame-payload
-  {frame-a   {:rf/version 1 :rf/render-hash "aaaa1111" :rf/app-db {:n 10}}
-   frame-b   {:rf/version 1 :rf/render-hash "bbbb2222" :rf/app-db {:n 99}}
-   frame-log {:rf/version 1 :rf/render-hash "cccc3333"
-              :rf/app-db  {:entries [{:from :ssr :note "hello"} {:from :ssr :note "world"}]}}})
+  {frame-a   {:rf/version 1 :rf/app-db {:n 10} :rf/runtime-db (route-slice :page/a)}
+   frame-b   {:rf/version 1 :rf/app-db {:n 99} :rf/runtime-db (route-slice :page/b)}
+   frame-log {:rf/version 1
+              :rf/app-db  {:entries [{:from :ssr :note "hello"} {:from :ssr :note "world"}]}
+              :rf/runtime-db (route-slice :page/log)}})
 
 (defn- bootstrap-and-hydrate! []
   (rf/reg-event ::counter-init (fn [_ _] {:db {:n 0}}))
@@ -29,8 +33,8 @@
   (rf/reg-event ::inc          (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/reg-sub :n       (fn [db _] (:n db)))
   (rf/reg-sub :entries (fn [db _] (:entries db)))
-  ;; The hydration metadata is runtime-db state.
-  (rf.subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration])))
+  ;; The route slice is runtime-db state.
+  (rf.subs/reg-runtime-sub :route-id (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
   (rf/make-frame {:id frame-a   :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-b   :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
@@ -54,16 +58,11 @@
     (is (= [true true true false]
            (mapv #(some? (stashed-hydration %)) [frame-a frame-b frame-log :rf/default])))))
 
-(deftest multi-frame-hydrate-stashes-per-frame-server-hash
-  (bootstrap-and-hydrate!)
-  (is (= ["aaaa1111" "bbbb2222" "cccc3333"]
-         (mapv #(:server-hash (stashed-hydration %)) [frame-a frame-b frame-log]))))
-
 (deftest multi-frame-subscribe-once-resolves-against-explicit-frame-id
   (testing "the same query-v resolves each explicit frame's own value"
     (bootstrap-and-hydrate!)
-    (is (= ["aaaa1111" "bbbb2222" "cccc3333"]
-           (mapv #(:server-hash (sub-in [:hydration] %)) [frame-a frame-b frame-log])))))
+    (is (= [:page/a :page/b :page/log]
+           (mapv #(sub-in [:route-id] %) [frame-a frame-b frame-log])))))
 
 (deftest multi-frame-dispatch-isolation-per-frame
   (bootstrap-and-hydrate!)

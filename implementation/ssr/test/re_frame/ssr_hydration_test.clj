@@ -41,7 +41,6 @@
 ;; fails closed on a frame-id naming another frame).
 (def ^:private baseline-payload
   {:rf/version     1
-   :rf/render-hash nil
    :rf/app-db      {:count 7 :title "seeded"}
    :rf/response    {:status   200
                     :headers  {"content-type" "text/html; charset=utf-8"}
@@ -65,7 +64,7 @@
 
 (deftest hydration-baseline-replaces-app-db-and-stashes-metadata
   (testing "the payload's :rf/app-db replaces app-db, and the version lands in the
-            hydration metadata with the nil render-hash pruned"
+            hydration metadata"
     (let [frame (client-frame!)]
       (rf/dispatch-sync [:rf/hydrate baseline-payload] {:frame frame})
       (is (= {:count 7 :title "seeded"} (rf/app-db-value frame)))
@@ -113,15 +112,6 @@
               [:rf.ssr/check-schema-digest "test-digest-abc"]]
              @dispatched)))))
 
-(deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
-  (testing "a nil server hash short-circuits verify-hydration!: even
-            :on-mismatch :hard-error has nothing to escalate"
-    (let [frame (rf.frame/make-anon-frame-record!
-                  {:platform :client
-                   :ssr      {:on-mismatch :hard-error}})]
-      (rf/dispatch-sync [:rf/hydrate baseline-payload] {:frame frame})
-      (is (nil? (rf.ssr/verify-hydration! frame "abcdef01"))))))
-
 (deftest malformed-hydration-payload-fails-closed-through-router
   (testing "a non-map payload, or a present-but-non-map partition slice, leaves
             the whole frame-state unchanged"
@@ -164,7 +154,6 @@
           payload      (rf.ssr.payload-policy/build-payload
                          other-frame
                          (rf.ssr.payload-policy/apply-policy {:count 7} policy)
-                         "deadbeef"
                          policy)
           ex           (try (rf.ssr/hydrate! {:frame client-frame :payload payload})
                             nil
@@ -182,8 +171,7 @@
       (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf/hydrate {:rf/frame-id    :some/other-frame
                                         :rf/app-db      {:count 42}
-                                        :rf/runtime-db  {:rf.runtime/machines {:snapshots {:m :installed}}}
-                                        :rf/render-hash "deadbeef"}]
+                                        :rf/runtime-db  {:rf.runtime/machines {:snapshots {:m :installed}}}}]
                           {:frame frame})
         (is (= before (rf/frame-state-value frame)))
         ;; Dev-instrumentation arm.
@@ -206,8 +194,7 @@
       (try
         (with-trace-recorder! [dev-traces]
           (rf/dispatch-sync [:rf/hydrate {:rf/frame-id    :secret/other-frame
-                                          :rf/app-db      {:count 42}
-                                          :rf/render-hash "deadbeef"}]
+                                          :rf/app-db      {:count 42}}]
                             {:frame frame})
           (let [record    (first (filter #(= :rf.error/hydration-frame-id-mismatch (:error %))
                                          @corpus))

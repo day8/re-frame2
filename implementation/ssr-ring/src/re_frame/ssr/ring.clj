@@ -71,7 +71,7 @@
 
 (def handler-defaults
   "Default `ssr-handler` opts merged under caller-supplied opts at
-  construction time (`:emit-hash?`, `:html-shell`). A DATA var, not a
+  construction time (`:html-shell`). A DATA var, not a
   fn — exposed so callers can read or extend the baseline. `:on-error`
   is deliberately NOT here (it is resolved separately via
   `lifecycle/resolve-on-error` so the defaults stay orthogonal to
@@ -85,8 +85,7 @@
   `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's
   explicit Content-Type — in control. So the handler leaves the
   on-the-wire default alone."
-  {:emit-hash? true
-   :html-shell rf.ssr.ring.shell/default-html-shell})
+  {:html-shell rf.ssr.ring.shell/default-html-shell})
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -108,23 +107,9 @@
                       `:renderer` is supplied — only the default JVM-local
                       renderer reads it; with a custom `:renderer` it is
                       optional and ignored.
-                      Two spellings emit byte-identical HTML but differ on
-                      the hydration hash channel:
-
-                        (fn [] ((rf/view :app/root)))  ;; resolves → hashed
-                        [(rf/view :app/root)]          ;; a reference → no hash
-
-                      A root that stays a callable-headed vector is the
-                      UNRESOLVED root form; hashing it yields one constant
-                      for every application, so the handler emits no
-                      `data-rf-render-hash` and no payload `:rf/render-hash`
-                      for it. That is the shape an ADOPTION-TIER root
-                      (a native UIx root, a Fresco root) can only
-                      ever be, and Spec 011 §Hydration-mismatch detection
-                      requires it to carry none. A hiccup-tier host that
-                      wants the channel passes the resolving form — the only
-                      one symmetric with the documented client
-                      `:render-tree-fn #((rf/view :app/root))`.
+                      `[(rf/view :app/root)]` and
+                      `(fn [] ((rf/view :app/root)))` emit byte-identical
+                      HTML.
     :payload        — allowlist of top-level app-db keys (an empty `[]`
                       ships nothing), or the explicit
                       `:rf.ssr.payload/whole-app-db` opt-in. Missing and
@@ -167,9 +152,6 @@
                       `:on-error`. Omit the key to keep the default
                       path-form history strategy. Declared by the
                       programmer; never inferred from the request.
-    :emit-hash?     — emit hydration hash markers (default true). Gates the
-                      WIRE markers only; the payload's hash keys are driven
-                      by whether a hash exists at all (see `:root-view`).
     :client-frame-id — stable frame id stamped as the payload's WIRE
                       `:rf/frame-id`, when the deployment fixes one both
                       server and client agree on ahead of time. Default
@@ -188,8 +170,7 @@
                       contract):
 
                         (fn [{:keys [frame-id request opts]}]
-                          -> {:body-html   <string>
-                              :render-hash <string-or-nil>})
+                          -> {:body-html <string>})
 
                       Called once per request inside the request frame's
                       scope — after the boot-event drain and the blocking-
@@ -199,10 +180,8 @@
                       hiccup value. It returns body markup and nothing
                       else: the JVM keeps the head, `__rf_payload`, shell,
                       status, headers, cookies, redirects, error projection
-                      and frame teardown. The renderer owns its body bytes,
-                      hash marker included; a nil `:render-hash` omits the
-                      payload's `:rf/render-hash` (the unresolved-root
-                      behaviour). A throw is projected exactly
+                      and frame teardown. The renderer owns its body
+                      bytes. A throw is projected exactly
                       like a `:root-view` render throw. Default:
                       `re-frame.ssr.ring.pipeline/local-renderer`, the
                       JVM-local `:root-view` render — the only renderer

@@ -35,7 +35,7 @@
 
   ## What this file DOES NOT restate, and why
 
-  Three of the prototype suite's rows have package owners, and restating
+  Two of the prototype suite's rows have package owners, and restating
   them here would be duplicate coverage wearing the shape of
   thoroughness:
 
@@ -48,14 +48,7 @@
     `hydrate!` and then an adopting `h/render!`. This file therefore
     seeds the client frame from the payload map directly: what is under
     test is the CONTENT of the payload, so the seeding door is
-    deliberately the least interesting part of the row;
-  - **the render-hash measurement** — the prototype keeps
-    `ssr-hash/render-tree-hash`'s constant value live to explain why no
-    claim can rest on the hash. That is a fact about `re-frame.ssr.hash`
-    rather than about this entry, and it stays in the bench tree. The half
-    that is a fact about the entry — the wire carries no `:rf/render-hash`
-    for an adoption-tier root — is one assertion in
-    [[the-two-requests-differ-by-exactly-the-ui-key]].
+    deliberately the least interesting part of the row.
 
   What is left is the obligation and its enforcement.
 
@@ -297,14 +290,7 @@
                everything else is identical, so `:ui` is the whole difference"
         (is (= (:panels gdb) (:panels rdb) panels))
         (is (= #{:panels :ui} (set (keys gdb))))
-        (is (= #{:panels} (set (keys rdb)))))
-
-      (testing "and neither carries a render hash — an adoption-tier root
-               ships none, which is Spec 011's own answer for this tier
-               rather than a gap, and is what stops any claim in this file
-               resting on one"
-        (is (not (contains? (:payload green) :rf/render-hash)))
-        (is (not (contains? (:payload red) :rf/render-hash)))))))
+        (is (= #{:panels} (set (keys rdb))))))))
 
 ;; ===========================================================================
 ;; ROW 1 — GREEN. The obligation met.

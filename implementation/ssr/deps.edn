@@ -1,6 +1,5 @@
 ;; Per Spec 011 the server-side rendering and hydration surface — the
-;; pure hiccup → HTML emitter (`render-to-string`), the structural
-;; render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with
+;; pure hiccup → HTML emitter (`render-to-string`), the `:rf/hydrate` event with
 ;; `:replace-frame-state` semantics, the `:rf.server/set-status` /
 ;; `:rf.server/set-header` / `:rf.server/append-header` /
 ;; `:rf.server/set-cookie` / `:rf.server/delete-cookie` /
@@ -10,8 +9,8 @@
 ;; `reg-error-projector` surface plus its built-in
 ;; `:rf.ssr/default-error-projector`, and the runtime's SSR error path
 ;; — ships as a separate Maven artefact so apps that don't render server-
-;; side don't drag the namespace, the HTML emitter, the FNV-1a hash
-;; machinery, the response-accumulator bookkeeping, the projector
+;; side don't drag the namespace, the HTML emitter, the install-ledger
+;; digest, the response-accumulator bookkeeping, the projector
 ;; registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace
 ;; strings onto the classpath.
 ;;
@@ -25,7 +24,7 @@
 ;;           day8/re-frame2-ssr {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.ssr` in any namespace that calls
-;; `ssr/render-to-string`, `ssr/render-tree-hash`, `ssr/project-error`,
+;; `ssr/render-to-string`, `ssr/project-error`,
 ;; `rf/reg-error-projector`, dispatches `:rf/hydrate`, or relies on the
 ;; `:rf.server/*` fxs / the per-request response accumulator (read via
 ;; `re-frame.ssr/get-response`) — loading the namespace registers the

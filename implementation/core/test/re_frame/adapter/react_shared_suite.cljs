@@ -2042,8 +2042,7 @@
 
 ;; ---- native-root hydration-mismatch adoption reporter ---------------------
 ;;
-;; A native UIx root is a React-ELEMENT root: the hiccup :render-tree-fn hash
-;; channel does not cover it, so a hydrateRoot call with NO options would leave
+;; A hydrateRoot call with NO options would leave
 ;; a hydration MISMATCH SILENT (React warn-and-replace recovers the DOM but the
 ;; framework emits nothing). The spine installs a composed onRecoverableError
 ;; on the hydrate path that surfaces the SAME :rf.ssr/hydration-mismatch
@@ -2143,11 +2142,7 @@
                   (let [tags (merge (:tags mm) mm)]
                     (is (= :rf.ssr/hydration-mismatch (:operation mm)))
                     (is (= 're-frame.substrate.spine/make-render (:where tags))
-                        "tier-discriminated by :where — the native spine hydrate site")
-                    (is (not (contains? (or (:tags mm) {}) :server-hash))
-                        "NO fabricated :server-hash — the native tier has no hash")
-                    (is (not (contains? (or (:tags mm) {}) :client-hash))
-                        "NO fabricated :client-hash"))))
+                        "tier-discriminated by :where — the native spine hydrate site"))))
               (testing (str name " — host :on-recoverable-error composed (not clobbered)")
                 (is (seq @div-host)
                     "the framework composed OVER the host callback — both fired"))

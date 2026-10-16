@@ -47,10 +47,6 @@
   #js {"html"       html
        "document"   document
        "payloadEdn" payload-edn
-       ;; NO `renderHash`. An adoption-tier root carries no structural
-       ;; hash — Spec 011 §Hydration-mismatch detection — and a column
-       ;; that would be the same value for every fixture is the kind of
-       ;; number a manifest is worse for carrying.
        ;; The per-request gensym, as a string, so a driver can SHOW that
        ;; two requests took two frames. It is already destroyed.
        "frameId"    (str frame-id)})

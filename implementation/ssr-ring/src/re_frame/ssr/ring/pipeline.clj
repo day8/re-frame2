@@ -355,7 +355,7 @@
   produce wire bytes.
 
   Built as hiccup and rendered via
-  `ssr/render-to-string` (with `:doctype? true` and no `:render-hash`)
+  `ssr/render-to-string` (with `:doctype? true`)
   so the public-error map flows through position-appropriate escaping
   the emitter already owns — the same path as a caller-supplied error view.
 
@@ -433,8 +433,8 @@
   path below, rather than silently emitting a phantom
   `<error-page>` element as the error page.
 
-  Both paths render via `render-to-string` with `:doctype? true` and no
-  hash, as the default template does: the error body is the whole
+  Both paths render via `render-to-string` with `:doctype? true`, as the
+  default template does: the error body is the whole
   response body, never wrapped in the html-shell, so without the doctype
   a browser would lay the error page out in quirks mode. When no
   `:error-view` is supplied, the default template is used directly.
@@ -543,7 +543,7 @@
   error response, WITHOUT re-projecting: keep the projected `:status` and the
   safe headers/cookies already accumulated in `resp`, ship a plain-String
   error body (`:error-view`, or the locked default template), and emit NO
-  root-view / html-shell / `__rf_payload` / app-db / render or head hashes.
+  root-view / html-shell / `__rf_payload` / app-db.
 
   Besides avoiding a misleading half-drained page, dropping the payload
   removes a needless partial-state egress surface when the caller opted into
@@ -555,44 +555,25 @@
 
 (defn local-renderer
   "The DEFAULT `:renderer` — the JVM-local render. Resolves
-  the handler's `:root-view`, hashes the resolved tree, and renders it with
-  the wire `data-rf-render-hash` marker gated by the construction-level
-  `:emit-hash?` opt.
+  the handler's `:root-view` and renders it.
 
   Renderer contract (Spec 011 §HTTP response contract):
 
       (fn [{:keys [frame-id request opts]}]
-        -> {:body-html   <string>
-            :render-hash <string-or-nil>})
+        -> {:body-html <string>})
 
   `build-full-response*` calls it INSIDE the request frame's scope, AFTER
   the boot-event drain and the blocking-resource settle, BEFORE head
   resolution and the payload build consume its result. Its input is the
   live post-drain frame (by id — everything the JVM knows is reachable
   from it), the Ring request and the handler opts; never a hiccup value.
-  The renderer owns the body bytes, hash marker included — the pipeline
-  never rewrites them. `:render-hash` feeds the payload's
-  `:rf/render-hash`; nil OMITS the key, exactly the unresolved-root
-  behaviour.
+  The renderer owns the body bytes — the pipeline never rewrites them.
 
-  This default reads `:root-view` and `:emit-hash?` from `opts`.
-  `:emit-hash?` is the HOST's \"stamp hydration markers at all?\" switch,
-  not an emitter opt: the emitter takes only `:render-hash`, so this fn
-  passes the computed hash when the host asked for markers and omits the
-  key otherwise. A nil hash (the unresolved root form) omits it too —
-  that root gets no marker on either channel."
+  This default reads `:root-view` from `opts`."
   [{:keys [opts]}]
-  (let [{:keys [root-view emit-hash?]} opts
-        resolved-root (rf.ssr.ring.lifecycle/resolve-root-view root-view)
-        ;; Compute the body hash once for both the emitted marker and the
-        ;; payload. nil for an unresolved root form — that root gets NO hash
-        ;; on either channel (see `render-document-hash`).
-        render-hash (rf.ssr.ring.lifecycle/render-document-hash resolved-root)]
-    {:body-html   (rf.ssr/render-to-string
-                     resolved-root
-                     {:doctype?    false
-                      :render-hash (when emit-hash? render-hash)})
-     :render-hash render-hash}))
+  {:body-html (rf.ssr/render-to-string
+                (rf.ssr.ring.lifecycle/resolve-root-view (:root-view opts))
+                {:doctype? false})})
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -602,7 +583,7 @@
   is required for registered lookups and frame-sensitive egress
   classification."
   [frame-id
-   {:keys [renderer emit-hash? version schema-digest payload
+   {:keys [renderer version schema-digest payload
            payload-include-sensitive html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
@@ -615,61 +596,50 @@
         ;; registry), AND the hydration-payload build. One push/pop per
         ;; request.
         explicit-head (:head opts)
-        {:keys [head-html html-attrs body-attrs body-html head-hash]
+        {:keys [head-html html-attrs body-attrs body-html]
          hydration-payload :rf-payload}
         ;; Pin the request frame across the body render, head lookups and
         ;; payload projection.
         (rf/with-frame frame-id
           (let [;; THE RENDER-BODY SEAM. The caller's
                 ;; `:renderer` — or the JVM-local default — returns body
-                ;; markup plus an optional locally-derived hash from the live
-                ;; post-drain frame. The pipeline consumes that pair and owns
+                ;; markup from the live post-drain frame. The pipeline owns
                 ;; everything else: head, payload, shell, status, headers,
                 ;; cookies, error projection and teardown.
                 render-body (or renderer local-renderer)
-                {:keys [body-html render-hash]}
+                {:keys [body-html]}
                 (render-body {:frame-id frame-id
                               :request  (rf.ssr/get-request frame-id)
                               :opts     opts})
-                ;; Explicit head HTML bypasses route-derived attributes and has
-                ;; no client-reconstructible model.
+                ;; Explicit head HTML bypasses route-derived attributes.
                 head-data (if explicit-head
                             {:head-html  explicit-head
                              :html-attrs nil
                              :body-attrs nil}
                             (rf.ssr.ring.lifecycle/resolve-head frame-id))
-                ;; Hash the head model on its separate reconstructible channel.
-                head-hash (rf.ssr.ring.lifecycle/render-head-hash (:head-model head-data))
                 ;; Read after rendering and inside the frame scope. Optional
                 ;; resource projection uses the carried frame to apply derived
                 ;; sensitivity before serializing the durable runtime slice.
                 app-db     (rf/app-db-value frame-id)
                 runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
                 hydration-payload
-                (rf.ssr.ring.payload/build-payload frame-id app-db runtime-db render-hash
+                (rf.ssr.ring.payload/build-payload frame-id app-db runtime-db
                                        {:version         version
                                         :schema-digest   schema-digest
                                         :payload         payload
                                         ;; The host's permit.
                                         :payload-include-sensitive payload-include-sensitive
-                                        :head-hash       head-hash
                                         ;; The stable WIRE
                                         ;; :rf/frame-id (nil ⇒ omit).
                                         :client-frame-id client-frame-id})]
             (assoc head-data
                    :body-html  body-html
-                   :head-hash  head-hash
                    :rf-payload hydration-payload)))
         payload-edn (pr-str hydration-payload)
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs
-                           :body-attrs  body-attrs
-                           ;; The WIRE `data-rf-head-hash` marker is gated by
-                           ;; `:emit-hash?`, mirroring `data-rf-render-hash`
-                           ;; (the payload's `:rf/head-hash` stays unconditional
-                            ;; — see `hydration-payload` above).
-                           :head-hash   (when emit-hash? head-hash))
+                           :body-attrs  body-attrs)
         response-html (html-shell body-html payload-edn shell-opts)
         ;; Re-flush after rendering. A hardened reactive subscription may recover
         ;; to nil while buffering a projected failure; reading only the pre-render
@@ -747,11 +717,7 @@
   the hydration payload, wrap in the html-shell, and materialise to a Ring
   response.
 
-  The renderer runs once per request and returns the body's hash beside
-  its markup: the wire `data-rf-render-hash` and the payload's
-  `:rf/render-hash` both come from that one call, so a non-idempotent
-  fn-form root-view cannot fire a spurious `:rf.ssr/hydration-mismatch`
-  on a successful hydration.
+  The renderer runs once per request.
 
   A render-time
   throw (e.g. the `validate-tag-name!` rejection of

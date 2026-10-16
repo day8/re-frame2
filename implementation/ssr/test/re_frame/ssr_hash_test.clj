@@ -1,30 +1,37 @@
 (ns re-frame.ssr-hash-test
-  "Spec 011 §Hydration-mismatch detection — how `render-tree-hash` and the
-  emitter treat a Var head, a raw-HTML value and whole-valued doubles, and how
-  `:doctype?` and `:render-hash` compose. Nil pruning, key order and the
-  cross-host literals are pinned on both hosts by `re-frame.hash-parity-test`
-  and `re-frame.ssr.hash-parity-cljs-test`."
+  "`re-frame.ssr.hash` — the install ledger's data digest and the numeric
+  print form the emitter shares with it — and how the emitter writes a
+  raw-HTML value and whole-valued doubles. The digest literals here are the
+  same ones `re-frame.hash-check-cljs-test` pins on CLJS, so the two hosts
+  agree on them."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.hash :as rf.ssr.hash]))
 
-(deftest render-to-string-doctype-and-render-hash-opts
-  (testing "the hash rides on the root element, after the doctype"
-    (is (= "<!DOCTYPE html><div data-rf-render-hash=\"deadbeef\"><h1>Hello</h1></div>"
-           (rf.ssr.emit/render-to-string [:div [:h1 "Hello"]]
-                                         {:doctype? true :render-hash "deadbeef"})))))
+(deftest render-to-string-doctype-opt
+  (testing "the doctype prefixes the body"
+    (is (= "<!DOCTYPE html><div><h1>Hello</h1></div>"
+           (rf.ssr.emit/render-to-string [:div [:h1 "Hello"]] {:doctype? true})))))
 
-(deftest a-var-head-keeps-its-stable-print-form
-  (testing "a Var is not fn? on the JVM, so it keeps its #'ns/name print form
-            (identical on both hosts) instead of collapsing to #fn[]"
-    (is (= "#'clojure.core/identity"
-           (rf.ssr.hash/canonical-edn #'clojure.core/identity)))))
+(deftest fnv-1a-32-hashes-utf-8-bytes
+  (testing "the hash runs over UTF-8 bytes, so multi-byte content agrees with CLJS"
+    (is (= "a82b5049" (rf.ssr.hash/fnv-1a-32 "café")))))
+
+(deftest data-hash-preserves-nil-and-ignores-order
+  (testing "the canonical form sorts map keys and set members and keeps nil"
+    (is (= "{:a #{1 2},:b [nil 7]}"
+           (rf.ssr.hash/canonical-data-edn {:b [nil 7.0] :a #{2 1}}))))
+  (testing "the literal CLJS pins for the same value"
+    (is (= "0f358b10" (rf.ssr.hash/data-hash {:b [nil 7.0] :a #{2 1}}))))
+  (testing "nil is content: each pair differs"
+    (is (= [false false false]
+           [(= (rf.ssr.hash/data-hash {:x nil}) (rf.ssr.hash/data-hash {}))
+            (= (rf.ssr.hash/data-hash [nil 7]) (rf.ssr.hash/data-hash [7]))
+            (= (rf.ssr.hash/data-hash #{nil 1}) (rf.ssr.hash/data-hash #{1}))]))))
 
 ;; A `.cljc` view writes a raw-HTML prop as React's `{:__html s}` map on the JVM
 ;; and as the Reagent bridge's tagged value on the client. The tag is CLJS-only,
-;; so a value answering `:__html` through `ILookup` stands in for it here;
-;; `re-frame.adapter-unsafe-html-ssr-cljs-test` pins the same literal with the
-;; real one.
+;; so a value answering `:__html` through `ILookup` stands in for it here.
 
 (defn- lookup-html
   [s]
@@ -32,27 +39,17 @@
     (valAt [this k] (.valAt this k nil))
     (valAt [_ k not-found] (if (= :__html k) s not-found))))
 
-(deftest a-raw-html-value-hashes-as-the-map-it-answers-for
+(deftest a-raw-html-value-renders-as-the-map-it-answers-for
   (let [as-map   (fn [s] [:div {:dangerouslySetInnerHTML {:__html s}}])
         as-value (fn [s] [:div {:dangerouslySetInnerHTML (lookup-html s)}])]
-    (testing "the map and a value answering :__html hash the same for the same markup"
-      (is (= "2525560c"
-             (rf.ssr.hash/render-tree-hash (as-map "<b>x</b>"))
-             (rf.ssr.hash/render-tree-hash (as-value "<b>x</b>")))))
-    (testing "no markup hashes as the map with a nil :__html"
-      (is (= (rf.ssr.hash/render-tree-hash (as-map nil))
-             (rf.ssr.hash/render-tree-hash (as-value nil)))))
-    (testing "a lookup value with no :__html entry keeps its print form"
-      (is (= "#foo [1]" (rf.ssr.hash/canonical-edn (tagged-literal 'foo [1])))))
     (testing "the emitter writes the same body for both forms"
       (is (= "<div><b>x</b></div>"
              (rf.ssr.emit/render-to-string (as-map "<b>x</b>") {})
              (rf.ssr.emit/render-to-string (as-value "<b>x</b>") {}))))))
 
-(deftest whole-valued-doubles-canonicalise-hash-and-html-consistently
+(deftest whole-valued-doubles-render-as-cljs-prints-them
   (testing "the emitter drops a whole-valued double's trailing .0 in child and
-            attribute position, as the hash does (the `whole-double` parity
-            fixture), so the JVM's 9.0 renders as CLJS's 9"
+            attribute position, so the JVM's 9.0 renders as CLJS's 9"
     (is (= "<span>9</span>" (rf.ssr.emit/render-to-string [:span 9.0] {})))
     (is (= "<progress value=\"0\" max=\"1\"></progress>"
            (rf.ssr.emit/render-to-string [:progress {:value 0.0 :max 1.0}] {}))))

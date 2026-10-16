@@ -46,13 +46,13 @@
   (rf/frame-state-value frame-id))
 
 (def ^:private live-ssr
-  {:hydration {:server-hash "aaaa1111" :version 1}})
+  {:hydration {:version 1}})
 
 (def ^:private live-routing
   {:current {:id :route/home :params {} :query {} :nav-token 7}})
 
 (def ^:private saved-ssr
-  {:hydration {:server-hash "bbbb2222" :version 2}})
+  {:hydration {:version 2}})
 
 (deftest a-present-app-partition-replaces-app-db-and-runtime-db-is-untouched
   (let [fid    (fresh-frame!)

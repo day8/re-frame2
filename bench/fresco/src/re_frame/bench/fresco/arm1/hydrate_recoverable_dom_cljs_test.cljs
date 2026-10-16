@@ -178,10 +178,7 @@
                                report")
                           (is (string? (:error tags))
                               "and the recoverable error's own message rides
-                               along")
-                          (is (not (contains? (or (:tags mm) {}) :server-hash))
-                              "no fabricated :server-hash — a React-element
-                               root has no hash channel")))
+                               along")))
                       (is (= "client" (.-textContent
                                         (.querySelector container ".title")))
                           "and the CLIENT's model won, as a recovered

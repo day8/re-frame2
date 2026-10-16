@@ -1,8 +1,7 @@
 (ns re-frame.ssr-end-to-end-test
   "The SSR request lifecycle end to end, per Spec 011: a per-request server
-  frame drains its `:initial-events`, renders with a `data-rf-render-hash`
-  root stamp, builds the hydration payload, and a client frame hydrates and
-  verifies it. Around that sit the `:rf.server/*` response fx, their
+  frame drains its `:initial-events`, renders, builds the hydration payload,
+  and a client frame hydrates it and renders the same markup. Around that sit the `:rf.server/*` response fx, their
   injection gates, and the error projector.
 
   ## Posture split
@@ -12,7 +11,7 @@
   values and cookie attributes, the cookie-attribute grammar, safe-redirect)
   reject in that lane, so their assertions read the always-on `:errors` axis
   rather than the dev trace. Only genuinely dev-only observations — the
-  `:rf.warning/*` family, the hydration-mismatch trace, the Spec 010 step-5
+  `:rf.warning/*` family, the Spec 010 step-5
   diagnostic and safe-redirect's raw diagnostics — sit in
   `(when interop/debug-enabled? …)` arms, each beside the positive it
   belongs to, because a negative over the dev ring passes vacuously under
@@ -61,17 +60,6 @@
          [:ul
           (for [{:keys [id title body]} arts]
             ^{:key id} [:li [:h3 title] [:p body]])]]))))
-
-(defn- resolve-tree
-  "Resolve a `[view-fn args...]` reference under a frame so the tree, and so
-  its hash, reflects that frame's app-db. A keyword head is a DOM element,
-  not a view, and is returned untouched (a keyword is itself `ifn?`)."
-  [frame-id render-tree]
-  (rf/with-frame frame-id
-    (let [head (first render-tree)]
-      (if (and (ifn? head) (not (keyword? head)))
-        (apply head (rest render-tree))
-        render-tree))))
 
 (defn- settled-response
   "The response as a host reads it: after the settle that projects buffered
@@ -148,18 +136,12 @@
         server-db    (rf/app-db-value server-frame)
         render-tree  [(rf/view :pages/articles)]
         html         (rf/with-frame server-frame
-                       (rf.ssr/render-to-string
-                         render-tree {:render-hash (rf.ssr/render-tree-hash render-tree)}))
-        ;; The wire stamp hashes the input tree; the payload carries the
-        ;; RESOLVED (state-dependent) hash the client re-renders against.
-        server-hash  (rf.ssr/render-tree-hash (resolve-tree server-frame render-tree))
-        payload      (rf.ssr.payload-policy/build-payload server-frame server-db server-hash {})]
+                       (rf.ssr/render-to-string render-tree))
+        payload      (rf.ssr.payload-policy/build-payload server-frame server-db {})]
     (is (= {:request {:uri "/articles"} :articles canned-articles} server-db)
         "the drain settled the stubbed :http/get into the server app-db")
     (is (every? #(str/includes? html %) ["Article A" "Article B"]))
-    (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
-        "root <div> carries data-rf-render-hash")
-    (is (= {:rf/version 1 :rf/frame-id server-frame :rf/app-db server-db :rf/render-hash server-hash}
+    (is (= {:rf/version 1 :rf/frame-id server-frame :rf/app-db server-db}
            payload))
 
     ;; One process stands in for both hosts, so the payload is re-stamped
@@ -168,44 +150,18 @@
     (let [client-frame (rf.frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate (assoc payload :rf/frame-id client-frame)] {:frame client-frame})
       (is (= server-db (rf/app-db-value client-frame)))
-      (is (= {:server-hash server-hash :version 1}
-             (select-keys (get-in (rf/frame-state-value client-frame)
-                                  [:rf.db/runtime :rf.runtime/ssr :hydration])
-                          [:server-hash :version])))
-
-      (let [client-hash-1 (rf.ssr/render-tree-hash (resolve-tree client-frame render-tree))
-            match-traces  (atom [])]
-        (rf/register-listener! :trace ::match (fn [ev] (swap! match-traces conj ev)))
-        (rf.ssr/verify-hydration! client-frame client-hash-1)
-        (rf/unregister-listener! :trace ::match)
-        (is (= server-hash client-hash-1)
-            "first client render hashes identically to the server")
-        ;; DEV ARM — the mismatch trace is dev-only.
-        (when rf.interop/debug-enabled?
-          (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @match-traces))))
+      (is (= {:version 1}
+             (get-in (rf/frame-state-value client-frame)
+                     [:rf.db/runtime :rf.runtime/ssr :hydration])))
+      (is (= html (rf/with-frame client-frame (rf.ssr/render-to-string render-tree)))
+          "the hydrated client frame renders the server's markup")
 
       (rf/reg-event :articles/append
         (fn [{:keys [db]} [_ extra]] {:db (update db :articles conj extra)}))
       (rf/dispatch-sync [:articles/append {:id "c" :title "Article C" :body "Body C"}]
                         {:frame client-frame})
-      (let [client-hash-2   (rf.ssr/render-tree-hash (resolve-tree client-frame render-tree))
-            mismatch-traces (atom [])]
-        (rf/register-listener! :trace ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
-        (rf.ssr/verify-hydration! client-frame client-hash-2)
-        (rf/unregister-listener! :trace ::mismatch)
-        (is (not= server-hash client-hash-2)
-            "mutating the hydrated db changes the render hash")
-        ;; DEV ARM — the mismatch WARNING; the divergence above is computed in
-        ;; every build.
-        (when rf.interop/debug-enabled?
-          (is (some (fn [ev]
-                      (and (= :rf.ssr/hydration-mismatch (:operation ev))
-                           (= :error (:op-type ev))
-                           (= server-hash (:server-hash (:tags ev)))
-                           (= client-hash-2 (:client-hash (:tags ev)))
-                           (= :warned-and-replaced (:recovery ev))))
-                    @mismatch-traces)
-              (pr-str (mapv :operation @mismatch-traces))))))))
+      (is (not= html (rf/with-frame client-frame (rf.ssr/render-to-string render-tree)))
+          "mutating the hydrated db changes the markup"))))
 
 ;; ===========================================================================
 ;; Last-write-wins slots
@@ -517,35 +473,6 @@
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
       (is (= [200 200] [(:status (rf.ssr/peek-response f)) (:status (rf.ssr/get-response f))]))
       (is (= 404 (:status (:response (rf.ssr/flush-response-result! f))))))))
-
-;; ===========================================================================
-;; Hydration verification's host-supplied attribution
-;; ===========================================================================
-
-(deftest host-supplied-failing-id-surfaced-on-unified-channel
-  ;; DEV ARM — the seam's value is read off the dev-only mismatch trace. Head
-  ;; and body share the one render-hash channel, so the runtime itself emits
-  ;; :failing-id :rf/hydrate; a host may supply its own attribution.
-  (when rf.interop/debug-enabled?
-    (testing "a host-supplied :failing-id and :first-diff-path reach the
-              hydration-mismatch trace verbatim"
-      (let [traces (atom [])
-            f      (rf.frame/make-anon-frame-record! {:platform :client})]
-        (rf/register-listener! :trace ::head (fn [ev] (swap! traces conj ev)))
-        (rf.ssr/verify-hydration! f "head-hash-client-B"
-                                  {:server-hash     "head-hash-server-A"
-                                   :failing-id      :rf.ssr/head-mismatch
-                                   :first-diff-path [:head :title]})
-        (rf/unregister-listener! :trace ::head)
-        (is (some #(and (= :rf.ssr/hydration-mismatch (:operation %))
-                        (= {:server-hash     "head-hash-server-A"
-                            :client-hash     "head-hash-client-B"
-                            :failing-id      :rf.ssr/head-mismatch
-                            :first-diff-path [:head :title]}
-                           (select-keys (:tags %) [:server-hash :client-hash
-                                                   :failing-id :first-diff-path])))
-                  @traces)
-            (pr-str (mapv (juxt :operation #(:failing-id (:tags %))) @traces)))))))
 
 ;; ===========================================================================
 ;; The SSR adapter

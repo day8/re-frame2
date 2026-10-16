@@ -37,7 +37,7 @@
   "The page-wide payload, built by the shipped assembler; no `:rf/frame-id`, so
   the explicit client `:frame` stands."
   [db]
-  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db {}))
 
 (deftest installing-the-same-payload-twice-is-indistinguishable-from-once
   (testing "root B, booting second against the same payload, does not re-seed —
@@ -75,8 +75,7 @@
       (is (= db-before (rf/app-db-value fid)) "the seeded frame is untouched")
       (is (= record-before (rf.ssr.install/installed-payload fid)) "the ledger is untouched"))))
 
-;; The render-tree hash prunes nil; a payload digest must not, or each pair
-;; below would alias and a second root carrying a different slice would be
+;; A payload digest must keep nil, or each pair below would alias and a second root carrying a different slice would be
 ;; waved through as :already-installed. One pair per collection branch.
 
 (defn- payload-with-app-db [db]

@@ -86,12 +86,7 @@
     opts — the caller's adapter opts (merged with any per-request
            overrides); standard keys :head / :html-attrs / :body-attrs
            / :body-end / :script-src / :app-element-id / :lang
-           influence the envelope. Optional `:head-hash`
-           stamps `data-rf-head-hash` on the `<head>` element — the
-           SEPARATE client-reconstructible head-model hash channel
-           (Spec 011 §Mismatch detection — head), distinct from the
-           body's `data-rf-render-hash` on the `#app` root div. Omitted
-           when nil (the explicit-`:head`-STRING / degraded-head shape).
+           influence the envelope.
 
   Trusted-string contract: `:head` and `:body-end` are raw content hooks;
   `:script-src` and `:app-element-id` are escaped attribute values. A nil
@@ -101,17 +96,14 @@
   not content trust; prefer structured views and head registrations for
   untrusted content."
   [body-html payload-edn
-   {:keys [head html-attrs body-attrs lang app-element-id head-hash body-end script-src]}]
+   {:keys [head html-attrs body-attrs lang app-element-id body-end script-src]}]
   ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
   ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
   (let [attr-bag       (html-attr-bag html-attrs (or lang "en"))
         app-element-id (or app-element-id "app")]
     (str "<!DOCTYPE html>"
          "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
-         "<head"
-         ;; The head-model hash is separate from the body's render hash.
-         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
-         ">"
+         "<head>"
          "<meta charset=\"utf-8\">"
          (or head "")
          "</head>"
