@@ -74,6 +74,9 @@
   :conformance/fixture-file
   [:map {:closed true}
    [:fixture/id :keyword]
+   ;; The spec version the fixture was authored against. A harness runs a
+   ;; fixture whose version it claims, or that carries none, and reports any
+   ;; other as skipped with its version, never failed (README §Versioning).
    [:fixture/spec-version {:optional true} :string]
    [:fixture/doc :string]
    [:fixture/capabilities [:set :conformance/capability]]
