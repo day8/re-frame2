@@ -154,6 +154,46 @@
         (conj (projected off-box) ":rf.egress/include-large? true")]]
       done)))
 
+;; The `:traces` slice is the trace ring's event bundles. Their trace events
+;; carry event args, fx args and HTTP bodies, none of them app-db paths, so
+;; each bundle's events reach the door's epoch arm under the same opts as
+;; `:epochs`, and the bundle is rebuilt from the projected events. The
+;; sensitive opt-in is two-key here too, and the size override leaves it alone.
+
+(defn- projected-bundles
+  "Needles proving each bundle's trace events reach the door inside a
+  stamped record with exactly `opts`, and that the bundle is rebuilt from
+  the projected events rather than shipped as read."
+  [opts]
+  ["(update fmap :traces"
+   (str "(re-frame.core/project-egress {:kind :rf/epoch-record :frame (:frame b#)"
+        " :trace-events (:trace-events b#)} " opts ")")
+   "(reduce re-frame.trace.projection/absorb (assoc re-frame.trace.projection/empty-event-bundle"
+   ":trace-events pe#) pe#)"])
+
+(defn- full-traces
+  "snapshot args expanding the `:traces` slice."
+  [extra]
+  (merge {:frames #js [":rf/default"] :include #js ["traces"] :mode "full"} extra))
+
+(deftest snapshot-traces-slice-crosses-the-epoch-projector
+  (async done
+    (check-forms
+      [["gate off" false snap/snapshot-tool snapshot-canned (full-traces {})
+        (into (projected-bundles off-box)
+              ["snapshot-state {:frames [:rf/default], :include [:traces]}"])]
+       ["gate off + include-sensitive" false snap/snapshot-tool snapshot-canned
+        (full-traces {:include-sensitive true})
+        (projected-bundles off-box)
+        [":rf.egress/include-sensitive? true"]]
+       ["gate on + include-sensitive" true snap/snapshot-tool snapshot-canned
+        (full-traces {:include-sensitive true})
+        (projected-bundles off-box+sensitive)]
+       ["gate on + elision false" true snap/snapshot-tool snapshot-canned
+        (full-traces {:elision false})
+        (projected-bundles off-box)]]
+      done)))
+
 (deftest snapshot-default-scope-names-the-tool-frames-it-dropped
   (async done
     (check-forms
