@@ -17,6 +17,7 @@
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Touch the artefact so the machines registration hooks are wired even when
@@ -47,7 +48,13 @@
   The loss fires once. Every effect run is recorded with whether it ran in B
   and whether the post-exit write was visible when it ran; effects and terminal
   markers that run after the first-effect loss are recorded separately, because
-  the frame-destroy cascade inside that loss runs the `:exit` again."
+  the frame-destroy cascade inside that loss runs the `:exit` again.
+
+  A trace emitted inside a listener callback reaches listeners only after that
+  callback returns, so the terminal markers of A's own destroy cascade, emitted
+  inside the `:action-ran` listener's replacement, are delivered once B is
+  live. A marker emitted at B's birth separates them: only a `:rf.fx/do-fx`
+  delivered after it was emitted in B."
   [frame-id mode]
   (let [effects          (atom [])
         after-loss       (atom [])
@@ -58,6 +65,7 @@
         b-token          (atom nil)
         b-birth          (atom nil)
         b-commit         (atom nil)
+        b-born-seen?     (atom false)
         in-b?            (fn []
                            (and (some? @b-token)
                                 (identical? @b-token (rf.frame/frame-incarnation-token frame-id))))
@@ -69,7 +77,8 @@
                                                         {:state :running :data {:owner :b}})
                              (reset! b-token (rf.frame/frame-incarnation-token frame-id))
                              (reset! b-birth (runtime-db frame-id))
-                             (reset! b-commit (rf.frame/frame-commit-epoch frame-id))))]
+                             (reset! b-commit (rf.frame/frame-commit-epoch frame-id))
+                             (rf.trace/emit! :info :rf2-fzbj-1/b-born {})))]
     (rf/reg-fx :rf2-fzbj-1/effect
       (fn [_ctx value]
         (when @lost? (swap! after-loss conj value))
@@ -99,8 +108,11 @@
                        (= :destroy-exit (get-in ev [:tags :phase])))
               (replace!))
 
+            :rf2-fzbj-1/b-born
+            (reset! b-born-seen? true)
+
             :rf.fx/do-fx
-            (do (when (in-b?) (swap! do-fx-in-b inc))
+            (do (when (and @b-born-seen? (in-b?)) (swap! do-fx-in-b inc))
                 (when @lost? (swap! do-fx-after-loss inc)))
 
             nil)))
