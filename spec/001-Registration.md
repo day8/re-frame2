@@ -258,7 +258,7 @@ Each read takes exactly ONE query map naming exactly ONE source — `:source :st
           (rf/registrations {:source :store :kind :event}))
 ```
 
-The valid `kind` values are defined in §Registry model above. Two of them are **not queryable**: `:flow` and `:frame` are reserved-but-EMPTY registrar slots, and querying either throws `:rf.error/registrar-kind-not-queryable` naming the owning read (`flows/flows` / `flows/flow-meta` / `flows/flows-snapshot`; `rf/frame-ids` / `rf/frame-meta`) rather than returning a `{}` that reads as an authoritative empty catalogue. Any other non-registry kind throws `:rf.error/unknown-registry-kind`.
+The valid `kind` values are defined in §Registry model above. One of them is **not queryable**: `:frame` is a reserved-but-EMPTY registrar slot, and querying it throws `:rf.error/registrar-kind-not-queryable` naming the owning read (`rf/frame-ids` / `rf/frame-meta`) rather than returning a `{}` that reads as an authoritative empty catalogue. `:flow` is an ordinary queryable kind: `reg-flow` writes it at the top level, `(rf/registrations {:source :store :kind :flow})` lists the flow definitions, and `(rf/clear :flow id)` is the ordinary registrar clear (per [013 §Activation](013-Flows.md#activation)). Any other non-registry kind throws `:rf.error/unknown-registry-kind`.
 
 A handler's metadata is returned as authored, with the framework-injected source coords and effective interceptor chain:
 
