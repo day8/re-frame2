@@ -64,14 +64,14 @@ Now bind two [schemas](../glossary.md#schema) to app-db: one for the slice's mac
    [:password [:string {:min 8}]]])
 
 ;; App-db schemas are registered per frame; a bare top-level call raises
-;; :rf.error/no-frame-context. :maybe lets the paths stay nil until
-;; :form.login/initialise runs.
+;; :rf.error/no-frame-context. Neither path is checked until
+;; :form.login/initialise writes it.
 (rf/with-frame :app
-  (rf/reg-app-schema [:auth :login]        [:maybe FormSlice])
-  (rf/reg-app-schema [:auth :login :draft] [:maybe LoginDraft]))
+  (rf/reg-app-schema [:auth :login]        FormSlice)
+  (rf/reg-app-schema [:auth :login :draft] LoginDraft))
 ```
 
-Keep the validation rules in `LoginForm` rather than on the app-db path. The draft is invalid while the user is still typing, and every registered app-db schema is checked on every commit ([details](validate-with-schemas.md#every-registered-path-is-checked-on-every-commit)), so binding `LoginForm` there would reject the first keystroke.
+Keep the validation rules in `LoginForm` rather than on the app-db path. The draft is invalid while the user is still typing, and the draft slice is checked whenever a keystroke writes it ([details](validate-with-schemas.md#what-a-path-schema-checks)), so binding `LoginForm` there would reject the first keystroke.
 
 In a dev build, a `:status` outside the enum or a malformed draft now fails at write time with `:rf.error/schema-validation-failure`. App-db keeps its pre-event value, and the error names the handler that wrote the bad value rather than a view that tripped over it later ([Validate with schemas](validate-with-schemas.md)).
 
@@ -322,7 +322,7 @@ To watch it work, open [Xray](../glossary.md#xray), type a few characters, and s
 
 Run this list on any form before you call it done:
 
-- Slice has the seven standard keys; slice and draft are both schema-bound (shape only, `:maybe`-wrapped).
+- Slice has the seven standard keys; slice and draft are both schema-bound (shape only).
 - Secret fields are classified in the draft and edited through a map payload marked `:sensitive`.
 - All seven events registered; nothing form-shaped happens outside them.
 - Per-field errors show only when touched **or** `:submit-attempted?` — and the latch is one-way.

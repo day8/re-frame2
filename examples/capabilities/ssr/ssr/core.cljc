@@ -99,18 +99,17 @@
 ;; Parking the schema in a `def` means namespace-load never has to reach for an
 ;; ambient frame that isn't there yet.
 ;;
-;; Note the `[:maybe …]` wrapper. The articles slice is legitimately nil for a
-;; beat: the server's `:rf/server-init` commits a db with no articles in it
-;; (all it does is start the fetch), and a fresh client frame is empty until
-;; hydration lands. A bare `[:vector …]` would call that intermediate nil a
-;; violation and roll the commit back — so we tell the schema, up front, that
-;; nil is a fine place to pass through. See
+;; The articles slice is absent for a beat: the server's `:rf/server-init`
+;; commits a db with no articles in it (all it does is start the fetch), and a
+;; fresh client frame is empty until hydration lands. A path schema checks a
+;; slice only where app-db has it, so a bare `[:vector …]` lets those commits
+;; through and still checks every article list a handler writes. See
 ;; ../../../../docs/core/glossary.md#schema.
 (def ArticlesSchema
-  [:maybe [:vector [:map
-                    [:id    :string]
-                    [:title :string]
-                    [:body  :string]]]])
+  [:vector [:map
+            [:id    :string]
+            [:title :string]
+            [:body  :string]]])
 
 ;; ============================================================================
 ;; FX

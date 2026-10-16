@@ -983,8 +983,9 @@
                                       :action (fn [{data :data}]
                                                 {:data (assoc data :result "not-an-int")})}}}
                :done    {:final? true :output-key :result}}})
-  ;; `:maybe` so the ABSENT slot conforms: only the write below fails it,
-  ;; and no other drive's candidate is rejected on its account.
+  ;; The slot is absent until the write below, and an absent path is not
+  ;; checked: only that write fails it, and no other drive's candidate is
+  ;; rejected on its account.
   (rf/reg-app-schema [:rf2-1t8fn/count] [:maybe :int])
   (rf/reg-event :rf2-1t8fn/write-db
     (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/count "not-an-int")}))

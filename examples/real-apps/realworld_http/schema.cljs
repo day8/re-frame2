@@ -275,22 +275,13 @@
 ;; absent — they're runtime-db, not app-db, and get validated through each
 ;; machine's own `[:schemas :data]` (the *Data schemas above) instead.
 ;;
-;; WHY EVERY SLICE WEARS A `:maybe` — THE BOOT WINDOW. Validation is not scoped
-;; to the paths the committing event touched: at every `:db` commit the runtime
-;; walks EVERY registered path with `get-in` over the whole candidate app-db and
-;; rejects the entire transaction if any one of them fails (Spec 010 §Per-step
-;; recovery row 4 — the candidate is discarded, and `:fx` does not walk either).
-;; A path nothing has written yet reads `nil`, and `nil` is not a `[:map …]`.
-;; app-db starts empty and each slice is seeded by its OWN feature's
-;; `:*/initialise`, fanned out from `:app/initialise` (core.cljs) — separate
-;; events, so separate commits. Register these bare and the very first seed is
-;; rejected by the eighteen siblings that have not been seeded yet; the same
-;; thing happens to every later seed, so app-db never leaves `{}` and the app
-;; renders empty everywhere. Silently, and only in a development build, since a
-;; production build elides the validator and installs every candidate. The
-;; `:maybe` buys exactly the window before a slice's seed lands — once it has,
-;; the schema is doing its full job. `examples/patterns/boot/schema.cljs` wears
-;; its `:maybe`s for the same reason.
+;; A path schema checks a slice only where the candidate app-db has it (Spec 010
+;; §When schemas are checked). app-db starts empty and each slice is seeded by
+;; its OWN feature's `:*/initialise`, fanned out from `:app/initialise`
+;; (core.cljs) as separate commits, and a seed is never checked against a
+;; sibling it has not written yet. So the schemas are bare, and a `:maybe` below
+;; marks a path some handler writes `nil` to, with the comment beside it naming
+;; the write.
 ;;
 ;; One wrinkle: `reg-app-schemas` is frame-local, so it needs a frame in
 ;; context — call it bare at ns-load and you'd get :rf.error/no-frame-context.
@@ -303,52 +294,53 @@
    set can be registered against a frame other than `:rf/default` — registration
    is frame-local, and a harness driving its own frame gets no schemas at all
    unless it asks for these by name."
-  {[:auth]                          [:maybe AuthSlice]
-   [:articles]                      [:maybe RequestSlice]
-   [:articles :data]                [:maybe [:vector ws/Article]]
-   [:article]                       [:maybe RequestSlice]
+  {[:auth]                          AuthSlice
+   [:articles]                      RequestSlice
+   [:articles :data]                [:vector ws/Article]
+   [:article]                       RequestSlice
+   ;; `:article/initialise` and `:article/load` (comments.cljs) write `:data nil`.
    [:article :data]                 [:maybe ws/Article]
-   [:profile]                       [:maybe RequestSlice]
+   [:profile]                       RequestSlice
+   ;; `:profile/initialise` and `:profile/load` (profile.cljs) write `:data nil`.
    [:profile :data]                 [:maybe ws/Profile]
-   [:profile.articles]              [:maybe RequestSlice]
-   [:profile.articles :data]        [:maybe [:vector ws/Article]]
-   [:profile.favorites]             [:maybe RequestSlice]
-   [:profile.favorites :data]       [:maybe [:vector ws/Article]]
+   [:profile.articles]              RequestSlice
+   [:profile.articles :data]        [:vector ws/Article]
+   [:profile.favorites]             RequestSlice
+   [:profile.favorites :data]       [:vector ws/Article]
    ;; Not a RequestSlice — the profiles with a follow/unfollow in flight,
-   ;; shared by the profile banner and the article byline (comments.cljs). Its
-   ;; `:maybe` is load-bearing beyond the boot window the note above describes:
-   ;; hydration replaces app-db with the SSR payload, which deliberately omits
-   ;; this one (profile.cljs, SERIALISING THE TOGGLE).
+   ;; shared by the profile banner and the article byline (comments.cljs).
+   ;; Hydration replaces app-db with the SSR payload, which deliberately omits
+   ;; this one (profile.cljs, SERIALISING THE TOGGLE), and on an absent key a
+   ;; settle's `(update db :profile.follow-pending disj username)` writes nil.
    [:profile.follow-pending]        [:maybe [:set :string]]
    ;; Its favourite-side twin — not a RequestSlice either, just the article
-   ;; slugs with a favourite POST/DELETE in flight. `:maybe` is load-bearing
-   ;; TWICE here: hydration omits it for the same reason as the set above,
-   ;; and nothing seeds it at boot (the `:settings.saves-in-flight`
-   ;; precedent below — a mutation's latch must not die with a screen or a
-   ;; session reset, and `conj`/`disj` are absent-safe).
+   ;; slugs with a favourite POST/DELETE in flight. Hydration omits it too, and
+   ;; nothing seeds it at boot (the `:settings.saves-in-flight` precedent below —
+   ;; a mutation's latch must not die with a screen or a session reset), and on
+   ;; an absent key a settle's `(update db :favorite-pending disj slug)` writes
+   ;; nil.
    [:favorite-pending]              [:maybe [:set :string]]
-   [:comments]                      [:maybe RequestSlice]
+   [:comments]                      RequestSlice
    ;; The DURABLE comment, not the wire one: the list holds the optimistic
    ;; card under its temp id while the POST is out (see `DurableComment`).
-   [:comments :data]                [:maybe [:vector DurableComment]]
-   [:feed]                          [:maybe RequestSlice]
-   [:feed :data]                    [:maybe [:vector ws/Article]]
-   [:comment-form]                  [:maybe FormSlice]
-   [:auth :login-form]              [:maybe FormSlice]
-   [:auth :register-form]           [:maybe FormSlice]
-   [:editor]                        [:maybe EditorSlice]
+   [:comments :data]                [:vector DurableComment]
+   [:feed]                          RequestSlice
+   [:feed :data]                    [:vector ws/Article]
+   [:comment-form]                  FormSlice
+   [:auth :login-form]              FormSlice
+   [:auth :register-form]           FormSlice
+   [:editor]                        EditorSlice
    ;; Like `:profile.follow-pending`, not a slice — the settings saves still on
-   ;; the wire. Its `:maybe` is the boot window: nothing writes it until the
-   ;; first submit, and a save that is still outstanding is deliberately NOT
-   ;; seeded away by `:settings/initialise`.
-   [:settings.saves-in-flight]      [:maybe SettingsSavesInFlight]
+   ;; the wire. Nothing writes it until the first submit, and a save that is
+   ;; still outstanding is deliberately NOT seeded away by `:settings/initialise`.
+   [:settings.saves-in-flight]      SettingsSavesInFlight
    ;; The other half of that ledger: how many replies have been consumed
    ;; WITHOUT retiring an entry, because more than one outstanding save claimed
    ;; the account they named. When it reaches the ledger's length every listed
    ;; save has answered, the wire is empty, and both are cleared — settings.cljs
-   ;; §SAVES ON THE WIRE has the arithmetic. Its `:maybe` is the boot window,
-   ;; same as its twin's: nothing writes it until a reply arrives ambiguous.
-   [:settings.saves-answered]       [:maybe :int]})
+   ;; §SAVES ON THE WIRE has the arithmetic. Nothing writes it until a reply
+   ;; arrives ambiguous.
+   [:settings.saves-answered]       :int})
 
 (with-frame :rf/default
   (rf/reg-app-schemas app-db-schemas))
