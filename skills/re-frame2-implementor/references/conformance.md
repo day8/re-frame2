@@ -1,6 +1,6 @@
 # conformance
 
-How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL op table, capability tagging, versioning, the harness steps. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Read the README, like every owner, from the verified checkout at your pin (cardinal rule 1) — the links here are citations of live main. Where this leaf and the corpus README disagree, the README (at your pin) wins.
+How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL, capability tagging, versioning, the harness steps — and its grammar, [`spec/conformance/fixture-file.edn`](https://github.com/day8/re-frame2/blob/main/spec/conformance/fixture-file.edn), declares every key, op and tag. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Read the README, like every owner, from the verified checkout at your pin (cardinal rule 1) — the links here are citations of live main. Where this leaf and the corpus README disagree, the README (at your pin) wins.
 
 ## What the corpus is
 
@@ -9,14 +9,13 @@ EDN fixtures, one canonical interaction each, in two modes (README §Fixture for
 - **Mode A — dispatch-driven.** A frame configuration plus initial `app-db`, a sequence of dispatches, and the expected post-drain observables: final `app-db`, sub values, routed effects, trace events. A dispatch record MAY pin recordable coeffects via a flat `:rf.cofx` map — thread it onto the envelope verbatim, so the fixture is deterministic regardless of the wall clock.
 - **Mode B — pure / direct-call.** No frame, no dispatch loop; `:fixture/calls` invoke pure primitives, each record carrying its own expectation.
 
-**Derive, never transcribe.** The Mode-B `:call` operator set, the handler-DSL op set, the capability vocabulary, the dynamic-host-only fixture set, and the fixture count are all facts of the corpus **at your pin** — enumerate them there rather than trusting any prose list (this leaf included):
+**Read the grammar file.** The fixture keys, the Mode-B `:call` ops and the expectation keys each record carries, the handler-DSL steps, value forms and builtins, and the capability vocabulary are all declared in [`spec/conformance/fixture-file.edn`](https://github.com/day8/re-frame2/blob/main/spec/conformance/fixture-file.edn) — a closed grammar, plain EDN, every expectation annotated with what it observes and the law it is compared by. Read it **at your pin** rather than trusting any prose list (this leaf included).
 
-Parse every `.edn` fixture as an EDN map with the reader used by the port's
-harness, then derive:
+The rest is a fact of the corpus at your pin, so derive it there. Parse every
+`.edn` fixture as an EDN map with the reader used by the port's harness, then
+derive:
 
-- the fixture count and the union of **top-level map keys**;
-- the union of `:fixture/capabilities` sets;
-- the union of `:call` values in each fixture's `:fixture/calls`;
+- the fixture count;
 - the fixtures whose `:fixture/dynamic-host-only?` value is **true**;
 - the distinct `:fixture/spec-version` values.
 
@@ -29,11 +28,11 @@ Use the parsed structure rather than text searches. `:fixture/*` event ids,
 doc strings and comments are not top-level keys; a marker key's presence does
 not establish a true value; multiline capability sets and whitespace around
 operators do not change their values. Feed this inventory into the
-[harness's fail-loud checks](#the-harness-300-lines-per-host).
+[harness's fail-loud checks](#the-harness).
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
-## The harness (~300 lines per host)
+## The harness
 
 [README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (host-applicability first, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
 
@@ -42,13 +41,13 @@ Six fail-loud floors the harness owes:
 - **Spec version.** Reject a `:fixture/spec-version` the harness hasn't moved with (README §Versioning) — never silently run a mismatched fixture.
 - **Unknown capability.** A fixture capability in neither the claim nor the `known-skipped` allowlist FAILS the suite with a diagnostic naming it (§The two out-of-claim flavours below).
 - **Unknown op.** An unrecognised handler-DSL op or Mode-B `:call` op fails with a diagnostic naming it; then either grow the interpreter (the designed path) or file the corpus gap (rules 8–9).
-- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the six and the reason it is here: the fixture format is open, and new setup and expectation keys land ahead of any port implementing them, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Derive the live key set at your pin from the parsed inventory above; read [README §Top-level fixture keys](https://day8.github.io/re-frame2/spec/conformance/#top-level-fixture-keys) as the roster, never as a closed list.
+- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the six and the reason it is here: new setup and expectation keys land in the grammar ahead of any port implementing them, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Take the key set from the grammar file at your pin, and give each expectation key exactly one matcher.
 - **Required-family skip.** A `known-skipped` entry naming any capability in a **v1-required** family — any `:core/…`, `:identity/…`, `:flow/…`, `:data-classification/…` tag — fails the run naming it, before a single fixture is filtered. The allowlist exists to record capabilities the port genuinely does not claim; a v1-required family is never one of them. This floor is what makes the reduced path safe **by construction**: a minimum port cannot shrink its denominator by declaring the omission, so "we skipped it on purpose" stops being a route to `claimed-applicable / claimed-applicable`.
 - **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
 
 The three unknown-input floors are one rule at three depths — capability, operator, key. README §Capability tagging makes an unknown capability fail the suite rather than skip, and §Top-level fixture keys applies that reason to keys: a silently-skipped key is the same failure wearing a green tick.
 
-Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures — ~50 lines, the complete op table in the README. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
+Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures; the grammar file declares the steps each handler kind admits, the value forms and the builtins. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
 
 Wire the harness into the port's CI and report the score from each full claimed-capability run. There is no per-commit score ceremony; a result from an earlier revision is identified as stale. **The harness is tooling**, so the tooling-security file-path obligation applies to any scratch-dir/env-var write path it accepts ([`phase-2-impl-order.md` §Cross-cutting obligations](phase-2-impl-order.md#cross-cutting-obligations-spec-owned-read-dont-restate)).
 
@@ -73,7 +72,7 @@ Four families are **v1-required** and always claimed: `:core/*` (pattern-require
 | `:resources/*` | Q9 resources (implies Q8) |
 | `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | **Nothing declares it — no Q-number, and in particular not Q6** (Q6 is Tool-Pair *adapters*, a different surface: no corpus fixture carries a Tool-Pair tag at all). The family is gated by no question, yet **every** current fixture is cross-tagged, so **in practice Q1** — both carry `:fsm/flat`, so a Q1=no port runs neither; the broad one additionally carries `:flow/basic`, `:rf.http/managed` and two `:routing/*` tags, so a Q2=no or Q8=no port runs only the subs+machines one. Within that, the narrow/broad split is a **breadth** claim rather than a scope question: a graph host spanning only subs+machines claims the narrow tag and known-skips the broad one. Until a required-surface-only derivation fixture exists, do not report derivation coverage as unconditional. Owner: [`spec/Derivations.md` §Graph inspection](https://day8.github.io/re-frame2/spec/Derivations/#graph-inspection--internal-but-structured), which the fixtures themselves cite; the `:derivation-graph` `:call` op is specified there |
 
-**Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from the parsed `:fixture/capabilities` sets at the pin (above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
+**Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from the grammar's `:conformance/capability` enum at the pin (above), which declares every tag a fixture carries. But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
 
 ### The two out-of-claim flavours
 

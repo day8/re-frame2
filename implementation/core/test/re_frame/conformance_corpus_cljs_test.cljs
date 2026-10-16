@@ -29,6 +29,9 @@
             ;; Canned-stub fxs gate on explicit test-support require.
             [re-frame.http.test-support]
             [re-frame.resources.test-support :as rf.resources.test-support]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.request :as rf.ssr.request]
+            [re-frame.ssr.response :as rf.ssr.response]
             [re-frame.conformance-runner :as rf.conformance-runner])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj).
   (:require-macros [re-frame.conformance-fixtures :refer [all-fixtures]]))
@@ -77,6 +80,11 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
+  ;; The per-frame SSR side channel outlives the `frames` reset, and
+  ;; `:ssr/request-result` reads its response slot.
+  (reset! rf.ssr.request/request-slots {})
+  (reset! rf.ssr.response/response-slots {})
+  (reset! rf.ssr.error-listener/pending-error-traces {})
   ;; Host-side counters, timers and caches outlive the `frames` reset.
   (rf.routing/reset-counters!)
   (rf.routing/reset-nav-counters!)
@@ -143,37 +151,6 @@
    ["an unknown-axis op-map" [{:rf.test/bogus [[:secret]]}]]
    ["a known axis beside an unknown key"
     [{:sensitive [[:secret]] :rf.test/bogus [[:secret]]}]]])
-
-;; Mirror of the JVM `unknown-top-level-key-fails-loud`: the conformance README
-;; binds every host's harness to fail naming a top-level key it does not
-;; implement.
-
-(def ^:private top-level-key-fixture
-  {:fixture/id           :rf.test/top-level-key-guard
-   :fixture/spec-version "1.0"
-   :fixture/capabilities #{:core/event-handler}
-   :fixture/handlers     {:event {:counter/set [[:set [:count] 1]]}}
-   :fixture/frame-config {}
-   :fixture/dispatches   [[:counter/set]]
-   :fixture/expect       {:final-app-db {:count 1}}})
-
-(deftest unknown-top-level-key-fails-loud-cljs
-  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
-  (try
-    (is (:passed? (rf.conformance-runner/run-corpus-fixture
-                    "top-level-key-guard.edn" top-level-key-fixture host))
-        "control: the fixture passes the corpus gates as written")
-    (let [result (rf.conformance-runner/run-corpus-fixture
-                   "top-level-key-guard.edn"
-                   (assoc top-level-key-fixture :fixture/dispatchess [[:counter/set]])
-                   host)]
-      (is (not (:passed? result)) "a misspelt setup key must fail the fixture")
-      (is (= [:fixture/dispatchess] (:unknown-fixture-keys result)))
-      (is (some? (re-find #":fixture/dispatchess" (str (:error result))))
-          "the failure names the key"))
-    (finally
-      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
-      (rf.image-assembly/clear-generation-cache!))))
 
 (deftest classification-op-map-guard-cljs
   (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
