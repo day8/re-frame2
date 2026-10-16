@@ -113,7 +113,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 | `:rf.error/machine-always-self-loop` | An `:always` candidate targets its own declaring state. |
 | `:rf.error/machine-always-unguarded-targetless` | An `:always` candidate has neither `:guard` nor `:target`, so it could never settle. |
 | `:rf.error/machine-bad-after-spec` | `:after` is not a map of delay to transition. |
-| `:rf.error/machine-bad-after-delay` | A literal `:after` delay is not a positive integer or an ISO-8601 duration string (`"5s"`, `0` and `-1` are refused). |
+| `:rf.error/machine-bad-after-delay` | A literal `:after` delay is not a positive integer or an ISO-8601 duration string (`"5s"`, `0` and `-1` are refused), a keyword `:after` key names no `:delays` entry, or `:delays` is malformed. |
 | `:rf.error/machine-bad-timeout-duration` | A `:timeout` is not a positive integer or an ISO-8601 duration string. |
 | `:rf.error/machine-timeout-without-on-timeout` | A state or spawn spec has `:timeout` but no `:on-timeout`. |
 | `:rf.error/machine-on-timeout-without-timeout` | A state or spawn spec has `:on-timeout` but no `:timeout`. |
@@ -203,6 +203,7 @@ Beside `:initial` and `:states`, a machine spec's root takes the keys below. The
 | `:schema` | Accepted on the root, but does not install event validation there. Put the outer-event schema in the middle `opts` map of `reg-machine`; put private-data validation under `:schemas :data`. |
 | `:data` | The machine's initial private data, a map. It must survive `pr-str` and `read-string`, so it holds no functions, atoms or host objects. |
 | `:guards`, `:actions` | Maps from an id to a callback: a fn, or an entry map `{:fn f :rf.cofx/requires […]}` that declares coeffects. A parallel machine's regions use the root's maps. See [Callbacks](#callbacks). |
+| `:delays` | A map from a keyword name to a delay: milliseconds, an ISO-8601 duration string, or a delay fn. An `:after` key that is a keyword names one of these entries, and the timer resolves it when it arms. A name the map does not declare, or a malformed map, throws `:rf.error/machine-bad-after-delay`. See [Named delays](../machines/automatic-transitions.md#named-delays). |
 | `:regions` | With `:type :parallel`, a map from region name to region body. It makes a parallel machine, whose root takes no `:initial` or `:states`. See [Parallel regions](../machines/parallel-states.md). |
 | `:schemas` | A map whose keys are among `:data`, `:output`, `:events`, `:tags` and `:meta`, each a schema. `:data` validates the snapshot's `:data`; see [`validate-machine-data!`](#re-framemachinesvalidate-machine-data). `:output` is the next row. `:events`, `:tags` and `:meta` are accepted and not checked. Any other key, `:input` included, throws `:rf.error/machine-bad-schemas-key`, and a non-map throws `:rf.error/machine-bad-schemas`. |
 | `[:schemas :output]` | A schema for the value a root-level `:final?` leaf reports through `:output-key`, which is `nil` when the leaf has none. It is checked once, as the machine finishes, in development builds only. A failing value emits `:rf.error/schema-validation-failure` with `:where :machine-output`, `:phase :completion` and `:rollback? false`, and nothing is rolled back: the machine has already finished, so it is still destroyed and a parent's `:on-done` still receives the value. A schema the validator throws on emits `:rf.error/malformed-schema` with `:where :machine-output`, and completion proceeds the same way. See [Schemas](../machines/concepts.md#schemas) in the machines guide. |
@@ -617,7 +618,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   (re-frame.machines/after-schedule-fx fx-ctx args)
   ```
 - **Description**: The handler for `:rf.machine/after-schedule`, which the runtime emits once per `:after` entry when a state with `:after` is entered. It resolves the delay and schedules a wall-clock timer through the clock abstraction.
-    - The delay can be a literal `pos-int?`, an ISO-8601 duration string such as `"PT5S"`, or `(fn [{:keys [snapshot]}] ms)`, which is called once, against the committed snapshot.
+    - The delay can be a literal `pos-int?`, an ISO-8601 duration string such as `"PT5S"`, a keyword naming a `:delays` entry, or `(fn [{:keys [snapshot]}] ms)`, which is called once, against the committed snapshot. A name is read from the machine's definition here, so a named fn is called at the same point.
     - On expiry it dispatches `[<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]`, which takes effect only if the scheduling state is still active and the epoch matches.
 
 #### `re-frame.machines/after-cancel-fx`

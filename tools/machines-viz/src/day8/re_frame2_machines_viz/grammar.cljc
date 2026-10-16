@@ -608,7 +608,7 @@
   of the engine's `validation/known-machine-root-extra-keys`. The runtime reads
   them off the root alone, so a nested state or a parallel region body that
   declares one is refused."
-  #{:data :schemas :internal-events :guards :actions :region-order
+  #{:data :schemas :internal-events :guards :actions :delays :region-order
     :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
 (def ^:private root-unread-keys
@@ -850,17 +850,26 @@
 (defn- valid-after-delay-key?
   "A static `:after` map KEY is well-formed iff a positive integer (literal ms),
   an ISO-8601 duration string (the `:timeout` duration grammar, so `\"PT1S\"`
-  passes and the `\"5s\"` shorthand does not), a non-empty vector (subscription
-  vector), or a fn — mirror of the engine's `validation/valid-after-delay-key?`."
-  [k]
+  passes and the `\"5s\"` shorthand does not), a keyword naming an entry of the
+  machine's root `delays` map, or a fn — mirror of the engine's
+  `validation/validate-after-delays!`, where a name `:delays` does not declare
+  is the defect.
+
+  One arm the engine refuses stays: a non-empty vector. It is not authored
+  grammar but the share payload's stand-in for a fn key (`share/fn-key-label`,
+  a `[<label> <n>]` vector), so a shared chart whose machine has a fn delay
+  still projects. The `:delays` VALUES are not checked: a share payload
+  carries a named fn as its opaque label, which the engine would refuse."
+  [delays k]
   (boolean (or (and (integer? k) (pos? k))
                (and (string? k) (some? (resolve-timeout-ms k)))
+               (and (keyword? k) (map? delays) (contains? delays k))
                (and (vector? k) (seq k))
                (fn? k))))
 
-(defn- after-delay-defect [path node]
+(defn- after-delay-defect [delays path node]
   (some (fn [[k _]]
-          (when-not (valid-after-delay-key? k)
+          (when-not (valid-after-delay-key? delays k)
             {:category :rf.error/machine-bad-after-delay :path (vec path)}))
         (:after node)))
 
@@ -948,7 +957,7 @@
   flat `:states`). History pseudo-states contribute no defect here (their own
   placement / key-set / default-target rules run in `history-scope-defect`; the
   node-key check already skips them)."
-  [scope path node]
+  [delays scope path node]
   ;; Check ORDER mirrors the engine's `validate-machine!` intra-node precedence
   ;; (keys / tags / spawn shape / transition keys earliest; `:timeout-ms` and
   ;; `:final?` shape BEFORE compound-`:initial`; targets; delay keys), so when a
@@ -963,7 +972,7 @@
       (spawn-completion-defect path node)
       (compound-initial-defect path node)
       (transition-target-defect scope path node)
-      (after-delay-defect path node)))
+      (after-delay-defect delays path node)))
 
 (defn- walk-scope-nodes
   "`[abs-path node]` for every MAP node under `states`, recursing through
@@ -1237,11 +1246,11 @@
           (transition-keys-defect [] d)
           (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
-          (some (fn [[path node]] (node-defect scope path node)) (walk-scope-nodes scope))
+          (some (fn [[path node]] (node-defect (:delays d) scope path node)) (walk-scope-nodes scope))
           (history-scope-defect scope)
           (root-on-target-defect scope d)))))
 
-(defn- region-defect [region-name body]
+(defn- region-defect [delays region-name body]
   (cond
     (not (keyword? region-name))
     {:category :rf.error/machine-parallel-bad-shape :path [region-name]}
@@ -1266,7 +1275,7 @@
           (some (fn [[path node]]
                   (or (when (= :parallel (:type node))
                         {:category :rf.error/machine-parallel-nested-not-supported :path (vec path)})
-                      (node-defect scope path node)))
+                      (node-defect delays scope path node)))
                 (walk-scope-nodes scope))
           (history-scope-defect scope)
           (region-root-target-defect scope region-name body)))))
@@ -1286,7 +1295,7 @@
           (transition-keys-defect [] d)
           (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
-          (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
+          (some (fn [[region-name body]] (region-defect (:delays d) region-name body)) regions)))))
 
 (defn definition-defect
   "Return the FIRST structural projectability defect of `definition` as a

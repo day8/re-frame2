@@ -249,6 +249,11 @@
              {:initial :idle
               :states  {:idle {:after {1000 :a [:timeouts/retry] :b}}
                         :a {} :b {}}}
+             :named-delays
+             {:initial :idle
+              :delays  {:retry 1000 :warn "PT2S"}
+              :states  {:idle {:after {:retry :a :warn :b}}
+                        :a {} :b {}}}
              :data-valued-fn-slot
              {:initial :idle
               :guards  {:ready? {:fn :named-elsewhere}}
@@ -271,6 +276,18 @@
       (is (= #{:a :b} (set (vals after))))
       (is (= (layout/semantic-counts d) (layout/semantic-counts dfn)))
       (is (zero? @calls)))))
+
+(deftest named-fn-delay-shares-its-name
+  (testing "a `:delays` entry holding a fn shares as its name with an inert
+            value, so the `:after` key still resolves and the chart still
+            projects"
+    (let [d   {:initial :idle
+               :delays  {:warn (fn [_] 100)}
+               :states  {:idle {:after {:warn :a}} :a {}}}
+          dfn (round-trip-definition d)]
+      (is (= [:warn] (keys (:delays dfn))))
+      (is (= {:warn :a} (get-in dfn [:states :idle :after])))
+      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
 
 (deftest unencodable-value-surfaces-as-encode-failed
   (testing "a value Transit cannot write, left in an open namespaced slot,

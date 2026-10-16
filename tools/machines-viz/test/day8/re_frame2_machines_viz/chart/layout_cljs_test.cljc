@@ -386,6 +386,7 @@
             [[{:event :submit}                                                     "submit"]
              [{:event :submit :guard :authed? :action :log-it}                     "submit [authed?] / log-it"]
              [{:event :after-1500 :after 1500 :guard :timeout? :action :cleanup}   "⌚ 1500ms [timeout?] / cleanup"]
+             [{:event :after-idle-warning :after :idle-warning}                    "⌚ idle-warning"]
              [{:event :always :always? true :guard :ready?}                        "∞ [ready?]"]
              [{:event :auth/submit}                                                "auth/submit"]]]
       (is (= expected (layout/edge-label edge)) (pr-str edge)))))

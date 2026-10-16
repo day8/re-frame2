@@ -232,9 +232,40 @@ A positive integer, in milliseconds, or an ISO-8601 duration string such as `"PT
 
 A function, evaluated once when the state is entered. It does not re-resolve. Delay functions receive `{:snapshot …}`, not the usual guard/action context (`{:data :event :state :meta}`).
 
+```clojure
+:idle-warning
+```
+
+A keyword naming one of the machine's [named delays](#named-delays).
+
 Any other key is refused at registration with `:rf.error/machine-bad-after-delay`. That includes a vector: a delay never reads a subscription directly.
 
 A function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.error/machine-bad-after-delay` with `:recovery :skipped`.
+
+### Named delays
+
+Give a delay a name in the machine's root `:delays` map and use the name as the `:after` key, the way a named guard lives in `:guards`:
+
+```clojure
+{:initial :idle
+ :data    {:idle-warning-ms 30000}
+ :delays  {:idle-warning (fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))}
+ :states  {:idle    {:on {:start :waiting}}
+           :waiting {:after {:idle-warning :warning}}
+           :warning {}}}
+```
+
+A `:delays` value takes any of the other forms: milliseconds, an ISO-8601 string or a function. It is resolved when the timer arms, exactly as the same value written inline would be.
+
+The name, not its value, identifies the timer: the trace rows and the timer event carry `:idle-warning`. A timer still in flight when you re-register the machine fires against the new definition, which an inline function key cannot do, because a re-evaluated function is a different key.
+
+A name `:delays` does not declare is refused at registration with `:rf.error/machine-bad-after-delay`, and the message lists the names it does declare. `:delays` belongs on the machine root only.
+
+Named delays make a test seam: shorten a timer without touching the state tree.
+
+```clojure
+(rf/reg-machine :idle-watch (assoc-in idle-watch [:delays :idle-warning] 10))
+```
 
 ### Config-driven delays
 
@@ -249,10 +280,10 @@ To sample a subscription, give the entering transition's target a named `:entry`
                                 :as     :settings/idle-warning-ms}]
             :fn (fn [{cofx :rf.cofx}]
                   {:data {:idle-warning-ms (:settings/idle-warning-ms cofx)}})}}
+ :delays  {:idle-warning (fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))}
  :states  {:idle    {:on {:start :waiting}}
            :waiting {:entry :sample-settings
-                     :after {(fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))
-                             :warning}}
+                     :after {:idle-warning :warning}}
            :warning {}}}
 ```
 

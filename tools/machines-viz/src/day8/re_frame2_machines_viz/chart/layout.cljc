@@ -679,7 +679,11 @@
                               at a glance against ordinary event
                               arrows). An ISO-8601 delay renders its
                               milliseconds (`after-delay-ms`), so
-                              `\"PT1S\"` reads `⌚ 1000ms`
+                              `\"PT1S\"` reads `⌚ 1000ms`; a `:delays`
+                              name renders as the name, with no `ms`
+                              (its value is resolved only when the timer
+                              arms), so `:idle-warning` reads
+                              `⌚ idle-warning`
     - `:always` transition  → `\"∞\"` (Stately graph view convention:
                               an infinity glyph, so an eventless
                               transition reads as a continuation glyph
@@ -700,6 +704,9 @@
   (cond
     on-done?         "✓ done"
     on-error?        "✗ error"
+    (keyword? after) (str "⌚ " (if-let [n (namespace after)]
+                                 (str n "/" (name after))
+                                 (name after)))
     after            (str "⌚ " (after-delay-ms after) "ms")
     always?          "∞"
     (= :* event)     "* (any)"

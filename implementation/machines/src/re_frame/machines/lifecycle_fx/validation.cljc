@@ -1536,10 +1536,10 @@
               :slot   slot
               :target target}))))
 
-(defn- valid-after-delay-key?
-  "Per Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
-  an `:after` map KEY (the delay) is well-formed iff it is one of the
-  three closed forms:
+(defn- valid-delay-value?
+  "Per Spec-Schemas §`:rf/state-node` `:after`: a delay VALUE — an inline
+  `:after` map key, or an entry of the root `:delays` map — is well-formed
+  iff it is one of three closed forms:
 
     - a POSITIVE integer — literal milliseconds (the schema's `pos-int?`),
     - an ISO-8601 duration STRING — `\"PT5S\"`, read by the parser the
@@ -1550,23 +1550,56 @@
       (the schema's `fn?`). A config-driven delay is a fn reading its value
       from the machine's `:data`.
 
-  Mirrors `transition/classify-delay-source`'s `{:literal :fn}`
-  pair (an ISO string is a literal), but applied as a REGISTRATION gate so
-  an invalid static key (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, a vector) is
-  rejected at `reg-machine` time
-  rather than arming nothing at fx time. A fn that RETURNS an invalid ms
-  at runtime reports the same
-  `:rf.error/machine-bad-after-delay` at fx time — only the STATIC key shape
-  is gated here."
-  [delay-key]
+  Applied as a REGISTRATION gate so an invalid static value (`-1`, `0`,
+  `\"soon\"`, `\"5s\"`, `nil`, a vector) is rejected at `reg-machine` time
+  rather than arming nothing at fx time. A fn that RETURNS an invalid ms at
+  runtime reports the same `:rf.error/machine-bad-after-delay` at fx time —
+  only the STATIC shape is gated here."
+  [v]
   (boolean
-    (or (and (integer? delay-key) (pos? delay-key))
-        (and (string? delay-key) (rf.machines.timeout/valid-duration? delay-key))
-        (fn? delay-key))))
+    (or (and (integer? v) (pos? v))
+        (and (string? v) (rf.machines.timeout/valid-duration? v))
+        (fn? v))))
+
+(defn- validate-delays!
+  "Refuse a malformed root `:delays` map at registration with
+  `:rf.error/machine-bad-after-delay`: a `:delays` that is not a map, a key
+  that is not a keyword, or a value that is not a delay (`valid-delay-value?`
+  — a `:delays` value is what an inline `:after` key would be). A nil
+  `:delays` declares no names. Its root-only placement is the node-key
+  check's (`known-machine-root-extra-keys`), as for `:guards` / `:actions`."
+  [machine]
+  (let [delays (:delays machine)
+        refuse! (fn [reason data]
+                  (throw (validation-error
+                           :rf.error/machine-bad-after-delay
+                           (str reason " Per Spec 005 §Value shape.")
+                           (merge {:state :rf/root :slot :delays} data))))]
+    (when (some? delays)
+      (when-not (map? delays)
+        (refuse! (str "the machine's :delays " (pr-str delays) " is not a map — "
+                      ":delays maps keyword names to delays, "
+                      "{<keyword> <ms | ISO-8601 string | fn>}.")
+                 {}))
+      (doseq [[k v] delays]
+        (when-not (keyword? k)
+          (refuse! (str "the :delays name " (pr-str k) " is not a keyword — an "
+                        ":after key refers to a named delay by keyword.")
+                   {:delay-key k}))
+        (when-not (valid-delay-value? v)
+          (refuse! (str "the :delays entry " k " is " (pr-str v) " — a named "
+                        "delay must be a POSITIVE integer (literal ms), an "
+                        "ISO-8601 duration string (\"PT5S\", \"PT2M\"; not the "
+                        "\"5s\" shorthand), or a function "
+                        "((fn [{:keys [snapshot]}] ms)).")
+                   {:delay-key k}))))))
 
 (defn- validate-after-delays!
-  "Reject any `:after` map KEY that is not a positive
-  integer, an ISO-8601 duration string, or a function, at registration.
+  "Reject any `:after` map KEY that is not a positive integer, an ISO-8601
+  duration string, a keyword naming an entry of the root `:delays` map, or a
+  function, at registration. A keyword resolves machine-locally against
+  `:delays`, as a `:guard` keyword resolves against `:guards`, so a name the
+  map does not declare is refused here, naming the key and the declared names.
   Walks every transition-bearing node: each state node
   (`walk-state-nodes`), every region root + the parallel root, and the
   flat-machine root — the same coverage the guard/action `:after` ref
@@ -1583,16 +1616,34 @@
   runtime reports the same id at fx time, where the timer is skipped —
   only the STATIC key shape is gated here."
   [machine]
-  (let [check-key!
+  (let [delays (:delays machine)
+        check-key!
         (fn [state-key delay-key]
-          (when-not (valid-after-delay-key? delay-key)
+          (cond
+            (keyword? delay-key)
+            (when-not (contains? delays delay-key)
+              (throw (validation-error
+                       :rf.error/machine-bad-after-delay
+                       (str "the :after delay key " delay-key " on state " state-key
+                            " names no entry in the machine's :delays map, which "
+                            (if (seq delays)
+                              (str "declares " (pr-str (vec (keys delays))))
+                              "declares no names")
+                            ". Add " delay-key " to the root :delays map, or write "
+                            "the delay inline. Per Spec 005 §Value shape.")
+                       {:state     state-key
+                        :slot      :after
+                        :delay-key delay-key})))
+
+            (not (valid-delay-value? delay-key))
             (throw (validation-error
                      :rf.error/machine-bad-after-delay
                      (str "the :after delay key " (pr-str delay-key)
                           " on state " state-key " is invalid — an :after "
                           "delay must be a POSITIVE integer (literal ms), an "
                           "ISO-8601 duration string (\"PT5S\", \"PT2M\"; not the "
-                          "\"5s\" shorthand), or a function "
+                          "\"5s\" shorthand), a keyword naming an entry of the "
+                          "machine's :delays map, or a function "
                           "((fn [{:keys [snapshot]}] ms)). "
                           (when (vector? delay-key)
                             (str "A subscription vector is not a delay: put the "
@@ -1967,8 +2018,8 @@
   `known-state-node-keys`. Two groups:
 
     - the machine's own blocks, which the runtime reads off the root alone:
-      `:data`, `:schemas`, `:internal-events`, the `:guards` / `:actions`
-      registries (a parallel region inherits the root's), and the parallel
+      `:data`, `:schemas`, `:internal-events`, the `:guards` / `:actions` /
+      `:delays` registries (a parallel region inherits the root's), and the parallel
       root's `:region-order` (`rf.machines.parallel/normalise-region-order`
       stamps it once at registration);
     - the registration metadata that folds onto the machine body per
@@ -1981,7 +2032,7 @@
 
   On a nested state or a parallel region body nothing reads them, so the
   child-node walk refuses them as root-only."
-  #{:data :schemas :internal-events :guards :actions :region-order
+  #{:data :schemas :internal-events :guards :actions :delays :region-order
     :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
 (def ^:private spawn-spec-keys-with-own-refusal
@@ -2372,9 +2423,11 @@
 
   Per Spec-Schemas §`:rf/state-node` `:after`: every `:after`
   map KEY (the delay) must be a positive integer, an ISO-8601 duration string
-  (the `:timeout` duration grammar), or a function. Throws
+  (the `:timeout` duration grammar), a keyword naming an entry of the root
+  `:delays` map, or a function. Throws
   `:rf.error/machine-bad-after-delay` for a static key that
-  is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, a vector) —
+  is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, a vector, a name
+  `:delays` does not declare), and for a malformed `:delays` map —
   gated at registration rather than arming nothing at fx time.
 
   Per Conventions §No silent swallow + §Reserved state-node keys /
@@ -2535,8 +2588,10 @@
   ;; Every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
   ;; Every `:after` delay KEY must be a positive integer, an ISO-8601
-  ;; duration string, or a function — gated at registration
-  ;; rather than arming nothing at fx time.
+  ;; duration string, a `:delays` name, or a function — gated at registration
+  ;; rather than arming nothing at fx time. The `:delays` map itself first,
+  ;; so a name resolves only to a well-formed delay.
+  (validate-delays! machine)
   (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use

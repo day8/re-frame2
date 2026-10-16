@@ -259,6 +259,16 @@ Tags are sets of keywords. Use namespaced tags for intent: `:auth/busy`,
  :on    {:loaded :ready}}
 ```
 
+XState's `delays` implementation map is the machine's root `:delays` map, and a named delay is an `:after` key that names an entry, as `after: { idleWarning: 'warning' }` does:
+
+```clojure
+{:delays {:idle-warning (fn [{:keys [snapshot]}] (-> snapshot :data :idle-warning-ms))}
+ :states {:active  {:after {:idle-warning :warning}}
+          :warning {}}}
+```
+
+A delay function receives `{:snapshot …}` and reads the machine's `:data`, where XState's receives `{ context, event }`. Swap a delay in a test with `(assoc-in machine [:delays :idle-warning] 50)`, as XState's `.provide({ delays })` does.
+
 A named deadline uses `:timeout` and `:on-timeout`:
 
 ```clojure

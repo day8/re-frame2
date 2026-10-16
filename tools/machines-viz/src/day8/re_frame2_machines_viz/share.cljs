@@ -246,14 +246,14 @@
 
 (def ^:private identifier-indexed-slots
   "Definition slots whose map KEYS are topology IDENTIFIERS
-  (state / region / event / guard / action ids, and `:after` delays) rather
-  than record fields. A key in one of these maps is a name the topology
+  (state / region / event / guard / action ids, `:after` delays, and the
+  `:delays` names an `:after` key refers to) rather than record fields. A key in one of these maps is a name the topology
   references, so it survives sanitisation however it is spelled —
   `:source-code`, `:source-coords` and `:fn` are all valid ids — and only its
   VALUE is walked. The debug-field and executable-`:fn` drops apply to RECORD
   maps alone: the state nodes, transition candidates and guard/action entries
   the macro stamps."
-  #{:states :regions :on :after :guards :actions})
+  #{:states :regions :on :after :guards :actions :delays})
 
 (defn- fn-key-label
   "The inert stand-in for a fn-valued map KEY (Spec 005's

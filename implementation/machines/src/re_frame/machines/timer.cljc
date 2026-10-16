@@ -5,8 +5,8 @@
   On entry to an `:after`-bearing state node, the pure transition engine
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
   fx per `:after` entry. The fx handler here resolves the delay (pos-int?
-  literal / ISO-8601 duration string / fn-form) once, against the committed
-  snapshot, and schedules a real timer via
+  literal / ISO-8601 duration string / `:delays` name / fn-form) once, against
+  the committed snapshot, and schedules a real timer via
   `rf.interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
   `set-timeout!`'s spec-named machines surface). On expiry the
   timer dispatches the synthetic
@@ -36,6 +36,7 @@
   /scheduled."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.timeout :as rf.machines.timeout]
@@ -62,7 +63,7 @@
   ;;    :epoch <int>
   ;;    :state <state-keyword>
   ;;    :region <region name for a region :after, else nil>
-  ;;    :delay-source <:literal | :fn>
+  ;;    :delay-source <:literal | :fn | :named>
   ;;    :token <this attempt's ownership token, `next-attempt-token`>
   ;;    :announce <announcement cell, only on an arm that emits its own
   ;;               /scheduled — see `defer-to-announcer?`>}
@@ -97,18 +98,30 @@
    :spawn (vec invoke-id)
    :delay  delay-key})
 
-;; `:after` delay-source classification (`{:literal :fn}`) lives once
+;; `:after` delay-source classification (`{:literal :fn :named}`) lives once
 ;; in `re-frame.machines.transition/classify-delay-source` — the leaf engine
 ;; that owns the `:after` grammar and already tags the pure-side
 ;; `:rf.machine.timer/scheduled` trace from it. The fx side reuses the same
 ;; classifier so the two can never disagree on a delay-key's source.
 
+(defn- named-delay
+  "The value the `:delays` name `delay-name` stands for in the timer owner's
+  machine definition — the registered singleton, or the registered TYPE a
+  spawned actor's snapshot names (`spec-from-id-or-snapshot`, the lookup
+  dispatch and hydration use). nil when the definition, or the name in it, is
+  gone."
+  [actor-id snapshot delay-name]
+  (get-in (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
+          [:delays delay-name]))
+
 (defn- resolve-delay-ms
   "Resolve an :after map key to a positive-integer ms delay. For pos-int?
   literal: returns the value. For an ISO-8601 duration string (\"PT5S\"):
-  its milliseconds, read by the parser the `:timeout` duration uses. For
-  fn: invokes (f {:snapshot snapshot}) once; a config-driven delay is a fn
-  reading its value from the snapshot's `:data`.
+  its milliseconds, read by the parser the `:timeout` duration uses. For a
+  keyword: the machine's `:delays` entry of that name, resolved as the same
+  value written inline would be — so a named fn is called here too, never
+  earlier. For fn: invokes (f {:snapshot snapshot}) once; a config-driven
+  delay is a fn reading its value from the snapshot's `:data`.
 
   Returns the resolved value, or nil when the key resolves to nothing; the
   caller treats anything but a positive number as a bad delay.
@@ -123,6 +136,14 @@
 
     (string? delay-key)
     (rf.machines.timeout/resolve-duration-ms delay-key)
+
+    (keyword? delay-key)
+    ;; Registration admits only a pos-int / ISO string / fn as a `:delays`
+    ;; value, so the recursion is one level deep; a keyword value (a
+    ;; definition that bypassed validation) resolves to nothing.
+    (let [v (named-delay actor-id snapshot delay-key)]
+      (when-not (keyword? v)
+        (resolve-delay-ms frame-id actor-id v snapshot)))
 
     (fn? delay-key)
     ;; A throwing fn-form `:after` emits `:rf.error/machine-after-fn-threw`
@@ -739,8 +760,8 @@
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
   `:after` transitions, on entry to an :after-bearing state node the
   runtime emits one of these per :after entry. The handler
-  resolves the delay (literal pos-int? / ISO-8601 string / fn) once against
-  the committed snapshot and schedules a real wall-clock timer via
+  resolves the delay (literal pos-int? / ISO-8601 string / `:delays` name /
+  fn) once against the committed snapshot and schedules a real wall-clock timer via
   `rf.interop/schedule-after!` (Spec 005 §Clock abstraction).
 
   The synthetic event dispatched on expiry is
