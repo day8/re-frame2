@@ -1726,7 +1726,7 @@
                      "fx?`. Supported kinds: event, sub, fx, cofx, interceptor, "
                      "view, "
                      "route, head, error-projector, resource, mutation, "
-                     "resource-scope, machine — the closed "
+                     "resource-scope, app-schema, machine — the closed "
                      "v1 registrar set MINUS its two reserved-but-EMPTY slots. flow "
                      "and frame are NOT offered: nothing is ever written to either "
                      "registrar slot, so read flows via re-frame.flows/flows-snapshot "
@@ -1743,11 +1743,10 @@
                      "scope); resource/mutation surface their scope policy + "
                      "declared cache consequences. Nested handler fns "
                      "(:request/:tags/:invalidates/:populates/:resolve) ride as "
-                     "the :rf/fn sentinel so the meta is EDN-clean. App-db "
-                     "schemas are NOT a registrar kind — their "
-                     "metadata lives in the schemas artefact's per-frame side-"
-                     "table, queried via `re-frame.schemas/app-schemas {:frame f}` /  "
-                     "`re-frame.schemas/app-schema-meta {:frame f :path p}` instead. The `machine` kind "
+                     "the :rf/fn sentinel so the meta is EDN-clean. For app-schema "
+                     "(the app-db schema kind, Spec 010) the id is the canonical "
+                     "path vector as EDN, e.g. \"[:user]\", and the meta carries "
+                     ":path and the registered :schema. The `machine` kind "
                      "routes through the preload door (re-frame2-pair.runtime/machine-describe id), "
                      "which reads the :rf/machine registrar projection (Spec 005 §Querying "
                      "machines) — there is no machine-meta accessor; the other kinds route through "
@@ -1773,8 +1772,8 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, machine. NOT flow / frame — both are reserved-but-EMPTY registrar slots; read flows via re-frame.flows/flows-snapshot and frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, machine. NOT flow / frame — both are reserved-but-EMPTY registrar slots; read flows via re-frame.flows/flows-snapshot and frames via rf/frame-ids."
+                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "machine"]}
                               :id   {:type "string"
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
@@ -1809,7 +1808,7 @@
                      "id. Supported kinds: event, sub, fx, cofx, interceptor, "
                      "view, "
                      "route, head, error-projector, resource, mutation, "
-                     "resource-scope, machine — the closed "
+                     "resource-scope, app-schema, machine — the closed "
                      "v1 registrar set MINUS its two reserved-but-EMPTY slots. flow "
                      "and frame are NOT offered: nothing is ever written to either "
                      "registrar slot, so read flows via re-frame.flows/flows-snapshot "
@@ -1821,9 +1820,9 @@
                      "any with `handler-meta` for its descriptor. `list-handlers "
                      "{kind \"resource-scope\"}` enumerates the named scope "
                      "resolvers on a resources app — drill any with "
-                     "`handler-meta` for its declared :inputs. App-db "
-                     "schemas are NOT a registrar kind — use "
-                     "`re-frame.schemas/app-schemas {:frame f}` for schema enumeration. The `machine` "
+                     "`handler-meta` for its declared :inputs. `list-handlers "
+                     "{kind \"app-schema\"}` enumerates the registered app-db "
+                     "schema paths, each id the canonical path vector. The `machine` "
                      "kind lists every event handler flagged `:rf/machine? "
                      "true` — the preload's `re-frame2-pair.runtime/machines-list`, which filters that flag over the public `(rf/registrations {:source :store :kind :event})` read; the other kinds lift the id "
                      "vector off the registrar's per-kind map. The OPTIONAL "
@@ -1840,14 +1839,15 @@
                      "1. List events: {:kind \"event\"} -> {:ok? true :kind :event :ids [:cart/add :cart/checkout :user/login ...] :count 47}. "
                      "2. List subs: {:kind \"sub\"} -> {:ok? true :kind :sub :ids [:current-user :cart/items ...] :count 23}. "
                      "3. List scope resolvers: {:kind \"resource-scope\"} -> {:ok? true :kind :resource-scope :ids [:realworld/session] :count 1}. "
-                     "4. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
+                     "4. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}. "
+                     "5. List app-db schemas: {:kind \"app-schema\"} -> {:ok? true :kind :app-schema :ids [[:cart] [:user]] :count 2}.")
    :typicalTokens 800
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, machine. NOT flow / frame — both are reserved-but-EMPTY registrar slots; read flows via re-frame.flows/flows-snapshot and frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, machine. NOT flow / frame — both are reserved-but-EMPTY registrar slots; read flows via re-frame.flows/flows-snapshot and frames via rf/frame-ids."
+                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "machine"]}
                               :frame {:type "string"
                                       :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
                                                         "The EP-0023 forward direction: "

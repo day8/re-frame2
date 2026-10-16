@@ -3287,7 +3287,8 @@ bound it:
   production runtime answers with coordinates and no body.
 - **`reg-event` scope.** No other kind on the enum above (`sub`, `fx`,
   `cofx`, `interceptor`, `view`, `route`, `head`,
-  `error-projector`, `resource`, `mutation`, `resource-scope`) carries the
+  `error-projector`, `resource`, `mutation`, `resource-scope`,
+  `app-schema`) carries the
   slot — fall back to `:rf.mcp/source-uri` and the filesystem
   there. Machine guards and actions do carry the same key, but
   through the framework's derived `:machine-guard` / `:machine-action`
@@ -3302,8 +3303,8 @@ bound it:
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
 `fx` / `cofx` / `interceptor` / `view` / `route` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
-`machine`), `id` (string, **required** — EDN-encoded
-keyword or composite vector), `frame` (string, optional — a frame id keyword;
+`app-schema` / `machine`), `id` (string, **required** — EDN-encoded
+keyword, composite vector, or `app-schema` path vector), `frame` (string, optional — a frame id keyword;
 the EP-0023 forward direction, see below), `build` (string, optional).
 
 **`flow` and `frame` are NOT on that enum** (rf2-zhef). Both are
@@ -3356,14 +3357,12 @@ that combination returns `{:ok? false :reason :frame-unsupported-for-machine
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model), including the three resources-artefact kinds
-`:resource` / `:mutation` / `:resource-scope` (EP-0016 / rf2-f8s9g6)
-and the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
-surfaces the registered `:rf/interceptor-descriptor`).
-App-db schemas are **not** a registrar kind
-(rf2-cq1ak) — their metadata lives in the schemas artefact's per-frame
-side-table, queried via `re-frame.schemas/app-schemas {:frame f}` /
-`re-frame.schemas/app-schema-meta {:frame f :path p}`.
-The twelve registrar kinds route through
+`:resource` / `:mutation` / `:resource-scope` (EP-0016 / rf2-f8s9g6),
+the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
+surfaces the registered `:rf/interceptor-descriptor`), and the
+`:app-schema` kind (Spec 010 — `reg-app-schema`; its id is the canonical
+path vector, and its meta carries `:path` and the registered `:schema`).
+The thirteen registrar kinds route through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
 `:inputs` map + `:whole-db?` cost (the EP-0016 disposition-2
@@ -3396,7 +3395,7 @@ symbol these forms emit is a public top-level `defn` in it.
 {:ok?              true
  :kind             :event | :sub | :fx | :cofx | :interceptor | :view |
                    :route | :head | :error-projector |
-                   :resource | :mutation | :resource-scope | :machine
+                   :resource | :mutation | :resource-scope | :app-schema | :machine
  :id               <registered-id>
  :ns               my.app.user
  :line             42
@@ -3471,15 +3470,15 @@ There is no `realm` arg — the EP-0013 realm substrate was deleted in full
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (including the resources-artefact `:resource` / `:mutation` /
-`:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — and the `:interceptor`
-kind — EP-0022; per rf2-cq1ak app-db
-schemas are not a registrar kind — use `re-frame.schemas/app-schemas {:frame f}` for those; plus
-the virtual `:machine` kind). The twelve
+`:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — the `:interceptor`
+kind — EP-0022 — and the `:app-schema` kind; plus
+the virtual `:machine` kind). The thirteen
 registrar kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's
 named scope resolvers, `list-handlers {kind "interceptor"}` the ids
-registered via `reg-interceptor`. The
+registered via `reg-interceptor`, and `list-handlers {kind "app-schema"}`
+the registered app-db schema paths. The
 `:machine` kind lifts its ids from
 `(re-frame2-pair.runtime/machines-list)` — every event handler flagged
 `:rf/machine? true` (Spec 005 §Querying machines), sorted by the door
@@ -3491,7 +3490,7 @@ so the vector is stable across kinds.
 {:ok?   true
  :kind  :event | :sub | :fx | :cofx | :interceptor | :view |
         :route | :head | :error-projector |
-        :resource | :mutation | :resource-scope | :machine
+        :resource | :mutation | :resource-scope | :app-schema | :machine
  :ids   [<id> ...]
  :count <integer>}
 ```

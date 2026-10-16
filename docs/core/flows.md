@@ -63,16 +63,16 @@ Here it is running:
                                 {} todos)))})))
 
 ;; create the frame first; the flow below is registered into it
-(rf/make-frame {:id :app})
+(rf/make-frame {:id :rf/default})
 
 ;; the new idea: a derived value written INTO app-db
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
-   :frame       :app}                     ;; a flow belongs to one frame
+   :frame       :rf/default}              ;; a flow belongs to one frame
   (fn [todos] (count (remove :done? (vals todos)))))
 
-(rf/dispatch-sync [:todo/initialise] {:frame :app})
+(rf/dispatch-sync [:todo/initialise] {:frame :rf/default})
 
 (rf/reg-sub :todo/todos (fn [db _] (:todos db)))
 (rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
@@ -93,7 +93,7 @@ Here it is running:
        title])]
    [:p @(subscribe [:todo/remaining-count]) " left"]])
 
-[rf/frame-provider {:frame :app}
+[rf/frame-provider {:frame :rf/default}
  [todo-list]]
 ```
 
@@ -135,7 +135,7 @@ same `:todos` back doesn't run it.
 ### A flow belongs to a frame
 
 Unlike a subscription, a flow belongs to one [frame](glossary.md#frame), because it
-writes that frame's app-db. That is why the example passes `:frame :app`. You can
+writes that frame's app-db. That is why the example passes `:frame :rf/default`. You can
 instead register it inside a frame scope (`with-frame`, see
 [Frames](frames.md#scoping-a-frame-in-a-test-or-at-the-repl)), or from an event
 handler with the `:rf.fx/reg-flow` effect

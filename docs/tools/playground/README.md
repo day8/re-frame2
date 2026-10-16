@@ -119,9 +119,12 @@ uninstall can restore a previous page's routes.
 - **End a re-frame2 cell with a vector.** Hiccup (`[:p "hi"]`) and component
   vectors (`[counter]`) render. Any other value is shown with `pr-str`, so a
   cell that ends in a `reg-*` call shows the registered id.
-- **Frames are optional.** A cell that never creates a frame uses
-  `:rf/default`, and `dispatch` and `subscribe` default to it. A cell that
-  creates its own frame with `frame-root` uses that frame, as a real app does.
+- **Frames are optional.** A cell that never creates a frame uses the
+  playground's own frame, `:playground/cells`, and `dispatch` and `subscribe`
+  default to it. A cell that creates its own frame with `frame-root` uses that
+  frame, as a real app does. The playground never creates `:rf/default`, so a
+  cell can root its app at the conventional single-app id and its
+  `:initial-events` run.
 - **Cells on one page share state.** Every cell registers into the same
   registrar, so a later cell can render a view an earlier one registered.
 - **Leaving a page clears it.** On navigation the outgoing page's components

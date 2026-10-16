@@ -653,9 +653,9 @@
                 @recorded)))))
 
 (deftest frame-ids-round-trip
-  ;; frame-ids reports exactly the registered frames; :rf/default is an
-  ;; ordinary id (EP-0002) that init! never synthesises
-  (rf/make-frame {:id :rf/default :doc "explicitly-registered ordinary default frame"})
+  ;; frame-ids reports exactly the registered frames; :rf/default is the
+  ;; conventional app-frame id, which init! never synthesises (EP-0002)
+  (rf/make-frame {:id :rf/default :doc "explicitly-registered app frame"})
   (rf/make-frame {:id :tenants/acme :doc "acme tenant"  :preset :default})
   (is (= #{:rf/default :tenants/acme} (rf/frame-ids)))
   (reset! rf.frame/frames {})

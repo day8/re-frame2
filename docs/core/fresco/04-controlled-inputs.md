@@ -102,7 +102,7 @@ underneath, and the caret stays where you were typing.
     " Done"]
    [:pre (pr-str (h/sub [:app/db]))]])
 
-[h/frame-root {:id :app}
+[h/frame-root {:id :rf/default}
  [todo-fields {:id 7}]]
 ```
 

@@ -201,7 +201,7 @@ fails again while the bad todo is there. Remove it, then try again.
     [todo-list {}]]
    [:p "Failures recorded: " (count (h/sub [:todo/failures]))]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-page {}]]
 ```
 

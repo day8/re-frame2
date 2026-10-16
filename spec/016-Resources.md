@@ -588,7 +588,7 @@ The load-bearing distinction is between **registration** (the function that reco
 There is a fifth thing an app declares, and it is deliberately **not** a lane: which host signals revalidate a frame's reads. That is a property OF THE FRAME, declared on its config map beside `:url-bound?`, and honoured by the frame lifecycle:
 
 ```clojure
-(rf/make-frame {:id :app :url-bound? true :revalidate-on #{:focus :reconnect}})
+(rf/make-frame {:id :rf/default :url-bound? true :revalidate-on #{:focus :reconnect}})
 
 [rf/frame-root {:id app-frame :url-bound? true :revalidate-on #{:focus :reconnect}}
  [root-view]]

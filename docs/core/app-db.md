@@ -47,7 +47,7 @@ and now seeds both facts. Click the buttons (edit the cell and press
    [:button {:on-click #(dispatch [:step-size/set {:step-size 1}])} "1"]
    [:button {:on-click #(dispatch [:step-size/set {:step-size 10}])} "10"]])
 
-[rf/frame-root {:id :app
+[rf/frame-root {:id :rf/default
                 :initial-events [[:initialise 0]]}
  [stepping-counter]]
 ```

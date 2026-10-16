@@ -121,7 +121,7 @@ public page, so you can start again:
        nil)
      [:p [:code (pr-str {:route-id route-id :fragment fragment})]]]))
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :initial-events [[:rf.route/navigate {:to :app/home}]]}
  [signed-in-app]]
 ```

@@ -212,7 +212,7 @@ follows. Hover a link to see the real `href` the router built.
       [:li {:key id} title])]
    [:p "Route: " (pr-str (h/sub [:rf.route/id]))]])
 
-[h/frame-root {:id             :app
+[h/frame-root {:id             :rf/default
                :initial-events [[:todo/initialise]
                                 [:rf.route/navigate {:to :app/all}]]}
  [todo-page]]
