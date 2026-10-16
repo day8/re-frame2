@@ -55,9 +55,9 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
-;; ---- handler-scope: the five-slot in-scope reading -----------------------
+;; ---- handler-scope: the four-slot in-scope reading -----------------------
 
-(defrecord HandlerScope [trigger-handler call-site dispatch-id sensitive? no-emit?])
+(defrecord HandlerScope [trigger-handler call-site dispatch-id no-emit?])
 
 (def ^:dynamic *handler-scope*
   "HandlerScope record currently in scope for trace emission, or nil at
@@ -243,18 +243,12 @@
 (defn handler-scope-from-meta
   "Build a HandlerScope from a registrar slot's `meta` for a handler
   about to execute. `:call-site` and `:dispatch-id` are left nil for
-  `with-handler-scope` to inherit from the parent. The `:sensitive?`
-  slot is fed by the router's classified sensitive-path overlap
-  calculation (`:rf/sensitive?` on the scope-meta map) — the per-frame
-  sensitive-declarations registry written by the EP-0025 commit-plane
-  classification effects. There is no schema-attached slot prop, frame
-  annotation or handler-meta `:sensitive?` annotation feeding it. Per
-  Spec 009 §Handler-scope."
+  `with-handler-scope` to inherit from the parent. Per Spec 009
+  §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
                   nil
-                  (true? (:rf/sensitive? meta))
                   (true? (:rf.trace/no-emit? meta))))
 
 (defn inherit-scope
@@ -309,7 +303,7 @@
             parent# *handler-scope*]
         (binding [*handler-scope* (if parent#
                                     (assoc parent# :call-site cs#)
-                                    (->HandlerScope nil cs# nil false false))]
+                                    (->HandlerScope nil cs# nil false))]
           ~@body))))
 
 #?(:clj
@@ -327,7 +321,7 @@
                                     (assoc parent#
                                            :dispatch-id did#
                                            :call-site   cs#)
-                                    (->HandlerScope nil cs# did# false false))]
+                                    (->HandlerScope nil cs# did# false))]
           ~@body))))
 
 ;; ---- trace-disabled (tool / inspector) frames ----------------------------
@@ -554,15 +548,13 @@
 ;; `:advanced` + `goog.DEBUG=false`. Per Spec 009 §Production builds.
 
 (defn- compute-sensitive?
-  "Hoist `:sensitive?` from the in-scope handler's registration meta,
-  with caller-supplied `:sensitive?` in `tags` winning (queue-time
-  `:event/dispatched` computes its own reading). Per Spec 009
-  §Privacy / sensitive data in traces."
-  [tags scope]
-  (let [tag-sensitive? (:sensitive? tags)]
-    (cond
-      (some? tag-sensitive?) (true? tag-sensitive?)
-      :else                  (true? (some-> scope :sensitive?)))))
+  "The top-level `:sensitive?` reading at build time: the caller-supplied
+  `:sensitive?` tag, the one producer that decides sensitivity before the
+  event is built. Projection-decided sensitivity is hoisted afterwards by
+  `hoist-projected-sensitive`. Per Spec 009 §Privacy / sensitive data in
+  traces."
+  [tags]
+  (true? (:sensitive? tags)))
 
 (defn- stamp-dispatch-id
   "Merge the run's `:rf.trace/dispatch-id` into `base-tags` so
@@ -664,7 +656,7 @@
   (let [scope       *handler-scope*
         trigger     (some-> scope :trigger-handler)
         dispatch-id (some-> scope :dispatch-id)
-        sensitive?  (compute-sensitive? tags scope)
+        sensitive?  (compute-sensitive? tags)
         error?      (= op-type :error)
         source      (:source tags)
         recovery    (if error?
@@ -810,7 +802,7 @@
   hoist keeps the defence-in-depth contract uniform for EVERY projection
   clause that stamps `[:tags :sensitive?]`.
 
-  Caller-supplied / scope-derived sensitivity already hoisted by
+  Caller-supplied sensitivity already hoisted by
   `build-event` is untouched: that path strips `:sensitive?` from
   `:tags` BEFORE delivery, so a tag-level flag here can only be one a
   projection clause added. We OR with any existing top-level flag so a

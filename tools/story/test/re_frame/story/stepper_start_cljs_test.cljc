@@ -24,7 +24,8 @@
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.runtime :as rf.story.runtime]
             #?@(:clj [[re-frame.story.async :as rf.story.async]
-                      [re-frame.story.config :as rf.story.config]])))
+                      [re-frame.story.config :as rf.story.config]
+                      [re-frame.trace :as rf.trace]])))
 
 ;; An external effect cannot be un-sent, so this counter witnesses script
 ;; work that an app-db reset would hide.
@@ -150,13 +151,17 @@
 
 #?(:clj
    (defn- reg-sensitive-thrower!
-     "An event focused at `[:auth]`, a prefix of the variant's sensitive path,
-     so the router stamps its pipeline exception `:sensitive?`."
+     "An event that reports a pipeline exception carrying a caller-supplied
+     `:sensitive?` stamp, so the egress filter suppresses it as it would any
+     pipeline exception judged sensitive."
      [event-id]
      (rf/reg-event event-id
-       {:interceptors [[:rf.interceptor/path [:auth]]]}
-       (fn [_ _] (throw (ex-info "sensitive handler blew up"
-                                 {:password "hunter2"}))))))
+       (fn [_ _]
+         (rf.trace/emit-error! :rf.error/handler-exception
+                               {:sensitive?        true
+                                :exception-message "sensitive handler blew up"
+                                :exception-data    {:password "hunter2"}})
+         {}))))
 
 #?(:clj
    (defn- failure-records [vid]
@@ -190,8 +195,9 @@
                suppressed pipeline exception does"
        (let [vid :story.stepper/sensitive-healthy]
          (rf/reg-event :probe/sensitive-seed
-           {:interceptors [[:rf.interceptor/path [:auth]]]}
-           (fn [_ _] {:db {:password "hunter2"}}))
+           (fn [{:keys [db]} _]
+             (rf.trace/emit! :rf.event :probe/sensitive-step {:sensitive? true})
+             {:db (assoc-in db sensitive-path "hunter2")}))
          (rf.story/reg-variant vid
            {:sensitive {:app-db [sensitive-path]}
             :setup     [[:probe/sensitive-seed]

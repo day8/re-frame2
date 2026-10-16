@@ -844,7 +844,7 @@
 ;; `:advanced` + `goog.DEBUG=false`), not per-frame epoch capture. It
 ;; carries capture-site ancestry through the `:rf.trace/dispatch-id`
 ;; correlation graph (read off the in-scope `rf.trace/*handler-scope*`, whose
-;; five slots carry no parent — per Spec 009 §Dispatch correlation,
+;; slots carry no parent — per Spec 009 §Dispatch correlation,
 ;; `:rf.trace/parent-dispatch-id` is scoped to `:rf.event/dispatched` only and
 ;; is walked FROM this dispatch), so the hardest case — a callback captured at
 ;; handler X in frame Y whose continuation fires with no stamp after the

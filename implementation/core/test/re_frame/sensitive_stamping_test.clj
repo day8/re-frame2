@@ -1,8 +1,9 @@
 (ns re-frame.sensitive-stamping-test
-  "Trace-surface `:sensitive?` stamping and classification auto-redaction.
-  Both are driven by the classified `:sensitive` app-db path overlapping a
-  path-scoped handler's slice (the per-frame elision registry, EP-0025), not
-  by schema slot props or a frame annotation.
+  "Trace-surface `:sensitive?` stamping and event-payload redaction. A
+  handler's interceptor chain decides neither: an event's payload redacts
+  through its registration's own `:sensitive` paths, and the top-level stamp
+  comes from the emitters that decide sensitivity (Spec 009 §Privacy /
+  sensitive data in traces).
 
   Every deftest that reads the `:trace` stream or the trace buffer carries
   `^:requires-debug`: neither exists under `-Dre-frame.debug=false`. The
@@ -15,6 +16,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- install-sensitive! [frame-id paths]
@@ -46,57 +48,60 @@
 (defn- first-of [evs op]
   (first (filter #(= op (:operation %)) evs)))
 
-(deftest ^:requires-debug frame-class-auto-redaction-for-path-scoped-handler
-  (testing "a frame-sensitive app-db path installs redaction and the stamp
-            without a user interceptor; the handler still sees the raw payload"
+(def ^:private login [:auth/login {:username "ada" :password "shh"}])
+
+(defn- login-event-vectors
+  "Register `:auth/login` with `opts`, dispatch `login`, and return every
+  trace of the run that carries the event vector, as `[operation event-vector
+  top-level-sensitive?]`."
+  [opts]
+  (rf/reg-event :auth/login opts
+    (fn [{:keys [db]} [_ payload]] {:db (assoc db :last-login payload)}))
+  (into []
+        (keep (fn [ev]
+                (when-let [v (get-in ev [:tags :rf.event/v])]
+                  [(:operation ev) v (:sensitive? ev)])))
+        (record-traces #(rf/dispatch-sync login))))
+
+(deftest ^:requires-debug path-focus-changes-no-trace-payload
+  (testing "with [:auth :password] classified, a handler focused at [:auth]
+            emits the same event vectors and top-level stamps as the same
+            handler with no path interceptor"
     (install-sensitive! :rf/default [[:auth :password]])
+    (let [focused   (login-event-vectors {:interceptors [[:rf.interceptor/path [:auth]]]})
+          unfocused (login-event-vectors {})]
+      (is (some #(= :rf.event/run-start (first %)) focused)
+          "producer control: the focused run's traces carry the event vector")
+      (is (= unfocused focused))
+      (is (every? #(= login (second %)) focused)
+          "nothing in the chain declares the payload, so it rides raw"))))
+
+(deftest ^:requires-debug registration-sensitive-redacts-the-payload-in-traces
+  (testing "`:sensitive [[:password]]` on the reg-event redacts the payload in
+            the run's traces; the handler body still sees the raw payload"
     (let [seen (atom nil)]
-      (rf/reg-event :auth/login
-        {:interceptors [[:rf.interceptor/path [:auth]]]}
+      (rf/reg-event :auth/login {:sensitive [[:password]]}
         (fn [{:keys [db]} [_ payload]]
           (reset! seen payload)
           {:db (assoc db :last-login payload)}))
-      (let [evs       (record-traces
-                        #(rf/dispatch-sync [:auth/login {:username "ada" :password "shh"}]))
-            run-start (first-of evs :rf.event/run-start)
-            redacted  [:auth/login {:username "ada" :password :rf/redacted}]]
-        (is (= {:username "ada" :password "shh"} @seen))
-        (is (true? (:sensitive? run-start)))
-        (is (= redacted (get-in run-start [:tags :rf.event/v])))
+      (let [evs      (record-traces #(rf/dispatch-sync login))
+            redacted [:auth/login {:username "ada" :password :rf/redacted}]]
+        (is (= (second login) @seen))
+        (is (= redacted (get-in (first-of evs :rf.event/run-start) [:tags :rf.event/v])))
         (is (= redacted (get-in (first-of evs :rf.event/db-changed) [:tags :rf.event/v])))))))
 
-(deftest ^:requires-debug frame-class-auto-redaction-stamps-handler-exception
-  (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event :auth/throws
-    {:interceptors [[:rf.interceptor/path [:auth]]]}
-    (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
-  (let [err (first-of (record-traces #(rf/dispatch-sync [:auth/throws {:password "shh"}]))
-                      :rf.error/handler-exception)]
-    (is (true? (:sensitive? err)))
-    (is (= [:auth/throws {:password :rf/redacted}] (get-in err [:tags :event])))))
-
-(deftest ^:requires-debug frame-class-auto-redaction-does-not-affect-unrelated-paths
-  (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event :profile/save
-    {:interceptors [[:rf.interceptor/path [:profile]]]}
-    (fn [{:keys [db]} [_ payload]] {:db (assoc db :saved payload)}))
-  (let [db-changed (first-of (record-traces #(rf/dispatch-sync [:profile/save {:password "not-auth"}]))
-                             :rf.event/db-changed)]
-    (is (not (true? (:sensitive? db-changed))))
-    (is (= [:profile/save {:password "not-auth"}] (get-in db-changed [:tags :rf.event/v])))))
-
 (deftest ^:requires-debug trace-buffer-sensitive-filter
-  (testing "the trace buffer's `:sensitive?` filter partitions on the
-            classification-derived top-level stamp"
+  (testing "the trace buffer's `:sensitive?` filter partitions on the top-level
+            stamp, here a caller-supplied `:sensitive?` tag"
     (rf/clear-trace-buffer! :rf/default)
     (rf/configure! {:trace-buffer {:events-retained 100}})
-    (install-sensitive! :rf/default [[:auth :password]])
     (rf/reg-event :sensitive/buf
-      {:interceptors [[:rf.interceptor/path [:auth]]]}
-      (fn [{auth :db} _] {:db auth}))
+      (fn [{:keys [db]} _]
+        (rf.trace/emit! :rf.event :test/sensitive-step {:sensitive? true})
+        {:db db}))
     (rf/reg-event :plain/buf
       (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:sensitive/buf {:password "x"}])
+    (rf/dispatch-sync [:sensitive/buf])
     (rf/dispatch-sync [:plain/buf])
     (let [all   (rf/trace-buffer :rf/default {:flat true})
           sens  (rf/trace-buffer :rf/default {:flat true :sensitive? true})
