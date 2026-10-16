@@ -113,10 +113,28 @@ function driver() {
       await acquireLane({ command: 'waiter', pollMs: 50 });
       say('HELD-UNEXPECTEDLY');
     } else if (mode === 'signal-while-running') {
-      runShadow(['compile', 'app'], { cwd: rest[1] });
+      const [signal, project, owner] = rest;
+      // With a handler of the caller's own, the helper reaps and releases but leaves
+      // the exit to that handler, so this process can look at the tree while alive.
+      if (owner === 'caller-exits') process.on(signal, () => {});
+      runShadow(['compile', 'app'], { cwd: project });
       while (!fs.existsSync(process.env.FAKE_PIDFILE)) await sleep(50);
       say('RUNNING');
-      process.emit(rest[0]);
+      process.emit(signal);
+      const { runner, grandchild } = JSON.parse(fs.readFileSync(process.env.FAKE_PIDFILE, 'utf8'));
+      const alive = (pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch (err) {
+          return err.code === 'EPERM';
+        }
+      };
+      const deadline = Date.now() + 10000;
+      while ((alive(runner) || alive(grandchild)) && Date.now() < deadline) await sleep(50);
+      say(`TREE ${alive(runner) || alive(grandchild) ? 'alive' : 'reaped'}`);
+      say(`LANE ${fs.existsSync(process.env.RF2_SHADOW_LANE_LOCK) ? 'held' : 'free'}`);
+      process.exit(0);
     } else if (mode === 'watch') {
       runShadow(['watch', ':app'], { cwd: rest[0] });
       const lock = process.env.RF2_SHADOW_LANE_LOCK;
@@ -304,7 +322,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   test(`${signal} while compiling reaps the whole compiler tree and releases the lane`, { timeout: TIMEOUT_MS }, async () => {
     const lock = freshLock();
     const pidfile = path.join(lane, `pids-${signal}.json`);
-    const b = start(['signal-while-running', signal, PROJECT], {
+    const b = start(['signal-while-running', signal, PROJECT, 'helper-exits'], {
       RF2_SHADOW_LANE_LOCK: lock,
       FAKE_MODE: 'sleep',
       FAKE_PIDFILE: pidfile,
@@ -315,6 +333,22 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     const { runner, grandchild } = JSON.parse(fs.readFileSync(pidfile, 'utf8'));
     await eventually(() => !isAlive(runner) && !isAlive(grandchild), 'the compiler tree to die');
     assert.equal(fs.existsSync(lock), false, 'the signal left the lane held');
+  });
+
+  // The tree must be dead BEFORE the launcher exits, not merely after: on Windows the
+  // OS kills a node process's children when it exits, which would hide a missing reap.
+  test(`${signal} with the caller's own handler: the tree is reaped while the launcher still runs`, { timeout: TIMEOUT_MS }, async () => {
+    const lock = freshLock();
+    const pidfile = path.join(lane, `pids-${signal}-caller.json`);
+    const b = start(['signal-while-running', signal, PROJECT, 'caller-exits'], {
+      RF2_SHADOW_LANE_LOCK: lock,
+      FAKE_MODE: 'sleep',
+      FAKE_PIDFILE: pidfile,
+    });
+    await b.exited;
+    assert.equal(b.code, 0, 'the helper took over an exit the caller owns');
+    assert.match(b.out, /TREE reaped/, `${b.out}\n${b.err}`);
+    assert.match(b.out, /LANE free/, `${b.out}\n${b.err}`);
   });
 }
 
