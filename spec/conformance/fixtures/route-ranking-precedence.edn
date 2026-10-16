@@ -31,6 +31,9 @@
    ;; MUST precede total-length or `/*` shadows `/` for "/".
    :route/home            {:path "/"}
    :route/catch-all       {:path "/*"}
+   ;; The same pattern as :route/files.splat, so rule 6 decides between the
+   ;; two: the harness registers routes in ascending id order (README
+   ;; §Fixture lifecycle step 1), so `.rest` registers first and wins.
    :route/files.rest      {:path "/files/*rest" :params [:map [:rest :string]]}
 
    ;; Rule 5 — exact beats optional-group. The optional group is spelled
@@ -48,8 +51,9 @@
    :route/docs.optional   {:path "/docs{/guide}?"}
    :route/docs.page       {:path "/docs/:page" :params [:map [:page :string]]}
 
-   ;; Rule 6 — registration order final-tiebreak (also: warning on equal scores)
-   :rf.route/equal.first     {:path "/equal-score/:x" :params [:map [:x :string]]}
+   ;; Rule 6 — registration order final-tiebreak (also: warning on equal scores).
+   ;; Routes register in ascending id order, so `.first` registers before `.second`.
+   :rf.route/equal.first    {:path "/equal-score/:x" :params [:map [:x :string]]}
    :rf.route/equal.second    {:path "/equal-score/:y" :params [:map [:y :string]]}}}
 
  :fixture/calls
@@ -65,8 +69,10 @@
   {:call :match-url :url "/files/x.txt"
    :expect {:route-id :route/files.named :params {:name "x.txt"} :query {} :fragment nil :validation-failed? false}}
 
-  ;; Rule 2: /files/a/b/c — :route/files.rest (named splat) wins over the
-  ;; bare catch-all :route/catch-all
+  ;; Rules 2 and 6: /files/a/b/c — `/files/*rest` (a named splat) out-ranks
+  ;; the bare catch-all :route/catch-all, and :route/files.rest and
+  ;; :route/files.splat share that pattern, so rule 6 picks :route/files.rest,
+  ;; the earlier id. A harness registering in file order picks .splat here.
   {:call :match-url :url "/files/a/b/c"
    :expect {:route-id :route/files.rest :params {:rest "a/b/c"} :query {} :fragment nil :validation-failed? false}}
 
@@ -89,7 +95,8 @@
   {:call :match-url :url "/docs/guide"
    :expect {:route-id :route/docs.page :params {:page "guide"} :query {} :fragment nil :validation-failed? false}}
 
-  ;; Rule 6: /equal-score/x — :rf.route/equal.first wins (registered first)
+  ;; Rule 6: /equal-score/x — :rf.route/equal.first wins (its id sorts first,
+  ;; so it registers first)
   {:call :match-url :url "/equal-score/x"
    :expect {:route-id :rf.route/equal.first :params {:x "x"} :query {} :fragment nil :validation-failed? false}}
 
@@ -120,6 +127,10 @@
   ;; shadowed one and :shadowed-by names the existing winner; :rank (the
   ;; tied structural tuple) also rides the tags but is not asserted here —
   ;; absolute tuple values are implementation-flexible, as above.
+  ;; The two other co-matchable equal-score pairs warn too, each naming the
+  ;; later id: :route/files.splat (shadowed by :route/files.rest) and
+  ;; :route/users.id (shadowed by :route/users.detail). :trace-emissions is an
+  ;; ordered-subset match, so this one warning is all the fixture asserts.
   :trace-emissions
   [{:operation :rf.warning/route-shadowed-by-equal-score
     :op-type   :warning
