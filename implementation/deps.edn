@@ -58,11 +58,6 @@
   {:extra-paths ["core/test"
                  "adapters/reagent/test"
                  "adapters/uix/test"
-                 ;; The test-react adapter test tree (REPL parity; the
-                 ;; canonical JVM gate is the artefact's own :test alias,
-                 ;; run per-artefact by scripts/test-jvm-implementation.sh).
-                 "adapters/test-react/src"
-                 "adapters/test-react/test"
                  "schemas/test"
                  "machines/test"
                  "routing/test"

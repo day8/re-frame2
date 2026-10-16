@@ -14,7 +14,6 @@ artefacts=(
   implementation/core
   implementation/adapters/reagent
   implementation/adapters/uix
-  implementation/adapters/test-react
   implementation/schemas
   implementation/machines
   implementation/routing

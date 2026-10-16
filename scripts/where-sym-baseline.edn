@@ -40,8 +40,4 @@
   "rf/resolve-interceptor-ref"               3
   "rf/route-resource-plan"                   1
   "rf/set-db"                                1
-  "rf/test-react-mount!"                     1
-  "rf/test-react-mount-child!"               1
-  "rf/test-react-trigger-update!"            1
-  "rf/test-react-unmount"                    1
  }}

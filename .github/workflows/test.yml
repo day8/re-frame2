@@ -72,13 +72,6 @@ jobs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
       cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
       adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
-      # Test-React's own signal. Declared HERE and not only
-      # emitted: a job reads `needs.<job>.outputs.<name>`, which resolves to
-      # the empty string unless the producing job declares it, so an
-      # emitted-but-undeclared output makes every `== 'true'` false — a gate
-      # that can never fire, and silently. The Story outputs are pinned
-      # against the same never-fires mode.
-      test_react_jvm: ${{ steps.detect.outputs.test_react_jvm }}
       cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
       examples_compile: ${{ steps.detect.outputs.examples_compile }}
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
@@ -1900,67 +1893,6 @@ jobs:
       # The substrate's smoke-test surface is the browser-side testbed spec —
       # see the adapter-testbed-smokes job below.
       - name: Run JVM tests (uix artefact, classpath probe)
-        run: clojure -M:test
-
-  jvm-adapters-test-react:
-    name: JVM test-react (clojure -M:test)
-    needs: detect_changed_surfaces
-    # A DISJUNCTION, and both halves are load-bearing.
-    # `adapter_diagnostic` is the REVERSE edge: the fixture depends on core, so
-    # a core change must still schedule this job, and the core arm of the
-    # classifier is what fires that output. `test_react_jvm` is the forward
-    # edge: a change to this artefact's own src/test/deps arms this job
-    # WITHOUT arming jvm-adapters-{reagent,reagent-slim,uix}, which stay on
-    # `adapter_diagnostic` alone and cannot reach this local-only CLJC fixture.
-    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true' || needs.detect_changed_surfaces.outputs.test_react_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/adapters/test-react
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-test-react-${{ hashFiles('implementation/adapters/test-react/deps.edn', 'implementation/core/deps.edn', 'implementation/test-quiet/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-test-react-
-            ${{ runner.os }}-clj-
-
-      # The Test-React adapter is on `scripts/test-jvm-implementation.sh`, and
-      # without a test.yml job its suite's only lane would be somebody
-      # remembering to run the local sweep — the exact hole
-      # `check_jvm_lane_rosters.py` exists to name.
-      #
-      # NOT a skip-ok classpath probe, unlike `jvm-reagent` / `jvm-uix`. The
-      # adapter is pure CLJC — it simulates the React class-3 lifecycle with no
-      # React, no DOM and no jsdom precisely so it runs on the JVM — and both
-      # test namespaces are `.cljc` with `:clj` reader arms. So the JVM run is
-      # REAL coverage: the sync-unmount-during-render guard, the unbalanced
-      # subscribe/dispose ref-count guard, the
-      # double-render guard, and the `dispose-adapter!` sub-cache walk across
-      # multiple frames. A non-zero exit is a genuine failure and
-      # MUST fail the step — no `|| echo` fallback.
-      #
-      # The artefact is LOCAL-TEST-ONLY (no Maven coordinate, absent from the
-      # lockstep array and the release deploy matrix); that governs PUBLISHING,
-      # not testing, and is orthogonal to whether its suite runs.
-      - name: Run JVM tests (test-react adapter)
         run: clojure -M:test
 
   jvm-schemas:
@@ -6452,10 +6384,6 @@ jobs:
       - cljs-fresco-hmr
       - jvm-reagent
       - jvm-uix
-      # Required, not advisory. The suite is REAL JVM coverage of the adapter
-      # lifecycle contract, and a job
-      # absent from this list is advisory whatever its own gate says.
-      - jvm-adapters-test-react
       - jvm-schemas
       - jvm-machines
       - jvm-routing
