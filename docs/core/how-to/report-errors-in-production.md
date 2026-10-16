@@ -172,17 +172,15 @@ The `:handled-events` stream answers the other production question: how many eve
 
 (when config/production?
   (rf/register-observability-sink! :app.sinks/metrics
-    (fn [{:keys [event-id frame status elapsed-ms]}]
+    (fn [{:keys [event-id frame outcome elapsed-ms]}]
       ;; ship one timing/throughput point per processed event
       (metrics/timing! "rf.event" elapsed-ms
-        {:event-id (str event-id) :frame (str frame) :status (name status)}))))
+        {:event-id (str event-id) :frame (str frame) :outcome (name outcome)}))))
 ```
 
-!!! warning "Gotcha: the result is in `:status`, and there is no `:time`"
+The handled-event record carries `:time` (when the event settled, in milliseconds since the epoch) and `:outcome` on every profile, as error records carry `:time` and `:error`.
 
-    The handled-event record carries the dispatch result under `:status`, on every profile; destructure that key, since `(name nil)` on a missing one throws. It has no `:time` key, so stamp your own clock; error records do have `:time`.
-
-`:status` describes whether the event pipeline reached its commit and effect walk. It takes one of five values:
+`:outcome` describes whether the event pipeline reached its commit and effect walk. It takes one of five values:
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
@@ -190,13 +188,13 @@ The `:handled-events` stream answers the other production question: how many eve
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; computed flow outputs were discarded and `:fx` was skipped.
 - `:flow-error` — a flow's derive function threw; the run halted before `:fx`.
 
-An `:ok` record does not prove every effect succeeded. Effects run after the commit and are best-effort; a thrown or missing effect can emit an error while the event keeps `:status :ok`. Pair the handled-event record with the error stream.
+An `:ok` record does not prove every effect succeeded. Effects run after the commit and are best-effort; a thrown or missing effect can emit an error while the event keeps `:outcome :ok`. Pair the handled-event record with the error stream.
 
 !!! warning "In production, `:rolled-back` never appears; `:rejected` does"
 
     App-db schema validation is dev-only, so in a release build nothing produces `:rolled-back`: a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. A flat `:rolled-back` line proves nothing. For a production check, put the invariant in the handler, or register the handler that receives untrusted input `:boundary? true`.
 
-    A `:boundary? true` handler's check does run in release builds: a refused payload reports `:status :rejected` here and one `:rf.error/schema-validation-failure` record (`:source :boundary`) on the error sink. A spike in `:rejected` is real, and it is the value to alert on.
+    A `:boundary? true` handler's check does run in release builds: a refused payload reports `:outcome :rejected` here and one `:rf.error/schema-validation-failure` record (`:source :boundary`) on the error sink. A spike in `:rejected` is real, and it is the value to alert on.
 
 Together, `:handled-events` tells you that something is wrong (a spike in `:error` or `:rejected`), and `:errors` tells you what: the exception and its stack, or for a boundary rejection, the event and schema ids.
 

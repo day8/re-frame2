@@ -51,12 +51,34 @@
       (rf/reg-event :auth/login {:frame :obs/main} (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:auth/login {:password "hunter2"}] {:frame :obs/main})
       (is (= [{:kind :rf.observe/handled-event :frame :obs/main :event-id :auth/login
-               :status :ok :effects [:db]}]
-             (mapv #(select-keys % [:kind :frame :event-id :status :effects]) @seen)))
+               :outcome :ok :effects [:db]}]
+             (mapv #(select-keys % [:kind :frame :event-id :outcome :effects]) @seen)))
       (let [r (first @seen)]
         (is (integer? (:elapsed-ms r)))
         (is (not (contains? r :event))
             "the sink never sees the raw event payload")))))
+
+(deftest handled-event-record-shares-the-event-tap-vocabulary
+  (testing "the sink record names the dispatch result :outcome, as the event tap
+            record does, and carries the same :time the tap record carries for
+            that event"
+    (let [sunk   (atom [])
+          tapped (atom [])]
+      (rf/register-observability-sink! :test.sinks/vocab #(swap! sunk conj %))
+      (rf.event-emit/register-event-listener! ::vocab #(swap! tapped conj %))
+      (try
+        (rf/make-frame {:id :obs/vocab :observability
+                        {:handled-events [{:sink :test.sinks/vocab}]}})
+        (rf/reg-event :evt/ok {:frame :obs/vocab} (fn [{:keys [db]} _] {:db db}))
+        (rf/dispatch-sync [:evt/ok] {:frame :obs/vocab})
+        (let [sink-r (first @sunk)
+              tap-r  (some #(when (= :evt/ok (:event-id %)) %) @tapped)]
+          (is (= [:ok :ok] [(:outcome sink-r) (:outcome tap-r)]))
+          (is (not (contains? sink-r :status)))
+          (is (number? (:time sink-r)))
+          (is (= (:time tap-r) (:time sink-r))))
+        (finally
+          (rf.event-emit/unregister-event-listener! ::vocab))))))
 
 (deftest handled-event-sink-honours-no-emit
   (testing "a handler registered with :rf.trace/no-emit? true routes no
@@ -130,11 +152,11 @@
       (rf/make-frame {:id :rf/default :observability
                       {:handled-events [{:sink :test.sinks/datadog}]
                        :errors         [{:sink :test.sinks/datadog}]}})
-      (rf.observability/route-handled-event! [:evt/x] :evt/x :obs/ghost :ok 1 [:db] nil)
+      (rf.observability/route-handled-event! [:evt/x] :evt/x :obs/ghost 0 :ok 1 [:db] nil)
       (rf.observability/route-error!
         :rf.error/handler-exception [:evt/x] :evt/x :obs/ghost (ex-info "x" {}) 1 0 nil)
       (is (empty? @seen) "an unresolved frame routes nothing")
-      (rf.observability/route-handled-event! [:evt/x] :evt/x :rf/default :ok 1 [:db] nil)
+      (rf.observability/route-handled-event! [:evt/x] :evt/x :rf/default 0 :ok 1 [:db] nil)
       (is (= [:rf.observe/handled-event] (mapv :kind @seen))
           "CONTROL — :rf/default's own policy delivers"))))
 

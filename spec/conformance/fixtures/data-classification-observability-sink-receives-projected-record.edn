@@ -56,13 +56,15 @@
                        :frame       :obs/main
                        :event-id    :auth/login
                        :event       [:auth/login {:password "hunter2"}]
-                       :status      :ok
+                       :time        1700000000000
+                       :outcome     :ok
                        :elapsed-ms  7
                        :effects     [:db]}
    :expect            {:kind        :rf.observe/handled-event
                        :frame       :obs/main
                        :event-id    :auth/login
-                       :status      :ok
+                       :time        1700000000000
+                       :outcome     :ok
                        :elapsed-ms  7
                        :effects     [:db]}}
 

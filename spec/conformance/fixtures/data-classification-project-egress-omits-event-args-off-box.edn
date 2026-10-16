@@ -3,7 +3,7 @@
 ;; Per Spec 015 §Tests (the `project-egress-omits-event-args-off-box.edn` row)
 ;; and EP-0015 issue 4 — `project-egress` of an `:rf.observe/handled-event`
 ;; record under `:rf.egress/off-box-observability` carries `:frame` /
-;; `:event-id` / `:status` / `:elapsed-ms` / `:effects` / `:correlation` /
+;; `:event-id` / `:time` / `:outcome` / `:elapsed-ms` / `:effects` / `:correlation` /
 ;; `:kind` and OMITS the `:event` args slot ENTIRELY. The off-box default
 ;; fails closed on the raw event payload: a hosted-monitoring sink consuming
 ;; the projected record never sees the dispatched arg-map.
@@ -24,7 +24,7 @@
 {:fixture/id           :data-classification/project-egress-omits-event-args-off-box
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:data-classification/classification-effects}
- :fixture/doc          "project-egress of an :rf.observe/handled-event record under :rf.egress/off-box-observability carries the summary fields (:kind / :frame / :event-id / :status / :elapsed-ms / :effects / :correlation) and OMITS the :event args slot entirely — the off-box default fails closed on the raw event payload (EP-0015 issue 4)."
+ :fixture/doc          "project-egress of an :rf.observe/handled-event record under :rf.egress/off-box-observability carries the summary fields (:kind / :frame / :event-id / :time / :outcome / :elapsed-ms / :effects / :correlation) and OMITS the :event args slot entirely — the off-box default fails closed on the raw event payload (EP-0015 issue 4)."
 
  :fixture/frames
  [{:id :obs/main}]
@@ -37,7 +37,8 @@
                        :frame       :obs/main
                        :event-id    :auth/login
                        :event       [:auth/login {:password "secret"}]
-                       :status      :ok
+                       :time        1700000000000
+                       :outcome     :ok
                        :elapsed-ms  12
                        :effects     [:db]
                        :correlation {:work-id "w-77" :dispatch-id "d-91"}}
@@ -46,7 +47,8 @@
    :expect            {:kind        :rf.observe/handled-event
                        :frame       :obs/main
                        :event-id    :auth/login
-                       :status      :ok
+                       :time        1700000000000
+                       :outcome     :ok
                        :elapsed-ms  12
                        :effects     [:db]
                        :correlation {:work-id "w-77" :dispatch-id "d-91"}}}]}
