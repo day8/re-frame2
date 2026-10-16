@@ -280,6 +280,19 @@ axis, exactly as it does for `:epochs`. The client-side whole-bundle
 sensitive drop still applies afterwards, on the per-event `:sensitive?`
 stamps the projection keeps.
 
+Two answers leave a bundle with no events to fold. A frame that
+classifies its whole app-db sensitive (`{:sensitive [[]]}`) gets its
+`:trace-events` slot back from the projector as `:rf/redacted`. And an
+app without the optional Epoch artefact has no epoch projector at all —
+`project-egress` refuses a stamped record with
+`:rf.error/epoch-artefact-missing` — so the snapshot checks
+`(get-in (re-frame.core/features) [:epoch :loaded?])` first and, when it
+is false, ships each bundle's `:trace-events` as `:rf/redacted` without
+calling the door. In both cases the bundle keeps its `:dispatch-id` and
+`:frame`, its domino slots stay at their empty values rather than being
+rebuilt from the unprojected events, and every other slice of the
+snapshot reads as usual.
+
 ## Universal: `:typicalTokens` on every tool descriptor
 
 Every MCP tool descriptor emitted by `tools/list` carries a
