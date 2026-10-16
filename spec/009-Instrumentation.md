@@ -2450,17 +2450,6 @@ reagent-slim reimplements Reagent (hiccup → React) inside the bundle-isolated 
 
 | `:operation` | `:op-type` | Channel | Trigger / meaning | Default `:recovery` | `:tags` |
 |---|---|---|---|---|---|
-| `:rf.error/as-element-fn-unregistered` | `:error` | diagnostic | The `as-element` render seam was not registered before render — require `reagent2.impl.template` (or `reagent2.core`) so its ns-load wires the seam. | `:no-recovery` — require the ns that installs the seam | `:where`, `:reason`, `:hiccup/summary` |
-| `:rf.error/create-class-key-unsupported` | `:error` | diagnostic | A `create-class` spec carried lifecycle keys the slim adapter does not support. | `:no-recovery` — migrate to the supported keys (or the bridge adapter) | `:where`, `:reason`, `:keys`, `:supported-keys` |
-| `:rf.error/create-class-missing-render` | `:error` | diagnostic | A `create-class` spec is missing the required `:reagent-render` fn. | `:no-recovery` — add a `:reagent-render` fn | `:where`, `:reason`, `:spec/summary` |
-| `:rf.error/static-markup-empty-vector` | `:error` | diagnostic | `render-to-static-markup` met an empty hiccup vector (no head tag). | `:supply-a-head-tag` | `:where`, `:reason` |
-| `:rf.error/static-markup-bad-tag` | `:error` | diagnostic | `render-to-static-markup` met a hiccup head that is not a keyword / component / fn. | `:supply-a-valid-hiccup-head` | `:where`, `:reason`, `:tag/summary`, `:argv/summary` |
-| `:rf.error/static-markup-bad-element` | `:error` | diagnostic | `render-to-static-markup` met an unrenderable hiccup child (not a string / number / keyword / symbol / vector / seq). | `:supply-a-renderable-child` | `:where`, `:reason`, `:got/summary` |
-| `:rf.error/static-markup-no-instance` | `:error` | diagnostic | A render under `render-to-static-markup` handed its component instance to a `reagent2.core` accessor (`argv`, `state-atom`, `force-update`, …); a static render has none. | `:render-from-args` | `:where`, `:reason`, `:accessor` |
-| `:rf.error/static-markup-provider-frame` | `:error` | diagnostic | `render-to-static-markup` met a `frame-provider` naming a frame other than the ambient one; the static walk applies no Provider's value. Thrown by the reagent-slim adapter's static Provider check. | `:export-under-the-provided-frame` | `:where`, `:reason`, `:frame`, `:ambient-frame` |
-| `:rf.error/static-markup-opaque-component` | `:error` | diagnostic | `render-to-static-markup` met a foreign React component: a `:>` / `:r>` / `:f>` head other than a context Provider, or a React class not made by `create-class`. Only React can run one. | `:render-hiccup-in-its-place` | `:where`, `:reason`, `:head` |
-| `:rf.error/template-empty-vector` | `:error` | diagnostic | The live-render `as-element` template met an empty hiccup vector (no head tag). | `:supply-a-head-tag` | `:where`, `:reason` |
-| `:rf.error/template-bad-tag` | `:error` | diagnostic | The live-render `as-element` template met a hiccup head that is not a keyword / component / fn. | `:supply-a-valid-hiccup-head` | `:where`, `:reason`, `:tag/summary`, `:argv/summary` |
 
 ##### Test-harness
 
