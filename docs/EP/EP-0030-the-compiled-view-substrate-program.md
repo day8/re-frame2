@@ -110,7 +110,7 @@ The program was ratified as one decision record (2026-07-11). The rulings:
 | # | Surface | Ruling |
 |---|---|---|
 | R-1 | Spec 004 | Staged merge: the portability law landed immediately; the full normative rewrite merged atomically with the first conforming Stage-1 slice. |
-| R-2 | Spec 006 | Observation-port semantics frozen up front, exact shapes from the ownership spike; the port lives outside the closed ten-fn adapter map. Normative in Spec 006 since S2. |
+| R-2 | Spec 006 | Observation-port semantics frozen up front, exact shapes from the ownership spike; the port lives outside the adapter map ([Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract)). Normative in Spec 006 since S2. |
 | R-3 | Name | `re-frame.ui`, alias `ui`, artifact `day8/re-frame2-ui`; "facet" never public vocabulary. |
 | R-4 | Bare fns | Legal only in known native event properties (invoker + phase known); the proposed day-one strict lint was withdrawn pre-alpha (style, not safety — rf2-b6pua ruling, 2026-07-19). |
 | R-5 | Resumability | Research-tier, decisively; serializability preserves the option and creates no obligation. |
