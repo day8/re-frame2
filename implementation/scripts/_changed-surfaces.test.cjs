@@ -985,6 +985,74 @@ test('the build-config files arm every gate they define (rf2-6yuzo4, rf2-ga8m, r
   }
 });
 
+// THE NPM-ENTRY LANES. A job step that runs `npm run <script>` in implementation/
+// runs a script implementation/package.json defines and nothing else does, so an
+// edit to that file — a script renamed, emptied or rerouted — can stop the lane or
+// change what it runs with no other path changing, and a lane that file does not
+// arm merges that edit green. The steps are DERIVED from test.yml, never listed, so
+// a new lane is held to the rule the day it lands: implementation/package.json must
+// arm an output each such step runs on (the step's own `if:`, else its job's).
+function npmEntrySteps(workflow) {
+  const scripts = JSON.parse(fs.readFileSync(path.join(IMPL_ROOT, 'package.json'), 'utf8')).scripts;
+  const jobs = workflow.slice(workflow.search(/\njobs:\r?\n/));
+  const names = [...jobs.matchAll(/\n {2}([A-Za-z0-9_-]+):\r?\n/g)].map((m) => m[1]);
+  const outputsOf = (text) => [
+    ...new Set([...text.matchAll(/needs\.detect_changed_surfaces\.outputs\.([a-z_]+)/g)].map((m) => m[1])),
+  ];
+  const steps = [];
+  for (const job of names) {
+    const block = jobBlock(workflow, job);
+    const at = block.search(/\n {4}steps:\r?\n/);
+    if (at === -1) continue;
+    const header = block.slice(0, at);
+    const jobIf = /\n {4}if:([\s\S]*?)(?=\n {4}[A-Za-z-]+:)/.exec(header);
+    const defaults = /\n {4}defaults:\r?\n {6}run:\r?\n {8}working-directory: (\S+)/.exec(header);
+    // YAML comment lines go first: the prose above a step sits in the previous
+    // step's slice and names other steps' scripts.
+    const body = block.slice(at).replace(/^\s*#.*$/gm, '');
+    for (const step of body.split(/\n {6}- /).slice(1)) {
+      const dir = /(?:^|\n {8})working-directory: (\S+)/.exec(step);
+      if ((dir ? dir[1] : defaults && defaults[1]) !== 'implementation') continue;
+      const stepIf = /(?:^|\n {8})if:([\s\S]*?)(?=\n {8}[A-Za-z-]+:|$)/.exec(step);
+      const outputs = outputsOf(stepIf ? stepIf[1] : jobIf ? jobIf[1] : '');
+      for (const m of step.matchAll(/\bnpm run ([\w:.-]+)/g)) {
+        if (m[1] in scripts) steps.push({ job, script: m[1], outputs });
+      }
+    }
+  }
+  return steps;
+}
+
+const NPM_ENTRY_STEPS = npmEntrySteps(fs.readFileSync(WORKFLOW, 'utf8'));
+
+test('the npm-entry lanes are derived from test.yml (non-vacuity)', () => {
+  assert.ok(NPM_ENTRY_STEPS.length >= 20, `expected the implementation npm-run steps, found ${NPM_ENTRY_STEPS.length}`);
+  for (const [job, script] of [
+    ['cljs-tools-machines-viz', 'test:tools-machines-viz'],
+    ['machines-viz-viewer-page', 'build:machines-viz-viewer'],
+    ['cljs', 'test:cljs'],
+  ]) {
+    assert.ok(
+      NPM_ENTRY_STEPS.some((s) => s.job === job && s.script === script),
+      `the derivation did not find ${job}'s npm run ${script}`,
+    );
+  }
+  const story = NPM_ENTRY_STEPS.find((s) => s.script === 'test:story-feature-load');
+  assert.deepEqual(story && story.outputs, ['story_full_gate'], "a step's own if: must win over its job's");
+});
+
+for (const { job, script, outputs } of NPM_ENTRY_STEPS) {
+  if (outputs.length === 0) continue; // a job with no if: runs on every PR
+  test(`implementation/package.json arms ${job}'s npm run ${script}`, () => {
+    const armed = classify('implementation/package.json');
+    assert.ok(
+      outputs.some((output) => armed[output] === 'true'),
+      `${job} runs npm run ${script}, which implementation/package.json defines, but that ` +
+        `file arms none of ${outputs.join(', ')}, so an edit to the script merges without the lane running`,
+    );
+  });
+}
+
 // Each gate's own launcher has an arm above the generic implementation/scripts/*
 // one, so a PR editing a gate's teeth runs that gate. Each arm WIDENS: it
 // re-sets every output the generic arm would have set.
