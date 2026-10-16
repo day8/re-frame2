@@ -7,10 +7,10 @@
 
   The runner's self-tests live here: the runner is one `.cljc`, so a check
   that it bites on the JVM is the same check on CLJS. The classification-op
-  guard keeps a CLJS mirror too, because the FixtureFile schema in
-  spec/Spec-Schemas.md names both as its durable negative, and so does the
-  top-level-key guard, because the conformance README binds every host's
-  harness to fail naming a key it does not implement.
+  guard keeps a CLJS mirror too, because the fixture grammar in
+  spec/conformance/fixture-file.edn names both as its durable negative, and
+  so does the top-level-key guard, because the conformance README binds
+  every host's harness to fail naming a key it does not implement.
 
   The corpus run and the self-tests that grade a fixture end to end carry
   `^:requires-debug`: the runner reads trace emissions, routed effects and
