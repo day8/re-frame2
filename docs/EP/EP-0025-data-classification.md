@@ -460,7 +460,8 @@ section-by-section map.
    post-commit `:fx`); record in the per-frame registry; **fail-loud on malformed
    payloads**.
 4. Point the egress projection at the registry as the single source: sensitive/large,
-   sensitive-wins precedence, nested-axis suppression, `[[]]` whole-value, size
+   sensitive-wins precedence, a `:large` subtree measured after its `:sensitive`
+   descendants are redacted, `[[]]` whole-value, size
    backstop, **no propagation** (classify exactly what you mark — no value-match, no
    input → output inheritance) — **profile-aware**,
    and ensure **every default/safe consumer projects** (prod off-box / EP-0008, MCP /

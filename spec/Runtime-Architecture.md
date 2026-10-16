@@ -226,7 +226,7 @@ The Reagent-specific bridging pseudocode — which Reagent primitive realises wh
 
 - Open shape ([009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)).
 - Compile-time elidable in production ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-- Listener invocation is synchronous, on the runtime's emit call stack — every emit returns once every listener has run. Listener-invocation order is **not contract** ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
+- Listener invocation is synchronous, on the runtime's emit call stack — every emit returns once every listener has run, except an emit raised inside a listener callback, which queues its event behind the one being delivered and returns at once. Listener-invocation order is **not contract** ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
 
 ## Lifecycles
 
