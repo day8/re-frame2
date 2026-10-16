@@ -1322,7 +1322,10 @@
                per processed event.
        :pred   1-arg fn `(fn [record] truthy?)` — only records for which
                `(pred record)` is truthy are conj'd. Default: every
-               record accepted.
+               record accepted. An `:errors` window CLAIMS each record
+               its `:pred` accepts, so that record does not also print
+               through the dev console fallback; a record it rejects is
+               unclaimed and prints as it would outside the window.
        :key    listener key (any value). Default: a keyword gensym'd
                afresh each time the bracket runs, so brackets never
                collide in the registry, nested ones included.
@@ -1375,9 +1378,11 @@
            key-form (or key `(keyword (gensym "rf-emit-recorder-")))]
        `(let [~recs-sym     (atom [])
               listener-key# ~key-form]
+          ;; `true` is an `:errors` claim; the `:events` registry ignores it.
           (~reg listener-key#
                 (fn [record#] (when (~pred record#)
-                                (swap! ~recs-sym conj record#))))
+                                (swap! ~recs-sym conj record#)
+                                true)))
           (try
             ~@body
             (finally

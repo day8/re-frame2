@@ -86,7 +86,13 @@
 (def register-error-listener!
   "Register a listener `f` under `id`. Re-registering the same id
   replaces. `f` receives a single error-record map (see ns docstring
-  §Record shape); its return value is ignored. Returns `id`."
+  §Record shape). Returns `id`.
+
+  `f` CLAIMS a record by returning exactly `true`, and a claimed record does
+  not reach the unowned-error dev console fallback. Any other return value,
+  truthy or not, claims nothing, and neither does a throw — so registration
+  alone owns nothing, and a listener that only watches leaves the console
+  line in place. Return `true` from the branch that takes the record."
   (:register registry))
 
 (def unregister-error-listener!
@@ -111,15 +117,18 @@
   console fallback. UNGATED: SSR status projection is a production
   contract, so the hook fires under `goog.DEBUG=false` and
   `-Dre-frame.debug=false`. A throwing hook is dropped, as a throwing
-  listener is. Returns nil."
+  listener is.
+
+  Returns true when a listener CLAIMED the record (see
+  [[register-error-listener!]]), which is the console fallback's arm (a)."
   [record]
-  ((:fan-out registry) record rf.trace/continuation-live?)
-  (when (rf.trace/continuation-live?)
-    (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-record)]
-      (try
-        (capture record)
-        (catch #?(:clj Throwable :cljs :default) _ nil))))
-  nil)
+  (let [claimed? ((:fan-out registry) record rf.trace/continuation-live?)]
+    (when (rf.trace/continuation-live?)
+      (when-some [capture (rf.late-bind/get-fn-cached :ssr/capture-error-record)]
+        (try
+          (capture record)
+          (catch #?(:clj Throwable :cljs :default) _ nil))))
+    claimed?))
 
 ;; ---- unowned-error dev console fallback -----------------------------------
 ;;
@@ -157,19 +166,23 @@
 ;;   * ONLY when NOTHING ROUTED THIS RECORD. That is TWO arms, and the
 ;;     fallback fires when neither holds:
 ;;
-;;       (a) a corpus-wide listener is registered on THIS registry
-;;           ([[register-error-listener!]]). That is an
-;;           IMPLEMENTATION-tier door — the framework's own synchronous-window
-;;           capture sites and tests — not an app-facing one; `:errors` is
-;;           not in the public `rf/register-listener!` vocabulary.
-;;           Ownership is the REGISTRATION — even if that listener ignores
-;;           this category or itself throws — because the listener registry
-;;           is one undifferentiated corpus-wide door and the framework
-;;           cannot tell an indifferent owner from an attentive one without
-;;           inventing per-category ownership, which is deliberately absent.
-;;           A framework artefact's permanent consumer (SSR's projection)
-;;           rides a late-bind hook beside this fan-out ([[fan-out!]]), is
-;;           not a listener, and so never owns.
+;;       (a) a listener on THIS registry ([[register-error-listener!]])
+;;           CLAIMED the record, by returning exactly `true` from its
+;;           delivery. That is an IMPLEMENTATION-tier door — the framework's
+;;           own synchronous-window capture sites and tests — not an
+;;           app-facing one; `:errors` is not in the public
+;;           `rf/register-listener!` vocabulary. Ownership is the CLAIM, not
+;;           the registration: a listener that returns anything else, or
+;;           throws, owns nothing. A capture window open around one dispatch
+;;           — a setup step's, an `:on-destroy`'s — claims the one record it
+;;           turns into its own outcome, and every other record that
+;;           dispatch produces keeps its line; were registration enough, a
+;;           typo'd `:initial-events` step would print nothing at all. The
+;;           claim is a literal `true`, read with `true?`, so a listener
+;;           whose last form happens to be a truthy `swap!` or `reset!` never
+;;           claims by accident. A framework artefact's permanent consumer
+;;           (SSR's projection) rides a late-bind hook beside this fan-out
+;;           ([[fan-out!]]), is not a listener, and so never owns.
 ;;
 ;;       (b) the record's OWNING FRAME declares an `:observability :errors`
 ;;           policy and at least one of its entries resolved to a REGISTERED
@@ -180,22 +193,19 @@
 ;;           than before it. A policy naming a sink the app never registered
 ;;           routes NOWHERE and does not own the record (fail-visible: the
 ;;           console is the only channel left). A registered sink that THROWS
-;;           does own it — the sink author has the record, exactly as for a
-;;           throwing listener.
+;;           does own it — delivery is the ownership, whatever the sink then
+;;           did. A throwing listener does not: it claimed nothing.
 ;;
-;;     The two arms differ in SCOPE, and that difference is the point. A
-;;     listener owns corpus-wide; a frame's sink policy owns only that
-;;     frame's records, so a sibling frame on the same page that declared
-;;     nothing keeps its console line. Keying the fallback on arm (a) ALONE
-;;     would make a no-op listener — registered purely to buy silence, ignoring
-;;     every record it was handed — the cheapest way to quiet the console
-;;     for a whole page, which is precisely the shape a fallback keyed on
-;;     ownership should not reward.
+;;     The two arms earn ownership differently. A listener owns only the
+;;     records it claims, one at a time; a frame's sink policy owns that
+;;     frame's records by delivering them, so a sibling frame on the same
+;;     page that declared nothing keeps its console line. A no-op listener
+;;     registered purely to buy silence buys none.
 ;;
 ;;     There is NO suppression knob and no dedicated API: the off-switch an
 ;;     app has is the frame sink policy (or the `configure!` process default)
 ;;     it already declares — arm (a) is the framework's own registry — and
-;;     dropping the last of either resumes the fallback. Xray does NOT
+;;     dropping the last sink resumes the fallback. Xray does NOT
 ;;     populate the listener registry (it rides the dev-only TRACE axis —
 ;;     `router` forwards to `rf.trace/emit-error!`), so a console line may
 ;;     coexist with an Xray row; the tutorial frames console + Xray
@@ -299,14 +309,15 @@
   §Unowned-error dev console fallback above for why each condition is
   load-bearing.
 
-  `routed` is the number of REGISTERED `:observability :errors` sinks the
-  record's owning frame just delivered it to (arm (b)); the caller takes it
-  from `route-error!` / `route-error-record!`, which is why the caller runs
-  the sink route BEFORE this. Zero for a frameless record, for a frame with
-  no `:errors` policy, and for a policy naming only sinks the app never
+  `claimed?` is arm (a): whether a listener claimed the record, as
+  [[fan-out!]] reported it for the snapshot it delivered to. `routed` is the
+  number of REGISTERED `:observability :errors` sinks the record's owning
+  frame just delivered it to (arm (b)); the caller takes it from
+  `route-error!` / `route-error-record!`, which is why the caller runs the
+  sink route BEFORE this. Zero for a frameless record, for a frame with no
+  `:errors` policy, and for a policy naming only sinks the app never
   registered — all three of which leave the console the record's only
-  channel. Arm (a), an `:errors` listener being registered at all, is read
-  here off `listeners`.
+  channel.
 
   The JVM writes `[re-frame2] <summary-line>` to `*err*` and flushes it. A
   non-DOM JS host (Node, CLJS SSR) calls `console.error` with
@@ -320,10 +331,10 @@
   A no-op when either ownership arm holds, and in any production build — CLJS
   `goog.DEBUG=false` constant-folds the whole body away, and the JVM gate
   reads `-Dre-frame.debug=false`. Never throws. Returns nil."
-  [record routed]
+  [record claimed? routed]
   (when rf.interop/debug-enabled?
     (try
-      (when (and (empty? @listeners)
+      (when (and (not claimed?)
                  (zero? routed))
         (let [summary (console-summary record)]
           #?(:clj  (binding [*out* *err*]
@@ -549,10 +560,11 @@
   where the trace surface is elided.
 
   Fires for every catalogued RUNTIME `:rf.error/*` category PROMOTED
-  onto this always-on listener axis (the promotion criterion, Spec 009
-  §Observability channels). This is the off-box observability stream
-  (Sentry / Datadog / Xray / the SSR error-projection listener) and is
-  the production-survivable source of truth for THAT set. Promotion is
+  onto this always-on axis (the promotion criterion, Spec 009
+  §Observability channels). The record reaches the implementation-tier
+  capture registry — the framework's own synchronous-window capture sites
+  and tests — and then the frame-owned `:observability :errors` sink route,
+  which is the production door for THAT set. Promotion is
   NOT automatic for every production-reachable category: a
   production-reachable category whose sole surfacing is a caller-observed
   pure `error/throw-error!` stays DIAGNOSTIC and does NOT fan a record
@@ -573,7 +585,8 @@
   production contract holds — what is conditional is the PRODUCER.)
 
   There is no app-steering recovery policy. Recovery is framework-owned
-  (the per-category typed defaults); observability is this listener.
+  (the per-category typed defaults); observability is the frame's
+  `:observability :errors` sink.
 
   Builds the tight error-record ONCE, projects a dispatched `:event`
   with off-box defaults (the event registration's `:sensitive` / `:large`
@@ -620,8 +633,8 @@
 
   The trailing `route-frame?` (default true) is the FRAME-AUTHORITY bit for
   ONLY the EP-0015 frame-owned observability sink route below — the
-  corpus-wide listener fan-out (axis 1's off-box source of truth) ALWAYS
-  fires regardless. A caller passes false for a KNOWN-DEAD-incarnation
+  corpus-wide listener fan-out ALWAYS fires regardless. A caller passes
+  false for a KNOWN-DEAD-incarnation
   emission (the two live ones are named below): the captured bare frame id
   no longer names the incarnation the failure belongs to, so resolving it
   to a live same-id SUCCESSOR would deliver a dead incarnation's failure into
@@ -742,7 +755,6 @@
            ;; Elision is callback-bearing. Corpus sibling fanout is one
            ;; already-linearized publication; frame routing is a later one.
            (when (rf.trace/continuation-live?)
-             (fan-out! record)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
              ;; than double-eliding. `raw-identity-event?`
@@ -780,7 +792,11 @@
              ;; other slot — `:reason` among them — rides `:tags`, walked and
              ;; redacted under frame classification. This route is the
              ;; app-facing production door.
-             (let [sink-attrs (cond-> attribution
+             (let [;; The corpus fan-out runs FIRST, before the sink route, so
+                   ;; a throwing route can never starve it. It reports whether
+                   ;; a listener claimed the record (arm (a)).
+                   claimed?   (fan-out! record)
+                   sink-attrs (cond-> attribution
                                 source-coord (assoc :source-coord source-coord))
                    routed (if (rf.trace/continuation-live?)
                             (if-some [route-error! (rf.late-bind/get-fn-cached
@@ -795,11 +811,8 @@
                             0)]
                ;; The console fallback is decided ONCE per fully
                ;; built record, AFTER the sink route because the
-               ;; decision needs its delivered-count (arm (b)). The corpus
-               ;; fan-out runs FIRST, before the sink route, so a throwing route can never
-               ;; starve the always-on listener registry, which is the
-               ;; production-survivable source of truth.
-               (report-unowned-error! record routed)))))))
+               ;; decision needs its delivered-count (arm (b)).
+               (report-unowned-error! record claimed? routed)))))))
    nil))
 
 ;; ---- the two-channel fan-out helper ---------------------------------------
@@ -808,8 +821,8 @@
 ;; production-reachable category; a caller-observed pure `throw-error!` such as
 ;; `:rf.error/custom-element-conflict` stays diagnostic) fans the SAME category
 ;; out along BOTH error channels in lock-step: the always-on
-;; `dispatch-on-error!` listener registry (axis 1 — production-survivable; the
-;; off-box-shipper / SSR-projector source of truth) AND the dev-only
+;; `dispatch-on-error!` axis (axis 1 — production-survivable; the capture
+;; registry, then the frame-owned sink route) AND the dev-only
 ;; `rf.trace/emit-error!` surface (axis 2 — DCE'd under CLJS `:advanced` +
 ;; `goog.DEBUG=false`). This is the ONE shared helper those sites use: the
 ;; ~12 emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics`
@@ -820,9 +833,9 @@
 
 (defn emit-error-both!
   "Fan a runtime `:rf.error/*` `category` out through BOTH error channels in one
-  call: the always-on corpus-wide [[dispatch-on-error!]] listener
-  registry (axis 1 — production-survivable; survives CLJS `:advanced` +
-  `goog.DEBUG=false`, the off-box-shipper + SSR-error-projector source of truth)
+  call: the always-on [[dispatch-on-error!]] axis (axis 1 — production-
+  survivable; survives CLJS `:advanced` + `goog.DEBUG=false`, and reaches the
+  implementation-tier capture registry and then the frame-owned sink route)
   AND the dev-only `re-frame.trace/emit-error!` surface (axis 2 — DCE'd in CLJS
   production). The shared two-channel fan-out every catalogued PROMOTED
   (always-on) runtime error site uses.
@@ -1034,23 +1047,23 @@
   same-id successor's sink. Most records on this path are frameless, which is
   the same arm: they too reach the process default."
   [record route-frame?]
-  (fan-out! record)
-  (let [routed (if (rf.trace/continuation-live?)
-                 (if-some [route-error-record! (rf.late-bind/get-fn-cached
-                                                 :observability/route-error-record)]
-                   (try
-                     (route-error-record! record route-frame?)
-                     (catch #?(:clj Throwable :cljs :default) e
-                       (if (rf.trace/continuation-live?) (throw e) 0)))
-                   0)
-                 0)]
+  (let [claimed? (fan-out! record)
+        routed   (if (rf.trace/continuation-live?)
+                   (if-some [route-error-record! (rf.late-bind/get-fn-cached
+                                                   :observability/route-error-record)]
+                     (try
+                       (route-error-record! record route-frame?)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (if (rf.trace/continuation-live?) (throw e) 0)))
+                     0)
+                   0)]
     ;; The union-record fan-out site's half of the console fallback. Same
     ;; rule as `dispatch-on-error!`: exactly once
     ;; per record, under the same (here unconditional) conditions, and taken
     ;; AFTER the sink route so arm (b)'s delivered-count is available. Most
     ;; of these records are frameless: a declared process default owns
     ;; them, and the fallback stands down.
-    (report-unowned-error! record routed))
+    (report-unowned-error! record claimed? routed))
   nil)
 
 (defn dispatch-error-record!
@@ -1076,11 +1089,11 @@
   `<artefact>` → `error-emit` require would close a load cycle, or the
   artefact simply ships above core's require graph). Returns nil."
   [record]
-  ;; Corpus-wide listeners fan out (the ADVANCED integration registry). The
-  ;; record is delivered UNCHANGED — raw `:exception` and all — because this
-  ;; surface is the off-box-shipper API (Sentry / Datadog need the host
-  ;; exception / stack), NOT privacy-gated like the dev trace; the caller is
-  ;; contracted to keep identifiers tight and carry no raw app-db slice.
+  ;; Corpus-wide listeners fan out (the implementation-tier capture
+  ;; registry). The record is delivered UNCHANGED — raw `:exception` and
+  ;; all — because a capture window wants the raw shape; the record is NOT
+  ;; privacy-gated like the dev trace, so the caller is contracted to keep
+  ;; identifiers tight and carry no raw app-db slice.
   (dispatch-error-record* record true)
   ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy:
   ;; the frame-owned `:observability :errors` sink route — the

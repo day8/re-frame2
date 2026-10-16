@@ -292,10 +292,10 @@
   one synchronous call, so anything arriving inside the window came from
   the render.
 
-  Registering ANY error-emit listener takes corpus-wide ownership and
-  quiets `re-frame.error-emit`'s unowned-error dev console fallback. That
-  is a window one synchronous render wide, and the door re-raises what it
-  saw, so nothing goes unreported."
+  The listener CLAIMS every record it sees, by returning `true`, so none of
+  them also prints through `re-frame.error-emit`'s unowned-error dev
+  console fallback: the door re-raises what it saw, so nothing inside the
+  one-render window goes unreported."
   [listener-id]
   (let [!recorded (atom {:n 0 :first-record nil})]
     (rf.error-emit/register-error-listener!
@@ -304,7 +304,8 @@
         (swap! !recorded
                (fn [seen]
                  {:n            (inc (:n seen))
-                  :first-record (or (:first-record seen) record)}))))
+                  :first-record (or (:first-record seen) record)}))
+        true))
     !recorded))
 
 (defn render
