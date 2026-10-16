@@ -5,8 +5,8 @@
 ;; committed; recovery is :no-recovery; the cascade halts.
 ;;
 ;; This is the :always counterpart to drain-depth-limit.edn — same shape,
-;; different counter. Default limit is 16; this fixture overrides to a small
-;; value (5) for testing economy.
+;; different counter. Default limit is 16; this fixture's definition sets a
+;; small value (5) at its root, for testing economy.
 ;;
 ;; Per [005 §Bounded depth]
 ;; (../../005-StateMachines.md#bounded-depth)
@@ -16,7 +16,7 @@
 {:fixture/id           :machine/always-depth-exceeded
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/eventless-always}
- :fixture/doc          "Two states each with an :always pointing at the other under a guard that's always true. The microstep loop ping-pongs :a → :b → :a → ... and hits the depth limit. Snapshot is uncommitted and no effects survive. The :always-depth-limit is a frame-config knob; this fixture sets it to 5 for testing."
+ :fixture/doc          "Two states each with an :always pointing at the other under a guard that's always true. The microstep loop ping-pongs :a → :b → :a → ... and hits the depth limit. Snapshot is uncommitted and no effects survive. The :always-depth-limit sits at the definition's root; this fixture sets it to 5 for testing."
 
  :fixture/registry
  {:machine-guard
@@ -26,14 +26,11 @@
  {:machine-guard
   {:always/true? [[:fn :identity true]]}}
 
- :fixture/frame-config
- {:initial-events []
-  :always-depth-limit 5}                         ;; small limit for testing
-
  :fixture/calls
  [{:call         :machine-transition
    :definition   {:initial :start
                   :data    {}
+                  :always-depth-limit 5           ;; small limit for testing
                   :guards  {:p? :always/true?}
                   :states
                   {:start {:on {:go {:target :a}}}
