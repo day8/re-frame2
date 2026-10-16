@@ -1099,6 +1099,9 @@
   ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"
                                            :action :keep
                                            :justification "API.md Tiering of cross-tool surfaces standing-classifies the registrar query API as tooling tiered at its re-frame.core home row -- a placement ruling already made against this family. Defined on re-frame.core itself. 130 in-repo consumer files; the same-named re-frame.story var is a different product's surface, not a door."}
+  ["re-frame.core" "ambiguous-registrations"] {:tier :tooling :owner "002" :status "v1"
+                                           :action :keep
+                                           :justification "API.md Tiering of cross-tool surfaces standing-classifies the registrar query API as tooling tiered at its re-frame.core home row -- a placement ruling already made against this family. Defined on re-frame.core itself, beside registrations and handler-meta, whose ambiguous ids it lists so a tool need not diff two reads."}
   ;; EP-0023: `frame-generation` is the dedicated raw READ over the
   ;; EP-0023 frame->generation model — return the sealed image generation a live
   ;; frame is running (the four stable `:rf.gen/*` keys), for tools that EP-0023
