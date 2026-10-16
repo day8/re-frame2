@@ -236,9 +236,9 @@
 
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   ;; each cleanup hook fires exactly once with the destroyed id; the epoch
-  ;; teardown spans the PRE-dissoc snapshot hook (id fs-before fs-after
-  ;; committed-at) and the POST-dissoc hook (id owner-token evidence), and the
-  ;; post hook runs after the snapshot was captured
+  ;; teardown spans the PRE-dissoc snapshot hook (id halt) and the POST-dissoc
+  ;; hook (id owner-token evidence), and the post hook runs after the snapshot
+  ;; was captured
   (let [snapshot      @rf.late-bind/hooks
         calls         (atom {})
         record!       (fn [k v] (swap! calls update k (fnil conj []) v))
@@ -248,20 +248,20 @@
       (doseq [k [:ssr/on-frame-destroyed :machines/on-frame-destroyed!]]
         (rf.late-bind/set-fn! k (fn [id] (record! k id))))
       (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
-        (fn [id fs-before fs-after committed-at]
-          (record! :epoch/snapshot-frame-destroyed [id fs-before fs-after committed-at])
-          (when original-snap (original-snap id fs-before fs-after committed-at))))
+        (fn [id halt]
+          (record! :epoch/snapshot-frame-destroyed [id halt])
+          (when original-snap (original-snap id halt))))
       (rf.late-bind/set-fn! :epoch/on-frame-destroyed
         (fn [id owner-token _evidence]
           (record! :epoch/on-frame-destroyed
                    [id (some? owner-token) (contains? @calls :epoch/snapshot-frame-destroyed)])))
       (rf/make-frame {:id fid})
       (rf.frame/destroy-frame! fid)
-      ;; an out-of-run destroy has no pre-run snapshot and no causal token, and
-      ;; fs-after is the whole two-partition frame-state (EP-0001)
+      ;; an immediate destroy has no event boundary, so it hands the snapshot
+      ;; no halt evidence
       (is (= {:ssr/on-frame-destroyed         [fid]
               :machines/on-frame-destroyed!   [fid]
-              :epoch/snapshot-frame-destroyed [[fid nil {:rf.db/app {} :rf.db/runtime {}} nil]]
+              :epoch/snapshot-frame-destroyed [[fid nil]]
               :epoch/on-frame-destroyed       [[fid true true]]}
              @calls))
       (finally
