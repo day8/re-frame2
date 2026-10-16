@@ -2,7 +2,7 @@
 // GUARANTEE 5 — THE CALLER LATENCY ENVELOPE, MEASURED AGAINST CEILINGS
 // THAT WERE REGISTERED FIRST.
 //
-// The ceilings live in `src/envelope.cjs`; this file reads them and never
+// The ceilings live in `test/envelope.cjs`; this file reads them and never
 // moves them. Measured: total elapsed minus the module's own `renderMs`,
 // over a warm pool, sequential requests and a request inside the
 // registered byte budget. A shape claim, never a benchmark to diff.
@@ -10,7 +10,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService } = require('./_support.cjs');
-const { ENVELOPE, requestBytes, judge } = require('../src/envelope.cjs');
+const { ENVELOPE, requestBytes, judge } = require('./envelope.cjs');
 const { validateRequest, Refusal } = require('../src/protocol.cjs');
 
 const WARMUP = 20;
