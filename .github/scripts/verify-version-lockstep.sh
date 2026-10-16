@@ -110,12 +110,12 @@ declare -A ARTEFACT_PATHS=(
 # implementation/*/deps.edn carrying a :clein/build alias appears in this
 # list, so a publishable artefact cannot be omitted unnoticed.
 #
-# fresco (day8/re-frame2-fresco) is one of two artefacts whose published
+# fresco (day8/re-frame2-fresco) is one of three artefacts whose published
 # :deps name an in-repo artefact besides core (day8/re-frame2-ssr, for the
-# re-frame.fresco.server module). Like ssr-ring it therefore ships from a
-# post-matrix stage in release.yml rather than from the fail-fast:false
-# deploy-leaf matrix; the second-coordinate assertion for it sits beside
-# ssr-ring's below.
+# re-frame.fresco.server module). Like ssr-ring and resources it therefore
+# ships from a post-matrix stage in release.yml rather than from the
+# fail-fast:false deploy-leaf matrix; the second-coordinate assertions for
+# all three sit together below.
 ARTEFACTS=(core schemas reagent uix machines routing flows http ssr ssr-ring resources epoch fresco)
 
 # core is the lockstep root: it does not depend on any other re-frame2
@@ -662,26 +662,30 @@ for artefact in "${NON_CORE[@]}"; do
   IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_local_root}"$'\n'
 done
 
-# TWO implementation artefacts have PUBLISHED :deps referencing a SECOND
-# in-repo framework artefact besides core, and both name the same one,
-# day8/re-frame2-ssr {:local/root "../ssr"}:
+# THREE implementation artefacts have PUBLISHED :deps referencing a SECOND
+# in-repo framework artefact besides core:
 #
-#   ssr-ring — the Ring/Pedestal host adapter sits on top of the ssr renderer;
-#   fresco  — re-frame.fresco.server hands its payload to the ssr
-#              artefact's own fail-closed validator and egress projection
-#              rather than re-spelling them.
+#   ssr-ring  — day8/re-frame2-ssr: the Ring/Pedestal host adapter sits on
+#               top of the ssr renderer;
+#   fresco    — day8/re-frame2-ssr: re-frame.fresco.server hands its payload
+#               to the ssr artefact's own fail-closed validator and egress
+#               projection rather than re-spelling them;
+#   resources — day8/re-frame2-http: managed HTTP is its one read transport,
+#               and re-frame.resources requires re-frame.http.managed.
 #
 # The core reference is checked in the NON_CORE loop above. The release
 # workflow must rewrite BOTH of each artefact's :local/root coordinates to
 # :mvn/version at deploy time, so the in-repo source must declare both —
-# assert the ssr reference here, and register it in the expected set the
+# assert the second reference here, and register it in the expected set the
 # completeness pass below consumes.
 #
-# This is also the property that keeps both artefacts OUT of release.yml's
-# fail-fast:false deploy-leaf matrix; see the post-matrix stages there.
+# This is also the property that keeps all three artefacts OUT of
+# release.yml's fail-fast:false deploy-leaf matrix; see the post-matrix
+# stages there.
 SECOND_IN_REPO_COORD=$(cat <<'EOF'
 ssr-ring|day8/re-frame2-ssr {:local/root "../ssr"}
 fresco|day8/re-frame2-ssr {:local/root "../ssr"}
+resources|day8/re-frame2-http {:local/root "../http"}
 EOF
 )
 
@@ -701,7 +705,7 @@ done <<< "${SECOND_IN_REPO_COORD}"
 # And the converse, for every implementation artefact including core (whose
 # expected set is empty: core is the lockstep root and must stay
 # dependency-free within the repo). release.yml's rewrite is a hand-written
-# matrix of one `local-root` value per leaf — ssr-ring and fresco are off
+# matrix of one `local-root` value per leaf — ssr-ring, fresco and resources are off
 # that matrix precisely because each has a SECOND coordinate — so an in-repo
 # edge nobody inventoried here is an edge nobody rewrites there.
 for artefact in "${ARTEFACTS[@]}"; do

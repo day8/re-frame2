@@ -5,7 +5,7 @@
 #   verify-version-lockstep ──► test ──► deploy-core
 #                                         │
 #                                         │   ── deploy-leaf: ONE matrix job,
-#                                         │      10 values, all in parallel ──
+#                                         │      9 values, all in parallel ──
 #                                         ├── deploy-schemas
 #                                         ├── deploy-reagent
 #                                         ├── deploy-uix
@@ -14,32 +14,32 @@
 #                                         ├── deploy-flows
 #                                         ├── deploy-http
 #                                         ├── deploy-ssr
-#                                         ├── deploy-resources
 #                                         └── deploy-epoch
 #                                                  │
-#                                     ┌────────────┴────────────┐
-#                                     ▼                         ▼
-#                              deploy-ssr-ring           deploy-fresco
-#                                     └────────────┬────────────┘
+#                         ┌────────────────────────┼────────────────────────┐
+#                         ▼                        ▼                        ▼
+#                  deploy-ssr-ring           deploy-fresco          deploy-resources
+#                         └────────────────────────┼────────────────────────┘
 #                                                  ▼
 #                                          github-release
 #
 # Every per-feature artefact's *published* :deps depends only on core
-# (`day8/re-frame2`) — with TWO exceptions, `day8/re-frame2-ssr-ring`
-# and `day8/re-frame2-fresco`, each of which also publishes a
-# dependency on `day8/re-frame2-ssr` (see §The inter-leaf edges below).
-# Cross-feature references at runtime are otherwise wired through
-# `re-frame.late-bind` per Spec 006 §Adapter shipping convention and the
-# Conventions §Packaging conventions §Independence rule. The DAG above
-# reflects that: once core has shipped, every INDEPENDENT leaf artefact
-# is publishable on its own and they fan out in parallel, and the two
-# DEPENDENT leaves ship in stages of their own after them.
+# (`day8/re-frame2`) — with THREE exceptions: `day8/re-frame2-ssr-ring`
+# and `day8/re-frame2-fresco` each also publish a dependency on
+# `day8/re-frame2-ssr`, and `day8/re-frame2-resources` one on
+# `day8/re-frame2-http`, its one read transport (see §The inter-leaf
+# edges below). Cross-feature references at runtime are otherwise wired
+# through `re-frame.late-bind` per Spec 006 §Adapter shipping convention
+# and the Conventions §Packaging conventions §Independence rule. The DAG
+# above reflects that: once core has shipped, every INDEPENDENT leaf
+# artefact is publishable on its own and they fan out in parallel, and
+# the three DEPENDENT leaves ship in stages of their own after them.
 # The independent leaves are the per-feature artefacts (schemas,
-# machines, routing, flows, http, ssr, resources, epoch) plus the
+# machines, routing, flows, http, ssr, epoch) plus the
 # substrate-adapter leaves (reagent, uix). The per-feature
 # split set is closed; an addition requires a new Spec-ulation increment.
 #
-# # The inter-leaf edges: ssr-ring and fresco both depend on ssr
+# # The inter-leaf edges: ssr-ring and fresco depend on ssr, resources on http
 #
 # implementation/ssr-ring/deps.edn declares TWO in-repo coordinates in
 # its published :deps — day8/re-frame2 (../core) AND day8/re-frame2-ssr
@@ -54,23 +54,30 @@
 # than re-spelling those helpers locally, so the packaging graph is the
 # DAG fresco -> ssr -> core. Same shape, same hazard, same remedy.
 #
+# implementation/resources/deps.edn declares day8/re-frame2-http (../http)
+# beside core, because managed HTTP is resources' one read transport and
+# `re-frame.resources` requires `re-frame.http.managed`: the packaging graph
+# is resources -> http -> core. Same shape again, with http in ssr's place.
+#
 # Those edges are load-bearing on the DAG because Clojars has no yank.
 # If ssr-ring published while the ssr leaf had failed,
 # day8/re-frame2-ssr-ring <VERSION> would sit on Clojars permanently
 # declaring a dependency that resolves to nothing; bump-and-supersede
 # (§Failure recovery below) adds a good version but cannot remove the
 # broken one, so a consumer pinning the original gets an unresolvable
-# tree forever. And neither dependent leaf can notice from inside its
-# own job: each installs ssr into the runner's ~/.m2, so it never asks
-# Clojars whether ssr is there.
+# tree forever. And no dependent leaf can notice from inside its own
+# job: each installs its sibling (ssr or http) into the runner's ~/.m2,
+# so it never asks Clojars whether that sibling is there.
 #
 # The ordering is therefore STRUCTURAL, not conventional.
-# `deploy-ssr-ring` and `deploy-fresco` are each their own job with
-# `needs: [deploy-core, deploy-leaf]`, and a `needs` edge onto a matrix
-# job waits for EVERY value to SUCCEED. That buys exactly the invariant:
+# `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` are each
+# their own job with `needs: [deploy-core, deploy-leaf]`, and a `needs`
+# edge onto a matrix job waits for EVERY value to SUCCEED. That buys
+# exactly the invariant:
 #
 #   if the ssr leaf does not publish successfully, neither ssr-ring nor
-#   fresco publishes at all.
+#   fresco publishes at all; if the http leaf does not, resources does
+#   not.
 #
 # `needs: deploy-leaf` is deliberately STRONGER than the pom edge — it
 # also blocks them behind leaves they do not depend on (flows, epoch,
@@ -82,13 +89,14 @@
 # would be superseded regardless. Erring toward "do not publish"
 # is free here, and the failure it prevents is irreversible.
 #
-# The two stages are SIBLINGS, not a chain: neither artefact appears in
-# the other's published pom, so they run in parallel after the matrix.
+# The three stages are SIBLINGS, not a chain: none of the three artefacts
+# appears in another's published pom, so they run in parallel after the
+# matrix.
 #
 # Guarded mechanically by implementation/scripts/_release-dag-policy.test.cjs
 # (`npm run test:script-policy`), which parses this file's job graph and
 # fails if a leaf carrying a second in-repo coordinate is ever placed in
-# the fail-fast:false matrix, or if either stage loses its ordering edge.
+# the fail-fast:false matrix, or if any stage loses its ordering edge.
 #
 # # Lockstep versioning policy through 1.0
 #
@@ -361,12 +369,13 @@ jobs:
   #    core only is unaffected by a flows-deploy failure).
   #
   #    That premise is what makes `fail-fast: false` safe, so it has to
-  #    stay true. The two leaves that DO carry a published-pom edge to a
-  #    sibling — ssr-ring → ssr and fresco → ssr — are deliberately NOT
-  #    values here; they are the `deploy-ssr-ring` and `deploy-fresco`
-  #    jobs below, each gated on this whole matrix succeeding (see
-  #    §The inter-leaf edges at the top of this file). Do
-  #    not move either back in, and do not add a value whose published
+  #    stay true. The three leaves that DO carry a published-pom edge to
+  #    a sibling — ssr-ring → ssr, fresco → ssr and resources → http — are
+  #    deliberately NOT values here; they are the `deploy-ssr-ring`,
+  #    `deploy-fresco` and `deploy-resources` jobs below, each gated on
+  #    this whole matrix succeeding (see §The inter-leaf edges at the top
+  #    of this file). Do not move any of them back in, and do not add a
+  #    value whose published
   #    :deps reference an in-repo artefact besides core: under
   #    `fail-fast: false` such a value can publish a coordinate that
   #    resolves to nothing while its sibling's deploy is red, and
@@ -374,7 +383,7 @@ jobs:
   #    the split.
   #
   #    The github-release job depends on `deploy-leaf` (which waits for
-  #    ALL matrix values to succeed) and on both post-matrix stages, so a
+  #    ALL matrix values to succeed) and on all three post-matrix stages, so a
   #    partial deploy means no GitHub Release is cut and the next step
   #    is the recovery procedure documented at the top of this file.
   #
@@ -430,18 +439,15 @@ jobs:
             artefact: day8/re-frame2-ssr
             directory: implementation/ssr
             local-root: ../core
-          # NOTE — ssr-ring is NOT a value here, and neither is fresco.
-          # They are the two leaves whose published :deps reference a
-          # SECOND in-repo artefact besides core (both of them
-          # day8/re-frame2-ssr at ../ssr), which under
-          # `fail-fast: false` would let either publish an unresolvable
-          # pom while the `ssr` value above is red. They live in the
-          # `deploy-ssr-ring` and `deploy-fresco` jobs below, each
+          # NOTE — ssr-ring, fresco and resources are NOT values here.
+          # They are the three leaves whose published :deps reference a
+          # SECOND in-repo artefact besides core (day8/re-frame2-ssr at
+          # ../ssr for the first two, day8/re-frame2-http at ../http for
+          # resources), which under `fail-fast: false` would let any of
+          # them publish an unresolvable pom while its sibling's value
+          # above is red. They live in the `deploy-ssr-ring`,
+          # `deploy-fresco` and `deploy-resources` jobs below, each
           # ordered after this whole matrix.
-          - leaf: resources
-            artefact: day8/re-frame2-resources
-            directory: implementation/resources
-            local-root: ../core
           - leaf: epoch
             artefact: day8/re-frame2-epoch
             directory: implementation/epoch
@@ -495,10 +501,10 @@ jobs:
       # be worded.
       #
       # ONE call per value: every leaf in this matrix has exactly one
-      # in-repo coordinate (core). The two leaves with a second one,
-      # ssr-ring and fresco, are not in this matrix — see
-      # `deploy-ssr-ring` and `deploy-fresco` below, whose rewrite steps
-      # call the script twice.
+      # in-repo coordinate (core). The three leaves with a second one,
+      # ssr-ring, fresco and resources, are not in this matrix — see
+      # `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` below,
+      # whose rewrite steps call the script twice.
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
@@ -517,12 +523,12 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
-  # 4b. Deploy ssr-ring — one of the two leaves with a published-pom edge
-  #     to a sibling leaf, so it ships in a stage of its own AFTER the
-  #     matrix. Its
-  #     sibling stage is `deploy-fresco` (4c) — same shape, same edge
-  #     onto `ssr`, and the two run in parallel because neither appears
-  #     in the other's published pom.
+  # 4b. Deploy ssr-ring — one of the three leaves with a published-pom
+  #     edge to a sibling leaf, so it ships in a stage of its own AFTER
+  #     the matrix. Its sibling stages are `deploy-fresco` (4c) — same
+  #     shape, same edge onto `ssr` — and `deploy-resources` (4d), whose
+  #     edge runs onto `http`; the three run in parallel because none
+  #     appears in another's published pom.
   #
   #     implementation/ssr-ring/deps.edn publishes a dependency on
   #     day8/re-frame2-ssr as well as day8/re-frame2, so this artefact's
@@ -639,8 +645,8 @@ jobs:
         run: clojure -M:clein install
 
       # Two rewrites, one per in-repo coordinate — see the matrix job's
-      # Rewrite step for what the script guarantees. ssr-ring and fresco
-      # are the only leaves that need the second call.
+      # Rewrite step for what the script guarantees. ssr-ring, fresco and
+      # resources are the only leaves that need the second call.
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
@@ -661,7 +667,7 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
-  # 4c. Deploy fresco — the second leaf with a published-pom edge to a
+  # 4c. Deploy fresco — another leaf with a published-pom edge to a
   #     sibling leaf. Everything 4b says applies verbatim:
   #     implementation/fresco/deps.edn publishes day8/re-frame2 AND
   #     day8/re-frame2-ssr, so its pom only resolves if the `ssr` matrix
@@ -772,24 +778,124 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
+  # 4d. Deploy resources — the leaf whose published-pom edge runs to
+  #     http rather than ssr. implementation/resources/deps.edn
+  #     publishes day8/re-frame2 AND day8/re-frame2-http, because managed
+  #     HTTP is resources' one read transport, so its pom only resolves
+  #     if the `http` matrix value actually reached Clojars. Everything
+  #     4b says applies with http in ssr's place: `needs: deploy-leaf`,
+  #     which waits for EVERY matrix value to SUCCEED, is what makes
+  #     that structural rather than conventional:
+  #
+  #       if the http leaf does not publish successfully, resources does
+  #       not publish at all.
+  #
+  #     The single-value `matrix:` is not decoration, for the same reason
+  #     4b's is not: _rewrite-local-root-coord.test.cjs and
+  #     _release-dag-policy.test.cjs both read this leaf's identity from
+  #     it.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-resources:
+    name: Deploy ${{ matrix.artefact }}
+    needs:
+      - deploy-core
+      - deploy-leaf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - leaf: resources
+            artefact: day8/re-frame2-resources
+            directory: implementation/resources
+            local-root: ../core
+            extra-local-root: ../http
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        # Same rationale as the matrix job's core install: skip the wait
+        # on Clojars' index refresh for the coordinate deploy-core just
+        # published.
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
+      # The same index-latency shortcut, and the same non-property, as
+      # deploy-ssr-ring's ssr install, with http in ssr's place: resolving
+      # http from ~/.m2 means this job never asks Clojars whether http is
+      # there, so the job cannot itself detect a missing sibling. That
+      # detection is the `needs:` edge's job — keep the two together. The
+      # POM FIDELITY note in 4b applies too: `clein install` writes no pom,
+      # and the pom consumers actually get is built by the `http` value of
+      # the deploy-leaf matrix, after its own rewrite.
+      - name: Install http to runner ~/.m2
+        working-directory: implementation/http
+        run: clojure -M:clein install
+
+      # Two rewrites, one per in-repo coordinate — see the matrix job's
+      # Rewrite step for what the script guarantees.
+      - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
+        working-directory: ${{ matrix.directory }}
+        env:
+          VERSION: ${{ needs.deploy-core.outputs.version }}
+          LOCAL_ROOT: ${{ matrix.local-root }}
+          EXTRA_LOCAL_ROOT: ${{ matrix.extra-local-root }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${LOCAL_ROOT}" "${VERSION}"
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${EXTRA_LOCAL_ROOT}" "${VERSION}"
+          grep "day8/re-frame2" deps.edn
+
+      - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
+        working-directory: ${{ matrix.directory }}
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+  # ─────────────────────────────────────────────────────────────────
   # 5. GitHub Release. Cuts only after every leaf has shipped —
-  #    including both post-matrix stages — so a partial deploy means no
+  #    including all three post-matrix stages — so a partial deploy means no
   #    Release is created and the next step is the recovery procedure
   #    documented at the top of this file.
   # ─────────────────────────────────────────────────────────────────
   github-release:
     name: Create GitHub Release
     # A `needs` entry referencing a matrix job waits for ALL of its
-    # matrix values to succeed, so `deploy-leaf` alone covers the eleven
-    # independent leaves. `deploy-ssr-ring` and `deploy-fresco` are
-    # listed separately because each is its own job; without them here,
-    # a SKIPPED stage would still cut a
+    # matrix values to succeed, so `deploy-leaf` alone covers the nine
+    # independent leaves. `deploy-ssr-ring`, `deploy-fresco` and
+    # `deploy-resources` are listed separately because each is its own
+    # job; without them here, a SKIPPED stage would still cut a
     # Release announcing the artefact.
     needs:
       - deploy-core
       - deploy-leaf
       - deploy-ssr-ring
       - deploy-fresco
+      - deploy-resources
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
