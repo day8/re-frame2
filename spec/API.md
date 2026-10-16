@@ -803,6 +803,10 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx.nav/capture-scroll-args` | Args of `:rf.nav/capture-scroll` fx | 012 |
 | `:rf.fx/with-nav-token-args` | Args of `:rf.route/with-nav-token` fx wrapper | 012 |
 | `:rf.fx/spawn-args` | Args of `:rf.machine/spawn` fx (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx`) | 005 |
+| `:rf.fx/destroy-machine-args` | Args of `:rf.machine/destroy` fx (the canonical actor-destroy fx-id; a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) | 005 |
+| `:rf.fx/spawn-all-init-args` | Args of `:rf.machine/spawn-all-init` fx (machine-internal: seeds a `:spawn-all` join) | 005 |
+| `:rf.fx/after-schedule-args` | Args of `:rf.machine/after-schedule` fx (machine-internal: arms one `:after` timer) | 005 |
+| `:rf.fx/after-cancel-args` | Args of `:rf.machine/after-cancel` fx (machine-internal: releases an exited state's `:after` timers) | 005 |
 | `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |
 | `:rf.fx/managed-abort-args` | Args of `:rf.http/managed-abort` fx (request-id) | 014 |
 | `:rf.http/reply` | Canonical reply envelope `{:status :ok :value v …}` / `{:status :error :error {:kind <:rf.http/*> …} …}` / `{:status :cancelled :error {:kind :rf.http/aborted …} …}` appended to the reply target (`:reply-to` unified, or `:on-success`/`:on-failure` split sugar) | 014 |
