@@ -497,10 +497,10 @@
 
       (testing "a scoped key projects identically wherever it rides — family
                 rows and fx carriers alike — so per-key joins survive"
-        (is (= [true sensitive-resource-id true]
-               [(redacted-token? (first sensitive)) (second sensitive)
+        (is (= [:rf.scope/global sensitive-resource-id true]
+               [(first sensitive) (second sensitive)
                 (redacted-token? (nth sensitive 2))])
-            "the sensitive key tokenizes scope and params; its resource-id survives")
+            "the sensitive key tokenizes its params; its global scope and resource-id survive")
         (is (= #{sensitive} (keys-naming sensitive-resource-id)))
         (is (= #{[:rf.scope/global plain-resource-id {:slug plain-slug}]}
                (keys-naming plain-resource-id))
