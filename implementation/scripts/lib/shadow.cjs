@@ -322,12 +322,12 @@ const signalHandlers = new Map();
 let exitHooked = false;
 
 function onSignal(signal) {
+  // Counted before the reap, which disarms this handler once nothing is left to own.
+  const callerHandles = process.listenerCount(signal) > 1;
   reapSync();
   // Leave the exit to any other handler the caller installed; otherwise exit as the
   // signal would have.
-  if (process.listenerCount(signal) <= 1) {
-    process.exit(128 + (os.constants.signals[signal] || 1));
-  }
+  if (!callerHandles) process.exit(128 + (os.constants.signals[signal] || 1));
 }
 
 function armSignals() {
