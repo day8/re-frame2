@@ -1432,7 +1432,7 @@ Targeting `[:authenticated]` lands the snapshot at `[:authenticated :dashboard]`
 
 A compound state without `:initial` is a registration error — emits `:rf.error/machine-compound-state-missing-initial` at registration time and, in the CLJS reference with schema validation enabled, fails the registration.
 
-Every `:initial` — the machine root's, a compound state's, a parallel region body's — must be the key of a state declared in that same node's `:states`. An `:initial` naming nothing would boot the machine into a phantom state that handles no event, so registration rejects it with `:rf.error/machine-unresolved-target` (`:slot :initial`, `:target` the undeclared keyword).
+Every `:initial` — the machine root's, a compound state's, a parallel region body's — must be the key of a state declared in that same node's `:states`. An `:initial` naming nothing would boot the machine into a phantom state that handles no event, so registration rejects it with `:rf.error/machine-unresolved-target` (`:slot :initial`, `:target` the undeclared keyword). An `:initial` may name the compound's own history pseudo-state; entering through it restores, per [§Restoring](#restoring--on-transition-to-the-pseudo-state).
 
 #### Initial-state `:entry` fires on machine creation (start)
 
@@ -3569,6 +3569,8 @@ When a transition resolves to a history pseudo-state declared under compound `C`
 **Which recording is read.** The transition's exit set reads no recording — it is taken at the pseudo-state's own position (per [§Composition with the LCA](#composition-with-the-lca-entryexit-cascade-and-final-states)) — and the pseudo-state then resolves against the recording that exit set writes (the SCXML exit-then-enter order; recording happens as part of the exit cascade's commit, per [§Recording](#recording--on-compound-state-exit)). So a transition that exits `C` on its way to `C`'s history — `:reenter? true` declared on `C`, or a transition declared on an ancestor of `C` while inside it — restores the configuration it has just left.
 
 In every case the **resolved** leaf path — not the pseudo-state — is what the entry cascade enters and what the post-transition snapshot's `:state` records. The pseudo-state node is never a member of any `:state` configuration; it has no `:entry` / `:exit` / `:on` / `:always` / `:after` of its own (see [§Pseudo-state constraints](#pseudo-state-constraints)).
+
+**An `:initial` that names the history pseudo-state.** A compound's `:initial` may name its own history pseudo-state — W3C SCXML test580's shape, `{:initial :sh :states {:sh {:type :history :default-target :s11} …}}`. Entering the compound through its `:initial`, by a transition whose target cascades into it or by the birth cascade, resolves the pseudo-state exactly as a transition naming it does: the recorded configuration, else the `:default-target`. Rule (2)'s fallback to `C`'s `:initial` would name the pseudo-state itself, so a pseudo-state named by its compound's `:initial` declares a `:default-target`. The reference implementation diverges here: a transition entering the compound through its `:initial` commits the pseudo-state itself as the leaf, recording or not, and so does the birth cascade when the pseudo-state has no `:default-target`; a port follows this section, not that.
 
 ### Composition with the LCA, entry/exit cascade, and final states
 
