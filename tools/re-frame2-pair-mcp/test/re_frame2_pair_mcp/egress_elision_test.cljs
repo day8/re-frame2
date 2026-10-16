@@ -168,8 +168,7 @@
   ["(update fmap :traces"
    (str "(re-frame.core/project-egress {:kind :rf/epoch-record :frame (:frame b#)"
         " :trace-events (:trace-events b#)} " opts ")")
-   "(reduce re-frame.trace.projection/absorb (assoc re-frame.trace.projection/empty-event-bundle"
-   ":trace-events pe#) pe#)"])
+   "(reduce re-frame.trace.projection/absorb acc# pe#)"])
 
 (defn- full-traces
   "snapshot args expanding the `:traces` slice."

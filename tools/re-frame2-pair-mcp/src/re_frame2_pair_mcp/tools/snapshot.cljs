@@ -125,7 +125,9 @@
         ;; slice takes would redact none of them. Each bundle therefore
         ;; takes the epoch projector's trace-event rules under the same
         ;; opts as `:epochs` (`epoch_egress/project-trace-bundles-src`),
-        ;; always, gate ON or OFF.
+        ;; always, gate ON or OFF. Without the Epoch artefact there is no
+        ;; projector, so each bundle's trace events ship as `:rf/redacted`
+        ;; and the other slices read as usual.
         ;; EP-0001 — the `:machines` slice is
         ;; RUNTIME-DB-partition state (machine snapshots live in the
         ;; durable runtime-db partition). Per Spec

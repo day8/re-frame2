@@ -40,7 +40,10 @@
     2. ANY constituent `:trace-events` entry carries `:sensitive? true`
        — a belt-and-braces walk that catches a sensitive cascade even
        if the record-level rollup is absent (a runtime missing the
-       late-bind hook, a hand-built record in a test fixture).
+       late-bind hook, a hand-built record in a test fixture). Only a
+       sequential slot has entries to walk: the projection may answer
+       the whole slot with `:rf/redacted`, which carries nothing to
+       drop.
 
   The qualified `:rf.epoch/sensitive?` rollup is the load-bearing key:
   a schema-derived sensitive epoch — sensitivity sourced from a
@@ -58,8 +61,9 @@
   [epoch]
   (and (map? epoch)
        (or (rf.mcp-base.sensitive/sensitive-stamp? (:rf.epoch/sensitive? epoch))
-           (boolean (some rf.mcp-base.sensitive/sensitive-event?
-                          (:trace-events epoch))))))
+           (let [evs (:trace-events epoch)]
+             (and (sequential? evs)
+                  (boolean (some rf.mcp-base.sensitive/sensitive-event? evs)))))))
 
 (defn strip-sensitive
   "Remove `:sensitive? true` items from `items` unless the caller opted
