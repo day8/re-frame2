@@ -62,6 +62,7 @@
         (fn [captured]
           (rf/reg-http-interceptor :boom-after
             {:after (fn [_ctx _resp] (throw (ex-info "reply-tail kaboom" {})))})
+          (rf/make-frame {:id :rf/default :http-interceptors [:boom-after]})
           (rf/reg-event :ln85eg/reply
             (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
           (rf/reg-event :ln85eg/load
@@ -97,6 +98,7 @@
             {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
           (rf/reg-http-interceptor :echo-auth
             {:after (fn [ctx _resp] [(get-in ctx [:request :headers "Authorization"])])})
+          (rf/make-frame {:id :rf/default :http-interceptors [:mark-sensitive :echo-auth]})
           (rf/reg-event :rtsecret/reply
             (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
           (rf/reg-event :rtsecret/load
@@ -137,6 +139,7 @@
         (fn [captured]
           (rf/reg-http-interceptor :boom-after
             {:after (fn [_ctx _resp] (throw (ex-info "after kaboom" {})))})
+          (rf/make-frame {:id :rf/default :http-interceptors [:boom-after]})
           (rf/reg-event :rtdeny/reply
             (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
           (rf/reg-event :rtdeny/load

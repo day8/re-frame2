@@ -1,8 +1,9 @@
 (ns re-frame.http-interceptors-test
-  "JVM tests for Spec 014 §Middleware — the per-frame HTTP interceptor chain:
-  registration and clearing, chain order and frame scope, what a chain error
-  publishes, issue-time chain capture on the live transport, and how the
-  final `:status` an `:after` returns picks the reply's branch.
+  "JVM tests for Spec 014 §Middleware — HTTP interceptor definitions and each
+  frame's `:http-interceptors` chain: registration and clearing, chain order
+  and frame scope, what a chain error publishes, issue-time chain capture on
+  the live transport, and how the final `:status` an `:after` returns picks
+  the reply's branch.
 
   Requests go to an in-process JDK `HttpServer`, so a test asserts on what
   actually reached the wire. Every test that sends a request awaits its REPLY
@@ -18,16 +19,28 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]
             [re-frame.http.test-support]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
-;; The fixture pins `:rf/default` as the ambient frame, so frameless
-;; registrations land there; tests that need no scope rebind
-;; `*current-frame*` to nil.
+;; The fixture pins `:rf/default` as the ambient frame, the frame `send!`
+;; issues from unless told otherwise.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+
+(defn- name-chain!
+  "Make (or re-make) `frame` naming `ids` as its `:http-interceptors` chain."
+  ([ids] (name-chain! :rf/default ids))
+  ([frame ids] (rf/make-frame {:id frame :http-interceptors ids})))
+
+(defn- reg-and-name!
+  "Register each `[id interceptor-map]` and make `:rf/default` name them, in
+  that order."
+  [& pairs]
+  (doseq [[id m] pairs] (rf/reg-http-interceptor id m))
+  (name-chain! (mapv first pairs)))
 
 ;; ---- in-process server harness --------------------------------------------
 
@@ -93,76 +106,113 @@
     (try (f traces)
          (finally (rf.trace.tooling/unregister-listener! id)))))
 
-;; ---- registration needs a frame scope -------------------------------------
+;; ---- a definition is frame-agnostic --------------------------------------
 
-(deftest reg-http-interceptor-bare-fails-closed-with-frame-installs-rf2-9ynwvx
-  (testing "a bare reg under no frame scope raises :rf.error/no-frame-context
-            and installs nothing; inside (with-frame f …) it installs on f's
-            chain even though f was never made (the RealWorld example pattern)"
+(deftest reg-http-interceptor-is-a-top-level-definition
+  (testing "with no frame in scope, reg-http-interceptor registers the
+            registrar kind :http-interceptor, and clear removes it with no
+            frame either"
     (binding [rf.frame/*current-frame* nil]
-      (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth {:before identity})
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown))))
-        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-            "nothing was installed on a synthesised :rf/default chain"))
-      (is (= :rf.error/no-frame-context
-             (:rf.error/id (ex-data (try (rf/clear :http-interceptor :some-id) nil
-                                         (catch clojure.lang.ExceptionInfo e e)))))
-          "the single-arity clear fails closed the same way")
-      (rf/with-frame :realworld/app
-        (rf/reg-http-interceptor :realworld/bearer-auth {:before identity})))
-    (is (= [:realworld/bearer-auth]
-           (mapv :id (rf.http.managed/interceptors-snapshot :realworld/app))))))
+      (is (= :shop/auth (rf/reg-http-interceptor :shop/auth {:before identity})))
+      (is (= :shop/auth (:id (rf.registrar/lookup :http-interceptor :shop/auth))))
+      (is (= :shop/auth (rf/clear :http-interceptor :shop/auth)))
+      (is (nil? (rf.registrar/lookup :http-interceptor :shop/auth)))))
+  (testing "a :frame in the interceptor map is refused, and the message names
+            the :http-interceptors frame-config key"
+    (doseq [frame [:rf/default "not-a-keyword" nil]]
+      (let [ex (try (rf/reg-http-interceptor :shop/auth {:frame frame :before identity})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data ex))) (pr-str frame))
+        (is (str/includes? (str (ex-message ex)) ":http-interceptors"))))
+    (is (nil? (rf.registrar/lookup :http-interceptor :shop/auth))
+        "nothing was registered")))
 
 ;; ---- chain order and frame scope -------------------------------------------
 
-(deftest multi-interceptor-runs-in-registration-order
-  (testing "the :before chain runs in registration order, each :before seeing
-            the earlier ones' output, and its final request is what reaches the
-            wire; re-registering an id replaces it in place, while clearing and
-            then re-registering it appends it at the end"
+(deftest chain-runs-in-the-frame-vector-order
+  (testing "the frame's :http-interceptors vector is the order: :before runs in
+            vector order, each seeing the earlier ones' output, :after in
+            reverse, and registration order has no effect"
     (let [seen   (atom nil)
+          log    (atom [])
           stamp! (fn [id s]
                    (rf/reg-http-interceptor id
-                     {:before #(update-in % [:request :headers "X-Chain"] str s)}))]
+                     {:before #(update-in % [:request :headers "X-Chain"] str s)
+                      :after  (fn [_ctx resp] (swap! log conj id) resp)}))]
+      ;; Registered c, b, a — the reverse of the first vector below.
+      (stamp! :c "c") (stamp! :b "b") (stamp! :a "a")
       (with-server
         (fn [ex] (reset! seen (header-of ex "X-Chain")) (ok! ex))
         (fn [base]
-          (doseq [[label register! expected]
-                  [["registration order"
-                    #(do (stamp! :a "a") (stamp! :b "b") (stamp! :c "c"))
-                    "abc"]
-                   ["re-registering an id replaces it in place"
-                    #(do (stamp! :a "1") (stamp! :b "b") (stamp! :a "2"))
-                    "2b"]
-                   ["clear then re-register appends at the end"
-                    #(do (stamp! :a "a") (stamp! :b "b") (stamp! :c "c")
-                         (rf/clear :http-interceptor :a)
-                         (stamp! :a "a"))
-                    "bca"]]]
-            (testing label
-              (rf.http.middleware/clear-all-http-interceptors!)
-              (register!)
+          (doseq [[ids before after] [[[:a :b] "ab" [:b :a]]
+                                      [[:b :a] "ba" [:a :b]]
+                                      [[:a :b :c] "abc" [:c :b :a]]]]
+            (testing (pr-str ids)
+              (reset! log [])
+              (name-chain! ids)
               (request! (str base "/x"))
-              (is (= expected @seen)))))))))
+              (is (= before @seen) ":before in vector order")
+              (is (= after @log) ":after in reverse")))
+          (testing "re-registering an id replaces its definition in its place"
+            (name-chain! [:a :b])
+            (stamp! :a "A")
+            (request! (str base "/x"))
+            (is (= "Ab" @seen))))))))
 
-(deftest interceptor-is-frame-scoped
-  (testing "an interceptor registered on frame A does not transform frame B's requests"
+(deftest a-frame-runs-only-the-chain-it-names
+  (testing "a frame naming no chain runs no interceptor, however many
+            definitions are registered, and two frames diverge by naming
+            different ids"
     (let [seen (atom {})]
       (with-server
         (fn [^HttpExchange ex]
           (swap! seen assoc (.getPath (.getRequestURI ex)) (header-of ex "X-Marker"))
           (ok! ex))
         (fn [base]
-          (rf/make-frame {:id :other-frame})
-          (rf/reg-http-interceptor :marker
-            {:frame  :rf/default
-             :before #(assoc-in % [:request :headers "X-Marker"] "default-only")})
-          (request! (str base "/from-default"))
-          (request! (str base "/from-other") :other-frame)
-          ;; The nil is assoc'd, so the equality also proves both requests arrived.
-          (is (= {"/from-default" "default-only" "/from-other" nil} @seen)))))))
+          (doseq [who ["user" "admin"]]
+            (rf/reg-http-interceptor (keyword who "auth")
+              {:before #(assoc-in % [:request :headers "X-Marker"] who)}))
+          (name-chain! :user/app [:user/auth])
+          (name-chain! :admin/app [:admin/auth])
+          (rf/make-frame {:id :plain/app})
+          (request! (str base "/from-user") :user/app)
+          (request! (str base "/from-admin") :admin/app)
+          (request! (str base "/from-plain") :plain/app)
+          ;; The nil is assoc'd, so the equality also proves every request arrived.
+          (is (= {"/from-user" "user" "/from-admin" "admin" "/from-plain" nil} @seen)))))))
+
+(deftest unregistered-chain-id-fails-at-issue
+  (testing "a frame naming an id no definition answers fails the request at
+            issue with :rf.error/unregistered-interceptor naming the id; no
+            :before runs and nothing reaches the wire"
+    (let [hits    (atom 0)
+          befores (atom 0)]
+      (with-server (fn [ex] (swap! hits inc) (ok! ex))
+        (fn [base]
+          (reg-and-name! [:known {:before (fn [ctx] (swap! befores inc) ctx)}])
+          (name-chain! [:known :never-registered])
+          (with-traces
+            (fn [traces]
+              (send! (str base "/x") {} :rf/default)
+              (let [ev   (first (filter #(= :rf.error/fx-handler-exception (:operation %)) @traces))
+                    data (ex-data (get-in ev [:tags :exception]))]
+                (is (= :rf.error/unregistered-interceptor (:rf.error/id data)))
+                (is (= [:never-registered :rf/default] [(:id data) (:frame data)]))
+                (is (= [0 0] [@befores @hits]))))))))))
+
+(deftest a-later-image-shadows-a-definition-for-its-frames
+  (testing "a frame built on a later image resolves that image's definition of
+            the id; a frame without the image keeps the app's"
+    (let [app     (rf/image {:id :test/app :select-ns {:include ["re-frame.http-interceptors-test"]}})
+          variant (rf/image {:id :test/variant :select-ns {:include ["probe.variant"]}})]
+      (rf/reg-http-interceptor :shop/auth {:doc "app" :before identity})
+      (rf/reg-http-interceptor :shop/auth {:ns 'probe.variant :doc "variant" :before identity})
+      (rf/make-frame {:id :test/app :images [app] :http-interceptors [:shop/auth]})
+      (rf/make-frame {:id :test/variant :images [app variant] :http-interceptors [:shop/auth]})
+      (is (= [["app"] ["variant"]]
+             (mapv #(mapv :doc (rf.http.managed/interceptors-snapshot %))
+                   [:test/app :test/variant]))))))
 
 ;; ---- chain-error rows echo author data only as the composer allows ----
 ;;
@@ -303,8 +353,7 @@
   (let [records  (atom [])
         error-id (gensym "core-fx-row-record-")]
     (rf.http.middleware/clear-all-http-interceptors!)
-    (doseq [[id before] befores]
-      (rf/reg-http-interceptor id {:before before}))
+    (apply reg-and-name! (for [[id before] befores] [id {:before before}]))
     (rf/reg-event :core-row/load (fn [_ _] {:fx [[:rf.http/managed args]]}))
     (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
     (try
@@ -396,60 +445,22 @@
 
 ;; ---- clearing --------------------------------------------------------------
 
-(deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
-  (testing "(rf/clear :http-interceptor id {:frame f}) clears f's slot from an
-            ambient :rf/default scope and leaves the ambient chain alone"
-    (rf/reg-http-interceptor :fa/on-other {:frame :fa/other :before identity})
-    (rf/reg-http-interceptor :fa/on-default {:before identity})
-    (is (= [:fa/on-other] (mapv :id (rf.http.managed/interceptors-snapshot :fa/other)))
-        "control: the named frame's slot exists before the clear")
-    (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
-    (is (= [[] [:fa/on-default]]
-           (mapv #(mapv :id (rf.http.managed/interceptors-snapshot %)) [:fa/other :rf/default])))))
-
-;; The opts map is EXACTLY `{:frame target}`. A malformed one fails closed
-;; before any ambient state is touched — an `(or (:frame opts) ambient-frame)`
-;; resolution would silently clear the ambient frame instead. There are two
-;; doors with their own typed errors over one shared validator
-;; (`re-frame.frame/frame-opts?`): `rf/clear` itself raises
-;; `:rf.error/registrar-clear-bad-request`, and the artefact-level fn the
-;; `:http/clear-http-interceptor` hook reaches raises
-;; `:rf.error/http-bad-interceptor`. One row per validator clause.
-
-(deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "malformed opts fail closed at BOTH doors and leave the ambient
-            interceptor untouched; the exact {:frame target} form clears"
-    (letfn [(threw-with? [error-id thunk]
-              (let [ex (try (thunk) nil
-                            (catch clojure.lang.ExceptionInfo e e))]
-                (= error-id (:rf.error/id (ex-data ex)))))]
-      (rf/reg-http-interceptor :s32bf/ambient {:before identity})
-      (is (= [:s32bf/ambient]
-             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
-      (doseq [[label opts]
-              [["misspelled opts key"                          {:fram :rf/default}]
-               ["nil :frame"                                   {:frame nil}]
-               ["two-scalar frame-first is not a public shape" :some-frame]]]
-        (testing label
-          (is (threw-with? :rf.error/registrar-clear-bad-request
-                           #(rf/clear :http-interceptor :s32bf/ambient opts))
-              "public door")
-          (is (threw-with? :rf.error/http-bad-interceptor
-                           #(rf.http.middleware/clear-http-interceptor :s32bf/ambient opts))
-              "artefact door")))
-      (is (= [:s32bf/ambient]
-             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-          "no malformed clear touched the ambient :rf/default interceptor")
-      (rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default})
-      (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
-          "the exact {:frame target} form clears the named frame"))))
+(deftest clear-takes-no-frame-opts
+  (testing "(rf/clear :http-interceptor id {:frame f}) is refused: the kind is
+            not frame-scoped"
+    (rf/reg-http-interceptor :clr/auth {:before identity})
+    (let [ex (try (rf/clear :http-interceptor :clr/auth {:frame :rf/default}) nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= [:rf.error/registrar-clear-bad-request :opts-on-a-non-frame-scoped-kind]
+             ((juxt :rf.error/id :reason) (ex-data ex)))))
+    (is (some? (rf.registrar/lookup :http-interceptor :clr/auth))
+        "the refused clear removed nothing")))
 
 (deftest invalid-interceptor-shape-raises
-  (testing "reg-http-interceptor rejects a non-fn :before, a map with neither
-            :before nor :after, and a non-keyword :frame"
+  (testing "reg-http-interceptor rejects a non-fn :before and a map with
+            neither :before nor :after"
     (doseq [interceptor-map [{:before "not-a-fn"}
-                             {:doc "no fns at all"}
-                             {:frame "not-a-keyword" :before identity}]]
+                             {:doc "no fns at all"}]]
       (let [thrown (try (rf/reg-http-interceptor :x interceptor-map)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
@@ -464,10 +475,10 @@
             or a [:request :sensitive?] opt-in, false otherwise"
     (let [seen (atom [])]
       ;; The :before records what it saw, then throws, so no request is sent.
-      (rf/reg-http-interceptor :capture-sensitive
-        {:before (fn [ctx]
-                   (swap! seen conj (:sensitive? ctx))
-                   (throw (ex-info "stop before the transport" {})))})
+      (reg-and-name! [:capture-sensitive
+                      {:before (fn [ctx]
+                                 (swap! seen conj (:sensitive? ctx))
+                                 (throw (ex-info "stop before the transport" {})))}])
       (rf/reg-event :bsens/load
         (fn [_ [_ args]]
           {:fx [[:rf.http/managed (merge {:request    {:url "https://api.example.invalid/x"}
@@ -488,8 +499,8 @@
       (fn [traces]
         (with-server ok!
           (fn [base]
-            (rf/reg-http-interceptor :add-credentials
-              {:before #(assoc-in % [:request :credentials] :include)})
+            (reg-and-name! [:add-credentials
+                            {:before #(assoc-in % [:request :credentials] :include)}])
             (request! (str base "/x"))
             (is (some #(and (= :rf.http/cljs-only-key-ignored-on-jvm (:operation %))
                             (= :credentials (get-in % [:tags :key])))
@@ -506,12 +517,12 @@
         (-> ex .getResponseHeaders (.set "X-RateLimit-Remaining" "37"))
         (ok! ex))
       (fn [base]
-        (rf/reg-http-interceptor :rate-limit-parse
-          {:before #(assoc % ::mark :stamped)
-           :after  (fn [ctx resp]
-                     (assoc resp :rate-limit
-                            {:remaining (get-in resp [:meta :headers "x-ratelimit-remaining"])
-                             :mark      (::mark ctx)}))})
+        (reg-and-name! [:rate-limit-parse
+                        {:before #(assoc % ::mark :stamped)
+                         :after  (fn [ctx resp]
+                                   (assoc resp :rate-limit
+                                          {:remaining (get-in resp [:meta :headers "x-ratelimit-remaining"])
+                                           :mark      (::mark ctx)}))}])
         (let [reply (request! (str base "/items"))]
           (is (= {:remaining "37" :mark :stamped} (:rate-limit reply)))
           (is (= 200 (get-in reply [:meta :status]))))))))
@@ -521,12 +532,13 @@
 ;; The live-transport arm of the issue-time contract: a request's response,
 ;; and every retry attempt, walk the chain captured before its `:before` walk.
 ;; `re-frame.http-interceptor-chain-capture-cljs-test` pins the capture point
-;; on both hosts. The test mutates the registry from the server's own attempt-1
-;; handler, so it does not depend on elapsed time.
+;; on both hosts. The test changes the definitions and the frame's chain from
+;; the server's own attempt-1 handler, so it does not depend on elapsed time.
 
 (deftest retry-attempts-keep-the-issue-time-chain-rf2-v3f6
-  (testing "a registry change made between attempt 1 and attempt 2 does not
-            reach the reply, and :before runs once per request, not per attempt"
+  (testing "a definition or chain change made between attempt 1 and attempt 2
+            does not reach the reply, and :before runs once per request, not
+            per attempt"
     (let [hits    (atom 0)
           befores (atom 0)
           log     (atom [])]
@@ -537,14 +549,14 @@
               ;; Runs while attempt 1 is being answered, so strictly before the
               ;; retry is issued. The server thread carries no ambient frame.
               (rf/reg-http-interceptor :registered-mid-retry
-                {:frame :rf/default
-                 :after (fn [ctx resp] (swap! log conj [:registered-mid-retry (::mark ctx)]) resp)})
-              (rf/clear :http-interceptor :issue-time {:frame :rf/default}))
+                {:after (fn [ctx resp] (swap! log conj [:registered-mid-retry (::mark ctx)]) resp)})
+              (name-chain! [:registered-mid-retry])
+              (rf/clear :http-interceptor :issue-time))
             (write-response! ex (if (= 1 n) 500 200) "{}")))
         (fn [base]
-          (rf/reg-http-interceptor :issue-time
-            {:before (fn [ctx] (swap! befores inc) (assoc ctx ::mark :stamped))
-             :after  (fn [ctx resp] (swap! log conj [:issue-time (::mark ctx)]) resp)})
+          (reg-and-name! [:issue-time
+                          {:before (fn [ctx] (swap! befores inc) (assoc ctx ::mark :stamped))
+                           :after  (fn [ctx resp] (swap! log conj [:issue-time (::mark ctx)]) resp)}])
           (send! (str base "/retried")
                  {:retry {:on #{:rf.http/http-5xx} :max-attempts 2
                           :backoff {:base-ms 5 :factor 1 :max-ms 10}}}
@@ -554,7 +566,7 @@
             (is (= 2 @hits) "control: the server saw two attempts")
             (is (= [:registered-mid-retry]
                    (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-                "control: the registry changed between the attempts")
+                "control: the frame's chain changed between the attempts")
             (is (= 1 @befores) ":before runs once per request, not once per attempt")
             (is (= [[:issue-time :stamped]] @log)
                 "the retried attempt's reply walked the chain captured at issue")))))))
@@ -591,11 +603,11 @@
                                  {:timeout-ms 10000 :label "http-interceptors routed reply"}))))
 
 (defn- reg-reclassify! []
-  (rf/reg-http-interceptor :reclassify
-    {:after (fn [_ctx resp]
-              (if (= :ok (:status resp))
-                {:status :error :error {:kind :app/domain-error}}
-                resp))}))
+  (reg-and-name! [:reclassify
+                  {:after (fn [_ctx resp]
+                            (if (= :ok (:status resp))
+                              {:status :error :error {:kind :app/domain-error}}
+                              resp))}]))
 
 (defn- handler-and-status [[handler reply]] [handler (:status reply)])
 
@@ -604,11 +616,11 @@
             its :value to :on-success"
     (with-server #(write-response! % 404 "{}")
       (fn [base]
-        (rf/reg-http-interceptor :accept-404
-          {:after (fn [_ctx resp]
-                    (if (= 404 (get-in resp [:error :status]))
-                      (-> resp (dissoc :error) (assoc :status :ok :value []))
-                      resp))})
+        (reg-and-name! [:accept-404
+                        {:after (fn [_ctx resp]
+                                  (if (= 404 (get-in resp [:error :status]))
+                                    (-> resp (dissoc :error) (assoc :status :ok :value []))
+                                    resp))}])
         (let [routed (routed! (str base "/missing") split)]
           (is (= [[:on-success :ok]] (mapv handler-and-status routed)))
           (is (= [] (:value (second (first routed))))))))))
@@ -618,7 +630,7 @@
             reaches a success handler"
     (with-server ok!
       (fn [base]
-        (rf/reg-http-interceptor :restatus {:after #(dissoc %2 :status)})
+        (reg-and-name! [:restatus {:after #(dissoc %2 :status)}])
         (is (= [:on-failure] (mapv first (routed! (str base "/restatus") split))))))))
 
 (deftest canned-success-routes-on-the-final-status
@@ -636,12 +648,12 @@
     (let [hits (atom 0)]
       (with-server (fn [ex] (swap! hits inc) (ok! ex))
         (fn [base]
-          (rf/reg-http-interceptor :mint-5xx
-            {:after (fn [_ctx resp]
-                      (if (= :ok (:status resp))
-                        (-> resp (dissoc :value :meta)
-                            (assoc :status :error :error {:kind :rf.http/http-5xx :status 503}))
-                        resp))})
+          (reg-and-name! [:mint-5xx
+                          {:after (fn [_ctx resp]
+                                    (if (= :ok (:status resp))
+                                      (-> resp (dissoc :value :meta)
+                                          (assoc :status :error :error {:kind :rf.http/http-5xx :status 503}))
+                                      resp))}])
           (let [routed (routed! (str base "/minted") split
                                 {:retry {:on #{:rf.http/http-5xx} :max-attempts 3
                                          :backoff {:base-ms 5 :factor 1 :max-ms 10}}}

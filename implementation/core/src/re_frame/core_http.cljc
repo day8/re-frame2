@@ -17,32 +17,30 @@
 ;; namespace `re-frame.http.test-support`, so there is no core wrapper and no
 ;; late-bind hook for any of them.
 
-;; ---- Spec 014 §Middleware — per-frame request interceptors ---------------
+;; ---- Spec 014 §Middleware — HTTP interceptor definitions ---------------
 
 (defwrapper reg-http-interceptor
-  "Spec 014 §Middleware — register an HTTP
-  interceptor on a frame's `:rf.http/managed` middleware chain.
+  "Spec 014 §Middleware — register the frame-agnostic HTTP interceptor
+  definition `id` under the registrar kind `:http-interceptor`.
   Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
   keyword; `interceptor-map` carries at least one of:
 
     `:before` — `(fn [ctx] ctx')`            request-side transform
     `:after`  — `(fn [ctx response] response')` response-side transform
 
-  plus an optional `:frame` (the EP-0002 *override*) and any
-  `:rf/registration-metadata` keys (`:doc` / `:tags` / `:schema` /
-  `:sensitive?`). Absent an explicit `:frame`, the carried-invariant
-  scope chain resolves the target; under no scope the call raises
-  `:rf.error/no-frame-context` (no `:rf/default` is synthesised). The
-  two slots mirror the event-interceptor
-  `{:id :before :after}` shape (Spec 002).
+  plus any `:rf/registration-metadata` keys (`:doc` / `:tags` / `:schema`).
+  A `:frame` in the map raises `:rf.error/http-bad-interceptor`: a frame
+  activates the definition by naming `id` in its `:http-interceptors` config
+  vector, e.g. `(rf/make-frame {:id :shop/app :http-interceptors [:shop/auth
+  :shop/telemetry]})`. A frame that names no chain runs none.
 
-  The `:before` chain runs in REGISTRATION ORDER before the request
+  The `:before` chain runs in the frame's VECTOR ORDER before the request
   fires. Each `:before` receives a ctx `{:request :args :frame :event}`
   and returns a (possibly-modified) ctx. The final `:request` is what
   the transport ships. A throw inside any `:before` classifies as
   `:rf.error/http-interceptor-failed`; the request is not dispatched.
 
-  The `:after` chain runs in REVERSE REGISTRATION ORDER after the
+  The `:after` chain runs in REVERSE vector order after the
   response is built and BEFORE `:on-success` / `:on-failure` fire. Each
   `:after` receives `(ctx, response)` — `ctx` is the SAME ctx the
   `:before` chain ended with (enables request-correlated handling) and
@@ -56,32 +54,13 @@
   ([id interceptor-map] :delegate))
 
 (defwrapper clear-http-interceptor
-  "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
-  chain. EP-0002 context-required frame-local. The public surface is EXACT:
-
-    (clear-http-interceptor id)                  ;; ambient scope
-    (clear-http-interceptor id {:frame target})  ;; explicit frame
-
-  The single-arity `(clear-http-interceptor id)` resolves the frame through
-  the carried-invariant scope chain (a `with-frame` scope, or the closest
-  enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root`
-  (ENSURE));
-  under no scope it raises `:rf.error/no-frame-context` — it does NOT
-  synthesise a `:rf/default` target.
-
-  The two-arity opts form names the frame explicitly (the *override*) —
-  `target` is a frame-id keyword or a live frame value. The opts map is
-  FAIL-CLOSED: it must be EXACTLY `{:frame target}` with a present, non-nil
-  target. A missing `:frame`, a nil target, a misspelled/unknown or extra
-  key, and a non-map second argument all raise the typed
-  `:rf.error/http-bad-interceptor` before any ambient frame is touched.
-  Two-scalar frame-first `(frame id)` is NOT a public shape.
-  Both arities delegate to the late-bound impl, which performs the frame
-  resolution.
+  "Spec 014 §Middleware — remove the HTTP interceptor definition `id`; the
+  `:http-interceptor` arm of `(rf/clear :http-interceptor id)`, which takes no
+  frame opts. A frame that still names `id` in its `:http-interceptors` fails
+  its next request at issue.
 
   Late-bound via `:http/clear-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw
    :where 'rf/clear}
-  ([id]      :delegate)
-  ([id opts] :delegate))
+  ([id] :delegate))

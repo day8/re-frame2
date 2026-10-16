@@ -169,7 +169,7 @@
   (rf/reg-view* :o1bp/view1 (fn [] [:div "v1"]))
   (rf/reg-machine :o1bp/mach1 {:initial :idle :data {} :states {:idle {}}})
   (rf/reg-route :o1bp/route1 {} "/o1bp/landing")
-  ;; flows and http interceptors live in their artefacts' own per-frame stores
+  ;; flows live in their artefact's own per-frame store
   (rf/reg-flow :o1bp/flow1 {:inputs [] :output-path [:o1bp/flow-output]} (fn [_inputs] :computed))
   (rf/reg-http-interceptor :o1bp/interceptor1 {:before identity})
   (rf/reg-error-projector :o1bp/err1 (fn [_ _] {}))
@@ -179,7 +179,8 @@
       (doseq [[kind id] [[:event :o1bp/evt1] [:event :o1bp/evt2] [:event :o1bp/mach1]
                          [:sub :o1bp/sub1] [:fx :o1bp/fx1] [:cofx :o1bp/cofx1]
                          [:view :o1bp/view1] [:route :o1bp/route1]
-                         [:error-projector :o1bp/err1] [:app-schema [:o1bp/path]]]]
+                         [:error-projector :o1bp/err1] [:app-schema [:o1bp/path]]
+                         [:http-interceptor :o1bp/interceptor1]]]
         (is (contains? (ids-of kind) id) (str kind " lists " id)))
       ;; :flow is reserved-but-empty: the query throws rather than answering an
       ;; authoritative-looking {} over a store that lives elsewhere

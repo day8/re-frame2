@@ -558,7 +558,7 @@
     :description "Best-effort abort the in-flight managed request registered under a frame-qualified request-id (fires its :abort-fn with a reason, default :user; no-op when nothing is registered). The shared abort-by-request-id seam the Resources out-of-cascade teardown paths (clear-resource / frame destroy) reach through so they can abort a managed request without the resources artefact statically :require-ing the http transport."}
    {:key         :http/reg-http-interceptor
     :producer-ns 're-frame.http.managed
-    :description "Register a per-frame request-side HTTP interceptor."}
+    :description "Register an HTTP interceptor definition under the registrar kind :http-interceptor; a frame runs it by naming it in its :http-interceptors config."}
    {:key         :http/clear-http-interceptor
     :producer-ns 're-frame.http.managed
     :description "Clear a single registered HTTP interceptor."}

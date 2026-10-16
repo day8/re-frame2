@@ -193,6 +193,7 @@
       (rf/reg-http-interceptor :canned/touch
         {:before (fn [ctx] (swap! order conj :before) ctx)
          :after  (fn [_ctx resp] (swap! order conj :after) (assoc resp :touched-by :after))})
+      (rf/make-frame {:id :rf/default :http-interceptors [:canned/touch]})
       (fire! {:reply-to [::replied :ok] :request {:method :get :url "/touch"} :value {:ok true}}
              canned-success)
       (fire! {:reply-to [::replied :error] :request {:method :get :url "/touch"}}
@@ -226,6 +227,7 @@
             naming the final url"
     (rf/reg-http-interceptor :azrcs/base-url
       {:before (fn [ctx] (update-in ctx [:request :url] #(clojure.string/replace % #"^/" "/v2/")))})
+    (rf/make-frame {:id :rf/default :http-interceptors [:azrcs/base-url]})
     (doseq [[k routes] [[:final {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}]
                         [:draft {[:get "/articles"] {:reply {:ok [:should :not :match]}}}]]]
       (rf.http.test-support/with-request-stubs routes
@@ -241,6 +243,7 @@
             production :rf.error/http-bad-request and dispatch no reply"
     (rf/reg-http-interceptor :azrcs/url-eraser
       {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
+    (rf/make-frame {:id :rf/default :http-interceptors [:azrcs/url-eraser]})
     (with-installed-stubs {[:get "/x"] {:reply {:ok {:stubbed true}}}}
       (fn [stub-fx recorded]
         (is (= [:rf.error/http-bad-request []]
@@ -257,6 +260,7 @@
             request sensitivity can scrub it)"
     (rf/reg-http-interceptor :xmp74u/boom
       {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+    (rf/make-frame {:id :rf/default :http-interceptors [:xmp74u/boom]})
     (let [url "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"]
       (with-installed-stubs {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}}
         (fn [stub-fx recorded]
