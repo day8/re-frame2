@@ -358,20 +358,8 @@
   "Reagent's API, and the namespaces that ARE it.
 
   **The rule is IDENTITY, not spelling: a namespace binds when this project
-  can vouch for what it is.** Two families qualify and nothing else does.
-
-  * Stock Reagent's five public namespaces.
-  * The `reagent2.*` four that `implementation/adapters/reagent-slim/`
-    ships. That is the SAME API authored a second time IN THIS REPOSITORY:
-    `reagent2.core` defines `atom`, `create-class`, `as-element`,
-    `current-component` and the rest of the census roster under those very
-    names, and `docs/core/how-to/use-uix-or-slim.md` teaches consumers to
-    call them so. One roster classifies both because there is one API.
-
-  Omitting the slim four was the reported defect one adopter later: an
-  application on the reagent-slim substrate writes `(r/atom 0)` through
-  `reagent2.core` and scored ZERO, with nothing on screen to say the tool
-  had not recognised it.
+  can vouch for what it is.** Stock Reagent's five public namespaces
+  qualify and nothing else does.
 
   ## THE COUPLING LAW, and why it is written here rather than next door
 
@@ -389,12 +377,9 @@
   That is strictly worse than leaving the namespace off. An unrecognised
   file is a bucket the caveat names out loud; a recognised-and-unrostered
   one is a confident zero, which is the exact fail-open shape the census's
-  whole design is against. It is not hypothetical: PR #9132 added the
-  `reagent2.*` four to this set without adding
-  `render-to-static-markup` — `reagent2.dom.server`'s ONLY public fn — to
-  the roster, and a one-line file calling it reported `files-recognised 1,
-  files-clean 1, entries 0, :recognition :full` under the caveat *A zero
-  below is a measurement* (rf2-xoal, merged-PR audit of #9132).
+  whole design is against: a namespace added here without the row for its
+  only public fn makes a one-line file calling that fn report
+  `files-recognised 1, files-clean 1, entries 0, :recognition :full`.
 
   `census_test/every-recognised-namespace-has-a-rostered-call` is the
   ratchet: it holds one known public call per namespace on this list and
@@ -411,8 +396,7 @@
   `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` is the
   standing example, and [[names-reagent?]] reports it rather than guessing.
   Vouching is not spelling in either direction."
-  '#{reagent.core  reagent.dom    reagent.dom.client  reagent.ratom  reagent.dom.server
-     reagent2.core reagent2.ratom reagent2.dom.client reagent2.dom.server})
+  '#{reagent.core reagent.dom reagent.dom.client reagent.ratom reagent.dom.server})
 
 (defn reagent-namespace?
   "Is this namespace symbol Reagent's API? Exact roster membership."
@@ -422,9 +406,7 @@
 (def substrate-ns-prefix
   "re-frame2's own substrate adapters live under one prefix, fixed by Spec
   006's adapter inventory: `re-frame.adapter.reagent`,
-  `re-frame.adapter.uix`, `re-frame.adapter.test-react`, and the slim
-  adapter which PUBLISHES as `re-frame.adapter.reagent` so the jar is a
-  drop-in swap.
+  `re-frame.adapter.uix` and `re-frame.adapter.test-react`.
 
   **A prefix RULE rather than an enumeration, and that is the point.** The
   adapter set is open — Spec 006 fixes the naming, not the membership — so

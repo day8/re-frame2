@@ -261,14 +261,14 @@
       (testing "root-mount recovery guidance"
         (is (str/includes? (:note (first entries)) "Fresco mounts its own root"))))))
 
-(deftest a-shared-roster-name-resolves-by-require
-  (testing "shared names resolve through separate contexts"
-    (doseq [[require-spec flags] [["[reagent2.dom.client :as x]"   [true false]]
-                                  ["[re-frame.adapter.uix :as x]" [false true]]]]
+(deftest a-roster-name-resolves-by-require
+  (testing "a name resolves through the context its require binds"
+    (doseq [[require-spec flags classes] [["[reagent.dom.client :as x]"   [true false] []]
+                                          ["[re-frame.adapter.uix :as x]" [false true] [:substrate-test-seam]]]]
       (let [{:keys [entries reagent? substrate?]}
             (scan (str "(ns app.t\n  (:require " require-spec "))\n\n(defn settle [] (x/flush-views!))\n")
                   "app/t.cljs")]
-        (is (= [flags [:substrate-test-seam]] [[reagent? substrate?] (mapv :class entries)])
+        (is (= [flags classes] [[reagent? substrate?] (mapv :class entries)])
             require-spec)))))
 
 (deftest the-prefix-rule-is-anchored-at-the-start
@@ -286,17 +286,12 @@
     reagent.dom         "(x/render [:div] el)"
     reagent.dom.client  "(x/unmount root)"
     reagent.ratom       "(x/reactive?)"
-    reagent.dom.server  "(x/render-to-string [:div])"
-    reagent2.core       "(x/as-element h)"
-    reagent2.ratom      "(x/activate! rx)"
-    reagent2.dom.client "(x/flush-views!)"
-    reagent2.dom.server "(x/render-to-static-markup [:div])"})
+    reagent.dom.server  "(x/render-to-string [:div])"})
 
 (def ^:private substrate-namespace-calls
-  '{re-frame.adapter.reagent      "(x/render! root view opts)"
-    re-frame.adapter.reagent-slim "(x/client-root el)"
-    re-frame.adapter.uix          "(x/use-sub [:q])"
-    re-frame.adapter.test-react   "(x/mount! [:div])"})
+  '{re-frame.adapter.reagent    "(x/render! root view opts)"
+    re-frame.adapter.uix        "(x/use-sub [:q])"
+    re-frame.adapter.test-react "(x/mount! [:div])"})
 
 (deftest every-recognised-namespace-has-a-rostered-call
   (testing "every recognised namespace needs a sample"

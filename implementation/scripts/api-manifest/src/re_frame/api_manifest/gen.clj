@@ -259,15 +259,15 @@
 ;; and a rubber-stamped classification is worse than none because it looks
 ;; like a decision.
 ;;
-;; THE ADAPTERS ARE NOT ENROLLED. Adapters are requirable BY DEFINITION — an
-;; app requires the adapter it uses — so they wear the fresco shape rather
-;; than the façade one. But enrolling a root obliges a classification for
-;; EVERY namespace beneath it: four adapter doors (reagent, uix, test-react,
-;; reagent-slim) plus a VENDORED REAGENT FORK of eleven `reagent2.*` files
-;; under reagent-slim, so the bill is eleven rubber-stamp entries for somebody
-;; else's library internals — the exact editorial cost this section refuses.
-;; The question to answer before enrolling them is what to do about the
-;; vendored tree.
+;; THE ADAPTERS ARE NOT ENROLLED, BY THE RULE ABOVE. Adapters are requirable
+;; BY DEFINITION — an app requires the adapter it uses — so they wear the
+;; fresco shape rather than the façade one. But each adapter tree is ONE
+;; namespace, and that namespace is its door: `re-frame.adapter.reagent` and
+;; `re-frame.adapter.uix` are already accounted for by the sidecar's
+;; `:cljs-only` rows, which the CLJS probe reconciles, and
+;; `re-frame.adapter.test-react` is an unpublished test substrate. A tree with
+;; one door has nothing for this gate to find, so an adapter tree is enrolled
+;; when it acquires a second requirable namespace, like every other tree.
 ;; ---------------------------------------------------------------------------
 
 (def roster-covered-roots

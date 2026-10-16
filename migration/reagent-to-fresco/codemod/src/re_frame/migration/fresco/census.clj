@@ -63,9 +63,6 @@
   [[substrate-surface]]: re-frame2's own `re-frame.adapter.*` adapters,
   bound by a PREFIX RULE rather than a list, because the adapter set is
   open and a list goes stale into the same silent zero one adapter later.
-  [[surface]] widened too, by the same principle in the other family:
-  the slim adapter's `reagent2.*` IS Reagent's API, authored a second time
-  in this repository.
 
   **The rosters are kept apart rather than merged**, because
   `:files-with-reagent` is read by the migration skill to decide whether a
@@ -89,31 +86,25 @@
   TOP of the artefact — because the reader who is going to be misled is
   the one who reads the first summary and stops.
 
-  ## The confident zero came back through the widening itself
+  ## Widening recognition alone brings the confident zero back
 
-  And it came back *because* of it. Recognition is decided per FILE, off
-  the `ns` form; the entries are found per NAME, off the roster. Widening
-  the namespace list without widening the roster moves those two apart,
-  and the gap between them is exactly a confident zero: the file is
-  RECOGNISED, no rostered name matches, so it is counted `:files-clean`
-  and `:recognition` reads `:full`. PR #9132 widened the first and not the
-  second, and a file whose single call was
-  `reagent2.dom.server/render-to-static-markup` — that namespace's ONLY
-  public function — reported `files-recognised 1, files-clean 1, entries
-  0, :recognition :full` under the sentence *A zero below is a
-  measurement*. The unrecognised file was always honest; it was the newly
-  recognised one that lied.
+  Recognition is decided per FILE, off the `ns` form; the entries are
+  found per NAME, off the roster. Widening the namespace list without
+  widening the roster moves those two apart, and the gap between them is
+  exactly a confident zero: the file is RECOGNISED, no rostered name
+  matches, so it is counted `:files-clean` and `:recognition` reads
+  `:full`. An unrecognised file is always honest; it is a newly
+  recognised one with no rostered call in it that misleads.
 
-  Three things answer it, and they are different in kind. The roster was
+  Three things answer it, and they are different in kind. The roster is
   reconciled against every recognised namespace's supported public calls;
-  the coupling between the two lists is now a stated law with a test
-  ratchet on
-  [[re-frame.migration.fresco.rewrite/reagent-namespaces]], so a
+  the coupling between the two lists is a stated law with a test ratchet
+  on [[re-frame.migration.fresco.rewrite/reagent-namespaces]], so a
   namespace cannot join the recognition set without a call the census can
-  find in it; and the `:full` wording was weakened to the claim it can
-  actually support — *this census had a population*, which is about the
-  files, rather than *a zero is a measurement*, which is about the roster
-  and was never true of it (rf2-xoal, merged-PR audit of #9132).
+  find in it; and the `:full` wording makes only the claim it can support
+  — *this census had a population*, which is about the files, rather than
+  *a zero is a measurement*, which is about the roster and is not true of
+  it.
 
   ## The law this file exists to obey
 
@@ -196,12 +187,11 @@
   ## What was deliberately left off
 
   The ask was every SUPPORTED, MIGRATION-RELEVANT public call, not every
-  Var in a vendored fork, so four kinds of public name are absent on
-  purpose:
+  public Var, so four kinds of public name are absent on purpose:
 
-  * **Implementation namespaces.** `reagent2.impl.template`,
-    `reagent2.impl.batching`, `reagent2.impl.component` and
-    `reagent2.impl.diag` publish plenty and are not on the recognition
+  * **Implementation namespaces.** `reagent.impl.template`,
+    `reagent.impl.batching`, `reagent.impl.component` and
+    `reagent.impl.util` publish plenty and are not on the recognition
     roster at all, so a call through one is an UNRECOGNISED file and the
     caveat says so out loud — the honest answer for a surface nobody is
     told to call.
@@ -209,15 +199,11 @@
     `RAtom`, `Reaction` and the `->RAtom` factory are not names a migrator
     writes in call position; the protocol's own METHODS (`dispose!`,
     `add-on-dispose!`) are, and they are rostered.
-  * **Dynamic Vars and hooks.** `reagent2.ratom/rea-schedule` is a hook
-    the render scheduler installs, not consumer surface, and it is not
-    called.
+  * **Dynamic Vars.** `reagent.ratom/*ratom-context*` is the binding the
+    render machinery installs, not consumer surface, and it is not called.
   * **Names no shipped namespace defines.** Nothing here is invented to
     look thorough: every row is a public Var of a namespace on the
-    recognition roster (`run!`, `cursor`, `track` and `with-let` are stock
-    Reagent's; slim deliberately ships none of them, and one roster
-    covering both families is a superset by design rather than by
-    accident)."
+    recognition roster."
   '{atom                      {:class :local-reactive-cell     :verdict :runtime-blocker}
     cursor                    {:class :derived-cell            :verdict :runtime-blocker}
     track                     {:class :derived-cell            :verdict :runtime-blocker}
@@ -225,8 +211,7 @@
     reaction                  {:class :derived-cell            :verdict :runtime-blocker}
     make-reaction             {:class :derived-cell            :verdict :runtime-blocker}
     run!                      {:class :derived-cell            :verdict :runtime-blocker}
-    activate!                 {:class :reactive-graph-control  :verdict :runtime-blocker}
-    flush!                    {:class :reactive-graph-control  :verdict :runtime-blocker}
+    flush!                  {:class :reactive-graph-control  :verdict :runtime-blocker}
     reactive?                 {:class :reactive-graph-control  :verdict :runtime-blocker}
     dispose!                  {:class :cell-disposal           :verdict :human-decision}
     add-on-dispose!           {:class :cell-disposal           :verdict :human-decision}
@@ -250,11 +235,9 @@
     force-update              {:class :render-control          :verdict :human-decision}
     force-update-all          {:class :render-control          :verdict :human-decision}
     flush                     {:class :render-control          :verdict :human-decision}
-    flush-render!             {:class :render-control          :verdict :human-decision}
     next-tick                 {:class :render-control          :verdict :human-decision}
     after-render              {:class :render-control          :verdict :human-decision}
-    flush-views!              {:class :substrate-test-seam     :verdict :human-decision}
-    render                    {:class :root-mount              :verdict :human-decision}
+    render                  {:class :root-mount              :verdict :human-decision}
     unmount                   {:class :root-mount              :verdict :human-decision}
     unmount-component-at-node {:class :root-mount              :verdict :human-decision}
     create-root               {:class :root-mount              :verdict :human-decision}
@@ -317,32 +300,21 @@
   Nothing here is `:mechanical` either, for the same reason nothing in
   [[surface]] is: no rewrite in this tool family reaches any of it.
 
-  ## The rosters MAY share a name, and one of them does
+  ## The rosters MAY share a name
 
-  This file used to assert the two rosters were disjoint, on the reasoning
-  that [[scan]] tries Reagent first so an overlap would classify a
-  substrate call under a Reagent class. **That reasoning does not survive
-  reading [[re-frame.migration.fresco.rewrite/bound-call?]]**, and the
-  assertion was retired when `reagent2.dom.client/flush-views!` had to be
-  rostered on the Reagent side too (rf2-xoal): the two arms are not
-  decided by name order, they are decided by two SEPARATE `ns` contexts,
-  and each arm fires only when this file's `ns` form binds that arm's
-  alias. `(rdc/flush-views!)` under `[reagent2.dom.client :as rdc]` fails
-  the substrate context's `bound-call?` and `(ad/flush-views!)` under
-  `[re-frame.adapter.uix :as ad]` fails the Reagent one, so the shared
-  name resolves correctly in both directions. The only construction that
-  could reach the wrong arm — the same bare symbol `:refer`red from both
-  families in one file — is a duplicate-refer conflict ClojureScript
-  refuses to compile.
-
-  The shared row is also the SAME SEAM at two addresses:
-  `re-frame.adapter.reagent-slim/flush-views!` is published from the
-  adapter's spine and `reagent2.dom.client/flush-views!` is the
-  promise-returning primitive beside it, so both carry
-  `:substrate-test-seam` and one recovery sentence answers for both.
-  `census_test/a-shared-roster-name-resolves-by-require` pins the
-  disambiguation, which is the property that actually matters, in place of
-  the emptiness assertion that pinned a proxy for it.
+  Disjointness is not what keeps the two apart, and nothing asserts it:
+  [[scan]] does not decide a call by roster order. It reads two SEPARATE
+  `ns` contexts, and each arm fires only when this file's `ns` form binds
+  that arm's alias ([[re-frame.migration.fresco.rewrite/bound-call?]]), so
+  a name resolves by the require it came through. `(rdc/flush-views!)`
+  under `[reagent.dom.client :as rdc]` fails the substrate context's
+  `bound-call?` and the Reagent roster has no such row, so it finds
+  nothing; `(ad/flush-views!)` under `[re-frame.adapter.uix :as ad]` is the
+  substrate seam. A name on both rosters would resolve the same way. The
+  only construction that could reach the wrong arm — the same bare symbol
+  `:refer`red from both families in one file — is a duplicate-refer
+  conflict ClojureScript refuses to compile.
+  `census_test/a-roster-name-resolves-by-require` pins that resolution.
 
   ## The residual, and why the `:full` wording had to weaken
 
@@ -442,7 +414,7 @@
 
    :reactive-graph-control
    (str "This drives Reagent's reactive GRAPH directly — draining the pending-reaction queue "
-        "(`flush!`), forcing a Reaction onto the push path (`activate!`), or asking whether the "
+        "(`flush!`) or asking whether the "
         "current stack is a reactive context (`reactive?`). re-frame2 owns that graph and settles "
         "it on its own clock, and exposes no consumer-facing lever over it, so this does not port "
         "as a respelling. Code that branched on `reactive?` has to be re-shaped rather than "
@@ -488,9 +460,8 @@
    (str "`flush-views!` wraps React's `act()` so a test can settle pending effects before "
         "reading the DOM. It is a REAGENT/UIX-substrate seam, per Spec 008's per-adapter-require "
         "rule, so it does not follow the views across: settle a Fresco tree the way the "
-        "Fresco testing chapter directs, and delete the require the call came through — which "
-        "is the substrate adapter for the re-exported spelling and `reagent2.dom.client` for the "
-        "promise-returning one.")
+        "Fresco testing chapter directs, and delete the substrate adapter require the call "
+        "came through.")
 
    :substrate-test-harness
    (str "`mount!` / `trigger-update!` — the headless test adapter's own harness, which mounts a "
@@ -556,9 +527,8 @@
   **TWO ROSTERS, TWO CONTEXTS, ONE WALK.** [[surface]] is Reagent's API and
   [[substrate-surface]] is re-frame2's own adapter API; the file's `ns`
   form is read once per roster (`ns-context` takes the roster predicate)
-  and every node is offered to both. The rosters share one name,
-  `flush-views!`, and the order decides nothing for it: each arm fires only
-  when this file's `ns` form binds that arm's alias (see
+  and every node is offered to both. The order decides nothing: each arm
+  fires only when this file's `ns` form binds that arm's alias (see
   [[substrate-surface]]).
 
   **The two recognition flags are asymmetric, deliberately.**
@@ -682,11 +652,9 @@
     adapter. **This is a statement about the FILES, and it is the only
     thing it is.** It says the census had a population to look in; it does
     NOT say the roster covers everything those files could call, and the
-    two are different claims that a zero collapses together. The wording
-    [[caveat]] emits was once the stronger one — *a zero below is a
-    measurement*, full stop — and a file whose one call was
-    `reagent2.dom.server/render-to-static-markup` earned it while the
-    roster had no such row (rf2-xoal). The recognised half is now
+    two are different claims that a zero collapses together — a recognised
+    file whose one call has no roster row reads zero, and calling that zero
+    a measurement would be false. The recognised half is
     guaranteed at least one rostered call PER NAMESPACE by
     `rewrite/reagent-namespaces`' coupling law and its test ratchet, which
     is the strongest honest claim available: every namespace this tool
@@ -776,7 +744,7 @@
            files-unresolved files-recognised]}]
   (let [files-unrecognised (- files-scanned files-recognised)]
     (array-map
-     :estimand "Rostered view-substrate API call sites, addressed at the CALL: Reagent's API (`reagent.*`, and the slim adapter's `reagent2.*`) and re-frame2's own substrate adapters (`re-frame.adapter.*`). The fixer's `:entries` count `[:>]`-family crossing SITES; the two are different populations and neither is a denominator for the other. Read `:recognition` before reading any zero here."
+     :estimand "Rostered view-substrate API call sites, addressed at the CALL: Reagent's API (`reagent.*`) and re-frame2's own substrate adapters (`re-frame.adapter.*`). The fixer's `:entries` count `[:>]`-family crossing SITES; the two are different populations and neither is a denominator for the other. Read `:recognition` before reading any zero here."
      :files-scanned        files-scanned
      :files-recognised     files-recognised
      :files-unrecognised   files-unrecognised
