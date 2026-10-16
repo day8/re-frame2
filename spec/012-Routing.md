@@ -1706,7 +1706,7 @@ A `:can-enter` returning `false` (or any non-boolean) **denies**. Denial:
 - emits the `:rf.route/entry-denied` trace (`:phase :can-enter`); and
 - restores the current route's URL by **replace** when the door was URL-driven (the browser had already moved).
 
-Exactly-once is structural, not a de-duplication step: the decision seam short-circuits its caller, so the first rejection in a navigation terminates the attempt and no later door in the same chain can reach a second one. (The link door decides and commits in one event, so an *allowed* link click decides once too.)
+Exactly-once is structural, not a de-duplication step: the decision seam short-circuits its caller, so the first rejection in a navigation terminates the attempt and no later door in the same chain can reach a second one. (`:rf.route/navigate` decides and commits in one event, so an *allowed* link click decides once too.)
 
 The denial event receives:
 

@@ -182,7 +182,7 @@ Register a route under the reserved id `:rf.route/not-found` to render a page fo
   ```
 - **Description**: Renders an `<a href=...>` for a route and turns a plain left-click into navigation.
     - `:to` is the only required key. `:params`, `:query` and `:fragment` are passed to `route-url` to build the href. `:replace?`, `:scroll` and `:bypass-leave?` apply to the navigation the click makes, as they do on [`:rf.route/navigate`](#rfroutenavigate-request). Every other key except `:prefetch` passes through to the `<a>`, including `:class` and `:aria-current`. `route-link` computes no active state: to style the active link, compare `:to` with `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
-    - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: the view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ...}]` to the frame that rendered the link, with any of the link's `:replace?`, `:scroll` and `:bypass-leave?` beside `:url`. The URL is the whole address, and the handler derives the route from it.
+    - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: the view calls `preventDefault`, then dispatches [`[:rf.route/navigate {:url ...}]`](#rfroutenavigate-request) to the frame that rendered the link, with any of the link's `:replace?`, `:scroll` and `:bypass-leave?` beside `:url`. The URL is the whole address, and the handler derives the route from it, so a click lands on the route a reload of the href would: with `/users/me` and `/users/:id` both registered, a link to `:id` `"me"` lands on `/users/me`.
     - Modifier-key and middle-button clicks, and anchors with `:target` other than `_self` or with `:download`, are left to the browser.
     - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the link does not intercept the click.
     - `:prefetch :intent` dispatches [`:rf.route/prefetch`](#rfrouteprefetch-address) with the link's own address on hover, focus or touch. The address leaves out `:fragment`, which is never a resource input. Caller-supplied `:on-mouse-enter`, `:on-focus` and `:on-touch-start` handlers still run alongside.
@@ -203,7 +203,7 @@ Register a route under the reserved id `:rf.route/not-found` to render a page fo
 
 Loading `re-frame.routing` registers these events, and the subscriptions, effects and coeffects in the next three sections. It also registers some internal ones that apps and tools never use directly, which this page leaves out: the `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation` coeffects and the `:rf.route/commit-nav-counter` effect. The `:rf.route.internal/*` event namespace is reserved for the runtime and has no members.
 
-Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/cancel`, `:rf.route/prefetch` and `:rf.route/replan-resources`. `route-link` dispatches `:rf.route/url-requested`, and the runtime dispatches the other three; an SSR app also dispatches `:rf.route/handle-url-change` with the request URL.
+Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/cancel`, `:rf.route/prefetch` and `:rf.route/replan-resources`. `route-link` dispatches `:rf.route/navigate` too, and the runtime dispatches the other three; an SSR app also dispatches `:rf.route/handle-url-change` with the request URL.
 
 `:rf.route/navigation-blocked` and `:rf.route/entry-denied` are the two events an application registers its own handler for. Registering a handler under any other routing event id makes that id ambiguous: a frame made without `:images` raises `:rf.error/ambiguous-registration` when it uses it.
 
@@ -213,7 +213,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 - **Payload**: one request map. Address keys: `:to` (a route id), `:url` (a URL inside the app), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`.
 - **Description**: Navigates the frame the event is dispatched to.
     - With `:to`, the target is built from `:params`, `:query` and `:fragment` alone, and the route's `:query-defaults` fill absent query keys. Nothing carries over from the current route.
-    - With `:url`, the URL is matched as a link click's would be, which suits a URL from a notification or a server redirect. `:fragment` beside it replaces the URL's own. A URL no route matches commits the [not-found route](#not-found-route). An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
+    - With `:url`, the URL is matched as a reload of it would be. A `route-link` click dispatches this form, and it suits a URL from a notification, a server redirect or a document-level click listener of your own (see [Routing → Linking from views](../routing/concepts.md#linking-from-views)). `:fragment` beside it replaces the URL's own. A URL no route matches commits the [not-found route](#not-found-route). An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
     - With neither, the request edits the current location in place. `:query` replaces the whole query, `:query-merge` merges into it (a `nil` value removes that key), and `:fragment` replaces the fragment. Path params cannot change in place, because new params are a new destination.
     - `:replace? true` replaces the current history entry instead of pushing one. `:scroll` overrides the target route's [`:scroll`](#reg-route) for this navigation. `:bypass-leave? true` skips the current route's `:can-leave` guard once; the target's `:can-enter` still runs.
     - A request identical to the current location does nothing and runs no guards. Any other request runs the current route's `:can-leave` guard, then the target's `:can-enter`, and a `false` from either ends it (see [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) and [`:rf.route/entry-denied`](#rfrouteentry-denied-denial)).
@@ -246,20 +246,11 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
   [:rf.route/navigate {:query-merge {:page 2 :filter nil}}]       ;; same route, edit the query
   ```
 
-### `[:rf.route/url-requested {:url url}]`
-
-- **Kind**: event
-- **Payload**: `{:url url}`, plus any of the policy keys `:replace?`, `:scroll` and `:bypass-leave?`, with the meanings they have on `:rf.route/navigate`.
-- **Description**: Dispatched for a click on a [`route-link`](#route-link), with the link's URL. A document-level click listener of your own can dispatch it too; see [Routing → Linking from views](../routing/concepts.md#linking-from-views).
-    - An external URL does nothing here and emits the `:rf.route/external-url-requested` trace.
-    - A URL that resolves to the current location does nothing and runs no guards.
-    - Otherwise the guards run before the address bar moves, so a blocked or denied click adds no history entry. When both allow, the handler pushes the URL (or replaces it, for `:replace? true`) and dispatches `:rf.route/handle-url-change` with cause `:link`, which commits the route.
-
 ### `[:rf.route/handle-url-change url opts?]`
 
 - **Kind**: event
 - **Payload**: `url`, an app URL such as `"/articles/intro?tab=comments"`, and an optional opts map.
-- **Description**: Commits the route for a URL the address bar already shows. The runtime dispatches it after a link click, on Back and Forward, and for the current URL when a `:url-bound? true` frame takes ownership. On the server, dispatch it with the request URL, as in [SSR → Reading the request](../ssr/concepts.md#reading-the-request).
+- **Description**: Commits the route for a URL the address bar already shows. The runtime dispatches it on Back and Forward, and for the current URL when a `:url-bound? true` frame takes ownership. On the server, dispatch it with the request URL, as in [SSR → Reading the request](../ssr/concepts.md#reading-the-request).
     - The opts map's `:rf.route/cause` says why the URL changed: `:link`, `:popstate`, `:initial` or `:ssr`. The runtime sets it on its own dispatches. Without it the cause is `:ssr` on a `:platform :server` frame and `:initial` otherwise. Scroll defaults to `:top` for `:link` and `:restore` for every other cause. A test passes the cause to stand in for a link click or Back; see [Testing routes → Simulating a link click or Back/Forward](../routing/testing.md#simulating-a-link-click-or-backforward).
     - `:bypass-leave? true` on the opts map skips the current route's `:can-leave` guard once.
     - A URL that no route matches, whose values fail the route's schemas, or with malformed percent-encoding resolves to the [not-found route](#not-found-route). Guards still decide whether that route may commit.
@@ -586,7 +577,7 @@ Choosing one:
 - Use `hash-url-strategy` when it cannot, as on a static host without rewrite rules: the route lives after the `#`, so the server only ever serves the page itself.
 - Wrap either with `with-base-path` when the app is not served from the site root, for example under `/realworld/`.
 
-A strategy is a map of five functions, `{:encode :decode :push! :replace! :install-listener!}`; [A custom strategy](#a-custom-strategy) gives each one's contract. It is consulted at four points: the two history effects, the `route-link` href, and decoding an incoming URL (the URL listener, and a `{:url …}` or `:rf.route/url-requested` URL that carries an origin). `route-url`, `match-url` and navigation itself always work in path form.
+A strategy is a map of five functions, `{:encode :decode :push! :replace! :install-listener!}`; [A custom strategy](#a-custom-strategy) gives each one's contract. It is consulted at four points: the two history effects, the `route-link` href, and decoding an incoming URL (the URL listener, and a `{:url …}` URL that carries an origin). `route-url`, `match-url` and navigation itself always work in path form.
 
 `:push!`, `:replace!` and `:install-listener!` exist only in ClojureScript. SSR runs none of them, because the server reads the request URL through `:rf.route/handle-url-change` and has no history. It does apply `:encode`, so a server-rendered `route-link` has the same href as the hydrated client: `/demos/active` for a `with-base-path` frame, `#/active` for a hash frame.
 

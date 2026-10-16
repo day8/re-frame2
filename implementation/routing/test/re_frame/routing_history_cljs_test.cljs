@@ -82,8 +82,8 @@
           "a protocol-relative off-origin URL: clause B catches it"))))
 
 ;; `:rf.route/navigate {:url …}` reduces an accepted raw reference to the
-;; location the browser will reach BEFORE matching (the same
-;; `request-url->app-url` the link door runs), so the committed route, its
+;; location the browser will reach BEFORE matching
+;; (`request-url->app-url`), so the committed route, its
 ;; params and the pushed entry describe one location.
 (deftest navigate-raw-url-normalizes-before-matching-cljs-rf2-fzbj-12
   (register-routes!)

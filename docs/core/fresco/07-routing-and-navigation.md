@@ -462,7 +462,7 @@ and activation pipeline as route links:
 | --- | --- | --- |
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
 | Rendering a route link raises `:rf.error/no-such-route` or `:rf.error/route-url-validation` | `:to` is not a registered route, or, with the schemas artefact loaded, `:params` or `:query` fail the route's schema (a number where the route expects a string, say) | Fix the address; the [routing guide](../../routing/concepts.md) covers route schemas |
-| An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link`, or a document-level click listener that dispatches `:rf.route/url-requested` ([Linking from views](../../routing/concepts.md#linking-from-views)) |
+| An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link`, or a document-level click listener that dispatches `[:rf.route/navigate {:url …}]` ([Linking from views](../../routing/concepts.md#linking-from-views)) |
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
 | `route-link` raises `:rf.error/fresco-route-link-bad-on-click` for a bare `:on-click` vector | The click would produce two application events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
@@ -494,7 +494,7 @@ vector headed by an internal keyword and wrapping a map:
      :class    "title"
      :on-click [navigate-head                       ; route-link's own head
                 {:frame   :rf/default
-                 :payload [:rf.route/url-requested {:url "/todos/1"}]
+                 :payload [:rf.route/navigate {:url "/todos/1"}]
                  :native? false
                  :veto    nil}]}
  "Buy milk"]

@@ -5,7 +5,7 @@
 ## When to load
 
 - Author or edit route registrations (`reg-route`).
-- Wire programmatic navigation (`:rf.route/navigate`) or anchor clicks (`:rf.route/url-requested`).
+- Wire navigation (`:rf.route/navigate`), programmatic or from an anchor click.
 - Add a leave-guard (`:can-leave`) or entry-guard (`:can-enter`), declare a page's `:resources`, or set scroll behaviour.
 - Read the active route in a view via `:rf.route/id` / `:rf.route/params`.
 - Carry query state across routes, warm a destination on intent, or style an active link.
@@ -92,7 +92,7 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
 
 ;; Anchor that routes through the framework (not a full page reload).
 ;; `rf/route-link` is the framework-shipped link view — it builds the href via
-;; the route prism and dispatches `:rf.route/url-requested` on a plain left-click.
+;; the route prism and dispatches `[:rf.route/navigate {:url <href>}]` on a plain left-click.
 ;; Shape: [rf/route-link {:to :route-id :params {} :query {} :fragment "..."} & children]
 
 ;; Root view dispatches on the route id (`subscribe` is reg-view's injected local).
@@ -151,7 +151,7 @@ The two rejections are deliberately asymmetric, because the two questions are no
 
 The auth recipe is a **fresh return**, not a resume: register `:rf.route/entry-denied`, stash the denial's `:destination`, replace-navigate to login, and after sign-in dispatch a fresh `[:rf.route/navigate <destination>]` whose guard re-evaluates naturally. Nothing can loop, because nothing was left pending. `:destination` is already a valid navigate request — do not re-derive it from `:requested-url` — but note it omits an empty `:params` / `:query` and a nil `:fragment`, so a bare stash reads `{:to :account}`. Register the handler bare: the denial payload is framework-constructed, so the framework's `:sensitive` classification of its URL carriers (`:requested-url` / `:destination` / `:target`, which can embed query values and path params) rides across your override and keeps redacting them at trace / off-box egress. Do **not** add a `{:sensitive …}` map to get that — declare `:sensitive` only for paths of your own.
 
-Flow on `:rf.route/url-requested`:
+Flow on a `:rf.route/navigate` (a link click's included):
 
 1. Runtime evaluates the **current** route's `:can-leave` sub.
 2. **`true`** → proceed to the target's `:can-enter`; on pass the new URL becomes active, `:on-match` runs, nav-token allocates.
@@ -164,7 +164,7 @@ Flow on `:rf.route/url-requested`:
 ## Common gotchas — re-frame2-specific
 
 - **Routing is a separate artefact.** `re-frame.core` does not transitively require `re-frame.routing`. The consuming app `:require`s it at boot; otherwise `reg-route` throws `:rf.error/routing-artefact-missing`. The reserved `:rf.route/*` and `:rf.nav/*` keyword strings therefore drop out of bundles that don't use routing.
-- **Navigation is an event, not a fn call.** Use `(rf/dispatch [:rf.route/navigate {:to :route/articles}])` (programmatic) or `(rf/dispatch [:rf.route/url-requested {:url ...}])` (anchor clicks). The navigate request is one map — address keys `:to` / `:url` / `:params` / `:query` / `:fragment`, policy keys `:replace?` / `:scroll` / `:bypass-leave?`, edit key `:query-merge`; omit `:to` and `:url` for an in-place patch of the current location. Do NOT call `pushState` directly.
+- **Navigation is an event, not a fn call.** Use `(rf/dispatch [:rf.route/navigate {:to :route/articles}])` (programmatic) or `(rf/dispatch [:rf.route/navigate {:url ...}])` (a URL — what `route-link` dispatches, and what a hand-written anchor interceptor should). The navigate request is one map — address keys `:to` / `:url` / `:params` / `:query` / `:fragment`, policy keys `:replace?` / `:scroll` / `:bypass-leave?`, edit key `:query-merge`; omit `:to` and `:url` for an in-place patch of the current location. Do NOT call `pushState` directly.
 - **`:on-match` is fire-and-forget activation work, NOT a loader.** It runs every time the route becomes active (including the first match, and again when `:params` / `:query` change), and it is a vector of event vectors, not fns. Each event is dispatched with the activation target `{:route-id :params :query :fragment :url :nav-token}` appended as its last argument (`[:article/load]` arrives as `[:article/load target]`, `[:my/load :x]` as `[:my/load :x target]`), so a handler reads its params and nav-token from its own event, not from the live route slice — which also means a bare framework event such as `[:rf.route/navigate {...}]` cannot be an `:on-match` entry (its arity gate refuses the extra argument); redirect through an app event. It never touches `:transition` / `:error`: the runtime dispatches its events, does not await the async work they start, and does not rewrite their failures into route state — a throwing handler surfaces on the ordinary event error channel, attributed to the event that threw. Data a page cannot render without belongs in `:resources`. There is **no** route `:on-error` key (retired, no alias — a route declaring it is rejected as an unknown bare key).
 - **Route readiness is a projection over the blocking `:resources`.** `:rf.route/transition` is `:loading` while a blocking first load is pending, `:error` on a blocking first-load failure (`:rf.error/resource-route-blocking` on `:rf.route/error`) or a plan that could not be built (`:rf.error/resource-route-plan`), `:idle` otherwise — and always `:idle` when no resources artefact is loaded. A background refresh over data already on screen, a non-blocking read, and an intent prefetch never move it.
 - **`:on-match` order is locked.** State-update first (slice + nav-token), URL push second, `:on-match` dispatches and `:rf.nav/scroll` third. If the URL update fails, the slice is still consistent.

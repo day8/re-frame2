@@ -19,7 +19,7 @@
 
   The hermetic posture is the spec point — Xray is a lens, not a
   remote control. Real navigation lives behind `:rf.route/navigate`
-  + `rf.route/url-requested` and is reachable from the host UI.
+  and is reachable from the host UI.
 
   ## Pure helper, view-thin
 

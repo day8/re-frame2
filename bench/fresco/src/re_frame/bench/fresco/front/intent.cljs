@@ -211,7 +211,7 @@
 
       [:a {:href \"/profile/jane\"
            :on-click [::h/navigate {:frame    :app/frame
-                                    :payload  [:rf.route/url-requested {…}]
+                                    :payload  [:rf.route/navigate {…}]
                                     :native?  false
                                     :veto     nil}]}]
 

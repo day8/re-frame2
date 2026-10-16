@@ -276,8 +276,8 @@
 ;; The tempting alternative spells the same gate as a frame-wide interceptor over
 ;; the navigation events, and it is worth knowing why that fails. An interceptor
 ;; has to normalise every door ITSELF: `:rf.route/navigate` in three request forms (a route id, the `{:url …}` escape
-;; hatch, an in-place query/#fragment edit that names no route at all),
-;; `:rf.route/url-requested`, and `:rf.route/handle-url-change` — some forty lines
+;; hatch a link click rides, an in-place query/#fragment edit that names no route
+;; at all) and `:rf.route/handle-url-change` — some forty lines
 ;; of `match-url` and current-slice resolution whose only job is completeness, and
 ;; whose bug is always the SAME bug: the door it forgot is the door that lets a
 ;; logged-out visitor in. Spec 012 §Redirects and guards opens by saying it

@@ -34,7 +34,7 @@ This is the smallest app that puts all 3 to work — just a
 - Links come from the framework, not glue you write — every link
   uses `rf/route-link`, a [view](../../../../docs/core/glossary.md#view)
   shipped by `day8/re-frame2-routing`. It renders a real `<a href="…">`.
-  A plain left-click dispatches `:rf.route/url-requested` to navigate in-app
+  A plain left-click dispatches `:rf.route/navigate` to navigate in-app
   (no full-page reload). Modifier-key and middle-clicks fall through to
   the browser, so open-in-new-tab still works. You write no `onClick`
   and no `preventDefault` — that work is the framework's.

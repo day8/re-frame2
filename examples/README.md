@@ -115,7 +115,7 @@ Each folder is one framework subsystem, paired with its `docs/<capability>/` gui
 
 | Example | What it demonstrates |
 |---|---|
-| [`capabilities/routing/routing/`](capabilities/routing/routing/) — `examples/routing` | Three-page app: `reg-route`, `route-link` anchors that dispatch `:rf.route/url-requested`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership, and route-not-found handling. Programmatic `:rf.route/navigate` lives in the RealWorld apps (`real-apps/realworld_http/article_editor.cljs`). **Specs:** [012 Routing](../spec/012-Routing.md). |
+| [`capabilities/routing/routing/`](capabilities/routing/routing/) — `examples/routing` | Three-page app: `reg-route`, `route-link` anchors that dispatch `:rf.route/navigate`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership, and route-not-found handling. Programmatic `:rf.route/navigate` lives in the RealWorld apps (`real-apps/realworld_http/article_editor.cljs`). **Specs:** [012 Routing](../spec/012-Routing.md). |
 
 ### Resources
 

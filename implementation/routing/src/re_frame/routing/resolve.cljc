@@ -183,14 +183,13 @@
   every door shares, so the `:rf.route/not-found` **fallback normalisation** —
   the reserved `route-id`, the `{:url … :reason …}` params vocabulary, the
   emptied query, and the fragment a malformed URL cannot carry — has to be ONE
-  definition. If the link door normalised a miss differently from the door
-  that later commits it, the two would disagree about what the URL means: the
-  link door would decide against an incomplete target with a `nil` `:route-id`,
-  so the reserved `:rf.route/not-found` route's `:can-enter` guard would never
-  be consulted and a click on a dead link would commit a route the equivalent
-  programmatic `:rf.route/navigate` denies. The same mismatch would hide the
-  exact-no-op rule from the link door, which would push a history entry for the
-  already-active not-found URL. Deriving the target here — before stage 3 and the guards, and again at
+  definition. If the guards' decision normalised a miss differently from the
+  commit, the two would disagree about what the URL means: the decision would
+  run against an incomplete target with a `nil` `:route-id`, so the reserved
+  `:rf.route/not-found` route's `:can-enter` guard would never be consulted and
+  a click on a dead link would commit a route that guard denies. The same
+  mismatch would hide the exact-no-op rule from the decision, which would push
+  a history entry for the already-active not-found URL. Deriving the target here — before stage 3 and the guards, and again at
   the commit hop — is what makes those three answers the same answer.
 
   Returns
