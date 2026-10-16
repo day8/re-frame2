@@ -2193,7 +2193,7 @@ genuinely per-frame surface each Static panel projects:
 |---|---|---|
 | **Machines** | live machine snapshots (the `:rf/machines` runtime area — `[:rf.runtime/machines :snapshots]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the machine-definition catalogue |
 | **Routes** | — (catalogue surface; its Simulate-URL and Simulate-navigation previews are hermetic and read no frame state) | the route-definition catalogue |
-| **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
+| **Schemas** | the app-db schemas each frame resolves (`schemas-by-frame`, one `app-schemas {:frame f}` read per live frame) | event-spec + sub-spec rows |
 | **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
 | **Interceptors** | — | interceptor chains (live on globally registered events). A chain entry is an inline value OR a by-reference entry (bare keyword / `[id arg]`) into the `:interceptor` registrar (EP-0022); the lens surfaces refs by their authored form and enriches each from the registered descriptor. |
 
