@@ -2692,7 +2692,8 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; the path is the region name — so two regions with structurally-identical
    ;; compound paths never collide. The recorded value is:
    ;;   - a [:vector :keyword] absolute LEAF PATH for a DEEP-history compound
-   ;;     (`:deep? true`), or
+   ;;     (`:deep? true`) — under `:type :parallel`, the leaf path inside
+   ;;     the region (the key carries the region name, the value does not), or
    ;;   - a single :keyword DIRECT CHILD for a SHALLOW-history compound
    ;;     (`:deep?` absent / false; the runtime cascades the child's :initial
    ;;     chain on restore).
@@ -2704,7 +2705,7 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; epoch replay with the rest of the snapshot.
    [:rf/history {:optional true}
     [:map-of [:vector :keyword]                                           ;; compound declaration path (region-qualified head under :type :parallel)
-             [:or [:vector :keyword]                                      ;; DEEP — recorded absolute leaf path
+             [:or [:vector :keyword]                                      ;; DEEP — recorded absolute leaf path (in-region under :type :parallel)
                   :keyword]]]                                             ;; SHALLOW — recorded direct child
    [:meta     {:optional true}
     [:map
