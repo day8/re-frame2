@@ -58,7 +58,7 @@ For a browser file upload, pass `js/FormData` as the body and leave that key off
 so the platform supplies the multipart boundary. The [request reference](../api/re-frame.http.md#rfhttpmanaged-args-map)
 records the other body encodings and transport options.
 
-To put the same header on every request (auth, say), register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) instead of threading it through each call site; the interceptor also picks up a rotated token.
+To put the same header on every request (auth, say), register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) and name it in the frame's `:http-interceptors` instead of threading it through each call site; the interceptor also picks up a rotated token.
 
 ## Handling the reply
 
@@ -246,7 +246,7 @@ Both deliver the `:status` / `:value` / `:error` shape a live request does, with
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
 | `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |
 | `:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return` or `:rf.error/http-reply-tail-failed` | An interceptor threw or returned a non-map, or delivering the reply threw after the response arrived. No reply is delivered. A `:before` failure also arrives as `:rf.error/fx-handler-exception` carrying the same id. |
-| `:rf.error/no-frame-context` from `rf/reg-http-interceptor` | The registration names no frame. Pass `:frame`, or register inside a frame scope ([Interceptors](http-going-further.md#interceptors-stamp-every-request-once)). |
+| `:rf.error/unregistered-interceptor` when a request is issued | The frame's `:http-interceptors` names an id nothing registered, and the request was not sent. Require the namespace that registers it, or fix the id ([Interceptors](http-going-further.md#interceptors-stamp-every-request-once)). |
 | `:rf.warning/http-header-invalid` | A request header was rejected and the request went without it. See [Malformed headers](#malformed-headers). |
 | `:rf.http/cljs-only-key-ignored-on-jvm` or `:rf.http/binary-decode-degraded-on-jvm` | A browser-only option ran on the JVM. See [Running on the JVM](#running-on-the-jvm). |
 | `:rf.error/bad-classification` naming `:rf.http/managed` | The `:carriers` block on your `:rf.http/managed` registration is malformed. See [HTTP trace redaction](http-tracing.md). |

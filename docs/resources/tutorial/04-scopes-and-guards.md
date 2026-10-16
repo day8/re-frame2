@@ -138,11 +138,11 @@ reader's scope.
   {[:get (str api-base "/articles")]
    {:reply {:ok {:articles [{:slug "welcome" :title "Welcome to Conduit"}] :articlesCount 1}}}})
 
-;; Log each request that reaches the stubbed API.
+;; Log each request that reaches the stubbed API. The frame below names it
+;; in :http-interceptors.
 (def requests (r/atom 0))
 (rf/reg-http-interceptor :conduit/request-log
-  {:frame  :conduit
-   :before (fn [ctx] (swap! requests inc) ctx)})
+  {:before (fn [ctx] (swap! requests inc) ctx)})
 
 (rf/reg-resource-scope :conduit/viewer
   {:inputs {:username [:db [:auth :user :username]]
@@ -202,6 +202,7 @@ reader's scope.
      [:p "Requests sent: " @requests]]))
 
 [rf/frame-root {:id :conduit
+                :http-interceptors [:conduit/request-log]
                 :initial-events [[:rf.route/navigate {:to :conduit/home}]]
                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [cache-demo]]

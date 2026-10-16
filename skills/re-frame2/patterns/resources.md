@@ -154,16 +154,17 @@ Writes — `reg-mutation`, `[:rf.mutation/execute …]`, call-site `:reply-to`, 
 
 ### Request decoration — auth headers (the managed-HTTP seam)
 
-A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
+A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register an HTTP interceptor, name it in the frame's `:http-interceptors`, and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
 
 ```clojure
 (rf/reg-http-interceptor :auth
-  {:frame  :rf/default                          ;; the frame whose requests it decorates
-   :before (fn [ctx]
+  {:before (fn [ctx]
              (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Token " token)))))})
+
+(rf/make-frame {:id :rf/default :http-interceptors [:auth]})   ;; the frame runs it
 
 (rf/reg-resource-scope :app/session             ;; the viewer identity, declared once
   {:inputs {:user-id [:db [:auth :user :id]]}}
@@ -177,7 +178,7 @@ A resource/mutation request fn describes **the domain request** — method, url,
     {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```
 
-**Name the frame when you register.** An HTTP interceptor chain belongs to one frame, so registration needs one: the explicit `:frame` above, or an enclosing `(rf/with-frame :rf/default …)` around a block of registrations. At namespace load no frame is in scope, so a frameless `reg-http-interceptor` there raises `:rf.error/no-frame-context` and installs nothing — there is no `:rf/default` to fall back to. The frame need not exist yet: the chain is keyed by frame id and read each time a request is issued, so register at load or boot, before `frame-root {:id :rf/default}` or `(rf/make-frame {:id :rf/default})` creates the frame. It decorates that frame's requests and no other frame's. The scope and resource registrations beside it are global and need no frame.
+**Register at the top level; the frame names the chain.** `reg-http-interceptor` is a frame-agnostic definition registered at namespace load like any other `reg-*`; a `:frame` in its map is `:rf.error/http-bad-interceptor`. A frame runs exactly the ids its `:http-interceptors` vector names (on `make-frame` or `frame-root`), `:before` in vector order and `:after` in reverse — load order sets nothing, and a frame naming no chain runs none. Ids resolve when each request is issued, so an id nobody registered fails that request with `:rf.error/unregistered-interceptor`. Frames that need different decoration name different ids (`:user/auth` in one, `:admin/auth` in another).
 
 The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. An interceptor's `:before` decorates the **`:request`** only — that is the one slot of its returned `ctx` the runtime carries forward, so an `:args`-level key such as `:retry` set there is silently dropped. **Retry is per request**: return a top-level `:retry` from the request fn, and keep it read-focused — retrying writes can duplicate side effects, so a mutation arms `:retry` only when its third-slot request fn returns a managed-HTTP args map carrying one. Traces report *that* an auth interceptor applied, never the bearer value itself.
 

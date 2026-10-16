@@ -277,8 +277,8 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   ```
 - **Description**: Removes one registration and returns its `id`. It is the inverse of the `reg-*` forms, keyed by kind, for tests, REPL work and teardown. There are no per-kind names such as `clear-event` or `clear-resource`.
     - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
-    - Kinds that hold runtime state clean it up: `:flow` vacates its output path and settles dependents, `:route` emits `:rf.route/cleared`, `:http-interceptor` rebuilds the frame's chain, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
-    - The `{:frame f}` map is accepted only for the per-frame kinds `:flow` and `:http-interceptor`. It must be exactly `{:frame f}`, with `f` a frame-id keyword or a live frame value. Anything else, including opts on another kind, throws `:rf.error/registrar-clear-bad-request` before any frame is resolved, so a typo such as `{:fram :session}` throws instead of clearing the ambient frame's registration. An unknown kind throws the same error, naming the valid kinds.
+    - Kinds that hold runtime state clean it up: `:flow` vacates its output path and settles dependents, `:route` emits `:rf.route/cleared`, `:http-interceptor` emits `:rf.http.interceptor/cleared`, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
+    - The `{:frame f}` map is accepted only for the per-frame kind `:flow`. It must be exactly `{:frame f}`, with `f` a frame-id keyword or a live frame value. Anything else, including opts on another kind, throws `:rf.error/registrar-clear-bad-request` before any frame is resolved, so a typo such as `{:fram :session}` throws instead of clearing the ambient frame's registration. An unknown kind throws the same error, naming the valid kinds.
     - Clearing a kind whose optional artefact is not loaded throws that artefact's missing-artefact error, for example `:rf.error/flows-artefact-missing` for `:flow`.
     - There is no clear-all arity. Bulk clearing belongs to the test fixtures in [`re-frame.test-support`](re-frame.test-support.md).
 - **Example**:
@@ -889,6 +889,7 @@ Which function makes the frame depends on who owns its lifetime:
     - `:rf.error/bad-frame-classification`: a `:sensitive` or `:large` key, or a malformed `:observability` entry.
     - `:rf.error/routing-artefact-missing`: `:url-strategy` without `re-frame.routing` loaded. `:url-bound?` alone is accepted before routing loads.
     - `:rf.error/resources-artefact-missing`: `:revalidate-on` without `re-frame.resources` loaded.
+    - `:rf.error/http-bad-interceptor`: `:http-interceptors` is not a vector of keyword ids.
     - `:rf.error/initial-db-retired`, `:rf.error/on-create-retired`: `:initial-db` and `:on-create` are not config keys. Use `:initial-events`, seeding with `[:rf/set-db {…}]`.
     - `:rf.error/initial-events-bare-event`: `:initial-events` is one bare event vector (`[:app/boot]`) instead of a vector of steps.
     - `:rf.error/initial-events-bad-step`, `:rf.error/initial-events-bad-event`, `:rf.error/initial-events-bad-opts`: a malformed step.
@@ -934,6 +935,7 @@ The keys of the map `make-frame` and `frame-root` take. Every key is optional, e
 | `:url-bound?` | `true` or `false`. | `false` | Whether this frame owns the browser URL; see [Browser URL listener](re-frame.routing.md#browser-url-listener). |
 | `:url-strategy` | A URL strategy. | The history strategy. | How routes map to URLs; see [URL strategies](re-frame.routing.md#url-strategies). |
 | `:revalidate-on` | A subset of `#{:focus :reconnect}`. | None. | The host signals that revalidate the frame's stale resources; see [Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property). |
+| `:http-interceptors` | A vector of [`reg-http-interceptor`](#reg-http-interceptor) ids. | None, so no HTTP interceptor runs. | The frame's `:rf.http/managed` interceptor chain, in order: `:before` fns run in vector order, `:after` fns in reverse. The ids resolve when each request is issued, and one with no definition fails that request with `:rf.error/unregistered-interceptor`. |
 
 - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
 - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
@@ -1087,7 +1089,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
     - `:registrations`, inline registrations in `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx` sections. Each entry is `[id body]` or `[id metadata body]`.
     - In `:images`, a later image wins, and `(:rf.gen/shadows (rf/frame-generation f))` reports what it overrode.
     - A registration made through a `reg-*` function rather than its macro records no namespace, so `:select-ns` cannot select it unless its metadata carries `:ns`.
-    - `reg-flow` and `reg-http-interceptor` register against a frame, and no image selects them.
+    - `reg-flow` registers against a frame, and no image selects it.
     - See [Images](../core/images.md).
 - **Errors**:
     - When the image is built:
@@ -1281,7 +1283,7 @@ Each optional feature's registration macros are on this facade, so one require c
 
 The feature itself ships in its own artefact, which must be loaded as its page describes; without it, the macro throws that feature's missing-artefact error: `:rf.error/machines-artefact-missing`, `:rf.error/routing-artefact-missing`, `:rf.error/flows-artefact-missing`, `:rf.error/schemas-artefact-missing`, `:rf.error/ssr-artefact-missing`, `:rf.error/http-artefact-missing` or `:rf.error/resources-artefact-missing`.
 
-Most of these register process-wide, like `reg-event`. Two register against one frame: `reg-flow` and `reg-http-interceptor`. Name the frame with `:frame`, or call them inside [`with-frame`](#with-frame); with neither, they throw `:rf.error/no-frame-context`.
+Most of these register process-wide, like `reg-event`. One registers against one frame: `reg-flow`. Name the frame with `:frame`, or call it inside [`with-frame`](#with-frame); with neither, it throws `:rf.error/no-frame-context`.
 
 ### Machines → [re-frame.machines.md](re-frame.machines.md)
 
@@ -1384,7 +1386,7 @@ Managed HTTP is one fx, `[:rf.http/managed …]`, with one args map and a closed
 
 - **Kind**: macro
 - **Signature**: `(reg-http-interceptor id interceptor-map) → id`
-- **Description**: Adds an interceptor to a frame's `:rf.http/managed` middleware chain, for work every request needs, such as an auth header. The frame is the `:frame` key in `interceptor-map`, or the frame in scope; with neither it throws `:rf.error/no-frame-context`. `:before (fn [ctx] ctx')` runs on the request side, in registration order; `:after (fn [ctx response] response')` runs on the response side, in reverse order. Remove one with `(rf/clear :http-interceptor id)`, or `(rf/clear :http-interceptor id {:frame target})` to name the frame. See [`reg-http-interceptor`](re-frame.http.md#reg-http-interceptor).
+- **Description**: Registers an `:rf.http/managed` interceptor definition, for work every request needs, such as an auth header. It belongs to no frame and is registered at the top level; a frame runs it by naming `id` in its [`:http-interceptors`](#frame-config-keys) config, and a `:frame` key in `interceptor-map` throws `:rf.error/http-bad-interceptor`. `:before (fn [ctx] ctx')` runs on the request side, in the order the frame's vector names the ids; `:after (fn [ctx response] response')` runs on the response side, in reverse order. Remove a definition, for every frame, with `(rf/clear :http-interceptor id)`. See [`reg-http-interceptor`](re-frame.http.md#reg-http-interceptor).
 
 ### Resources → [re-frame.resources.md](re-frame.resources.md)
 
