@@ -29,10 +29,11 @@
   are also opts on two DIFFERENT constructors — `:payload` on
   `ssr-handler`, `:render-state` on the renderer, which is what does the
   projecting. The render-state list is
-  `fresco.login.policy/render-state-policy`: the same Var the server
-  bundle derives its entry allowlists from, so one list is read by both
-  halves and a host that reaches past it is refused by the sidecar rather
-  than served.
+  `fresco.login.policy/render-state-policy`, the one render-visibility
+  policy on this path: the renderer projects the settled frame under it,
+  and the sidecar checks only the envelope's shape, the entry id, the
+  build id and the byte ceiling, never which keys — so a key this list
+  names is a key the render receives.
 
   ## Running it — `init!`, then `app`
 
