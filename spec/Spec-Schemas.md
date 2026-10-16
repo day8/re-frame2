@@ -1690,8 +1690,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceReservedRequestKeyTags
   ;; a resource's :request (the Spec 014 managed-HTTP args map) supplied one
   ;; of the runtime-owned reply-addressing keys (:request-id / :on-success /
-  ;; :on-failure). The runtime OWNS reply addressing (from the scoped key +
-  ;; generation) so the internal reply verifies frame + work-id + generation;
+  ;; :on-failure). The runtime OWNS reply addressing (from the work id —
+  ;; resource id + generation — and the frame) so the internal reply verifies
+  ;; frame + work-id + generation;
   ;; an app-supplied reply target would bypass stale suppression. Rejected at
   ;; the managed-HTTP lower seam; the request is NOT lowered.
   [:map
@@ -2992,8 +2993,8 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
 
 ```clojure
 (def ScopedResourceKey
-  ;; The cache key, the request-correlation token payload, and the unit Xray
-  ;; and SSR enumerate. `[cache-scope resource-id canonical-params]` — scope
+  ;; The cache key and the unit Xray and SSR enumerate; an attempt is named
+  ;; by ResourceWorkId instead. `[cache-scope resource-id canonical-params]` — scope
   ;; first (the tenant/user/locale/impersonation leak boundary), then the
   ;; resource id, then the canonicalized params. Scope + params are
   ;; canonicalized under the SAME rule (key order irrelevant). All three
@@ -3005,13 +3006,16 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    :any])      ;; canonical-params (a canonicalized EDN map)
 
 (def ResourceWorkId
-  ;; The work-ledger record key + the entry's :current-work pointer + (for
-  ;; managed HTTP) the transport request-id. EMBEDS the generation, so stale
-  ;; suppression keys on it — ONE identity per attempt; there is no separate
-  ;; :stale-key synonym (per [016 §Ledger row retention and identity]).
+  ;; A read attempt's identity: the work record's :work/id, the entry's
+  ;; :current-work pointer, the internal reply payload's :work/id and (inside
+  ;; [:rf.req frame-id work-id]) the managed-HTTP transport request-id.
+  ;; EMBEDS the generation, so stale suppression keys on it — ONE identity per
+  ;; attempt; there is no separate :stale-key synonym. Names the resource id,
+  ;; never the scope or params: the attempt's scoped key is the work record's
+  ;; :resource/key (per [016 §Ledger row retention and identity]).
   [:tuple
    [:= :rf.work/resource]
-   ScopedResourceKey
+   :keyword    ;; resource-id
    :int])      ;; generation
 
 (def ResourceEntry
