@@ -290,21 +290,21 @@
 
   2. The `:rf.http/aborted` an issuance FIRES AT THE ATTEMPT IT REPLACES.
      `managed-handler` calls `registry/supersede!`
-     synchronously while issuing the new request; `supersede!` calls the
-     evicted handle's abort-fn with `:request-id-superseded`, which
-     reaches `dispatch-aborted!` and emits the row — with the issuing
+     synchronously while issuing the new request; `supersede!` fires the
+     in-flight record's abort-fn with `:request-id-superseded`, `abort!`
+     commits it, and `dispatch-aborted!` emits the row — with the issuing
      scope still on the stack and the SAME `:request-id`, because sharing
      the id is what supersession IS. That row belongs to the PRIOR
      attempt, and `http-row-for-this-record?` excludes it.
 
   3. The `:rf.http/aborted` an ALREADY-ABORTED EXTERNAL `:abort-signal`
-     fires at THIS attempt — on CLJS only. `run-attempt!` binds the
-     caller's signal to this handle's canonical abort-fn during attempt
-     setup; a signal that is ALREADY aborted fires that abort-fn
-     synchronously right there (`transport-cljs/bind-external-abort!`),
-     with reason `:user` and this record's own `:request-id`, and the
-     `(when-not @finalised? …)` guard below it then skips body prep and
-     the transport entirely. Like (1) this is THIS attempt's own outcome
+     fires at THIS attempt — on CLJS only. `issue!` binds the caller's
+     signal to this record's abort once, at issuance; a signal that is
+     ALREADY aborted fires that abort synchronously right there
+     (`transport-cljs/bind-external-abort!`), with reason `:user` and this
+     record's own `:request-id`, and `run-attempt!` then finds the request
+     no longer `:preparing` and skips body prep and the transport
+     entirely. Like (1) this is THIS attempt's own outcome
      and IS attributed — `http-row-for-this-record?` calls it the one
      cancellation the issuing bundle genuinely witnesses about its own
      attempt.
@@ -316,7 +316,7 @@
   the producer adds an emission inside the issuing fx handler's stack.
 
   A cancellation can also arrive from a NON-HTTP effect in the same drain
-  — an actor destroy walking its in-flight handles — naming a request this
+  — an actor destroy walking its in-flight records — naming a request this
   bundle never issued. That row is real and correctly collected here; what
   it is not is any particular record's, which is again
   `http-row-for-this-record?`'s call.
@@ -712,15 +712,15 @@
      body-prep failure, which ONLY this bundle's own HTTP effects can
      produce — so counting those effects really does account for every
      candidate. A cancellation can be fired by something that is not an
-     HTTP effect at all (an actor destroy walking its in-flight handles, a
+     HTTP effect at all (an actor destroy walking its in-flight records, a
      frame teardown, an epoch restore) landing in the same drain, so the
      count says nothing about where the row came from. A record with no
      `:request-id` therefore takes no cancellation.
 
   What survives is the one cancellation the issuing bundle genuinely
   witnesses about its own attempt: on CLJS an already-aborted external
-  `:abort-signal` fires this handle's abort-fn synchronously inside
-  `run-attempt!` (`transport-cljs/bind-external-abort!`), reason `:user`
+  `:abort-signal` fires this record's abort synchronously inside
+  `issue!` (`transport-cljs/bind-external-abort!`), reason `:user`
   and this record's own `:request-id`."
   [record-request-id sole-http-fx? ev]
   (let [cancel? (cancellation-row? ev)]
