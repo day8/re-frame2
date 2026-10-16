@@ -159,12 +159,12 @@ cljs_prod=false
 bundle_isolation=false
 adapter_testbed_smokes=false
 tools_jvm=false
-# Two artefacts with a wired `:test` alias and a slot on
-# scripts/test-jvm-tools.sh's roster, each with a PR-time CI lane of its own.
-# They get their OWN outputs rather than joining `tools_jvm`: that output gates FOUR
-# jvm-tools-* jobs (xray / story / story-mcp / mcp-base), none of which runs
-# either artefact, so setting it would fire four unrelated probes and STILL skip
-# the files these outputs exist to reach.
+# Two artefacts with a wired `:test` alias and a row in scripts/jvm-lanes.txt,
+# each with a PR-time CI lane of its own. They get their OWN outputs rather
+# than joining `tools_jvm`: that output schedules FOUR lanes (the xray and
+# story legs, the story-mcp and mcp-base jobs), none of which runs either
+# artefact, so setting it would fire four unrelated probes and STILL skip the
+# files these outputs exist to reach.
 tools_jvm_machines_viz=false
 tools_jvm_testbed_support=false
 # The machines-viz artefact's OWN CLJS lane
@@ -513,8 +513,8 @@ is_story_full_gate_path() {
 # Returns 0 (yes) / 1 (no).
 #
 # THE FAIL-OPEN THIS CLOSES. The census is a JVM suite in the routing
-# artefact, so the only job that runs it is `jvm-routing`, gated on
-# `implementation_jvm`. Its inputs are the trees in its own `app-roots` —
+# artefact, so the only lane that runs it is the routing leg of the `jvm`
+# job, selected by `implementation_jvm`. Its inputs are the trees in its own `app-roots` —
 # `examples`, `testbeds` and `implementation/fresco/test` — and without this
 # predicate NONE of the three arms that output:
 #
@@ -733,14 +733,17 @@ else
 
     # Same shape, same reason (see the predicate's own note): the
     # route-path census reads three app trees that all have shadowing arms in
-    # the `case` below, and it runs in `jvm-routing`, which only
-    # `implementation_jvm` gates.
+    # the `case` below, and it runs in the routing leg, which only
+    # `implementation_jvm` selects.
     if is_route_path_census_input "$file"; then
       implementation_jvm=true
     fi
 
     case "$file" in
-      .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
+      # The JVM lane registry and its shell reader sit beside the workflows
+      # here because they decide which legs exist: a change to either
+      # re-tiers the matrix, so the whole matrix runs.
+      .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md|scripts/jvm-lanes.txt|scripts/jvm-lanes.sh)
         mark_all
         ;;
       spec/api-manifest-metadata.edn|spec/api-manifest.edn|spec/API.md)
@@ -800,8 +803,8 @@ else
         #   * tools/machines-viz — engine_grammar_parity_test.cljc feeds
         #     representative definitions through BOTH the viz mirror and the
         #     engine, and core is on that classpath under the mirror.
-        # `tools_jvm` above does NOT reach either job: it gates
-        # jvm-tools-xray / -story / -story-mcp / -mcp-base. Without these
+        # `tools_jvm` above does NOT reach either lane: it schedules the xray
+        # and story legs and the story-mcp and mcp-base jobs. Without these
         # arms a core change would arm four probes that do not run these
         # artefacts and leave both of the artefacts' own lanes skipped.
         #
@@ -1078,7 +1081,7 @@ else
       # namespaces are all `-security-cljs-test`, and `:browser-test` selects
       # only `*-dom-cljs-test`, so the browser lane cannot observe an edit to
       # it; the production and bundle-isolation builds do not require the test
-      # tree at all. Its JVM job and its consolidated `:node-test` inclusion
+      # tree at all. Its JVM leg and its consolidated `:node-test` inclusion
       # are the two lanes that DO run these tests, and the tier below sets
       # exactly them.
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn)
@@ -1095,11 +1098,11 @@ else
         # consolidated CLJS build's :source-paths in shadow-cljs.edn, and
         # implementation/deps.edn carries it for the REPL :test alias. Not
         # routed here, a PR touching only resources/* would leave every
-        # output false, so the aggregator could pass with the jvm-resources
+        # output false, so the aggregator could pass with the resources JVM
         # suite + the consolidated :node-test resources surface both
         # skipped. It is a published, src-carrying per-feature artefact
         # exactly like schemas/ssr/…, so it gets the full per-feature
-        # treatment (implementation_jvm fires test.yml's jvm-resources job;
+        # treatment (implementation_jvm selects the resources leg of `jvm`;
         # cljs_node_test/cljs_browser/cljs_prod/bundle_isolation cover its
         # CLJS surface + isolation).
         implementation_jvm=true
@@ -1146,7 +1149,7 @@ else
         # engine_grammar_parity_test.cljc can feed representative definitions
         # through BOTH the viz mirror and the engine and assert equal output:
         # catching ENGINE-side drift is the suite's reason to exist. The
-        # only JVM lane that runs it is jvm-tools-machines-viz — neither
+        # only JVM lane that runs it is the tools/machines-viz leg — neither
         # consolidated CLJS selector reaches the namespace (`-test`, not
         # `cljs-test$` or `-dom-cljs-test$`) — so without this arm an
         # engine-only diff would leave that output false, and a grammar change
@@ -1244,11 +1247,11 @@ else
         # NOT implementation_jvm. The artefact's JVM suite — the `.cljc`
         # equivalence pin for the canonical slot rule,
         # `test/re_frame/fresco/slot_cljs_test.cljc`, behind a `:test` alias
-        # with a test-count floor — runs in the required `jvm-fresco` job on
-        # scripts/test-jvm-implementation.sh's roster. That job is
-        # UNCONDITIONAL, so it needs no arm, and arming this root would be
+        # with a test-count floor — runs as the fresco leg of the required
+        # `jvm` job, whose row in scripts/jvm-lanes.txt is `always`. That lane
+        # is UNCONDITIONAL, so it needs no arm, and arming this root would be
         # wrong twice over:
-        # every OTHER JVM job reads `implementation_jvm`, so a fresco-only diff
+        # twenty OTHER JVM legs ride `implementation_jvm`, so a fresco-only diff
         # would schedule all of them to run one five-second one-namespace
         # lane; and the arm would still not cover the lane's own inputs —
         # `implementation/fresco/deps.edn` and `test_kit/src/**` are on
@@ -1363,10 +1366,10 @@ else
         # (the `cljs` job, gated on cljs_node_test) runs the `:cljs` arms,
         # and each tier's own `:test` alias runs the SAME `.cljc`
         # namespaces under the JVM to exercise the `:clj` reader-conditional
-        # arms (test.yml's per-tier JVM jobs, gated on implementation_jvm;
+        # arms (test.yml's per-tier JVM legs, selected by implementation_jvm;
         # mirrors the security tier). Unrouted, a PR touching only
         # one of these tiers would leave every output false, so the aggregator
-        # could pass with both the JVM `:clj`-arm job AND the consolidated
+        # could pass with both the JVM `:clj`-arm leg AND the consolidated
         # node-test surface skipped. They ship NO production src (no Maven
         # artefact), so they do NOT widen any production bundle — hence no
         # cljs_browser / cljs_prod / bundle_isolation here (the security
@@ -1381,7 +1384,7 @@ else
         #
         # implementation_jvm fires this artefact's own `:test` alias, which
         # is the deterministic control for the cold-load race the reader
-        # exists to close (jvm-spec-resource). cljs_node_test fires
+        # exists to close (the spec-resource leg). cljs_node_test fires
         # the consolidated `:node-test` build, where the reader is actually
         # exercised — that is the lane whose macro expansion reaches
         # shadow-cljs's recording read.
@@ -1467,41 +1470,42 @@ else
       # extracts, doc-example evaluators. Armed only by its CODE surface, each
       # could be reddened by a prose-only edit that merges green, with the red
       # landing on `main` for the next unrelated PR to discover: a docs-only
-      # rewrite of the machines guide would skip `jvm-machines`, the very lane
+      # rewrite of the machines guide would skip the machines leg, the very lane
       # pinning the pages it rewrote. So the prose each suite reads arms that
       # suite's tier.
       #
-      # THE MEASURED ROSTER — the prose each test.yml suite reads, and the job
-      # that reads it. Established by walking every `.clj`/`.cljc` under
+      # THE MEASURED ROSTER — the prose each test.yml suite reads, and the lane
+      # that runs it: a leg of the `jvm` job by its artefact, or a job by its
+      # id. Established by walking every `.clj`/`.cljc` under
       # implementation/**/test and tools/**/test that both names a repo prose
       # path and calls a read primitive, then reading each one:
       #
       #   docs/machines/parallel-states.md   parallel_states_guide_truth_jvm_test
-      #                                        .clj                  → jvm-machines
+      #                                        .clj                  → machines
       #   docs/machines/concepts.md          transition_geometry_terminology_jvm_
-      #                                        test.clj              → jvm-machines
+      #                                        test.clj              → machines
       #   docs/api/re-frame.adapter.uix.md   scope_ensure_authority_test.clj
-      #                                                              → jvm-core
+      #                                                              → core
       #   docs/api/re-frame.ssr.md           ssr_doc_example_projector_test.clj
-      #                                                              → jvm-ssr
+      #                                                              → ssr
       #   docs/ssr/concepts.md               ssr_doc_example_node_build_id_
-      #                                        test.clj              → jvm-ssr
+      #                                        test.clj              → ssr
       #   docs/design/fresco/product/       recipes/async_nav_doc_test.clj
-      #     async-routing-recipes.md                                 → jvm-routing
+      #     async-routing-recipes.md                                 → routing
       #   docs/core/testing/views.md         uix_component_recipe_docs_pin_test
-      #                                        .clj                  → jvm-uix
+      #                                        .clj                  → uix
       #   docs/core/how-to/use-uix.md        uix_consumer_deps_recipe_test.clj
-      #                                                              → jvm-uix
+      #                                                              → uix
       #   docs/skills/re-frame2-setup.md     skills/re-frame2-setup/tests/
       #                                        setup_drift_test.clj  → skills-
       #                                                                structural
       #   spec/000-Vision.md                 scope_ensure_authority_test.clj
       #   spec/012-Routing.md                        "
-      #   spec/013-Flows.md                          "                → jvm-core
+      #   spec/013-Flows.md                          "                → core
       #   spec/Tool-Pair.md                  spec_elision_registry_tense_
-      #   spec/Security.md                     conformance_test.clj   → jvm-core
+      #   spec/Security.md                     conformance_test.clj   → core
       #   spec/Conventions.md                uix_consumer_deps_recipe_test.clj
-      #                                                              → jvm-uix
+      #                                                              → uix
       #   spec/009-Instrumentation.md        error_catalogue_channel_conformance
       #                                        _test.clj (core), scope_ensure_
       #                                        authority_test.clj (core),
@@ -1510,20 +1514,20 @@ else
       #                                        spawn_all_schema_extract.clj →
       #                                        spawn_all_authority_catalogue_
       #                                        test.clj (machines)
-      #                                              → jvm-core + jvm-machines
+      #                                              → core + machines
       #                                        infinite_trace_ops_test.clj
       #                                              → mcp-conformance-wire-vocab
       #   spec/005-StateMachines.md          transition_geometry_terminology_jvm_
       #                                        test.clj, destroyed_reason_channel
-      #                                        _conformance_test.clj → jvm-machines
+      #                                        _conformance_test.clj → machines
       #   spec/Cross-Spec-Interactions.md    destroyed_reason_channel_conformance
-      #                                        _test.clj             → jvm-machines
+      #                                        _test.clj             → machines
       #   spec/Pattern-FormAction.md         ssr_doc_example_form_action_test.clj
-      #                                                              → jvm-ssr
+      #                                                              → ssr
       #   spec/Spec-Schemas.md               THREE readers in TWO artefacts — see
       #                                        its own arm below.
       #   examples/substrates/uix/{counter,  uix_consumer_deps_recipe_test.clj
-      #     login,dashboard}/{core.cljs,                             → jvm-uix
+      #     login,dashboard}/{core.cljs,                             → uix
       #     README.md}
       #   tools/xray/spec/024-Resources-     infinite_trace_ops_test.clj
       #     Panel.md                                 → mcp-conformance-wire-vocab
@@ -1534,19 +1538,19 @@ else
       # drop every output it sets.
       #
       # WHY `implementation_jvm` AND NOT SOMETHING NARROWER. There is nothing
-      # narrower. `implementation_jvm` is the single output every
-      # per-artefact JVM job gates on; a per-lane arm would mean one new
-      # output and one `if:` widening in test.yml per JVM job, for a saving
-      # the spec roster above would not even collect (its pins span jvm-core,
-      # jvm-machines, jvm-epoch, jvm-ssr and jvm-routing). So the narrowing is
+      # narrower. `implementation_jvm` is the single output that selects every
+      # per-artefact JVM leg; a per-lane arm would mean one new output and one
+      # predicate change in scripts/jvm-lanes.txt per JVM lane, for a saving
+      # the spec roster above would not even collect (its pins span the core,
+      # machines, epoch, ssr and routing legs). So the narrowing is
       # on the PATH axis instead: prose a suite reads arms the JVM tier, and
       # prose nothing reads arms nothing.
       #
       # Three readers in the roster run OUTSIDE that tier, and their pages arm
-      # their own job's output instead: `jvm-uix` gates on
-      # `adapter_diagnostic`, `skills-structural` on `skills_structural` and
-      # `mcp-conformance-wire-vocab` on `mcp_conformance`. A page arms the
-      # output its reader's job reads — `implementation_jvm` reaches none of
+      # their own lane's output instead: the uix leg rides
+      # `adapter_diagnostic`, `skills-structural` gates on `skills_structural`
+      # and `mcp-conformance-wire-vocab` on `mcp_conformance`. A page arms the
+      # output its reader's lane reads — `implementation_jvm` reaches none of
       # them.
       #
       # NONE of these arms `cljs_browser`, `cljs_prod` or any Playwright
@@ -1578,9 +1582,9 @@ else
         # carries the api-manifest `doc-api-check` projection gate. The
         # tree is not an unwatched surface; the hole is two pages that two
         # test.yml JVM suites additionally name as literals —
-        # `scope_ensure_authority_test.clj` (jvm-core) reads the uix adapter
+        # `scope_ensure_authority_test.clj` (the core leg) reads the uix adapter
         # page's scope/ensure row, and `ssr_doc_example_projector_test.clj`
-        # (jvm-ssr) EVALUATES the projector example off the ssr page. Arming
+        # (the ssr leg) EVALUATES the projector example off the ssr page. Arming
         # the whole tree's edits into the JVM tier when every other page has
         # no JVM pin at all is the "coarse rules clutter the matrix" TESTING.md
         # warns about. Add the page here when a new JVM suite names one.
@@ -1590,7 +1594,7 @@ else
         # One named file, NOT `docs/ssr/*` — the same narrowing the two
         # `docs/api` pages above get, for the same reason: exactly one page in
         # this ten-page tree is read by a test.yml suite.
-        # `ssr_doc_example_node_build_id_test.clj` (jvm-ssr) reads the "Render
+        # `ssr_doc_example_node_build_id_test.clj` (the ssr leg) reads the "Render
         # on Node" recipe's fences and fails when its paired build-id literals
         # diverge — the bundle's `goog-define`, the host's `:build-id` renderer
         # opt and the launcher transcript that echoes them. The other nine
@@ -1605,14 +1609,14 @@ else
         # build (`exclude_docs` in mkdocs.yml) and validated only by
         # scripts/check_doc_slugs.py + check_provenance_pins.py. Exactly one of
         # them is read by a test.yml suite — `recipes/async_nav_doc_test.clj`
-        # (jvm-routing) reads this page's recipe forms and evaluates them — so
+        # (the routing leg) reads this page's recipe forms and evaluates them — so
         # exactly one is armed.
         implementation_jvm=true
         ;;
       docs/core/testing/views.md|docs/core/how-to/use-uix.md)
         # Two named pages, NOT `docs/core/*`, and they arm
         # `adapter_diagnostic` rather than the JVM tier: both readers run in
-        # `jvm-uix`, which gates on it.
+        # the uix leg, which that output selects.
         #   * `uix_component_recipe_docs_pin_test.clj` holds the testing page's
         #     §4 component-test recipe byte for byte to the recipe file the
         #     browser lane runs;
@@ -1623,8 +1627,8 @@ else
         # `docs/core/**` is on lint.yml's `paths:` filter, so its api-manifest
         # doc-guide gates already watch it, and no other page in it has a
         # test.yml reader outside the arm below. Arming the tree would queue the
-        # four adapter probes for every guide edit. Add a page here when a new
-        # `jvm-uix` suite names one; a page whose reader runs in an
+        # two adapter probes for every guide edit. Add a page here when a new
+        # suite in the uix leg names one; a page whose reader runs in an
         # `implementation_jvm` lane belongs in an arm above instead.
         adapter_diagnostic=true
         ;;
@@ -1632,7 +1636,7 @@ else
         # One named page, NOT `docs/core/fresco/*`. The codemod's
         # census_test.clj reads this page's census verdict table and requires
         # it to give every census class the codemod's own verdict, and it runs
-        # in jvm-migration-fresco-codemod, which gates on this output. The
+        # in the codemod's leg, which this output selects. The
         # suite is a seconds-long pure JVM run, so arming it per edit of this
         # page costs little; the other Fresco guide pages have no reader.
         migration_fresco_codemod=true
@@ -1654,7 +1658,7 @@ else
         # match from that arm. It adds `adapter_diagnostic`:
         # `uix_consumer_deps_recipe_test.clj` holds the UIx dependency recipe
         # this page publishes to the `uix.*` namespaces the UIx examples
-        # require, and it runs in `jvm-uix`, which gates on that output alone.
+        # require, and it runs in the uix leg, which that output alone selects.
         implementation_jvm=true
         adapter_diagnostic=true
         ;;
@@ -1679,7 +1683,7 @@ else
         #   destroyed_reason_channel_conformance_test.clj     (machines)
         #   spawn_all_schema_extract.clj                      (machines)
         # — the last is the extractor spawn_all_authority_catalogue_test.clj
-        # loads. jvm-core and jvm-machines, both on `implementation_jvm`.
+        # loads. The core and machines legs, both on `implementation_jvm`.
         #
         # It arms no CLJS output: nothing extracts from this Markdown at
         # macro-expansion time — every reader is a JVM suite that slurps it at
@@ -2035,7 +2039,7 @@ else
         # The three UIx substrate examples also have a JVM reader:
         # `uix_consumer_deps_recipe_test.clj` scans each `core.cljs` for the
         # `uix.*` namespaces it requires and holds each README's dependency
-        # recipe to them. It runs in `jvm-uix`, gated on `adapter_diagnostic`,
+        # recipe to them. It runs in the uix leg, selected by `adapter_diagnostic`,
         # so these six files arm that output. The row sits here, not in the
         # prose block above, because that block precedes this arm and a row
         # there would take the first match and drop the four outputs above.
@@ -2089,7 +2093,7 @@ else
         # that scaffolds new projects; it does not share runtime with
         # xray/story/story-mcp/mcp-base. The template_expensive gate fires
         # jvm-tools-template; tools_jvm would unnecessarily fire the four
-        # sibling jvm-tools-* probes.
+        # sibling tools probes (xray/story/story-mcp/mcp-base).
         template_expensive=true
         # The reverse edge, and it is a REAL file read rather than a runtime
         # coupling: jvm-tools-template is not this directory's only PR-time
@@ -2098,7 +2102,7 @@ else
         # tools/template/resources/day8/re_frame2_template/_uix/deps.edn as
         # the single VERSION SOURCE for the UIx recipe, so a template-only
         # diff can red a job in the adapter tree — dropping a dependency from
-        # the template while the recipe test asserts its pin reds jvm-uix,
+        # the template while the recipe test asserts its pin reds the uix leg,
         # and unscheduled, that red would land on trunk for an unrelated PR
         # to wear.
         #
@@ -2114,14 +2118,14 @@ else
         # model the edge that exists, not to rely on a coincidence holding.
         #
         # Cost, measured rather than assumed (one run, all jobs live):
-        # the two adapter_diagnostic jobs are short probes — jvm-uix 21s and
-        # jvm-reagent 14s — and they run in PARALLEL behind
+        # the two adapter_diagnostic legs are short probes — uix 21s and
+        # reagent 14s — and they run in PARALLEL behind
         # jvm-tools-template's 5m38s, which every template change pays for
         # anyway. So this adds ~35s of runner time and no wall-clock at all.
-        # jvm-reagent cannot reach a template file, which by the tools_jvm
-        # reasoning above would argue for a narrow per-job output instead
+        # The reagent leg cannot reach a template file, which by the tools_jvm
+        # reasoning above would argue for a narrow per-lane output instead
         # (cf. tools_jvm_machines_viz); at 14s a probe that precision is not
-        # worth a new output plus a test.yml `if:` edit.
+        # worth a new output.
         adapter_diagnostic=true
         ;;
       tools/story/*|tools/xray/*)
@@ -2148,7 +2152,7 @@ else
           #   coverage_matrix_metadata_test.clj  slurps
           #     tools/xray/spec/017-Test-Coverage-Matrix.md and
           #     019-Cross-Cutting-Insight.md, reconciling the feature-matrix
-          #     scenario names against the spec's rows      → jvm-tools-xray
+          #     scenario names against the spec's rows      → tools/xray leg
           #   panel_enum_spec_refs.clj           slurps
           #     tools/xray/spec/007-UX-IA.md and
           #     008-Embedding-Contract.md at MACRO-EXPANSION time, emitting
@@ -2271,18 +2275,18 @@ else
         # template_expensive fan-out: machines-viz is not consumed by an MCP
         # wrapper and is not part of the deps-new template's generated app.
         #
-        # It has a JVM suite too: a wired `:test` alias, on
-        # `scripts/test-jvm-tools.sh`'s roster. Most of its suites are
+        # It has a JVM suite too: a wired `:test` alias and a row in
+        # scripts/jvm-lanes.txt. Most of its suites are
         # `*_cljs_test.*` and ride the two CLJS gates above, but
         # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
         # ratchet) and `mermaid_public_smoke_test.cljc` match neither
         # `cljs-test$` (`:node-test`) nor `-dom-cljs-test$` (`:browser-test`),
         # so of the consolidated builds' lanes they run in the JVM lane ONLY.
         #
-        # That lane's CI job is `jvm-tools-machines-viz`,
-        # gated on the dedicated output below. `tools_jvm` is deliberately
-        # NOT set: it gates four jvm-tools-* jobs (xray / story / story-mcp /
-        # mcp-base), none of which runs this artefact, so it would fire four
+        # That lane's CI home is the tools/machines-viz leg of the `jvm` job,
+        # selected by the dedicated output below. `tools_jvm` is deliberately
+        # NOT set: it schedules four lanes (the xray and story legs, the
+        # story-mcp and mcp-base jobs), none of which runs this artefact, so it would fire four
         # unrelated probes and still skip these two files.
         #
         # spec-md guard (mirrors story/xray above): a pure documentation
@@ -2375,7 +2379,7 @@ else
         # wire-vocab subdir. The wire-vocab JVM tests run under
         # mcp-conformance-wire-vocab, which is gated by mcp_conformance.
         # Setting tools_jvm here would needlessly fire four unrelated
-        # jvm-tools-* probes (xray/story/story-mcp/mcp-base).
+        # tools probes (xray/story/story-mcp/mcp-base).
         mcp_conformance=true
         mcp_live=true
         ;;
@@ -2408,13 +2412,13 @@ else
         # Without this arm it arms NOTHING AT ALL — not `skills_structural`,
         # not one output. `skills/re-frame2/` has no generic arm and the main
         # case has no default, the same zero-output shape as the skill trees
-        # below. The PR that adds such a test schedules `jvm-ssr` (a test file
+        # below. The PR that adds such a test schedules the ssr leg (a test file
         # arms `implementation_jvm`) while every later edit to the recipe
         # alone would not — the gap is invisible on the PR that opens it.
         #
         # `implementation_jvm` because there is nothing narrower: it is the
-        # single output every per-artefact JVM job gates on, and `jvm-ssr` is
-        # one of them. The "PROSE THAT A test.yml SUITE PINS" block above
+        # single output that selects every per-artefact JVM leg, and the ssr
+        # leg is one of them. The "PROSE THAT A test.yml SUITE PINS" block above
         # argues that at length; this is that reasoning reaching a skill page.
         # The narrowing is on the PATH axis instead — ONE named leaf,
         # not `skills/re-frame2/patterns/*` and emphatically not `skills/**`.
@@ -2500,7 +2504,7 @@ else
         # .clj` slurps `references/schemaless-events.md`, extracts the
         # canonical HTTP block from its fences and drives it through the real
         # router and Malli — so the page IS that suite's input. That suite
-        # runs in `jvm-schemas`, gated on `implementation_jvm`, which
+        # runs in the schemas leg, selected by `implementation_jvm`, which
         # `skills_structural` alone does not reach: the PR that adds such a
         # test schedules the lane because the diff carries the test file; an
         # edit to the reference alone would not. (The Babashka
@@ -2697,30 +2701,89 @@ emit() {
   fi
 }
 
-emit implementation_jvm "$implementation_jvm"
-emit cljs_node_test "$cljs_node_test"
-emit adapter_diagnostic "$adapter_diagnostic"
-emit cljs_browser "$cljs_browser"
-emit examples_compile "$examples_compile"
-emit cljs_prod "$cljs_prod"
-emit bundle_isolation "$bundle_isolation"
-emit adapter_testbed_smokes "$adapter_testbed_smokes"
-emit tools_jvm "$tools_jvm"
-emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
-emit tools_jvm_testbed_support "$tools_jvm_testbed_support"
-emit tools_cljs_machines_viz "$tools_cljs_machines_viz"
-emit machines_viz_viewer_page "$machines_viz_viewer_page"
-emit template_expensive "$template_expensive"
-emit mcp_conformance "$mcp_conformance"
-emit mcp_live "$mcp_live"
-emit story_xray_browser "$story_xray_browser"
-emit story_full_gate "$story_full_gate"
-emit story_static_gate "$story_static_gate"
-emit tenant_switcher_smoke "$tenant_switcher_smoke"
-emit skills_structural "$skills_structural"
-emit playground "$playground"
-emit migration_fresco_codemod "$migration_fresco_codemod"
-emit fresco_controlled "$fresco_controlled"
-emit fresco_hmr "$fresco_hmr"
-emit migration_v1_codemod "$migration_v1_codemod"
-emit ssr_node "$ssr_node"
+# Every boolean this script emits, in emit order. These names, plus `always`,
+# are the predicates a row of scripts/jvm-lanes.txt may name.
+surface_outputs=(
+  implementation_jvm
+  cljs_node_test
+  adapter_diagnostic
+  cljs_browser
+  examples_compile
+  cljs_prod
+  bundle_isolation
+  adapter_testbed_smokes
+  tools_jvm
+  tools_jvm_machines_viz
+  tools_jvm_testbed_support
+  tools_cljs_machines_viz
+  machines_viz_viewer_page
+  template_expensive
+  mcp_conformance
+  mcp_live
+  story_xray_browser
+  story_full_gate
+  story_static_gate
+  tenant_switcher_smoke
+  skills_structural
+  playground
+  migration_fresco_codemod
+  fresco_controlled
+  fresco_hmr
+  migration_v1_codemod
+  ssr_node
+)
+
+# THE JVM LEGS. scripts/jvm-lanes.txt holds one row per JVM artefact, and each
+# row names the output above that schedules it. A `matrix` row whose output
+# fired adds one leg per alias to `jvm_legs`, the JSON array that test.yml's
+# `jvm` matrix job runs. A row naming a hand-written job adds none, because
+# that job reads its output directly. A row naming an output this script does
+# not emit stops the run: a lane whose predicate can never fire is a lane that
+# silently stops running.
+#
+# The rows are found beside this script. Read from stdin (`bash -s`, as the
+# discovery tests run it), the script has no file of its own, and the repo it
+# classifies is the working tree.
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  lanes_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+else
+  lanes_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+# shellcheck source=../../scripts/jvm-lanes.sh
+. "$lanes_root/scripts/jvm-lanes.sh"
+lane_rows="$(jvm_lanes_rows "$lanes_root/scripts/jvm-lanes.txt")"
+
+jvm_legs=''
+while IFS=$'\t' read -r lane_dir lane_aliases _ lane_predicate lane_ci; do
+  [ -n "$lane_dir" ] || continue
+  lane_fired=true
+  if [ "$lane_predicate" != always ]; then
+    lane_known=false
+    for output in "${surface_outputs[@]}"; do
+      if [ "$output" = "$lane_predicate" ]; then
+        lane_known=true
+        break
+      fi
+    done
+    if [ "$lane_known" != true ]; then
+      printf 'report-changed-surfaces.sh: the scripts/jvm-lanes.txt row for %s names `%s`,\n' \
+        "$lane_dir" "$lane_predicate" >&2
+      printf 'which is not an output of this script, so nothing could ever schedule it.\n' >&2
+      exit 2
+    fi
+    lane_fired="${!lane_predicate}"
+  fi
+  if [ "$lane_ci" != matrix ] || [ "$lane_fired" != true ]; then
+    continue
+  fi
+  IFS=',' read -r -a lane_alias_list <<< "$lane_aliases"
+  for lane_alias in "${lane_alias_list[@]}"; do
+    jvm_legs="${jvm_legs:+$jvm_legs,}{\"dir\":\"$lane_dir\",\"alias\":\"$lane_alias\"}"
+  done
+done <<< "$lane_rows"
+jvm_legs="[$jvm_legs]"
+
+for output in "${surface_outputs[@]}"; do
+  emit "$output" "${!output}"
+done
+emit jvm_legs "$jvm_legs"

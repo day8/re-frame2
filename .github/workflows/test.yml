@@ -45,15 +45,15 @@ on:
 # Fast PR spine jobs stay always-on: lockstep drift, skill/MCP drift,
 # and JS harness self-tests. These are cheap (no JVM/Node build) and act
 # as the always-present minimum so the aggregator never resolves to an
-# all-skipped phantom. The heavier core JVM (jvm-core) and CLJS node
-# integration (cljs) jobs are job-level gated on the changed-surface
+# all-skipped phantom. The JVM lanes (the `jvm` matrix job) and the CLJS
+# node integration (cljs) job are job-level gated on the changed-surface
 # classifier: they run on every code surface (core /
 # adapters / per-feature artefacts / fixtures / build config, and — for
 # cljs — the tools/{story,xray} CLJS test trees the consolidated
 # :node-test build compiles). A DOCS-ONLY PR IS NOT A GUARANTEED
 # SKIP: the classifier also arms implementation_jvm for
-# prose that a test.yml suite pins — jvm-core's own comment names which
-# prose, and what escapes. Expensive browser, bundle, examples,
+# prose that a test.yml suite pins — the `jvm` job's own comment says how
+# to measure which. Expensive browser, bundle, examples,
 # Story/Xray, tool, template, MCP-live, and skill structural jobs are
 # likewise guarded. The workflow's pull_request
 # trigger stays UNFILTERED so the `All required checks passed` aggregator
@@ -96,6 +96,7 @@ jobs:
       fresco_hmr: ${{ steps.detect.outputs.fresco_hmr }}
       migration_v1_codemod: ${{ steps.detect.outputs.migration_v1_codemod }}
       ssr_node: ${{ steps.detect.outputs.ssr_node }}
+      jvm_legs: ${{ steps.detect.outputs.jvm_legs }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -127,6 +128,16 @@ jobs:
         env:
           CHANGED_SURFACES_BASE_REF: ${{ github.event.before }}
         run: ./.github/scripts/report-changed-surfaces.sh
+
+      # A second implementation of the leg rule, in Python, over the same rows
+      # and this run's own outputs. It reds when a predicate fired and a leg of
+      # its row is missing from `jvm_legs`, or when `jvm_legs` holds a leg no
+      # fired row accounts for. Without it, a defect in the classifier's leg
+      # builder would skip a lane and read exactly like a surface skip.
+      - name: Verify every fired JVM predicate has its legs
+        env:
+          CLASSIFIER_OUTPUTS: ${{ toJSON(steps.detect.outputs) }}
+        run: python3 scripts/check_jvm_lanes.py --verify-legs
 
   # PR-time drift detection for the lockstep-version contract.
   # Fast — the script is shared with
@@ -1123,7 +1134,7 @@ jobs:
       # lane that ran SOME of what it should. check_test_lane_bijection.py reads
       # every lane from the file that DEFINES it (each shadow-cljs.edn's
       # `:node-test`/`:browser-test` builds, each artefact's `deps.edn` `:test`
-      # alias via the two JVM rosters) and asserts that every file defining a
+      # alias via scripts/jvm-lanes.txt) and asserts that every file defining a
       # top-level `deftest` is reached by some selector and every selector
       # reaches something. Belongs in this always-on job for the same reason the
       # README inventory ratchet above does: the drift is introduced by a rename
@@ -1136,27 +1147,21 @@ jobs:
       - name: Validate test-lane bijection (build files <-> lane selectors)
         run: python scripts/check_test_lane_bijection.py --verbose
 
-      # JVM roster <-> CI required-job bijection. The gate above
-      # READS the two JVM rosters (scripts/test-jvm-{implementation,tools}.sh)
-      # to discover the JVM lanes, so an artefact absent from a roster is not a
-      # violation to it — it is simply not a lane. The gate that finds orphan
-      # FILES takes the roster as ground truth, so the roster is exactly what it
-      # cannot check. That blind spot lets an artefact sit on the local roster
-      # with no CI job at all, or carry a CI job with no local lane, and a
-      # hand repair leaves nothing behind that would notice the next one.
-      #
-      # This gate asserts the two agree in BOTH directions: every rostered
-      # artefact is run by a test.yml job listed in all-required-passed's
-      # `needs:` (a job absent from that list is advisory, whatever its own gate
-      # says), and every required job running `clojure -M:test` has its
-      # directory on a roster. It reads this very file, so it belongs in the
-      # always-on job — the drift is introduced by adding a job or a roster line
-      # and need not touch the tier that owns either. Pure Python stdlib.
-      - name: Self-test the JVM roster/CI bijection gate
-        run: python scripts/check_jvm_lane_rosters.py --self-test
+      # JVM lanes against ground truth. The gate above READS
+      # scripts/jvm-lanes.txt to discover the JVM lanes, so an artefact with no
+      # row is not a violation to it — it is simply not a lane. This gate holds
+      # the rows against what they describe: every deps.edn `:test` alias has a
+      # row or a declared home elsewhere, every row's aliases, `slow` field and
+      # prod-gate leg agree with its deps.edn, every row is run by a required
+      # test.yml job gated on its predicate, and every required job running
+      # `clojure -M:` has a row. The drift arrives with a new artefact or a new
+      # job and need not touch the tier that owns either, so it belongs in the
+      # always-on job. Pure Python stdlib.
+      - name: Self-test the JVM lanes check
+        run: python scripts/check_jvm_lanes.py --self-test
 
-      - name: Validate JVM roster <-> CI required-job bijection
-        run: python scripts/check_jvm_lane_rosters.py --verbose
+      - name: Validate the JVM lanes against deps.edn and test.yml
+        run: python scripts/check_jvm_lanes.py --verbose
 
       # Adapter disposition (source of record EP-0030 §Resolved Decisions):
       # Reagent and UIx are first-class, actively-supported adapters. A
@@ -1461,41 +1466,44 @@ jobs:
           sh scripts/check-commit-attribution.sh "origin/${GITHUB_BASE_REF}"
           printf '%s\n' "$PR_BODY" | sh scripts/check-commit-attribution.sh --pr-body
 
-  jvm-core:
-    name: JVM core (clojure -M:test)
-    # Job-level gating (NOT a workflow-trigger path filter:
-    # the pull_request trigger stays unfiltered so the
-    # `All required checks passed` aggregator is always present). The
-    # JVM core suite runs on every code surface that touches core, the
-    # adapters, the per-feature artefacts, the conformance fixtures, or
-    # the build config.
-    #
-    # A DOCS-ONLY PR DOES NOT IMPLY A SKIP. The classifier
-    # also arms `implementation_jvm` for prose that a test.yml suite
-    # pins — nearly all of `spec/*` (57 of the 60 tracked `spec/**.md`,
-    # via a catch-all), the `docs/machines/*.md` tree, and three named
-    # pages (`docs/api/re-frame.adapter.uix.md`,
-    # `docs/api/re-frame.ssr.md`,
-    # `docs/design/fresco/product/async-routing-recipes.md`).
-    #
-    # NEARLY all of `spec/*`, not wholesale, and the difference matters
-    # to anyone reasoning from this comment: `spec/API.md` is caught
-    # FIRST by an earlier arm that sets `cljs_node_test` only. The rest
-    # of `docs/` arms nothing.
-    #
-    # The classifier is the roster and it moves, so measure the path
-    # rather than trust this paragraph:
-    #   .github/scripts/report-changed-surfaces.sh <path>
-    #
-    # The aggregator treats a surface-skip as OK and the nightly full
-    # matrix is the safety net.
+  # THE JVM LANES. One leg per artefact and alias that scripts/jvm-lanes.txt
+  # declares and the classifier selected for this diff. Each leg is its own
+  # rollup row, `JVM <dir> (<alias>)`, with its own log. The rows say WHICH
+  # lanes run and WHEN; each artefact's deps.edn says HOW (classpath,
+  # selectors, posture), so a leg runs `cd <dir> && clojure -M:<alias>`, the
+  # same command as on a laptop. An artefact whose lane needs more than that
+  # keeps a hand-written job further down, and its row names that job.
+  #
+  # To see what a diff selects, run
+  # `.github/scripts/report-changed-surfaces.sh <path>` and read `jvm_legs`. A
+  # docs-only PR is not a guaranteed skip: the classifier arms
+  # `implementation_jvm` for the prose that a JVM suite pins.
+  #
+  # The `test:prod-gate` legs run a whole suite under -Dre-frame.debug=false,
+  # the JVM/SSR production setting SECURITY.md documents.
+  # `interop/debug-enabled?` reads it once at namespace load, which no
+  # `with-redefs` in a dev-posture lane can reach. A `*-prod-gate-lane-pin-test`
+  # in each of those lanes reds it if the property stops arriving, so the leg
+  # cannot pass in the wrong posture (TESTING.md, "Production-gate JVM").
+  #
+  # `fail-fast: false`, so one red leg leaves the others to finish. Actions
+  # refuses an empty matrix, so the job is skipped when `jvm_legs` is `[]`.
+  # A selected leg that does not run is caught twice: the detect job's
+  # `--verify-legs` step reds a fired predicate whose leg is missing, and the
+  # aggregator reds this job skipped beside a non-empty `jvm_legs`.
+  jvm:
+    name: JVM ${{ matrix.leg.dir }} (${{ matrix.leg.alias }})
     needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    if: needs.detect_changed_surfaces.outputs.jvm_legs != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.detect_changed_surfaces.outputs.jvm_legs) }}
     defaults:
       run:
-        working-directory: implementation/core
+        working-directory: ${{ matrix.leg.dir }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1508,6 +1516,10 @@ jobs:
       - name: Set up Clojure CLI
         run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
 
+      # One cache per artefact, keyed on every deps.edn rather than on the
+      # artefact's own `:local/root` closure, so the key restates no
+      # dependency set. A prod-gate leg shares its artefact's key: same
+      # classpath.
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -1515,90 +1527,13 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-core-${{ hashFiles('implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-${{ matrix.leg.dir }}/${{ hashFiles('implementation/**/deps.edn', 'tools/**/deps.edn', 'migration/**/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-clj-core-
+            ${{ runner.os }}-clj-${{ matrix.leg.dir }}/
             ${{ runner.os }}-clj-
 
-      - name: Run JVM tests (core artefact)
-        run: clojure -M:test
-
-  # The core suite under the REAL production gate.
-  #
-  # WHY IT EXISTS. `SECURITY.md` documents `-Dre-frame.debug=false` (and
-  # `RE_FRAME_DEBUG=false`) as the JVM/SSR production setting, and
-  # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-  # Without a lane that sets it, the documented production configuration
-  # would be executed by NO suite, anywhere.
-  # The suites that call themselves production-gate tests
-  # (`jvm_prod_gate_integration_test`, `ep0008_producers_jvm_gate_test`, and
-  # friends) rebind the Var with `with-redefs` AFTER the framework has loaded,
-  # which cannot reach a decision the gate made at load time — so a
-  # `dispatch-sync` running its handler ZERO times under the documented
-  # production gate, app-db untouched, would stay green there.
-  #
-  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-core`. The two lanes make
-  # different claims and neither substitutes for the other: `jvm-core` proves
-  # the framework's behaviour WITH its dev instrumentation, this job proves the
-  # semantics that must survive WITHOUT it. Same artefact, same classpath (the
-  # `:prod-gate` alias is a modifier composed onto `:test`), same cache key —
-  # only the JVM posture differs.
-  #
-  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.prod-gate-lane-pin-test` runs
-  # inside the lane and asserts unconditionally that `re-frame.debug` reads
-  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
-  # property ever stops arriving, this job goes RED rather than green-on-the-
-  # wrong-posture — which matters because every test the lane runs already
-  # passes in dev posture, so a lost flag would otherwise be invisible.
-  #
-  # SCOPE. The whole core suite, run as `clojure -M:test:prod-gate` in
-  # `implementation/core`, the same command as on a laptop. The runner
-  # discovers every `.*-test$` namespace, and the `:prod-gate` alias skips the
-  # deftests tagged `^:requires-debug`: those assert dev instrumentation
-  # (traces, the `:errors` sink, doc metadata, source coords), which the
-  # framework does not emit under the gate, by design. A new namespace, and a
-  # new untagged deftest, joins this lane by default. The runner prints the
-  # tests and assertions it executed.
-  jvm-core-prod-gate:
-    name: JVM core under the production gate (-Dre-frame.debug=false)
-    # Same surface gate as jvm-core: it is the same artefact.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/core
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      # Deliberately the SAME cache key as jvm-core — identical classpath, so
-      # the two jobs warm one cache instead of competing for two.
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-core-${{ hashFiles('implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-core-
-            ${{ runner.os }}-clj-
-
-      # `re-frame.prod-gate-lane-pin-test` reds the run if the property did
-      # not arrive, so a green log is evidence of the posture it ran in.
-      - name: Run the core suite under -Dre-frame.debug=false
-        run: clojure -M:test:prod-gate
+      - name: clojure -M:${{ matrix.leg.alias }}
+        run: clojure -M:${{ matrix.leg.alias }}
 
   cljs-fresco-controlled:
     name: CLJS fresco controlled-input correctness (real Chromium + Firefox + WebKit)
@@ -1798,607 +1733,6 @@ jobs:
       - name: HMR contract gate — 36 real shadow reloads in three engines
         run: npm run test:fresco-hmr
 
-  jvm-reagent:
-    name: Diagnostic skip-ok JVM reagent-adapter classpath probe
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/adapters/reagent
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-reagent-${{ hashFiles('implementation/adapters/reagent/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-reagent-
-            ${{ runner.os }}-clj-
-
-      # The Reagent artefact's :test alias has no JVM-runnable tests of
-      # its own (the adapter ns is :cljs-only). The job exists so the
-      # artefact's deps + classpath wiring stay green and any future JVM
-      # adapter probe lands here. The empty case needs no `|| echo`
-      # fallback: the cognitect test-runner returns 0 when there are no
-      # test namespaces matching its pattern (verified — `clojure -M:test`
-      # here reports "Ran 0 tests" and exits 0). A non-zero exit therefore
-      # means a REAL failure — a deps/classpath break or a future failing
-      # JVM probe ns — and MUST fail the step, so we do not swallow it.
-      - name: Run JVM tests (reagent artefact, classpath probe)
-        run: clojure -M:test
-
-  jvm-uix:
-    name: Diagnostic skip-ok JVM uix-adapter guards
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/adapters/uix
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-uix-${{ hashFiles('implementation/adapters/uix/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-uix-
-            ${{ runner.os }}-clj-
-
-      # This lane runs REAL JVM tests, not a classpath probe.
-      # `test/re_frame/adapter/` carries two JVM namespaces: the
-      # `docs/core/testing/views.md` §4 recipe pin, and the clean-consumer
-      # guard for the uix.dom dependency recipe. The adapter ns itself is
-      # :cljs-only (UIx is a
-      # CLJS-only library), so these are JVM-side guards rather than adapter
-      # behaviour tests. Accordingly the :test alias does NOT pass `--probe`:
-      # it claims coverage and takes the runner's test-count floor,
-      # so a run executing zero tests FAILS here rather than
-      # exiting 0. `jvm-reagent` above IS a declared probe lane, so its
-      # near-identical comment differs on purpose — do not harmonise the two.
-      # No `|| echo` fallback: a non-zero exit means a REAL failure — a
-      # failing test, or a deps/classpath break — and MUST fail the step, so
-      # we do not swallow it.
-      # The substrate's smoke-test surface is the browser-side testbed spec —
-      # see the adapter-testbed-smokes job below.
-      - name: Run JVM tests (uix artefact, classpath probe)
-        run: clojure -M:test
-
-  jvm-schemas:
-    name: JVM schemas (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/schemas
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-schemas-${{ hashFiles('implementation/schemas/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-schemas-
-            ${{ runner.os }}-clj-
-
-      # The schemas artefact ships JVM-runnable test namespaces under
-      # implementation/schemas/test/ — the sensitive-path walker,
-      # validator-table hot-swap, and boundary-warn-once tests
-      # (schemas_test, schemas_sensitive_test, late_bind_missing_test)
-      # PLUS the schema-*.edn + error-schema-failure.edn conformance
-      # corpus runner (schemas_conformance_test).
-      # The cognitect test-runner returns non-zero on any failure; the
-      # job MUST surface that so the gate is real.
-      - name: Run JVM tests (schemas artefact)
-        run: clojure -M:test
-
-  jvm-machines:
-    name: JVM machines (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/machines
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-machines-${{ hashFiles('implementation/machines/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-machines-
-            ${{ runner.os }}-clj-
-
-      # The machines artefact ships JVM-runnable test namespaces under
-      # implementation/machines/test/ — pure machine-transition tests
-      # (machine_transition_purity_test, after_test, spawn_all_test,
-      # spawn_registry_test, parallel_test, tags_test, initial_entry_test,
-      # …) plus the Mode B conformance corpus runner
-      # (machines_conformance_test). The cognitect
-      # test-runner returns non-zero on any failure; the job MUST surface
-      # that so the gate is real. No `|| echo …` fallback: with JVM tests
-      # present it would mask failures.
-      - name: Run JVM tests (machines artefact)
-        run: clojure -M:test
-
-  jvm-routing:
-    name: JVM routing (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/routing
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-routing-${{ hashFiles('implementation/routing/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-routing-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (routing artefact)
-        run: clojure -M:test
-
-  # The routing suite under the REAL production gate.
-  #
-  # WHY IT EXISTS. `SECURITY.md` documents `-Dre-frame.debug=false` as the
-  # JVM/SSR production setting, `re-frame.interop/debug-enabled?` reads it
-  # ONCE at namespace-load time, and `jvm-core-prod-gate` sets it for
-  # `implementation/core` only. Sub-classification — a PRIVACY invariant —
-  # genuinely egresses in production from routing's
-  # `:routing/route-sub-egress-path`, and the always-on witness for it needs a
-  # lane that runs under the documented production configuration.
-  #
-  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-routing`. The two lanes
-  # make different claims and neither substitutes for the other: `jvm-routing`
-  # proves the artefact's behaviour WITH its dev instrumentation, this job
-  # proves the semantics that must survive WITHOUT it. Same artefact, same
-  # classpath (the `:prod-gate` alias is a modifier composed onto `:test`),
-  # same cache key — only the JVM posture differs.
-  #
-  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.routing-prod-gate-lane-pin-test`
-  # runs inside the lane and asserts unconditionally that `re-frame.debug`
-  # reads `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it.
-  # If the property ever stops arriving, this job goes RED rather than
-  # green-on-the-wrong-posture — which matters because every test the lane
-  # runs already passes in dev posture, so a lost flag would otherwise be
-  # invisible.
-  #
-  # SCOPE. The whole routing suite, run as `clojure -M:test:prod-gate` in
-  # `implementation/routing`, the same command as on a laptop. There is no
-  # exclusion roster and no `-n` selector: the runner discovers every
-  # `.*-test$` namespace, so a new namespace joins this lane by default. A
-  # namespace's readings of dev instrumentation — a `:rf.route/*` trace, the
-  # `:errors` sink, `:doc` / `:source` on a route-algebra node — sit inside a
-  # posture arm beside the semantics they accompany, and the semantics run
-  # here. The runner prints the tests and assertions it executed.
-  jvm-routing-prod-gate:
-    name: JVM routing under the production gate (-Dre-frame.debug=false)
-    # Same surface gate as jvm-routing: it is the same artefact.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/routing
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      # Deliberately the SAME cache key as jvm-routing — identical classpath,
-      # so the two jobs warm one cache instead of competing for two.
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-routing-${{ hashFiles('implementation/routing/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-routing-
-            ${{ runner.os }}-clj-
-
-      # `re-frame.routing-prod-gate-lane-pin-test` reds the run if the property
-      # did not arrive, so a green log is evidence of the posture it ran in;
-      # the runner prints the tests and assertions it executed.
-      - name: Run the routing suite under -Dre-frame.debug=false
-        run: clojure -M:test:prod-gate
-
-  jvm-flows:
-    name: JVM flows (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/flows
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-flows-${{ hashFiles('implementation/flows/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-flows-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (flows artefact)
-        run: clojure -M:test
-
-  jvm-http:
-    name: JVM http (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/http
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-http-${{ hashFiles('implementation/http/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-http-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (http artefact)
-        run: clojure -M:test
-
-  jvm-ssr:
-    name: JVM ssr (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/ssr
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-ssr-${{ hashFiles('implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-ssr-
-            ${{ runner.os }}-clj-
-
-      # The ssr artefact ships JVM-runnable test namespaces under
-      # implementation/ssr/test/ — render-to-string + hydrate + the
-      # full request lifecycle (ssr_end_to_end_test, ssr_head_test,
-      # ssr_request_cofx_test, ssr_compatibility_checks_test,
-      # ssr_source_coord_test, ssr_teardown_load_test, ssr_hash_test,
-      # source_coord_parity_test, late_bind_missing_test) PLUS the
-      # ssr-*.edn conformance corpus runner (ssr_conformance_test).
-      # The cognitect test-runner returns
-      # non-zero on any failure; this gate surfaces an ssr regression
-      # at the ssr artefact's CI step rather than only downstream at
-      # core's full-corpus runner.
-      - name: Run JVM tests (ssr artefact)
-        run: clojure -M:test
-
-  # The ssr suite under the REAL production gate.
-  #
-  # WHY IT EXISTS, and why SSR is the sharpest case. `SECURITY.md` documents
-  # `-Dre-frame.debug=false` as the JVM/SSR production setting and
-  # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-  # This is the artefact that actually RUNS on a JVM in production, under
-  # exactly that property, and `jvm-core-prod-gate` covers
-  # `implementation/core` only. Sub-classification — a PRIVACY invariant —
-  # genuinely reaches `re-frame.ssr.payload-policy/project-routing-egress` in
-  # production, the code deciding what leaves the server inside a hydration
-  # payload, and its always-on witness needs a lane under that posture.
-  #
-  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-ssr`. The two lanes make
-  # different claims and neither substitutes for the other: `jvm-ssr` proves
-  # the artefact's behaviour WITH its dev instrumentation, this job proves the
-  # semantics that must survive WITHOUT it. Same artefact, same classpath (the
-  # `:prod-gate` alias is a modifier composed onto `:test`), same cache key —
-  # only the JVM posture differs.
-  #
-  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.ssr-prod-gate-lane-pin-test` runs
-  # inside the lane and asserts unconditionally that `re-frame.debug` reads
-  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. If the
-  # property ever stops arriving, this job goes RED rather than
-  # green-on-the-wrong-posture — which matters more here than anywhere else,
-  # because every namespace in this lane already passes in dev posture, so a
-  # lost flag would otherwise be invisible. With no exclusion roster
-  # (see SCOPE below) that pin is the only signal that the posture
-  # is the one intended.
-  #
-  # SCOPE. The WHOLE ssr suite, run as `clojure -M:test:prod-gate` in
-  # `implementation/ssr`, the same command as on a laptop. There is no
-  # exclusion roster and no `-n` selector. The runner discovers every
-  # `.*-test$` namespace under `implementation/ssr/test` and runs it, which is
-  # the strongest polarity but also the quiet one: a NEW namespace joins this
-  # lane the day it lands, with nothing to edit and nothing to warn you.
-  # Budget for that when you add one.
-  #
-  # DO NOT SIZE THE LANE OFF A NUMBER IN A COMMENT. The runner prints its own
-  # counts at run time, and that printout is the authority — a count written
-  # here would go stale silently as namespaces are added. A run that executes
-  # no test is red on the runner's nonzero floor, and a test file the runner
-  # cannot discover as its own namespace stops the run before any test
-  # executes.
-  jvm-ssr-prod-gate:
-    name: JVM ssr under the production gate (-Dre-frame.debug=false)
-    # Same surface gate as jvm-ssr: it is the same artefact.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/ssr
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      # Deliberately the SAME cache key as jvm-ssr — identical classpath, so
-      # the two jobs warm one cache instead of competing for two.
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-ssr-${{ hashFiles('implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-ssr-
-            ${{ runner.os }}-clj-
-
-      # `re-frame.ssr-prod-gate-lane-pin-test` reds the run if the property
-      # did not arrive, so a green log is evidence of the posture it ran in;
-      # the runner prints the tests and assertions it executed.
-      - name: Run the ssr suite under -Dre-frame.debug=false
-        run: clojure -M:test:prod-gate
-
-  jvm-security:
-    name: JVM security (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/security
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-security-${{ hashFiles('implementation/security/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn', 'implementation/routing/deps.edn', 'implementation/flows/deps.edn', 'implementation/ssr/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-security-
-            ${{ runner.os }}-clj-
-
-      # The implementation/security :test alias (a cross-artefact, src-less
-      # adversarial-property tier) is on the local rigorous
-      # gate (scripts/test-jvm-implementation.sh), and this job runs it
-      # on the JVM at PR time. The security namespaces are .cljc and advertise a
-      # cross-runtime contract — most pointedly re-frame.security.gen's LCG
-      # ("byte-deterministic AND identical across JVM + JS", separate :clj
-      # full-precision `long` multiply vs :cljs Math.imul arms). Without
-      # this job the :clj reader-conditional arms (gen's multiply, the
-      # egress/redaction :clj helper branches, the clojure.walk deep-scan)
-      # would never execute on the JVM in CI — a false-green cross-runtime
-      # security contract. This job runs the SAME .cljc namespaces under
-      # the JVM via the cognitect test-runner (non-zero exit on any
-      # failure), so a :clj-arm divergence in re-frame.security.gen
-      # turns the PR CI red.
-      - name: Run JVM tests (security tier)
-        run: clojure -M:test
-
-  jvm-ssr-ring:
-    name: JVM ssr-ring (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/ssr-ring
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-ssr-ring-${{ hashFiles('implementation/ssr-ring/deps.edn', 'implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-ssr-ring-
-            ${{ runner.os }}-clj-
-
-      # implementation/ssr-ring/test/ carries JVM-only test namespaces
-      # (ring_test, ring_e2e_validator_test and the ring/ suite), and
-      # jvm-ssr does not cover ssr-ring's distinct surface — without this
-      # job none of them would run in CI.
-      #
-      # The ssr-ring artefact is the Ring/Pedestal host adapter (Spec
-      # 011 §HTTP response contract). It materialises :response into a
-      # Ring map, including cookies (RFC 6265), redirects, and the
-      # per-request frame lifecycle. The JVM e2e validator spins up a
-      # real Jetty host on an ephemeral port and hits it with
-      # java.net.http to observe bytes on the wire. The cognitect
-      # test-runner returns non-zero on any failure; this gate
-      # surfaces an ssr-ring regression at the ssr-ring artefact's CI
-      # step rather than leaving it uncovered.
-      - name: Run JVM tests (ssr-ring artefact)
-        run: clojure -M:test
-
   jvm-node-crossing:
     name: JVM->Node->JVM crossing (ssr-ring clojure -M:crossing-test)
     needs: detect_changed_surfaces
@@ -2440,11 +1774,11 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          # Deliberately the SAME key as jvm-ssr-ring: the same artefact's
-          # classpath, one alias over.
-          key: ${{ runner.os }}-clj-ssr-ring-${{ hashFiles('implementation/ssr-ring/deps.edn', 'implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
+          # Deliberately the SAME key as the `jvm` job's ssr-ring leg: the
+          # same artefact's classpath, one alias over.
+          key: ${{ runner.os }}-clj-implementation/ssr-ring/${{ hashFiles('implementation/**/deps.edn', 'tools/**/deps.edn', 'migration/**/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-clj-ssr-ring-
+            ${{ runner.os }}-clj-implementation/ssr-ring/
             ${{ runner.os }}-clj-
 
       # The JVM -> Node -> JVM crossing, named for what it is.
@@ -2467,519 +1801,6 @@ jobs:
       - name: Run the JVM->Node->JVM crossing witness (ssr-ring :crossing-test)
         run: clojure -M:crossing-test
 
-  jvm-epoch:
-    name: JVM epoch (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/epoch
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-epoch-${{ hashFiles('implementation/epoch/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-epoch-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (epoch artefact)
-        run: clojure -M:test
-
-  # The epoch artefact under the REAL production gate.
-  #
-  # WHY IT EXISTS. `re-frame.interop/debug-enabled?` is a JVM `def` read ONCE at
-  # namespace-load time from `-Dre-frame.debug` / `RE_FRAME_DEBUG`. Without
-  # this lane, `implementation/epoch/test/re_frame/
-  # epoch_jvm_prod_gate_test.clj`, the suite whose SUBJECT is the production
-  # posture, would be executed by no lane under it.
-  #
-  # WHY IT MATTERS MORE FOR EPOCH THAN FOR THE OTHER PROD-GATE LANES. The
-  # gate's whole security rationale is that the epoch ring must NOT
-  # retain `:db-before` / `:db-after` / raw `:trace-events` in a production
-  # server's heap, and the suite asserting that retention is elided must run
-  # under the posture it is about.
-  #
-  # WHAT `with-redefs` ALREADY COVERED, stated precisely so this job is not
-  # oversold. Epoch reads the gate only as `(when interop/debug-enabled? …)`
-  # inside fn bodies — a runtime Var deref — so the `with-redefs`
-  # deftests do reach epoch's own gated branches. What they cannot reach is what
-  # the framework decided while it LOADED under the dev default: top-level
-  # registrations, `defonce` initialisation, interceptor chains composed once at
-  # load. A total `dispatch-sync` failure under the documented gate lives in
-  # exactly that half, and stays green under `with-redefs`. This job
-  # executes that half.
-  #
-  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-epoch`. The two lanes make
-  # different claims and neither substitutes for the other: `jvm-epoch` proves
-  # epoch's behaviour WITH its instrumentation live, this job proves what must
-  # hold WITHOUT it. Same artefact, same classpath (the `:prod-gate` alias is a
-  # modifier composed onto `:test`), same cache key — only the JVM posture
-  # differs.
-  #
-  # THE JOB CANNOT PASS VACUOUSLY, and here that guard is load-bearing in a way
-  # it is not for the other prod-gate lanes. `re-frame.epoch-prod-gate-lane-pin-test` runs
-  # inside the lane and asserts unconditionally that `re-frame.debug` reads
-  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. Epoch's
-  # runtime is gated throughout, so nearly every assertion this lane makes is an
-  # assertion of ABSENCE — no record in the ring, no callback, `restore-epoch!`
-  # returning `false`. A lane running in the WRONG posture would fail to observe
-  # those things too, for the opposite reason, so a lost flag would not weaken
-  # this job's greens, it would INVERT what they mean.
-  #
-  # SCOPE. The whole epoch suite, run as `clojure -M:test:prod-gate` in
-  # `implementation/epoch`, the same command as on a laptop. The runner
-  # discovers every `.*-test$` namespace, so a new namespace joins this lane
-  # by default. Most of epoch's namespaces carry `^:requires-debug` on their
-  # `(ns ...)` form, which the alias skips: epoch's production posture is
-  # that the artefact is OFF, so a suite about its recording, restore, replay
-  # or a record read back out of the ring has nothing to exercise here, and
-  # each says so in its ns docstring. They still load here, so a load-time
-  # failure in one reddens this job. The runner prints the tests and
-  # assertions it executed.
-  jvm-epoch-prod-gate:
-    name: JVM epoch under the production gate (-Dre-frame.debug=false)
-    # Same surface gate as jvm-epoch: it is the same artefact.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/epoch
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      # Deliberately the SAME cache key as jvm-epoch — identical classpath, so
-      # the two jobs warm one cache instead of competing for two.
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-epoch-${{ hashFiles('implementation/epoch/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-epoch-
-            ${{ runner.os }}-clj-
-
-      # `re-frame.epoch-prod-gate-lane-pin-test` reds the run if the property
-      # did not arrive, so a green log is evidence of the posture it ran in;
-      # the runner prints the tests and assertions it executed.
-      - name: Run the epoch suite under -Dre-frame.debug=false
-        run: clojure -M:test:prod-gate
-
-  jvm-resources:
-    name: JVM resources (clojure -M:test)
-    # The resources artefact (day8/re-frame2-resources, EP-0003) is on the
-    # root CLJS/test classpath (implementation/deps.edn +
-    # shadow-cljs.edn) and ships its own JVM `:test` alias (414 tests:
-    # the resource lifecycle FSM, work-ledger substrate, managed-HTTP
-    # lowering, invalidation/GC/owners, mutations, and the routing +
-    # SSR/hydration integrations); without this job a resources-only PR
-    # could pass with this suite skipped. Gated on implementation_jvm
-    # (armed for implementation/resources/* by report-changed-
-    # surfaces.sh), mirroring every sibling per-feature jvm-* job.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/resources
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-resources-${{ hashFiles('implementation/resources/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/routing/deps.edn', 'implementation/ssr/deps.edn', 'implementation/http/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-resources-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (resources artefact)
-        run: clojure -M:test
-
-  jvm-spec-resource:
-    name: JVM spec-resource (clojure -M:test)
-    # The build-time reader for committed spec/ data
-    # (day8/re-frame2-spec-resource) — the ONE resolver for shadow-cljs's
-    # recording classpath read, whose single consumer today is the
-    # api-manifest CLJS probe.
-    #
-    # Its suite is the deterministic control for the cold-load race that
-    # reader exists to close: `requiring-resolve` resolves BEFORE it takes
-    # the require lock, so a second macro-expansion thread can reach a Var
-    # its own `def` has interned but not yet bound. The suite holds that
-    # window open — a generated namespace whose `def` blocks inside its
-    # initializer — and drives two independent resolver sites into it, so
-    # the racy shape fails on an assertion rather than on the weather.
-    #
-    # This job exists because ordinary lanes cannot carry that evidence.
-    # The defect shipped twice behind fully green JVM / CLJS / browser
-    # suites; a rerun wins the coin toss as often as not. Nothing else in
-    # CI goes red when the racy shape returns.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/spec-resource
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-spec-resource-${{ hashFiles('implementation/spec-resource/deps.edn', 'implementation/test-quiet/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-spec-resource-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (spec-resource reader)
-        run: clojure -M:test
-
-  jvm-reply-conformance:
-    name: JVM reply-conformance (clojure -M:test)
-    # The EP-0011 cross-family reply-VOCABULARY-consistency
-    # tier is a src-less `.cljc` test surface on the root test classpath.
-    # Its own `:test` alias runs the SAME `.cljc` namespaces under the JVM
-    # so the `:clj` reader-conditional arms (the EDN round-trip
-    # `read-string`) are exercised — the always-on `:node-test` gate runs
-    # only the `:cljs` side, so without this job no PR job would arm the JVM
-    # `:clj` arm on a tier-only change. Mirrors the security tier.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/reply-conformance
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-reply-conformance-${{ hashFiles('implementation/reply-conformance/deps.edn', 'implementation/core/deps.edn', 'implementation/http/deps.edn', 'implementation/resources/deps.edn', 'implementation/machines/deps.edn', 'implementation/routing/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-reply-conformance-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (reply-conformance tier)
-        run: clojure -M:test
-
-  jvm-derivation-conformance:
-    name: JVM derivation-conformance (clojure -M:test)
-    # The EP-0014 derivation/process-ALGEBRA conformance tier
-    # is a src-less `.cljc` test surface on the root test classpath. Its
-    # own `:test` alias runs the SAME `.cljc` namespaces under the JVM so
-    # the `:clj`-side composition (the pure-data algebra views, the
-    # whole-value law over JVM data) is exercised — the always-on
-    # `:node-test` gate runs only the `:cljs` side. The suite supplies
-    # an EXPLICIT contributor map on BOTH hosts, so it deliberately does
-    # NOT exercise JVM `default-contributors` auto-resolution; that path is
-    # core's, pinned by `default-contributors-resolves-every-jvm-sibling`
-    # in implementation/core/test/re_frame/derivation_graph_test.clj. The
-    # tier proves the four EP-0014 laws across all five families —
-    # subscriptions, flows, resources, route facts, machines. Mirrors the
-    # security tier.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/derivation-conformance
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-derivation-conformance-${{ hashFiles('implementation/derivation-conformance/deps.edn', 'implementation/core/deps.edn', 'implementation/flows/deps.edn', 'implementation/resources/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn', 'implementation/schemas/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-derivation-conformance-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (derivation-conformance tier)
-        run: clojure -M:test
-
-  jvm-event-conformance:
-    name: JVM event-conformance (clojure -M:test)
-    # The EP-0018 one-form event-MODEL conformance tier is a
-    # src-less `.cljc` test surface on the root test classpath. Its own
-    # `:test` alias runs the SAME `.cljc` namespaces under the JVM so the
-    # `:clj`-only arms are exercised: the `^:no-doc`-meta facade probe
-    # (reads `(meta (var …))` over the public re-frame.core vars — JVM-only)
-    # and the `:clj` host throw type (clojure.lang.ExceptionInfo) for the
-    # retired-name removal errors — the always-on `:node-test` gate runs
-    # only the `:cljs` side. Mirrors the security tier.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/event-conformance
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-event-conformance-${{ hashFiles('implementation/event-conformance/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-event-conformance-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (event-conformance tier)
-        run: clojure -M:test
-
-  jvm-test-quiet:
-    name: JVM test-quiet (clojure -M:test)
-    # implementation/test-quiet
-    # is the test-runtime quiet-reporter artefact (day8/re-frame2-test-quiet):
-    # its JVM runner (re-frame.test-quiet.runner) is the
-    # `:main-opts` of nearly every per-artefact `:test` alias. Its OWN `:test`
-    # tree is the ADVERSARIAL CONTRACT suite for that runner —
-    # test_quiet_runner_contract_test.clj (subprocess deftests that
-    # relaunch a fresh JVM against throwaway fixtures) plus the
-    # stdout-line-count pins (test_quiet_pin_test.clj /
-    # ..._pin_passing_test.clj). It pins the green shape and the JVM
-    # RED/ERROR/exit-code paths, the verbose per-namespace banners, the
-    # coverage floor and `--probe` lanes, discovery and fixture integrity,
-    # namespace-level tag selection, a nested `run-tests` that reaches
-    # neither the outer verdict nor the JVM, the central stderr buffer +
-    # red-replay, and partial output surviving exit.
-    #
-    # Without this job the suite would run in NO automated gate: the
-    # classifier's implementation_jvm=true (armed for test-quiet/** by
-    # report-changed-surfaces.sh) runs OTHER artefacts'
-    # suites THROUGH the quiet runner (green happy-path) — never the
-    # contract-test namespace. So the ONLY pins for the JVM red/error/
-    # banner/stderr behaviour would be dark and a regression would ship green.
-    # Gated on implementation_jvm, mirroring every sibling per-feature
-    # jvm-* job. The suite relaunches many fresh JVMs, so a modest
-    # timeout guards against a wedged child (the harness has its own
-    # per-child drain timeouts).
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/test-quiet
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-test-quiet-${{ hashFiles('implementation/test-quiet/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-test-quiet-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (test-quiet contract suite)
-        run: clojure -M:test
-
-  # The Fresco artefact's JVM lane: the CI half of the slot-rule equivalence
-  # pin.
-  #
-  # WHAT IT RUNS is one namespace: `re-frame.fresco.slot-cljs-test`,
-  # the `.cljc` EQUIVALENCE PIN for the canonical slot rule.
-  # Measured: 3 tests, 92 assertions, ~5s. `impl/slot.cljc` has exactly one
-  # definition of `prop-name`, so the failure it hunts is not "someone edited
-  # one copy" — it is the two ways ONE definition still answers two things: a
-  # `#?(:clj … :cljs …)` reader conditional inside the rule or anything it
-  # calls, and a host-differing primitive (the JVM's `str/upper-case` consults
-  # the platform DEFAULT LOCALE, so a Turkish-locale JVM slots `:aria-index` and
-  # `:on-input` differently from every browser). Neither is visible to a single
-  # host, so the same corpus is asserted TWICE against that one implementation:
-  # once by `npm run test:cljs` in Node, once by `clojure -M:test` here. Running
-  # one arm does not halve the coverage, it deletes the mechanism.
-  #
-  # WHY IT IS A REQUIRED JOB. Without it the Node arm would run on every PR
-  # and the JVM arm only when somebody typed `clojure -M:test` by hand. The
-  # artefact's entry on `scripts/test-jvm-implementation.sh` and this job move
-  # together, because `check_jvm_lane_rosters.py` R1/R2 refuse either half
-  # alone.
-  #
-  # UNCONDITIONAL — no `needs: detect_changed_surfaces`, no `if:` — and the
-  # reason is a MEASUREMENT, not precedent. `implementation_jvm` is the
-  # obvious gate and it is the wrong one twice over:
-  #
-  #   1. IT DOES NOT COVER THIS LANE'S INPUTS. Probed on this tree, the lane's
-  #      own definition — `implementation/fresco/deps.edn`, which decides
-  #      whether the pin is discovered at all — measures implementation_jvm
-  #      FALSE, as does `implementation/fresco/test_kit/src/**`, also on the
-  #      `:test` classpath. The one file that DOES arm it (`slot_cljs_test.cljc`;
-  #      its subject `impl/slot.cljc` is under `src/` and arms nothing) does so
-  #      only INCIDENTALLY, through
-  #      `is_route_path_census_input` — a predicate that exists for the routing
-  #      route-path census and matches `implementation/fresco/test/*` `.cljs`/
-  #      `.cljc`. Resting this lane on that predicate means the census's roster
-  #      silently owns whether the slot pin is gated.
-  #   2. ARMING IT WOULD SCHEDULE THE WHOLE JVM TIER TO SCHEDULE ONE LANE.
-  #      Over twenty jobs carry `if: … implementation_jvm == 'true'`. A
-  #      fresco-only diff runs none of them; arming the artefact root would run
-  #      all of them plus this one, on every diff to the repo's most actively
-  #      developed tree, to schedule a five-second lane. Unconditional costs
-  #      one runner.
-  #
-  # A new classifier output of its own does not fit either: a surface gate
-  # that fails to cover a checker's inputs is exactly the failure this lane
-  # avoids, so a new arm is a fresh chance to make that mistake and needs
-  # re-widening every time the lane learns to read another file.
-  #
-  # NOT VACUOUS, AND MECHANICALLY SO. The `:test` alias carries no `--probe`, so
-  # it takes the quiet runner's test-count floor: a lane that discovers zero
-  # tests REDS rather than passing green. That floor is what makes this job's
-  # green a verdict rather than a lane that has quietly stopped selecting
-  # anything — the failure mode a `--probe` lane wired to a required job would
-  # manufacture on purpose.
-  jvm-fresco:
-    name: JVM fresco (clojure -M:test)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/fresco
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-fresco-${{ hashFiles('implementation/fresco/deps.edn', 'implementation/core/deps.edn', 'implementation/test-quiet/deps.edn', 'implementation/adapters/uix/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-fresco-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (fresco artefact — the slot-rule equivalence pin)
-        run: clojure -M:test
-
   # The REPO-WIDE SOURCE WALKS that live in
   # `implementation/core/test/` but are not core tests, given a lane whose
   # scheduling does not depend on a read-set model of what they walk.
@@ -2992,8 +1813,8 @@ jobs:
   # a step here has no read-set model to be wrong about.
   #
   # THE HOLE. Each of these suites discovers its inputs by `file-seq` over
-  # trees OUTSIDE its own artefact, and `jvm-core`, the only other lane that
-  # runs them, is gated by `implementation_jvm`:
+  # trees OUTSIDE its own artefact, and the core leg of the `jvm` job, the
+  # only other lane that runs them, is gated by `implementation_jvm`:
   #
   #   no-rf-default-floor-lint-test            walks implementation/**/src AND
   #                                            the sibling tools/**/src tree
@@ -3039,10 +1860,10 @@ jobs:
   # warn-once governance breach would merge GREEN, and the red would land on
   # main for the next unrelated implementation PR to discover.
   #
-  # UNCONDITIONAL, and the reason is a MEASUREMENT that mirrors jvm-fresco's
-  # above. `implementation_jvm` is the obvious gate and it is the wrong one:
+  # UNCONDITIONAL, for the reason the fresco row of scripts/jvm-lanes.txt is
+  # `always`. `implementation_jvm` is the obvious gate and it is the wrong one:
   # arming the three missing roots costs ~10 more PRs through the JVM tier of
-  # over twenty jobs (~21 min each) and STILL leaves the class partly open,
+  # over twenty legs (~21 min each) and STILL leaves the class partly open,
   # because the walks keep widening — `src-roots` is recursive and
   # depth-independent, so tomorrow's artefact is walked by construction while
   # any arming list would have to be re-widened by hand. Arming to completion
@@ -3059,9 +1880,9 @@ jobs:
   # Slow, bounded, and still an order of magnitude under the ~21-minute JVM
   # tier that arming these roots would cost instead.
   #
-  # A new classifier output does not fit either, for the reason jvm-fresco
-  # gives — a new arm is a fresh chance for a surface gate not to cover a
-  # checker's inputs — and a second output must also be taught to
+  # A new classifier output does not fit either: a new arm is a fresh chance
+  # for a surface gate not to cover a checker's inputs, and a second output
+  # must also be taught to
   # `scripts/test-fast-pr.sh` and held in step with the classifier forever
   # after.
   #
@@ -3081,8 +1902,8 @@ jobs:
   # per-namespace test counts here either: nothing would enforce them, and
   # they would drift unnoticed.
   #
-  # These also still run inside `jvm-core`, and that duplication is
-  # deliberate: this lane exists to schedule them when `jvm-core` does not.
+  # These also still run inside the core leg, and that duplication is
+  # deliberate: this lane exists to schedule them when the core leg does not.
   jvm-repo-source-walks:
     name: JVM repo-wide source walks (clojure -M:test)
     runs-on: ubuntu-latest
@@ -3124,15 +1945,16 @@ jobs:
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          # Deliberately the SAME cache key as jvm-core — identical classpath,
-          # so the two lanes share one entry rather than storing it twice.
+          # Deliberately the SAME cache key as the `jvm` job's core leg —
+          # identical classpath, so the two lanes share one entry rather than
+          # storing it twice.
           path: |
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-core-${{ hashFiles('implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-implementation/core/${{ hashFiles('implementation/**/deps.edn', 'tools/**/deps.edn', 'migration/**/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-clj-core-
+            ${{ runner.os }}-clj-implementation/core/
             ${{ runner.os }}-clj-
 
       # The seven walks below are INDEPENDENT — they share only the JDK and the
@@ -3146,7 +1968,7 @@ jobs:
       # after the fix is the first time they have run at all and looks identical
       # to one that was passing all along.
       # It bites hardest on a prose-only PR, where `implementation_jvm` is false,
-      # `jvm-core` never runs, and this lane is the only place those walks
+      # the core leg never runs, and this lane is the only place those walks
       # execute anywhere.
       #
       # BOTH CONJUNCTS ARE LOAD-BEARING, and the condition guarantees exactly
@@ -3887,7 +2709,7 @@ jobs:
     # saving but a vacuous probe — and specifically catches the schemas
     # facade require being dropped, whose behavioural owner is the JVM test
     # `schemas/test/re_frame/schemas_implies_validation_test.clj` in the
-    # `jvm-schemas` lane. Both directions fire on a planted regression.
+    # schemas leg of the `jvm` job. Both directions fire on a planted regression.
     #
     # NOT a duplicate of `cljs-bundle-isolation` or `cljs-perf-bundle`. Those
     # two grep emitted bundles for symbols that must be absent; this one
@@ -4475,99 +3297,12 @@ jobs:
   # are already picked up by the consolidated `:node-test` build above
   # because shadow-cljs.edn lists those source paths. JVM-runnable tests
   # (clojure -M:test) and out-of-consolidated-tree node-test surfaces
-  # are not — these per-tool jobs cover them.
+  # are not. A tool whose JVM lane is a plain alias call is a leg of the
+  # `jvm` matrix job; the jobs here are the lanes that need more, and each
+  # one's row in scripts/jvm-lanes.txt names it.
   #
-  # Job naming mirrors the per-artefact `jvm-<name>` / `cljs-*` pattern
-  # used above. Like the artefact jobs, none `needs:` another — they run
-  # in parallel.
+  # Like the matrix legs, none `needs:` another — they run in parallel.
   # ---------------------------------------------------------------------------
-
-  jvm-tools-xray:
-    name: JVM tools/xray (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: tools/xray
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-tools-xray-${{ hashFiles('tools/xray/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-tools-xray-
-            ${{ runner.os }}-clj-
-
-      # Xray ships JVM test files (`config_test.clj`, `trace_bus_test.clj`)
-      # alongside its CLJS test trees. The CLJS surfaces are already
-      # picked up by the consolidated `:node-test` build (shadow-cljs.edn
-      # lists tools/xray/test as a source path); this job closes the
-      # JVM-side gap. The test-runner returns non-zero on any failure;
-      # the job MUST surface that so the gate is real — no `|| echo`
-      # fallback, mirroring `jvm-machines` / `jvm-schemas` above.
-      - name: Run JVM tests (tools/xray artefact)
-        run: clojure -M:test
-
-  jvm-tools-story:
-    name: JVM tools/story (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: tools/story
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-tools-story-${{ hashFiles('tools/story/deps.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/machines/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-tools-story-
-            ${{ runner.os }}-clj-
-
-      # tools/story ships a substantial JVM test surface
-      # (story_test.clj, story_runtime_test.clj, story_assertions_test.clj,
-      # story_ui_test.clj, story_share_test.clj, story_play_test.clj,
-      # story_source_coords_test.clj, story_scrubber_xref_test.clj,
-      # story_layout_debug_test.clj, story_fx_stubs_test.clj). The CLJS
-      # surfaces are already covered by the consolidated `:node-test`
-      # build above (shadow-cljs.edn lists tools/story/test as a source
-      # path); this job closes the JVM-side gap.
-      - name: Run JVM tests (tools/story artefact)
-        run: clojure -M:test
 
   jvm-tools-story-mcp:
     name: JVM tools/story-mcp (clojure -M:test)
@@ -4688,65 +3423,8 @@ jobs:
       - name: Run CLJS tests (tools/mcp-base artefact)
         run: npm run test:cljs
 
-  # The two artefacts whose JVM lane would otherwise run everywhere EXCEPT at
-  # PR time. Both carry a wired `:test` alias and a slot on
-  # scripts/test-jvm-tools.sh's roster, so they run locally and in the nightly
-  # sweep.
-  #
-  # Both are gated on their OWN classifier output, not on `tools_jvm`. That
-  # output gates FOUR of the jvm-tools-* jobs above (xray / story / story-mcp /
-  # mcp-base; `jvm-tools-template` is gated on `template_expensive` instead), and
-  # none of them runs either artefact — arming it would fire four unrelated
-  # probes and STILL skip the files. Appending steps to one of those jobs fails
-  # for the same reason plus a second: it would hang a
-  # `tools/machines-viz` step off a job named "JVM tools/xray".
-  jvm-tools-machines-viz:
-    name: JVM tools/machines-viz (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.tools_jvm_machines_viz == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: tools/machines-viz
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-tools-machines-viz-${{ hashFiles('tools/machines-viz/deps.edn', 'implementation/core/deps.edn', 'implementation/machines/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-tools-machines-viz-
-            ${{ runner.os }}-clj-
-
-      # Most of the suite double-runs in the CLJS
-      # lanes — its `*_cljs_test.*` suites ride the
-      # consolidated `:node-test` + `:browser-test` builds. Two do not:
-      # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
-      # ratchet, which is why the `:test` alias carries a TEST-ONLY dep on
-      # implementation/machines) and `mermaid_public_smoke_test.cljc`. Their
-      # namespaces match neither `cljs-test$` nor `-dom-cljs-test$`, so this job
-      # is their only PR-time lane. No `|| echo` fallback — the runner's
-      # non-zero exit must surface, same as jvm-machines / jvm-schemas.
-      - name: Run JVM tests (tools/machines-viz artefact)
-        run: clojure -M:test
-
-  # The CLJS half of the two suites the job above calls out as
-  # JVM-only. Both are `.cljc`, so "JVM-only" describes the LANES,
+  # The CLJS half of the two suites the tools/machines-viz JVM leg exists
+  # for (its row in scripts/jvm-lanes.txt names them). Both are `.cljc`, so "JVM-only" describes the LANES,
   # not the files: `engine_grammar_parity_test.cljc` carries `:cljs` reader
   # arms and the grammar it mirrors is compiled for the browser. The
   # consolidated `:node-test` bundle does not contain either namespace — its
@@ -5106,57 +3784,6 @@ jobs:
       - name: Run JVM tests (tools/template artefact)
         env:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
-        run: clojure -M:test
-
-  jvm-migration-fresco-codemod:
-    name: JVM migration/reagent-to-fresco/codemod (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.migration_fresco_codemod == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: migration/reagent-to-fresco/codemod
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-migration-fresco-codemod-${{ hashFiles('migration/reagent-to-fresco/codemod/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-migration-fresco-codemod-
-            ${{ runner.os }}-clj-
-
-      # The Reagent `[:>]` → Fresco codemod's suite, and this artefact's only
-      # lane: `migration/**` reaches docs.yml, which stages the tree into the
-      # site and executes none of it, so without this job the golden corpus
-      # that IS this tool's spec would run nowhere.
-      #
-      # The suite is pure JVM — rewrite-clj over source text, no re-frame2
-      # runtime, no npm, no browser — so this is the whole gate, and it is
-      # seconds. Two of its slices are the reason it cannot be advisory:
-      # `newlines_test.clj` witnesses CRLF preservation, which a Linux
-      # developer cannot fail locally and a Windows one cannot avoid; and
-      # `shared_rule_test.clj` pins the tool's slot resolver `identical?` to
-      # `front/slot.cljc`, the cross-tree `:paths` edge that lets
-      # the tool and the runtime door share ONE rule. The classifier arms this
-      # output from that file's tree too, so the pin runs when its subject
-      # changes.
-      - name: Run JVM tests (reagent-to-fresco codemod artefact)
         run: clojure -M:test
 
   jvm-migration-v1-codemod:
@@ -6325,7 +4952,7 @@ jobs:
   #
   # Why this exists: a ruleset requiring contexts that NO job emits leaves
   # every PR permanently pending, mergeable only via maintainer --admin —
-  # and then a genuinely RED real gate (jvm-core, cljs,
+  # and then a genuinely RED real gate (a `jvm` leg, cljs,
   # bundle-isolation, …) merges identically, because none of the real
   # gates is actually required. Pointing the ruleset at this aggregator
   # makes the real matrix enforceable through one always-present
@@ -6359,12 +4986,9 @@ jobs:
       # The .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
-      - jvm-core
-      # Required, so the lane that executes the documented core
-      # production configuration (`-Dre-frame.debug=false`) cannot be broken by
-      # a merge that never ran it. Advisory would make it a gate nobody's
-      # merge waits on.
-      - jvm-core-prod-gate
+      # Required: every matrix leg reports through this one job, so one red
+      # leg reds it, whatever the leg's artefact.
+      - jvm
       # Required, not advisory. This is the only lane that
       # witnesses I15's caret and composition clauses, and the caret is the
       # only observable in a real browser that separates this runtime from
@@ -6382,59 +5006,15 @@ jobs:
       # old-generation cleanup on a type replacement. Advisory would leave the
       # HMR contract one `if:` away from running nowhere.
       - cljs-fresco-hmr
-      - jvm-reagent
-      - jvm-uix
-      - jvm-schemas
-      - jvm-machines
-      - jvm-routing
-      # Required for the same reason `jvm-core-prod-gate` is, and
-      # for a claim core's lane cannot make: routing's
-      # `:routing/route-sub-egress-path` is a sub-classification egress that
-      # runs in PRODUCTION, i.e. a privacy invariant. Advisory
-      # would make it a gate nobody's merge waits on.
-      - jvm-routing-prod-gate
-      - jvm-flows
-      - jvm-http
-      - jvm-ssr
-      # Required. SSR is the artefact that actually runs on a JVM
-      # under `-Dre-frame.debug=false` in production, and
-      # `payload-policy/project-routing-egress` decides what leaves the server
-      # inside a hydration payload. A merge that never ran this lane must not
-      # be possible.
-      - jvm-ssr-prod-gate
-      - jvm-security
-      - jvm-ssr-ring
       # Required. The crossing witness is the ONLY gate on the
       # JVM->Node adapter (the ssr-ring `:test` lane deliberately excludes it,
       # and node-ssr-node never dials it), so a job absent from this list would
       # leave the adapter advisory — one `if:` from running nowhere.
       - jvm-node-crossing
-      - jvm-epoch
-      # Required for the same reason `jvm-core-prod-gate` is, and
-      # with a sharper motive than any of its siblings. Epoch's ring is the
-      # structure the production gate exists to empty:
-      # `:db-before` / `:db-after` / raw `:trace-events` must not sit in a
-      # production server's heap, and this is the only lane that runs the
-      # suite asserting that elision under the posture it is about. Advisory
-      # would make it a gate nobody's merge waits on.
-      - jvm-epoch-prod-gate
-      - jvm-resources
-      - jvm-spec-resource
-      - jvm-reply-conformance
-      - jvm-derivation-conformance
-      - jvm-event-conformance
-      - jvm-test-quiet
-      # Required, and `check_jvm_lane_rosters.py` R1 will not accept
-      # the roster entry without this line: a job absent from this list is
-      # advisory whatever its own gate says. What it carries is the JVM ARM of
-      # the slot-rule equivalence pin, which is only a mechanism while BOTH arms
-      # run — the Node arm alone cannot see a reader conditional or a
-      # locale-sensitive primitive inside the one definition they share.
-      - jvm-fresco
       # Required. This lane is the ONLY scheduling for the
       # repo-wide source walks on a diff that touches tools/,
       # implementation/fresco or implementation/ssr-node, none of which arm
-      # `implementation_jvm` and so none of which run `jvm-core`. Advisory
+      # `implementation_jvm` and so none of which run the core leg. Advisory
       # would leave the hole open — a job absent from this
       # list is advisory whatever its own gate says — with the added cost of
       # looking shut.
@@ -6459,14 +5039,8 @@ jobs:
       - adapter-testbed-smokes
       - story-xray-browser
       - tenant-switcher-testbed-smoke
-      - jvm-tools-xray
-      - jvm-tools-story
       - jvm-tools-story-mcp
       - jvm-tools-mcp-base
-      # Required, so the machines-viz grammar-parity ratchet and the
-      # testbed-support server suite cannot be broken by a merge that never ran
-      # them. A job absent from this list is advisory, whatever its own gate says.
-      - jvm-tools-machines-viz
       - jvm-tools-testbed-support
       # Required for the CLJS half of the same ratchet: the parity
       # suite is `.cljc`, and this is the only lane that runs its `:cljs` arms.
@@ -6477,10 +5051,6 @@ jobs:
       # consumer who follows the recipe.
       - machines-viz-viewer-page
       - jvm-tools-template
-      # Required, so the codemod's golden corpus cannot be
-      # broken by a merge that never ran it; advisory would leave it one `if:`
-      # away from running nowhere.
-      - jvm-migration-fresco-codemod
       # Required for the same reason, and it is the stronger case
       # of the two: this codemod REWRITES a consumer's own source in place, so
       # the conservatism its tests pin is a promise made to somebody else's
@@ -6544,6 +5114,18 @@ jobs:
         run: |
           echo "::error::A required test.yml job was CANCELLED — INCOMPLETE, not failed. No required job reported failure; a cancelled job produced no signal at all, so this run cannot be called green either. Re-run the workflow ONCE, then leave it alone: for pull_request events this workflow's concurrency group is cancel-in-progress, so a second re-run cancels the attempt still in flight and the job can never finish."
           echo "needs results: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      # The `jvm` matrix job is skipped only when the classifier selected no
+      # leg. Skipped beside a non-empty `jvm_legs` means a selected lane never
+      # ran, which looks exactly like a surface skip unless it is checked here.
+      - name: Blocked — JVM legs were selected and the jvm job did not run
+        if: ${{ needs.detect_changed_surfaces.result == 'success' && needs.detect_changed_surfaces.outputs.jvm_legs != '[]' && needs.jvm.result == 'skipped' }}
+        env:
+          JVM_LEGS: ${{ needs.detect_changed_surfaces.outputs.jvm_legs }}
+        run: |
+          echo "::error::detect_changed_surfaces selected JVM legs and the jvm matrix job was skipped, so those lanes never ran."
+          echo "jvm_legs: $JVM_LEGS"
           exit 1
 
       - name: All required jobs passed or were skipped

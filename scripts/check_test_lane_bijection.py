@@ -29,8 +29,8 @@ that defines it:
     the sibling `deps.edn`).  Selection is shadow-cljs's `re-find` semantics.
     A config with no sibling `deps.edn` has no resolvable classpath and is not
     a lane (that is what separates a live build from a template payload).
-  * JVM lanes   -- the artefact rosters in `scripts/test-jvm-implementation.sh`
-    and `scripts/test-jvm-tools.sh`, each artefact's `deps.edn` `:test` alias
+  * JVM lanes   -- the rows of `scripts/jvm-lanes.txt` (the one list of JVM
+    lanes, which both local rosters run), each artefact's `deps.edn` `:test` alias
     supplying its discovery dirs (`--dir`, cognitect's default `test`) and its
     namespace regex (`-r`, cognitect's default full-match `.*\\-test$`).
 
@@ -132,6 +132,10 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from jvm_lanes import ROWS_FILE, read_rows  # noqa: E402
 
 TEST_EXTS = (".clj", ".cljc", ".cljs")
 JVM_EXTS = (".clj", ".cljc")
@@ -411,20 +415,6 @@ def read_map_entries(text: str):
         i = end
 
 
-def read_shell_array(text: str, name: str):
-    """The entries of a `name=( ... )` bash array, comments dropped."""
-    m = re.search(re.escape(name) + r"=\(", text)
-    if not m:
-        return []
-    end = match_delimiter(text, m.end() - 1)
-    entries = []
-    for line in text[m.end():end - 1].splitlines():
-        line = line.split("#", 1)[0].strip()
-        if line:
-            entries.append(line)
-    return entries
-
-
 # --------------------------------------------------------------------------
 # Lane model
 # --------------------------------------------------------------------------
@@ -553,40 +543,37 @@ def cljs_lanes(repo: Path):
 
 
 def jvm_lanes(repo: Path):
-    """Every artefact on the two JVM lane rosters, read through its deps.edn."""
-    rosters = [(repo / "scripts" / "test-jvm-implementation.sh", "artefacts"),
-               (repo / "scripts" / "test-jvm-tools.sh", "tools")]
+    """Every artefact in scripts/jvm-lanes.txt, read through its deps.edn."""
     lanes = []
-    for script, array in rosters:
-        text = script.read_text(encoding="utf-8")
-        for artefact in read_shell_array(text, array):
-            deps = repo / artefact / "deps.edn"
-            if not deps.is_file():
-                raise SystemExit(f"error: {script.name} lists {artefact}, which has no deps.edn")
-            body = strip_edn_comments(deps.read_text(encoding="utf-8"))
-            alias = re.search(r":test\s*\{", body)
-            if not alias:
-                raise SystemExit(f"error: {artefact}/deps.edn has no :test alias "
-                                 f"but {script.name} runs `clojure -M:test` in it")
-            alias_body = body[alias.end() - 1:match_delimiter(body, alias.end() - 1)]
-            opts = read_string_vector(alias_body, ":main-opts") or []
+    for row in read_rows(repo):
+        artefact = row.dir
+        deps = repo / artefact / "deps.edn"
+        if not deps.is_file():
+            raise SystemExit(f"error: {ROWS_FILE} lists {artefact}, which has no deps.edn")
+        body = strip_edn_comments(deps.read_text(encoding="utf-8"))
+        alias = re.search(r":test\s*\{", body)
+        if not alias:
+            raise SystemExit(f"error: {artefact}/deps.edn has no :test alias "
+                             f"but {ROWS_FILE} runs `clojure -M:test` in it")
+        alias_body = body[alias.end() - 1:match_delimiter(body, alias.end() - 1)]
+        opts = read_string_vector(alias_body, ":main-opts") or []
 
-            dirs, regexes = [], []
-            for flag, value in zip(opts, opts[1:]):
-                if flag in ("-d", "--dir"):
-                    dirs.append(value)
-                elif flag in ("-r", "--namespace-regex"):
-                    regexes.append(value)
-            base = repo / artefact
-            roots, missing = [], []
-            for entry in dirs or COGNITECT_DEFAULT_DIRS:
-                path = (base / entry).resolve()
-                (roots if path.is_dir() else missing).append((path, False) if path.is_dir() else entry)
-            lanes.append(Lane(name=artefact, runtime="jvm", roots=roots,
-                              regex=re.compile(regexes[0] if regexes else COGNITECT_DEFAULT_REGEX),
-                              full_match=True, probe="--probe" in opts,
-                              defined_in=f"{artefact}/deps.edn",
-                              missing_roots=missing))
+        dirs, regexes = [], []
+        for flag, value in zip(opts, opts[1:]):
+            if flag in ("-d", "--dir"):
+                dirs.append(value)
+            elif flag in ("-r", "--namespace-regex"):
+                regexes.append(value)
+        base = repo / artefact
+        roots, missing = [], []
+        for entry in dirs or COGNITECT_DEFAULT_DIRS:
+            path = (base / entry).resolve()
+            (roots if path.is_dir() else missing).append((path, False) if path.is_dir() else entry)
+        lanes.append(Lane(name=artefact, runtime="jvm", roots=roots,
+                          regex=re.compile(regexes[0] if regexes else COGNITECT_DEFAULT_REGEX),
+                          full_match=True, probe="--probe" in opts,
+                          defined_in=f"{artefact}/deps.edn",
+                          missing_roots=missing))
     return lanes
 
 
@@ -833,24 +820,17 @@ SELF_TEST_DEPS = """{:paths ["src"]
                   :main-opts ["-m" "re-frame.test-quiet.runner"%s]}}}
 """
 
-SELF_TEST_ROSTER = """#!/usr/bin/env bash
-artefacts=(
-  implementation/core
-  # a comment line, and a blank line, both ignored
-)
-"""
+SELF_TEST_ROWS = """\
+implementation/core  test  -  implementation_jvm  matrix
+# a comment line, and a blank line, both ignored
 
-SELF_TEST_TOOLS_ROSTER = """#!/usr/bin/env bash
-tools=(
-  borrowed
-)
+borrowed             test  -  tools_jvm           matrix
 """
 
 
 def build_self_test_repo(root: Path, *, files, shadow=SELF_TEST_SHADOW, probe_flag=""):
     (root / "scripts").mkdir(parents=True, exist_ok=True)
-    (root / "scripts" / "test-jvm-implementation.sh").write_text(SELF_TEST_ROSTER, encoding="utf-8")
-    (root / "scripts" / "test-jvm-tools.sh").write_text(SELF_TEST_TOOLS_ROSTER, encoding="utf-8")
+    (root / ROWS_FILE).write_text(SELF_TEST_ROWS, encoding="utf-8")
     (root / "implementation").mkdir(parents=True, exist_ok=True)
     (root / "implementation" / "shadow-cljs.edn").write_text(shadow, encoding="utf-8")
     # A shadow config is only a lane when its classpath resolves, which the

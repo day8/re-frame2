@@ -86,8 +86,9 @@ would notice.
 
 - **JVM tests.** The tool tier's JVM command is
   `scripts/test-jvm-tools.sh`, run from the repo root. Its roster is the
-  maintained one — `scripts/check_jvm_lane_rosters.py` holds it against
-  the required CI jobs — and it covers `xray`, `machines-viz`, `story`,
+  `tools/` and `migration/` rows of `scripts/jvm-lanes.txt`, which
+  `scripts/check_jvm_lanes.py` holds against each artefact's `deps.edn`
+  and the required CI jobs, and it covers `xray`, `machines-viz`, `story`,
   `story-mcp`, `mcp-base`, `testbed-support`,
   `mcp-conformance/wire-vocab` and `template`. A single artefact stays
   `cd tools/<tool> && clojure -M:test`, which is what the per-tool CI

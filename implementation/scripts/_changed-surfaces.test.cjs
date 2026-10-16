@@ -86,6 +86,73 @@ function armedOutputs(result) {
   return Object.keys(result).filter((key) => result[key] === 'true');
 }
 
+// THE JVM LANE REGISTRY. scripts/jvm-lanes.txt holds one row per JVM
+// artefact, and the classifier turns each `matrix` row whose predicate fired
+// into legs of test.yml's `jvm` job. The rows are parsed here independently
+// of the classifier's shell reader, so its legs are checked against the rows
+// rather than against themselves. scripts/jvm-lanes.sh is the reader the
+// classifier sources, so a scratch repo needs both files.
+const JVM_LANES_REL = 'scripts/jvm-lanes.txt';
+const JVM_LANE_REGISTRY = Object.freeze([JVM_LANES_REL, 'scripts/jvm-lanes.sh']);
+
+function jvmLaneRows(text = fs.readFileSync(path.join(REPO_ROOT, JVM_LANES_REL), 'utf8')) {
+  return text
+    .split(/\r?\n/)
+    .map((raw, i) => ({ fields: raw.replace(/#.*/, '').trim().split(/\s+/).filter(Boolean), line: i + 1 }))
+    .filter(({ fields }) => fields.length > 0)
+    .map(({ fields, line }) => {
+      assert.equal(fields.length, 5, `${JVM_LANES_REL}:${line} must have five fields`);
+      const [dir, aliases, slow, predicate, ci] = fields;
+      return { dir, aliases: aliases.split(','), slow: slow === 'slow', predicate, ci, line };
+    });
+}
+
+function jvmLaneRow(dir) {
+  const row = jvmLaneRows().find((r) => r.dir === dir);
+  assert.ok(row, `${dir} must have a row in ${JVM_LANES_REL}`);
+  return row;
+}
+
+// The legs a classification selected, as `dir (alias)` strings.
+function legsOf(result) {
+  return JSON.parse(result.jvm_legs).map((leg) => `${leg.dir} (${leg.alias})`);
+}
+
+// A JVM lane is three parts: an output fires, the artefact's leg or
+// hand-written job runs on it, and the aggregator requires what runs it. A
+// `matrix` row is checked end to end through the classifier's legs; a row
+// naming a hand-written job is checked on that job's gate, directory and
+// command.
+function assertJvmLane({ dir, output, armed }) {
+  const row = jvmLaneRow(dir);
+  assert.equal(row.predicate, output, `${dir}'s row must name ${output}`);
+  const result = classify(armed);
+  assert.equal(result[output], 'true', `${armed} must arm ${output}`);
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  // An undeclared output reads as an empty string, so nothing on it ever runs.
+  assert.match(
+    workflow,
+    new RegExp(`${output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${output} \\}\\}`),
+    `${output} must be declared as a detect_changed_surfaces output`,
+  );
+  if (row.ci === 'matrix') {
+    assert.ok(legsOf(result).includes(`${dir} (test)`), `${armed} must select the ${dir} leg`);
+    return;
+  }
+  const block = jobBlock(workflow, row.ci);
+  assert.match(
+    block,
+    new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${output} == 'true'`),
+    `${row.ci} must be gated on ${output}`,
+  );
+  assert.match(block, new RegExp(`working-directory: ${dir}`), `${row.ci} must run in ${dir}`);
+  assert.match(block, /run: clojure -M:test/, `${row.ci} must invoke the artefact's own :test alias`);
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${row.ci}`),
+    `aggregator must list ${row.ci} in needs: — a job absent from it is advisory`,
+  );
+}
+
 test('Conformance fixture change runs the JVM, cljs and cljs-browser lanes (rf2-f79t8)', () => {
   // The JVM corpus runners, the CLJS corpus runner in :node-test, and the
   // browser lane all read spec/conformance/fixtures/*.
@@ -407,53 +474,29 @@ test('testbed-support runs cljs + cljs-browser and its OWN jvm output (rf2-as6bg
   assert.equal(result.tools_jvm_testbed_support, 'true');
 });
 
-// A lane is three parts: the classifier arms the output, the job is gated on
-// it and runs the artefact's suite, and the aggregator depends on the job.
+// Each of these two artefacts is scheduled by an output of its own: none of
+// the lanes `tools_jvm` schedules runs either of them.
 const NEW_TOOLS_JVM_LANES = [
-  { job: 'jvm-tools-machines-viz', output: 'tools_jvm_machines_viz', dir: 'tools/machines-viz' },
-  { job: 'jvm-tools-testbed-support', output: 'tools_jvm_testbed_support', dir: 'tools/testbed-support' },
+  {
+    dir: 'tools/machines-viz',
+    output: 'tools_jvm_machines_viz',
+    armed: 'tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs',
+  },
+  {
+    dir: 'tools/testbed-support',
+    output: 'tools_jvm_testbed_support',
+    armed: 'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
+  },
 ];
 
-test('the new tools JVM jobs are gated on their own output, run their artefact and are required (rf2-wq17m)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  for (const lane of NEW_TOOLS_JVM_LANES) {
-    const block = jobBlock(workflow, lane.job);
-    assert.match(
-      block,
-      new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${lane.output} == 'true'`),
-      `${lane.job} must be gated on ${lane.output}`,
-    );
-    assert.match(
-      block,
-      new RegExp(`working-directory: ${lane.dir}`),
-      `${lane.job} must run in ${lane.dir}`,
-    );
-    assert.match(
-      block,
-      /run: clojure -M:test/,
-      `${lane.job} must invoke the artefact's own :test alias`,
-    );
-    // An undeclared output reads as an empty string, so the job never runs.
-    assert.match(
-      workflow,
-      new RegExp(`${lane.output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${lane.output} \\}\\}`),
-      `${lane.output} must be declared as a detect_changed_surfaces output`,
-    );
-  }
-  const aggregator = jobBlock(workflow, 'all-required-passed');
-  for (const lane of NEW_TOOLS_JVM_LANES) {
-    assert.ok(
-      aggregator.includes(`- ${lane.job}`),
-      `aggregator must list ${lane.job} in needs: — a job absent from it is advisory`,
-    );
-  }
+test('the two tools JVM lanes are scheduled by their own output and required (rf2-wq17m)', () => {
+  for (const lane of NEW_TOOLS_JVM_LANES) assertJvmLane(lane);
 });
 
 // The Reagent `[:>]` → Fresco codemod lane: a standalone JVM tool under
 // migration/, so no other output's job runs it.
 
 const CODEMOD_LANE = {
-  job: 'jvm-migration-fresco-codemod',
   output: 'migration_fresco_codemod',
   dir: 'migration/reagent-to-fresco/codemod',
   armed: 'migration/reagent-to-fresco/codemod/src/re_frame/migration/fresco/rewrite.clj',
@@ -474,35 +517,8 @@ const CODEMOD_LANE = {
   door: 'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
 };
 
-test('the codemod JVM job is gated on its own output and runs the artefact (rf2-2rtt6.143)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, CODEMOD_LANE.job);
-  assert.match(
-    block,
-    new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${CODEMOD_LANE.output} == 'true'`),
-    `${CODEMOD_LANE.job} must be gated on ${CODEMOD_LANE.output}`,
-  );
-  assert.match(
-    block,
-    new RegExp(`working-directory: ${CODEMOD_LANE.dir}`),
-    `${CODEMOD_LANE.job} must run in ${CODEMOD_LANE.dir}`,
-  );
-  assert.match(
-    block,
-    /run: clojure -M:test/,
-    `${CODEMOD_LANE.job} must invoke the artefact's own :test alias`,
-  );
-  assert.match(
-    workflow,
-    new RegExp(
-      `${CODEMOD_LANE.output}: \\$\\{\\{ steps\\.detect\\.outputs\\.${CODEMOD_LANE.output} \\}\\}`,
-    ),
-    `${CODEMOD_LANE.output} must be declared as a detect_changed_surfaces output`,
-  );
-  assert.ok(
-    jobBlock(workflow, 'all-required-passed').includes(`- ${CODEMOD_LANE.job}`),
-    `aggregator must list ${CODEMOD_LANE.job} in needs:`,
-  );
+test('the codemod JVM lane is scheduled by its own output and required (rf2-2rtt6.143)', () => {
+  assertJvmLane(CODEMOD_LANE);
 });
 
 test('the codemod lane arms on its own tree, the shared slot rule and the door (rf2-2rtt6.143, rf2-erjv)', () => {
@@ -913,8 +929,9 @@ test('the Reagent adapter arms playground from src and deps.edn only', () => {
 });
 
 // tools/template arms its own jvm-tools-template lane, and adapter_diagnostic
-// for the reverse edge: `uix_consumer_deps_recipe_test.clj` (jvm-uix) slurps a
-// template file as its version source, so a template-only diff can red jvm-uix.
+// for the reverse edge: `uix_consumer_deps_recipe_test.clj` (the uix leg)
+// slurps a template file as its version source, so a template-only diff can
+// red the uix leg.
 test('tools/template arms template_expensive (rf2-jdj17.1)', () => {
   assert.equal(classify('tools/template/src/day8/re_frame2_template/hooks.clj').template_expensive, 'true');
 });
@@ -1301,20 +1318,10 @@ function jobBlock(workflow, jobName) {
 // matching `needs:` fails workflow validation, so `needs:` is not pinned.)
 test('each surface-gated job reads the output that arms its suites', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  // The JVM artefacts whose lane is a plain alias call are legs of the `jvm`
+  // job, pinned by the leg-rule tests below rather than job by job here.
   for (const [job, output, runs] of [
-    ['jvm-core', 'implementation_jvm'],
-    ['jvm-machines', 'implementation_jvm'],
-    ['jvm-routing', 'implementation_jvm'],
-    ['jvm-ssr', 'implementation_jvm'],
-    ['jvm-schemas', 'implementation_jvm'],
-    ['jvm-security', 'implementation_jvm', /implementation\/security/],
-    ['jvm-spec-resource', 'implementation_jvm'],
-    ['jvm-resources', 'implementation_jvm'],
-    ['jvm-reply-conformance', 'implementation_jvm'],
-    ['jvm-derivation-conformance', 'implementation_jvm'],
-    ['jvm-event-conformance', 'implementation_jvm'],
     ['cljs', 'cljs_node_test'],
-    ['jvm-tools-xray', 'tools_jvm'],
     ['jvm-tools-template', 'template_expensive'],
     ['mcp-conformance-wire-vocab', 'mcp_conformance'],
     ['mcp-conformance-re-frame2-pair', 'mcp_live'],
@@ -1338,14 +1345,8 @@ test('the All required checks passed aggregator always runs and needs every requ
   const block = jobBlock(workflow, 'all-required-passed');
   assert.match(block, /if: \$\{\{ always\(\) \}\}/);
   for (const job of [
-    'jvm-core',
+    'jvm',
     'cljs',
-    'jvm-security',
-    'jvm-resources',
-    'jvm-reply-conformance',
-    'jvm-derivation-conformance',
-    'jvm-event-conformance',
-    'jvm-spec-resource',
     'tenant-switcher-testbed-smoke',
     'beads-pr-boundary',
   ]) {
@@ -1356,6 +1357,115 @@ test('the All required checks passed aggregator always runs and needs every requ
       `aggregator must list ${job} in needs: — a job absent from it is advisory`,
     );
   }
+});
+
+// ─── THE JVM MATRIX JOB ───────────────────────────────────────────
+//
+// The classifier turns the `matrix` rows of scripts/jvm-lanes.txt whose
+// predicate fired into `jvm_legs`, and test.yml's `jvm` job runs one leg per
+// entry. These pin the three parts: the job, the leg rule, and the rows.
+
+test('the jvm matrix job runs exactly the classifier\'s legs and is required (rf2-e9mwr)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'jvm');
+  for (const [pattern, why] of [
+    [/^ {4}name: JVM \$\{\{ matrix\.leg\.dir \}\} \(\$\{\{ matrix\.leg\.alias \}\}\)\r?$/m,
+      'each leg is its own rollup row, `JVM <dir> (<alias>)`'],
+    [/^ {4}if: needs\.detect_changed_surfaces\.outputs\.jvm_legs != '\[\]'\r?$/m,
+      'Actions refuses an empty matrix, so the job must skip on `[]`'],
+    [/^ {6}fail-fast: false\r?$/m, 'one red leg must leave the others to finish'],
+    [/^ {8}leg: \$\{\{ fromJSON\(needs\.detect_changed_surfaces\.outputs\.jvm_legs\) \}\}\r?$/m,
+      'the legs are the classifier output, never a list in the workflow'],
+    [/^ {8}working-directory: \$\{\{ matrix\.leg\.dir \}\}\r?$/m, 'each leg runs in its artefact'],
+    [/^ {8}run: clojure -M:\$\{\{ matrix\.leg\.alias \}\}\r?$/m, 'each leg is a plain alias call'],
+  ]) {
+    assert.match(block, pattern, why);
+  }
+  const detect = jobBlock(workflow, 'detect_changed_surfaces');
+  assert.match(detect, /jvm_legs: \$\{\{ steps\.detect\.outputs\.jvm_legs \}\}/,
+    'jvm_legs must be a declared detect_changed_surfaces output');
+  assert.match(detect, /run: python3 scripts\/check_jvm_lanes\.py --verify-legs/,
+    'the detect job must cross-check the legs against the rows its predicates fired');
+  const aggregator = jobBlock(workflow, 'all-required-passed');
+  assert.match(aggregator, /^ {6}- jvm\r?$/m, 'every leg reports through the jvm job, which must be required');
+  assert.match(
+    aggregator,
+    /needs\.detect_changed_surfaces\.outputs\.jvm_legs != '\[\]' && needs\.jvm\.result == 'skipped'/,
+    'the aggregator must red a jvm job skipped beside selected legs',
+  );
+});
+
+test('--all selects one leg per alias of every matrix row, in row order (rf2-e9mwr)', () => {
+  const expected = jvmLaneRows()
+    .filter((r) => r.ci === 'matrix')
+    .flatMap((r) => r.aliases.map((a) => `${r.dir} (${a})`));
+  assert.deepEqual(legsOf(classify('--all')), expected);
+});
+
+// The leg rule restated as an independent oracle: a matrix row has legs
+// exactly when its predicate fired. One probe per predicate a matrix row
+// names, plus a docs page that fires none of them.
+const LEG_RULE_PROBES = pinnedRoster('LEG_RULE_PROBES', [
+  'docs/core/how-to/index.md',
+  'implementation/schemas/deps.edn',
+  'implementation/adapters/uix/deps.edn',
+  'tools/xray/src/day8/re_frame2_xray/core.cljs',
+  'tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs',
+  'migration/reagent-to-fresco/codemod/src/re_frame/migration/fresco/rewrite.clj',
+]);
+
+test('a matrix row has legs exactly when its predicate fired (rf2-e9mwr)', () => {
+  const rows = jvmLaneRows().filter((r) => r.ci === 'matrix');
+  const fired = new Set();
+  for (const probe of LEG_RULE_PROBES) {
+    const result = classify(probe);
+    const expected = rows
+      .filter((r) => r.predicate === 'always' || result[r.predicate] === 'true')
+      .flatMap((r) => r.aliases.map((a) => `${r.dir} (${a})`));
+    assert.deepEqual(legsOf(result), expected, probe);
+    for (const r of rows) if (result[r.predicate] === 'true') fired.add(r.predicate);
+  }
+  // The probes are worth something only if together they fire every
+  // predicate a matrix row names.
+  for (const r of rows) {
+    if (r.predicate !== 'always') assert.ok(fired.has(r.predicate), `no probe fires ${r.predicate}`);
+  }
+});
+
+test('every row names an output the classifier emits, or `always` (rf2-e9mwr)', () => {
+  const outputs = Object.keys(classify('docs/core/intro.md'));
+  for (const row of jvmLaneRows()) {
+    assert.ok(
+      row.predicate === 'always' || outputs.includes(row.predicate),
+      `${JVM_LANES_REL}:${row.line} names ${row.predicate}, which the classifier never emits`,
+    );
+  }
+});
+
+// A one-commit scratch history: nothing it changes arms any output.
+function seedOnly({ write, commit }) {
+  write('README.md', '# scratch\n');
+  commit('seed');
+  write('docs/a.md', '# a\n');
+  commit('docs only');
+}
+
+test('a row naming an unknown predicate stops the classifier (rf2-e9mwr)', () => {
+  const real = fs.readFileSync(path.join(REPO_ROOT, JVM_LANES_REL), 'utf8');
+  const planted = real.replace(/^(implementation\/fresco\s+\S+\s+\S+\s+)always/m, '$1no_such_output');
+  assert.notEqual(planted, real, 'the plant must have changed the fresco row');
+  assert.throws(
+    () => classifyViaGitDiscovery(seedOnly, null, planted),
+    (err) => /names `no_such_output`/.test(String(err.stderr)),
+    'the classifier must refuse a row whose predicate it never emits',
+  );
+});
+
+test('a selection with no fired row is an empty array, which the jvm job skips (rf2-e9mwr)', () => {
+  const real = fs.readFileSync(path.join(REPO_ROOT, JVM_LANES_REL), 'utf8');
+  const noAlways = real.replace(/^implementation\/fresco\s.*$/m, '');
+  assert.notEqual(noAlways, real, 'the `always` row must have been dropped');
+  assert.equal(classifyViaGitDiscovery(seedOnly, null, noAlways).jvm_legs, '[]');
 });
 
 // The aggregator BLOCKS on a cancelled required job as well as a failed one —
@@ -1935,7 +2045,7 @@ function launcherEnv(env, platform = process.platform) {
 // GITHUB_* is cleared so the script takes the local branch. `envFor` runs after
 // the history exists, because the interesting value — the push's accepted
 // base — is a SHA that does not exist until then.
-function classifyViaGitDiscovery(buildHistory, envFor) {
+function classifyViaGitDiscovery(buildHistory, envFor, rows) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-changed-surfaces-'));
   try {
     gitIn(tmp, 'init', '-q');
@@ -1953,6 +2063,17 @@ function classifyViaGitDiscovery(buildHistory, envFor) {
         gitIn(tmp, 'commit', '-q', '-m', message);
       },
     });
+
+    // The classifier reads the JVM lane rows from the repo it classifies.
+    // They go in UNTRACKED, after the history exists, so no diff sees them;
+    // `rows` replaces the real rows file for the cases about the rows.
+    for (const rel of JVM_LANE_REGISTRY) {
+      writeFileP(
+        tmp,
+        rel,
+        rows !== undefined && rel === JVM_LANES_REL ? rows : fs.readFileSync(path.join(REPO_ROOT, rel)),
+      );
+    }
 
     const env = { ...process.env };
     delete env.GITHUB_OUTPUT;
@@ -2048,8 +2169,10 @@ test('PUSH: an UNRESOLVABLE base arms everything rather than skipping (rf2-34yg)
     GITHUB_EVENT_NAME: 'push',
     CHANGED_SURFACES_BASE_REF: 'dead0000'.repeat(5),
   }));
-  const falses = Object.entries(result).filter(([, v]) => v !== 'true');
+  const { jvm_legs: legs, ...surfaces } = result;
+  const falses = Object.entries(surfaces).filter(([, v]) => v !== 'true');
   assert.deepEqual(falses, [], 'an unresolvable base must arm the FULL matrix');
+  assert.deepEqual(legsOf({ jvm_legs: legs }), legsOf(classify('--all')), '... and every JVM leg');
 });
 
 test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () => {
@@ -2086,13 +2209,13 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
   // because it reads as coverage.
   //
   //   implementation_jvm — NOT because the artefact has no JVM lane. It has
-  //     one: `implementation/fresco` is on scripts/test-jvm-implementation.sh
-  //     and runs in the required `jvm-fresco` job, whose `:test` alias carries
-  //     the test-count floor. The job is UNCONDITIONAL, so it needs no arm —
-  //     and arming this root would be actively wrong: 22 OTHER jobs read
-  //     `implementation_jvm`, so every fresco-only diff would schedule all of
-  //     them to run one five-second one-namespace lane. The
-  //     `jvm-fresco is UNCONDITIONAL` test below pins that.
+  //     one: its row in scripts/jvm-lanes.txt is `always`, a leg of the
+  //     required `jvm` job, and its `:test` alias carries the test-count
+  //     floor. An unconditional lane needs no arm, and arming this root
+  //     would be actively wrong: twenty OTHER legs ride `implementation_jvm`,
+  //     so every fresco-only diff would schedule all of them to run one
+  //     five-second one-namespace lane. The `fresco JVM lane is
+  //     UNCONDITIONAL` test below pins that.
   //   cljs_prod — no `-elision-prod-test$` namespace.
   //   bundle_isolation — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
@@ -2120,13 +2243,13 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
 // a reader conditional inside the rule, or the JVM's locale-sensitive
 // `str/upper-case`, is invisible to either host alone.
 //
-// The rows below are why this job is not gated on `implementation_jvm`. Each
-// is a file on the lane's JVM classpath that does not arm that output, so
-// each is a PR shape that would skip a gated job — and `deps.edn` is the
+// The rows below are why this lane is not gated on `implementation_jvm`.
+// Each is a file on the lane's JVM classpath that does not arm that output,
+// so each is a PR shape that would skip a gated lane — and `deps.edn` is the
 // sharpest, because it is the file that decides
 // whether the pin is discovered AT ALL. They must NOT be "fixed" by widening
-// `implementation_jvm` for the artefact root: 22 other jobs read it, and the
-// scope guard above says so. The repair is the unconditional job asserted
+// `implementation_jvm` for the artefact root: twenty other legs ride it, and
+// the scope guard above says so. The repair is the unconditional row asserted
 // underneath.
 // ---------------------------------------------------------------------------
 
@@ -2142,7 +2265,7 @@ test('the fresco JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)'
       result.implementation_jvm,
       'false',
       `${file} is on the fresco JVM lane's classpath and arms no jvm tier — `
-        + 'which is why jvm-fresco is unconditional rather than gated on '
+        + 'which is why the fresco row is `always` rather than gated on '
         + 'implementation_jvm',
     );
   }
@@ -2172,45 +2295,30 @@ test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () =>
   );
 });
 
-test('jvm-fresco is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'jvm-fresco');
-  // Job-level keys sit at exactly four spaces; anchoring there keeps a prose
-  // comment mentioning `needs:` from reading as the key itself.
-  assert.doesNotMatch(
-    block,
-    /^ {4}needs:/m,
-    'jvm-fresco must not depend on detect_changed_surfaces — the lane\'s own '
-      + 'deps.edn arms no classifier output',
+test('the fresco JVM lane is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
+  const row = jvmLaneRow('implementation/fresco');
+  assert.equal(
+    row.predicate,
+    'always',
+    'the fresco row must carry no surface gate; implementation_jvm does not cover '
+      + 'this lane\'s inputs and arming it would schedule twenty other legs',
   );
-  assert.doesNotMatch(
-    block,
-    /^ {4}if:/m,
-    'jvm-fresco must carry no surface gate; implementation_jvm does not cover '
-      + 'this lane\'s inputs and arming it would schedule 22 other jobs',
+  assert.equal(row.ci, 'matrix', 'the fresco lane is a plain alias call, a leg of the jvm job');
+  // A diff that arms nothing still selects the leg.
+  assert.ok(
+    legsOf(classify('docs/core/intro.md')).includes('implementation/fresco (test)'),
+    'a docs-only diff must still select the fresco leg',
   );
+  // Required, not advisory: the leg reports through the jvm job, and a job
+  // absent from the aggregator's `needs:` is advisory whatever its gate says.
   assert.match(
-    block,
-    /^ {8}working-directory: implementation\/fresco$/m,
-    'the job must run in the artefact directory',
+    jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed'),
+    /^ {6}- jvm\r?$/m,
+    'the jvm job must be in all-required-passed\'s needs',
   );
-  assert.match(block, /run: clojure -M:test$/m, 'the job must run the JVM lane');
-  // Required, not advisory: a job absent from the aggregator's `needs:` is
-  // advisory whatever its own gate says, and check_jvm_lane_rosters.py R1
-  // refuses the roster entry without this line.
-  assert.match(
-    jobBlock(workflow, 'all-required-passed'),
-    /^ {6}- jvm-fresco$/m,
-    'jvm-fresco must be in all-required-passed\'s needs',
-  );
-  // The local half of the same bijection. R1/R2 check this too, but a reader
-  // of THIS file should not have to run a Python gate to learn that the lane
-  // has a local lane as well as a hosted one.
-  assert.match(
-    fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'test-jvm-implementation.sh'), 'utf8'),
-    /^ {2}implementation\/fresco$/m,
-    'implementation/fresco must be on the local JVM roster',
-  );
+  // The local half: implementation/ rows are scripts/test-jvm-implementation.sh's
+  // roster, so the lane runs on a laptop as well as in CI.
+  assert.ok(row.dir.startsWith('implementation/'), 'the fresco row is on the implementation roster');
 });
 
 test('the cljs job runs BOTH fresco gates the classifier arm schedules (rf2-8a6s)', () => {
@@ -2319,17 +2427,17 @@ test('beads-pr-boundary leaves the MAYOR checkpoint flow alone (rf2-3mh2f)', () 
 // nothing. One row per arm: a glob arm (`docs/machines/*.md`, the `spec/*`
 // catch-all) by one page, a named-page arm by each page it names.
 //
-// path -> the suite that reads it -> the job that runs it. Documentation for
-// the reader; the assertions consume the paths only.
+// path -> the suite that reads it -> the JVM lane that runs it. Where the
+// lane is one artefact, the assertion checks the path selects its leg.
 const PROSE_PINS_ARMING_JVM = [
-  ['docs/machines/concepts.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
-  ['docs/api/re-frame.adapter.uix.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
-  ['docs/api/re-frame.ssr.md', 'ssr_doc_example_projector_test.clj', 'jvm-ssr'],
-  ['docs/ssr/concepts.md', 'ssr_doc_example_node_build_id_test.clj', 'jvm-ssr'],
-  ['docs/design/fresco/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'jvm-routing'],
-  ['spec/005-StateMachines.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
-  ['spec/009-Instrumentation.md', 'error_catalogue_channel_conformance_test.clj', 'jvm-core'],
-  ['spec/Spec-Schemas.md', 'four suites in three artefacts', 'jvm-core/-epoch/-machines'],
+  ['docs/machines/concepts.md', 'transition_geometry_terminology_jvm_test.clj', 'implementation/machines'],
+  ['docs/api/re-frame.adapter.uix.md', 'scope_ensure_authority_test.clj', 'implementation/core'],
+  ['docs/api/re-frame.ssr.md', 'ssr_doc_example_projector_test.clj', 'implementation/ssr'],
+  ['docs/ssr/concepts.md', 'ssr_doc_example_node_build_id_test.clj', 'implementation/ssr'],
+  ['docs/design/fresco/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'implementation/routing'],
+  ['spec/005-StateMachines.md', 'transition_geometry_terminology_jvm_test.clj', 'implementation/machines'],
+  ['spec/009-Instrumentation.md', 'error_catalogue_channel_conformance_test.clj', 'implementation/core'],
+  ['spec/Spec-Schemas.md', 'four suites in three artefacts', 'implementation/{core,epoch,machines}'],
 ];
 
 pinnedRoster(
@@ -2337,23 +2445,24 @@ pinnedRoster(
   PROSE_PINS_ARMING_JVM.map(([file]) => file),
 );
 
-// The readers whose job gates on an output OTHER than the JVM tier: path ->
-// suite -> job -> the output that job's `if:` reads. The `examples/`,
-// `tools/` and `skills/` rows are nested inside their own tree's arm.
+// The readers whose lane rides an output OTHER than the JVM tier: path ->
+// suite -> lane (a scripts/jvm-lanes.txt row, or a hand-written job) -> the
+// output that schedules it. The `examples/`, `tools/` and `skills/` rows are
+// nested inside their own tree's arm.
 const PROSE_PINS_ARMING_OTHER_LANES = [
-  ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['docs/core/how-to/use-uix.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['docs/core/how-to/use-uix.md', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
   ['docs/skills/re-frame2-setup.md', 'setup_drift_test.clj', 'skills-structural', 'skills_structural'],
-  ['docs/core/fresco/20-migration-from-reagent.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
-  ['skills/reagent-fresco-migration/references/procedure.md', 'census_test.clj', 'jvm-migration-fresco-codemod', 'migration_fresco_codemod'],
-  ['spec/Conventions.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['docs/core/fresco/20-migration-from-reagent.md', 'census_test.clj', 'migration/reagent-to-fresco/codemod', 'migration_fresco_codemod'],
+  ['skills/reagent-fresco-migration/references/procedure.md', 'census_test.clj', 'migration/reagent-to-fresco/codemod', 'migration_fresco_codemod'],
+  ['spec/Conventions.md', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
   ['spec/009-Instrumentation.md', 'infinite_trace_ops_test.clj', 'mcp-conformance-wire-vocab', 'mcp_conformance'],
-  ['examples/substrates/uix/counter/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['examples/substrates/uix/login/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['examples/substrates/uix/dashboard/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['examples/substrates/uix/counter/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['examples/substrates/uix/login/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
-  ['examples/substrates/uix/dashboard/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/counter/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/login/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/dashboard/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/counter/README.md', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/login/README.md', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/dashboard/README.md', 'uix_consumer_deps_recipe_test.clj', 'implementation/adapters/uix', 'adapter_diagnostic'],
   ['tools/xray/spec/024-Resources-Panel.md', 'infinite_trace_ops_test.clj', 'mcp-conformance-wire-vocab', 'mcp_conformance'],
 ];
 
@@ -2363,25 +2472,36 @@ pinnedRoster(
 );
 
 test('every measured prose pin arms the JVM tier that runs its suite (rf2-61ar)', () => {
-  for (const [file, suite, job] of PROSE_PINS_ARMING_JVM) {
+  for (const [file, suite, lane] of PROSE_PINS_ARMING_JVM) {
+    const result = classify(file);
     assert.equal(
-      classify(file).implementation_jvm,
+      result.implementation_jvm,
       'true',
-      `${file} is slurped by ${suite}, which runs in ${job} — it must arm implementation_jvm`,
+      `${file} is slurped by ${suite}, which runs in ${lane} — it must arm implementation_jvm`,
     );
+    if (!lane.includes('{')) {
+      assert.ok(legsOf(result).includes(`${lane} (test)`), `${file} must select the ${lane} leg`);
+    }
   }
 });
 
 test('every prose pin outside the JVM tier arms the output its job is gated on', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const gatedOn = new Map();
-  for (const [file, suite, job, output] of PROSE_PINS_ARMING_OTHER_LANES) {
+  for (const [file, suite, lane, output] of PROSE_PINS_ARMING_OTHER_LANES) {
+    const result = classify(file);
     assert.equal(
-      classify(file)[output],
+      result[output],
       'true',
-      `${file} is read by ${suite}, which runs in ${job} — it must arm ${output}`,
+      `${file} is read by ${suite}, which runs in ${lane} — it must arm ${output}`,
     );
-    gatedOn.set(job, output);
+    // A lane named by its directory is a matrix row: the path must select its
+    // leg. A lane named by its job id is a hand-written job, gated below.
+    if (lane.includes('/')) {
+      assert.ok(legsOf(result).includes(`${lane} (test)`), `${file} must select the ${lane} leg`);
+    } else {
+      gatedOn.set(lane, output);
+    }
   }
   for (const [job, output] of gatedOn) {
     assert.match(
@@ -2421,9 +2541,9 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
 //
 // Two JVM suites slurp a skill page, pull the forms out of its fences and
 // `eval` them, so the page IS the suite's input:
-//   ssr_skill_form_action_test.clj   -> skills/re-frame2/patterns/form-action.md  (jvm-ssr)
-//   improver_article_schema_test.clj -> skills/re-frame2-improver/references/schemaless-events.md  (jvm-schemas)
-// Both jobs gate on implementation_jvm, the whole JVM tier, so the narrowing is
+//   ssr_skill_form_action_test.clj   -> skills/re-frame2/patterns/form-action.md  (the ssr leg)
+//   improver_article_schema_test.clj -> skills/re-frame2-improver/references/schemaless-events.md  (the schemas leg)
+// Both legs ride implementation_jvm, the whole JVM tier, so the narrowing is
 // bought on the PATH axis: one named leaf each.
 
 test('the extracted FormAction recipe arms the SSR JVM lane (rf2-8btol)', () => {
@@ -2468,7 +2588,7 @@ test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', (
 //
 // `implementation/routing/test/re_frame/routing_path_census_test.clj` is a JVM
 // suite that reads three app trees named in its own `app-roots`. It runs only
-// in `jvm-routing`, which only `implementation_jvm` gates — so unless every
+// in the routing leg, which only `implementation_jvm` selects — so unless every
 // root arms that output, the census cannot fire on an edit it exists to
 // police.
 //
@@ -2543,7 +2663,7 @@ test('every route-path census app-root arms implementation_jvm (rf2-w9ip)', () =
       assert.equal(
         classify(probe).implementation_jvm,
         'true',
-        `${probe} must arm implementation_jvm: the route-path census reads ${root}, and jvm-routing is the only job that runs it`,
+        `${probe} must arm implementation_jvm: the route-path census reads ${root}, and the routing leg is the only lane that runs it`,
       );
     }
   }
@@ -2648,7 +2768,7 @@ test('the Xray spec files the coverage-matrix suite reads arm tools_jvm (rf2-6ng
     assert.equal(
       classify(rel).tools_jvm,
       'true',
-      `${rel} must arm tools_jvm: coverage-matrix-metadata-test slurps it, and jvm-tools-xray is the only job that runs it`,
+      `${rel} must arm tools_jvm: coverage-matrix-metadata-test slurps it, and the tools/xray leg is the only lane that runs it`,
     );
   }
 });
@@ -2783,7 +2903,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/async': DOCS_YML,
   // `docs/core` is DELIBERATELY ABSENT, for the reason `docs/ssr` is below:
   // three of its pages carry a test.yml reader — testing/views.md and
-  // how-to/use-uix.md, read by jvm-uix suites, and
+  // how-to/use-uix.md, read by the uix leg's suites, and
   // fresco/20-migration-from-reagent.md, read by the Fresco codemod's
   // census_test.clj — each with an arm scheduling its job, so one armed file
   // arms the tree. Its other pages arm no output, and the gates that read them are
@@ -2804,7 +2924,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // and its arm sets `skills_structural` to schedule it.
   // `docs/ssr` is DELIBERATELY ABSENT, and the ratchet below is what makes
   // that a requirement rather than a tidy-up: `docs/ssr/concepts.md` carries a
-  // test.yml pin (ssr_doc_example_node_build_id_test.clj, jvm-ssr) and an arm
+  // test.yml pin (ssr_doc_example_node_build_id_test.clj, the ssr leg) and an arm
   // to schedule it. One armed file arms the tree, so a DOCS_YML entry here
   // would be a stale declaration telling the next reader this tree is
   // ungated. Its other pages are covered by

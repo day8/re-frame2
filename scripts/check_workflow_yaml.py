@@ -2,7 +2,7 @@
 """Assert that every file under `.github/workflows/` is well-formed YAML.
 
 WHY THIS EXISTS.  Four scripts in this repo READ the workflow files
-— `check_gate_scheduling.py`, `check_fast_pr_gap.py`, `check_jvm_lane_rosters.py`
+— `check_gate_scheduling.py`, `check_fast_pr_gap.py`, `check_jvm_lanes.py`
 and `check_ci_reproduce_commands.py` — and every one of them is a hand-rolled
 line reader, so a file PyYAML refuses (an unmatched quote on line 1 of
 `.github/workflows/test.yml`, say) leaves ALL FOUR exiting 0.
