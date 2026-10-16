@@ -171,7 +171,7 @@ Every hook has the same two-arity contract:
     - a machine snapshot: its `:rf/machine-type`, or its own id for a singleton;
     - a resource entry: its `:resource/key`;
     - a mutation instance: its `:mutation/id`;
-    - the current route slice: its `:id`.
+    - the current route slice: its `:route-id` ([Spec-Schemas §`:rf/route-slice`](../../spec/Spec-Schemas.md#rfroute-slice)).
 - **Purity.** Apply is pure: no registry write, no frame lookup and no container read. It returns runtime-db-absolute paths, which core walks with the ordinary matcher. A consumer projecting a single instance hands the hook a root value holding just that instance.
 
 Core keeps the table that maps each root to its hook key. A root whose hook is unbound has no classification, which is safe for the same reason it is safe for the `:machines/project-ssr-runtime-db` hook: without its artefact, a runtime-db carries no instances under that root. A new runtime-db root publishes its hook the same way.
