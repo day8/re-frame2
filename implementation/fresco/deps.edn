@@ -96,12 +96,13 @@
  ;; lane takes the runner's test-count floor rather than a `--probe`
  ;; exemption: 3 tests, and the runner refuses if that ever becomes 0.
  ;;
- ;; THE JVM ARM IS GATED, ON EVERY PR. The artefact is on
- ;; `scripts/test-jvm-implementation.sh`'s roster, and
- ;; `.github/workflows/test.yml` runs `jvm-fresco` unconditionally, in
- ;; `all-required-passed`'s `needs:`. `check_jvm_lane_rosters.py` holds the
- ;; two together: R1 refuses a roster entry with no CI job and R2 a gated
- ;; job with no roster entry, so an entry and its job land in one change.
+ ;; THE JVM ARM IS GATED, ON EVERY PR. The artefact's row in
+ ;; `scripts/jvm-lanes.txt` has the predicate `always`, so
+ ;; `.github/workflows/test.yml` runs its `JVM implementation/fresco (test)`
+ ;; leg of the `jvm` job unconditionally, in `all-required-passed`'s
+ ;; `needs:`. The same row puts it on `scripts/test-jvm-implementation.sh`'s
+ ;; roster, and `check_jvm_lanes.py` holds the row against this file and
+ ;; test.yml.
  ;;
  ;; The lint export's witness is NOT a JVM suite. It is
  ;; `scripts/check_lint_export.py`, run by `npm run test:fresco-lint` — a

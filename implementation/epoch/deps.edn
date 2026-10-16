@@ -86,9 +86,10 @@
   ;; UNTAGGED and joins this lane by default.
   ;;
   ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
-  ;; directory, is the whole production-gate lane, in CI (the
-  ;; `jvm-epoch-prod-gate` job) and on a laptop alike: the runner discovers
-  ;; every `.*-test$` namespace, so a NEW namespace joins the lane by default.
+  ;; directory, is the whole production-gate lane, in CI (test.yml's
+  ;; `JVM implementation/epoch (test:prod-gate)` leg) and on a laptop alike:
+  ;; the runner discovers every `.*-test$` namespace, so a NEW namespace
+  ;; joins the lane by default.
   ;; Most of epoch's suites are about what the gate erases — a recorded epoch,
   ;; the ring, a restore or a replay from it — because epoch's production
   ;; posture is that the artefact is OFF. Those namespaces carry

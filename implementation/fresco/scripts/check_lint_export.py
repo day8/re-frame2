@@ -24,14 +24,11 @@ boundary.  The gate also asserts the export STAYS macro-shape-only — no
 `:re-frame.fresco/*` linter in config.edn, no `reg-finding!` in the hook — so
 an analyzer cannot ride in unwitnessed.
 
-WHY A CHECKER AND NOT A `deftest` SUITE.  A JVM lane exists only via the
-artefact rosters in `scripts/test-jvm-implementation.sh`
-(`check_test_lane_bijection.py`), and a roster entry is only legal
-with a matching `test.yml` job (`check_jvm_lane_rosters.py`).
-`.github/workflows/` is hot-zone, so that pair is a scheduling decision, and
-the two rules are circular for anything shaped like a deftest.  A checker is
-this artefact's own idiom — `check_guide_samples.py` beside this file is the
-same shape, a gate over the package with a `--self-test` that proves its own red.
+WHY A CHECKER AND NOT A `deftest` SUITE.  A checker is this artefact's own
+idiom — `check_guide_samples.py` beside this file is the same shape, a gate
+over the package with a `--self-test` that proves its own red.  The
+artefact's JVM lane, its row in `scripts/jvm-lanes.txt` (held against
+`test.yml` by `check_jvm_lanes.py`), runs only the slot-rule equivalence pin.
 
 AT THE VERSION CI PINS -- WHEN IT CAN GET IT.  The binary is
 resolved through `scripts/lint_kondo.py`, which reads the pin off `lint.yml`

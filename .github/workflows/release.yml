@@ -236,7 +236,8 @@ jobs:
       # takes the runner's test-count floor. Either way a non-zero exit
       # means a REAL failure (a failing guard or a deps/classpath break)
       # and MUST stop the release, so no `|| echo` fallback swallows it —
-      # mirrors the jvm-reagent / jvm-uix jobs in .github/workflows/test.yml.
+      # mirrors the `JVM implementation/adapters/reagent (test)` and
+      # `JVM implementation/adapters/uix (test)` legs of test.yml's `jvm` job.
       - name: JVM tests (reagent artefact, classpath probe)
         working-directory: implementation/adapters/reagent
         run: clojure -M:test
