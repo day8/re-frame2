@@ -140,7 +140,7 @@ Each of these v1 features has a replacement:
 - `reg-global-interceptor` gone — interceptors are frame-scoped; register with `reg-interceptor` and reference from a frame's `:interceptors`.
 - `reg-sub-raw` → `reg-sub` or the substrate adapter.
 - `^:flush-dom` event metadata → `[:dispatch-later {:ms 0 :event ev}]`: the current drain ends and views re-render before the next event runs.
-- The `day8.re-frame/test` helpers (`day8.re-frame.test`) → `re-frame.test-support` in the core artefact. `run-test-sync` is dropped: call `dispatch-sync` directly.
+- The `day8.re-frame/test` helpers (`day8.re-frame.test`) → `re-frame.test-support` in the core artefact. `run-test-sync` is dropped: call `dispatch-sync` directly. A `dispatch-sync` whose event fails returns `nil` instead of throwing, so a v1 test asserting the throw asserts on the error record instead ([M-9](../../migration/from-re-frame-v1/README.md#m-9-dispatch-sync-inside-an-event-handler-is-rejected--convert-to-fx-dispatch-event)).
 - A `reg-fx` or `reg-cofx` that touches a browser global (`js/window`, `js/localStorage`, `js/document`) needs `:platforms #{:client}` in its metadata. v2 runs effects on every platform by default, including the JVM for [SSR](../ssr/glossary.md#ssr), so a browser-only effect that doesn't say so runs during server rendering and throws. Client-only apps never hit this.
 - `reg-event-error-handler` → an `:observability :errors` sink ([Errors](errors.md#errors-in-production)). Its other half, swallowing an exception or substituting a result, has no replacement: recovery is the framework's fixed per-category default.
 - `add-post-event-callback` → a dev-only `:trace` or `:epoch` listener ([Observability](observability.md#write-a-listener)).
