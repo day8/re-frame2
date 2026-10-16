@@ -241,7 +241,7 @@
                      "NOT the full app-db. Drill via list-handlers / "
                      "list-subscriptions / snapshot / get-path / read-sub. "
                      "Examples: "
-                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0 :resource 0 :mutation 0 :resource-scope 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
+                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :interceptor 0 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0 :resource 0 :mutation 0 :resource-scope 0 :app-schema 2} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
                      "2. Production build (debug off): {} -> {:ok? true :liveness {:debug-enabled? false ...} ...} — trace/epoch surfaces elide, but the registry/frame shape still answers.")
    :typicalTokens 600
    :annotations idempotent-read-only-annotations
