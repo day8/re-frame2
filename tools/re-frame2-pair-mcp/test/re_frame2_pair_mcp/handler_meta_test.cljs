@@ -142,6 +142,27 @@
                                 (extract-edn r))))))
             done)))
 
+(deftest list-handlers-lists-app-schema-registrations-by-path
+  ;; `:app-schema` is an ordinary registrar kind keyed by path, so it rides
+  ;; the kind-agnostic registrar door and its ids are the path vectors.
+  (async done
+    (settle (-> (run-tool hm/list-handlers-tool {:kind "app-schema"} [[:cart] [:user]])
+                (.then (fn [[form r]]
+                         (is (str/includes? form "(re-frame2-pair.runtime/registrar-list :app-schema)"))
+                         (is (= {:ok? true :kind :app-schema :ids [[:cart] [:user]] :count 2}
+                                (extract-edn r))))))
+            done)))
+
+(deftest handler-meta-reads-an-app-schema-by-its-path
+  (async done
+    (let [canned {:path [:user] :schema [:map [:id :int]] :ns 'my.app.schema :line 3}]
+      (settle (-> (run-tool hm/handler-meta-tool {:kind "app-schema" :id "[:user]"} canned)
+                  (.then (fn [[form r]]
+                           (is (str/includes? form "(re-frame2-pair.runtime/registrar-describe :app-schema (quote [:user]))"))
+                           (is (= (assoc canned :ok? true :kind :app-schema :id [:user])
+                                  (extract-edn r))))))
+              done))))
+
 (deftest handler-meta-machine-routes-through-the-runtime-door
   ;; The machine query surface is not on the facade, so this is the branch
   ;; most likely to name a var that exists nowhere.
