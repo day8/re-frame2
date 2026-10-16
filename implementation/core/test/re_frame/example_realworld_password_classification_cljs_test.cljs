@@ -34,10 +34,6 @@
             [realworld-resources.http])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
-
 ;; A password (>= 8 chars) and a JWT that appear nowhere else.
 (def sentinel "PW-REALWORLD-SENTINEL-7d2c4a")
 (def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
@@ -63,6 +59,12 @@
                              :value {:user {:username "alice"
                                             :email    "alice@example.com"
                                             :token    token-sentinel}})))))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- with-local-storage
   "Run `f` with `globalThis.localStorage` defined by the JS property

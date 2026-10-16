@@ -10,9 +10,6 @@
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-(use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
@@ -72,6 +69,11 @@
    :actions {:clear-hold (fn action-clear-hold [{data :data}] {:data (assoc data :held-open? false)})}
    :states  {:closed {:exit :clear-hold :on {:door/push :open}}
              :open   {:on {:door/close {:target :closed :guard :may-close?}}}}})
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def plain-door-machine
   {:initial :closed

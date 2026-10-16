@@ -16,12 +16,6 @@
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-;; `:ambient-frame nil` is load-bearing: an ambient :rf/default would satisfy
-;; the bare `rf/dispatch` at click time and mask the failure under test.
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent-slim/adapter :async? true :ambient-frame nil}))
-
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -46,6 +40,15 @@
      [:button {:data-testid "syn-captured"
                :on-click (fn [_] (dispatch [:syn/inc]))}
       "injected dispatch"]]))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+;;
+;; `:ambient-frame nil` is load-bearing: an ambient :rf/default would satisfy
+;; the bare `rf/dispatch` at click time and mask the failure under test.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent-slim/adapter :async? true :ambient-frame nil}))
 
 (defn- query [mount-node testid]
   (.querySelector mount-node (str "[data-testid='" testid "']")))
