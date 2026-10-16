@@ -58,6 +58,22 @@
   (is (= :unknown-id (:reason (rt/validate-registered :event :pair-live/sav :pair-live/main)))
       "and a mistyped id is still unknown"))
 
+(deftest app-schema-paths-of-mixed-segment-types-list-in-order
+  (rf/reg-app-schema [:user :name] :string)
+  (rf/reg-app-schema [:todos :filter] :keyword)
+  (rf/reg-app-schema [:todos 1] :map)
+  (rf/reg-app-schema [:todos] :vector)
+  (rf/reg-app-schema [:todos "label"] :string)
+  (rf/reg-app-schema [:todos 0] :map)
+  (rf/make-frame {:id :pair-live/main})
+  (let [expected [[:todos] [:todos 0] [:todos 1] [:todos "label"] [:todos :filter] [:user :name]]]
+    (is (= expected (rt/registrar-list :app-schema))
+        "the process-wide listing orders [:todos 0] and [:todos :filter] rather than throwing")
+    (is (= expected (rt/frame-registrar-list :pair-live/main :app-schema))
+        "and so does the explicit-frame listing")
+    (is (= (count expected) (get-in (rt/describe-image {:frame :pair-live/main}) [:counts :app-schema]))
+        "and the frame's counts include its app-db schemas")))
+
 (deftest a-frame-made-with-images-still-reads-its-generation
   (rf/reg-event :pair-live/inc {:ns 'app.counter} (fn [db _] db))
   (rf/make-frame {:id     :pair-live/sealed
