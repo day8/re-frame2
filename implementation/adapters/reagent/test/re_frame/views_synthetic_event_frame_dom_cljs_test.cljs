@@ -34,18 +34,6 @@
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-;; `:ambient-frame nil` OPTS OUT of the fixture's default ambient
-;; `*current-frame*` :rf/default scope. It is load-bearing here: the whole
-;; point of the proof is that a synthetic-event handler fires with NO frame
-;; scope in effect. An ambient :rf/default binding would satisfy the bare
-;; `rf/dispatch` at click time and mask the very failure under test —
-;; exactly as it would mask nothing in production, where a real user click
-;; never runs under an ambient binding. `:async? true` because the working
-;; half awaits the async dispatch drain.
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
-
 ;; ---- browser gate ----------------------------------------------------------
 
 (defn- browser? []
@@ -113,6 +101,21 @@
      [:button {:data-testid "syn-captured"
                :on-click (fn [_] (dispatch [:syn/inc]))}
       "injected dispatch"]]))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+;;
+;; `:ambient-frame nil` OPTS OUT of the fixture's default ambient
+;; `*current-frame*` :rf/default scope. It is load-bearing here: the whole
+;; point of the proof is that a synthetic-event handler fires with NO frame
+;; scope in effect. An ambient :rf/default binding would satisfy the bare
+;; `rf/dispatch` at click time and mask the very failure under test —
+;; exactly as it would mask nothing in production, where a real user click
+;; never runs under an ambient binding. `:async? true` because the working
+;; half awaits the async dispatch drain.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
 
 (defn- query [mount-node testid]
   (.querySelector mount-node (str "[data-testid='" testid "']")))

@@ -198,25 +198,6 @@
   (rf.source-store/restore! snapshot)
   nil)
 
-(defn- merge-registrar-snapshots
-  "Two-level merge of two registration-table snapshots (`kind → id →
-  provenance-ns → descriptor`).
-
-  An id's entry from `overlay` — all of its provenance slots — wins on a
-  per-`[kind id]` collision; ids present only in `base` survive; ids present
-  only in `overlay` are added. The merge is two-deep — `(merge-with merge base
-  overlay)` — so that two snapshots that each populate a *different* id under
-  the same `kind` are unioned rather than one `kind` map clobbering the other,
-  and it stops at the id, so an overlay id never gains a provenance slot it did
-  not hold.
-
-  Used by [[make-reset-runtime-fixture]] to fold a stable ns-load baseline
-  back over whatever the registrar currently holds, so a test ns's own
-  ns-load registrations are present regardless of what a sibling ns's
-  `:each` fixture last restored the registrar to."
-  [base overlay]
-  (merge-with merge base overlay))
-
 ;; ---- bundle co-load hygiene: the fixture's `:app-ns` rows -----------------
 ;;
 ;; A CLJS node runner loads EVERY test namespace into ONE bundle before any
@@ -243,18 +224,11 @@
 ;; suite's baseline can hold them.
 ;;
 ;; SO A SUITE THAT USES AN APP DECLARES IT — every suite, not only the one that
-;; happens to load it first. That is not a tidiness rule; it is what the option
-;; requires, and the way it bites is worth writing down because it is invisible.
-;; `reinstate-and-snapshot!` folds the ns-load baseline OVER the live table
-;; (`merge-with merge live baseline`), so a suite silently resolves ids that were
-;; never in its own baseline but merely sat LIVE in the table because some
-;; other test ns's `:require` chain registered them. Measured on this tree: the
-;; RealWorld password-classification suite requires the app's feature namespaces
-;; but NOT its `core`, and reached `:auth/classify-token` — a `core`
-;; registration — purely through that leftover. Claiming the app on the suite
-;; that owns it removes the leftover, and the borrowing suite then loses an id it
-;; never declared. Declaring `:app-ns` on the borrower is the repair: it
-;; reinstates the whole app from the union, `core` included.
+;; happens to load it first. Each test starts from exactly its suite's ns-load
+;; baseline, so an app row the owning suite hid at its build is in no later
+;; suite's baseline, and a suite that reaches the app without declaring it
+;; finds those ids missing. Declaring `:app-ns` on that suite is the repair: it
+;; reinstates the whole app from the union.
 ;;
 ;; The other unreached case is two rival apps in ONE suite's baseline, and it is
 ;; loud rather than silent: that suite's `make-frame {}` raises
@@ -495,10 +469,10 @@
 ;; in `:after`. See `make-reset-runtime-fixture`'s `:async?` option.
 
 (defn- reinstate-and-snapshot!
-  "Pre-reset half (the fn-form's pre-try block). Fold the stable ns-load
-  baseline back over whatever the live registration table holds (run-order
-  independence) and clear the resolved-generation cache (EP-0026), then
-  capture and return the restore context the reset + finish halves consume:
+  "Pre-reset half (the fn-form's pre-try block). Restore the registration
+  table to the suite's stable ns-load baseline (run-order independence) and
+  clear the resolved-generation cache (EP-0026), then capture and return the
+  restore context the reset + finish halves consume:
 
     {:snap         <table snapshot to restore to on the way out>
      :restore-fn   <late-bound schemas restore-by-frame! fn, or nil>
@@ -507,8 +481,7 @@
   No frames / adapter mutation happens here — that is `reset-runtime!`, run
   inside the caller's try so `finish-runtime-reset!` still fires if it throws."
   [ns-load-baseline]
-  (restore-registrar!
-    (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
+  (restore-registrar! ns-load-baseline)
   (rf.image-assembly/clear-generation-cache!)
   (let [snapshot-fn (rf.late-bind/get-fn :schemas/snapshot-by-frame)]
     {:snap         (snapshot-registrar)
@@ -587,10 +560,13 @@
   namespaces leave a cross-namespace collision in the shared table, and the
   next test's frame raises `:rf.error/ambiguous-registration` when it uses the
   id. The fixture captures the table's ns-load contents at build time and
-  folds that baseline back in before each test — every id the baseline holds
-  comes back with exactly the provenance slots it had then — restores the
-  table after each test, and clears the resolved-generation cache (keyed on
-  the table's generation) on each reset.
+  restores the table to that baseline before and after each test, clearing
+  the resolved-generation cache (keyed on the table's generation) on each
+  reset. Each test's frames — the ambient fixture frame included — therefore
+  see only the suite's ns-load registrations plus its own, so a suite
+  registers its top-level state ABOVE its `use-fixtures` form (or in
+  `:init-fn`): a registration evaluated after the fixture was built is outside
+  the baseline.
 
   The baseline is captured ONCE, when the fixture is built —
   i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,
@@ -600,16 +576,15 @@
   `:each` fixture can restore the table to a snapshot that predates
   this ns's load, stranding this ns's registrations (e.g. leaving the
   whole `:event` kind empty for an alphabetically-later example ns).
-  Before each test, the fixture folds the stable ns-load baseline back
-  over the live table (via [[merge-registrar-snapshots]]) and only
-  THEN snapshots — so the snapshot it restores to is always populated with
-  this ns's own registrations, regardless of run order, and no test needs a
-  bespoke outer fixture to work around it.
+  Before each test, the fixture restores the table to the stable ns-load
+  baseline and only THEN snapshots — so the snapshot it restores to is always
+  populated with this ns's own registrations, regardless of run order, and no
+  test needs a bespoke outer fixture to work around it.
 
   Per call (i.e. per test), the fixture:
 
-    0. Reinstates the stable ns-load baseline over the live registration
-       table (run-order independence — see above) and clears the
+    0. Restores the registration table to the stable ns-load baseline
+       (run-order independence — see above) and clears the
        resolved-generation cache (EP-0026 — see above).
     1. Captures the current (baseline-reinstated) table (so user-test
        registrations can be rolled back without losing ns-load-time
@@ -835,7 +810,7 @@
    ;; its framework + example handlers / subs / views / machines / fx.
    ;; Capturing the registration table HERE — once, at fixture-build
    ;; time — pins every registration this ns brought live as a stable baseline,
-   ;; folded back over the live table before each test by
+   ;; restored before each test by
    ;; `reinstate-and-snapshot!` (run-order independence; see that helper and
    ;; the shared-halves section comment above for the full EP-0026 rationale).
    (let [ns-load-baseline      (snapshot-registrar)

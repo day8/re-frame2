@@ -29,10 +29,6 @@
             [realworld-resources.schema :as app-schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
-
 ;; The boot fan-out as three separate commits, with the paths and slice shapes
 ;; of auth.cljs's `:auth/initialise`, `:auth.login-form/initialise` and
 ;; `:auth.register-form/initialise`.
@@ -50,6 +46,12 @@
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:auth :register-form]
                    {:draft {:username "" :email "" :password ""} :touched #{}})}))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- boot! [f]
   (rf/dispatch-sync [:rf2-ghxt.boot/seed-auth] {:frame f})

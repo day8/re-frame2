@@ -31,12 +31,14 @@
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
+(reg-view ^{:rf/id :rf.key-test/row} row-view [n]
+  [:div "row-" n])
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
-
-(reg-view ^{:rf/id :rf.key-test/row} row-view [n]
-  [:div "row-" n])
 
 (defn- el-key
   "The React `:key` the reconciler will read for hiccup `v`."

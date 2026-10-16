@@ -13,11 +13,6 @@
             [re-frame.test-support :as rf.test-support]
             [managed-http-counter.core]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter       rf.adapter.reagent/adapter
-     :ambient-frame nil}))
-
 ;; The two managed-HTTP effects are swapped for capturing stubs via
 ;; `:fx-overrides`, so a test reads back what the handler asked for: no network,
 ;; no registry, no timing.
@@ -34,6 +29,13 @@
   (fn [_frame-ctx request-id]
     (swap! captured conj [:rf.http/managed-abort request-id])
     nil))
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
+     :ambient-frame nil}))
 
 (defn- capture-frame!
   "A fresh anon frame whose managed-HTTP effects are captured rather than

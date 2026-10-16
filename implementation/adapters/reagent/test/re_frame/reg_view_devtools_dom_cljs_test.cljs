@@ -22,10 +22,6 @@
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-(use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
-
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -34,6 +30,12 @@
 
 (reg-view ^{:rf/id :rf.devtools-dom/mounted-name} mounted-name-view []
   [:div {:data-testid "devtools-dom-root"} "body"])
+
+;; Below the suite's top-level registrations, so the fixture's ns-load
+;; baseline holds them.
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (defn- mount-and-read-names
   "Mount the registered view, return the DevTools-visible component names

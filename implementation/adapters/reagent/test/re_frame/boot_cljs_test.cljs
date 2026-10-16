@@ -119,6 +119,13 @@
       (re-find #"/user\.json$"   u) test-user
       :else                         {})))
 
+;; A tiny event used only by the app-db slice test below to write a malformed
+;; [:config] app-db slice, so the app-db slice schema's :where :app-db boundary
+;; is exercised distinctly from the machine :data boundary. It sits above the
+;; fixture so the fixture's ns-load baseline holds it.
+(rf/reg-event ::write-bad-config
+  (fn [{:keys [db]} _] {:db (assoc db :config {:api-base "/api"})}))   ;; missing required Config keys
+
 ;; ============================================================================
 ;; FIXTURE
 ;; ============================================================================
@@ -284,9 +291,3 @@
         (finally (rf/unregister-listener! :trace ::app)))
       (is (pos? (count @app-traces))
           "a malformed [:config] app-db slice fails at :where :app-db (slice schema validates app-db only)"))))
-
-;; A tiny event used only by the test above to write a malformed [:config]
-;; app-db slice, so the app-db slice schema's :where :app-db boundary is
-;; exercised distinctly from the machine :data boundary.
-(rf/reg-event ::write-bad-config
-  (fn [{:keys [db]} _] {:db (assoc db :config {:api-base "/api"})}))   ;; missing required Config keys
