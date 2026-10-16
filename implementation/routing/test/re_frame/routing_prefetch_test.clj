@@ -12,7 +12,7 @@
   The gates, the payload synthesis and the stubbed hooks' `@calls` (late-bound
   fns, not traces) are production-real, so whether prefetch REACHED planning,
   and with which identity, is asserted unguarded and runs in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `clojure -M:test` suite AND in `clojure -M:test:prod-gate` (the
   `-Dre-frame.debug=false` lane). The REPORTING — the `:rf.route/prefetched`
   summary and the `:rf.error/prefetch-bad-address` rejection traces — is
   dev-only, so those assertions sit inside `(when rf.interop/debug-enabled? …)`

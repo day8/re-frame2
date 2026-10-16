@@ -9,7 +9,7 @@
   ## Posture split
 
   Every deftest runs in `clojure -M:test` and in
-  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`). The gate
+  `clojure -M:test:prod-gate` (`-Dre-frame.debug=false`). The gate
   closes the trace bus at namespace load, so each assertion that reads a
   trace — the lifecycle, nav-token and fragment-changed traces, the
   `:rf.warning/malformed-url` and `:rf.warning/no-not-found-route`

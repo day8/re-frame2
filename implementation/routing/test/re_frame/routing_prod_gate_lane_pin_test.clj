@@ -3,16 +3,17 @@
 
   ## What this exists to prevent
 
-  `scripts/test-routing-prod-gate.sh` runs a slice of the routing suite with
-  `-Dre-frame.debug=false` genuinely on the JVM command line, via the
-  `:prod-gate` alias's `:jvm-opts` (implementation/routing/deps.edn).
+  `clojure -M:test:prod-gate`, run in `implementation/routing`, runs the whole
+  routing suite with `-Dre-frame.debug=false` genuinely on the JVM command
+  line, via the `:prod-gate` alias's `:jvm-opts`
+  (implementation/routing/deps.edn).
   Everything that lane claims rests on that property actually reaching the JVM
   the tests load in.
 
   If it ever stops reaching — an alias-merge change, a runner that drops
   `:jvm-opts`, a job that invokes `clojure -M:test` directly and forgets the
-  modifier — the lane does not go red. It goes GREEN, because its namespace
-  roster is by construction a subset of what already passes in dev posture. A
+  modifier — the lane does not go red. It goes GREEN, because every test it
+  runs already passes in dev posture. A
   lane that silently runs the wrong posture is worse than no lane: it reports
   coverage nobody has.
 
@@ -27,8 +28,8 @@
   What this lane carries that no other does:
   sub-classification, a PRIVACY invariant, genuinely egresses in production
   through routing's `:routing/route-sub-egress-path`. Its always-on witness
-  (`re-frame.routing-sub-egress-production-test`) is in this lane's roster,
-  and is worth exactly as much as this pin.
+  (`re-frame.routing-sub-egress-production-test`) runs in this lane, and is
+  worth exactly as much as this pin.
 
   ## Why it is `^:prod-gate`-tagged rather than conditional
 
@@ -52,8 +53,8 @@
     (is (= "false" (System/getProperty "re-frame.debug"))
         (str "system property `re-frame.debug` reads "
              (pr-str (System/getProperty "re-frame.debug"))
-             ", expected \"false\" — run this lane via"
-             " `sh scripts/test-routing-prod-gate.sh`"))))
+             ", expected \"false\" — run this lane as"
+             " `clojure -M:test:prod-gate` in implementation/routing"))))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
   (testing "The load-time gate resolved to OFF. Red here with the

@@ -15,7 +15,7 @@
   ## Posture split
 
   The classification contract carries no posture guard: it runs in the
-  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`
+  ordinary `clojure -M:test` suite AND in `clojure -M:test:prod-gate`
   (`-Dre-frame.debug=false`), because this egress happens in production.
 
   The one dev-only surface is the query-key promotion ADVISORY, a

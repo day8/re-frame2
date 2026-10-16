@@ -10,7 +10,7 @@
   a superseded completion's app `:rf/reply-to` target is never dispatched, so
   app-db and runtime-db are unchanged, and the fresh completion still commits.
   Every deftest asserts that outside any arm, so it runs in the ordinary
-  `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
+  `clojure -M:test` suite AND in `clojure -M:test:prod-gate` (the
   `-Dre-frame.debug=false` lane).
 
   What is dev-only is the `:rf.route.nav-token/stale-suppressed` TRACE and
