@@ -296,8 +296,10 @@
   (rf/with-frame :fu75.rollback/frame
     (rf/reg-app-schema [:articles] :int)
     (rf/reg-app-schema [:tags]     :int))
+  ;; Both paths present with the wrong type: a path the candidate lacks is
+  ;; not checked, so only a present value can fail its registration.
   (rf/reg-event :fu75.rollback/write
-                (fn [_ _] {:db {:unrelated 1}})))
+                (fn [_ _] {:db {:articles "not-an-int" :tags "not-an-int"}})))
 
 (deftest unowned-app-db-rollback-reaches-the-dev-console
   (if-not (browser?)
@@ -317,7 +319,7 @@
               (str "one line per violated registration; got "
                    (pr-str (mapv second console))))
           (doseq [[_ summary] rollback]
-            (is (re-find #"got nil" summary)
+            (is (re-find #"got string" summary)
                 (str "the line ends with the TYPE of what it found; got "
                      (pr-str summary))))
           (is (= #{[:articles] [:tags]}
