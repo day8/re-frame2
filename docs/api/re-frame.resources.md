@@ -607,7 +607,7 @@ Each focused `:rf.mutation/*` subscription returns the `:rf/mutation` view-model
 A frame can refetch its stale data when the window regains focus or the network reconnects; [Owners, causes, refetch rules](../resources/concepts.md#owners-causes-refetch-rules) covers when to turn it on. Declare which signals it listens for with the `:revalidate-on` frame-config key, the same way URL ownership is declared:
 
 ```clojure
-(rf/make-frame {:id :app :url-bound? true :revalidate-on #{:focus :reconnect}})
+(rf/make-frame {:id :rf/default :url-bound? true :revalidate-on #{:focus :reconnect}})
 
 [rf/frame-root {:id app-frame :url-bound? true :revalidate-on #{:focus :reconnect}}
  [root-view]]
@@ -855,25 +855,25 @@ The registry, the whole live table and one entry are three different reads. The 
 (keys (rf/registrations {:source :store :kind :mutation}))  ;; => (:article/save)
 
 ;; 2. WHOLE LIVE TABLE — the reserved runtime-db path off the frame-state projection.
-(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries])
+(get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/resources :entries])
 ;; => {<key-id> {:resource/id :article/by-slug
 ;;               :resource/key [:rf.scope/global :article/by-slug {:slug "welcome"}]
 ;;               :data … :error … :generation … :current-work …}
 ;;     …}
-(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/mutations])
+(get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/mutations])
 ;; => {<key-id> {:mutation/id :article/save :instance/id :form/save-1
 ;;                 :status … :result … :error … :generation …}
 ;;     …}
 
 ;; 3. ONE ENTRY / ONE INSTANCE — the narrowed reads documented above.
 (rf.resources/resource-state {:resource :article/by-slug :scope :rf.scope/global
-                    :params {:slug "welcome"} :frame :app/main})
-(rf.resources/mutation-state {:instance :form/save-1 :frame :app/main})
+                    :params {:slug "welcome"} :frame :rf/default})
+(rf.resources/mutation-state {:instance :form/save-1 :frame :rf/default})
 ```
 
 Read each table by its own keys. `:entries` is keyed by each entry's `key-id`, a string encoding of the key in canonical EDN (CEDN-1) that keeps a list and a vector of the same values distinct; the readable `[scope resource-id params]` tuple is on the row as `:resource/key`, and re-keying the table by it can collapse distinct entries. `:rf.runtime/mutations` is keyed by the CEDN-1 byte `key-id` of each mutation instance id (the row carries its own `:instance/id`), never by mutation id, so concurrent submissions of the same mutation stay distinct; re-keying by `:mutation/id` collapses them.
 
-Both subtrees are allocated lazily: `:rf.runtime/resources` is absent until the first resource write, and `:rf.runtime/mutations` is absent until the first `:rf.mutation/execute`, so either read can return `nil` at a live frame. `rf/frame-state-value` also returns `nil` for an unknown or destroyed frame, so a `nil` here means "not allocated" only at a frame you know is live; otherwise check `(rf/frame-state-value :app/main)` itself first.
+Both subtrees are allocated lazily: `:rf.runtime/resources` is absent until the first resource write, and `:rf.runtime/mutations` is absent until the first `:rf.mutation/execute`, so either read can return `nil` at a live frame. `rf/frame-state-value` also returns `nil` for an unknown or destroyed frame, so a `nil` here means "not allocated" only at a frame you know is live; otherwise check `(rf/frame-state-value :rf/default)` itself first.
 
 ### Xray
 

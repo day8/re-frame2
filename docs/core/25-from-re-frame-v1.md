@@ -186,15 +186,15 @@ Fix it at the root: create a frame and scope the view tree to it. The usual form
 (def el (js/document.getElementById "app"))
 
 (reagent-adapter/render! app-root
-  [rf/frame-root {:id             :app
+  [rf/frame-root {:id             :rf/default
                   :initial-events [[:todo/initialise]]}   ;; a reg-event returning {:db …}
    [todo-app]]
   el)
 
 ;; Also fine: create the frame first, then scope the tree to it
-(rf/make-frame {:id :app :initial-events [[:todo/initialise]]})
+(rf/make-frame {:id :rf/default :initial-events [[:todo/initialise]]})
 (reagent-adapter/render! app-root
-  [rf/frame-provider {:frame :app}
+  [rf/frame-provider {:frame :rf/default}
    [todo-app]]
   el)
 ```
@@ -324,7 +324,7 @@ v1's `on-changes` interceptor said "when these input paths change, compute a val
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
-   :frame       :app              ;; a flow belongs to one frame
+   :frame       :rf/default       ;; a flow belongs to one frame
    :doc         "Open todos, for handlers that need the count."}
   (fn [todos]
     (count (remove :done? (vals todos)))))

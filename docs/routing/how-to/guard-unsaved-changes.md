@@ -212,7 +212,7 @@ external link. For those, add a `beforeunload` listener that reads the same sub:
            (set! (.-returnValue e) ""))))))
 ```
 
-Call it once at browser boot with `:app`. The `#?(:cljs …)` branch keeps
+Call it once at browser boot with `:rf/default`. The `#?(:cljs …)` branch keeps
 the tutorial's `.cljc` namespace loadable in JVM tests. The browser shows its
 own dialog with its own wording, and only if the reader has interacted with the page.
 Because both exits read

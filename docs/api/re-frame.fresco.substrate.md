@@ -21,7 +21,7 @@ namespace does not exist on the JVM.
 
 (defonce app-root (h/client-root))
 
-(h/render! app-root [h/frame-root {:id :app/main} [app]]
+(h/render! app-root [h/frame-root {:id :rf/default} [app]]
            (js/document.getElementById "app"))
 ```
 

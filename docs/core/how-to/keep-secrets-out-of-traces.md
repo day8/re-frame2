@@ -28,7 +28,7 @@ Run `:auth/init` from the frame's `:initial-events`, so the classification is in
 
 ```clojure
 (rf/make-frame
-  {:id :app
+  {:id :rf/default
    :initial-events [[:auth/init]]})
 ```
 
@@ -227,7 +227,7 @@ To send production records to Datadog, Sentry, or another monitor, declare them 
 
 ```clojure
 (rf/make-frame
-  {:id :app
+  {:id :rf/default
    :observability {:handled-events
                    [{:sink :my-app.sinks/datadog
                      :rf.egress/profile :rf.egress/off-box-observability}]
@@ -266,8 +266,8 @@ A profile names who is about to see the data. A shipper uses one of these two:
 **Direct reads are not projected.** Reading live state directly, with `rf/app-db-value`, a sub-cache snapshot, or an MCP `get-path`, returns the raw value. If you send that off-box yourself, pass it through [`rf/project-egress`](../glossary.md#project-egress) first, naming the frame whose classifications apply:
 
 ```clojure
-(rf/project-egress (get-in (rf/app-db-value :app) [:auth])
-  {:frame :app :path [:auth] :rf.egress/profile :rf.egress/off-box-tool})
+(rf/project-egress (get-in (rf/app-db-value :rf/default) [:auth])
+  {:frame :rf/default :path [:auth] :rf.egress/profile :rf.egress/off-box-tool})
 ```
 
 **Omitting `:frame` is not the same as `:frame nil`.** Without the key, projection uses the frame in the current scope, and a frame that declares nothing redacts nothing, so a secret goes out as is; it redacts everything only when no live frame is in scope. With an explicit `:frame nil`, projection ignores the current scope and redacts the whole value. Use `:frame nil` when projecting one frame's data from code running in another frame, such as a tool showing the inspected app's data. (`re-frame.elision/elide-wire-value` is the lower-level walker `project-egress` uses for plain values; you rarely call it directly.)
@@ -277,11 +277,11 @@ A profile names who is about to see the data. A shipper uses one of these two:
 ```clojure
 (rf/project-egress
   {:kind     :rf.observe/handled-event
-   :frame    :app
+   :frame    :rf/default
    :event-id :auth/sign-in
    :event    [:auth/sign-in {:password "hunter2"}]}
   {:rf.egress/profile :rf.egress/off-box-observability})
-;; => {:kind :rf.observe/handled-event :frame :app
+;; => {:kind :rf.observe/handled-event :frame :rf/default
 ;;     :event-id :auth/sign-in ...}   ;; no :event slot
 ```
 

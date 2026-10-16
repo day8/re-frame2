@@ -31,7 +31,7 @@ Pick it when your components are React function components written with `defui` 
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (uix-adapter/render! app-root
-      ($ uix-adapter/frame-root {:id :app/main}
+      ($ uix-adapter/frame-root {:id :rf/default}
          ($ counter-app))
       el)))
 
@@ -162,7 +162,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
 - **Example**:
   ```clojure
   ;; Create the counter's frame on first mount; reuse it on hot reload.
-  ($ uix-adapter/frame-root {:id :app/main}
+  ($ uix-adapter/frame-root {:id :rf/default}
      ($ counter-app))
   ```
 
@@ -204,15 +204,15 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
 - **Example**:
   ```clojure
   (uix-adapter/render! app-root
-    ($ uix-adapter/frame-root {:id :app/main} ($ counter-app)) el)
+    ($ uix-adapter/frame-root {:id :rf/default} ($ counter-app)) el)
   ;; Later calls update the same root and reuse its frame.
 
   ;; Alternative boot for an SSR page: hydrate on this handle's FIRST render.
   (defonce hydrated-root (uix-adapter/client-root))
   (uix-adapter/render! hydrated-root
-    ($ uix-adapter/frame-provider {:frame :app/main} ($ counter-app))
+    ($ uix-adapter/frame-provider {:frame :rf/default} ($ counter-app))
     el {:hydrate? true})
-  ;; Hydration has already installed :app/main; later renders update this root.
+  ;; Hydration has already installed :rf/default; later renders update this root.
   ```
 
 ### `unmount!`

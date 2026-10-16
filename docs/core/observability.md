@@ -76,7 +76,7 @@ recomputed, a view rendered, an effect run, a
  :time      1716800000000               ;; host clock, ms
  :tags      {:rf.event/v           [:todo/toggle 1]
              :rf.trace/dispatch-id 4711
-             :frame                :app
+             :frame                :rf/default
              ,,,}}                      ;; the open map of specifics
 ```
 
@@ -190,9 +190,9 @@ an AI called in because the app is already broken) needs the recent past.
 So each frame keeps a ring buffer of recent history. Read it with `rf/trace-buffer`:
 
 ```clojure
-(rf/trace-buffer :app)
+(rf/trace-buffer :rf/default)
 ;; => vector of event bundles, oldest first, one per dispatched event:
-;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :app
+;;    {:dispatch-id 4711  :parent-dispatch-id nil  :frame :rf/default
 ;;     :event [:todo/toggle 1]  :dispatched {,,,}
 ;;     :handler {,,,}  :fx {,,,}  :effects [,,,]  :subs [,,,]  :renders [,,,]
 ;;     :other [,,,]  :trace-events [,,,]}
@@ -218,7 +218,7 @@ Set the depth with `configure!`:
 
 That sets the process default; a frame can set its own with
 `:rf.trace/events-retained` in its frame config. `{:events-retained 0}` turns
-retention off while listeners keep firing. `(rf/clear-trace-buffer! :app)` empties
+retention off while listeners keep firing. `(rf/clear-trace-buffer! :rf/default)` empties
 one frame's buffer and `(rf/clear-trace-buffer!)` empties every frame's; the retention
 settings stay in force.
 
@@ -230,7 +230,7 @@ an error, just as `(rf/app-db-value <unknown>)` returns `nil`.
 Next to the trace buffer (what the app did) is the **epoch history** (what the app
 was): one record per run with `:db-before` and `:db-after` snapshots, plus
 `:sub-runs`, `:renders` and `:effects` summaries. Read it with
-`(rf.epoch/epoch-history :app)`. Load the optional `day8/re-frame2-epoch` artefact
+`(rf.epoch/epoch-history :rf/default)`. Load the optional `day8/re-frame2-epoch` artefact
 and require `[re-frame.epoch]` first; without it the history call returns `[]`.
 
 Because each record holds real before-and-after state,
@@ -371,7 +371,7 @@ A frame names its sinks in its `:observability` config (`:errors` for error reco
 ;; The frame config names which sink handles each stream,
 ;; and under what egress profile:
 (rf/make-frame
-  {:id :app
+  {:id :rf/default
    :observability {:errors         [{:sink :app/sentry
                                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :handled-events [{:sink :app/metrics}]}})
@@ -476,17 +476,17 @@ the whole buffer and filter it itself:
 
 ```clojure
 ;; Just the runs of :todo/add:
-(rf/trace-buffer :app {:event-id :todo/add})
+(rf/trace-buffer :rf/default {:event-id :todo/add})
 
 ;; Polling: remember the last :id you saw and ask for what's newer
 ;; (needs :flat, since :id is on individual trace events):
-(rf/trace-buffer :app {:flat true :since last-seen-id})
+(rf/trace-buffer :rf/default {:flat true :since last-seen-id})
 
 ;; Only error events, flat:
-(rf/trace-buffer :app {:flat true :op-type :error})
+(rf/trace-buffer :rf/default {:flat true :op-type :error})
 
 ;; Anything your own predicate accepts (it receives a bundle, or an event with :flat):
-(rf/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
+(rf/trace-buffer :rf/default {:pred (fn [run] (< 100 (count (:effects run))))})
 ```
 
 Keys combine with AND. A missing key means no constraint, and an unrecognised key is

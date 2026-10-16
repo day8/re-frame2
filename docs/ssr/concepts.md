@@ -270,11 +270,11 @@ The client has to start in the state the server finished in, without redoing the
 ;; A complete loop below has it in context. app-root is a
 ;; (reagent-adapter/client-root) created once with defonce.
 (let [el      (js/document.getElementById "app")
-      payload (ssr/hydrate! {:frame          :app
+      payload (ssr/hydrate! {:frame          :rf/default
                              :render-tree-fn (fn [] ((rf/view :app/root)))})
-      tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+      tree    [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]]
   (when-not payload                               ;; no payload: a client-only first load
-    (rf/dispatch-sync [:app/client-bootstrap] {:frame :app}))
+    (rf/dispatch-sync [:app/client-bootstrap] {:frame :rf/default}))
   ;; payload: adopt the server's DOM; no payload: mount a fresh root
   (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))
 ```
@@ -301,7 +301,7 @@ Two rules:
 
     **The payload is untrusted input.** A non-map payload, or a present-but-not-a-map app-db or runtime-db slice, is rejected whole (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A wholly absent slice is not malformed; it is the client-only first-load case.
 
-    **`:rf/frame-id` is a check, not a target.** The payload may carry the frame id the server rendered under. If present and it disagrees with the `:frame` you passed, hydration throws `:rf.error/hydration-frame-id-mismatch` instead of installing the server's state into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name in advance — your `:frame` stands. The server writes it only when you give `ssr-handler` a `:client-frame-id`, for a deployment where both sides agree on one id in advance, such as `:app`. Never set it to a per-request gensym: the client would refuse every page.
+    **`:rf/frame-id` is a check, not a target.** The payload may carry the frame id the server rendered under. If present and it disagrees with the `:frame` you passed, hydration throws `:rf.error/hydration-frame-id-mismatch` instead of installing the server's state into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name in advance — your `:frame` stands. The server writes it only when you give `ssr-handler` a `:client-frame-id`, for a deployment where both sides agree on one id in advance, such as `:rf/default`. Never set it to a per-request gensym: the client would refuse every page.
 
 ??? info "Coming from React?"
 
@@ -321,7 +321,7 @@ The server hashes its render tree and ships the result as `:rf/render-hash` in t
  :recovery  :warned-and-replaced              ;; what the runtime did about it
  :tags      {:server-hash "a3f29c01"          ;; the tree the server shipped…
              :client-hash "0b77e4d2"          ;; …vs the client's first render
-             :frame       :app
+             :frame       :rf/default
              :failing-id  :rf/hydrate
              ,,,}}
 ```
@@ -579,14 +579,14 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
 #?(:cljs
    (defn ^:export run []
      (rf/init! reagent-adapter/adapter)
-     (rf/make-frame {:id :app :platform :client})
+     (rf/make-frame {:id :rf/default :platform :client})
      (let [el      (js/document.getElementById "app")
-           payload (ssr/hydrate! {:frame          :app
+           payload (ssr/hydrate! {:frame          :rf/default
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
-           tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+           tree    [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]]
        (when-not payload                                 ;; client-only: seed first
          (rf/dispatch-sync [:app/client-bootstrap (.-pathname js/location)]
-                           {:frame :app}))
+                           {:frame :rf/default}))
        ;; payload ⇒ adopt the server's DOM; no payload ⇒ fresh root
        (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))))
 ```
@@ -682,9 +682,9 @@ A value the *browser* produced — a password the user is typing — is not perm
 
 ```clojure
 ;; Client boot. read-saved-draft is your own fn — sessionStorage, say.
-(ssr/hydrate! {:frame :app})                                 ;; install only; no verify yet
-(rf/dispatch-sync [:comment/restore-draft (read-saved-draft)] {:frame :app})
-(ssr/verify-hydration! :app (rf/with-frame :app ((rf/view :app/root))))
+(ssr/hydrate! {:frame :rf/default})                          ;; install only; no verify yet
+(rf/dispatch-sync [:comment/restore-draft (read-saved-draft)] {:frame :rf/default})
+(ssr/verify-hydration! :rf/default (rf/with-frame :rf/default ((rf/view :app/root))))
 ```
 
 ### Deploy-drift checks come along for free
@@ -702,10 +702,10 @@ The version stamp is automatic. The schema digest is opt-in: compute it once at 
   {:initial-events [[:app/server-init]]
    :root-view      (fn [] ((rf/view :app/root)))
    :payload        [:articles :session-user]
-   :schema-digest  (schemas/app-schemas-digest {:frame :app})})
+   :schema-digest  (schemas/app-schemas-digest {:frame :rf/default})})
 ```
 
-The client hashes the schemas resolved by the frame it hydrates (`:app` here), so compute the server's digest through the same frame id. Schemas are top-level registrations, so both sides resolve the same set while they load the same schema namespaces.
+The client hashes the schemas resolved by the frame it hydrates (`:rf/default` here), so compute the server's digest through the same frame id. Schemas are top-level registrations, so both sides resolve the same set while they load the same schema namespaces.
 
 The version check always has a client-side value: it reads the SSR artefact's compiled-in protocol constant, the same value the server stamped. The schema-digest check can come up empty: when the client's digest isn't available (the schemas artefact isn't on the classpath), it emits `:rf.ssr/compatibility-check-skipped` and does nothing. These three traces are part of the dev trace stream, so add an [observability](../core/observability.md) listener for them if you want drift reported in CI.
 
@@ -725,8 +725,8 @@ A page can hydrate more than one root — a header and a cart mounted into separ
 ;; mount-header! and mount-cart! are your 0-arity fns that call the adapter's
 ;; render! with {:hydrate? true} into their own containers.
 (let [outcomes (ssr/hydrate-page!
-                 [{:frame :app :root-id :page/header :mount-fn mount-header!}
-                  {:frame :app :root-id :page/cart   :mount-fn mount-cart!}])]
+                 [{:frame :rf/default :root-id :page/header :mount-fn mount-header!}
+                  {:frame :rf/default :root-id :page/cart   :mount-fn mount-cart!}])]
   (doseq [{:keys [root-id error]} outcomes
           :when error]
     (js/console.warn "root did not boot:" (pr-str root-id) error)))

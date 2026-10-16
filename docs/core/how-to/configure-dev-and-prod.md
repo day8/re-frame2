@@ -124,7 +124,7 @@ These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:intercep
 ;; A frame with its own error sink. Observability is frame policy, so it
 ;; applies in production.
 (rf/make-frame
-  {:id             :app
+  {:id             :rf/default
    :initial-events [[:todo/initialise]]
    :drain-depth    1000
    :observability  {:errors [{:sink :app.sinks/sentry}]}})

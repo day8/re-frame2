@@ -106,7 +106,7 @@ That gives you three useful properties:
 - old values can be inspected, diffed, or restored;
 - handlers are pure functions you can unit test.
 
-To look at app-db from the REPL, call `(rf/app-db-value :app)`. It returns the
+To look at app-db from the REPL, call `(rf/app-db-value :rf/default)`. It returns the
 frame's current map, or `nil` when no frame has that id.
 
 A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or return
@@ -140,7 +140,7 @@ can list several events:
   (fn [_world _event]
     {:db {:todos {} :showing :all}}))
 
-[rf/frame-root {:id :app
+[rf/frame-root {:id :rf/default
                 :initial-events [[:todo/initialise]
                                  [:todo/add "Buy milk"]]}
  [todo-app]]
@@ -157,7 +157,7 @@ When all you need is a literal starting map, the framework's own `:rf/set-db` ev
 does it without a handler of yours:
 
 ```clojure
-[rf/frame-root {:id :app :initial-events [[:rf/set-db {:value 0 :step-size 1}]]}
+[rf/frame-root {:id :rf/default :initial-events [[:rf/set-db {:value 0 :step-size 1}]]}
  [stepping-counter]]
 ```
 

@@ -18,7 +18,7 @@ runtime halts that family and emits an always-on [error record](glossary.md#erro
 
 ```clojure
 {:error             :rf.error/drain-depth-exceeded
- :frame             :app
+ :frame             :rf/default
  :depth             1000                       ; events this family already settled
  :queue-size        7                          ; the family's queued events, dropped unrun
  :last-event-id     :todo/sync                 ; id of the last event that ran
@@ -62,8 +62,8 @@ returns at once. When the caller needs the drain settled before its next line ru
 (a test, the REPL), use [**`dispatch-sync`**](glossary.md#dispatch-sync):
 
 ```clojure
-(rf/dispatch-sync [:todo/add "Buy milk"] {:frame :app})   ;; at the REPL, name the frame
-@(rf/subscribe [:todo/all] {:frame :app})                  ;; already includes "Buy milk"
+(rf/dispatch-sync [:todo/add "Buy milk"] {:frame :rf/default}) ;; at the REPL, name the frame
+@(rf/subscribe [:todo/all] {:frame :rf/default})           ;; already includes "Buy milk"
 ```
 
 `dispatch-sync` runs the same drain as `dispatch`, but returns only after it

@@ -174,7 +174,7 @@ The server writes the hydration payload into the page as EDN, in a `<script id="
  :rf/runtime-db    {…}         ;; framework state: the route, machine snapshots (optional)
  :rf/render-hash   "a3f29c01"  ;; the server's render-tree hash (optional)
  :rf/head-hash     "…"         ;; the head model's hash (optional)
- :rf/frame-id      :app        ;; only when the server was given a :client-frame-id
+ :rf/frame-id      :rf/default ;; only when the server was given a :client-frame-id
  :rf/schema-digest "…"}        ;; only when the server was given a :schema-digest
 ```
 
@@ -223,14 +223,14 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
 
   (rf/init! reagent-adapter/adapter)
   (defonce app-root (reagent-adapter/client-root))
-  (rf/make-frame {:id :app :platform :client})
+  (rf/make-frame {:id :rf/default :platform :client})
 
   (let [payload (ssr/hydrate!
-                  {:frame :app
+                  {:frame :rf/default
                    :render-tree-fn #((rf/view :app/root))})]
     (reagent-adapter/render!
       app-root
-      [rf/frame-provider {:frame :app} [(rf/view :app/root)]]
+      [rf/frame-provider {:frame :rf/default} [(rf/view :app/root)]]
       (js/document.getElementById "app")
       {:hydrate? (some? payload)}))
   ```
@@ -252,10 +252,10 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   ```clojure
   ;; This page carries a valid shared payload for two roots in one frame.
   ;; mount-header! and mount-cart! are 0-arity fns that use frame-provider
-  ;; for :app and call the adapter's render! with {:hydrate? true}.
+  ;; for :rf/default and call the adapter's render! with {:hydrate? true}.
   (let [outcomes (ssr/hydrate-page!
-                   [{:frame :app :root-id :page/header :mount-fn mount-header!}
-                    {:frame :app :root-id :page/cart   :mount-fn mount-cart!}])]
+                   [{:frame :rf/default :root-id :page/header :mount-fn mount-header!}
+                    {:frame :rf/default :root-id :page/cart   :mount-fn mount-cart!}])]
     (doseq [{:keys [root-id error]} outcomes
             :when error]
       (js/console.warn "root did not boot:" (pr-str root-id) error)))
@@ -297,11 +297,11 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
 - **Example**:
   ```clojure
   ;; Host that mounts first, then verifies the mounted tree explicitly.
-  (rf/with-frame :app/main
-    (ssr/verify-hydration! :app/main ((rf/view :app/root))))
+  (rf/with-frame :rf/default
+    (ssr/verify-hydration! :rf/default ((rf/view :app/root))))
 
   ;; Fail the CI run on a mismatch instead of warning: set it on the client frame.
-  (rf/make-frame {:id :app/main :platform :client :ssr {:on-mismatch :hard-error}})
+  (rf/make-frame {:id :rf/default :platform :client :ssr {:on-mismatch :hard-error}})
   ```
 
 ## Error projection
@@ -425,7 +425,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
                                         :dev-error-detail? true}})
 
 ;; Client: fail loudly on a hydration mismatch, for CI.
-(rf/make-frame {:id :app :platform :client :ssr {:on-mismatch :hard-error}})
+(rf/make-frame {:id :rf/default :platform :client :ssr {:on-mismatch :hard-error}})
 ```
 
 ## Events

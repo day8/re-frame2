@@ -43,7 +43,7 @@ any navigation to it on to the new address:
        ctx))})
 
 (rf/make-frame
-  {:id           :app
+  {:id           :rf/default
    :url-bound?   true
    :interceptors [:app/redirect-moved]})
 ```

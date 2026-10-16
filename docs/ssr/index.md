@@ -17,7 +17,7 @@ the app. Code that belongs to one side is marked: effects and coeffects with
   (ssr/render-to-string ((rf/view :app/root)) {}))
 
 ;; client: install the server's state, then mount with {:hydrate? true} to adopt its HTML
-(ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
+(ssr/hydrate! {:frame :rf/default :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
 This guide shows how to render your app on the JVM (or on a Node sidecar), ship its

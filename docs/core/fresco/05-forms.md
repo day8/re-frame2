@@ -369,7 +369,7 @@ Register the flow once, when the frame is created, by listing
 `:todo.editor/register-flow` in the frame's `:initial-events`:
 
 ```clojure
-[h/frame-root {:id             :app
+[h/frame-root {:id             :rf/default
                :initial-events [[:todo/initialise]
                                 [:todo.editor/register-flow]]}
  [editor-form]]

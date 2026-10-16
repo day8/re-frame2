@@ -345,7 +345,7 @@ Attach the interceptor to the url-bound frame, and mount that frame with
 
 ```clojure
 (rf/make-frame
-  {:id           :app
+  {:id           :rf/default
    :url-bound?   true
    :interceptors [:app/auth-guard]})
 ```

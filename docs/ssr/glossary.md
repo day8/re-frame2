@@ -83,7 +83,7 @@ reads and installs it.
 
 ### **client frame id**
 
-`ssr-handler`'s `:client-frame-id` option: a stable frame id, such as `:app`,
+`ssr-handler`'s `:client-frame-id` option: a stable frame id, such as `:rf/default`,
 written into the payload as `:rf/frame-id` so the client can check it is hydrating
 the frame the server meant. It is omitted by default, because the server renders
 under a per-request frame the client never sees. Never set it to a per-request
