@@ -25,27 +25,15 @@ async function withService(name, opts, fn) {
   }
 }
 
-/** Collect a whole frame sequence. Returns `{ chunks, complete }`. */
-async function collect(service, request) {
-  const chunks = [];
-  let complete = null;
-  for await (const frame of service.renderFrames(request)) {
-    if (frame.type === 'chunk') chunks.push(frame);
-    else complete = frame;
-  }
-  return { chunks, complete };
-}
-
 /**
  * What the render module observed, read back out of the body it rendered.
  *
  * The response contract carries body markup and nothing else, so this is
  * the only channel a fixture has — see `observations.cjs` for why that is
- * a feature of the witness rather than a workaround. Takes a `collect`
- * result or a raw body string.
+ * a feature of the witness rather than a workaround. Takes a
+ * `renderToString` result or a raw body string.
  */
-const observed = (x) =>
-  observationsIn(typeof x === 'string' ? x : x.chunks.map((c) => c.html).join(''));
+const observed = (x) => observationsIn(typeof x === 'string' ? x : x.html);
 
 /**
  * The refusal a call produced, or `null` if it produced none. Written as a
@@ -72,4 +60,4 @@ async function post(url, body, headers = {}) {
   return { status: res.status, headers: res.headers, buf, text: buf.toString('utf8') };
 }
 
-module.exports = { fixture, withService, collect, observed, refusalOf, post };
+module.exports = { fixture, withService, observed, refusalOf, post };

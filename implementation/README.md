@@ -197,7 +197,7 @@ implementation/
     README.md                The contract, the protocol, the envelope, and deployment.
     src/protocol.cjs         Message shapes + the fail-closed validator. No transport in it.
     src/{isolate,pool}.cjs   One worker thread per isolate; admission, deadline, terminate.
-    src/service.cjs          renderFrames (the primitive) + renderToString (the wrapper).
+    src/service.cjs          renderToString: validate, admit, render, release.
     src/http.cjs             One transport over the protocol: POST /render, GET /health.
     test/                    node:test suites, run by test/run.cjs. No build, no browser.
 

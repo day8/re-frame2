@@ -4,12 +4,11 @@
 // Mostly `validateRequest` directly, because a fail-closed contract is a
 // claim about every input and enumerating inputs is the cheapest honest way
 // to make it. The service-level rows at the bottom show the validator is the
-// door: a refusal reaches the caller with no chunk emitted and no isolate
-// borrowed. Each refusal row is the valid request `OK()` plus one fault.
+// door: a refusal reaches the caller with no isolate borrowed. Each refusal row is the valid request `OK()` plus one fault.
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, observed, refusalOf } = require('./_support.cjs');
+const { withService, observed, refusalOf } = require('./_support.cjs');
 const {
   CODE,
   REFUSED_FIELDS,
@@ -239,23 +238,23 @@ test('an allowlist member that is not a top-level key in EDN spelling makes the 
 // Through a live service: the validator is the DOOR
 // ---------------------------------------------------------------------------
 
-test('a refused request yields no chunks, and never touches an isolate', async () => {
+test('a refused request never touches an isolate', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const before = service.stats();
     const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/root', state: { ':nope': '1' } }),
+      service.renderToString({ protocol: 1, entry: 'app/root', state: { ':nope': '1' } }),
     );
     assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
     assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
     // ...and the same service still renders: the refusal was about the request.
-    const ok = await collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } });
-    assert.strictEqual(ok.chunks.length, 1);
+    const ok = await service.renderToString({ protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } });
+    assert.strictEqual(observed(ok).readTodos, '[1]');
   });
 });
 
 test('the runtime partition reaches the module, frozen like state', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const out = await collect(service, {
+    const out = await service.renderToString({
       protocol: 1,
       entry: 'app/root',
       state: { ':todos': '[1]' },

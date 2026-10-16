@@ -86,7 +86,7 @@ The request's own fields. The protocol names every field a request may
 carry. A field it does not name is a refusal
 (`:rf.ssr-node/unknown-request-field`), not a shrug. This is a security
 posture and it is also a topology one — see
-[the protocol](#the-protocol-and-why-it-is-kept-separable) for the 3
+[the protocol](#the-protocol) for the 3
 fields that are refused on purpose, each with its reason attached to the
 refusal so the message teaches instead of merely declining.
 
@@ -97,35 +97,24 @@ the server-arm pricing named as row B5.
 
 The response leg's fields. A fail-closed request door with an open
 response door is not a fail-closed crossing. `COMPLETE_FIELDS` in
-`src/protocol.cjs` is the terminal frame's field list and it is the same
-kind of object as `REQUEST_FIELDS` rather than a comment: `type`,
-`chunks`, `renderMs`, `buildId` and the optional `requestId`. Every one is
-a fact this service produced about the crossing it just performed —
-counted here, timed here, or read from the bundle's published table at
-boot — and `requestId` is the caller's own correlation token handed back.
-There is no member the application's render module fills in, and no
-mechanism by which it could: `emit` is a render module's only output
-channel, and a module that returns a value is refused
-(`:rf.ssr-node/render-threw`) rather than having the value quietly
-dropped. The accepted set is `{ undefined }` — falling off the end and
-nothing else, `null` included in the refusal. `test/egress.test.cjs` is
-the witness.
+`src/protocol.cjs` is the success response's field list and it is the same
+kind of object as `REQUEST_FIELDS` rather than a comment: `type`, `html`,
+`renderMs`, `buildId` and the optional `requestId`. `html` is the body
+markup the render module returned; every other member is a fact this
+service produced about the crossing it just performed — timed here, or
+read from the bundle's published table at boot — and `requestId` is the
+caller's own correlation token handed back. There is no other member the
+application's render module fills in, and no mechanism by which it could:
+the string `render` returns is a render module's only output channel, and
+a module that returns anything else is refused
+(`:rf.ssr-node/render-threw`) rather than having the value coerced or
+quietly dropped. `test/egress.test.cjs` is the witness.
 
-That door was not there in the first cut of this package, and how it was
-missing is worth keeping on the record. `worker.cjs` forwarded an
-arbitrary `out.meta` from the render module, `isolate.cjs` carried it and
-`service.renderFrames()` published it — and the fixtures under `test/`
-demonstrated the channel carrying application state (`readTodos`,
-`readRoute`). The HTTP transport happened not to serialise it, so nothing
-looked wrong; but "the current transport drops it" is a fact about
-`http.cjs` and not a guarantee about this package, and the protocol is
-documented as transport-independent while `renderFrames()` and
-`renderToString()` are an in-process API that carried it in full. A
-contract asserting a property its code does not enforce is the exact
-fail-open class this repo hunts in its own instruments, so the property is
-now enforced in `worker.cjs` — the one place where the topology can be
-enforced, because nothing downstream can carry what it never posts — and
-checked on the FRAMES rather than on the HTTP response.
+The property is enforced in `worker.cjs` — the one place where the
+topology can be enforced, because nothing downstream can carry what it
+never posts — and checked on the in-process `renderToString()` result
+rather than on the HTTP response, because "the current transport drops
+it" is a fact about `http.cjs` and not a guarantee about this package.
 
 The partition keys. A settled frame is two partitions — app-db and the
 framework's runtime-db — and a request carries both, as `state` and
@@ -185,7 +174,7 @@ and closes it in a `finally`, and that namespace's own docstring explains
 that a window left open would leave the whole process adopting. Two
 overlapping renders in one isolate would have one close the other's
 window. Today `renderToString` is synchronous so the overlap cannot arise
-by accident — but the moment a streaming render module returns a promise
+by accident — but `render` may return a promise, and the moment one does
 it can, and a guarantee that only held because nothing had tried yet is
 the kind that fails silently the day someone does.
 
@@ -209,9 +198,10 @@ is in whatever state the stopped instruction left it.
 Stated before it was measured, in `test/envelope.cjs`, in its own commit
 with no measurement code in the tree — `git log --follow` on that file is
 the witness for the ordering. What is bounded is the service's own
-overhead, total elapsed minus the render module's own render duration,
-and explicitly not the render, because SSR speed is off this programme's
-bar (HD-012) and this package does not quietly re-open it.
+overhead: the time from the call to its response being delivered, minus
+the render module's own render duration — and explicitly not the render,
+because SSR speed is off this programme's bar (HD-012) and this package
+does not quietly re-open it.
 
 | Quantity | Ceiling |
 |---|---|
@@ -263,33 +253,18 @@ its cost is about 32 µs a request.
 
 ---
 
-## The protocol, and why it is kept separable
+## The protocol
 
-The requirement on `rf2-hic-056` is that the JVM↔Node protocol stay
-separable — no "one complete string" baked into every layer, so a
-streaming caller later does not need a second semantics. That is a design
-constraint rather than a feature, and it is the one thing here that would
-be expensive to retrofit, so it is discharged structurally in 3 places.
-
-A response is a sequence of frames, not a string. The render module is
-handed an `emit` callback and may call it any number of times; the isolate
-forwards each call as its own `chunk` frame; the pool and the service pass
-frames through untouched; and `service.renderFrames()` is an async
-generator yielding chunks and then one terminal frame. A `renderToString`
-module emits exactly one chunk. A `renderToPipeableStream` module will emit
-many. No layer between the module and the transport knows or cares which,
-because none of them ever holds "the body".
-
-Joining is the transport's decision, made once, at the edge. The HTTP
-transport has a buffered mode (collect, set `Content-Length`, write once)
-and a streaming mode (write each chunk as it arrives). They are 2
-readings of one protocol, and the witness requires their output to be
-byte-identical — even when a chunk boundary splits a surrogate pair, which
-the streaming mode handles by holding back that one code unit until its mate
-arrives. `service.renderToString()` is a wrapper over the same
-generator, so the string-shaped call is the derived one — a streaming
-caller is declining a convenience rather than asking for a second
-semantics.
+A response is one body string. The render module returns its body markup
+as a string — in a Fresco bundle, React's `renderToString` output — or a
+promise of one; the isolate posts it in one `complete` message;
+`service.renderToString()` resolves with it beside the service-owned facts;
+and the HTTP transport writes it once, with a byte-accurate
+`Content-Length`. One buffered body is all either side reads: the JVM
+adapter POSTs to `/render` and takes the whole body, and Spec 011
+specifies a whole-page response. A streaming render would be a separate,
+stream-returning form behind the JVM's `:renderer` seam, with flow control
+and cancellation of its own, added beside this one.
 
 The transport is a seam, not the protocol. `src/protocol.cjs` defines
 and validates the message shapes and knows nothing about HTTP, worker
@@ -344,49 +319,39 @@ in the refusal message:
 ```
 
 `state` and `runtime` are maps of key text to value text, not one EDN
-blob, and that shape is doing 2 jobs. It lets the service enforce the key
-allowlists without parsing application state or carrying an EDN reader — a
-boundary that has to understand what it is guarding is a worse boundary.
-And it is the separable shape: nothing bakes in that the whole snapshot
-arrives at once, so a caller that later wants to send state incrementally
-is adding frames rather than changing semantics. The two are the two
+blob, so the service can enforce the key allowlists without parsing
+application state or carrying an EDN reader — a boundary that has to
+understand what it is guarding is a worse boundary. The two are the two
 partitions of one settled frame — `:rf/app-db` and `:rf/runtime-db`, the
 envelope the hydration payload already uses — projected on the JVM by
 `re-frame.ssr.render-state/project` under the handler's `:render-state`
 policy and serialised per key by `render-state/serialize`; one byte ceiling
 covers both.
 
-### Response frames
+### Response
 
 ```jsonc
-{ "type": "chunk",    "seq": 0, "html": "<div>…" }
-{ "type": "complete", "chunks": 1, "renderMs": 1.4, "buildId": "…",
+{ "type": "complete", "html": "<div>…", "renderMs": 1.4, "buildId": "…",
   "requestId": "…" }
 ```
 
-The `complete` frame's field list is `COMPLETE_FIELDS`, and it is closed
-in the same sense the request's is. Nothing on it originates in the
-application's render module — see
-[the response leg](#2-allowlisted-request-fail-closed).
+The `complete` response's field list is `COMPLETE_FIELDS`, and it is closed
+in the same sense the request's is. Nothing on it but `html` originates in
+the application's render module — see
+[the response leg](#2-allowlisted-request-fail-closed). Over HTTP the body
+is `html` itself and the other fields ride as headers.
 
-or, instead of everything:
+or, instead of it:
 
 ```jsonc
 { "type": "refusal", "code": ":rf.ssr-node/unknown-entry",
   "message": "…", "detail": {…}, "requestId": "…" }
 ```
 
-A refusal is terminal and arrives instead of chunks, never after them —
-every caller-fault refusal is delivered before an isolate is even
-acquired. A failure that does arrive after chunks (the isolate dying under
-a render, a deadline firing mid-stream, or a streaming module throwing
-halfway) is a torn response:
-it carries `detail.afterChunks`, and the transport destroys the socket
-rather than presenting a well-formed shorter page. Every refusal that ends
-an **in-flight render** carries the field, `0` included — a consumer
-branching on it must be able to tell an untorn response from a path that
-forgot to say. A caller-fault refusal raised before an isolate is acquired
-does not carry it, and has no render to have torn.
+A refusal arrives instead of the body. Every caller-fault refusal is
+delivered before an isolate is even acquired, and a render that fails —
+a throw, a deadline, a dead isolate — is refused before a byte of its body
+leaves, because there is only ever one body and it leaves whole.
 
 ### Refusal codes
 
@@ -401,7 +366,7 @@ does not carry it, and has no render to have torn.
 | `:rf.ssr-node/state-key-not-allowed` | a `state` or `runtime` key the entry does not declare for that partition |
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
-| `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
+| `:rf.ssr-node/render-threw` | the render module threw, or returned something other than a string |
 | `:rf.ssr-node/isolate-lost` | the worker died mid-render, an exception escaped the render call, or the pool could not replace a terminated isolate |
 | `:rf.ssr-node/service-saturated` | no isolate free within the admission budget, or as many callers already waiting as the pool has isolates |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
@@ -482,37 +447,31 @@ module.exports = {
   boot() { /* rf.init!(adapter); registerViews(); */ },
 
   // Once per request. `state` and `runtime` are frozen; writing to either
-  // throws. Call `emit` one or more times with body markup, and return
-  // nothing — `emit` is this module's only channel out of the isolate.
-  render({ entry, state, runtime, args }, emit) {
-    emit(MY_APP_SSR.renderToString(entry, state, runtime, args));
+  // throws. Return the body markup as a string, or a promise of one — the
+  // returned string is this module's only channel out of the isolate.
+  render({ entry, state, runtime, args }) {
+    return MY_APP_SSR.renderToString(entry, state, runtime, args);
   },
 };
 ```
 
 `render` may return a promise; the isolate awaits it under the same
-deadline, so a streaming module is governed identically. A module that
-returns without emitting is refused rather than served as an empty page.
-
-A module that returns a value is also refused
-(`:rf.ssr-node/render-threw`), and that is the response leg's fail-closed
-door rather than fussiness — see
+deadline. Whatever it resolves to must be a string — the empty string
+included — and anything else is refused (`:rf.ssr-node/render-threw`):
+`undefined` from falling off the end, `null`, a number, an object, or a
+promise of any of those. The refusal's wording is this contract's own and
+its `detail` is the entry and the returned value's type tag
+(`"[object Null]"`, say), never its content. That is the response leg's
+fail-closed door rather than fussiness — see
 [the response leg's fields](#2-allowlisted-request-fail-closed) for what
-it is holding and what it cost to find missing. An `async render` that
-falls off its end returns `undefined` and is fine; `return { … }` is a
-module reaching for a second way out, and the refusal says so in as many
-words. `undefined` is the whole of the accepted set — `return null` is
-refused too, because falling off the end is what absence looks like here
-and `null` is a value someone typed. The door spared it for one commit, on
-the most likely deliberate return a render module has. Because a return
-can only be discovered after the render, a module that both emitted and
-returned produces a torn response carrying `detail.afterChunks` — the
-bytes really did leave, and the transport must not present them as a page.
+it is holding. `return { html, meta }` is a module reaching for a second
+way out, and coercing it with `String()` would publish whatever it prints
+as.
 
 And a module that THROWS is refused the same way, which is the other door
 out of a render and the one an author meets by accident rather than on
 purpose. The refusal is always `:rf.ssr-node/render-threw`, with this
-contract's own wording and a `detail` of the entry and `afterChunks`:
+contract's own wording and a `detail` of the entry alone:
 **the exception's `message`, its `detail`, and any `code` it carried do
 not cross the wire**. That is not tidiness. A renderer exception is built
 from the value being processed in the normal case — React names the
@@ -541,13 +500,8 @@ outcome is honestly different: the refusal is `:rf.ssr-node/isolate-lost`,
 because the render did not finish *and* the isolate is not reusable, so
 the pool replaces it. The code is not smoothed into `render-threw` — a
 caller acts on the difference — but the wording is this contract's, the
-`detail` is the service's own (`isolate`, `threadId`, `afterChunks`), and
-the exception's
-message and stack stay off the wire. `afterChunks` is the torn-response
-count promised above, and this is exactly the path that needs the service to
-supply it: the worker crashed, so no error message ever arrives from it and
-nothing else still knows how many chunks had already gone out. The stack
-matters twice over here: on
+`detail` is the service's own (`isolate`, `threadId`), and the exception's
+message and stack stay off the wire. The stack matters twice over here: on
 top of the module's wording it names absolute paths in the deployment's
 filesystem. It goes to the same stderr, and on this path that is not
 merely the better channel but the only one — the worker never caught
@@ -594,7 +548,7 @@ sends the real fault to the operator.
 
 **That route is closed** — the read-once rule under guarantee 2 means a
 request that passes validation is a request that can be cloned — and the
-arm stays anyway. It is what guarantees `renderFrames` throws nothing but a
+arm stays anyway. It is what guarantees `renderToString` throws nothing but a
 `Refusal`, which is the property every transport is written against;
 removing it would let a raw `Error` reach `statusFor` with no code at all.
 `test/egress.test.cjs` §6 and §7 are the witnesses: §7's first row holds
@@ -645,11 +599,10 @@ server or with a concurrent worker's.
 
 ```
 POST /render          Content-Type: application/json   -> 200 text/html
-POST /render?stream=1                                  -> 200, chunked
 GET  /health                                           -> 200 application/json (503 once failed)
 ```
 
-Response headers: `x-rf-ssr-build` (the build identity), `x-rf-ssr-chunks`,
+Response headers: `x-rf-ssr-build` (the build identity),
 `x-rf-ssr-render-ms`, and `x-rf-ssr-request` when the caller sent a
 `requestId`. A refusal answers with `application/json`, the refusal frame
 as its body, and `x-rf-ssr-refusal` carrying the code — 4xx for a caller
@@ -715,9 +668,6 @@ const { html } = await service.renderToString({
   entry: 'app/root',
   state: { ':todos': '[]' },
 });
-
-// …or, for a streaming caller, the primitive the wrapper above is built on:
-for await (const frame of service.renderFrames(request)) { /* … */ }
 
 // …or the transport, on a port of your choosing; 0 picks a free one:
 const http = await serve({ service, port: 8148 });
@@ -811,11 +761,11 @@ the direction of the arrow: this package answers a render request and
 knows nothing about its caller, which is what lets the whole thing be
 tested without a JVM in the room.
 
-No streaming render today. The protocol is shaped so that adding one is
-adding frames rather than changing semantics, which is what `rf2-hic-056`
-asks for, and the transport already writes chunks as they arrive. Actually
-producing a stream needs `renderToPipeableStream` in a render module, and
-that is out of scope here.
+No streaming render. A render module returns one string and the transport
+writes one buffered body, because one whole body is all either side reads.
+A streaming design would add a stream-returning form behind the JVM's
+`:renderer` seam, with its own flow control and cancellation, beside this
+one.
 
 ---
 
@@ -845,8 +795,8 @@ and nothing else.
 
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, hanging, throwing
-(inside the call and escaping it), chunking, byte-hostile, leaky,
-null-returning and boot-flaky — because every guarantee here is a
+(inside the call and escaping it), byte-hostile, leaky, non-string-returning
+and boot-flaky — because every guarantee here is a
 property of the service, and a fixture that misbehaves on purpose is the
 only way to see a guard fire.
 
@@ -862,7 +812,7 @@ invisible to the isolates already running and visible to every replacement
 spawned afterwards.
 
 A fixture reports what it observed by rendering it, as a base64
-attribute on markup it was emitting anyway, and the witnesses read it back
+attribute on markup it was returning anyway, and the witnesses read it back
 out of the body (`test/observations.cjs`). That is not a workaround for a
 missing channel; it is the response contract holding, in the one place a
 suite would feel it. The observations used to ride the terminal frame,

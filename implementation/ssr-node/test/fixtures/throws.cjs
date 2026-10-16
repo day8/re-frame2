@@ -1,6 +1,5 @@
 'use strict';
-// A render that throws, and one that emits nothing at all. The torn
-// response — a throw AFTER emitting — is `throws-data.cjs`'s `app/torn`.
+// A render that throws, and one that returns no body at all.
 
 module.exports = {
   protocol: 1,
@@ -10,8 +9,8 @@ module.exports = {
     'app/silent': { stateAllowlist: [], runtimeAllowlist: [] },
   },
 
-  render({ entry }, emit) {
-    if (entry === 'app/silent') return; // emits nothing at all
+  render({ entry }) {
+    if (entry === 'app/silent') return; // returns no body at all
     throw new Error('fell over immediately');
   },
 };

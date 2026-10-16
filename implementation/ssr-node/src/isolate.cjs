@@ -33,13 +33,7 @@
 
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
-const {
-  CODE,
-  Refusal,
-  chunkFrame,
-  isRefusalCode,
-  ISOLATE_LOST_REFUSAL,
-} = require('./protocol.cjs');
+const { CODE, Refusal, isRefusalCode, ISOLATE_LOST_REFUSAL } = require('./protocol.cjs');
 
 const WORKER_PATH = path.join(__dirname, 'worker.cjs');
 
@@ -66,38 +60,6 @@ const WORKER_PATH = path.join(__dirname, 'worker.cjs');
 function reportIsolateFault(isolateSeq, err) {
   const trace = err && err.stack ? err.stack : String(err);
   process.stderr.write(`[rf.ssr-node] isolate ${isolateSeq} died mid-render: ${trace}\n`);
-}
-
-/**
- * Stamp the service-owned torn-response count onto a terminal refusal.
- *
- * `README.md` §refusals and `service.cjs`'s own header promise that a failure
- * arriving AFTER chunks is a torn response carrying `detail.afterChunks`, and
- * name "the isolate dying under a render" as one of the two ways that happens.
- * The worker cannot report the count on three paths, because on each of them
- * it is already gone or going: the deadline rejection, `_failPendingRender`
- * (the crashed / exited thread), and `close()`. Each builds its refusal from
- * scratch and clears `pendingRender`, which holds the only record of how many
- * chunks have left, so a refusal built without the count would leave a
- * transport branching on the advertised discriminator seeing `undefined`
- * beside body bytes it has already written.
- *
- * SERVICE-OWNED, on the same footing as the `isolate` / `threadId` /
- * `timeoutMs` fields it joins: the count is what THIS file forwarded, and
- * nothing the render module authored reaches it. It is stamped for a clean
- * failure too (`afterChunks: 0`), because a consumer branching on the field
- * cannot otherwise tell an untorn response from a path that forgot to say.
- *
- * A count already present is NEVER overwritten — the worker's own
- * `afterChunks` is its authority on a failure it observed, and this is only
- * the fallback for the failures it did not.
- */
-function stampAfterChunks(refusal, chunkCount) {
-  if (!(refusal instanceof Refusal)) return refusal;
-  const detail = refusal.detail ?? {};
-  if (Object.prototype.hasOwnProperty.call(detail, 'afterChunks')) return refusal;
-  refusal.detail = { ...detail, afterChunks: chunkCount };
-  return refusal;
 }
 
 let nextIsolateSeq = 0;
@@ -239,9 +201,6 @@ class Isolate {
         // `threadId` are the same two service-owned facts the `error` arm
         // above and the deadline refusal below carry, and for the same
         // reason: neither originates in the render module.
-        //
-        // `_failPendingRender` stamps `afterChunks` on top, so a torn exit
-        // keeps its discriminator.
         this._failPendingRender(
           new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {
             isolate: this.seq,
@@ -253,11 +212,9 @@ class Isolate {
   }
 
   /**
-   * Render one request. `onChunk(frame)` is called as each body chunk
-   * arrives — never buffered here, because a layer that buffers is a layer
-   * that has to be rewritten when a streaming module lands.
-   *
-   * Resolves with the terminal facts; rejects with a `Refusal` — with one
+   * Render one request. Resolves with `{ html, renderMs, buildId }` — the
+   * body markup the module returned and the facts this side owns about it;
+   * rejects with a `Refusal` — with one
    * deliberate exception, named because a docstring that quietly overstates
    * its contract is worse than one that admits the edge. A `postMessage`
    * that throws rejects with the RAW fault: that is a fault in the sidecar
@@ -267,7 +224,7 @@ class Isolate {
    * `Refusal` here would satisfy the sentence above and leave the operator
    * with no copy of the failure at all.
    */
-  render(request, { timeoutMs, onChunk }) {
+  render(request, { timeoutMs }) {
     if (this.dead) {
       return Promise.reject(new Refusal(CODE.ISOLATE_LOST, 'this isolate is dead', {}));
     }
@@ -313,20 +270,12 @@ class Isolate {
         // to stop.
         const isolateSeq = this.seq;
         const threadId = this.threadId;
-        this._settlePendingRender(renderId, (pendingRender) =>
+        this._settlePendingRender(renderId, () =>
           reject(
             new Refusal(
               CODE.RENDER_TIMEOUT,
               `render exceeded its ${timeoutMs} ms deadline; the isolate was terminated`,
-              {
-                timeoutMs,
-                isolate: isolateSeq,
-                threadId,
-                entry: request.entry,
-                // A deadline can land after chunks have already gone out;
-                // the count is the transport's discriminator.
-                afterChunks: pendingRender.chunkCount,
-              },
+              { timeoutMs, isolate: isolateSeq, threadId, entry: request.entry },
             ),
           ),
         );
@@ -334,14 +283,7 @@ class Isolate {
       }, timeoutMs);
       deadlineTimer.unref();
 
-      this.pendingRender = {
-        renderId,
-        deadlineTimer,
-        resolve,
-        reject,
-        onChunk,
-        chunkCount: 0,
-      };
+      this.pendingRender = { renderId, deadlineTimer, resolve, reject };
     });
   }
 
@@ -349,26 +291,16 @@ class Isolate {
     const pendingRender = this.pendingRender;
     if (!pendingRender || message.id !== pendingRender.renderId) return;
 
-    if (message.t === 'chunk') {
-      pendingRender.chunkCount += 1;
-      // Through the protocol's own constructor, and named fields either
-      // way — the worker's message carries `t` and `id` too, and the
-      // public frame is the three fields `chunkFrame` names. It is the
-      // chunk half of the pair `completeFrame` is the terminal half of;
-      // the boundary spelling the shape a second time by hand is a field
-      // list that can drift from the one the contract publishes.
-      pendingRender.onChunk(chunkFrame(message.seq, message.html));
-      return;
-    }
     if (message.t === 'complete') {
-      // Named fields, never a spread of `message`. The worker refuses to put
-      // application data on this message at all (see its header), and
-      // this end declines to carry a field it was not expecting even if
-      // one somehow arrived — two independent readings of the same
-      // property, which is what makes it a boundary rather than a habit.
+      // Named fields, never a spread of `message`. The worker puts nothing
+      // on this message but the module's markup and its own clock (see its
+      // header), and this end declines to carry a field it was not
+      // expecting even if one somehow arrived — two independent readings of
+      // the same property, which is what makes it a boundary rather than a
+      // habit.
       this._settlePendingRender(message.id, () =>
         pendingRender.resolve({
-          chunks: message.chunks,
+          html: message.html,
           renderMs: message.renderMs,
           buildId: this.buildId,
         }),
@@ -387,29 +319,23 @@ class Isolate {
       // it a boundary rather than a habit.
       this._settlePendingRender(message.id, () =>
         pendingRender.reject(
-          new Refusal(isRefusalCode(message.code) ? message.code : CODE.RENDER_THREW, message.message, {
-            ...(message.detail ?? {}),
-            // A caller that already saw chunks has a TORN response. It is
-            // named rather than smoothed over: the transport must not
-            // present a torn response as a complete one.
-            afterChunks: message.afterChunks ?? pendingRender.chunkCount,
-          }),
+          new Refusal(
+            isRefusalCode(message.code) ? message.code : CODE.RENDER_THREW,
+            message.message,
+            message.detail ?? {},
+          ),
         ),
       );
     }
   }
 
-  /**
-   * `settle` is handed the pendingRender it is settling — the record is
-   * cleared before it runs, so a settler that needs the render's own facts
-   * (`chunkCount`) has no other way to reach them.
-   */
+  /** Clear the in-flight record and its deadline, then run `settle`. */
   _settlePendingRender(renderId, settle) {
     const pendingRender = this.pendingRender;
     if (!pendingRender || pendingRender.renderId !== renderId) return;
     clearTimeout(pendingRender.deadlineTimer);
     this.pendingRender = null;
-    settle(pendingRender);
+    settle();
   }
 
   /** Reject whatever is in flight — the isolate died under it. */
@@ -419,10 +345,7 @@ class Isolate {
     if (pendingRender) {
       clearTimeout(pendingRender.deadlineTimer);
       this.pendingRender = null;
-      // The worker is gone, so nothing else knows how many chunks it
-      // forwarded. Stamp before the reject, while the record is still in
-      // hand.
-      pendingRender.reject(stampAfterChunks(refusal, pendingRender.chunkCount));
+      pendingRender.reject(refusal);
     }
   }
 
@@ -442,15 +365,7 @@ class Isolate {
       clearTimeout(this.pendingRender.deadlineTimer);
       const pendingRender = this.pendingRender;
       this.pendingRender = null;
-      pendingRender.reject(
-        // The third terminal path that clears `pendingRender`. A shutdown
-        // under a streaming render tears it exactly as a deadline does, so
-        // it names the count on the same footing.
-        stampAfterChunks(
-          new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}),
-          pendingRender.chunkCount,
-        ),
-      );
+      pendingRender.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}));
     }
     if (worker) await worker.terminate().catch(() => {});
   }
