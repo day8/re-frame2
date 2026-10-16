@@ -19,7 +19,7 @@
        :duration-ms <int>     ;; resolved delay
        :epoch       <int>     ;; the machine's :after-epoch when scheduled
        :status      <kw>      ;; :armed | :fired | :stale | :cancelled | :skipped
-       :delay-key   <any>}    ;; the original :after map key (literal/fn)
+       :delay-key   <any>}    ;; the :after key as declared (ms / ISO-8601 / :delays name / fn)
 
   ## Source events (per Spec 005 §Delayed :after transitions)
 
@@ -460,9 +460,9 @@
     - 1.0  = just armed (full ring)
     - 0.5  = halfway through the countdown
     - 0.0  = about to fire / past deadline
-    - nil  = the timer has no resolvable duration (literal delay
-             missing / unresolved sub) — caller renders without a ring
-             progress arc.
+    - nil  = the timer has no resolvable duration (its row carried no
+             `:delay` — a delay fn skipped on the server) — caller
+             renders without a ring progress arc.
 
   Pure fn — JVM-runnable."
   [{:keys [armed-at fires-at duration-ms]} now-ms]
