@@ -705,6 +705,24 @@ jobs:
           }
           Write-Host 'port 8030 is free - run 2 left no listener behind.'
 
+  # The `slow` rows of scripts/jvm-lanes.txt, read once so the matrix below
+  # restates no artefact list.
+  jvm-slow-legs:
+    name: JVM slow/stress legs (scripts/jvm-lanes.txt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      dirs: ${{ steps.rows.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Read the slow rows
+        id: rows
+        run: |
+          dirs="$(bash scripts/jvm-lanes.sh json slow)"
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+          echo "slow/stress legs: $dirs"
+
   jvm-slow-tests:
     # The heavy `^:slow` / `^:stress` JVM tests (the SSR
     # 2000-request teardown load test and the core/machines/routing/flows
@@ -715,22 +733,19 @@ jobs:
     # (`-i :slow -i :stress`) so the coverage kept off the PR critical path
     # is NOT lost. `:test` (PR) + `:slow-test` (here) partition the suite:
     # every test runs exactly once across the two. Local mirror:
-    # `scripts/test-rigorous-local.sh`.
-    name: JVM slow/stress tests (clojure -M:slow-test)
+    # `scripts/test-rigorous-local.sh`. Both read the artefacts from the
+    # `slow` rows of scripts/jvm-lanes.txt.
+    name: JVM ${{ matrix.dir }} (slow-test)
+    needs: jvm-slow-legs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        artefact:
-          - core
-          - machines
-          - routing
-          - flows
-          - ssr
+        dir: ${{ fromJSON(needs.jvm-slow-legs.outputs.dirs) }}
     defaults:
       run:
-        working-directory: implementation/${{ matrix.artefact }}
+        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -750,9 +765,9 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-expensive-slow-${{ matrix.artefact }}-${{ hashFiles('implementation/**/deps.edn') }}
+          key: ${{ runner.os }}-expensive-slow-${{ matrix.dir }}/${{ hashFiles('implementation/**/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-expensive-slow-${{ matrix.artefact }}-
+            ${{ runner.os }}-expensive-slow-${{ matrix.dir }}/
             ${{ runner.os }}-clj-
 
       - name: Run JVM slow/stress tests
@@ -769,7 +784,7 @@ jobs:
         # sweep (`scripts/test-rigorous-local.sh`) still runs full strength.
         # Scoped to `routing`; the other matrix artefacts never read this var.
         env:
-          RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
+          RF2_KSBUR_STRESS_ITERS: ${{ matrix.dir == 'implementation/routing' && '500' || '' }}
         run: clojure -M:slow-test
 
   # THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE OR RUNS ITS TESTS.

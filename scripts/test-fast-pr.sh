@@ -18,10 +18,11 @@ set -euo pipefail
 #              on, and its suite exercises the schema, machine, route and flow
 #              surfaces directly (see implementation/core/deps.edn).  The
 #              artefact suites are selected by matching the changed paths
-#              against the roster in `scripts/test-jvm-implementation.sh` —
-#              the same roster that script runs, read from the file that
-#              defines it, so a new artefact is picked up by construction and
-#              there is no second map here to drift.  Artefacts the diff did
+#              against the implementation/ rows of `scripts/jvm-lanes.txt` —
+#              the same roster `scripts/test-jvm-implementation.sh` runs,
+#              read from the file that defines it, so a new artefact is
+#              picked up by construction and there is no second map here to
+#              drift.  Artefacts the diff did
 #              not touch still do NOT run: the PASS line names them, and
 #              `scripts/test-jvm-implementation.sh` is the whole set;
 #   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
@@ -170,8 +171,9 @@ isolation suites run when cljs_node_test is set.  The documentation gates run wh
 touches documentation content.  The cheap static/drift checks always run.
 
 Within the JVM tier the spine runs implementation/core plus the suite of every
-artefact whose own tree the diff touched, selected against the roster in
-scripts/test-jvm-implementation.sh.  --plan prints that selection.
+artefact whose own tree the diff touched, selected against the
+implementation/ rows of scripts/jvm-lanes.txt.  --plan prints that
+selection.
 
 Flags:
   --all, -a     run the COMPLETE spine regardless of classification
@@ -513,11 +515,11 @@ fi
 # ---------------------------------------------------------------------------
 # WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here.
 #
-# `scripts/test-jvm-implementation.sh` carries the canonical roster of
-# implementation JVM artefacts, and the spine's header points workers at it.
-# Parsing that array is therefore not a second surface map: it is the same
-# roster, from the file that owns it, so an artefact added there is armed here
-# without a second edit.  The alternative — one new classifier key per
+# The implementation/ rows of `scripts/jvm-lanes.txt` are the canonical
+# roster of implementation JVM artefacts, the one
+# `scripts/test-jvm-implementation.sh` runs.  Reading them is therefore not a
+# second surface map: it is the same roster, from the file that owns it, so
+# an artefact added there is armed here without a second edit.  The alternative — one new classifier key per
 # artefact — would have to be kept in step with test.yml's per-artefact jobs
 # by hand, which is exactly the staleness a read roster avoids.
 #
@@ -527,14 +529,7 @@ fi
 # else is armed only by a change under its own tree.
 # ---------------------------------------------------------------------------
 jvm_artefact_roster() {
-  awk '
-    /^artefacts=\(/ { inside = 1; next }
-    inside && /^\)/  { inside = 0 }
-    inside {
-      sub(/#.*/, "")
-      gsub(/[ \t\r]/, "")
-      if (length($0)) print
-    }' "$spine_root/scripts/test-jvm-implementation.sh"
+  bash "$spine_root/scripts/jvm-lanes.sh" dirs implementation
 }
 
 jvm_run_list=""
@@ -559,7 +554,7 @@ while IFS= read -r artefact; do
 done <<< "$(jvm_artefact_roster)"
 
 if [ -z "$jvm_run_list" ]; then
-  printf 'error: no JVM artefact roster found in scripts/test-jvm-implementation.sh\n' >&2
+  printf 'error: no implementation/ JVM rows found in scripts/jvm-lanes.txt\n' >&2
   exit 2
 fi
 
@@ -1037,7 +1032,7 @@ run "test-lane bijection" "python scripts/check_test_lane_bijection.py" \
 #
 # Every one of those is a hand-rolled line reader, and over a file PyYAML
 # refuses they all come back GREEN: with an unmatched quote planted on line 1
-# of test.yml, `check_jvm_lane_rosters`, `check_fast_pr_gap`,
+# of test.yml, `check_jvm_lanes`, `check_fast_pr_gap`,
 # `check_ci_reproduce_commands` and `check_gate_scheduling` each exit 0 over a
 # file `yaml.safe_load` rejects with "while parsing a block mapping".
 # `check_gate_scheduling` cannot see the class at all — it strips comments by
@@ -1087,22 +1082,20 @@ else
   note_skipped "workflow YAML well-formedness — PyYAML unimportable, so no local lane parsed .github/workflows/ this run"
 fi
 
-# JVM roster <-> CI required-job bijection.  The gate above READS the two JVM
-# rosters to discover the JVM lanes, so an artefact missing from a roster is
-# not a violation to it — it is simply not a lane.  That blind spot would let
-# an artefact sit on the local roster with no CI job at all, or have a CI job
-# and no local lane.  This gate asserts the two agree in BOTH directions:
-# every rostered artefact is run by a job in `all-required-passed`'s `needs:`,
-# and every required job running `clojure -M:test` is on a roster.  Self-test
-# first, then the live scan.
-run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.py --self-test" \
-  python "$spine_root/scripts/check_jvm_lane_rosters.py" --self-test
+# JVM lanes against ground truth.  The gate above READS scripts/jvm-lanes.txt
+# to discover the JVM lanes, so an artefact with no row is not a violation to
+# it — it is simply not a lane.  This gate holds the rows against what they
+# describe: every deps.edn `:test` alias has a row, every row agrees with its
+# deps.edn, and every row is run by a required test.yml job gated on its
+# predicate.  Self-test first, then the live scan.
+run "JVM lanes self-test" "python scripts/check_jvm_lanes.py --self-test" \
+  python "$spine_root/scripts/check_jvm_lanes.py" --self-test
 
-run "JVM roster <-> CI bijection" "python scripts/check_jvm_lane_rosters.py" \
-  python "$spine_root/scripts/check_jvm_lane_rosters.py"
+run "JVM lanes vs deps.edn and test.yml" "python scripts/check_jvm_lanes.py" \
+  python "$spine_root/scripts/check_jvm_lanes.py"
 
-# Fast-PR gap map.  The two gates above assert that a JVM lane exists in both
-# places; they say nothing about the required checks that have no local lane at
+# Fast-PR gap map.  The gates above assert that every JVM lane is a row and a
+# required CI job; they say nothing about the required checks that have no local lane at
 # all, so a green spine can ship into any of those going red.  The nastiest is
 # not a job this spine skips but a STEP INSIDE a job it runs: a `git grep`
 # boundary step that runs last in a JVM job reports under that job's display
@@ -1653,14 +1646,9 @@ elif [ "$run_node" = true ]; then
   # the real clj-kondo at the version lint.yml pins, with the export as its
   # --config-dir, so what passes here is what a consumer gets.
   #
-  # THIS IS THE ONLY LANE IT HAS.  A `deftest` witness would run in no lane at
-  # all: a JVM lane exists only through the artefact rosters
-  # (`check_test_lane_bijection.py`) and a roster entry is only legal with a
-  # matching `test.yml` job (`check_jvm_lane_rosters.py`), which is hot-zone.
-  # So the export is gated in CI by lint.yml's required `clj-kondo` job (the
-  # repo's `:config-paths` points at it), and the FIXTURES are gated here.
-  # Pairing a `jvm-fresco` job with a roster entry would let the witness
-  # follow; until then, this line is what makes it run.
+  # The export itself is gated in CI by lint.yml's required `clj-kondo` job
+  # (the repo's `:config-paths` points at it), and lint.yml runs this smoke
+  # too; this line is its local lane.
   run "fresco lint export gate" "cd implementation && npm run test:fresco-lint" \
     bash -lc "cd '$spine_root/implementation' && npm run test:fresco-lint"
 

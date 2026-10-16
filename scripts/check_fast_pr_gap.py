@@ -85,7 +85,7 @@ MODES.
 Stdlib only, on purpose: CI's `verify-skill-mcp-drift` job installs no pip
 packages, so a PyYAML dependency would have to be added to a job that has
 deliberately stayed dependency-free.  The line-based parser below is the same
-shape `check_ci_reproduce_commands.py` and `check_jvm_lane_rosters.py` use.
+shape `check_ci_reproduce_commands.py` and `check_jvm_lanes.py` use.
 """
 
 from __future__ import annotations
@@ -96,10 +96,13 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from jvm_lanes import ROWS_FILE, matrix_legs, read_rows  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SPINE = "scripts/test-fast-pr.sh"
-IMPL_ROSTER = "scripts/test-jvm-implementation.sh"
 
 # workflow file -> (aggregator job id, the required-status-context display name)
 AGGREGATORS = {
@@ -226,10 +229,10 @@ def misclassified_setup(step: "Step") -> list[str]:
 #
 # `command` matches the step's NORMALISED body (continuations joined, multiple
 # command lines joined with " ; ", whitespace collapsed).  `working_dir` may be
-# the sentinel "@impl-roster", meaning "the job's working-directory is an
-# artefact on scripts/test-jvm-implementation.sh" -- that one rule covers every
-# per-artefact JVM job without naming any of them, so a non-suite step in such a
-# job falls out of the derivation as unrun rather than having to be remembered,
+# the sentinel "@impl-roster", meaning "the step's working-directory is an
+# implementation/ row of scripts/jvm-lanes.txt" -- that one rule covers every
+# JVM leg the spine runs without naming any of them, so a non-suite step there
+# falls out of the derivation as unrun rather than having to be remembered,
 # and adding or removing an artefact needs no edit here: the roster is READ,
 # never counted here.
 # ---------------------------------------------------------------------------
@@ -606,19 +609,30 @@ def parse_workflow(text: str, workflow: str) -> dict[str, Job]:
     return jobs
 
 
-def parse_impl_roster(text: str) -> set[str]:
-    """Artefact paths from the `artefacts=( ... )` bash array."""
-    out: set[str] = set()
-    inside = False
-    for line in text.splitlines():
-        if not inside:
-            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\(\s*$", line):
-                inside = True
+# A step that interpolates `${{ matrix.leg.* }}` belongs to test.yml's `jvm`
+# matrix job, whose legs are the `matrix` rows of scripts/jvm-lanes.txt. The
+# job is expanded into one step per leg, as if every row fired, so each leg is
+# a check in the map: the spine's JVM tier covers the `test` legs of the
+# implementation/ rows, and every other leg is reported unrun by name.
+_MATRIX_LEG_RE = re.compile(r"\$\{\{\s*matrix\.leg\.(dir|alias)\s*\}\}")
+
+
+def expand_matrix_legs(jobs: dict[str, "Job"], legs) -> None:
+    """Replace each matrix-leg step with one concrete step per (dir, alias)."""
+    for job in jobs.values():
+        if not any(s.run and _MATRIX_LEG_RE.search(s.run) for s in job.steps):
             continue
-        if line.strip() == ")":
-            break
-        out.update(line.split("#", 1)[0].split())
-    return out
+        expanded: list[Step] = []
+        for step in job.steps:
+            if not (step.run and _MATRIX_LEG_RE.search(step.run)):
+                expanded.append(step)
+                continue
+            for directory, alias in legs:
+                run = _MATRIX_LEG_RE.sub(
+                    lambda m: directory if m.group(1) == "dir" else alias, step.run)
+                expanded.append(Step(f"JVM {directory} ({alias})", run, None, directory))
+        job.steps = expanded
+        job.name = f"{job.job_id} (one leg per matrix row of {ROWS_FILE})"
 
 
 def parse_spine_checkers(text: str) -> set[tuple[str, str]]:
@@ -929,7 +943,9 @@ def load(root: Path) -> GapMap:
         if not f.exists():
             raise SystemExit(f"FAIL: {path} not found (run from the repo root)")
         workflows[path] = parse_workflow(f.read_text(encoding="utf-8"), path)
-    roster = parse_impl_roster((root / IMPL_ROSTER).read_text(encoding="utf-8"))
+    rows = read_rows(root)
+    expand_matrix_legs(workflows[".github/workflows/test.yml"], matrix_legs(rows))
+    roster = {row.dir for row in rows if row.roster == "implementation"}
     checkers = parse_spine_checkers((root / SPINE).read_text(encoding="utf-8"))
     gap = GapMap(workflows, roster, checkers)
     # `_repro` names the owning workflow when it truncates a long body.
@@ -1010,6 +1026,26 @@ jobs:
 """
 
 
+_MATRIX_FIXTURE = """\
+jobs:
+  jvm:
+    defaults:
+      run:
+        working-directory: ${{ matrix.leg.dir }}
+    steps:
+      - name: Set up Clojure CLI
+        run: $GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh
+      - name: clojure -M:${{ matrix.leg.alias }}
+        run: clojure -M:${{ matrix.leg.alias }}
+
+  all-required-passed:
+    needs:
+      - jvm
+    steps:
+      - run: echo ok
+"""
+
+
 def run_self_tests(verbose: bool) -> int:
     failures = 0
 
@@ -1054,6 +1090,20 @@ def run_self_tests(verbose: bool) -> int:
           ["browser-only"])),
     ):
         check(name, classify(roster, checkers) == want)
+
+    # The matrix job expands into one step per leg, and only the roster's
+    # `test` legs are the spine's.
+    matrix_jobs = parse_workflow(_MATRIX_FIXTURE, "fixture.yml")
+    expand_matrix_legs(matrix_jobs, [("implementation/thing", "test"),
+                                     ("implementation/thing", "test:prod-gate"),
+                                     ("tools/other", "test")])
+    matrix_gap = GapMap({".github/workflows/test.yml": matrix_jobs},
+                        {"implementation/thing"}, set())
+    check(
+        "a matrix job is one step per leg, and only the roster's `test` legs are covered",
+        {j.job_id: [s.name for s in u] for j, u in matrix_gap.partial}
+        == {"jvm": ["JVM implementation/thing (test:prod-gate)", "JVM tools/other (test)"]},
+    )
 
     broken = GapMap(
         {".github/workflows/test.yml": parse_workflow(
