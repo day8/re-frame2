@@ -611,6 +611,22 @@
       (rf.interceptor-registry/check-chain! interceptors)))
   nil)
 
+(defn- validate-frame-flows!
+  "Run the activation checks over the frame's `:flows` against `generation`,
+  the sealed generation the frame will run, or a [[live-view]] of the
+  registration store when it is nil (Spec 013 §Activation): an id the view
+  does not resolve, an id more than one namespace registers, an output
+  overlap or a dependency cycle fails here, before any record exists. A
+  malformed `:flows`, or a non-empty one without the flows artefact, is the
+  frame engine's preflight to refuse."
+  [frame-id ids generation]
+  (when (and (vector? ids) (seq ids) (every? keyword? ids))
+    (when-let [check! (rf.late-bind/get-fn :flows/check-activation!)]
+      (binding [rf.registrar/*generation* generation
+                rf.registrar/*live-view*  (when (nil? generation) (live-view))]
+        (check! frame-id ids))))
+  nil)
+
 ;; ===========================================================================
 ;; Duplicate-id policy (EP-0024 §Duplicate id policy — idempotent replacement)
 ;; ===========================================================================
@@ -1127,6 +1143,10 @@
          ;; a live view when it is nil, here, before any record exists, so a typo
          ;; fails at the call that made it rather than at the first dispatch.
          _           (validate-frame-interceptors! (:interceptors opts) generation)
+         ;; Its `:flows` resolve the same way, and the activation checks run
+         ;; over the resolved set.
+         _           (validate-frame-flows! (if (some? id) id runnable-id)
+                                            (:flows opts) generation)
          ;; Everything outside the image-selection/value keys is record-config
          ;; passed verbatim to the engine (`upsert-frame!`) — `:initial-events` /
          ;; `:fx-overrides` /

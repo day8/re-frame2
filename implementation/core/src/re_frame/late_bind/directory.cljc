@@ -252,41 +252,33 @@
     :description "Validate a make-frame config's frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; a :sensitive or :large frame key also fails loud here (EP-0025: HTTP carriers live on :rf.http/managed, app-db classification in commit-plane effects). Pure, installs nothing — called EARLY by the frame engine (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). There is no :frame-classification/http-carriers resolver hook — HTTP carrier classification lives on the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
-   ;; Both the public `rf/reg-flow` / `(rf/clear :flow id)` surfaces AND the
-   ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs route through
-   ;; the same two hooks. The api-shape `(arg opts)` carries the `:frame`
-   ;; opt the fx-side path needs, so no separate `*-fx!` hook pair is
-   ;; required.
    {:key         :flows/reg-flow
     :producer-ns 're-frame.flows
-    :description "Register a flow definition with the runtime (public-API + :rf.fx/reg-flow)."}
+    :description "Register a flow definition under the registrar's `:flow` kind — the public `rf/reg-flow`."}
    {:key         :flows/clear-flow
     :producer-ns 're-frame.flows
-    :description "Remove a previously-registered flow definition (public-API + :rf.fx/clear-flow)."}
+    :description "Remove a flow definition from the registrar and emit `:rf.flow/cleared` — the `:flow` arm of `(rf/clear :flow id)`."}
+   {:key         :flows/check-activation!
+    :producer-ns 're-frame.flows
+    :description "`(fn [frame-id ids])` — the activation checks `make-frame` runs over a frame's `:flows` before any frame state is written, under the registration view the frame will resolve through (its sealed generation, or a live view of the store): every id resolves (else `:rf.error/unregistered-flow`; an id more than one namespace registers raises `:rf.error/ambiguous-registration`), no two resolved flows' output paths overlap (`:rf.error/flow-path-overlap`), and the set has no dependency cycle (`:rf.error/flow-cycle`). Spec 013 §Activation."}
    {:key         :flows/run-flows-on-db
     :producer-ns 're-frame.flows
-    :description "Run the frame's flows over the pending frame-state, returning the flow-augmented APP-DB. The router calls the three-argument form inside the dequeued event, whose owner token the flows artefact reads from the event's binding; the four-argument `[frame db runtime-db {:exact-owner-token token}]` form names the token explicitly. Bare `:inputs` resolve against app-db; `[:rf.db/runtime …]` inputs resolve against runtime-db (any flow may read runtime-db; only writes are reserved). Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
+    :description "`(fn [frame-id db runtime-db])` — evaluate the flows the frame's `:flows` config names over the pending frame-state, returning the flow-augmented APP-DB. Bare `:inputs` resolve against app-db; `[:rf.db/runtime …]` inputs resolve against runtime-db (any flow may read runtime-db; only writes are reserved). Invoked by the router's outermost flows-after-interceptor, inside the event's own registration view, to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
    {:key         :flows/snapshot-last-inputs
     :producer-ns 're-frame.flows
-    :description "Snapshot a frame's dirty-check (`last-inputs`) rows as a plain `{flow-id row}` map, each row the flow's whole dirty-check record; the router treats the snapshot as opaque. The router's flows-after-interceptor captures this BEFORE the flow transform advances the rows so an event that does not commit (a pre-commit schema/machine-data rejection among them) can roll the dirty-check bookkeeping back in lock-step with the discarded pending `:db` (paired with `:flows/restore-last-inputs!`)."}
+    :description "`(fn [frame-id])` — snapshot a frame's evaluation memo as a plain `{flow-id row}` map, each row the flow's whole memo record; the router treats the snapshot as opaque. The router's flows-after-interceptor captures this BEFORE the flow transform advances the memo so an event that does not commit (a pre-commit schema/machine-data rejection among them) can roll it back in lock-step with the discarded pending `:db` (paired with `:flows/restore-last-inputs!`)."}
    {:key         :flows/restore-last-inputs!
     :producer-ns 're-frame.flows
-    :description "Restore a frame's dirty-check (`last-inputs`) rows to a previously-captured snapshot. Invoked by the router's `restore-flow-snapshots!` when an event does not commit (a pre-commit schema/machine-data rejection among them) — without it the eagerly-advanced rows survive the discarded `:db` and the next clean drain skips the flow on `=`-equal inputs, never re-materialising the output. Also invoked with an empty snapshot by `re-frame.epoch.tool-pair/reset-flows-dirty-check!` after a restore or replace install, so the next drain evaluates every flow against the installed state. Frame-scoped."}
-   {:key         :flows/snapshot-abandoned-paths
-    :producer-ns 're-frame.flows
-    :description "Snapshot a frame's pending abandoned output paths (recorded by an in-drain same-frame `reg-flow` `:output-path` move). The router's flows-after-interceptor captures this BEFORE the flow transform drains/clears them so an event that does not commit (a pre-commit schema/machine-data rejection among them) can re-record them in lock-step with the discarded pending `:db` (paired with `:flows/restore-abandoned-paths!`). Frame-scoped."}
-   {:key         :flows/restore-abandoned-paths!
-    :producer-ns 're-frame.flows
-    :description "Re-record a frame's pending abandoned output paths from a previously-captured snapshot. Invoked by the router's `restore-flow-snapshots!` when an event does not commit (a pre-commit schema/machine-data rejection among them) — the pending `:db` that carried the vacated state is discarded, so a drained-but-not-durably-vacated `:output-path` move must re-attempt next drain rather than be silently lost. Frame-scoped."}
+    :description "`(fn [frame-id prior])` — replace a frame's evaluation memo with a previously-captured snapshot. Invoked by the router's `restore-flow-snapshots!` when an event does not commit (a pre-commit schema/machine-data rejection among them) — the memo the pass advanced, and the output-path vacations its rows still record, then re-attempt on the next event. Also invoked with an empty snapshot by `re-frame.epoch.tool-pair/reset-flows-dirty-check!` after a restore or replace install, so the next event evaluates every flow against the installed state. Frame-scoped."}
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
-    :description "Clear the per-frame flow registry (test isolation)."}
+    :description "Drop every frame's flow evaluation memo (test isolation). Flow definitions are registrar rows, which the reset fixture snapshots and restores."}
    {:key         :flows/teardown-on-frame-destroy!
     :producer-ns 're-frame.flows
-    :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and its pending abandoned-output-path (vacation) state. No `:flow` registrar entry is pruned — that registrar kind is RESERVED-but-empty and `reg-flow` writes only to the flows artefact's per-frame store. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
+    :description "Drop the destroyed frame's flow evaluation memo. Definitions live in the registrar and the frame's elision registry dies with its frame-state container, so nothing else is frame-owned. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook — without it a long-running SSR JVM with per-request frame churn grows the memo table unboundedly."}
    {:key         :flows/frame-has-flows?
     :producer-ns 're-frame.flows
-    :description "`(fn [frame-id])` — true when the frame holds at least one registered flow. Read by the `:fx` walk's terminal branch only after the walk changed the frame's state container, so a writing walk on a flow-free frame (or in an app without the flows artefact, where the hook is unbound) enqueues no `[:rf/settle-flows]` (Spec 013 §Sequencing)."}
+    :description "`(fn [frame-id])` — true when the frame's `:flows` config names at least one flow. Read by the `:fx` walk's terminal branch only after the walk changed the frame's state container, so a writing walk on a frame running no flows (or in an app without the flows artefact, where the hook is unbound) enqueues no `[:rf/settle-flows]` (Spec 013 §Sequencing)."}
 
    ;; ---- re-frame.schemas -----------------------------------------------------
    {:key         :schemas/validate-event!

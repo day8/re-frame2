@@ -3003,6 +3003,38 @@
              "them, e.g. [:shop/auth :shop/telemetry] — got " (pr-str ids) ".")
         {:extra {:http-interceptors ids}}))))
 
+(defn- validate-flows!
+  "PREFLIGHT guard for the `:flows` frame-config key (Spec 013 §Activation):
+  when present and non-nil it is a vector of keyword ids naming `reg-flow`
+  definitions. A non-empty vector needs the flows artefact, which evaluates
+  the flows each event; storing ids nothing will run is refused here, before
+  any frame state is written. `make-frame` has already resolved the ids
+  through the frame's own view and run the activation checks by the time this
+  runs. `where-sym` is the constructor symbol for the diagnostic."
+  [config where-sym]
+  (let [ids (:flows config)]
+    (cond
+      (not (or (nil? ids) (and (vector? ids) (every? keyword? ids))))
+      (rf.error/throw-error!
+        :rf.error/unregistered-flow
+        where-sym
+        (str ":flows must be a vector of keyword ids naming reg-flow "
+             "definitions, e.g. [:cart/subtotal :cart/total] — got "
+             (pr-str ids) ".")
+        {:recovery :fix-registration
+         :extra    {:flows ids}})
+
+      (and (seq ids) (nil? (rf.late-bind/get-fn :flows/run-flows-on-db)))
+      (rf.error/throw-error!
+        :rf.error/flows-artefact-missing
+        where-sym
+        (let [{maven      :maven
+               require-ns :require} (:flows rf.features/feature-registry)]
+          (str "this frame config names :flows, which requires " maven
+               " on the classpath; add it to deps and require " require-ns
+               " at app boot, BEFORE the frame is constructed."))
+        {:extra {:flows ids}}))))
+
 (def ^:private frame-registered-hook-keys
   "The ORDERED roster of optional-artefact POST-(RE-)REGISTRATION hook keys
   `fire-frame-registered-hook!` consults, in the order it consults them. A
@@ -3290,6 +3322,7 @@
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/make-frame)
         _              (validate-http-interceptors! config 'rf/make-frame)
+        _              (validate-flows! config 'rf/make-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
         ;; EP-0015 §9: validate the frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,
