@@ -4,12 +4,11 @@ Use resources to load server data, cache it and read it from views. You register
 
 Use a resource when the same server data is read from more than one place, or needs caching, deduplication, staleness or a refetch after a write; use a mutation for a write that changes such data. A request whose reply one event handles, such as a login or a one-off load you keep in your own `app-db`, needs neither: issue [`:rf.http/managed`](re-frame.http.md) directly.
 
-Resources ship in the optional `day8/re-frame2-resources` artefact and use managed HTTP (`day8/re-frame2-http`) as their transport, so require both `re-frame.resources` and `re-frame.http.managed` once at boot; without the resources artefact, `rf/reg-resource` and the other resource functions throw `:rf.error/resources-artefact-missing`, and without `re-frame.http.managed` the first load or write throws `:rf.error/http-artefact-missing`.
+Resources ship in the optional `day8/re-frame2-resources` artefact, which brings their transport, managed HTTP (`day8/re-frame2-http`), with it: require `re-frame.resources` once at boot, and loading it registers the `:rf.http/managed` transport too. Without the resources artefact, `rf/reg-resource` and the other resource functions throw `:rf.error/resources-artefact-missing`.
 
 ```clojure
 (:require [re-frame.core :as rf]
-          [re-frame.http.managed]   ;; registers the :rf.http/managed transport
-          [re-frame.resources :as rf.resources])  ;; registers the resource events, subs and runtime
+          [re-frame.resources :as rf.resources])  ;; registers the resource events, subs, runtime and transport
 ```
 
 ```clojure
@@ -318,7 +317,7 @@ Resource events take a single map payload. The events that name a `:resource` va
 - Params that fail `:params-schema` raise `:rf.error/resource-invalid-params`.
 - Scope resolution fails closed: a `{:from-db …}` reference that resolves to `nil` raises `:rf.error/resource-scope-unresolved-reference`, and one naming no registered resolver raises `:rf.error/resource-scope-not-registered` (see [Scope policy](#scope-policy)).
 - Params and scope must be portable EDN: a fractional number, ratio, NaN, fn or other host object raises `:rf.error/resource-non-edn-params`. A misspelt `:rf.scope/*` keyword, the wrapped `[:rf.scope/global]` (write `:rf.scope/global`), or a `{:from-db …}` map where a concrete scope is required raises `:rf.error/resource-invalid-scope`.
-- When the request is built, a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to` raises `:rf.error/resource-reserved-request-key`, a `:transport` other than `:rf.http/managed` raises `:rf.error/resource-unknown-transport`, and a missing `re-frame.http.managed` raises `:rf.error/http-artefact-missing`. Nothing is written to the cache.
+- When the request is built, a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to` raises `:rf.error/resource-reserved-request-key`, and a `:transport` other than `:rf.http/managed` raises `:rf.error/resource-unknown-transport`. Nothing is written to the cache.
 
 ### `[:rf.resource/ensure {…}]`
 
@@ -552,7 +551,7 @@ The cell below prints the whole view-model for two keys, before and after an `en
     - On success the runtime patches, populates and removes resource entries, then invalidates tags, at the time `:invalidate-timing` sets.
     - `:reply-to` is an optional data-only event vector. When the write settles, the reply is appended to it and dispatched once, after the cache changes and the instance row have been written. It is the managed-HTTP [reply map](re-frame.http.md#reply-shape) (`:status` `:ok`, `:error` or `:cancelled`) plus `:mutation`, `:params`, `:instance`, `:scope`, `:affected-keys` and `:cause` (`[:mutation <mutation-id> <instance>]`, not the payload's `:cause`).
     - `:optimistic? false` runs a registered optimistic plan pessimistically for this call.
-    - Before anything is written or sent: an unregistered `:mutation` raises `:rf.error/mutation-not-registered`. Params that fail `:params-schema` raise `:rf.error/mutation-invalid-params`, and params that are not portable EDN (a fractional number, a fn) raise `:rf.error/resource-non-edn-params`. An `:instance` that is not portable EDN raises `:rf.error/mutation-non-serializable-instance-id`. A misspelt `:rf.scope/*` scope raises `:rf.error/resource-invalid-scope`, and a `{:from-db …}` naming no registered resolver raises `:rf.error/resource-scope-not-registered`. A malformed `:reply-to` raises `:rf.error/reply-invalid-target` or `:rf.error/reply-non-data-target`. Building the request raises `:rf.error/resource-reserved-request-key`, `:rf.error/resource-unknown-transport` or `:rf.error/http-artefact-missing`, as for a resource load.
+    - Before anything is written or sent: an unregistered `:mutation` raises `:rf.error/mutation-not-registered`. Params that fail `:params-schema` raise `:rf.error/mutation-invalid-params`, and params that are not portable EDN (a fractional number, a fn) raise `:rf.error/resource-non-edn-params`. An `:instance` that is not portable EDN raises `:rf.error/mutation-non-serializable-instance-id`. A misspelt `:rf.scope/*` scope raises `:rf.error/resource-invalid-scope`, and a `{:from-db …}` naming no registered resolver raises `:rf.error/resource-scope-not-registered`. A malformed `:reply-to` raises `:rf.error/reply-invalid-target` or `:rf.error/reply-non-data-target`. Building the request raises `:rf.error/resource-reserved-request-key` or `:rf.error/resource-unknown-transport`, as for a resource load.
     - A superseded reply (after a re-execute under the same instance, or an `:rf.mutation/clear`) never overwrites the newer state; work id and generation suppress it.
     - See [Fire the write, watch the instance](../resources/how-to/invalidate-after-a-mutation.md#3-fire-the-write-watch-the-instance).
 - **Example**:
@@ -756,7 +755,6 @@ Cache entries (durable facts) and work-ledger attempts (in-flight records) are k
     - `:rf.error/reply-non-data-target` — a `:reply-to` carrying a fn or other host object.
     - `:rf.error/resource-reserved-request-key` — a request fn that returns `:request-id`, `:on-success`, `:on-failure` or `:reply-to`.
     - `:rf.error/resource-unknown-transport` — a `:transport` other than `:rf.http/managed`.
-    - `:rf.error/http-artefact-missing` — a load or write without `re-frame.http.managed`.
     - `:rf.error/infinite-missing-page-accessor` — a feed whose pages are not vectors and that has no `:page->items`, when `:rf.resource/items`, `:rf.resource/infinite-state` or an `ensure`'s `:reply-to` needs its items.
     - `:rf.error/resource-route-plan` — a route's resource plan failed, for example on a scope it cannot resolve; read on `:rf.route/error`.
     - `:rf.error/resource-route-blocking` — a blocking route resource's first load failed; read on `:rf.route/error`.

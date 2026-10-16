@@ -12,7 +12,7 @@ Two tiers ship from this repo and they move on separate triggers. The **framewor
 
 The release pipeline reflects a small set of decisions Mike made up front. They are recorded here so future contributors don't have to re-derive them from the workflow.
 
-1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships a coordinated set — and are documented in [§Topological deploy DAG](#topological-deploy-dag). The authoritative artefact roster is the [`release` workflow](../.github/workflows/release.yml)'s leaf declarations — the `deploy-leaf` matrix plus the two post-matrix stages it deliberately excludes, `deploy-ssr-ring` and `deploy-fresco` ([§The inter-leaf edges](#the-inter-leaf-edges)); the enumerations below mirror them.
+1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships a coordinated set — and are documented in [§Topological deploy DAG](#topological-deploy-dag). The authoritative artefact roster is the [`release` workflow](../.github/workflows/release.yml)'s leaf declarations — the `deploy-leaf` matrix plus the three post-matrix stages it deliberately excludes, `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` ([§The inter-leaf edges](#the-inter-leaf-edges)); the enumerations below mirror them.
 2. **Channel gating — pre-1.0 = alpha/beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.alpha` (and `v0.0.1.alpha-N` / `v0.0.2.alpha` etc. for subsequent alphas; the same pattern with `.beta` once we promote). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
 3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full artefact set** — core plus every leaf: `schemas`, `reagent`, `reagent-slim`, `uix`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`, `resources`, `epoch`, `fresco`; no artefact "comes later" — they all ship together at every release per the lockstep contract below. The compiled-view substrate `re-frame.ui` is **not** in that set and never will be: Mike ruled on 2026-07-22 that `day8/re-frame2-ui` is not to be published (rf2-a32r7), and on 2026-08-14 that both it and `re-frame.freehand` are retired and removed from the tree (rf2-0yp7w).
 4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
@@ -42,7 +42,7 @@ There is no `workflow_dispatch` trigger by design: a release commit always carri
 
 ## Topological deploy DAG
 
-Per the lockstep-versioning policy (every artefact ships at the same version each release), the DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame2` (core) — with two exceptions, `ssr-ring` and `fresco`, each of which also declares `day8/re-frame2-ssr`. Cross-feature references at runtime are otherwise wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule). Those two exceptions are real edges in the published graph, so the CI graph carries them as real edges too: see [§The inter-leaf edges](#the-inter-leaf-edges) below.
+Per the lockstep-versioning policy (every artefact ships at the same version each release), the DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame2` (core) — with three exceptions: `ssr-ring` and `fresco` each also declare `day8/re-frame2-ssr`, and `resources` declares `day8/re-frame2-http`, its one read transport. Cross-feature references at runtime are otherwise wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule). Those three exceptions are real edges in the published graph, so the CI graph carries them as real edges too: see [§The inter-leaf edges](#the-inter-leaf-edges) below.
 
 ```mermaid
 graph TD
@@ -50,42 +50,46 @@ graph TD
   T --> C[deploy-core]
   C --> S[deploy-schemas]
   C --> R[deploy-reagent]
-  C --> RS[deploy-reagent-slim]
   C --> U[deploy-uix]
   C --> M[deploy-machines]
   C --> RT[deploy-routing]
   C --> F[deploy-flows]
   C --> H[deploy-http]
   C --> SS[deploy-ssr]
-  C --> RES[deploy-resources]
   C --> E[deploy-epoch]
   S --> SR[deploy-ssr-ring]
   R --> SR
-  RS --> SR
   U --> SR
   M --> SR
   RT --> SR
   F --> SR
   H --> SR
   SS --> SR
-  RES --> SR
   E --> SR
   S --> HI[deploy-fresco]
   R --> HI
-  RS --> HI
   U --> HI
   M --> HI
   RT --> HI
   F --> HI
   H --> HI
   SS --> HI
-  RES --> HI
   E --> HI
+  S --> RES[deploy-resources]
+  R --> RES
+  U --> RES
+  M --> RES
+  RT --> RES
+  F --> RES
+  H --> RES
+  SS --> RES
+  E --> RES
   SR --> GR[github-release]
   HI --> GR
+  RES --> GR
 ```
 
-The diagram shows the ordering constraints in reduced form. `github-release` actually lists `deploy-core`, `deploy-leaf`, `deploy-ssr-ring` and `deploy-fresco` in its `needs:`; the first two are reachable through either post-matrix stage anyway, since each already waits on the whole matrix. The two post-matrix stages are siblings rather than a chain — neither artefact appears in the other's published pom, so they run in parallel.
+The diagram shows the ordering constraints in reduced form. `github-release` actually lists `deploy-core`, `deploy-leaf`, `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` in its `needs:`; the first two are reachable through any post-matrix stage anyway, since each already waits on the whole matrix. The three post-matrix stages are siblings rather than a chain — none of the three artefacts appears in another's published pom, so they run in parallel.
 
 ASCII fallback:
 
@@ -93,42 +97,40 @@ ASCII fallback:
 verify-version-lockstep ──► test ──► deploy-core
                                        │
                                        │   ── deploy-leaf: ONE matrix job,
-                                       │      11 values, all in parallel ──
+                                       │      9 values, all in parallel ──
                                        ├── deploy-schemas
                                        ├── deploy-reagent
-                                       ├── deploy-reagent-slim
                                        ├── deploy-uix
                                        ├── deploy-machines
                                        ├── deploy-routing
                                        ├── deploy-flows
                                        ├── deploy-http
                                        ├── deploy-ssr
-                                       ├── deploy-resources
                                        └── deploy-epoch
                                                 │
-                                    ┌───────────┴───────────┐
-                                    ▼                       ▼
-                             deploy-ssr-ring         deploy-fresco
-                                    └───────────┬───────────┘
+                       ┌────────────────────────┼────────────────────────┐
+                       ▼                        ▼                        ▼
+                deploy-ssr-ring           deploy-fresco          deploy-resources
+                       └────────────────────────┼────────────────────────┘
                                                 ▼
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf but two has core as its only re-frame2 dependency, so the CI graph realises a valid topological sort that exploits the parallelism: the eleven independent leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch), the view layer — the three substrate adapters (reagent, the default; reagent-slim; uix) — and the Fresco view substrate, which is neither. The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml), plus the two leaves that job deliberately excludes, `ssr-ring` and `fresco`.
+**Why fan-out (not strict serial).** A strict topological linearization would suffice; the deps-graph data is wider — every leaf but three has core as its only re-frame2 dependency, so the CI graph realises a valid topological sort that exploits the parallelism: the nine independent leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The leaves group into per-feature artefacts (schemas, machines, routing, flows, http, ssr, ssr-ring, resources, epoch), the view layer — the three substrate adapters (reagent, the default; reagent-slim; uix) — and the Fresco view substrate, which is neither. The authoritative roster is always the `deploy-leaf` matrix in [`release.yml`](../.github/workflows/release.yml), plus the three leaves that job deliberately excludes, `ssr-ring`, `fresco` and `resources`.
 
 **The view layer, as consumers meet it.** The app template (`tools/template/`, `day8/re-frame2-template`) scaffolds against this released view layer through its substrate menu: `:reagent` (the default) and `:uix`. The menu is deliberately narrower than the adapter set — `day8/reagent-slim` is published but has no scaffold of its own, so a slim consumer starts from the Reagent variant and swaps the adapter coordinate. Adding a substrate to the `deploy-leaf` matrix does not automatically add a template variant; the two are decided separately.
 
 ### The inter-leaf edges
 
-`ssr-ring` and `fresco` are the exceptions, and the release DAG treats them as such. Each declares two in-repo coordinates in its published `:deps` — `day8/re-frame2` and `day8/re-frame2-ssr` — and the workflow rewrites both to `:mvn/version`, so each published pom depends on a `day8/re-frame2-ssr` version that has to exist on Clojars. They reach it for different reasons: `implementation/ssr-ring/deps.edn` because the Ring host adapter sits on top of the SSR renderer, `implementation/fresco/deps.edn` because `re-frame.fresco.server` hands its payload to the SSR artefact's own fail-closed validator and egress projection rather than re-spelling those helpers locally. Neither depends on the other, so the two stages are siblings and run in parallel.
+`ssr-ring`, `fresco` and `resources` are the exceptions, and the release DAG treats them as such. Each declares two in-repo coordinates in its published `:deps` and the workflow rewrites both to `:mvn/version`. For `ssr-ring` and `fresco` they are `day8/re-frame2` and `day8/re-frame2-ssr`, so each published pom depends on a `day8/re-frame2-ssr` version that has to exist on Clojars. They reach it for different reasons: `implementation/ssr-ring/deps.edn` because the Ring host adapter sits on top of the SSR renderer, `implementation/fresco/deps.edn` because `re-frame.fresco.server` hands its payload to the SSR artefact's own fail-closed validator and egress projection rather than re-spelling those helpers locally. For `resources` they are `day8/re-frame2` and `day8/re-frame2-http`, because managed HTTP is its one read transport and `re-frame.resources` requires `re-frame.http.managed`, so its pom depends on a `day8/re-frame2-http` version the same way. None of the three depends on another, so the three stages are siblings and run in parallel.
 
-Two facts make those edges load-bearing on CI rather than merely descriptive. The `deploy-leaf` matrix runs `fail-fast: false`, and GitHub Actions cannot express an ordering edge between two values of one matrix — so while `ssr-ring` was a matrix value, a failed `ssr` value did not stop it deploying. And each job installs `ssr` into the runner's local `~/.m2` before packaging, so it never consults Clojars and cannot notice the miss itself. Since Clojars has no yank (see [Recovery](#recovery-from-a-partial-deploy)), the result would have been a permanent public artefact declaring a dependency that resolves to nothing: bump-and-supersede adds a good version but never removes the broken one.
+Two facts make those edges load-bearing on CI rather than merely descriptive. The `deploy-leaf` matrix runs `fail-fast: false`, and GitHub Actions cannot express an ordering edge between two values of one matrix — so while `ssr-ring` was a matrix value, a failed `ssr` value did not stop it deploying. And each job installs its sibling (`ssr` or `http`) into the runner's local `~/.m2` before packaging, so it never consults Clojars and cannot notice the miss itself. Since Clojars has no yank (see [Recovery](#recovery-from-a-partial-deploy)), the result would have been a permanent public artefact declaring a dependency that resolves to nothing: bump-and-supersede adds a good version but never removes the broken one.
 
-So each ships in a stage of its own — `deploy-ssr-ring` and `deploy-fresco` — with `needs: [deploy-core, deploy-leaf]`. A `needs` edge onto a matrix job waits for **every** value to succeed, which is exactly the invariant the DAG needs:
+So each ships in a stage of its own — `deploy-ssr-ring`, `deploy-fresco` and `deploy-resources` — with `needs: [deploy-core, deploy-leaf]`. A `needs` edge onto a matrix job waits for **every** value to succeed, which is exactly the invariant the DAG needs:
 
-> If the `ssr` leaf does not publish successfully, neither `ssr-ring` nor `fresco` publishes at all.
+> If the `ssr` leaf does not publish successfully, neither `ssr-ring` nor `fresco` publishes at all; if the `http` leaf does not, `resources` does not.
 
-Those edges are stronger than the poms require — each also blocks its artefact behind leaves it does not depend on — and deliberately so: under [Recovery](#recovery-from-a-partial-deploy) any leaf failure is resolved by bumping `VERSION` and re-shipping every artefact, so a leaf skipped because a sibling failed was going to be superseded regardless. Blocking costs nothing; publishing an unresolvable coordinate cannot be undone. `implementation/scripts/_release-dag-policy.test.cjs` parses the workflow's job graph on every PR and fails if a leaf carrying a second in-repo coordinate is placed back in the matrix, or if either ordering edge disappears (rf2-p4a93; the `fresco` stage and its own acceptance + teeth cases are rf2-gra70's).
+Those edges are stronger than the poms require — each also blocks its artefact behind leaves it does not depend on — and deliberately so: under [Recovery](#recovery-from-a-partial-deploy) any leaf failure is resolved by bumping `VERSION` and re-shipping every artefact, so a leaf skipped because a sibling failed was going to be superseded regardless. Blocking costs nothing; publishing an unresolvable coordinate cannot be undone. `implementation/scripts/_release-dag-policy.test.cjs` parses the workflow's job graph on every PR and fails if a leaf carrying a second in-repo coordinate is placed back in the matrix, or if any ordering edge disappears (rf2-p4a93; the `fresco` stage and its own acceptance + teeth cases are rf2-gra70's).
 
 ## The tools tier
 

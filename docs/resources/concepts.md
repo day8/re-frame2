@@ -42,10 +42,9 @@ Registration itself sends nothing.
 Without that key, only explicit invalidation makes it stale. Becoming stale
 does not start a request; the next ensure can refresh it.
 
-The optional Resources and HTTP artefacts must both be loaded. Missing
-`re-frame.resources` raises `:rf.error/resources-artefact-missing` at
-registration; missing `re-frame.http.managed` raises
-`:rf.error/http-artefact-missing` when the first request starts.
+The optional Resources artefact must be loaded, and it brings managed HTTP,
+its transport, with it. Missing `re-frame.resources` raises
+`:rf.error/resources-artefact-missing` at registration.
 Params validation also needs the [schemas artefact](../core/how-to/validate-with-schemas.md).
 The [resource reference](../api/re-frame.resources.md#the-resource-spec) lists
 all registration options.
