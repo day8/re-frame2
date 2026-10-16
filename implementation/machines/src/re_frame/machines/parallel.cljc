@@ -269,10 +269,11 @@
   region-spec is ALWAYS in the lowered form the engine drives, regardless of
   whether `parent-machine` was desugared. This is the single choke-point where
   region-specs are born (`region-machine` memoises the result), so the cache
-  holds the desugared form and BOTH the birth paths that call
-  `apply-transition-once` directly (`bootstrap-step`, `apply-root-region-target`
-  — which BYPASS the per-dispatch `machine-transition` desugar seam) and the
-  event path see identically-lowered region bodies. Without this, a
+  holds the desugared form and BOTH the paths that drive a region-spec
+  directly (`bootstrap-step`'s `apply-transition-once`, and the root
+  transition's `root-region-plan` — which BYPASS the per-dispatch
+  `machine-transition` desugar seam) and the event path see
+  identically-lowered region bodies. Without this, a
   region-initial `:timeout` would never arm at birth and a region-initial
   `:type :choice` would stay stuck at its transient node: the region body is
   faulted into the cache during `build-initial-snapshot`'s tag computation,
@@ -1113,8 +1114,10 @@
 ;;      multi-region root default that fires UNLESS any region competes, in
 ;;      which case the untargeted siblings stay UNCHANGED).
 ;;   2. If selected, the root transition atomically updates one OR MORE
-;;      region-qualified targets, leaving UNtargeted regions UNCHANGED, after
-;;      running the root `:action` ONCE against the shared `:data`.
+;;      region-qualified targets, leaving UNtargeted regions UNCHANGED, and
+;;      runs the root `:action` ONCE against the shared `:data` — between the
+;;      targeted regions' exits and their entries, the exit → action → entry
+;;      order every transition follows.
 ;;   3. Target grammar: targetless / action-only; a single region-qualified
 ;;      target `[<region> & <in-region-path>]`; or multiple region-qualified
 ;;      targets `[[<region> …] [<region> …]]` (the XState `target ['.a.x',
@@ -1149,44 +1152,86 @@
     (vector? target)          [target]
     :else                     []))
 
-(defn- apply-root-region-target
-  "Apply ONE region-qualified target `[<region> & <in-region-path>]` to the
-  parallel machine: synthesise a root-relative `:target`-only transition
-  against region `<region>`'s `region-machine` and run it through the
-  single-machine `apply-transition-once`, so the region's exit / entry
-  cascade, `:after` (re)scheduling, declarative `:spawn` / history all fire
-  exactly as a region-local transition to that target would. The transition
-  carries NO `:action` — the root action already ran once at the root level
-  (`rf.machines.transition/run-root-transition-action`); a region target is a pure
-  configuration change. Threads the shared `:data` / `:rf/spawn-counter` /
-  `:rf/history` through `acc` `{:data :rf/spawn-counter :rf/history :state-map
-  :fx}` (the same flow `reduce-regions` uses) and prefixes per-region fx with
-  the region name. Returns the updated `acc`, or a `rf.machines.result/fail` (a region
-  `:entry` / `:exit` action threw)."
-  [parent-machine event acc [region-name & in-region-path]]
+(defn- root-region-snapshot
+  "Region `region-name`'s snapshot inside a root transition's accumulator
+  `acc` (`{:data :rf/spawn-counter :rf/history :rf/spawn-attempts :state-map
+  :fx :cascade}`): the region's own `:state` and the shared `:data` /
+  `:rf/spawn-counter` / `:rf/history` / `:rf/spawn-attempts`, the same flow
+  `reduce-regions` uses."
+  [acc region-name]
+  (cond-> {:state (get-in acc [:state-map region-name])
+           :data  (:data acc)}
+    (some? (:rf/spawn-counter acc))
+    (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+    (some? (:rf/history acc))
+    (assoc :rf/history (:rf/history acc))
+    (some? (:rf/spawn-attempts acc))
+    (assoc :rf/spawn-attempts (:rf/spawn-attempts acc))))
+
+(defn- root-region-plan
+  "One targeted region's share of a root transition: its overlaid region spec,
+  the synthetic transition to the in-region target, and that transition's
+  geometry against the region's pre-transition snapshot. The synthetic
+  transition is root-relative WITHIN the region (`:decl-path []`, so the
+  vector target resolves against the region root exactly like a region-root
+  `:on` target) and carries NO `:action` — the root's action runs once, at the
+  root. Running its cascade and commit as a region-local transition fires the
+  region's exit / entry cascade, `:after` (re)scheduling, declarative `:spawn`
+  and history exactly as a region-local transition to that target would."
+  [parent-machine acc [region-name & in-region-path]]
+  (let [region-spec (region-spec-overlaid parent-machine region-name)
+        transition  {:target (vec in-region-path) :decl-path []}]
+    {:region-name region-name
+     :region-spec region-spec
+     :transition  transition
+     :geometry    (rf.machines.transition/compute-transition-geometry
+                    region-spec (root-region-snapshot acc region-name)
+                    transition :transition)}))
+
+(defn- run-root-steps
+  "Run cascade `steps` under `machine` against `snap`, folding the post-step
+  `:data`, the fx (through `fx-xf`) and the recorded cascade steps into the
+  accumulator `acc`. A throwing action's `rf.machines.result/fail`, stamped
+  with `fail-info` when given, replaces `acc`; a failed `acc` passes through."
+  [acc machine snap event steps fx-xf fail-info]
+  (if (or (rf.machines.result/fail? acc) (empty? steps))
+    acc
+    (let [r (rf.machines.transition/collect-actions machine snap event steps)]
+      (if (rf.machines.result/fail? r)
+        (cond-> r fail-info (rf.machines.result/fail-with fail-info))
+        (rf.machines.result/with-ok [snap' fx] r
+          (-> acc
+              (assoc :data (:data snap'))
+              (update :fx into fx-xf fx)
+              (update :cascade into (rf.machines.result/cascade r))))))))
+
+(defn- run-root-region-steps
+  "Run one targeted region's `kind` (`:exit` / `:entry`) cascade steps from
+  its plan, prefixing the region's fx with the region name."
+  [event kind acc {:keys [region-name region-spec transition geometry]}]
+  (run-root-steps acc region-spec (root-region-snapshot acc region-name) event
+                  (filterv #(= kind (:kind %)) (:cascade-steps geometry))
+                  (map (partial prefix-region-invoke-id region-name))
+                  {:decl-path  (:decl-path geometry)
+                   :transition transition
+                   :state-path (:src-path geometry)}))
+
+(defn- commit-root-region-target
+  "Commit one targeted region once every targeted region has run its exits
+  and entries: write its new `:state`, record its history and emit its
+  machine-emitted fx (`rf.machines.transition/commit-transition`), prefixed
+  with the region name. The region's snapshot in `acc` is still its
+  pre-transition `:state` carrying the post-cascade `:data`, so it serves as
+  both the pre-transition and the post-cascade snapshot."
+  [event acc {:keys [region-name region-spec transition geometry]}]
   (if (rf.machines.result/fail? acc)
     acc
-    (let [region-spec (region-spec-overlaid parent-machine region-name)
-          region-snap (cond-> {:state (get-in acc [:state-map region-name])
-                               :data  (:data acc)}
-                        (some? (:rf/spawn-counter acc))
-                        (assoc :rf/spawn-counter (:rf/spawn-counter acc))
-                        (some? (:rf/history acc))
-                        (assoc :rf/history (:rf/history acc))
-                        (some? (:rf/spawn-attempts acc))
-                        (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))
-          ;; Root-relative target WITHIN the region (`:decl-path []` → the
-          ;; vector target resolves against the region root, exactly like a
-          ;; region-root `:on` target). `commit-snapshot` shapes the region's
-          ;; new `:state` by the region itself: a keyword for a flat region, a
-          ;; vector path for a compound one.
-          synthetic   {:target    (vec in-region-path)
-                       :decl-path []}
-          step        (rf.machines.transition/apply-transition-once
-                        region-spec region-snap event synthetic :transition)]
-      (if (rf.machines.result/fail? step)
-        step
-        (rf.machines.result/with-ok [reg-snap reg-fx] step
+    (let [region-snap (root-region-snapshot acc region-name)
+          r           (rf.machines.transition/commit-transition
+                        region-spec region-snap region-snap event transition geometry)]
+      (if (rf.machines.result/fail? r)
+        r
+        (rf.machines.result/with-ok [reg-snap reg-fx] r
           (-> acc
               (assoc :data (:data reg-snap))
               (cond-> (some? (:rf/spawn-counter reg-snap))
@@ -1201,54 +1246,64 @@
                       reg-fx)))))))
 
 (defn- apply-root-parallel-transition
-  "Apply the parallel machine ROOT's selected `:on` transition as the
-  ancestor fallback: run the root `:action` ONCE against the
-  shared `:data`, then atomically apply each region-qualified `:target` to
-  its named region (leaving untargeted regions unchanged), and re-stamp the
-  tag union. `transition` is the transition map `root-on-match` selected.
-  Targets are applied in REGION-DECLARATION order (the canonical
-  `region-order`, filtered to the targeted regions) so `:data` accumulation
-  across multiple region targets is deterministic, consistent with
-  `reduce-regions`. Returns
-  a `rf.machines.result/ok` carrying `[merged-snapshot fx]` stamped `::handled? true` (the
-  root transition resolved the event), or a `rf.machines.result/fail` if the root action
-  or any region cascade threw."
+  "Apply the parallel machine ROOT's selected transition (`transition` — the
+  root `:on` `root-on-match` selected, a fired root `:after`, or a root-`:spawn`
+  carrier) as one transition over its targeted regions, in the exit → action
+  → entry order of Spec 005 §Entry/exit cascading along the LCA:
+
+    1. every targeted region's exit cascade (deepest-first within a region);
+    2. the root `:action`, ONCE, against the shared `:data`;
+    3. every targeted region's entry cascade (shallowest-first + initial
+       descent within a region);
+    4. each targeted region's commit — its new `:state`, history, and its
+       `:after` cancels, destroys, spawns and `:after` schedules.
+
+  Each step takes the targeted regions in REGION-DECLARATION order (the
+  canonical `region-order`, filtered to the targets) whatever order the
+  targets are written in, so `:data` accumulation is deterministic. Untargeted
+  regions are left unchanged. The fx follow the same order, and the recorded
+  cascade steps ride the Result as `::cascade` for the macrostep's
+  `:rf.machine/transition` trace. Returns a `rf.machines.result/ok` carrying
+  `[merged-snapshot fx]` stamped `::handled? true` with the tag union
+  re-stamped, or the `rf.machines.result/fail` of the first action or `:spawn`
+  `:data` fn that threw."
   [machine snapshot event transition]
-  (let [action-r (rf.machines.transition/run-root-transition-action machine snapshot transition event)]
-    (if (rf.machines.result/fail? action-r)
-      action-r
-      (rf.machines.result/with-ok [snap-after-action action-fx] action-r
-        (let [targets        (normalise-root-targets (:target transition))
-              ;; Apply in canonical region-declaration order (`region-order`,
-              ;; filtered to targeted regions) for deterministic `:data`
-              ;; accumulation — never `:regions` / state-map key iteration.
-              decl-order     (region-order machine)
-              target-by-rn   (into {} (map (fn [t] [(first t) t])) targets)
-              ordered-targets (->> decl-order
-                                   (keep target-by-rn)
-                                   vec)
-              seed           {:data            (:data snap-after-action)
-                              :rf/spawn-counter (:rf/spawn-counter snapshot)
-                              :rf/history      (:rf/history snapshot)
-                              :rf/spawn-attempts (:rf/spawn-attempts snapshot)
-                              :state-map       (:state snapshot)
-                              :fx              (vec action-fx)}
-              acc            (reduce (partial apply-root-region-target machine event)
-                                     seed
-                                     ordered-targets)]
-          (if (rf.machines.result/fail? acc)
-            acc
-            (let [merged (cond-> (-> snapshot
-                                     (assoc :state (:state-map acc))
-                                     (assoc :data  (:data acc)))
-                           (some? (:rf/spawn-counter acc))
-                           (assoc :rf/spawn-counter (:rf/spawn-counter acc))
-                           (some? (:rf/history acc))
-                           (assoc :rf/history (:rf/history acc))
-                           (some? (:rf/spawn-attempts acc))
-                           (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))]
-              (-> (rf.machines.result/ok (commit-tags-parallel machine merged) (:fx acc))
-                  (rf.machines.result/with-handled true)))))))))
+  (let [target-by-rn (into {}
+                           (map (fn [t] [(first t) t]))
+                           (normalise-root-targets (:target transition)))
+        seed         {:data              (:data snapshot)
+                      :rf/spawn-counter  (:rf/spawn-counter snapshot)
+                      :rf/history        (:rf/history snapshot)
+                      :rf/spawn-attempts (:rf/spawn-attempts snapshot)
+                      :state-map         (:state snapshot)
+                      :fx                []
+                      :cascade           []}
+        ;; Never `:regions` / state-map key iteration: declaration order.
+        plans        (into []
+                           (comp (keep target-by-rn)
+                                 (map (partial root-region-plan machine seed)))
+                           (region-order machine))
+        acc          (as-> seed acc
+                       (reduce (partial run-root-region-steps event :exit) acc plans)
+                       (run-root-steps acc machine (assoc snapshot :data (:data acc)) event
+                                       (rf.machines.transition/root-action-steps transition)
+                                       identity nil)
+                       (reduce (partial run-root-region-steps event :entry) acc plans)
+                       (reduce (partial commit-root-region-target event) acc plans))]
+    (if (rf.machines.result/fail? acc)
+      acc
+      (let [merged (cond-> (-> snapshot
+                               (assoc :state (:state-map acc))
+                               (assoc :data  (:data acc)))
+                     (some? (:rf/spawn-counter acc))
+                     (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+                     (some? (:rf/history acc))
+                     (assoc :rf/history (:rf/history acc))
+                     (some? (:rf/spawn-attempts acc))
+                     (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))]
+        (-> (rf.machines.result/ok (commit-tags-parallel machine merged) (:fx acc))
+            (rf.machines.result/with-handled true)
+            (rf.machines.result/with-cascade (:cascade acc)))))))
 
 (defn- drain-parent-queue
   "Stabilize a parallel macrostep under the parent's unified eventless /

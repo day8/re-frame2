@@ -188,10 +188,7 @@
       `step-fn` returns.
     * Per-step throws propagate; the chain does NOT swallow them.
     * Returns nil — chained hooks are side-effecting (cache resets,
-      emitter installs); callers do not consume a return value.
-
-  Sibling for routed (single-step, dispatched by installed-adapter
-  identity) hooks is `re-frame.substrate.adapter/route-hook!`."
+      emitter installs); callers do not consume a return value."
   [hook-key step-fn]
   (let [previous (get-fn hook-key)]
     (set-fn! hook-key

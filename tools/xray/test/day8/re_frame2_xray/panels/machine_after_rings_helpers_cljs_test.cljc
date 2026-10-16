@@ -10,29 +10,33 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- scheduled
-  [id machine-id state delay epoch]
+  [id machine-id state delay epoch & {:keys [delay-key]}]
   {:id id :time id
    :operation :rf.machine.timer/scheduled
-   :tags {:machine-id   machine-id
-          :state        state
-          :delay        delay
-          :delay-source :literal
-          :epoch        epoch}})
+   :tags (cond-> {:machine-id   machine-id
+                  :state        state
+                  :delay        delay
+                  :delay-source :literal
+                  :epoch        epoch}
+           delay-key (assoc :delay-key delay-key))})
 
 (defn- fired
-  "`:delay` names which of several concurrent timers at one
-  (machine, state, epoch) fired."
-  [id machine-id state epoch & {:keys [delay]}]
+  "`:delay-key` (or, on a row without one, `:delay`) names which of several
+  concurrent timers at one (machine, state, epoch) fired."
+  [id machine-id state epoch & {:keys [delay delay-key]}]
   {:id id :time id
    :operation :rf.machine.timer/fired
    :tags (cond-> {:machine-id machine-id :state state :epoch epoch}
-           delay (assoc :delay delay))})
+           delay     (assoc :delay delay)
+           delay-key (assoc :delay-key delay-key))})
 
 (defn- cancelled
-  [id machine-id state epoch]
+  [id machine-id state epoch & {:keys [delay delay-key]}]
   {:id id :time id
    :operation :rf.machine.timer/cancelled
-   :tags {:machine-id machine-id :state state :epoch epoch :reason :on-exit}})
+   :tags (cond-> {:machine-id machine-id :state state :epoch epoch :reason :on-exit}
+           delay     (assoc :delay delay)
+           delay-key (assoc :delay-key delay-key))})
 
 ;; ---- which records the chart draws a ring for ---------------------------
 
@@ -87,6 +91,25 @@
                 (active-timers
                   (conj buf (fired 6000 :auth/login :idle 0 :delay 5000))
                   :auth/login 6000))))))
+
+(deftest equal-duration-timers-close-by-their-declared-key
+  ;; `:delays {:warning 250 :expiry 250}` arms two timers at one (machine,
+  ;; state, epoch) with the same milliseconds. Each row names its timer by
+  ;; `:delay-key`, so firing or cancelling one leaves the other armed.
+  (let [buf        [(scheduled 1000 :m :idle 250 0 :delay-key :warning)
+                    (scheduled 1001 :m :idle 250 0 :delay-key :expiry)]
+        armed-keys (fn [rows]
+                     (set (keep #(when (= :armed (:status %)) (:delay-key %))
+                                (h/project-timers rows :m))))]
+    (are [rows armed] (= armed (armed-keys rows))
+      buf
+      #{:warning :expiry}
+
+      (conj buf (fired 1100 :m :idle 0 :delay 250 :delay-key :warning))
+      #{:expiry}
+
+      (conj buf (cancelled 1100 :m :idle 0 :delay 250 :delay-key :warning))
+      #{:expiry})))
 
 (deftest active-timers-drops-zombie-armed
   ;; An :armed record whose :fired trace was evicted from the buffer would

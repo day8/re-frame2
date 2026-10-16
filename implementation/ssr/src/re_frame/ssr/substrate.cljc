@@ -21,7 +21,6 @@
   parent-var name clash."
   (:require [re-frame.error :as rf.error]
             [re-frame.ssr.emit :as rf.ssr.emit]
-            [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- ssr-make-state-container [initial-value]
@@ -56,11 +55,8 @@
   nil)
 
 (defn- ssr-dispose-adapter! []
-  ;; Frames outlive the adapter, so disposal clears every frame's sub-cache
-  ;; (Spec 006 §Adapter disposal lifecycle): a slot left behind keeps its
-  ;; references on its inputs, and a subscribe after reinstall would reuse the
-  ;; pre-dispose derived value. Watch handles are GC'd with their atoms.
-  (rf.subs.cache/clear-all-frame-sub-caches!)
+  ;; Nothing of the adapter's own to release: core's teardown disposes every
+  ;; frame's sub-cache, and watch handles are GC'd with their atoms.
   nil)
 
 (def adapter
@@ -86,9 +82,9 @@
    :render                    ssr-render
    :render-to-string          rf.ssr.emit/render-to-string
    :register-context-provider ssr-register-context-provider
-   :dispose-adapter!          ssr-dispose-adapter!})
-
-;; On CLJS the sub-cache registers and fires a derived value's on-dispose
-;; callbacks through the `:adapter/*` hooks, which answer only for the
-;; installed adapter, so this adapter routes them for itself.
-#?(:cljs (rf.substrate.plain-atom/route-disposal-hooks! adapter))
+   :dispose-adapter!          ssr-dispose-adapter!
+   ;; On CLJS the sub-cache registers and fires a derived value's on-dispose
+   ;; callbacks through the installed map's `:add-on-dispose!` / `:dispose!`,
+   ;; so this map carries plain-atom's pair alongside its derived value.
+   #?@(:cljs [:add-on-dispose!        rf.substrate.plain-atom/add-on-dispose!
+              :dispose!               rf.substrate.plain-atom/dispose!])})

@@ -175,6 +175,22 @@
          (pure/db-diff-summary 1 2) )
       "non-map, non-equal -> the whole-db changed marker [[]]"))
 
+(deftest db-diff-summary-orders-mixed-type-top-level-keys
+  (let [kws [:zeta :b/x :a :a.b/c :a/d :counter]]
+    (is (= (mapv vector (sort kws))
+           (:added-paths (pure/db-diff-summary {} (zipmap kws (repeat 1)))))
+        "keyword keys keep compare's order"))
+  (let [before {:a 1 "b" 2 [:v] 3 :gone 0 "gone" 0}
+        after  {:a 9 "b" 2 [:v] 4 :new 1 "new" 1 7 1}
+        diff   {:added-paths   [[7] ["new"] [:new]]
+                :removed-paths [["gone"] [:gone]]
+                :changed-paths [[:a] [[:v]]]}]
+    (is (= diff (pure/db-diff-summary before after))
+        "keys of different types order by type in every bucket")
+    (is (= diff (:db-diff (pure/cascade-summary {:epoch-id 1 :db-before before :db-after after} false))))
+    (is (= diff (get-in (pure/restore-cascade-projection before {:db-after after} :rf/default 1 false nil)
+                        [:cascade-summary :db-diff])))))
+
 (deftest outcome-tier-three-tier-projection
   (is (= [:ok :blocked :blocked :error :ok]
          (map pure/outcome-tier [:ok :halted-depth :halted-destroy :halted-handler-exception :some-unknown-cause]))

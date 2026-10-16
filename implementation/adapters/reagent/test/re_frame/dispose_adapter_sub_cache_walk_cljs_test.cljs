@@ -1,7 +1,8 @@
 (ns re-frame.dispose-adapter-sub-cache-walk-cljs-test
-  "The Reagent `dispose-adapter!` walks every live frame's sub-cache and
-  disposes each cached Reaction (Spec 006 §Adapter disposal lifecycle, MUST
-  1), which matters on the headless path where no unmount fires. The walk is
+  "Destroying the Reagent adapter walks every live frame's sub-cache and
+  disposes each cached Reaction through the departing map's `:dispose!` (Spec
+  006 §Adapter disposal lifecycle), which matters on the headless path where
+  no unmount fires. The walk is
   best-effort but not silent: a throwing entry or root does not abort the
   drain, and once everything was attempted the FIRST failure is rethrown
   unchanged, with later ones attached as secondary evidence."

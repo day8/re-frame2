@@ -4,9 +4,10 @@
 
   The sub-cache releases a layer-2 entry's inputs from the on-dispose callback
   it registers through `re-frame.interop/add-on-dispose!`, and fires it through
-  `re-frame.interop/dispose!` when the entry is evicted. On CLJS both calls are
-  routed to the installed adapter, so a derived value that adapter cannot
-  dispose keeps every input at its ref-count until the frame is destroyed. A
+  `re-frame.interop/dispose!` when the entry is evicted. On CLJS both calls
+  reach the installed map's `:add-on-dispose!` / `:dispose!`, so a derived
+  value that adapter cannot dispose keeps every input at its ref-count until
+  the frame is destroyed. A
   per-request frame bounds that; a long-lived frame accumulates it.
 
   Destroying the adapter clears every live frame's sub-cache, because frames
@@ -75,7 +76,7 @@
         (is (= [#{[::a] [::ab]} #{[::a] [::ab]}] (slots))
             "control: both frames hold the layer-2 sub and its input")
         (rf/destroy-adapter!)
-        (is (= [#{} #{}] (slots)) "the disposer clears every live frame's sub-cache")
+        (is (= [#{} #{}] (slots)) "the teardown clears every live frame's sub-cache")
         (rf/init! rf.ssr/adapter)
         (let [after (subscribe!)]
           (is (= [false false] (mapv identical? before after))

@@ -458,9 +458,44 @@
   (do (rf.registrar/add-replacement-hook! invalidate-sub-on-replace!)
       :installed))
 
+(defn- clear-frame-sub-cache!
+  "Evict and dispose every entry in `frame-id`'s sub-cache, emitting
+  `:rf.sub/dispose` `:cache-clear` per slot. Returns the values the per-entry
+  disposes threw, in traversal order. See `clear-sub-cache!`."
+  [frame-id]
+  (if-let [cache (:sub-cache (rf.frame/frame frame-id))]
+    ;; Evict the whole cache BEFORE any dispose! call — see the
+    ;; `clear-sub-cache!` docstring — and do it in ONE atomic take, disposing
+    ;; exactly the map it removed. A separate `@cache` read and `reset!` would
+    ;; leave a JVM window in which an entry acquired between them is erased
+    ;; without being in the batch, so it is never disposed, and two
+    ;; overlapping clears could each condemn the same entry.
+    (let [[snapshot _] (reset-vals! cache {})]
+      ;; Tag any synchronous node-disposed notification with the
+      ;; INTRINSIC :cache-clear cause (→ :disposed) so an explicit
+      ;; teardown is never mislabelled :hmr by a co-pending HMR drain.
+      (binding [*disposal-cause* :cache-clear]
+        (reduce (fn [failures [k entry]]
+                  ;; Emit dispose per evicted key BEFORE the per-
+                  ;; reaction `rf.interop/dispose!`. Reason `:cache-clear`
+                  ;; discriminates the explicit-teardown path from sync 1 → 0
+                  ;; fires (`:no-more-derefers`) and hot-reload re-registration
+                  ;; (`:hot-reload`).
+                  (emit-dispose! frame-id k :cache-clear)
+                  (if-let [r (:reaction entry)]
+                    (try (rf.interop/dispose! r)
+                         failures
+                         (catch #?(:clj Throwable :cljs :default) e
+                           (conj failures e)))
+                    failures))
+                []
+                snapshot)))
+    []))
+
 (defn clear-sub-cache!
   "Dispose every cached entry in a frame's runtime sub-cache and clear
-  the cache.
+  the cache. A throwing per-entry dispose is swallowed and the walk
+  continues.
 
   Test fixtures and REPL-driven reloads call this between scenarios
   to ensure the cache is empty before re-subscribing. Test code
@@ -490,55 +525,36 @@
                           :clear-sub-cache!
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
-   (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-     ;; Evict the whole cache BEFORE any dispose! call — see the docstring
-     ;; note above — and do it in ONE atomic take, disposing exactly the map
-     ;; it removed. A separate `@cache` read and `reset!` would leave a JVM
-     ;; window in which an entry acquired between them is erased without
-     ;; being in the batch, so it is never disposed, and two overlapping
-     ;; clears could each condemn the same entry.
-     (let [[snapshot _] (reset-vals! cache {})]
-       ;; Tag any synchronous node-disposed notification with the
-       ;; INTRINSIC :cache-clear cause (→ :disposed) so an explicit
-       ;; teardown is never mislabelled :hmr by a co-pending HMR drain.
-       (binding [*disposal-cause* :cache-clear]
-         (doseq [[k entry] snapshot]
-           ;; Emit dispose per evicted key BEFORE the per-
-           ;; reaction `rf.interop/dispose!`. Reason `:cache-clear`
-           ;; discriminates the explicit-teardown path from sync 1 → 0
-           ;; fires (`:no-more-derefers`) and hot-reload re-registration
-           ;; (`:hot-reload`).
-           (emit-dispose! frame-id k :cache-clear)
-           (when-let [r (:reaction entry)]
-             (try (rf.interop/dispose! r)
-                  (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
+   (clear-frame-sub-cache! frame-id)
+   nil))
 
 (defn clear-all-frame-sub-caches!
-  "CLJC-safe adapter-disposal sub-cache walk: dispose every cached entry
-  in EVERY live frame's runtime sub-cache and reset each cache to `{}`.
+  "Adapter teardown's sub-cache walk: dispose every cached entry in EVERY
+  live frame's runtime sub-cache and reset each cache to `{}`. Returns the
+  values the per-entry disposes threw, in traversal order — a vector kept by
+  PRESENCE, since `nil` and `false` are legal CLJS throws.
 
-  This is the per-process counterpart to `clear-sub-cache!` (one frame) —
-  the externally-visible equal of `re-frame.substrate.spine/dispose-frame-
-  sub-caches!` (the CLJS-only walk wired into the React-shaped adapters'
-  `dispose-adapter!`), lifted into this CLJC ns so the CLJC `plain-atom`
-  adapter can satisfy Spec 006 §Adapter disposal
-  lifecycle MUST 1 (`dispose-adapter!` cancels all in-flight reactive
-  subscriptions across every live frame's sub-cache) without taking a
-  static dependency on the CLJS-only spine. Per Spec 006 §Lifetime
-  contract — frame disposal §Adapter symmetry: the adapter's
-  `dispose-adapter!` disposes every frame's sub-cache as part of process
-  teardown.
+  The per-process counterpart to `clear-sub-cache!` (one frame).
+  `re-frame.substrate.adapter/dispose-adapter!` runs it for every adapter,
+  through the `:subs.cache/clear-all-frame-sub-caches!` late-bind hook
+  published below: frames outlive the adapter, so their caches are process
+  teardown, not each adapter's (Spec 006 §Adapter disposal lifecycle and
+  §Lifetime contract — frame disposal). Each entry is disposed through
+  `rf.interop/dispose!` — the departing adapter's `:dispose!` on CLJS, whose
+  capabilities stay published until teardown finalizes.
 
-  Best-effort, per-frame: a throwing per-entry dispose does NOT abort the
-  rest of the walk — every other cached entry in the same frame AND every
-  subsequent frame's cache still gets disposed and reset (`clear-sub-cache!`
-  already swallows per-entry throws). Emits `:rf.sub/dispose` with
-  `:rf.sub/reason :cache-clear` per evicted slot (the closed-enum reason
-  shared with explicit `clear-sub-cache!` test/REPL teardown). Returns nil."
+  Best-effort but not silent: a throwing per-entry dispose does NOT abort the
+  walk — every other cached entry in the same frame AND every subsequent
+  frame's cache still gets disposed and reset — and every throw is handed
+  back so the teardown can rethrow the first once it is done. Emits
+  `:rf.sub/dispose` with `:rf.sub/reason :cache-clear` per evicted slot (the
+  closed-enum reason shared with explicit `clear-sub-cache!` test/REPL
+  teardown)."
   []
-  (doseq [frame-id (rf.frame/frame-ids)]
-    (clear-sub-cache! frame-id))
-  nil)
+  (into [] (mapcat clear-frame-sub-cache!) (rf.frame/frame-ids)))
+
+(rf.late-bind/set-fn! :subs.cache/clear-all-frame-sub-caches!
+                   clear-all-frame-sub-caches!)
 
 ;; ---- frame-destroy eviction ----------------------------------------------
 ;;

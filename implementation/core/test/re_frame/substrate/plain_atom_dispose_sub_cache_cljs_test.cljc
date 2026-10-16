@@ -1,8 +1,8 @@
 (ns re-frame.substrate.plain-atom-dispose-sub-cache-cljs-test
-  "plain-atom's `dispose-adapter!` clears every live frame's sub-cache, on both
-  runtimes. Frames outlive the adapter, so without the walk a cached slot would
-  survive a dispose/reinstall and a later subscribe would reuse the pre-dispose
-  derived value. The SSR adapter's disposer is pinned by
+  "Destroying the plain-atom adapter clears every live frame's sub-cache, on
+  both runtimes. Frames outlive the adapter, so without the walk a cached slot
+  would survive a dispose/reinstall and a later subscribe would reuse the
+  pre-dispose derived value. The SSR adapter's teardown is pinned by
   `re-frame.ssr.derived-value-disposal-cljs-test`."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

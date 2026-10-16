@@ -1,10 +1,10 @@
 (ns re-frame.plain-atom-dispose-cljs-test
   "The plain-atom adapter on CLJS (the SSR / headless-on-CLJS host) honours the
   sub-cache's symmetric input-release contract (Spec 006 §Reference counting and
-  disposal). On CLJS `re-frame.interop` routes `add-on-dispose!` / `dispose!`
-  through late-bind hooks the plain-atom adapter publishes, and its derived
-  value reifies the disposal protocol; without either, a layer-2+ sub's input
-  ref-counts would never drop on evict. The JVM side is pinned by
+  disposal). On CLJS `re-frame.interop` reaches `add-on-dispose!` / `dispose!`
+  through the `:adapter/*` slots the plain-atom map's capabilities fill at
+  install, and its derived value reifies the disposal protocol; without
+  either, a layer-2+ sub's input ref-counts would never drop on evict. The JVM side is pinned by
   `re-frame.sub-cache-test`.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."

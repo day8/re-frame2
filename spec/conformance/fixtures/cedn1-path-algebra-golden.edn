@@ -56,6 +56,20 @@
    :value #inst "2026-06-12T00:00:00.000-00:00"
    :expect "t:2026-06-12T00:00:00.000Z"}
 
+  ;; --- string literals: exactly seven characters are escaped -----------
+  ;; The double quote, backslash, newline, tab, return, backspace and form
+  ;; feed are each written as a backslash and one character; every other
+  ;; character is emitted raw, and no \uXXXX escape is ever emitted. The last
+  ;; row's :expect writes U+0001, U+001F and U+007F as \uXXXX reader escapes
+  ;; only because they are invisible in source: the reader turns each back
+  ;; into the raw character the encoder emitted.
+  {:call :canonical-bytes :value "say \"hi\"" :expect "s:\"say \\\"hi\\\"\""}
+  {:call :canonical-bytes :value "C:\\dir" :expect "s:\"C:\\\\dir\""}
+  {:call :canonical-bytes :value "line1\nline2" :expect "s:\"line1\\nline2\""}
+  {:call :canonical-bytes :value "a\tb" :expect "s:\"a\\tb\""}
+  {:call :canonical-bytes :value "\r\b\f" :expect "s:\"\\r\\b\\f\""}
+  {:call :canonical-bytes :value "\u0001\u001F\u007F" :expect "s:\"\u0001\u001F\u007F\""}
+
   ;; --- the reserved tagged-instant canonical form -----------------------
   ;; `canonical` normalizes an instant to the reserved tagged tuple
   ;; [:rf.identity/instant "<UTC millisecond text>"]; `canonical-bytes` emits

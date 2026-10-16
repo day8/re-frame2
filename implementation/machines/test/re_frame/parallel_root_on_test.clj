@@ -54,6 +54,48 @@
     (is (= {:state {:a :done :b :one} :tags #{:a/done}}
            (select-keys (step m {} [:advance]) [:state :tags])))))
 
+(def ^:private cascade-order
+  [:a-one-exit :b-one-exit :root-action :a-two-entry :b-two-entry])
+
+(defn- ordered-root-on
+  "Every exit, entry and the root action log their own name into `:data
+  :log`; with `fx?` each also emits one `[:dispatch [<name>]]`. The targets
+  are written `:b` first, so the order below is declaration order."
+  [fx?]
+  {:type    :parallel
+   :data    {:log []}
+   :actions (into {}
+                  (map (fn [k]
+                         [k (fn [{d :data}]
+                              (cond-> {:data (update d :log conj k)}
+                                fx? (assoc :fx [[:dispatch [k]]])))]))
+                  cascade-order)
+   :on      {:go {:target [[:b :two] [:a :two]] :action :root-action}}
+   :regions {:a {:initial :one :states {:one {:exit :a-one-exit} :two {:entry :a-two-entry}}}
+             :b {:initial :one :states {:one {:exit :b-one-exit} :two {:entry :b-two-entry}}}}})
+
+(deftest root-on-runs-every-exit-then-the-action-then-every-entry
+  (let [r (rf.machines/machine-transition (ordered-root-on true)
+                                          {:state {:a :one :b :one} :data {:log []}}
+                                          [:go])]
+    (is (= cascade-order (get-in r [:snapshot :data :log])))
+    (is (= (mapv (fn [k] [:dispatch [k]]) cascade-order) (:fx r)))))
+
+(deftest root-on-cascade-trace-follows-the-same-order
+  (rf/reg-machine :rooton/order (ordered-root-on false))
+  (rf/dispatch-sync [:rooton/order [:rf.machine/start]])
+  (rf.machines.test-support/with-trace-capture captured
+    (rf/dispatch-sync [:rooton/order [:go]])
+    (is (= [{:kind :exit   :state [:one] :region :a  :action :a-one-exit}
+            {:kind :exit   :state [:one] :region :b  :action :b-one-exit}
+            {:kind :action :state []     :region nil :action :root-action}
+            {:kind :entry  :state [:two] :region :a  :action :a-two-entry}
+            {:kind :entry  :state [:two] :region :b  :action :b-two-entry}]
+           (->> @captured
+                (filter #(= :rf.machine/transition (:operation %)))
+                last :tags :cascade
+                (mapv #(select-keys % [:kind :state :region :action])))))))
+
 (deftest root-parallel-validation
   (is (= [:rf.error/machine-unresolved-guard
           :rf.error/machine-parallel-root-on-bad-target]
