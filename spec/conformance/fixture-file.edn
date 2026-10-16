@@ -16,7 +16,7 @@
 ;; compared by a law, not shape-checked.
 ;;
 ;; Reading this file. `:registry` is a Malli registry written as plain EDN, and
-;; `:root` names the fixture schema in it; a JVM or CLJS host validates with
+;; `:root` names the fixture schema in it; a host with Malli validates with
 ;; `[:schema {:registry <registry>} <root>]`. A port without Malli reads the
 ;; same data as a grammar: `[:map {:closed true} …]` is a map admitting only the
 ;; listed keys, `[:multi {:dispatch :call} …]` picks the record shape by the
@@ -30,8 +30,6 @@
 ;; law applies to each element. The reference runners keep one matcher per key;
 ;; these annotations describe what those matchers do, so a port can build its
 ;; own without reading them.
-;;
-;; `:fixture/spec-version` is declared, optional, and unchanged.
 {:root :conformance/fixture-file
 
  :laws
@@ -69,7 +67,7 @@
   "No expected element may be a member of the observed collection."
 
   :holds
-  "The observation is a claim about the record's own inputs, stated in its :observe; the record passes when the claim holds. The record carries no expected value."}
+  "The observation is the claim its :observe states; the expectation passes when that claim holds. It carries no expected value."}
 
  :registry
  {;; ---------------------------------------------------------------------------
@@ -144,9 +142,9 @@
    [:head            {:optional true} [:map-of :keyword :map]]
    [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]]
 
-  ;; `:fixture/runtime`-free simulation of the client's first render after
-  ;; `:rf/hydrate`: the runner hands the simulated client hash to the
-  ;; hydration-mismatch check, against the server hash in the hydrate payload.
+  ;; Simulates the client's first render after `:rf/hydrate`: the runner hands
+  ;; the simulated client hash to the hydration-mismatch check, against the
+  ;; server hash in the hydrate payload.
   :conformance/render-after-hydrate
   [:map {:closed true}
    [:simulated-client-render-hash :string]
@@ -167,8 +165,9 @@
    [:map {:closed true} [:clear-large     [:vector [:vector :any]]]]]
 
   ;; ---------------------------------------------------------------------------
-  ;; Dispatch entries. An event vector is dispatched with `dispatch-sync`; the
-  ;; map forms drive a registrar-level operation or carry dispatch opts.
+  ;; Dispatch entries. An event vector is dispatched with `dispatch-sync` (an
+  ;; `:rf/hydrate` event with `:source :ssr-hydration`, per Spec 011); the map
+  ;; forms drive a registrar-level operation or carry dispatch opts.
   ;; ---------------------------------------------------------------------------
 
   :conformance/dispatch-entry
