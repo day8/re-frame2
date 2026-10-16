@@ -1179,7 +1179,8 @@
    ;; contract.
    :canonical-bytes
    {:observe  (fn [call _] (rf.identity/canonical-bytes (:value call)))
-    :matchers {:expect (equal-to)}}
+    :matchers {:expect       (equal-to)
+               :expect-error thrown-error-id}}
 
    ;; The exact normalized value `canonical` returns, distinct from the byte
    ;; token `:canonical-bytes` pins.
