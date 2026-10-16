@@ -420,7 +420,13 @@ The corpus is versioned alongside the spec. Each fixture file declares the spec 
  ...}
 ```
 
-When the spec changes shape (new required key in `:rf/dispatch-envelope`, new error category), affected fixtures bump their `:spec-version` and the corpus's harness check rejects implementations that haven't moved with the spec.
+A harness declares the set of spec versions its implementation claims, as it declares the capabilities it claims, and compares each fixture's version with that set before anything else:
+
+- a fixture whose `:fixture/spec-version` is in the claimed set runs, subject to its capabilities ([§Capability tagging](#capability-tagging));
+- a fixture with no `:fixture/spec-version` is unversioned, and runs the same way;
+- any other fixture is reported as skipped, with its version, and never as a failure.
+
+A skipped fixture counts toward neither the score nor the runnable-fixture floor. When the spec changes shape (new required key in `:rf/dispatch-envelope`, new error category), affected fixtures bump their `:fixture/spec-version`, so an implementation that has not moved with the spec still claims only the old version and skips them until it claims the new one.
 
 ## Fixtures
 
