@@ -1686,13 +1686,26 @@
   generation swap `re-frame.live-frame`'s `make-frame` (including a same-`:id`
   re-construction) and reprojection write through (EP-0024). A no-op for an unknown frame
   (the registry is keyed by the bare frame-id). Returns nil.
+
+  The three-argument form is reprojection's compare-and-set: it publishes only
+  while the registry still holds the incarnation whose token
+  (`frame-incarnation-token`) is `expected-token`, and returns whether it did.
   INTERNAL — the one mutator of the `:generation` slot."
-  [id generation]
-  (swap! frames (fn [m]
-                  (if (contains? m id)
-                    (update m id assoc :generation generation)
-                    m)))
-  nil)
+  ([id generation]
+   (swap! frames (fn [m]
+                   (if (contains? m id)
+                     (update m id assoc :generation generation)
+                     m)))
+   nil)
+  ([id expected-token generation]
+   (let [holds?     (fn [m] (and (some? expected-token)
+                                 (identical? expected-token (:drain-lock (get m id)))))
+         [before _] (swap-vals! frames
+                                (fn [m]
+                                  (if (holds? m)
+                                    (update m id assoc :generation generation)
+                                    m)))]
+     (holds? before))))
 
 (defn frame-state-container
   "Return the frame's ONE physical frame-state **container** — the
