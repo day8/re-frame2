@@ -201,6 +201,19 @@
          (reject! x :invalid-instant)
          (millis->utc-text x millis)))))
 
+(defn portable-instant?
+  "True iff host instant `x` (java.util.Date / java.time.Instant / js/Date)
+  denotes a real moment in the portable range — exactly the host instants
+  `canonical-bytes` encodes rather than rejects. `re-frame.path/segment?` keys
+  off it, so a path segment is never an instant canonical identity refuses."
+  [x]
+  (let [millis #?(:clj  (let [^Instant inst (if (instance? Instant x) x (.toInstant ^Date x))]
+                          (try (.toEpochMilli inst)
+                               (catch ArithmeticException _ nil)))
+                  :cljs (let [m (.getTime ^js x)]
+                          (when-not (js/isNaN m) m)))]
+    (boolean (and millis (portable-instant-millis? millis)))))
+
 (defn- canonical-instant-text?
   "True iff `s` is EXACTLY the canonical millisecond-UTC spelling of a real
   instant in the portable range — the fixed-shape regex PLUS a host round-trip
@@ -286,17 +299,25 @@
             :else        (recur (inc i))))
         false))))
 
+(defn well-formed-text?
+  "True iff `x` (a string, keyword or symbol) holds no unpaired surrogate —
+  for a keyword or symbol, in neither its namespace nor its name. This is the
+  SHARED text predicate the CEDN-1 encoder and the `:rf/path` concrete-segment
+  domain both key off, so `re-frame.path/segment?` never admits text
+  `canonical-bytes` rejects."
+  [x]
+  (if (string? x)
+    (not (unpaired-surrogate? x))
+    (not (or (unpaired-surrogate? (name x))
+             (some-> (namespace x) unpaired-surrogate?)))))
+
 (defn- well-formed-text
   "Return `x` (a string, keyword or symbol), or fail closed with
-  `:unpaired-surrogate` when it, or a keyword's or symbol's namespace or name,
-  holds an unpaired surrogate."
+  `:unpaired-surrogate` when it is not `well-formed-text?`."
   [x]
-  (if (if (string? x)
-        (unpaired-surrogate? x)
-        (or (unpaired-surrogate? (name x))
-            (some-> (namespace x) unpaired-surrogate?)))
-    (reject! x :unpaired-surrogate)
-    x))
+  (if (well-formed-text? x)
+    x
+    (reject! x :unpaired-surrogate)))
 
 ;; ---- canonical token encoding (CEDN-1) -----------------------------------
 ;;

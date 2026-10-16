@@ -1630,13 +1630,15 @@
   ;; THE ADMITTED-SCALAR FAST ANSWER. This test asks a DOMAIN
   ;; question ("is `v` an admitted URL scalar?"); answering it by building
   ;; the value's whole CEDN-1 token string and throwing it away would cost that
-  ;; once per path param per href, on the render path. For the four kinds below the
-  ;; answer is unconditionally YES and is decidable by TYPE: none is a host
-  ;; instant, and `rf.identity/encode` cannot reject any of them (string / keyword
-  ;; / symbol route through `pr-str`, boolean through a literal). Every other
-  ;; value — integers, whose safe-range check is the whole point; UUIDs;
-  ;; instants; host objects — takes the encode-and-catch path, so the fast
-  ;; answer never narrows the fail-closed class.
+  ;; once per path param per href, on the render path. The four kinds below are
+  ;; admitted by TYPE: none is a host instant, and a boolean always encodes. A
+  ;; string, keyword or symbol fails `canonical-bytes` only when its text holds
+  ;; an unpaired surrogate, and `rf.routing.url/url-encode` refuses that text on
+  ;; both hosts before any URL is built, so admitting it here emits nothing the
+  ;; encode-and-catch path would have refused. Every other value — integers,
+  ;; whose safe-range check is the whole point; UUIDs; instants; host objects —
+  ;; takes the encode-and-catch path, so the fast answer never narrows the
+  ;; fail-closed class.
   (cond
     (or (string? v) (keyword? v) (boolean? v) (symbol? v)) nil
     (host-instant? v)                                      ::instant
