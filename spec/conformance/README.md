@@ -180,6 +180,12 @@ The `:call` ops, the arguments each record takes and the expectation keys it may
 
 The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
 
+#### The `:machine-transition` op — one pure macrostep
+
+The harness calls `machine-transition` with the record's `:definition`, `:snapshot` and `:event`, and grades the `:snapshot` and `:fx` of the result [005 §Level 1](../005-StateMachines.md#level-1--pure-machine-transition) describes. The call reads only those three arguments.
+
+Spec 005 has no global guard or action registry — a definition resolves each keyword reference against its own `:guards` and `:actions` maps — so the fixture's bodies reach the call through those maps. The harness realises each `:fixture/handlers :machine-action` body as a fn and merges it into the definition's `:actions` under the body's id, and each `:machine-guard` body into its `:guards` the same way; where the definition already has an entry under that id, the definition's entry wins. A transition then names a body by its id (`:action :traffic-light/log-yellow`) or through a local name the definition maps onto it (`:guards {:enough-correct? :quiz/enough-correct?}` beside `:guard :enough-correct?`, in `always-single-microstep.edn`). Resolution follows a keyword entry through the same map, hop by hop, until it reaches a fn or a `{:fn …}` entry; a chain that reaches a missing key or revisits one is unresolved, and `machine-transition` throws `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action`. Each `:fixture/registry :machine` entry gets the same merge before it registers.
+
 #### The `:reg-machine` op — registration-error taxonomy
 
 The `:reg-machine` op pins the machine registration-error taxonomy (the [009 §thrown-error shape](../009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) — the `:rf.error/id` ex-data contract) at the conformance layer. A re-frame2 machine spec is validated at registration time by a pure leaf fn (`validate-machine!` in the CLJS reference); each malformed spec throws an `ex-info` whose `:rf.error/id` ex-data slot names a `:rf.error/machine-*` category. The taxonomy is a spec-normative contract surface — consumers (Xray's error widget, the pair-tool overlay, error listeners) `case` on `:rf.error/id`, never the message string — so it deserves a corpus pin independent of any host's full registration machinery.
