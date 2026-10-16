@@ -63,9 +63,10 @@
 
   A tag the slot vocabulary does not NAME is projected by SHAPE rather than
   passed through verbatim: a scoped key anywhere inside it — a member
-  of an unnamed key vector, or the key EMBEDDED at position 1 of a resource
-  work-id — projects through the same owner classification a NAMED slot's keys
-  do, a map payload tokenizes, and a scalar rides verbatim. So no map-shaped
+  of an unnamed key vector, say — projects through the same owner
+  classification a NAMED slot's keys do, a map payload tokenizes, and a scalar
+  rides verbatim. A resource work id (`[:rf.work/resource <resource-id>
+  <generation>]`) carries no key and rides as-is. So no map-shaped
   value under an unrecognised tag egresses raw at any depth, and a slot nobody
   has enumerated — `:blocking` / `:identities`, for instance — cannot leak.
 
@@ -95,14 +96,17 @@
   ## The family's keys also ride FOREIGN rows
 
   Everything above is routed by the epoch tool-pair on the row's OPERATION
-  namespace. But an `ensure` lowers into EFFECTS, and those effects address the
-  work by its scoped key, so the same keys reach off-box egress under
+  namespace. But resource events lower into EFFECTS that carry the family's
+  data — the timer effects address an entry by its scoped key, a mutation's
+  transport payload carries its resolved `:scope`, and a read completion
+  continuation carries the read's key, scope, params and value — so the same
+  data reaches off-box egress under
   `:rf.fx/args` and `:rf.event/fx` on `:rf.fx/*` / `:rf.error/*` rows the family
   does not own — where the namespace routing never looks. `project-fx-args-egress`
   (bottom of this ns) closes that: the SAME `project-trace-scoped-key` owner
   classification, reached by SLOT instead of by op, and touching nothing on the
   row but the family's own carriers — the keys; the resolved `:scope` the runtime
-  writes into that same continuation payload, projected by the SAME rule the
+  writes into a payload it plants, projected by the SAME rule the
   family's own rows give it (`project-unknown-slot-value`), so the two carriers
   of one scope agree the way the two carriers of one key do; the `:value` +
   `:params` a READ COMPLETION CONTINUATION reply
@@ -249,9 +253,8 @@
   This roster is a FIDELITY aid, not the line of defence. It lists the slots
   enumerated from the events / mutation / reconcile rows, so it is incomplete by
   nature: `:blocking` / `:identities`
-  (EP-0037 `:rf.resource/route-plan`), `:optimistic-keys`, `:forced-keys`,
-  `:revisions`, and the scoped-key EMBEDDED in every `:work/id` /
-  `:superseded` / `:aborted` work-id all carry scoped keys and none of them is
+  (EP-0037 `:rf.resource/route-plan`), `:optimistic-keys`, `:forced-keys`, and
+  `:revisions` all carry scoped keys and none of them is
   named here. Naming a slot buys nothing a shape read cannot: the SHAPE-DRIVEN
   fail-closed default (`project-unknown-slot-value`) recognises a scoped key
   wherever it sits and projects it through the SAME
@@ -426,8 +429,8 @@
   Read under `family-reply?` — both work kinds — and never under an owner read.
   The only entry it treats specially is `:scope`, which takes the standing
   scope rule (`project-scope`) the free `:scope` beside it takes, so the
-  reply's THREE copies of one resolved identity (top-level `:scope`, this one,
-  and the scope embedded in `:rf.reply/work-id`) project under one rule. Two
+  reply's TWO copies of one resolved identity (the top-level `:scope` and this
+  one) project under one rule. Two
   principles meet here: the carriers of one scope must agree, and a scope
   belongs to no owner whose claim could exempt it, so no owner read can speak
   for it.
@@ -447,8 +450,7 @@
 
   The proof this arm uses instead is CONSTRUCTION, not vocabulary: inside a map
   that carries the canonical reply marker, `:correlation` is the slot
-  `base-reply` built, exactly as position 1 of a `[:rf.work/resource …]` vector
-  is family-planted by construction. That is strictly stronger than a registry
+  `base-reply` built. That is strictly stronger than a registry
   lookup would be — it still holds for a mutation whose registration was
   hot-reloaded away, which is precisely when a fail-closed arm has to work.
 
@@ -506,15 +508,38 @@
   vocabulary so a row's nested scoped keys never leak."
   #{:patch-summary :invalidation})
 
+(def ^:private work-id-marker
+  "The reserved head keyword of a resource WORK-ID vector —
+  `[:rf.work/resource <resource-id> <generation>]`
+  (`work_ledger/resource-work-id`; a mutation attempt reuses the head and
+  carries `[:rf.mutation <instance-id>]` at position 1). A work id carries no
+  scoped key, but its head is still the family's own signature:
+  `scoped-key-frame?` reads it to keep a work id from being mistaken for a key,
+  and `carrier-family-payload?` reads it to recognise a payload the runtime
+  planted."
+  :rf.work/resource)
+
+(defn- family-work-id?
+  "Whether `v` is a resource work-id vector — a vector headed by
+  `work-id-marker`."
+  [v]
+  (and (vector? v) (= work-id-marker (first v))))
+
 (defn- scoped-key-frame?
   "The positional SKELETON of a scoped resource key
   `[scope resource-id canonical-params]`: a 3-vector with the resource-id
   KEYWORD at position 1. Necessary for both readers below, sufficient for
   neither — each adds its own proof that the 3-vector is the resource family's
   (`scoped-key-shape?` on a family ROW, `carrier-family-value?` inside a
-  FOREIGN carrier)."
+  FOREIGN carrier).
+
+  A resource WORK-ID `[:rf.work/resource <resource-id> <generation>]` wears the
+  same skeleton and is never a key: its head is the reserved work-id marker,
+  which no scope is. It is excluded here, so every attempt's work id rides
+  as-is — the identity tools join an attempt's rows on."
   [v]
-  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1))))
+  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1))
+       (not (family-work-id? v))))
 
 (defn- scoped-key-shape?
   "Whether `v` is recognisably a scoped resource key
@@ -545,8 +570,8 @@
   family row it would fall through the recursive walk as a bag of structural
   scalars — owner-aware projection would never run, the row would not be
   stamped `:sensitive?`, and a `:sensitive?` owner's resolved scope + canonical
-  params would egress RAW under `:blocking` / `:identities` and inside every
-  `:work/id` — the same leak the shape read closes for map params, one params
+  params would egress RAW under `:blocking` / `:identities` — the same leak the
+  shape read closes for map params, one params
   shape over. The registry is not a roster and cannot rot: it costs one lookup and it says nothing about `:owner`'s
   `:l` or `:cause`'s `:m/save` (a MUTATION id is not in the RESOURCE registrar).
 
@@ -577,11 +602,9 @@
   `:rf.resource/route-plan`'s `:blocking` / `:identities` (vectors of scoped
   keys) would egress a `:sensitive?` owner's scope + params RAW, where the
   identical keys under `:matched` tokenize. Adding those two names would leave
-  the same hole for `:optimistic-keys`, `:forced-keys`, `:revisions`, and — on
-  the MAJORITY of rows in the family — the scoped key EMBEDDED at position 1 of
-  every resource `:work/id` / `:superseded` / `:aborted` work-id
-  (`[:rf.work/resource <scoped-key> <generation>]`), none of which any roster
-  names. A name roster cannot cover a slot nobody has looked at yet; a shape
+  the same hole for `:optimistic-keys`, `:forced-keys` and `:revisions`, none
+  of which any roster names. A name roster cannot cover a slot nobody has
+  looked at yet; a shape
   read covers all of them, including the ones added next year.
 
   ## The rule
@@ -595,8 +618,8 @@
       still ride verbatim (no over-redaction);
     - a MAP is tokenized — the unambiguous app-payload shape;
     - any OTHER collection is walked MEMBER-WISE by this same rule, preserving
-      the collection's KIND. Depth is what reaches a work-id's embedded key and
-      a `{:from-db …}` scope's value map; kind preservation is load-bearing
+      the collection's KIND. Depth is what reaches a `{:from-db …}` scope's
+      value map; kind preservation is load-bearing
       because scoped-key identity is kind-SENSITIVE (a list-params
       key and a vector-params key are DISTINCT), so collapsing a list to a
       vector at egress would make two distinct keys look like one, and `:tags`
@@ -634,22 +657,6 @@
 
     :else [value false]))
 
-(def ^:private work-id-marker
-  "The reserved head keyword of a resource WORK-ID vector —
-  `[:rf.work/resource <scoped-key-or-mutation-id> <generation>]`
-  (`work_ledger/resource-work-id`; a mutation attempt reuses the head and
-  carries `[:rf.mutation <instance-id>]` at position 1). The runtime writes it
-  into every carrier payload it plants, so it is the family's own signature on
-  a foreign row — read as such by `carrier-family-value?` below, and by
-  `tooling`/`derivation.egress`'s work-id readers for the same reason."
-  :rf.work/resource)
-
-(defn- family-work-id?
-  "Whether `v` is a resource work-id vector — a vector headed by
-  `work-id-marker`. Position 1 of such a vector is family-planted BY
-  CONSTRUCTION, whatever its shape."
-  [v]
-  (and (vector? v) (= work-id-marker (first v))))
 
 (defn- family-named-key?
   "Whether map key `k` is a name the resource runtime RESERVED for one of its
@@ -682,8 +689,8 @@
   the four payloads the runtime plants a `:scope` in satisfy it, by three
   different markers, and no two of them share one:
 
-    - the READ continuation (`transport.http/build-managed-args`) —
-      `{:work/id <work-id> :resource/key <key> :scope <scope> …}`;
+    - a READ completion continuation reply (`events/read-continuation-reply`)
+      — `{:status … :resource/key <key> :scope <scope> …}`;
     - the MUTATION execute reply-payload — `{:instance-id … :work/id <work-id>
       :scope <scope> …}`, with NO resource key at all, which is exactly why the
       work-id is a marker and the key alone is not (a mutation's scope must not
@@ -691,6 +698,9 @@
     - a READ completion reply's `:correlation` facts (`resources.reply`) —
       `{:scope <scope> :generation … :rf.reply/resource-key <key>}`, whose only
       marker is that reserved reply spelling.
+
+  A READ's transport payload is not among them: it carries `:work/id`,
+  `:generation` and `:rf.frame/id` and no scope at all.
 
   THE FOURTH DOES NOT. A MUTATION
   completion reply's `:correlation` is `{:scope … :generation … :mutation/id …
@@ -885,8 +895,7 @@
   proofs, neither of them a roster:
 
     - `named?` — the value was reached through the family's own reserved
-      vocabulary (a `resource`-namespaced map key, or position 1 of a
-      `[:rf.work/resource …]` work-id). The runtime named the position itself,
+      vocabulary (a `resource`-namespaced map key). The runtime named the position itself,
       so whatever sits there is the family's WHATEVER the registry says — which
       is what keeps the fail-closed arm reachable for a genuine key whose owner
       was cleared or hot-reloaded away (`project-trace-scoped-key`'s nil-spec
@@ -914,10 +923,12 @@
   "Trace tag slots owned by the FX family that the resource family's scoped keys
   RIDE IN.
 
-  A resource `ensure` lowers into effects, and those effects address the work by
-  its scoped key: `[:rf.http/managed {:request-id [:rf.req <frame>
-  [:rf.work/resource <scoped-key> <gen>]] :on-success [… {:work/id … :resource/key
-  …}] …}]`. `re-frame.fx/handle-one-fx` stamps that argument payload verbatim
+  Resource events lower into effects that carry the family's data: the timer
+  effects address an entry by its scoped key (`[:rf.resource/schedule-timers
+  {:resource/key … :timers …}]`), and a read completion continuation dispatched
+  through `[:dispatch <ev>]` carries the read's key. (A transport request id,
+  `[:rf.req <frame> [:rf.work/resource <resource-id> <gen>]]`, carries no key.)
+  `re-frame.fx/handle-one-fx` stamps that argument payload verbatim
   under `:rf.fx/args` (on `:rf.fx/handled`, on `:rf.fx/skipped-on-platform`, and
   on the always-on `:rf.error/*` fx-failure traces), and `do-fx` stamps the whole
   effect vector under `:rf.event/fx`. So the family's keys reach off-box egress on
@@ -958,8 +969,7 @@
 
   The `named?` argument is that proof, threaded down the walk: it is true when
   the value sits somewhere the family's RESERVED vocabulary put it — under a
-  `resource`-namespaced map key, or at position 1 of a `[:rf.work/resource …]`
-  work-id. It resets at every map entry (each key answers for its own value)
+  `resource`-namespaced map key. It resets at every map entry (each key answers for its own value)
   and is inherited through sequential collections, which is what carries it
   from `:resource/keys` to the keys inside.
 
@@ -982,18 +992,17 @@
   ## …AND the resolved `:scope` beside them
 
   A scoped key is not the only family datum the family PUTS in a foreign carrier.
-  The continuation payload every `ensure` / `refetch` / `load-more` / mutation
-  `execute` builds for its transport
-  (`transport.http/build-managed-args`) is the runtime's stale-suppression
-  verification identity — `{:work/id … :resource/key <scoped-key> :scope <resolved
-  scope> :generation … :rf.frame/id …}` — and it rides `:on-success` /
-  `:on-failure` INSIDE the fx args. The `:resource/key` there projects (it is
-  scoped-key-shaped) and so does the key embedded in the `:work/id`; the free
-  `:scope` beside them is a `[tier {identity}]` TUPLE, not a scoped key, so the
-  walk alone would descend it, find a plain map of app values, and let the
-  resolver's IDENTITY MAP through in the clear — one slot from the
-  `:resource/key` that has just redacted the very same bytes. The two-carrier
-  shape again, inside a single map.
+  A mutation `execute` plants its resolved scope in the transport payload it
+  builds (`transport.http/build-managed-args`) — `{:instance-id … :work/id …
+  :scope <resolved scope> :generation … :rf.frame/id …}`, riding `:on-success`
+  / `:on-failure` INSIDE the fx args — and a read completion continuation
+  reply carries the read's `:scope` beside its `:resource/key`. (A READ's
+  transport payload carries no scope: its handler resolves the scoped key from
+  the ledger row.) That free `:scope` is a `[tier {identity}]` TUPLE, not a
+  scoped key, so the walk alone would descend it, find a plain map of app
+  values, and let the resolver's IDENTITY MAP through in the clear — in a read
+  reply, one slot from the `:resource/key` that has just redacted the very same
+  bytes. The two-carrier shape again, inside a single map.
 
   A `:scope` entry OF A RUNTIME CONTINUATION PAYLOAD (`carrier-family-payload?`)
   is therefore projected by the standing scope rule (`project-scope`) rather
@@ -1188,10 +1197,7 @@
                 value
                 (record-sensitive-projection! true redacted-value)))
             value)
-          ;; position 1 of a `[:rf.work/resource …]` vector is family-planted by
-          ;; construction, so the key there is NAMED however unregistered its
-          ;; resource-id has become.
-          work-id-carrier? (family-work-id? declaration-projected-value)
+
           ;; The family's own resolved scope, planted in a foreign
           ;; payload by the runtime, projected by the FAMILY rule so the carrier
           ;; cannot drift from the row. Gated on the payload being provably the
@@ -1287,14 +1293,7 @@
          (into #{} (map #(project-value % named?)) declaration-projected-value)
 
          (vector? declaration-projected-value)
-         (if work-id-carrier?
-           (into []
-                 (map-indexed
-                   (fn [component-index component-value]
-                     (project-value component-value
-                                    (or named? (= 1 component-index)))))
-                 declaration-projected-value)
-           (mapv #(project-value % named?) declaration-projected-value))
+         (mapv #(project-value % named?) declaration-projected-value)
 
          (seq? declaration-projected-value)
          (apply list (map #(project-value % named?) declaration-projected-value))
@@ -1446,9 +1445,7 @@
                 ;; through a verbatim `:else`, so
                 ;; `:rf.resource/route-plan`'s `:blocking` / `:identities`
                 ;; would egress a sensitive owner's scope + params RAW — as would
-                ;; `:optimistic-keys` / `:forced-keys` / `:revisions` and the
-                ;; scoped key EMBEDDED in every resource `:work/id` /
-                ;; `:superseded` / `:aborted` work-id.
+                ;; `:optimistic-keys` / `:forced-keys` / `:revisions`.
                 ;;
                 ;; NOTE for the reader who reaches here from a row's emit site:
                 ;; a slot NAME in `scoped-keys-slot` does not mean the row's
@@ -1493,11 +1490,10 @@
   (`project-unknown-slot-value`): a scoped key anywhere inside it projects through
   the same owner classification, a map payload tokenizes, a scalar rides
   verbatim. That is what covers `:rf.resource/route-plan`'s `:blocking` /
-  `:identities`, the optimistic rows' `:optimistic-keys` / `:forced-keys` /
-  `:revisions`, and the scoped key EMBEDDED at position 1 of every resource
-  `:work/id` / `:superseded` / `:aborted` work-id
-  (`[:rf.work/resource <scoped-key> <generation>]`) — none of which the slot
-  roster names. When ANY projected slot redacted a
+  `:identities` and the optimistic rows' `:optimistic-keys` / `:forced-keys` /
+  `:revisions` — none of which the slot roster names. A resource work id
+  (`[:rf.work/resource <resource-id> <generation>]`, on `:work/id` /
+  `:superseded` / `:aborted`) carries no key and rides as-is. When ANY projected slot redacted a
   sensitive / unregistered key, the row is stamped `:sensitive? true`; the
   standing scope rule alone stamps nothing.
 
@@ -1552,8 +1548,8 @@
   (`project-embedded-keys`) and stamps `:sensitive? true` when a key redacted.
   Everything else on the row rides UNTOUCHED, whatever its shape: the row
   belongs to the fx family, and the resource family speaks only for the data it
-  planted there — its scoped keys; the resolved `:scope` the
-  transport continuation payload carries beside them, a
+  planted there — its scoped keys; the resolved `:scope` a payload it plants
+  carries (a mutation's transport payload, a read continuation reply), a
   `[tier {identity}]` TUPLE rather than a scoped key; the `:value` + `:params` a READ
   CONTINUATION reply carries beside its own `:resource/key`, tokenized iff that
   key's OWNER redacts so a plain resource's reply stays readable;
@@ -1568,8 +1564,8 @@
   transport rather than to any resource owner and the family's own rows tokenize
   it regardless of owner; and that reply's `:correlation` facts,
   whose `:scope` is the SAME resolved identity the free `:scope` beside it
-  carries, gated on the same family marker so the reply's three copies of one
-  scope project under one rule instead of two.
+  carries, gated on the same family marker so the reply's two copies of one
+  scope project under one rule.
 
   \"Speaks only for the data it planted\" is enforced, not merely intended:
   each of those arms fires on PROOF that the runtime planted the value —

@@ -662,13 +662,15 @@
 
 (def ^:private mixed-family-buffer
   "`:article/by-slug` (declared `:sensitive?` above) beside `:comments/list` (not)."
-  [{:id 1 :operation :rf.resource/fetch-started
+  [{:id 1 :operation :rf.resource/work-started
     :tags {:resource/key [session-scope :article/by-slug {:slug "welcome"}]
-           :generation 4 :status :loading
+           :work/id [:rf.work/resource :article/by-slug 4]
+           :generation 4 :status :running
            :cause [:route :route/article "nav-1"]}}
-   {:id 2 :operation :rf.resource/fetch-started
+   {:id 2 :operation :rf.resource/work-started
     :tags {:resource/key [session-scope :comments/list {:slug "welcome"}]
-           :generation 1 :status :loading
+           :work/id [:rf.work/resource :comments/list 1]
+           :generation 1 :status :running
            :cause [:route :route/article "nav-1"]}}
    {:id 3 :operation :rf.resource/invalidated
     :tags {:scope session-scope :tags #{[:article "welcome"]}
@@ -697,8 +699,61 @@
     (testing "CONTROL — the sibling in the same rows still prints"
       (is (= [false false false] (redacted-at (row-by-id gated 2) slots))))
     (testing "the metadata is never redacted — the lifecycle shape survives"
-      (is (= [:article/by-slug :rf.resource/fetch-started 4 :loading]
+      (is (= [:article/by-slug :rf.resource/work-started 4 :running]
              ((juxt :resource-id :operation :generation #(get-in % [:status :after])) s))))))
+
+(def ^:private attempt-buffer
+  "Each attempt's work-started row states its scoped key; its later rows name
+  it by `:work/id` and `:resource/id` only. The `:feed/articles` attempt's
+  work-started row has left the buffer."
+  [{:id 40 :operation :rf.resource/work-started
+    :tags {:rf.frame/id :app :resource/key [session-scope :article/by-slug {:slug "welcome"}]
+           :work/id [:rf.work/resource :article/by-slug 4] :generation 4 :status :running}}
+   {:id 41 :operation :rf.resource/fetch-started
+    :tags {:rf.frame/id :app :resource/id :article/by-slug
+           :work/id [:rf.work/resource :article/by-slug 4] :generation 4 :status :loading
+           :cause [:route :route/article "nav-1"]}}
+   {:id 42 :operation :rf.resource/work-started
+    :tags {:rf.frame/id :app :resource/key [session-scope :comments/list {:slug "welcome"}]
+           :work/id [:rf.work/resource :comments/list 5] :generation 5 :status :running}}
+   {:id 43 :operation :rf.resource/failed
+    :tags {:rf.frame/id :app :resource/id :comments/list
+           :work/id [:rf.work/resource :comments/list 5] :generation 5
+           :status-before :loading :status-after :error}}
+   {:id 44 :operation :rf.resource/load-more
+    :tags {:rf.frame/id :app :resource/id :feed/articles
+           :work/id [:rf.work/resource :feed/articles 6] :generation 6
+           :page-param "cursor-1" :page-index 1 :page-count 1}}
+   {:id 45 :operation :rf.resource/succeeded
+    :tags {:rf.frame/id :other :resource/id :article/by-slug
+           :work/id [:rf.work/resource :article/by-slug 4] :generation 4
+           :status-after :loaded}}])
+
+(deftest lifecycle-timeline-joins-an-attempt-row-to-its-key-by-work-id
+  (let [rows  (h/lifecycle-timeline attempt-buffer)
+        gated (h/lifecycle-timeline attempt-buffer nil (conj sensitive-rids :feed/articles))]
+    (testing "an attempt row takes its resource-id from :resource/id and its
+              key from the work-started row of the same frame and work id"
+      (is (= [[:article/by-slug :article/by-slug]
+              [:comments/list :comments/list]]
+             (mapv (juxt :resource-id #(get-in % [:resource/key :resource-id]))
+                   [(row-by-id rows 41) (row-by-id rows 43)]))))
+    (testing "a work id names its attempt in one frame only"
+      (is (= [:article/by-slug nil]
+             ((juxt :resource-id :resource/key) (row-by-id rows 45)))))
+    (testing "an attempt whose work-started row has left the buffer keeps its
+              resource-id and shows no key"
+      (is (= [:feed/articles nil]
+             ((juxt :resource-id :resource/key) (row-by-id rows 44)))))
+    (testing "the on-box gate reads the attempt row's resource-id"
+      (is (= [true true true]
+             (redacted-at (row-by-id gated 41)
+                          [[:resource/key :scope] [:resource/key :params] [:cause]])))
+      (is (true? (get-in (row-by-id gated 44) [:page :page-param :redacted?]))
+          "a sensitive feed's cursor redacts without a key on the row")
+      (is (= [false false]
+             (redacted-at (row-by-id gated 43) [[:resource/key :scope] [:resource/key :params]]))
+          "CONTROL — the sibling's joined key still prints"))))
 
 (deftest invalidation-graph-redacts-a-sensitive-resource-on-box
   (let [gated (h/invalidation-graph mixed-family-buffer nil sensitive-rids)
