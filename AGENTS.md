@@ -50,7 +50,7 @@ Two shadow-cljs runs anywhere on this machine at once **wedge silently** — no 
 sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>-1.log 2>&1; echo "$?" > gate-fastpr-<worktree>-1.exit
 ```
 
-  Bump the number on every re-run (`-2`, `-3`) and never write one twice. The worktree name stops a peer sharing the scratchpad from overwriting your exit code with theirs; the attempt number stops a surviving child of a killed run from splicing into your new log (the tell is a NUL hole, or two summary lines). A foreground call dies at ten minutes and the spine needs about twenty-five, so kill-and-restart is routine. Confirm a scratch file is your own before believing it.
+  Bump the number on every re-run (`-2`, `-3`) and never write one twice. The worktree name stops a peer sharing the scratchpad from overwriting your exit code with theirs; the attempt number stops a surviving child of a killed run from splicing into your new log (the tell is a NUL hole, or two summary lines). A foreground call dies at ten minutes: the spine's default run fits inside it on a docs, spec or script diff, while a Clojure diff (the JVM suite, then `test:cljs`) can outlast it on a busy machine and `--all` needs about twenty-five, so run those detached. Confirm a scratch file is your own before believing it.
 
 ## Build & Test
 

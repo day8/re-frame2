@@ -25,8 +25,16 @@ set -euo pipefail
 #              drift.  Artefacts the diff did
 #              not touch still do NOT run: the PASS line names them, and
 #              `scripts/test-jvm-implementation.sh` is the whole set;
-#   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
-#              the per-namespace isolation gate;
+#   node tier  armed like the JVM tier, then narrowed by the diff's own
+#              files: the CLJS node integration suite (`npm run test:cljs`)
+#              and the Fresco static gates when it touches Clojure source or
+#              EDN, and the JS harness self-tests (`npm run test:scripts`) when
+#              it touches a script or a package manifest.  The per-namespace
+#              isolation gate and the Fresco modules compile run with `--all`
+#              (or when the tier decision falls back); otherwise the PASS line
+#              names them with their commands.  The JVM tier starts in the
+#              background at the top of the run, beside the static,
+#              documentation and lint gates, and is joined before this tier;
 #   spine self this script's own tiering self-test, armed ONLY when this script
 #              or its self-test fixture tree is itself in the diff.
 #
@@ -172,8 +180,12 @@ touches documentation content.  The cheap static/drift checks always run.
 
 Within the JVM tier the spine runs implementation/core plus the suite of every
 artefact whose own tree the diff touched, selected against the
-implementation/ rows of scripts/jvm-lanes.txt.  --plan prints that
-selection.
+implementation/ rows of scripts/jvm-lanes.txt.  Within the node tier it runs
+test:cljs when the diff touches Clojure source or EDN and test:scripts when
+it touches a script or a package manifest; the per-namespace isolation gate
+and the Fresco modules compile run only under --all.  The JVM tier runs in
+the background from the start of the run and is joined before the node tier.
+--plan prints both selections.
 
 Flags:
   --all, -a     run the COMPLETE spine regardless of classification
@@ -513,6 +525,53 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# WHICH NODE LANES — measured, then narrowed.
+#
+# Timed on this machine over two `--all` runs, the node tier was 13.5 min of a
+# 24.5 min spine with its shadow-cljs cache cold: test:cljs 350s cold / 251s
+# warm, test:scripts 227-326s, the per-namespace isolation gate 108s, the
+# Fresco modules compile 71-119s, the Fresco static gates 6s.  CI runs every
+# one of them on every PR that arms `cljs_node_test`, and is the record.
+#
+# So a CLASSIFIED run keeps the lanes the diff can actually reach:
+#   cljs     test:cljs + the Fresco static gates, when the diff touches Clojure
+#            source (`.clj`, which can be a macro namespace, `.cljc`, `.cljs`)
+#            or EDN (build config, deps, data a macro reads);
+#   scripts  test:scripts, when it touches a `.cjs`/`.mjs`/`.js` file or a
+#            package manifest.
+# The isolation gate and the Fresco modules compile join them under `--all`
+# and the fallbacks below; otherwise they are NAMED on the PASS line with
+# their commands.  A fallback or a spine self-change runs every lane: an
+# undecided change set is not evidence that a lane is unreachable.
+# ---------------------------------------------------------------------------
+node_cljs=false
+node_scripts=false
+node_full=false
+if [ "$run_node" = true ]; then
+  if [ "$plan_reason" != classified ]; then
+    node_cljs=true
+    node_scripts=true
+    node_full=true
+  else
+    while IFS= read -r _f; do
+      case "$_f" in
+        *.clj|*.cljc|*.cljs|*.edn) node_cljs=true ;;
+      esac
+      case "$_f" in
+        *.cjs|*.mjs|*.js|*package.json|*package-lock.json) node_scripts=true ;;
+      esac
+      case "$_f" in
+        implementation/package.json|implementation/package-lock.json) node_cljs=true ;;
+      esac
+    done <<< "$changed_files"
+  fi
+fi
+node_plan=""
+[ "$node_scripts" = true ] && node_plan="$node_plan scripts"
+[ "$node_cljs" = true ] && node_plan="$node_plan cljs"
+[ "$node_full" = true ] && node_plan="$node_plan isolation fresco-compile"
+
+# ---------------------------------------------------------------------------
 # WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here.
 #
 # The implementation/ rows of `scripts/jvm-lanes.txt` are the canonical
@@ -577,7 +636,8 @@ if [ "$plan_only" = true ]; then
     "$([ "$spine_self_surface" = true ] && echo run || echo 'skip (spine unchanged)')"
   printf '  mkdocs --strict:     %s\n' "$mkdocs_plan"
   printf '  JVM tier:            %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
-  printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
+  printf '  node/CLJS suite:     %s\n' \
+    "$([ "$run_node" = true ] && echo "run:${node_plan:- (no lane the diff reaches)}" || echo skip)"
   printf '  clj-kondo (pinned):  %s\n' "$([ "$run_kondo" = true ] && echo run || echo skip)"
   printf '  reason:              %s\n' "$plan_reason"
   printf '  JVM artefact suites: %s\n' \
@@ -599,6 +659,7 @@ if [ "$plan_only" = true ]; then
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
   printf 'PLAN-MKDOCS %s\n' "$mkdocs_plan"
   printf 'PLAN-SELFTEST %s\n' "$([ "$spine_self_surface" = true ] && echo run || echo skip)"
+  printf 'PLAN-NODE%s\n' "$node_plan"
   exit 0
 fi
 
@@ -846,12 +907,58 @@ trap 'spine_on_signal SIGQUIT 131' QUIT
 # returned.  It only releases the claim, and it must not disturb the exit
 # status: AGENTS.md has every worker echo this script's `$?` into a file, so
 # the handler runs nothing that can fail and never calls `exit` itself.
-trap 'spine_release_run' EXIT
+# A node-tier red exits while the JVM tier may still be running in the
+# background; it dies with the run rather than outliving it.
+jvm_bg_pid=""
+spine_reap_background() {
+  if [ -n "$jvm_bg_pid" ] && kill -0 "$jvm_bg_pid" 2>/dev/null; then
+    spine_taskkill_tree "$jvm_bg_pid"
+    spine_kill_descendants "$jvm_bg_pid"
+    kill -TERM "$jvm_bg_pid" 2>/dev/null || true
+  fi
+  return 0
+}
+
+trap 'spine_reap_background; spine_release_run' EXIT
 
 spine_claim_run
 
 printf '=== fast PR spine: docs=%s jvm=%s node=%s (%s) ===\n' \
   "$run_docs" "$run_jvm" "$run_node" "$plan_reason"
+
+# ---------------------------------------------------------------------------
+# JVM artefact suites — gated on implementation_jvm (test.yml's per-artefact
+# jobs).  Contents: core, plus every artefact the diff touched.
+#
+# It runs in the BACKGROUND from the start of the run, beside the static,
+# documentation and lint gates, into a log printed when it is joined, just
+# before the node tier; in sequence a JVM-tier diff pays the ~6 min suite on
+# top of them.  It is joined BEFORE the node tier, never beside it: the CLJS
+# suite carries wall-clock-timed tests, and with the JVM suite running beside
+# it the Story recorder's 50ms wait threshold measured a 51ms gap and failed.
+# ---------------------------------------------------------------------------
+jvm_bg_log="$spine_run_dir/jvm-tier.$$.log"
+if [ "$run_jvm" = true ]; then
+  printf '\n--- JVM artefact suites:%s — running in the background; output follows the lint lane ---\n' \
+    "$jvm_run_list"
+  (
+    for artefact in $jvm_run_list; do
+      run "JVM $artefact" "cd $artefact && clojure -M:test" \
+        bash -lc "cd '$spine_root/$artefact' && clojure -M:test" || exit 1
+    done
+  ) > "$jvm_bg_log" 2>&1 &
+  jvm_bg_pid=$!
+  # Named even on the path that RUNS the tier: `implementation_jvm` arms every
+  # per-artefact CI job at once and this spine ran a subset.  A worker whose
+  # diff reached an artefact indirectly — through core, through a shared
+  # fixture — must see that the artefact's own suite was not run here.
+  if [ -n "$jvm_skipped_list" ]; then
+    note_skipped "JVM artefact suites the diff did not touch:${jvm_skipped_list} (scripts/test-jvm-implementation.sh runs all)"
+  fi
+else
+  printf '\n--- implementation_jvm surface unchanged → skipping JVM artefact suites (override with --all) ---\n'
+  note_skipped "all JVM artefact suites (implementation_jvm surface unchanged; --all forces)"
+fi
 
 # ---------------------------------------------------------------------------
 # ALWAYS-ON static / drift checks.
@@ -1545,25 +1652,18 @@ else
   note_skipped "clj-kondo (pinned) — no file under a --lint root, .clj-kondo/ or lint.yml changed"
 fi
 
-# ---------------------------------------------------------------------------
-# JVM artefact suites — gated on implementation_jvm (test.yml's per-artefact
-# jobs).  Contents: core, plus every artefact the diff touched.
-# ---------------------------------------------------------------------------
-if [ "$run_jvm" = true ]; then
-  for artefact in $jvm_run_list; do
-    run "JVM $artefact" "cd $artefact && clojure -M:test" \
-      bash -lc "cd '$spine_root/$artefact' && clojure -M:test"
-  done
-  # Named even on the path that RUNS the tier: `implementation_jvm` arms every
-  # per-artefact CI job at once and this spine ran a subset.  A worker whose
-  # diff reached an artefact indirectly — through core, through a shared
-  # fixture — must see that the artefact's own suite was not run here.
-  if [ -n "$jvm_skipped_list" ]; then
-    note_skipped "JVM artefact suites the diff did not touch:${jvm_skipped_list} (scripts/test-jvm-implementation.sh runs all)"
+# The JVM tier's verdict, joined before the node tier starts (see the JVM block
+# above for why the two never overlap).
+if [ -n "$jvm_bg_pid" ]; then
+  printf '\n--- waiting for the JVM artefact suites (running since the start of the run) ---\n'
+  jvm_status=0
+  wait "$jvm_bg_pid" || jvm_status=$?
+  jvm_bg_pid=""
+  cat "$jvm_bg_log"
+  rm -f "$jvm_bg_log"
+  if [ "$jvm_status" -ne 0 ]; then
+    exit 1
   fi
-else
-  printf '\n--- implementation_jvm surface unchanged → skipping JVM artefact suites (override with --all) ---\n'
-  note_skipped "all JVM artefact suites (implementation_jvm surface unchanged; --all forces)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1605,9 +1705,16 @@ if [ "$run_node" = true ] && [ ! -d "$spine_root/implementation/node_modules" ];
   printf '      the link and empties the tree it points at.\n'
   note_skipped "npm/CLJS/isolation + fresco invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the fresco gates this run"
 elif [ "$run_node" = true ]; then
-  run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
+  if [ "$node_scripts" = true ]; then
+    run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
+      bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
+  else
+    printf '\n--- no script or package manifest in the diff → skipping the JS harness self-tests ---\n'
+    note_skipped "JS harness self-tests — no .cjs/.mjs/.js file or package manifest changed (cd implementation && npm run test:scripts)"
+  fi
+fi
 
+if [ "$run_node" = true ] && [ -d "$spine_root/implementation/node_modules" ] && [ "$node_cljs" = true ]; then
   run "CLJS node integration" "cd implementation && npm run test:cljs" \
     bash -lc "cd '$spine_root/implementation' && npm run test:cljs"
 
@@ -1619,11 +1726,15 @@ elif [ "$run_node" = true ]; then
   # namespaces EACH ALONE; a fixture leaning on bundle pollution goes red
   # standalone.  Self-test first (proves the red/green classification), then the
   # live run (reuses the bundle test:cljs just compiled).
-  run "per-ns isolation self-test" "cd implementation && node scripts/check-per-ns-isolation.cjs --self-test" \
-    bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs --self-test"
+  if [ "$node_full" = true ]; then
+    run "per-ns isolation self-test" "cd implementation && node scripts/check-per-ns-isolation.cjs --self-test" \
+      bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs --self-test"
 
-  run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
-    bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
+    run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
+      bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
+  else
+    note_skipped "per-ns test isolation — --all runs it (cd implementation && node scripts/check-per-ns-isolation.cjs, after npm run test:cljs)"
+  fi
 
   # Fresco invariants gate.  A chain of sub-second static reads over
   # implementation/fresco/**, each with its own `--self-test`: the
@@ -1661,9 +1772,16 @@ elif [ "$run_node" = true ]; then
   # reachability roster) plus the core attribution instruments no test build
   # selects, with warnings treated as failures.  `node
   # fresco/scripts/check_modules_compile.cjs --list` prints what it compiles.
-  run "fresco modules compile" "cd implementation && npm run test:fresco-compile" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:fresco-compile"
-else
+  if [ "$node_full" = true ]; then
+    run "fresco modules compile" "cd implementation && npm run test:fresco-compile" \
+      bash -lc "cd '$spine_root/implementation' && npm run test:fresco-compile"
+  else
+    note_skipped "Fresco modules compile — --all runs it (cd implementation && npm run test:fresco-compile)"
+  fi
+elif [ "$run_node" = true ] && [ -d "$spine_root/implementation/node_modules" ]; then
+  printf '\n--- no Clojure source or EDN in the diff → skipping the CLJS node lanes ---\n'
+  note_skipped "CLJS node integration, per-ns isolation, Fresco gates — no .clj/.cljc/.cljs/.edn file changed; --all runs them (cd implementation && npm run test:cljs)"
+elif [ "$run_node" != true ]; then
   printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'
   note_skipped "npm/CLJS/isolation (cljs_node_test surface unchanged; --all forces)"
 fi
