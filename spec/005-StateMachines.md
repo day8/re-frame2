@@ -184,12 +184,12 @@ The argument: **the Single Store invariant pays off again.** Every frame-state c
 A transition table is pure data. Top-level shape:
 
 ```clojure
-{:initial <fsm-keyword>                     ;; required — initial state
+{:initial <fsm-keyword>                     ;; required to boot — initial state
  :data    {<initial data>}                  ;; optional — initial data map
  :schemas {:data <schema>, ...}             ;; optional — machine-level schema declarations; `[:schemas :data]` validates `:data` at the `:where :machine-data` boundary (see §Schema validation)
  :guards  {<keyword> <fn>, ...}             ;; optional — machine-local named guard impls
  :actions {<keyword> <fn>, ...}             ;; optional — machine-local named action impls
- :states  {<fsm-keyword> <state-node>, ...} ;; required
+ :states  {<fsm-keyword> <state-node>, ...} ;; required to boot
  :on      {<event-id> <transition>, ...}    ;; optional — top-level fallback
  :meta    {<user-keys> ...}}                ;; optional — e.g. :rf/snapshot-version
 ```
@@ -202,14 +202,14 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 
 | Key | Where | Notes |
 |---|---|---|
-| `:initial` | top-level | required — the initial FSM-keyword |
+| `:initial` | top-level | required to boot — the initial FSM-keyword (see the note below the table) |
 | `:data` | top-level | optional — initial data map |
 | `:schemas` | top-level | optional — machine-level schema declarations. A closed sub-key map: `:data` (the live, wired category — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade), plus the declaration-only categories `:events` / `:tags` / `:meta` (abstract values; no wired behaviour yet); `[:schemas :output]` is live (the `:where :machine-output` boundary — see [§The `:schemas` map](#schema-validation)). `[:schemas :input]` and any unknown sub-key fail loud at registration (`:rf.error/machine-bad-schemas-key`); a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`. See [§Schema validation](#schema-validation). |
 | `:guards` | top-level | optional — `{<keyword> <fn>}` map of machine-local named guards; referenced by keyword from `:guard` slots |
 | `:actions` | top-level | optional — `{<keyword> <fn>}` map of machine-local named actions; referenced by keyword from `:action` / `:entry` / `:exit` slots |
 | `:delays` | top-level | optional — `{<keyword> <ms \| ISO-8601 string \| fn>}` map of machine-local named delays; referenced by keyword from `:after` keys (see [§Value shape](#value-shape)) |
 | `:meta` | top-level | optional — e.g. `:rf/snapshot-version` |
-| `:states` | top-level | required — map of FSM-keyword → state node |
+| `:states` | top-level | required to boot — map of FSM-keyword → state node (see the note below the table) |
 | `:on` | per-state and top-level | event-driven transition map |
 | `:on` keys | exact event keyword, `:ns/*` namespace wildcard, or `:*` total wildcard | resolved most-specific-first: exact > `:ns/*` > `:*` (see [§Wildcard transitions](#wildcard-transitions)) |
 | `:entry`, `:exit` | per-state and top-level | one fn or one keyword reference into the machine's `:actions` map; at the top level they run once at birth and once at teardown (see [§The machine root](#the-machine-root)) |
@@ -225,6 +225,8 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | omit `:target` for the targetless `internal?` no-op, or name the declaring state as the `:target` (non-reentering by default — target survives, descendants re-resolve); add `:reenter? true` for external (exit+re-enter). A `:target` naming a proper ancestor of the declaring state exits and re-enters that ancestor either way |
 | per-state `:meta` | per-state | tooling-visible, e.g. `{:terminal? true}` |
+
+**`:initial` and `:states` are required to boot, not to register.** Registration validates the structure a spec declares and builds no snapshot, so a spec with no `:initial` registers, with or without `:states` (a bodiless spawn target with neither is the usual case), and fails only when an instance of it first boots: its initial `:state` is nil, and the boot throws `:rf.error/machine-bad-state-form`. An `:initial` that names no state in `:states` is declared structure, so registration rejects it with `:rf.error/machine-unresolved-target`.
 
 ### State nodes
 
@@ -919,7 +921,7 @@ Reference resolution:
 - `:action :clear-error` → `(get-in spec [:actions :clear-error])`.
 - `:action (fn [...] ...)` → inline fn, called directly.
 
-The transition table is walked at registration time and every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) is verified to resolve to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
+The transition table is walked at registration time and every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) is verified to resolve through the spec's `:guards` / `:actions` map. A `:guards` / `:actions` entry whose value is itself a keyword is followed through the same map, hop by hop, until it reaches a fn or a `{:fn …}` entry; a chain that reaches a missing key or revisits one is unresolved, exactly as a reference to a missing key is. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
 **Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a Clojure var and reference the var from each machine's `:guards` / `:actions` map:
 
