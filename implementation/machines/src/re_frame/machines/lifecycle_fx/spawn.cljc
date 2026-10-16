@@ -136,8 +136,8 @@
   clears it, so the mirror never names an actor the parent does not own — one
   that was never born, or another parent's live child.
 
-  Removes only an entry naming THIS spawn's address — at the in-region key
-  for a region spawn (`paths/spawned-mirror-path`) — and prunes an emptied
+  Removes only an entry naming THIS spawn's address — at its region-qualified
+  key for a region spawn (`paths/spawned-mirror-path`) — and prunes an emptied
   `:rf/spawned` map as the teardown projection does. A spawn with no
   `:rf/parent-id` / `:rf/invoke-id` (hand-emitted) has no mirror, so this is a
   no-op for it. Bound to the event owner's exact incarnation, like the install.
@@ -575,7 +575,6 @@
                          ;; re-enters the spawning state drains the old child's
                          ;; destroy FIRST, and that clear takes the successor's
                          ;; freshly bound mirror with it. A value no-op otherwise.
-                         ;; A region spawn's entry sits at its in-region key.
                          (and track?
                               (contains? (get-in rt-after-alloc (rf.machines.paths/snapshot-path))
                                          parent-id))
@@ -1487,8 +1486,8 @@
   Returns the new runtime-db slice, or nil on owner loss.
 
   `mirror` is set in the SAME swap at the parent's
-  `[:data :rf/spawned <invoke-id>]` (the in-region key for a region spawn,
-  `paths/spawned-mirror-path`): the children map the slot's `:children`
+  `[:data :rf/spawned <invoke-id>]` (`paths/spawned-mirror-path`): the
+  children map the slot's `:children`
   mirrors on the live-join accept path, and nil — the entry removed, an emptied
   `:rf/spawned` map pruned — when `value` is the reject sentinel. The exit-cascade
   clear removes slot and mirror together, so the seed moves them together on
@@ -1502,7 +1501,6 @@
    (let [spawned (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
          swap-fn (fn [rt]
                    (let [rt'        (assoc-in rt (rf.machines.paths/spawned-path parent-id invoke-id) value)
-                         ;; A region spawn's entry sits at its in-region key.
                          mirror-at  (rf.machines.paths/spawned-mirror-path rt' parent-id invoke-id)
                          mirror-key (peek mirror-at)]
                      (cond

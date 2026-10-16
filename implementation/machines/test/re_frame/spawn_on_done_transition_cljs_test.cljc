@@ -151,8 +151,7 @@
 
 (deftest foreign-region-declines-the-spawn-on-done-arm
   (testing "a carrier addressed to region :a never fires region :b's :spawn :on-done at the same in-region path"
-    ;; Registration refuses two regions spawning at one in-region path, so only
-    ;; the pure transition reaches the resolver's region decline.
+    ;; The pure transition drives the resolver's region decline directly.
     (let [region (fn [target]
                    {:initial :loading
                     :states  {:loading {:spawn {:machine-id :sodt/any :on-done target}}

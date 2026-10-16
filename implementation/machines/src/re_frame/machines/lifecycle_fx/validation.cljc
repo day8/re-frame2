@@ -1870,42 +1870,6 @@
         (when (and (some? od) (not (fn? od)))
           (check! :spawn/on-done od))))))
 
-(defn- validate-region-spawn-paths!
-  "Per Spec 005 §Reserved snapshot-internal keys (`:rf/spawned`): refuse a
-  `:type :parallel` machine in which two regions declare a `:spawn` /
-  `:spawn-all` at the SAME in-region path, with
-  `:rf.error/machine-parallel-bad-shape`.
-
-  The parent's `[:data :rf/spawned …]` mirror keys a region's spawn by its
-  in-region path, because that is the key a region action can name (a region
-  name is not addressable from inside a region). Two regions spawning at one
-  in-region path would share that key, and each region's action would read,
-  and could destroy, the other region's child. The runtime registry slot is
-  region-qualified and would still tell them apart; the mirror cannot."
-  [machine]
-  (when (rf.machines.parallel/parallel? machine)
-    (reduce
-      (fn [seen [_scope path node region]]
-        (if-not (or (:spawn node) (:spawn-all node))
-          seen
-          (if-let [other (get seen path)]
-            (throw (validation-error
-                     :rf.error/machine-parallel-bad-shape
-                     (str "regions " (pr-str other) " and " (pr-str region)
-                          " both declare a :spawn / :spawn-all at the in-region "
-                          "path " (pr-str path) ". A parent's :rf/spawned mirror "
-                          "keys a region's spawn by its in-region path — the key a "
-                          "region action can name — so the two regions would share "
-                          "one entry, and each would read the other's child. Rename "
-                          "the spawning state in one of the regions. Per Spec 005 "
-                          "§Reserved snapshot-internal keys.")
-                     {:regions    [other region]
-                      :state-path path}))
-            (assoc seen path region))))
-      {}
-      (walk-state-nodes-with-scope machine))
-    nil))
-
 ;; ---- machine-level :schemas map --------------------------------------------
 ;;
 ;; The machine-level `:schemas` map is the single home for a machine's
@@ -2383,10 +2347,7 @@
   Per Spec 005 §Final states D2: a single `:spawn`'s `:on-done` is a fn (the
   `:data` fold) or an `:on`-shaped transition, and a `:spawn-all` child's
   `:on-done` is a fn; anything else throws
-  `:rf.error/machine-bad-on-done-clause`. Two parallel regions declaring a
-  `:spawn` / `:spawn-all` at the same in-region path throw
-  `:rf.error/machine-parallel-bad-shape` (they would share one `:rf/spawned`
-  mirror entry).
+  `:rf.error/machine-bad-on-done-clause`.
 
   Every `:on` / `:always` / `:entry` / `:exit` slot's guard
   and action keyword refs must resolve against the machine's `:guards` /
@@ -2526,7 +2487,6 @@
   (validate-history! machine)
   (validate-parallel! machine)
   (validate-parallel-root-only! machine)
-  (validate-region-spawn-paths! machine)
   ;; A non-parallel root's `:after` (hand-authored or lowered
   ;; from a root `:timeout` / `:on-timeout`) has no runtime scheduling /
   ;; resolution path; reject it loudly rather than silently registering a
