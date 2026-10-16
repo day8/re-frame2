@@ -8,9 +8,14 @@
   The runner's self-tests live here: the runner is one `.cljc`, so a check
   that it bites on the JVM is the same check on CLJS. The classification-op
   guard keeps a CLJS mirror too, because the fixture grammar in
-  spec/conformance/fixture-file.edn names both as its durable negative, and
-  so does the top-level-key guard, because the conformance README binds
-  every host's harness to fail naming a key it does not implement.
+  spec/conformance/fixture-file.edn names both as its durable negative.
+
+  The grammar is also what the runner's matcher tables answer to:
+  `matcher-tables-cover-the-grammar` holds them to exactly the expectations
+  it declares, `graded-expectations-run-on-every-fixture-carrying-them`
+  proves no fixture carrying one escapes its matcher, and
+  `every-matcher-bites` plants a wrong expected value, built from the law
+  the grammar names, under each matcher and requires the fixture to fail.
 
   The corpus run and the self-tests that grade a fixture end to end carry
   `^:requires-debug`: the runner reads trace emissions, routed effects and
@@ -24,12 +29,16 @@
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as string]
+            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.flows :as rf.flows]
             [re-frame.schemas :as rf.schemas]
+            [re-frame.ssr.error-listener :as rf.ssr.error-listener]
+            [re-frame.ssr.request :as rf.ssr.request]
+            [re-frame.ssr.response :as rf.ssr.response]
             ;; Publishes the late-bind hook the default validator routes
             ;; through; without it the schema fixtures soft-pass on the JVM.
             [re-frame.schemas.malli]
@@ -142,6 +151,11 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
+  ;; The per-frame SSR side channel outlives the `frames` reset, and
+  ;; `:ssr/request-result` reads its response slot.
+  (reset! rf.ssr.request/request-slots {})
+  (reset! rf.ssr.response/response-slots {})
+  (reset! rf.ssr.error-listener/pending-error-traces {})
   (rf.error-emit/clear-error-listeners!)
   ;; `:epoch-records` must observe only this fixture's epochs.
   (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
@@ -226,35 +240,220 @@
                                                     :outcome  :rf.test/DELIBERATELY-WRONG}}]}}
                  host)]
     (is (not (:passed? result)))
-    (is (seq (:epoch-failures result)))))
+    (is (seq (get-in result [:expect-failures :epoch-records])))))
 
-(deftest unknown-expect-key-fails-loud
-  (is (seq (rf.conformance-runner/unknown-expect-keys
-             {:fixture/expect {:rf.test/no-such-expectation 1}}))))
+;; ---- unknown keys -----------------------------------------------------------
 
-;; ---- the top-level fixture-key guard ----------------------------------------
+(def ^:private grammar
+  (edn/read-string (slurp (io/file (.getParentFile fixtures-dir) "fixture-file.edn"))))
 
-(def ^:private top-level-key-fixture
-  {:fixture/id           :rf.test/top-level-key-guard
+(def ^:private counter-fixture
+  {:fixture/id           :rf.test/unknown-key-guard
    :fixture/spec-version "1.0"
+   :fixture/doc          "A counter set to 1."
    :fixture/capabilities #{:core/event-handler}
    :fixture/handlers     {:event {:counter/set [[:set [:count] 1]]}}
    :fixture/frame-config {}
    :fixture/dispatches   [[:counter/set]]
    :fixture/expect       {:final-app-db {:count 1}}})
 
-(deftest unknown-top-level-key-fails-loud
-  (is (:passed? (rf.conformance-runner/run-corpus-fixture
-                  "top-level-key-guard.edn" top-level-key-fixture host))
-      "control: the fixture passes the corpus gates as written")
-  (let [result (rf.conformance-runner/run-corpus-fixture
-                 "top-level-key-guard.edn"
-                 (assoc top-level-key-fixture :fixture/dispatchess [[:counter/set]])
+;; An expectation key with no matcher fails the fixture on both hosts, so
+;; the CLJS lane needs no grammar validation to refuse one.
+(deftest unknown-expect-key-fails-the-fixture
+  (is (:passed? (rf.conformance-runner/run-fixture counter-fixture host))
+      "control: the fixture passes as written")
+  (let [result (rf.conformance-runner/run-fixture
+                 (assoc-in counter-fixture [:fixture/expect :rf.test/no-such-expectation] 1)
                  host)]
-    (is (not (:passed? result)) "a misspelt setup key must fail the fixture")
-    (is (= [:fixture/dispatchess] (:unknown-fixture-keys result)))
-    (is (string/includes? (str (:error result)) ":fixture/dispatchess")
+    (is (not (:passed? result)))
+    (is (contains? (:expect-failures result) :rf.test/no-such-expectation)
         "the failure names the key")))
+
+;; A misspelt setup key silently changes the scenario. The JVM grammar
+;; validation (`re-frame.conformance-grammar-test`) refuses it over the whole
+;; corpus; this is its negative.
+(deftest unknown-top-level-key-fails-the-grammar
+  (let [schema (m/schema [:schema {:registry (:registry grammar)} (:root grammar)])]
+    (is (m/validate schema counter-fixture) "control: the fixture conforms as written")
+    (is (= [[:fixture/dispatchess]]
+           (map :in (:errors (m/explain schema (assoc counter-fixture
+                                                      :fixture/dispatchess [[:counter/set]])))))
+        "the misspelt key is refused, by its path")))
+
+;; ---- the matcher tables against the fixture grammar -------------------------
+
+(defn- map-entries
+  "The `[key props schema]` entries of a grammar `[:map props? & entries]`."
+  [[_ & children]]
+  (filter vector? children))
+
+(defn- expectation-props
+  "The props of a grammar map entry the grammar annotates as an expectation."
+  [[_ props]]
+  (when (and (map? props) (contains? props :observe)) props))
+
+(def ^:private grammar-expectations
+  "Every expectation the grammar declares, `{path {:law … :element-law …}}`:
+  `[key]` for a `:fixture/expect` key, `[op key]` for a call-record key, and
+  `[op]` for a call record whose whole claim is its observation."
+  (let [registry           (:registry grammar)
+        [_ _ & call-arms]  (:conformance/call registry)]
+    (into {}
+          (concat
+            (for [entry (map-entries (:conformance/expect registry))
+                  :let  [props (expectation-props entry)] :when props]
+              [[(first entry)] props])
+            (for [[op [_ record-props :as record]] call-arms
+                  path+props (cons (when (:observe record-props) [[op] record-props])
+                                   (for [entry (map-entries record)
+                                         :let  [props (expectation-props entry)] :when props]
+                                     [[op (first entry)] props]))
+                  :when path+props]
+              path+props)))))
+
+(def ^:private table-expectations
+  "Every expectation the runner's tables grade, as `grammar-expectations`
+  paths."
+  (set (concat (for [[k _] rf.conformance-runner/expect-matchers] [k])
+               (for [[op {:keys [holds matchers]}] rf.conformance-runner/call-matchers
+                     path (concat (when holds [[op]]) (for [k (keys matchers)] [op k]))]
+                 path)
+               (keys rf.conformance-runner/sibling-graded))))
+
+(deftest matcher-tables-cover-the-grammar
+  (let [declared (set (keys grammar-expectations))]
+    (is (< 50 (count declared)) "the grammar walk reads the expectations")
+    (is (empty? (remove table-expectations declared))
+        "expectations the grammar declares with no matcher")
+    (is (empty? (remove declared table-expectations))
+        "matchers for an expectation the grammar does not declare")
+    (is (apply distinct? (map first rf.conformance-runner/expect-matchers))
+        "one matcher per :fixture/expect key")
+    (is (not-any? (comp rf.conformance-runner/call-matchers first)
+                  (keys rf.conformance-runner/sibling-graded))
+        "a sibling-graded expectation has no matcher here")))
+
+(defn- fixture-expectations
+  "The grammar expectation paths `fixture` carries."
+  [fixture]
+  (filter grammar-expectations
+          (concat (for [k (keys (:fixture/expect fixture))] [k])
+                  (for [record (:fixture/calls fixture)
+                        path   (cons [(:call record)]
+                                     (for [k (keys record)] [(:call record) k]))]
+                    path))))
+
+(deftest graded-expectations-run-on-every-fixture-carrying-them
+  (let [escapes
+        (for [[fname fixture] (sort-by first (all-fixtures))
+              :let [{:keys [allowed unknown]} (rf.conformance-runner/classify-capabilities fixture)
+                    runnable? (and (empty? allowed) (empty? unknown))]
+              path (fixture-expectations fixture)
+              :let [{:keys [runner prefix]} (get rf.conformance-runner/sibling-graded path)]
+              :when (if runner
+                      (not (string/starts-with? fname prefix))
+                      (not runnable?))]
+          (str fname " carries " path
+               (if runner
+                 (str ", graded by " runner ", which loads only " prefix "*.edn")
+                 ", but this runner does not claim the fixture's capabilities")))]
+    (is (empty? escapes) (string/join "\n" escapes))))
+
+;; ---- every matcher bites ----------------------------------------------------
+;;
+;; A matcher that passes whatever it is handed reads green over the whole
+;; corpus, so each one is run against a wrong expected value: the first
+;; runnable corpus fixture carrying the key, with that key's value replaced
+;; by one the law the grammar names must refuse.
+
+(defn- plant-submap [v]
+  (cond (vector? v) (update v 0 plant-submap)
+        (map? v)    (if-let [[k inner] (first (filter (comp map? val) v))]
+                      (assoc v k (plant-submap inner))
+                      (assoc v ::planted ::wrong))
+        :else       ::planted))
+
+(defn- plant
+  "A wrong expected value for `expected`, by the law the grammar names."
+  [{:keys [law element-law]} expected]
+  (case law
+    :submap          (plant-submap expected)
+    :equal           (cond (and (map? expected) (seq expected))
+                           (assoc expected (key (first expected)) ::wrong)
+                           (or (vector? expected) (set? expected)) (conj expected ::planted)
+                           :else ::planted)
+    :ordered-subset  (conj expected (if (= :equal element-law) [::planted nil] {::planted ::wrong}))
+    :positional      (conj expected {:record {::planted ::wrong}})
+    ;; The empty shape matches every trace.
+    :none-match      (conj expected {})
+    ;; The empty path reads the whole db, which is always present.
+    :absent-paths    (conj expected [])
+    :substring       (conj expected "rf.test/planted")
+    :thrown-error-id ::planted
+    :member          (conj expected (if (vector? (first expected)) [::planted ::planted] {::planted ::wrong}))))
+
+(def ^:private targeted-plants
+  "Plants the law alone cannot build. A `:non-member` key needs an element
+  the observation does hold, and a `:holds` record has no expected value, so
+  its inputs are perturbed instead."
+  {[:assemble-image :expect-absent]
+   (fn [record] (update record :expect-absent conj ((juxt :kind :id) (first (:expect-resolves record)))))
+   [:assemble-image :expect-gen-absent]
+   (fn [record] (update record :expect-gen-absent conj :rf.gen/resolver))
+   [:derivation-graph :expect-absent-edges]
+   (fn [record] (update record :expect-absent-edges conj (first (:expect-edges record))))
+   [:round-trip]          (fn [record] (assoc record :url "rf.test/planted"))
+   [:assert-rank-greater] (fn [record] (assoc record :winner (:loser record) :loser (:winner record)))
+   [:canonical-identical] (fn [record] (assoc record :b [::planted]))
+   [:canonical-distinct]  (fn [record] (assoc record :b (:a record)))})
+
+(defn- planted-run
+  "Run the first runnable corpus fixture carrying `path` with a wrong value
+  planted under it; nil when no runnable fixture carries it."
+  [fixtures [k-or-op call-key :as path]]
+  (let [law     (grammar-expectations path)
+        planter (or (targeted-plants path)
+                    (fn [record] (update record call-key #(plant law %))))]
+    (some (fn [[_ fixture]]
+            (if (= 1 (count path))
+              (cond
+                (contains? (:fixture/expect fixture) k-or-op)
+                (rf.conformance-runner/run-fixture
+                  (update-in fixture [:fixture/expect k-or-op] #(plant law %)) host)
+
+                (contains? targeted-plants path)
+                (when-let [record (first (filter #(= k-or-op (:call %)) (:fixture/calls fixture)))]
+                  (rf.conformance-runner/run-fixture
+                    (assoc fixture :fixture/calls [(planter record)]) host)))
+              (when-let [record (first (filter #(and (= k-or-op (:call %)) (contains? % call-key))
+                                               (:fixture/calls fixture)))]
+                (rf.conformance-runner/run-fixture
+                  (assoc fixture :fixture/calls [(planter record)]) host))))
+          fixtures)))
+
+(deftest ^:requires-debug every-matcher-bites
+  (let [fixtures (->> (all-fixtures)
+                      (sort-by first)
+                      (filter (fn [[_ fixture]]
+                                (let [{:keys [allowed unknown]}
+                                      (rf.conformance-runner/classify-capabilities fixture)]
+                                  (and (empty? allowed) (empty? unknown))))))
+        paths    (remove rf.conformance-runner/sibling-graded (keys grammar-expectations))
+        bit?     (fn [[k-or-op call-key :as path] result]
+                   (if (and (= 1 (count path)) (not (rf.conformance-runner/call-matchers k-or-op)))
+                     (seq (get-in result [:expect-failures k-or-op]))
+                     (and (not (:passed? result))
+                          (string/includes? (str (:error result)) (str (name k-or-op) " "))
+                          (or (nil? call-key)
+                              (string/includes? (str (:error result)) (str call-key))))))
+        survivors (for [path  paths
+                        :let  [result (planted-run fixtures path)]
+                        :when (not (and result (bit? path result)))]
+                    (str (pr-str path) (if result
+                                         (str " stayed green: " (pr-str (select-keys result [:passed? :error :expect-failures])))
+                                         " is carried by no runnable fixture")))]
+    (is (< 50 (count paths)))
+    (is (empty? survivors) (string/join "\n" survivors))))
 
 ;; ---- neuter probe for routing/door-parity ---------------------------------
 ;;

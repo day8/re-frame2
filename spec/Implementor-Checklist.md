@@ -367,9 +367,9 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### Test3. Conformance fixture consumption
 
 - **Why it matters.** The conformance corpus is the verification mechanism for [Goal 2](000-Vision.md#ai-implementable-from-the-spec-alone). Each fixture is an EDN file describing a canonical interaction; the harness reads fixtures, realises handler bodies via the small DSL, runs the dispatches, captures observables, compares.
-- **Options by host.** Per [conformance/README §How an implementation runs the corpus](conformance/README.md#how-an-implementation-runs-the-corpus). The harness is ~300 lines per host.
+- **Options by host.** Per [conformance/README §How an implementation runs the corpus](conformance/README.md#how-an-implementation-runs-the-corpus).
 - **Reference-impl picks.** CLJS reads EDN natively; static-host ports parse EDN with a small reader (or JSON-translated copy of the corpus).
-- **Trade-offs.** The corpus is host-agnostic data. Handler bodies in fixtures are a small DSL the host realises into native closures (~50 lines of interpreter per host).
+- **Trade-offs.** The corpus is host-agnostic data. Handler bodies in fixtures are a small DSL the host realises into native closures; [`conformance/fixture-file.edn`](conformance/fixture-file.edn) declares its steps.
 
 ### Routing (if Q2 is yes)
 
@@ -545,7 +545,7 @@ The following obligations apply to any port that ships **tooling** (test fixture
 
 The implementation runs the [conformance corpus](conformance/README.md) to verify it conforms to the pattern.
 
-The harness (per [conformance/README §How an implementation runs the corpus](conformance/README.md#how-an-implementation-runs-the-corpus)) is ~300 lines per host:
+The harness (per [conformance/README §How an implementation runs the corpus](conformance/README.md#how-an-implementation-runs-the-corpus)):
 
 1. Read all `.edn` files in `fixtures/`.
 2. For each fixture, check whether `:fixture/capabilities` is a subset of the implementation's claimed capability list.
