@@ -1484,6 +1484,8 @@ The route slice (`[:rf.runtime/routing :current]`) carries `:fragment` (string o
 
 Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by the URL-change handler (`:rf.route/handle-url-change`), and emitted by `route-url` when its address map carries a non-nil `:fragment` — as it does when `:rf.route/navigate`'s flat request map carries an explicit `:fragment` (which overrides any fragment embedded in a `:url`, and `nil` clears it).
 
+A bare trailing `#` is an empty fragment, not an absent one: `match-url` reads `/x#` as `:fragment ""`. `route-url` emits no `#` for `""`, as for `nil`, so `/x#` rebuilds as `/x`. Every door collapses `""` to `nil` when it resolves the target, so `/x` and `/x#` are one target and the slice holds `:fragment nil` for both.
+
 ### Fragment-only changes do NOT re-fire `:on-match`
 
 When a navigation's resolved target differs from the current slice **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime treats it as an in-page anchor change — one logical operation with **the same behaviour whichever commit door it enters** (programmatic `:rf.route/navigate`, or the URL-driven `:rf.route/handle-url-change` under any of its four causes). The runtime:
