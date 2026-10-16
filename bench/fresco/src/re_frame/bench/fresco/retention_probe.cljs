@@ -117,9 +117,9 @@
   "How many watchers `x` carries, or `nil` when it is not a thing that has
   watchers.
 
-  Duck-typed on purpose. Reagent's `Reaction`, reagent-slim's, an
-  `IWatchable` atom and the React spine's container are four different
-  types across three artefacts, and a census that picked one and silently
+  Duck-typed on purpose. Reagent's `Reaction`, an `IWatchable` atom and
+  the React spine's container are three different types, and a census
+  that picked one and silently
   reported `nil` for the others would be the fault shape an instrument
   must avoid: a precise number over a smaller set than the
   one it names. `:watchers-of` in the reading says how many of the objects

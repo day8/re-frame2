@@ -38,20 +38,19 @@
   `page.evaluate -> HD8CLOCK.sample`, the plumb tare included, so the
   door's own cost is common-mode and subtracted.
 
-  ## One adapter per process, three runs — HD-008's own partition
+  ## One adapter per process, two runs — HD-008's own partition
 
   Spec 006 installs exactly one adapter per process, and a mount is a
   one-shot read, so the mount plans carry the frontier and donor arms in
   every run and each run adds the Reagent path native to its adapter —
   [[re-frame.bench.fresco.hd8-rows]]'s `arm-ids-for`, which this plan
-  MATCHES exactly: the two instruments carry the same six arms on the
-  same 4/5/5 per-run plans.
+  MATCHES exactly: the two instruments carry the same five arms on the
+  same 4/5 per-run plans.
 
   Owner: the governance set enumerated in
   `docs/design/fresco/studio/README.md`."
   (:require ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.hd8-rows :as rf.bench.fresco.hd8-rows]
             [re-frame.bench.fresco.hd8-witnesses :as rf.bench.fresco.hd8-witnesses]
@@ -65,33 +64,29 @@
 (defn- query-adapter []
   (let [s (some-> js/window .-location .-search)]
     (cond
-      (nil? s)                            :uix
-      (re-find #"adapter=reagent-slim" s) :slim
-      (re-find #"adapter=slim" s)         :slim
-      (re-find #"adapter=reagent" s)      :reagent
-      :else                               :uix)))
+      (nil? s)                       :uix
+      (re-find #"adapter=reagent" s) :reagent
+      :else                          :uix)))
 
 (defn- install! [which]
   (rf/init! (case which
               :reagent rf.adapter.reagent/adapter
-              :slim    rf.adapter.reagent-slim/adapter
               rf.adapter.uix/adapter))
   which)
 
 ;; ---------------------------------------------------------------------------
-;; The arm plans — the six published arms, plus the tare and the control
+;; The arm plans — the five published arms, plus the tare and the control
 ;; ---------------------------------------------------------------------------
 
 (def ^:private arm-ids-for
-  "hd8-rows' mount partition over the SIX PUBLISHED ARMS — 4/5/5 by run.
+  "hd8-rows' mount partition over the FIVE PUBLISHED ARMS — 4/5 by run.
 
   The same partition `hd8-rows` carries, held here because the two
   instruments are separately readable and neither should silently
   inherit the other's: an arm added there must not change `k` here for
   a comparison this page does not make."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
-   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
-   :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
+   :reagent [:floor :reagent :uix :donor-r1 :donor-r2]})
 
 (def ^:private plumb-arm
   "THE TARE — [[re-frame.bench.fresco.clock-app]]'s argument, restated

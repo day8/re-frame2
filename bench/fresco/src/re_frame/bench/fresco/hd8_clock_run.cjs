@@ -7,7 +7,7 @@
 // states the gate as ONE line: `<= 1.10x` direct UIx-on-subs,
 // floor-normalised, same run, on that clock. The published HD-008 donor
 // rows were taken on the in-page `performance.now()` window, which is
-// DIAGNOSTIC ONLY against that clock of record. This driver takes the six
+// DIAGNOSTIC ONLY against that clock of record. This driver takes the five
 // published arms' MOUNT rows through the frame-settlement door
 // `clock_run.cjs` uses, so the donor rows can be adjudicated against that
 // line.
@@ -154,7 +154,6 @@ const DATA_DIR =
 const ALL_RUNS = [
   { id: 'uix', query: '?adapter=uix', why: 'donor rungs against the frontier — the GATED pairs, within one process' },
   { id: 'reagent', query: '?adapter=reagent', why: 'plus stock Reagent, co-instrumented (NOT a second gate)' },
-  { id: 'slim', query: '?adapter=slim', why: 'plus reagent-slim, co-instrumented (NOT a second gate)' },
 ];
 const ONLY = (process.env.HD8CLOCK_ONLY || '').trim();
 const RUNS = ONLY ? ALL_RUNS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_RUNS;
@@ -179,12 +178,6 @@ const BESIDE = {
     ['donor-r1', 'reagent'],
     ['donor-r2', 'reagent'],
     ['uix', 'reagent'],
-  ],
-  slim: [
-    ['donor-r2', 'donor-r1'],
-    ['donor-r1', 'reagent-slim'],
-    ['donor-r2', 'reagent-slim'],
-    ['uix', 'reagent-slim'],
   ],
 };
 

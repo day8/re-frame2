@@ -4,12 +4,12 @@
 
   This is the EP-0038 stop-gate's instrument. HD-008 asks whether the
   Fresco hypothesis survives when it is assembled out of parts that are
-  already in this repository, BEFORE any API is designed: reagent-slim's
-  `:f>` function-component path and its runtime hiccup interpreter for
-  markup, the UIx adapter's `use-sub` spine for reactivity. Two
+  already in this repository, BEFORE any API is designed: stock Reagent's
+  runtime hiccup interpreter behind bare function-component boundaries
+  for markup, the UIx adapter's `use-sub` spine for reactivity. Two
   rungs, because the two halves of the claim have to be priced apart:
 
-    RUNG 1 — markup + reactivity. `:f>` boundaries, runtime hiccup,
+    RUNG 1 — markup + reactivity. `:r>` boundaries, runtime hiccup,
              `use-sub` with the frame PINNED as a literal. ONE hook
              per boundary. No shell.
     RUNG 2 — plus the product shell: ONE frame-context hook per boundary
@@ -34,9 +34,23 @@
 
   HD-008 says *composed*, and composition is the claim under test: every
   donor part is consumed at its published surface —
-  `reagent2.impl.template/as-element`, `re-frame.adapter.uix/use-sub`,
-  `re-frame.adapter.uix/use-frame`. Had the hypothesis needed a
-  donor edit to become measurable, it would already have failed.
+  `reagent.core/as-element`, Reagent's `:r>` head,
+  `re-frame.adapter.uix/use-sub`, `re-frame.adapter.uix/use-frame`. Had
+  the hypothesis needed a donor edit to become measurable, it would
+  already have failed.
+
+  ## Why the boundary is `:r>` and not Reagent's `:f>`
+
+  The donor boundary is a BARE React function component: React calls it,
+  its body calls its hooks and hands its hiccup to `as-element`, and
+  nothing else runs. Stock Reagent's `:f>` is not that. It wraps the body
+  in `react/memo`, runs it inside a Reagent Reaction, and spends three
+  hooks of its own (`useReducer`, `useRef`, `useEffect`) on every
+  boundary — Reagent's reactive machinery inside the donor, and three
+  hooks per boundary more than the ladder below records. So each donor
+  row is a plain function of its JS props, reached through
+  `[:r> row #js {…}]`, which passes the props through unconverted, and it
+  returns `(reagent/as-element …)` of its own hiccup.
 
   ## The hook ladder, and why it is the readable variable
 
@@ -45,17 +59,16 @@
       arm            hooks  markup                     handler        dispatch
       :floor           0    hand createElement         inert          none — one hoisted no-op, shared
       :reagent         0    Reagent hiccup (reg-view)  author closure LEXICAL, injected by reg-view
-      :reagent-slim    0    slim hiccup (reg-view)     author closure LEXICAL, injected by reg-view
       :uix             2    `$` macro (compile-time)   author closure [[dispatch-for]] — deref + get, IN RENDER
-      :donor-r1        1    slim hiccup + `:f>`        author closure [[dispatch-for]]
-      :donor-r2        2    slim hiccup + `:f>`        CODEC-LOWERED  [[dispatch-for]], then [[lower-events]]
+      :donor-r1        1    Reagent hiccup + `:r>`     author closure [[dispatch-for]]
+      :donor-r2        2    Reagent hiccup + `:r>`     CODEC-LOWERED  [[dispatch-for]], then [[lower-events]]
 
   [[prime-frame!]] does run outside every measured window, so no arm pays
   to CONSTRUCT a dispatch fn during a render — that is the point of the
   levelling. But only the three React-spine
   arms read [[frame-dispatch]], and they read it INSIDE each boundary's
-  render, 300 times a mount; the two Reagent paths never touch it, because
-  `reg-view` hands them a `dispatch` already bound to the frame from
+  render, 300 times a mount; the Reagent arm never touches it, because
+  `reg-view` hands it a `dispatch` already bound to the frame from
   context, which is what a Reagent application contains; and the floor
   resolves nothing at all.
 
@@ -63,19 +76,21 @@
   mechanism above is one indirection or fewer, and the frontier comparator
   is never strawmanned. And the residual runs in the safe direction — the
   deref-plus-`get` is paid by `:uix` and both donor rungs and NOT by the
-  Reagent paths, so it cannot flatter the arms HD-008 is arguing for.
+  Reagent arm, so it cannot flatter the arms HD-008 is arguing for.
 
   What is left varying is the thing under test. `donor-r2 / donor-r1` is
   the product shell's price and nothing else's; `donor-r2 / uix` holds the
   hooks and the dispatch mechanism fixed — both go through
-  [[dispatch-for]] — and varies the CODEC; `donor-r* / reagent*` is
+  [[dispatch-for]] — and varies the CODEC; `donor-r* / reagent` is
   HD-008's ship comparison, and is the one pair the mechanisms differ
-  across.
+  across. Both of its arms lower their hiccup through stock Reagent's
+  template, so it holds the interpreter fixed and varies the boundary
+  and the reactive substrate.
 
   ## Why every arm is written out longhand
 
   The comparison is only worth taking if each arm is what a competent
-  author of THAT substrate would write. A shared generator producing five
+  author of THAT substrate would write. A shared generator producing four
   dialects would measure the generator. So the arms sit side by side
   here, and the canonical-DOM parity gate in
   [[re-frame.bench.fresco.hd8-rows]] is what proves they still build one
@@ -99,7 +114,7 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [reagent2.impl.template :as slim-template]
+            [reagent.core :as reagent]
             [uix.core :refer [$ defui]])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -233,7 +248,7 @@
            (window-of cells n)))))
 
 ;; ===========================================================================
-;; ARM: Reagent — stock and slim, one source, on re-frame2 subscriptions
+;; ARM: stock Reagent, on re-frame2 subscriptions
 ;; ===========================================================================
 ;;
 ;; `reg-view` rather than a plain `defn`, and that is not a stylistic
@@ -244,12 +259,6 @@
 ;; provider resolves no frame and the render raises. This is the shape the
 ;; adapters' own testbeds use, so it is what a Reagent application
 ;; contains.
-;;
-;; ONE source, TWO arms: whether these render through stock Reagent or
-;; through reagent-slim is decided by the mount door and by which adapter
-;; is installed (hd8-rows), never by the markup. That is what makes them
-;; "the identical sub graph" the validation plan asks both Reagent paths
-;; to run on.
 
 (reg-view rg-m-row [i]
   [:li.row {:data-index i :on-click (fn [_] (dispatch [:hd8/touch i]))}
@@ -315,42 +324,62 @@
        ($ ux-u-cell {:key i :i i}))))
 
 ;; ===========================================================================
+;; The donor codec's public door — one call, so the crossing is visible
+;; ===========================================================================
+;;
+;; ONE door. Why there is no second is the closing section of this file.
+
+(defn donor-element
+  "Interpret donor hiccup into a React element through stock Reagent's
+  published `as-element`. The single point at which the composed arm
+  touches the markup donor — at each root and inside each row boundary —
+  kept as one call so the crossing is visible rather than scattered."
+  [hiccup]
+  (reagent/as-element hiccup))
+
+;; ===========================================================================
 ;; ARM: the composed donor arm, RUNG 1 — markup + reactivity
 ;; ===========================================================================
 ;;
-;; reagent-slim's `:f>` head renders a plain CLJS fn as a REAL React
-;; function component — cached on the fn, so the type identity is stable
-;; across renders — which is what makes hooks legal in the body. The body
-;; returns hiccup, interpreted at runtime by `as-element`. The
-;; subscription is the UIx spine's `use-sub`, at its published
-;; two-arity form with the frame PINNED as a literal: no context read, no
-;; frame resolution, ONE hook.
+;; Each row is a BARE React function component, reached through `:r>` (the
+;; ns docstring says why not Reagent's `:f>`): React calls the defn itself
+;; with the JS props `:r>` passes through unconverted, so the type identity
+;; is stable across renders and hooks are legal in the body. The body
+;; returns its hiccup through [[donor-element]]. The subscription is the
+;; UIx spine's `use-sub`, at its published two-arity form with the frame
+;; PINNED as a literal: no context read, no frame resolution, ONE hook.
 ;;
 ;; The pinning is what makes rung 1 rung 1. No application can ship a
 ;; frame keyword baked into every leaf; rung 2 buys the thing that removes
 ;; it, and the gap between the rungs is the price of that purchase.
 
-(defn r1-m-row [i frame]
-  (let [v (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
-        d (dispatch-for frame)]
-    [:li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
-     [:span.label "row "]
-     [:em.n v]]))
+(defn r1-m-row [^js props]
+  (let [i     (unchecked-get props "i")
+        frame (unchecked-get props "frame")
+        v     (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
+        d     (dispatch-for frame)]
+    (donor-element
+      [:li.row {:data-index i :on-click (fn [_] (d [:hd8/touch i]))}
+       [:span.label "row "]
+       [:em.n v]])))
 
 (defn r1-m [n frame]
   [:section.panel {:aria-label "hd8"}
    [:h1.title "Rows"]
    [:ul.rows {:role "list"}
-    (for [i (range n)] ^{:key i} [:f> r1-m-row i frame])]])
+    (for [i (range n)] ^{:key i} [:r> r1-m-row #js {:i i :frame frame}])]])
 
-(defn r1-u-cell [i frame]
-  (let [v (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
-        d (dispatch-for frame)]
-    [:span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v]))
+(defn r1-u-cell [^js props]
+  (let [i     (unchecked-get props "i")
+        frame (unchecked-get props "frame")
+        v     (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
+        d     (dispatch-for frame)]
+    (donor-element
+      [:span.cell {:data-i i :on-click (fn [_] (d [:hd8/touch i]))} v])))
 
 (defn r1-u [n frame]
   [:div.ugrid
-   (for [i (range n)] ^{:key i} [:f> r1-u-cell i frame])])
+   (for [i (range n)] ^{:key i} [:r> r1-u-cell #js {:i i :frame frame}])])
 
 ;; ===========================================================================
 ;; ARM: the composed donor arm, RUNG 2 — plus the product shell
@@ -367,7 +396,7 @@
 ;;       codec turns it into a dispatching closure while building the
 ;;       element.
 ;;
-;; The `:f>` path, the runtime hiccup and the `use-sub` spine are
+;; The `:r>` boundary, the runtime hiccup and the `use-sub` spine are
 ;; rung 1's.
 
 (def ^:private on-prefix "on-")
@@ -397,43 +426,33 @@
              {}
              props))
 
-(defn r2-m-row [i]
-  (let [frame (:frame (rf.adapter.uix/use-frame))
+(defn r2-m-row [^js props]
+  (let [i     (unchecked-get props "i")
+        frame (:frame (rf.adapter.uix/use-frame))
         v     (rf.adapter.uix/use-sub [:hd8/row i] {:frame frame})
         d     (dispatch-for frame)]
-    [:li.row (lower-events d {:data-index i :on-click [:hd8/touch i]})
-     [:span.label "row "]
-     [:em.n v]]))
+    (donor-element
+      [:li.row (lower-events d {:data-index i :on-click [:hd8/touch i]})
+       [:span.label "row "]
+       [:em.n v]])))
 
 (defn r2-m [n]
   [:section.panel {:aria-label "hd8"}
    [:h1.title "Rows"]
    [:ul.rows {:role "list"}
-    (for [i (range n)] ^{:key i} [:f> r2-m-row i])]])
+    (for [i (range n)] ^{:key i} [:r> r2-m-row #js {:i i}])]])
 
-(defn r2-u-cell [i]
-  (let [frame (:frame (rf.adapter.uix/use-frame))
+(defn r2-u-cell [^js props]
+  (let [i     (unchecked-get props "i")
+        frame (:frame (rf.adapter.uix/use-frame))
         v     (rf.adapter.uix/use-sub [:hd8/cell i] {:frame frame})
         d     (dispatch-for frame)]
-    [:span.cell (lower-events d {:data-i i :on-click [:hd8/touch i]}) v]))
+    (donor-element
+      [:span.cell (lower-events d {:data-i i :on-click [:hd8/touch i]}) v])))
 
 (defn r2-u [n]
   [:div.ugrid
-   (for [i (range n)] ^{:key i} [:f> r2-u-cell i])])
-
-;; ===========================================================================
-;; The donor codec's public door — one call, so the crossing is visible
-;; ===========================================================================
-;;
-;; ONE door. Why there is no second is the closing section of this file.
-
-(defn slim-element
-  "Interpret donor hiccup into a React element through reagent-slim's
-  published `as-element`. The single point at which the composed arm
-  touches the markup donor, kept as one call so the crossing is visible
-  rather than scattered."
-  [hiccup]
-  (slim-template/as-element hiccup))
+   (for [i (range n)] ^{:key i} [:r> r2-u-cell #js {:i i}])])
 
 ;; ===========================================================================
 ;; THE CODEC COMPARISON, AND WHY THERE IS NO `codecs-differ?` GATE
@@ -454,20 +473,21 @@
 ;; aliasing of the two doors would produce a real-looking 1.0 that no
 ;; reader could falsify. Nothing here has that shape:
 ;;
-;;   * There is ONE codec door, [[slim-element]]. A single door cannot
+;;   * There is ONE codec door, [[donor-element]]. A single door cannot
 ;;     be the same code twice — there is no second implementation to alias
 ;;     to, so the probe has nothing to compare.
 ;;   * `donor-r2 / donor-r1` varies the SHELL (one extra context hook plus
 ;;     [[lower-events]]), not the codec. Both arms interpret through
-;;     [[slim-element]] on purpose, and their difference is written out
+;;     [[donor-element]] on purpose, and their difference is written out
 ;;     longhand in this file where a reader checks it by reading.
 ;;   * `donor-r* / uix` does vary a codec — runtime hiccup against `$`, a
 ;;     COMPILE-TIME macro expanding to `react/createElement`. Those two
 ;;     cannot silently become one another: they are different *kinds* of
 ;;     thing, one resolved by the compiler and one by the interpreter at
 ;;     run time, and `uix`'s markup is separately authored longhand.
-;;   * `donor-r* / reagent*` varies the substrate, and the arms mount
-;;     through different doors entirely (`react-root-arm` vs `slim-arm`).
+;;   * `donor-r* / reagent` varies the substrate, and the arms mount
+;;     through different doors entirely (`react-root-arm` vs
+;;     `reagent-arm`).
 ;;
 ;; So the instrument keeps ONE anti-vacuity gate rather than two:
 ;; `parity-can-fail?`, which proves the parity check can still answer

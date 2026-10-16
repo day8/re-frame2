@@ -67,8 +67,8 @@
 
 (defn- island-component
   "A plain React function component that reads AMBIENTLY. Nothing about it
-  knows Fresco exists; it is written the way the Reagent, reagent-slim
-  and UIx guides all teach, and it resolves its frame from the enclosing
+  knows Fresco exists; it is written the way the Reagent and UIx guides
+  both teach, and it resolves its frame from the enclosing
   `frame-provider` through the shared adapter context. If the refusal
   leaked past the body that rendered it, this read is where it would
   surface — as a throw, not as a wrong value."

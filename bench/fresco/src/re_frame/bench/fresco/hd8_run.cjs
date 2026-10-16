@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// HD-008's driver — build once, serve once, run three adapters, refuse a
+// HD-008's driver — build once, serve once, run two adapters, refuse a
 // contaminated figure.
 //
 //   node src/re_frame/bench/fresco/hd8_run.cjs     (from bench/fresco/)
@@ -8,9 +8,9 @@
 //
 // HD-008 is EP-0038's STOP-GATE. Before a line of Fresco's API is
 // designed, the central hypothesis is assembled out of parts already in
-// this repository — reagent-slim's `:f>` function-component path and its
-// runtime hiccup interpreter, plus the existing UIx `use-sub`
-// spine — and measured against both Reagent paths and against direct UIx.
+// this repository — stock Reagent's runtime hiccup interpreter behind
+// bare function-component boundaries, plus the existing UIx `use-sub`
+// spine — and measured against stock Reagent and against direct UIx.
 // Two rungs: markup+reactivity, then plus the product shell (one
 // frame-context hook, native event-vector lowering). If the composed arm
 // cannot clearly beat both Reagent paths and stay acceptably close to
@@ -49,8 +49,8 @@
 // PRINTED by this driver, and a decision that read only `hardFail`,
 // `contractFailed` and the arm-order `refused` would print
 //
-//     ;;     [slim   ] reagent-slim   vs floor   UNPUBLISHED (1/78 unverified)
-//     ;;     [slim   ] YIELD CORRECTION: REFUSED (correction-changes-the-verdict)
+//     ;;     [mixed  ] microtask-arm  vs floor   UNPUBLISHED (1/78 unverified)
+//     ;;     [mixed  ] YIELD CORRECTION: REFUSED (correction-changes-the-verdict)
 //
 // and exit 0 on both. The figure IS suppressed in the table either way — the
 // marker replaces it and the head-to-head pairs touching the arm are dropped
@@ -92,21 +92,20 @@ const INIT_FN = 're-frame.bench.fresco.hd8-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HD8_PORT || 8129);
 
-// The three runs. One adapter per process is Spec 006's rule, and the two
-// Reagent paths need the ratom spine while the frontier and donor arms
+// The two runs. One adapter per process is Spec 006's rule, and the
+// Reagent path needs the ratom spine while the frontier and donor arms
 // ride React hooks — so the arms that can be compared head to head are
 // partitioned this way and every HD-008 comparison lands WITHIN a run.
 const ALL_RUNS = [
   { id: 'uix', query: '?adapter=uix', why: 'donor rungs against the frontier' },
   { id: 'reagent', query: '?adapter=reagent', why: 'donor rungs against stock Reagent' },
-  { id: 'slim', query: '?adapter=slim', why: 'donor rungs against reagent-slim' },
 ];
 
-// `HD8_ONLY=slim` drives one run instead of three, over the SAME bundle and
+// `HD8_ONLY=reagent` drives one run instead of two, over the SAME bundle and
 // the same gates. Not a shortcut: re-taking one run's suppressed row must not
 // mint a competing set of figures for the rows already published at another
-// SHA, and a driver that could only run all three would force exactly that.
-// Unset is the full three, so the published shape is the default.
+// SHA, and a driver that could only run both would force exactly that.
+// Unset is both, so the published shape is the default.
 const ONLY = (process.env.HD8_ONLY || '').trim();
 const RUNS = ONLY ? ALL_RUNS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_RUNS;
 if (RUNS.length === 0) {
@@ -117,15 +116,15 @@ if (RUNS.length === 0) {
 // ...AND `HD8_ONLY` ALONE DOES NOT DELIVER WHAT THE PARAGRAPH ABOVE PROMISES.
 //
 // It selects ADAPTERS. Every selected run still executes the bundle's whole
-// row set, so `HD8_ONLY=slim` emits `mount-M`, `mount-U`, `write-narrow` and
+// row set, so `HD8_ONLY=reagent` emits `mount-M`, `mount-U`, `write-narrow` and
 // `write-bulk` — four rows, of which a re-take needs one or two. Nothing in
 // the selection alone stops the other three being read as figures beside the
-// rows published from the full three-run sweep, which is exactly the
+// rows published from the full two-run sweep, which is exactly the
 // competing set the paragraph above says must not be minted.
 //
 // So the declaration is made EXPLICIT and the default is the safe one:
 //
-//   HD8_ONLY unset          the full three-run sweep — the published shape;
+//   HD8_ONLY unset          the full two-run sweep — the published shape;
 //                           every row publishes.
 //   HD8_ONLY set, no ROWS   a PARTIAL run. The driver cannot know which
 //                           re-take was intended, so NO row publishes and
@@ -179,7 +178,7 @@ const publishing = (row) => (!PARTIAL ? true : DECLARED_ROWS ? DECLARED_ROWS.has
 const TOLERANCE = Number(process.env.HD8_TOLERANCE || 0.35);
 
 // The page's own budget, for the case where the page is ALIVE and simply has
-// not finished. Six rounds of every witness across three adapters is minutes,
+// not finished. Six rounds of every witness across two adapters is minutes,
 // not seconds. It is not the budget a page ERROR is reported against —
 // `sentinel.cjs` races this against the page dying, so a throw is reported in
 // the second it happens rather than twenty minutes later.
@@ -196,7 +195,7 @@ const SELFTEST_ONLY = process.argv.includes('--self-test');
 // entry and it takes no positional argument at all — every other knob is an
 // `HD8_*` environment variable, and the run's provenance block prints which of
 // them were set. So an argument off this list is not a knob: it is a typo, and
-// the sweep it falls into is an `:advanced` release build plus three headless
+// the sweep it falls into is an `:advanced` release build plus two headless
 // Chromium runs whose own page budget is twenty minutes.
 //
 // A driver that validated no arguments would ignore an unknown token
@@ -520,12 +519,12 @@ function crossRun(runs) {
 function tableSelfTest() {
   const runs = [
     {
-      id: 'slim',
+      id: 'mixed',
       summary: {
         'write-narrow': {
           vsFloor: {
             floor: { min: 1.0, max: 1.0, straddles1: true },
-            'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
+            'microtask-arm': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
             'donor-r1': { min: 2.0, max: 2.0, straddles1: false },
           },
           headToHead: {},
@@ -538,7 +537,7 @@ function tableSelfTest() {
           bound: 0.1,
           why: 'fixture — an unpublished original beside a corrected band',
           summaryCorrected: {
-            'reagent-slim': { min: 1.2, max: 1.3, straddles1: false },
+            'microtask-arm': { min: 1.2, max: 1.3, straddles1: false },
             'donor-r1': { min: 2.2, max: 2.3, straddles1: false },
           },
           headToHeadCorrected: {},
@@ -550,11 +549,11 @@ function tableSelfTest() {
   const checks = [
     {
       name: 'an UNPUBLISHED original grows neither a [CORRECTED] band nor an [UNADJUSTED] label',
-      ok: !/reagent-slim.*\[CORRECTED\]/.test(out) && !/reagent-slim.*\[UNADJUSTED\]/.test(out),
+      ok: !/microtask-arm.*\[CORRECTED\]/.test(out) && !/microtask-arm.*\[UNADJUSTED\]/.test(out),
     },
     {
       name: 'the UNPUBLISHED marker itself still prints, with its counts',
-      ok: /reagent-slim\s+vs floor\s+UNPUBLISHED \(1\/78 unverified\)/.test(out),
+      ok: /microtask-arm\s+vs floor\s+UNPUBLISHED \(1\/78 unverified\)/.test(out),
     },
     {
       name: 'a published arm still prints BOTH labelled bands',
@@ -569,15 +568,15 @@ function tableSelfTest() {
   // either half of that slip is a table that publishes the grain.
   const grainRuns = [
     {
-      id: 'slim',
+      id: 'mixed',
       summary: {
         'write-bulk': {
           vsFloor: {
             floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
-            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+            'microtask-arm': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
           },
-          headToHead: { 'donor-r1-over-reagent-slim': { min: 1.185, max: 1.313, straddles1: false } },
-          grain: { tick: 0.1, worst: { floor: 1, 'reagent-slim': 17 } },
+          headToHead: { 'donor-r1-over-microtask-arm': { min: 1.185, max: 1.313, straddles1: false } },
+          grain: { tick: 0.1, worst: { floor: 1, 'microtask-arm': 17 } },
         },
       },
       correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it', bound: null, why: 'fixture' } },
@@ -588,7 +587,7 @@ function tableSelfTest() {
     {
       name: 'a window beneath the clock grain prints NOT REPORTABLE and never a number',
       ok:
-        /reagent-slim\s+vs floor\s+NOT REPORTABLE — floor at 1 tick\(s\) of this clock's own 0\.1 ms grain/.test(gout) &&
+        /microtask-arm\s+vs floor\s+NOT REPORTABLE — floor at 1 tick\(s\) of this clock's own 0\.1 ms grain/.test(gout) &&
         // and no numeric band anywhere on a vs-floor line of this row. The
         // head-to-head line beside it carries the same arm's NAME and a real
         // band, which is the point, so the check is anchored to the column.
@@ -596,11 +595,11 @@ function tableSelfTest() {
     },
     {
       name: 'the head-to-head pair beside it still prints its band (the floor cancels)',
-      ok: /donor-r1-over-reagent-slim\s+1\.185 – 1\.313/.test(gout),
+      ok: /donor-r1-over-microtask-arm\s+1\.185 – 1\.313/.test(gout),
     },
     {
       name: 'and the row states how many ticks each window was worth',
-      ok: /CLOCK GRAIN: 0\.1 ms measured — windows worth \(ticks\) floor 1, reagent-slim 17/.test(gout),
+      ok: /CLOCK GRAIN: 0\.1 ms measured — windows worth \(ticks\) floor 1, microtask-arm 17/.test(gout),
     }
   );
   return { ok: checks.every((c) => c.ok), checks };
@@ -806,7 +805,7 @@ function verdict(summary) {
 function verdictSelfTest() {
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: detail || '' });
-  const run = (over) => ({ id: 'slim', summary: {}, correction: {}, pageErrors: [], ...over });
+  const run = (over) => ({ id: 'mixed', summary: {}, correction: {}, pageErrors: [], ...over });
   // The reachable read-back shape, exactly as `mask-failed-read-backs` writes it.
   const readBackRun = () =>
     run({
@@ -814,7 +813,7 @@ function verdictSelfTest() {
         'write-narrow': {
           vsFloor: {
             floor: { min: 1.0, max: 1.0, straddles1: true },
-            'reagent-slim': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
+            'microtask-arm': { unpublished: 'failed-dom-read-back', unverified: 1, of: 78 },
           },
           headToHead: {},
         },
@@ -840,7 +839,7 @@ function verdictSelfTest() {
   check('and it exits 3, as hd8_clock_run.cjs already numbered the same refusal', rb.code === 3, `code ${rb.code}`);
   check(
     'and the refusal NAMES the run, the row, the figure and the counts',
-    /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/.test(rb.lines.join('\n')),
+    /mixed \/ write-narrow \/ microtask-arm vs floor: failed-dom-read-back \(1 of 78 unverified\)/.test(rb.lines.join('\n')),
     rb.lines.join(' | ')
   );
   check(
@@ -883,9 +882,9 @@ function verdictSelfTest() {
   check('and it exits 1, the code this driver already documented for a page error', pe.code === 1, `code ${pe.code}`);
 
   // --- THE OTHER GATES, each on its own code --------------------------------
-  const hf = verdict(summarise({ hardFail: 'slim: boom', runs: [] }));
-  check('a hard failure still exits 1, exactly as before', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
-  const cf = verdict(summarise({ contractFailed: 'slim: fixtures', runs: [] }));
+  const hf = verdict(summarise({ hardFail: 'mixed: boom', runs: [] }));
+  check('a hard failure still exits 1, exactly as before', hf.code === 1 && /FAILED: mixed: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
+  const cf = verdict(summarise({ contractFailed: 'mixed: fixtures', runs: [] }));
   check('a contract self-test failure still exits 1', cf.code === 1, `code ${cf.code}`);
   const or = verdict(summarise({ orderRefused: true, runs: [] }));
   check(
@@ -914,7 +913,7 @@ function verdictSelfTest() {
         'write-bulk': {
           vsFloor: {
             floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
-            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
+            'microtask-arm': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
           },
           headToHead: { 'donor-r1 vs uix': { min: 1.185, max: 1.313 } },
         },
@@ -926,7 +925,7 @@ function verdictSelfTest() {
   check(
     'and it is still STATED, naming the arm, the ticks and the grain',
     /NO REPORTABLE MAGNITUDE/.test(gl.lines.join('\n')) &&
-      /slim \/ write-bulk \/ reagent-slim vs floor: floor at 1 tick\(s\) of 0\.1 ms/.test(gl.lines.join('\n')),
+      /mixed \/ write-bulk \/ microtask-arm vs floor: floor at 1 tick\(s\) of 0\.1 ms/.test(gl.lines.join('\n')),
     gl.lines.join(' | ')
   );
   check(
@@ -1043,7 +1042,7 @@ async function main() {
   console.log(
     `;;   publishes   ${
       !PARTIAL
-        ? 'every row — this is the full three-run sweep, the published shape'
+        ? 'every row — this is the full two-run sweep, the published shape'
         : DECLARED_ROWS
           ? `${[...DECLARED_ROWS].join(', ')} only (HD8_ROWS); every other row emitted is marked NON-PUBLISHING`
           : 'NOTHING — a partial run with no HD8_ROWS declaration; every row emitted is marked NON-PUBLISHING'

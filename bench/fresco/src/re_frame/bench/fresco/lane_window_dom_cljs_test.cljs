@@ -7,7 +7,7 @@
   how long anything took. What it pins is the ORDER of operations inside
   a measured window, which is what the fault below turns on.
 
-  ## Why fake substrates rather than Reagent and reagent-slim
+  ## Why fake substrates rather than real ones
 
   The fault is not about either library. It is about WHICH QUEUE an arm's
   render work sits on relative to the queue the harness yields to, and
@@ -24,15 +24,12 @@
     [[microtask-scheduled-arm]]  the write fills the render queue
         synchronously, and the substrate's OWN microtask drain then takes
         that work back out of the queue and hands it to React outside any
-        `flushSync` boundary, where React parks it — reagent-slim's
-        family, whose `reagent2.impl.batching` is microtask-based. The
-        same yield is FATAL.
+        `flushSync` boundary, where React parks it — the family of any
+        substrate whose batching drains on a microtask. The same yield
+        is FATAL.
 
-  Using the real substrates would need a bundle carrying both engines and
+  Using real substrates would need a bundle carrying both engines and
   would prove the same two-line property more slowly and less legibly.
-  The real-substrate evidence is not re-derived here because the
-  standalone `z3vlz` rig holds it, written up in
-  `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md`.
 
   ## The test that catches the fault
 
