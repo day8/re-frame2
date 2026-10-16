@@ -329,9 +329,9 @@ The rewrite — `(rf/init!)` → `(rf/init! <adapter>)`, the `adapter` Var of th
                                       ; it owns the React root, so the app
                                       ; requires NO reagent.dom.client
 
-(def app-frame :app/main)             ; pick an explicit app-frame id
-                                      ; (a migration MAY use :rf/default —
-                                      ;  but it is still registered, never inferred)
+(def app-frame :rf/default)           ; the conventional app-frame id (M-20
+                                      ; rewrites :re-frame/default to it) —
+                                      ; still registered, never inferred
 
 (defonce app-root (reagent/client-root)) ; the client-root HANDLE. Inert until the
                                       ; first render!, so the defonce is safe on

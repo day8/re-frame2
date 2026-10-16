@@ -55,7 +55,7 @@ request.**
 (:document (server/render {:hiccup            [views/page {}]
                            :payload           payload-policy
                            :snapshot          {:catalog/items items}
-                           :client-frame-id   :app/main
+                           :client-frame-id   :rf/default
                            :identifier-prefix "main"}))
 ```
 
@@ -83,10 +83,10 @@ install in a cold client entry and the first `rf/make-frame` raises the same
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)                   ;; 0. boot — the app's existing adapter
-  (rf/make-frame {:id :app/main :platform :client})    ;; 1. the frame
-  (ssr/hydrate! {:frame :app/main})                    ;; 2. state
+  (rf/make-frame {:id :rf/default :platform :client})  ;; 1. the frame
+  (ssr/hydrate! {:frame :rf/default})                  ;; 2. state
   (h/render! app-root                                  ;; 3. DOM
-             [h/frame-provider {:frame :app/main}
+             [h/frame-provider {:frame :rf/default}
               [views/page {}]]
              (js/document.getElementById "app")
              {:hydrate? true :identifier-prefix "main"}))
