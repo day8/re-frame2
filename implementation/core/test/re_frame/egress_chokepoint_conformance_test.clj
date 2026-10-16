@@ -119,6 +119,12 @@
      ;; value, the leaf path, the schema or the validator's message.
      re-frame.schemas.validate
 
+     ;; The adoption-tier `:rf.ssr/hydration-mismatch` record, for the
+     ;; spine's hydrating roots and Fresco's door alike: framework keywords,
+     ;; the door's `:where` symbol, `:time`, and the mounted frame's id when
+     ;; the door knows one. React's message stays on the dev trace.
+     re-frame.substrate.spine
+
      ;; The dev-gated `:where :machine-data` rejection: framework keywords,
      ;; the machine's registered id, `:phase`, and a `:reason` composed from
      ;; those two keywords. The machine's `:data`, explain and schema stay on

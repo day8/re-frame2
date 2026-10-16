@@ -1117,19 +1117,21 @@
 ;; no `onRecoverableError`; see Spec 011 §Hydration-mismatch detection, the
 ;; attribute-only boundary the compiled and native tiers share) through
 ;; `onRecoverableError`. We install a framework `onRecoverableError` on the
-;; hydrate path ONLY, emit the SAME `:rf.ssr/hydration-mismatch` diagnostic, and
-;; compose OVER (never clobber) any host-authored `:on-recoverable-error`.
+;; hydrate path ONLY — on every hydrating root, in every build — fan an
+;; always-on structural `:rf.ssr/hydration-mismatch` record to the production
+;; error sinks, emit the SAME diagnostic on the dev trace, and compose OVER
+;; (never clobber) any host-authored `:on-recoverable-error`.
 ;;
 ;; ADOPTION WINDOW. React holds `onRecoverableError` for the
 ;; root's WHOLE LIFETIME and invokes it for post-hydration recoverable errors too
 ;; (e.g. a concurrent render React retries and recovers). Emitting the framework
 ;; hydration-mismatch trace on EVERY call would mislabel that later recovery as a
 ;; hydration mismatch — false diagnostics beyond the hydration window. So the
-;; framework emit is bounded to the ADOPTION WINDOW: a root-local
+;; framework report is bounded to the ADOPTION WINDOW: a root-local
 ;; `#js {:adopting true}` flag, read by the reporter and cleared on the hydration
 ;; commit by the `adoption-window-closer` mounted into the hydrating tree. Once
 ;; the window closes the reporter still DELEGATES to the host / React-default
-;; handler but no longer emits the framework trace. A tier with a
+;; handler but fans no record and emits no trace. A tier with a
 ;; `:server`->`:client` phase flip can clear the window on the `:server` commit;
 ;; a native React-element root has no such flip, so a dedicated closer component
 ;; shuts the window on the first (hydration) commit instead.
@@ -1179,16 +1181,35 @@
                   :where    're-frame.substrate.spine/make-render
                   :recovery :warned-and-replaced})))
 
+(defn dispatch-hydration-mismatch-record!
+  "Fan the always-on `:rf.ssr/hydration-mismatch` record for one
+  adoption-window recoverable error, raised by the root door `where` names.
+  `frame` is the frame that door mounted, or nil when it does not know one.
+
+  STRUCTURAL ONLY. React's message stays on the dev trace: in development it
+  carries app text, and this record reaches production error sinks
+  unprojected. Rides the `:error-emit/dispatch-error-record` late-bind hook,
+  as `verify-hydration!`'s record does. Public because Fresco's hydrating
+  door fans the same record."
+  [where frame]
+  (when-let [dispatch-error-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      (cond-> {:error    :rf.ssr/hydration-mismatch
+               :where    where
+               :recovery :warned-and-replaced
+               :time     (rf.interop/now-ms)}
+        (some? frame) (assoc :frame frame)))))
+
 (defn native-hydration-reporter
   "Build the composed `onRecoverableError` callback for a HYDRATING root.
 
   `adoption-ref` is the root-local `#js {:adopting true}` window flag; `authored`
   is the host's `:on-recoverable-error` (or nil). On every recoverable error the
-  callback emits the framework native-tier hydration-mismatch diagnostic ONLY
-  while the adoption window is open (`(.-adopting adoption-ref)`), then ALWAYS
-  delegates to the host callback (compose, never clobber) or React's default
-  report. The emit is bounded to the window because React invokes
-  this callback for post-hydration recoverable errors too, and emitting outside
+  callback reports a hydration mismatch ONLY while the adoption window is open
+  (`(.-adopting adoption-ref)`) — the always-on record, then the dev trace —
+  and ALWAYS delegates to the host callback (compose, never clobber) or React's
+  default report. The report is bounded to the window because React invokes
+  this callback for post-hydration recoverable errors too, and reporting outside
   the window would mislabel that later recovery as a hydration mismatch. The
   window closes on the hydration commit — see `adoption-window-closer`.
 
@@ -1196,10 +1217,12 @@
   across the window boundary (`re-frame.adapter.react-shared-suite`)."
   [^js adoption-ref authored]
   (fn on-recoverable [error error-info]
-    ;; Framework diagnostic ONLY inside the adoption window (debug-gated + DCE'd
-    ;; inside `emit-native-hydration-mismatch!`); once the window closes it is a
-    ;; later recoverable error, NOT a hydration mismatch — do not emit.
+    ;; Report ONLY inside the adoption window; once the window closes it is a
+    ;; later recoverable error, NOT a hydration mismatch. The record is
+    ;; always-on; the trace is debug-gated + DCE'd inside
+    ;; `emit-native-hydration-mismatch!`.
     (when (.-adopting adoption-ref)
+      (dispatch-hydration-mismatch-record! 're-frame.substrate.spine/make-render nil)
       (emit-native-hydration-mismatch! error))
     ;; ALWAYS delegate — compose, never clobber — inside AND outside the window.
     (if (fn? authored)
@@ -1207,20 +1230,15 @@
       (report-recoverable-default! error))))
 
 (defn- hydrate-root-options
-  "Build the react-dom/client root options for a HYDRATING root, or nil.
+  "Build the react-dom/client root options for a HYDRATING root.
 
   `adoption-ref` is the root-local `#js {:adopting true}` window flag the
   installed reporter reads (see `native-hydration-reporter`) and the
-  `adoption-window-closer` clears on the hydration commit. The wrapper is
-  installed ONLY when the host authored a callback OR debug is on: with neither
-  there is nothing to add over React's default report (the emit DCEs), so this
-  returns nil and the caller calls `hydrateRoot` with no options — production
-  pays zero cost (the compiled tier's `react-opts-with-hydration-mismatch`
-  precedent)."
+  `adoption-window-closer` clears on the hydration commit. The reporter is
+  installed on every hydrating root, in every build, because its always-on
+  record is how a production build's error sinks learn of a mismatch."
   [opts adoption-ref]
-  (let [authored (:on-recoverable-error opts)]
-    (when (or (fn? authored) rf.interop/debug-enabled?)
-      #js {:onRecoverableError (native-hydration-reporter adoption-ref authored)})))
+  #js {:onRecoverableError (native-hydration-reporter adoption-ref (:on-recoverable-error opts))})
 
 (defn adoption-window-closer
   "React function component that CLOSES a hydrating root's adoption window
@@ -1334,10 +1352,10 @@
   On the HYDRATE path (`:hydrate? true`) the `adoption-window-closer` wraps
   the tree inside the sentinel, and the React root is created with
   `:identifier-prefix` as React's `identifierPrefix` — which `useId` needs to
-  match the server's — and, when warranted, with a framework
-  `onRecoverableError` that surfaces a hydration MISMATCH as the
-  `:rf.ssr/hydration-mismatch` diagnostic, composed OVER any host-supplied
-  `:on-recoverable-error` opt (see `hydrate-root-options`). The framework emit
+  match the server's — and with a framework `onRecoverableError` that reports
+  a hydration MISMATCH as `:rf.ssr/hydration-mismatch` (the always-on record,
+  and the dev trace), composed OVER any host-supplied `:on-recoverable-error`
+  opt (see `hydrate-root-options`). The framework report
   is bounded to the hydration ADOPTION WINDOW by a root-local flag the closer
   clears on the hydration commit, so a LATER recoverable error is not
   mislabelled a mismatch. Each wrapper has the tree as its only child, so the
@@ -1359,8 +1377,8 @@
     ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate?     (:hydrate? opts)
           ;; On the hydrate path mint the root-local adoption-window flag and
-          ;; build the root options: the composed reporter (nil when no host
-          ;; callback AND debug off) plus the identifier prefix, if given.
+          ;; build the root options: the composed reporter plus the identifier
+          ;; prefix, if given.
           adoption-ref (when hydrate? #js {:adopting true})
           reporter     (when hydrate? (hydrate-root-options opts adoption-ref))
           prefix       (when hydrate? (:identifier-prefix opts))
@@ -1384,9 +1402,7 @@
                              (React/createElement adoption-window-closer closer-props tree)
                              tree)))
           root         (if hydrate?
-                         (if root-options
-                           (react-dom-client/hydrateRoot mount-point (wrap render-tree) root-options)
-                           (react-dom-client/hydrateRoot mount-point (wrap render-tree)))
+                         (react-dom-client/hydrateRoot mount-point (wrap render-tree) root-options)
                          (let [r (react-dom-client/createRoot mount-point)]
                            (.render r (wrap render-tree))
                            r))
