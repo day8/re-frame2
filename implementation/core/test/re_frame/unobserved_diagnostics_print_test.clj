@@ -107,14 +107,102 @@
       (captured-err #(rf/subscribe-once [:unobserved/no-sub] {:frame :unobserved/app}))
       [":rf.error/no-such-sub" "sub :unobserved/no-sub" "frame :unobserved/app"])))
 
-(deftest an-errors-listener-owns-the-record
+(deftest an-errors-listener-owns-only-the-records-it-claims
   (make-app! :unobserved/app)
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! ::owner (fn [r] (swap! seen conj (:error r))))
-    (expect-silence
+  (testing "a listener that returns `true` claims the record, and nothing prints"
+    (let [seen (atom [])]
+      (rf.error-emit/register-error-listener! ::owner
+                                              (fn [r] (swap! seen conj (:error r)) true))
+      (expect-silence
+        (captured-err #(rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app}))
+        "a claiming :errors listener owns the record")
+      (is (= [:rf.error/no-such-handler] @seen) "premise: the listener received it")
+      (rf.error-emit/unregister-error-listener! ::owner)))
+  (testing "a listener that returns anything else owns nothing, even a truthy value"
+    (let [seen (atom [])]
+      (rf.error-emit/register-error-listener! ::bystander
+                                              (fn [r] (swap! seen conj (:error r))))
+      (expect-one-line
+        (captured-err #(rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app}))
+        [":rf.error/no-such-handler" "event :unobserved/typo"])
+      (is (= [:rf.error/no-such-handler] @seen) "premise: the listener received it")
+      (rf.error-emit/unregister-error-listener! ::bystander)))
+  (testing "a listener that throws owns nothing"
+    (rf.error-emit/register-error-listener! ::broken
+                                            (fn [_r] (throw (ex-info "listener boom" {}))))
+    (expect-one-line
       (captured-err #(rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app}))
-      "a registered :errors listener owns the record")
-    (is (= [:rf.error/no-such-handler] @seen) "premise: the listener received it")))
+      [":rf.error/no-such-handler" "event :unobserved/typo"])
+    (rf.error-emit/unregister-error-listener! ::broken)))
+
+(deftest an-emit-recorder-window-claims-what-its-pred-accepts
+  (make-app! :unobserved/app)
+  (testing "a matching predicate records the error, and nothing prints"
+    (let [out (captured-err
+                (fn []
+                  (rf.test-support/with-emit-recorder!
+                    [errs {:pred (fn [r] (= :rf.error/no-such-handler (:error r)))}]
+                    (rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app})
+                    (is (= [:rf.error/no-such-handler] (mapv :error @errs))))))]
+      (expect-silence out "the window claimed the record its predicate accepted")))
+  (testing "a predicate that does not match leaves the record unclaimed, so it prints"
+    (let [out (captured-err
+                (fn []
+                  (rf.test-support/with-emit-recorder!
+                    [errs {:pred (fn [r] (= :rf.error/no-such-fx (:error r)))}]
+                    (rf/dispatch-sync [:unobserved/typo] {:frame :unobserved/app})
+                    (is (empty? @errs)))))]
+      (expect-one-line out [":rf.error/no-such-handler" "event :unobserved/typo"]))))
+
+;; A setup step's capture window and an `:on-destroy` window each register a
+;; listener for the extent of one dispatch. Each claims only the record it
+;; turns into its own outcome, so anything else inside the window still
+;; reaches the console.
+
+(deftest a-typod-setup-step-prints-its-no-such-handler-line
+  (testing "an :initial-events step naming no handler: one line, and the frame
+            is still made (EP-0027 — a handler-less step is not a setup failure)"
+    (let [out (captured-err #(rf/make-frame {:id             :unobserved/seeded
+                                             :initial-events [[:unobserved/initalise]]}))]
+      (expect-one-line out [":rf.error/no-such-handler"
+                            "event :unobserved/initalise"
+                            "frame :unobserved/seeded"])
+      (is (contains? (set (rf/frame-ids)) :unobserved/seeded)
+          "construction continued past the handler-less step")))
+  (testing "a post-commit fx failure in a setup step: one line, and the frame is made"
+    (rf/reg-fx :unobserved/explodes (fn [_] (throw (ex-info "fx kaboom" {}))))
+    (rf/reg-event :unobserved/boot-with-fx
+                  (fn [_ _] {:db {:booted true} :fx [[:unobserved/explodes nil]]}))
+    (let [out (captured-err #(rf/make-frame {:id             :unobserved/fx-seeded
+                                             :initial-events [[:unobserved/boot-with-fx]]}))]
+      (expect-one-line out [":rf.error/fx-handler-exception" "frame :unobserved/fx-seeded"])
+      (is (contains? (set (rf/frame-ids)) :unobserved/fx-seeded)))))
+
+(deftest a-setup-step-failure-is-claimed-by-the-step-and-raised
+  (rf/reg-event :unobserved/boot-throws
+                (fn [_ _] (throw (ex-info "boot kaboom" {}))))
+  (let [thrown (atom nil)
+        out    (captured-err
+                 #(try
+                    (rf/make-frame {:id             :unobserved/torn-down
+                                    :initial-events [[:unobserved/boot-throws]]})
+                    (catch Exception e (reset! thrown e))))]
+    (is (= :rf.error/initial-events-step-failed (:rf.error/id (ex-data @thrown)))
+        "construction raises the step failure")
+    (is (not (contains? (set (rf/frame-ids)) :unobserved/torn-down))
+        "and tears the partial frame down")
+    (expect-silence out "the step claimed the record it raised as its own failure")))
+
+(deftest an-on-destroy-throw-prints-its-own-category-once
+  (rf/reg-event :unobserved/destroy-throws
+                (fn [_ _] (throw (ex-info "destroy kaboom" {}))))
+  (rf/make-frame {:id :unobserved/doomed :on-destroy [:unobserved/destroy-throws]})
+  (let [out (captured-err #(rf/destroy-frame! :unobserved/doomed))]
+    (expect-one-line out [":rf.error/on-destroy-handler-exception" "frame :unobserved/doomed"])
+    (when rf.interop/debug-enabled?
+      (is (not (str/includes? out ":rf.error/handler-exception"))
+          (str "the window claimed the handler exception it re-emitted; got "
+               (pr-str out))))))
 
 (deftest a-sink-that-routed-the-record-owns-it
   (let [seen (atom 0)]
