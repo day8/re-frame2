@@ -20,7 +20,7 @@
 
 {:fixture/id           :machine/reg-error-parallel-root-on
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/parallel-regions :fsm/registration-validation}
+ :fixture/capabilities #{:fsm/parallel-regions :fsm/delayed-after :fsm/registration-validation}
  :fixture/doc          "A root parallel :on OR :after with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target. A well-formed region-qualified root :after validates silently. The control — region-qualified targets — validates silently."
 
  :fixture/registry {}
