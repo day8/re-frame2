@@ -7,10 +7,10 @@
 
   Two independent producers feed that slot, and each is observed alone:
 
-    1. EP-0025 classification: the router's unconditional
-       `schema-redaction-interceptor` over a path-scoped handler's slice.
+    1. The event registration's own `:sensitive` paths, applied to the
+       record's `:event` before fan-out.
     2. `rf.elision/elide-wire-value`, run inside `dispatch-on-error!` on every
-       emission, which covers sites with no interceptor chain.
+       emission over the frame's app-db declarations.
 
   Producer 2 runs on every emission, so it could mask 1. Producer 1's test
   opens with a CONTROL showing the walker leaves the same event untouched; if
@@ -66,11 +66,10 @@
 (defn- leaked? [record secret]
   (str/includes? (pr-str record) secret))
 
-(deftest always-on-record-honours-frame-classification
-  (testing "producer 1 — a classified app-db path overlapping a path-scoped
-            handler's slice redacts the record's `:event` wholesale; the
-            handler body still sees the raw payload"
-    (install-sensitive! :rf/default [[:auth :session :credentials]])
+(deftest always-on-record-honours-registration-classification
+  (testing "producer 1 — the reg-event's `:sensitive [[:credentials]]`
+            redacts the record's `:event` wholesale at that path; the handler
+            body still sees the raw payload"
     (let [payload {:username    "ada"
                    ;; Two keys, one not named `:password`: a redactor that
                    ;; scrubbed scalars or known key names would ship `:confirm`.
@@ -79,14 +78,13 @@
           event   [:auth/throws payload]
           seen    (atom nil)]
       (rf/reg-event :auth/throws
-        {:interceptors [[:rf.interceptor/path [:auth :session]]]}
+        {:sensitive [[:credentials]]}
         (fn [_ [_ p]]
           (reset! seen p)
           (throw (ex-info "boom" {}))))
       (is (= event (rf.elision/elide-wire-value event {:frame :rf/default}))
-          (str "CONTROL — the walker applies the ABSOLUTE declaration to an "
-               "event vector with no :auth hop, so it cannot account for the "
-               "redaction below"))
+          (str "CONTROL — the frame declares nothing, so the walker cannot "
+               "account for the redaction below"))
       (let [err (always-on-error :rf.error/handler-exception
                                  #(rf/dispatch-sync event))]
         (is (= payload @seen) "the handler body received the unredacted payload")

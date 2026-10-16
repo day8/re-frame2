@@ -199,20 +199,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  2. EVENT-PAYLOAD SCRUB during trace-event build                            │
-│     - The router's internal redaction interceptor stashes a scrubbed copy   │
-│       at :rf/redacted-event for every handler whose registration-owned      │
-│       :sensitive paths (or a frame-sensitive app-db path the slice          │
-│       overlaps) match the event payload.                                    │
-│     - (There is no positional `redact-interceptor` (EP-0015 §7);            │
-│       registration-owned :sensitive is the route.)                          │
-│     - Trace assembly reads :rf/redacted-event (not :event) when building    │
-│       :rf.event/* and :rf.event/db-changed tag shapes.                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  3. SPEC 015 CLASSIFICATION PROJECTION (classification/project-trace-event) │
+│  2. SPEC 015 CLASSIFICATION PROJECTION (classification/project-trace-event) │
 │     - The trace bus chokepoint walks :tags for per-registration marks       │
 │       declared at reg-time (`:sensitive [paths]` on the registration meta). │
 │     - Substitutes :rf/redacted at sensitive paths, :rf.size/large-elided    │
@@ -228,7 +215,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  4. HTTP-SPECIFIC REDACTION (re-frame.http.privacy/prepare-emit-tags)       │
+│  3. HTTP-SPECIFIC REDACTION (re-frame.http.privacy/prepare-emit-tags)       │
 │     - For :rf.http/* trace events only.                                     │
 │     - `redact-headers` walks the :headers map, replaces values whose name   │
 │       is in the header denylist with :rf/redacted (unconditional — denyy-  │
@@ -243,7 +230,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  5. TRACE-BUS EMIT — every listener receives the redacted, stamped event    │
+│  4. TRACE-BUS EMIT — every listener receives the redacted, stamped event    │
 │     - Dev-only listeners (Xray, story recorder, dev panels): consult       │
 │       :sensitive? at top level; on-box dev panels render an opaque indicator│
 │       and require `:trace/show-sensitive? true` to reveal.                  │
@@ -254,7 +241,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  6. EPOCH ASSEMBLY (re-frame.epoch/build-record)                            │
+│  5. EPOCH ASSEMBLY (re-frame.epoch/build-record)                            │
 │     - Per-frame, once per dequeued event.                                   │
 │     - sensitive-rollup computes :rf.epoch/sensitive? from the raw record's  │
 │       schema-declared sensitive leaves at build-time.                       │
@@ -263,12 +250,12 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       storage-side mutation (EP-0015 issue 6): epoch records are EP-0010    │
 │       causal replay material, and mutating them at rest would corrupt       │
 │       the replay contract.                                                  │
-│     - Redaction runs at step 7 (off-box egress), not here.                  │
+│     - Redaction runs at step 6 (off-box egress), not here.                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  7. OFF-BOX PROJECTION (rf/project-egress →                                 │
+│  6. OFF-BOX PROJECTION (rf/project-egress →                                 │
 │     re-frame.elision/elide-wire-value)                                      │
 │     - `project-egress` is the record-level boundary primitive; it           │
 │       delegates per tree-shaped slot to `elide-wire-value` (the value       │
@@ -295,7 +282,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  8. MCP TOOL EGRESS (tools/mcp-base/sensitive + elision)                    │
+│  7. MCP TOOL EGRESS (tools/mcp-base/sensitive + elision)                    │
 │     - Cross-MCP filter that runs on every tool response payload.            │
 │     - `strip-sensitive` returns [kept dropped-count]; populates the         │
 │       `:dropped-sensitive` envelope counter (omitted when zero).            │
@@ -311,7 +298,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 - **Composition is additive at every site.** A commit-plane `:sensitive` classification effect (durable app-db) and a subsystem's lowered projection-relative `:sensitive` declaration that resolve to the same path both redact at the same observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
-- **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body reads the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
+- **Real values are never redacted mid-handler.** The handler body reads the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
 - **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
 - **runtime-db is redacted/omitted off-box by default (EP-0001).** Off-box egress of frame-state — the epoch arm of the `project-egress` boundary, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, SSR metadata — the per-frame elision-declaration registry is omitted, per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:rf.egress/include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
 

@@ -974,7 +974,7 @@ The shape is synchronous and side-effecting: the emit returns once every listene
 
 ### Trace-emission opt-out: `:rf.trace/no-emit?` event-meta
 
-Handlers (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, view registrations) whose registration metadata carries `:rf.trace/no-emit? true` produce **no trace events**. The runtime short-circuits `emit!` / `emit-error!` / the queue-time `:rf.event/dispatched` emit when the in-scope handler — or, for `:rf.event/dispatched`, the target handler — opts out. The runtime publishes the handler's `:no-emit?` reading via the `:no-emit?` slot of `re-frame.trace/*handler-scope*` (alongside `:trigger-handler` and `:sensitive?`, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time)); the gate sits inside the outer `interop/debug-enabled?` `when` so production elision is preserved.
+Handlers (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, view registrations) whose registration metadata carries `:rf.trace/no-emit? true` produce **no trace events**. The runtime short-circuits `emit!` / `emit-error!` / the queue-time `:rf.event/dispatched` emit when the in-scope handler — or, for `:rf.event/dispatched`, the target handler — opts out. The runtime publishes the handler's `:no-emit?` reading via the `:no-emit?` slot of `re-frame.trace/*handler-scope*` (alongside `:trigger-handler`, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time)); the gate sits inside the outer `interop/debug-enabled?` `when` so production elision is preserved.
 
 ```clojure
 (rf/reg-event :rf.xray/note-trace-event
@@ -989,7 +989,7 @@ Semantics:
 
 - **What's suppressed.** `:rf.event/dispatched` (queue-time, when the *target* handler's meta carries the flag), the pipeline-run markers `:rf.event/run-start` / `:rf.event/run-end`, `:rf.event/db-changed`, `:rf.fx/handled`, `:rf.machine/transition`, `:rf.sub/run`, `:rf.view/render`, and every `:rf.error/*` emit produced inside the handler's scope. The always-on event-emit substrate and the frame-owned `:handled-events` observability sink route ALSO honour the flag and drop the per-event record for `:rf.trace/no-emit?`-flagged handlers — same boundary semantics as the `:sensitive?` short-circuit, on the rationale that framework-internal bookkeeping handlers are not user-domain observable signal.
 - **What's NOT suppressed.** The handler body still runs — the opt-out applies to OBSERVABILITY (trace + event-emit), not handler execution. The dispatch is queued, drained, and committed normally; the handler's db effect is committed; its fx are walked.
-- **Run composition.** Innermost in-scope handler wins. A non-opt-out handler dispatched from inside a `:rf.trace/no-emit? true` handler emits normally — the inner binding rebinds to false and the inner run is visible. (Same composition rule as `:sensitive?`, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time).)
+- **Run composition.** Innermost in-scope handler wins. A non-opt-out handler dispatched from inside a `:rf.trace/no-emit? true` handler emits normally — the inner binding rebinds to false and the inner run is visible. (Same composition rule as `:trigger-handler`, per [§Handler-scope](#handler-scope-the-in-scope-reading-at-emit-time).)
 - **Production elision.** The trace-surface gate sits inside `interop/debug-enabled?` and DCEs out in `:advanced` production builds (the trace surface is dev-only by construction — production never emits trace events at all). The event-emit and `:handled-events` short-circuits survive production builds (both are always-on), so production listeners and sinks equally drop opt-out handler records.
 
 ### Frame-level trace-emission opt-out: `:rf.trace/frame-no-emit?` frame-config
@@ -1578,19 +1578,18 @@ Trace data is just data; both platforms emit it during dev. The Performance API 
 
 ## Handler-scope: the in-scope reading at emit time
 
-Every handler-execution boundary the runtime crosses (the router's `process-event!` step, a sub recompute, an fx dispatcher, a cofx injector, a view render wrapper) publishes the same five-slot **handler-scope reading** to the trace stream so `emit!` / `emit-error!` can hoist the relevant pieces onto each emitted event. The reading travels through ONE dynamic Var — `re-frame.trace/*handler-scope*` — bound to a `HandlerScope` record with five slots (the [§Canonical slot set](#canonical-slot-set--the-stable-contract) below is the authoritative slot vocabulary; this table is the at-a-glance summary):
+Every handler-execution boundary the runtime crosses (the router's `process-event!` step, a sub recompute, an fx dispatcher, a cofx injector, a view render wrapper) publishes the same four-slot **handler-scope reading** to the trace stream so `emit!` / `emit-error!` can hoist the relevant pieces onto each emitted event. The reading travels through ONE dynamic Var — `re-frame.trace/*handler-scope*` — bound to a `HandlerScope` record with four slots (the [§Canonical slot set](#canonical-slot-set--the-stable-contract) below is the authoritative slot vocabulary; this table is the at-a-glance summary):
 
 | Slot | Carries |
 |---|---|
 | `:trigger-handler` | Registration coord of the in-scope handler — `{:kind :id :source-coord {...}}` or nil when no source-coord is stamped. Hoisted as the top-level `:rf.trace/trigger-handler` field on every emit (success and error paths). |
 | `:call-site` | Compile-time invocation coord of the surface reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`) — `{:ns :file :line :column}` or nil for fn-form callers. Hoisted as `:rf.trace/call-site` on every emit (success and error). |
 | `:dispatch-id` (HandlerScope slot) | Per-event correlation id — allocated once per dequeued event at `router.cljc`'s `process-event!` (the epoch unit; one per `dispatch`, incl. each `:fx`-dispatched child) and merged into `:tags :rf.trace/dispatch-id` of every event emitted inside that one event's run. `:raise`/`:always` microsteps ride the triggering event's id. (The internal scope-record slot keeps the short name; the emitted trace tag is the namespaced `:rf.trace/dispatch-id`.) |
-| `:sensitive?` | Boolean. True when the router computed a classified sensitive-path overlap for the in-scope handler — the frame's `[:rf.runtime/elision :sensitive-declarations]` registry, not schema slot props (there is no handler-meta annotation). Emitted events get a top-level `:sensitive? true` stamp; absent reads as false (per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). |
 | `:no-emit?` | Boolean. True when the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. `emit!` / `emit-error!` short-circuit (no envelope allocation, no listener fan-out) when bound true. |
 
 ### Composition
 
-The innermost handler-scope binding wins for the meta-derived slots (`:trigger-handler` / `:sensitive?` / `:no-emit?`). The `:call-site` and `:dispatch-id` slots are **inherited** from the parent scope unless the new scope explicitly overrides them — call-site originates at macro expansion time and rides through nested scopes; dispatch-id is allocated once per cascade and survives the handler-chain → sub recompute → fx → cofx descent. The constructor and binding macros in `re-frame.trace` (`with-handler-scope`, `with-call-site`, `with-dispatch-id+call-site`) handle inheritance automatically.
+The innermost handler-scope binding wins for the meta-derived slots (`:trigger-handler` / `:no-emit?`). The `:call-site` and `:dispatch-id` slots are **inherited** from the parent scope unless the new scope explicitly overrides them — call-site originates at macro expansion time and rides through nested scopes; dispatch-id is allocated once per cascade and survives the handler-chain → sub recompute → fx → cofx descent. The constructor and binding macros in `re-frame.trace` (`with-handler-scope`, `with-call-site`, `with-dispatch-id+call-site`) handle inheritance automatically.
 
 For `:rf.fx/handled` specifically: the runtime rebinds `:trigger-handler` to the **fx handler's** own registration meta around the fx body's invocation and the success-path emit that follows — consumer tools jump to the `reg-fx` site, not the enclosing event handler. Reserved fx-ids (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) have no registration site of their own; their `:rf.fx/handled` traces carry the enclosing event handler's coord (the outer binding).
 
@@ -1607,7 +1606,6 @@ The `HandlerScope` record's slot set is a **stable contract** consumed at every 
 | `:trigger-handler` | `{:kind :id :source-coord {:ns :file :line :column}}` or nil. `:kind` is one of `#{:event :sub :fx :cofx :view :machine :flow :route :error-projector}`; `:source-coord` is whatever the registrar slot's meta carried (omitted for programmatic registrations). | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
 | `:call-site` | `{:ns :file :line :column}` or nil. Macro-expansion coord stamped by the surface form (`dispatch`, `dispatch-sync`, `subscribe`). Nil for fn-form callers. | Stamped by the surface macro via `with-call-site` or `with-dispatch-id+call-site`. | Inherited from parent scope unless the new scope explicitly overrides. |
 | `:dispatch-id` | Opaque scalar (process-monotonic counter, UUID, or any value with the [§Dispatch correlation](#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id) uniqueness contract). Nil outside any in-flight cascade. | Allocated once at queue time by `router.cljc`'s `enqueue!`; published into the scope by `with-dispatch-id+call-site` on entry to `process-event!`. | Inherited from parent scope unless the new scope explicitly overrides. |
-| `:sensitive?` | Boolean. True iff the router computed a classified sensitive-path overlap for the in-scope handler against the frame's `[:rf.runtime/elision :sensitive-declarations]` registry (see [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces)). There is no handler-meta `:sensitive?` annotation; sensitivity is path-marked classification. | Computed in the router's `prepare-handler-ctx` and threaded onto the scope-meta as `:rf/sensitive?` for `handler-scope-from-meta` to lift into the scope's `:sensitive?` slot. | Innermost wins (scope-derived). |
 | `:no-emit?` | Boolean. True iff the in-scope handler's registration meta carries `:rf.trace/no-emit? true`. | Read off the in-scope handler's registration meta by `handler-scope-from-meta` at scope-bind time. | Innermost wins (meta-derived). |
 
 Slot values are nil when unbound. Consumers reading a slot off an event MUST treat absent and nil identically (nil-safe access).
@@ -1621,15 +1619,14 @@ Slot values are nil when unbound. Consumers reading a slot off an event MUST tre
 | `:trigger-handler` | top-level `:rf.trace/trigger-handler` | every emit (success and error) when bound | Omitted entirely when unbound (no placeholder data). Per [§`:rf.trace/trigger-handler`](#rftracetrigger-handler--naming-the-in-scope-handler). |
 | `:call-site` | top-level `:rf.trace/call-site` | every emit (success and error) when bound | Hoisted on every emit, not only errors — the Event lens and any consumer rendering jump-to-source on success-path events (`:rf.event/dispatched`, `:rf.fx/do-fx`, `:rf.fx/handled`) needs the dispatch-site coord on the cascade entry, not just on errors. Omitted entirely when unbound. Per [§`:rf.trace/call-site`](#rftracecall-site--naming-the-invocation-line). |
 | `:dispatch-id` (HandlerScope slot) | `:tags :rf.trace/dispatch-id` | every emit when bound and `:tags` does not already supply one | Caller-supplied `:tags :rf.trace/dispatch-id` wins. Per [§Dispatch correlation](#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id). |
-| `:sensitive?` | top-level `:sensitive? true` | every emit when scope is sensitive and `:tags :sensitive?` does not supply its own reading | Caller-supplied `:tags :sensitive?` wins (queue-time `:rf.event/dispatched` computes its own reading before scope is bound). Absent reads as false. Per [§Privacy / sensitive data in traces](#privacy--sensitive-data-in-traces). |
 | `:no-emit?` | **not hoisted** | — | Acts as a short-circuit signal: `emit!` / `emit-error!` skip envelope construction and listener fan-out entirely when bound true. The slot never appears on any emitted event. Per [§Trace-emission opt-out](#trace-emission-opt-out-rftraceno-emit-event-meta). |
 
 ### Extension contract — adding a new slot
 
-The `HandlerScope` slot set is closed; adding a sixth concern (e.g. a hypothetical `:tenant-id` for multi-tenant audit) is a **coordinated edit** that crosses the implementation and this spec. To add a slot `X`, all of the following must change in the same change-set:
+The `HandlerScope` slot set is closed; adding a fifth concern (e.g. a hypothetical `:tenant-id` for multi-tenant audit) is a **coordinated edit** that crosses the implementation and this spec. To add a slot `X`, all of the following must change in the same change-set:
 
 1. **The defrecord.** `re-frame.trace/HandlerScope`'s positional slot list gains `X` (constructors `->HandlerScope` callers update; all explicit `->HandlerScope` literals in `with-call-site` and `with-dispatch-id+call-site` add the new positional arg).
-2. **The meta-derived reader** (if `X` is meta-derived). `handler-scope-from-meta` reads the slot off the registrar meta map at scope-bind time, with the same nil-when-absent convention as `:sensitive?` / `:no-emit?`.
+2. **The meta-derived reader** (if `X` is meta-derived). `handler-scope-from-meta` reads the slot off the registrar meta map at scope-bind time, with the same nil-when-absent convention as `:no-emit?`.
 3. **The inheritance rule** (if `X` inherits from parent scope). `inherit-scope` adds a `(nil? (:X new-scope)) (assoc :X (:X parent))` branch — mirror of the `:call-site` / `:dispatch-id` branches. Slots that are purely meta-derived (innermost-wins) need no `inherit-scope` change.
 4. **The emit-side hoist** (if `X` rides emitted events). `build-event` reads the slot and stamps it on the envelope — either at the top level (with a reserved namespace, e.g. `:rf.tenancy/tenant-id`) or under `:tags`. Pin the per-slot rule in the [§Emit-side hoist contract](#emit-side-hoist-contract--which-slot-rides-which-trace) table above. Slots that are pure short-circuit signals (like `:no-emit?`) skip this step.
 5. **This canonical slot list.** The two tables above ([§Canonical slot set](#canonical-slot-set--the-stable-contract) and [§Emit-side hoist contract](#emit-side-hoist-contract--which-slot-rides-which-trace)) gain a row for `X`.
@@ -1637,7 +1634,7 @@ The `HandlerScope` slot set is closed; adding a sixth concern (e.g. a hypothetic
 
 Existing slots are **never repurposed** — value shape and hoist mapping are frozen. Renaming a slot or changing a slot's value shape is a breaking change to every trace consumer and is out of scope for this contract.
 
-### History — why one record, not five Vars
+### History — why one record, not four Vars
 
 The reading is carried by one `HandlerScope` record bound to one Var: one binding-frame allocation per scope, one Var to mock in tests, one record-field edit when a new concern lands.
 
@@ -2700,7 +2697,7 @@ The declaration surface is path-based (EP-0025). Apps classify **durable app-db*
 
 > **Carried frame, frameless fails closed (EP-0002).** A frame's elision policy may be applied only when that frame is **known**. `re-frame.elision/elide-wire-value` resolves its wire-egress frame from the **carried stamp** — the explicit `:frame` opt (*override*) wins, else the in-effect carried-invariant scope (`with-frame` / frame-provider). **The opt is read by KEY PRESENCE, not truthiness:** an explicit `:frame nil` states that the value has no governing frame and **fails closed**; only an ABSENT `:frame` key falls through to the carried scope. Saying *no frame* has to be sayable, because the caller that most needs to say it — a tool projecting one frame's value from inside its own chrome frame — has a live ambient frame to fall through to, and that frame's empty registry would ship the value RAW. There is **no `:rf/default` floor**: an egress that carries no frame can never borrow a default frame's marks. When no frame is carried, the per-frame elision registry is unreachable, so the walker **fails closed** — the whole value is conservatively redacted to `:rf/redacted` rather than shipped verbatim under no policy (`:rf.egress/include-sensitive? true` is the deliberate opt-out for a trusted-local caller that has waived sensitive redaction). The trace-projection chokepoint (Spec 015 classification-projection) follows the same rule: a trace event attributes to the frame it **carries**, never to a synthesised default — the frame-qualified slots (`:rf.event/db`, `:rf.view/render-args`, `:rf.sub/value`) fail closed when the carried frame is absent (a genuinely frameless boot/registration emit, or a malformed event that should have carried a stamp), while the process-scoped per-registration marks (event / fx / cofx / machine, keyed by `(kind id)`) apply with no frame needed.
 
-> **Projection-decided sensitivity hoists to the top level.** The top-level `:sensitive?` stamp (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is normally computed in `build-event` from handler-scope / schema overlap. But some classification-projection clauses decide sensitivity DURING projection — the projection runs *after* `build-event`, so `build-event` never saw the signal. Examples: a sensitive machine's `:rf.error/machine-action-exception` `:exception-data` (Spec 015 `project-machine-error-tags`) and a registration-classified (or frameless-fail-closed) `:rf.sub/run` output (`project-sub-tags` — the sub's own `:sensitive` registration mark; there is no input→output propagation, per EP-0025). These clauses stamp `[:tags :sensitive?]`. Because the off-box egress gate (`re-frame.mcp-base.sensitive/sensitive-event?`, per [§Off-box egress contract](#off-box-egress-contract)) reads the **top-level** `:sensitive?` only, a tags-level-only stamp would egress as non-sensitive and the fail-closed whole-event drop would never fire. The classification-projection chokepoint therefore **hoists any projection-stamped `[:tags :sensitive?]` to the envelope's top level** (and strips it from `:tags`) before delivery, mirroring `build-event`'s posture. This is uniform across every projection clause that stamps tag-level sensitivity — present and future — so projection-classified-sensitive events are dropped by `strip-sensitive` with the boot gate off, exactly as scope-classified ones are.
+> **Projection-decided sensitivity hoists to the top level.** The top-level `:sensitive?` stamp (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is normally computed in `build-event` from a caller-supplied `:tags :sensitive?`. But some classification-projection clauses decide sensitivity DURING projection — the projection runs *after* `build-event`, so `build-event` never saw the signal. Examples: a sensitive machine's `:rf.error/machine-action-exception` `:exception-data` (Spec 015 `project-machine-error-tags`) and a registration-classified (or frameless-fail-closed) `:rf.sub/run` output (`project-sub-tags` — the sub's own `:sensitive` registration mark; there is no input→output propagation, per EP-0025). These clauses stamp `[:tags :sensitive?]`. Because the off-box egress gate (`re-frame.mcp-base.sensitive/sensitive-event?`, per [§Off-box egress contract](#off-box-egress-contract)) reads the **top-level** `:sensitive?` only, a tags-level-only stamp would egress as non-sensitive and the fail-closed whole-event drop would never fire. The classification-projection chokepoint therefore **hoists any projection-stamped `[:tags :sensitive?]` to the envelope's top level** (and strips it from `:tags`) before delivery, mirroring `build-event`'s posture. This is uniform across every projection clause that stamps tag-level sensitivity — present and future — so projection-classified-sensitive events are dropped by `strip-sensitive` with the boot gate off, exactly as caller-stamped ones are.
 
 > **runtime-db is redacted/omitted off-box by default (EP-0001).** A frame-state projection has two partitions; off-box egress (error-monitor forwarders, remote dashboards, the Xray-MCP / re-frame2-pair servers per [Tool-Pair.md](Tool-Pair.md)) **redacts or omits the runtime-db partition by default** — only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and any explicitly allowlisted serializable runtime-db facts cross the wire. Transient runtime side-channel state (host handles, request/response accumulators, trace rings, in-flight HTTP, dirty caches — per [002 §Durable vs transient](002-Frames.md#durable-vs-transient)) is **absent by default** and available only through an explicit trusted-local diagnostic API. **Trusted-local** tools (a developer's own Xray panel inspecting their own running app) may request richer runtime-db diagnostics explicitly; **off-box / AI / log** egress fails closed. The elision declarations themselves live in runtime-db (`[:rf.runtime/elision …]`) — they are privacy-load-bearing runtime state, so they too revert atomically with frame-state and are never accidentally dropped by an app-db replace (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)).
 
@@ -2711,8 +2708,11 @@ The declaration surface is path-based (EP-0025). Apps classify **durable app-db*
 > [Spec 015](015-Data-Classification.md) data-classification mechanism (EP-0025) —
 > sensitivity is a property of the data value at a path, not of the
 > handler that touched it. The trace-event `:sensitive?` top-level stamp
-> (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is driven exclusively by the
-> classification-registry overlap (see [§Schema-installed redaction](#schema-installed-redaction)).
+> (see [§Trace-event field: `:sensitive?` at the top level](#trace-event-field-sensitive-at-the-top-level)) is set by the emitters that decide
+> sensitivity: a caller-supplied `:tags :sensitive?`, the managed-HTTP
+> per-call or denylisted-query stamp, the schema validation-failure
+> emitters, the machine and flow exception projectors, and a frameless
+> `:rf.sub/run`. A handler's interceptor chain sets none of them.
 
 A **boolean** `:sensitive?` key on the `:rf/registration-metadata` map
 takes no part in the privacy machinery. The two always-on substrate
@@ -2722,47 +2722,12 @@ handler-meta sensitivity — they apply the event registration's own
 which reads the per-frame `[:rf.runtime/elision :sensitive-declarations]`
 registry (EP-0025 commit-plane `:sensitive` effects, `reg-flow` output
 declarations, and subsystem projection-relative declarations — never
-app-schema slot meta, per EP-0015 §8). Schema-installed
-redaction (below) and **registration-owned `:sensitive` payload
-classification** (per [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) §7) are
-the supported declaration sites. (There is no public positional
+app-schema slot meta, per EP-0015 §8). **Registration-owned
+`:sensitive` payload classification** (per [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) §7 and
+[015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification))
+is the declaration site for an event's payload; a handler's interceptor
+chain declares nothing. (There is no public positional
 `redact-interceptor` — EP-0015 §7.)
-
-#### Schema-installed redaction
-
-**The section name and the `:rf/schema-redaction` interceptor id are kept for wire compatibility; the declaration is not schema-attached.** For handlers scoped with the standard `:rf.interceptor/path` interceptor (EP-0022 — referenced as `[:rf.interceptor/path <path-vector>]`, never an inline value), the router compares the path interceptor's app-db focus with the frame's **classified** sensitive declarations — the per-frame `[:rf.runtime/elision :sensitive-declarations]` registry, whose sources union at lookup time (EP-0025 commit-plane `:sensitive` effects under `:source :effect`, `reg-flow` output declarations, and subsystem projection-relative declarations). When a classified path is under the handler's db focus, the router installs an internal redaction interceptor for the corresponding event-payload path.
-
-```clojure
-;; Durable app-db classification is the EP-0025 commit-plane `:sensitive`
-;; effect, returned alongside `:db` by whichever event writes the path.
-(rf/reg-event :auth/store-credentials
-  (fn [{:keys [db]} [_ creds]]
-    {:db        (assoc-in db [:auth :password] (:password creds))
-     :sensitive [[:auth :password]]}))
-
-(rf/reg-event :auth/login
-  {:interceptors [[:rf.interceptor/path [:auth]]]}
-  (fn [{:keys [db]} [_ payload]]
-    ;; `db` is the focused :auth slice (the path interceptor); the handler receives the raw payload.
-    {:db (assoc db :last-login payload)}))
-
-;; REGISTRATION CLASSIFIES NOTHING. `:sensitive` is a commit-plane effect, so
-;; [:auth :password] enters the frame's registry only when the handler RUNS:
-(rf/dispatch-sync [:auth/store-credentials {:password "shh"}])
-
-;; NOW [:auth :password] is classified and sits under the handler's [:auth] focus,
-;; so the router installs the internal redaction interceptor for the relative
-;; payload path [:password]. Trace/error emissions for
-;; [:auth/login {:username "ada" :password "shh"}]
-;; carry [:auth/login {:username "ada" :password :rf/redacted}].
-```
-
-Behaviour:
-
-- **Canonical declaration.** The EP-0025 commit-plane `:sensitive` effect is the canonical per-path privacy declaration for durable app-db: a `reg-event` handler returns `:sensitive [[…]]` alongside its `:db` write and the router folds it into `[:rf.runtime/elision :sensitive-declarations]` for the active frame under `:source :effect` — **when that handler RUNS**, since `:sensitive` is a commit-plane effect: registering the handler classifies nothing, which is why the example above dispatches `:auth/store-credentials` before the login trace is claimed to redact. **`{:sensitive? true}` on app-schema slot metadata is NOT a route into that registry** (EP-0015 §8 — schemas describe shape, not durable app-db egress policy; there is no schema-to-registry boot bridge). A schema slot prop drives exactly two things: schema-**validation-failure**-trace redaction (per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)) — a machine's `[:schemas :data]` schema is in this first group, and **only** this one: it *validates* `:data` and redacts nothing but its own failure trace — and the schema-owned **transient** shapes (a resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema) — never a durable path. Durable machine `:data` is **not** a transient product: the snapshot-shaped slots of `:rf.machine/transition` / `:rf.machine/snapshot-updated` are classified by the projection-relative top-level `:sensitive` / `:large` declarations on the `reg-machine` spec, lowered per actor instance into this same registry under `:source :machine` (per [005 §Privacy](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) and [015 §Subsystem projection-relative classification](015-Data-Classification.md#subsystem-projection-relative-classification)).
-- **Registration-owned classification.** `:sensitive` payload classification on `reg-event` / `reg-sub` / `reg-flow` (per [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) §7) scrubs the classified payload keys before the trace surface sees them; complementary to schema-marked paths. (There is no public positional `redact-interceptor` — EP-0015 §7.)
-- **Trace-only redaction.** The internal redaction interceptor writes the redacted event to framework trace/error emission slots. The regular `:event` coeffect stays raw so handlers can perform the requested work.
-- **Sentinel keyword.** Redacted values are replaced with the framework-reserved `:rf/redacted` sentinel. Apps MUST NOT use it as a legitimate payload value.
 
 #### Trace-event field: `:sensitive?` at the top level
 
@@ -2817,11 +2782,10 @@ Implementation note (non-normative): the reference implementation uses a callbac
 
 #### Production-elision behaviour
 
-The `:sensitive?` mechanism is **dev-time only** — both pieces of it ride the trace surface and elide with it:
+The `:sensitive?` mechanism is **dev-time only** — it rides the trace surface and elides with it:
 
 - The trace surface's `:advanced` + `goog.DEBUG=false` build elides `emit!` entirely (per [§Production builds](#production-builds-zero-overhead-zero-code)). No trace event is allocated, no listener body runs, no `:sensitive?` stamp is built. The privacy mechanism is moot because there is no trace to privacy-protect.
-- Schema-installed redaction is internal router machinery. In production builds that retain always-on event/error substrates, the same redacted event shape is used at those boundaries; dev-only trace allocation still DCEs when the trace surface is disabled.
-- The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) treats `":rf/redacted"` as a framework sentinel that may survive only where a production boundary explicitly uses schema redaction.
+- The elision-probe verifier (per [§Production-elision verification](#production-elision-verification)) treats `":rf/redacted"` as a framework sentinel that may survive only where a production boundary projects a classified value (the always-on event and error substrates).
 
 No registration-time privacy warning exists. The EP-0025 commit-plane `:sensitive` effect is the canonical durable app-db redaction declaration; **registration-owned `:sensitive` payload classification** (per [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) §7) is the declarative site for ad-hoc payload scrubs (there is no public positional `redact-interceptor`, EP-0015 §7). There is no handler-meta `:sensitive?` annotation.
 
