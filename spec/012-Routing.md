@@ -289,7 +289,7 @@ Thirteen rows for twelve metadata keys: the `:path` row is the third positional 
 | `:query-defaults` | shape | map | Default values for query-string keys when absent. Applied when the **target is resolved** — by `match-url` for the URL-bearing doors and by the one resolved-target seam for the named-address doors, so every door resolves the same `:query`. A key already at its default is **not emitted** into the URL. See "Query strings and fragments". |
 | `:tags` | layout | set of keywords | User-defined tags (e.g. `:requires-auth`); read by interceptors. |
 | `:parent` | layout | route-id | Parent route id (for the nested-layout convention; see "Nested layouts"). |
-| `:on-match` | lifecycle | vector of event vectors | Events the runtime **fires-and-forgets**, in order, after a *successful* full activation (server- and client-side); a committed planning-failure target dispatches none of them. It never drives route readiness or awaits async tails. Any other shape, a single event vector included, is refused at registration ([§Authoring-boundary key validation](#authoring-boundary-key-validation)). See "Per-route data loading". |
+| `:on-match` | lifecycle | vector of event vectors | Events the runtime **fires-and-forgets**, in order, after a *successful* full activation (server- and client-side), each with the activation target `{:route-id :params :query :fragment :url :nav-token}` appended as its last argument; a committed planning-failure target dispatches none of them. It never drives route readiness or awaits async tails. Any other shape, a single event vector included, is refused at registration ([§Authoring-boundary key validation](#authoring-boundary-key-validation)). See "Per-route data loading". |
 | `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **away from** this route. The sub receives the pending target as an argument (`(fn [inputs [_ target] …])`). **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:can-enter` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **into** this route. The sub receives the resolved target as an argument. **Strict contract**: `true` allows, `false` denies, any other value denies AND emits `:rf.error/can-enter-non-boolean`. Denial is **terminal** — nothing commits, no pending value is created, and the runtime dispatches `:rf.route/entry-denied` once. See [§Entry is terminal](#entry-is-terminal). |
 | `:scroll` | layout | enum | Declarative scroll behaviour on entering this route — `:top` / `:restore` / `:preserve`, or `false` to suppress the effect. Closed vocabulary. See "Scroll restoration". |
@@ -435,16 +435,18 @@ Programmatic navigation is one event carrying ONE flat **request map**. Like eve
                      [[:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
                       (when-let [scroll (resolve-scroll route-meta request default-scroll fragment)]
                         [:rf.nav/scroll scroll])]
-                     ;; per-route :on-match fire-and-forget dispatches (see "Per-route data loading")
+                     ;; per-route :on-match fire-and-forget dispatches, each with the
+                     ;; activation target appended (see "Per-route data loading")
                      (for [ev (:on-match route-meta)]
-                       [:dispatch ev])))}))))
+                       [:dispatch (conj ev {:route-id route-id :params params :query query
+                                            :fragment fragment :url url :nav-token nav-token})])))}))))
 ```
 
 Three effect categories flow:
 
 1. The runtime-db `:rf/route` slice (at `[:rf.runtime/routing :current]`) is updated (id, params, query, fragment, transition, nav-token).
 2. The browser URL is pushed via `:rf.nav/push-url` (a registered fx; `:platforms #{:client}`), or replaced via `:rf.nav/replace-url` when the request carries `:replace? true`. A door whose address bar has already moved (`:rf.route/handle-url-change`) pushes nothing.
-3. The route's `:on-match` events (if any) are dispatched, and the route's `:scroll` strategy (if any) is emitted as a `:rf.nav/scroll` effect.
+3. The route's `:on-match` events (if any) are dispatched, each with the activation target appended, and the route's `:scroll` strategy (if any) is emitted as a `:rf.nav/scroll` effect.
 
 The order is locked: state changes first, URL update second, then `:on-match` dispatches and scroll effect. If the URL update fails (browser denies, user is offline) the state is still consistent.
 
@@ -629,7 +631,8 @@ The handler:
                         :nav-token  nav-token})
          :fx (into [[:rf/trace [:rf.route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
                    (for [ev (:on-match route-meta)]
-                     [:dispatch ev]))}))))
+                     [:dispatch (conj ev {:route-id route-id :params params :query query
+                                          :fragment fragment :url url :nav-token nav-token})]))}))))
 ```
 
 The sketch above shows the **slice rewrite** only. It destructures `[_ url]` and so elides the trailing opts map carrying the `:rf.route/cause` rider, and it omits the shared planning pipeline every door lowers to — the guards, the resolved-target seam, the activation plan, and the `:rf.route/planned` emit all live in [§The one planning pipeline](#the-one-planning-pipeline). Read it as the slice contract, not as the handler's full body.
@@ -971,7 +974,7 @@ Its contract is fire-and-forget (EP-0037 §`:on-match` is activation work):
 2. It **does not drive route readiness.** `:on-match` never sets `:rf.route/transition` to `:loading` or `:error`, never queues a settle, does not await the asynchronous effects its events start, does not infer when their transitive work finished, and does not correlate later global error records back to the route. Route readiness is the resource projection, independent of `:on-match`.
 3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical id/params/query do not re-fire, and a fragment-only change does not re-fire — this is the exact re-fire key set (request spelling and policy keys are irrelevant; the runtime compares the resolved facts).
 4. `:on-match` events run **server- and client-side**. SSR dispatches them through the request-local frame so synchronous event effects stay symmetric, but SSR does **not** wait for an arbitrary asynchronous tail (the only route-owned server wait is a blocking `:resources` requirement; see [§Server-side rendering integration](#server-side-rendering-integration)). Hydration does *not* re-fire `:on-match` — the seeded `app-db` already contains the data.
-5. Each `:on-match` event is an ordinary event vector. Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta {:source :store :kind :route :id :route/cart})` returns the metadata, so tooling can render activation dependency graphs.
+5. Each `:on-match` event is an ordinary event vector, dispatched with the activation target appended as its last argument (see [the activation target](#the-activation-target-arrives-as-the-last-argument) below). Handlers may emit any `:fx` (typically `:http`, etc.). A synchronous handler **throw** stays visible through the ordinary [009](009-Instrumentation.md) event error channel, attributed to the event that threw — it is **not** rewritten into route-loader state. Applications that start asynchronous work from `:on-match` own its status and error state in the same event/effect subsystem that owns the work. The events are also enumerable: `(rf/handler-meta {:source :store :kind :route :id :route/cart})` returns the metadata, so tooling can render activation dependency graphs.
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what runs when this route activates?" `:on-match` is the canonical surface.
 
@@ -986,7 +989,23 @@ The `:resources` route-metadata key (owned by the [Resources artefact](016-Resou
 
 The mechanism is the late-bound seam; what routing adds is only the resolver-reference `:scope` form and its planning-time, fail-closed resolution. Spec 016 owns the full route-resource plan contract ([016 §Route integration](016-Resources.md#route-integration)); 012 names only the accepted `:scope` forms.
 
-> **`:on-match` events read route params from cofx, not from the event vector.** Each `:on-match` event runs with full access to the frame's state via cofx, including the freshly-written route slice. The route slice is framework-owned **runtime-db** state (per [§The `:rf/route` slice](#the-rfroute-slice)), so a handler that needs params/query reads them from the `:rf.db/runtime` cofx — `(get-in (:rf.db/runtime cofx) [:rf.runtime/routing :current])` — or, more idiomatically, derives them through the public route subs (`:rf.route/params`, `:rf.route/query`). It does NOT read the slice from the app `:db` cofx (the slice does not live in app-db). The event vector carries no param substitution.
+### The activation target arrives as the last argument
+
+When a full activation commits, the runtime dispatches every `:on-match` entry with **one** extra trailing argument: the target the guards saw, plus the nav-token the commit allocated — `{:route-id :params :query :fragment :url :nav-token}`. `[:article/load]` dispatches as `[:article/load target]`, and an entry with its own arguments gets the target last: `[:my/load :x]` dispatches as `[:my/load :x target]`. It is the convention the framework already follows twice: guards receive the resolved target appended to their query ([§Navigation blocking](#navigation-blocking--pending-nav-protocol)), and `:rf/reply-to` appends the reply ([Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)).
+
+```clojure
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ {:keys [params nav-token]}]]
+    {:db (assoc db :article/slug (:slug params) :article/nav-token nav-token)}))
+
+;; A test calls it with a literal target and seeds no runtime-db:
+(rf/dispatch-sync [:article/load {:route-id :route/article :params {:slug "intro"} :query {}
+                                  :fragment nil :url "/articles/intro" :nav-token "nav-1"}])
+```
+
+A handler reads its inputs from its event, so it is a pure function of that event. The live route slice stays readable — it is framework-owned **runtime-db** state (per [§The `:rf/route` slice](#the-rfroute-slice)), reached through the `:rf.db/runtime` cofx (`(get-in (:rf.db/runtime cofx) [:rf.runtime/routing :current])`) or the public route subs (`:rf.route/params`, `:rf.route/query`), never through the app `:db` cofx. It answers a different question: a later reply asking "is this still the page?" reads the live slice, because the target records where the activation went, not where the reader is now.
+
+**The target is classifiable only at outer position 1.** Event `:sensitive` paths index the payload at outer position 1, and outer positions 2 and later pass through raw ([015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification)). So `[:my/load]`'s handler can classify the target it receives (`{:sensitive [[:params :token]]}` on its registration), but `[:my/load :x]` puts the target at position 2, which nothing classifies. A route's own `:sensitive` declaration classifies the route slice, not an app event's arguments. That is the hygiene bargain: a route whose params or query carry sensitive values keeps its `:on-match` entries argument-free and classifies the target on each handler.
 
 ### Route readiness is a resource projection
 
@@ -1124,14 +1143,15 @@ When a route is loading and the user navigates away before the load completes, t
     >
     > Each generator mints the next id from the host high-water snapshot at processing-start (router `:live` policy); the cofx machinery **records the produced allocation onto the causal token** (per [001 §`reg-cofx`](001-Registration.md) recordable grade / EP-0017 §5) so the epoch captures it. Strict replay re-presents the recorded id verbatim — the generator does not run — and **FAILS LOUDLY (`:rf.error/missing-required-cofx`) if the recorded allocation is absent** (an incomplete record must not silently re-read the host). The handler writes only the `:token` / `:id` into `runtime-db` and rides the allocation's `:counter` on the `:rf.route/commit-nav-counter` fx, which advances the host high-water with **`max`** — so a restore/replay re-establishes the allocator from the recorded `:counter` and can never rewind it. This is the same write-via-fx seam the scroll cache uses; the read half is the recordable allocation cofx rather than an ambient snapshot read.
 
-2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:rf.route/nav-token` cofx via `{:rf.cofx/requires [:rf.route/nav-token]}`; the value-returning supplier delivers the current token (read from `[:rf.runtime/routing :current :nav-token]`) flat under `:rf.route/nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time. A loader SHOULD also declare the companion `:rf.route/route-id` cofx (the live route id, read from `[:rf.runtime/routing :current :route-id]`) so it captures **both** facts the route-loader [work id](Managed-Effects.md#work-id-correlation) `[:rf.work/route route-id nav-token loader-id]` needs together — the documented path then cannot thread a nil route id into the work-id tuple (the route id is a *carried* fact of the attempt, captured at scheduling time, never read from the live slice at stale-arrival where a cross-route completion's slice id would be the superseding route's):
+2. **Capture.** An `:on-match` handler captures the epoch from its own event: the [activation target](#the-activation-target-arrives-as-the-last-argument) appended to it carries the `:nav-token` the commit allocated together with the `:route-id`, **both** facts the route-loader [work id](Managed-Effects.md#work-id-correlation) `[:rf.work/route route-id nav-token loader-id]` needs. Both are *carried* facts of the attempt, captured at scheduling time — never read from the live slice at stale-arrival, where a cross-route completion's slice id would be the superseding route's:
 
     ```clojure
     (rf/reg-event :cart/load-items
-      {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}    ;; <-- declare BOTH cofx
-      (fn [{:keys [db] :rf.route/keys [nav-token route-id]} _]        ;; <-- "nav-42" + :route/cart, live at scheduling time
+      (fn [{:keys [db]} [_ {:keys [route-id nav-token]}]]           ;; <-- :route/cart + "nav-42", from the activation target
         ...))
     ```
+
+    An event not reached through `:on-match` — a later follow-up, a retry button — declares the framework-supplied `:rf.route/nav-token` cofx via `{:rf.cofx/requires [:rf.route/nav-token]}`; the value-returning supplier delivers the current token (read from `[:rf.runtime/routing :current :nav-token]`) flat under `:rf.route/nav-token` in the handler's coeffects. Such a handler SHOULD also declare the companion `:rf.route/route-id` cofx (the live route id, read from `[:rf.runtime/routing :current :route-id]`) so it captures both facts together and cannot thread a nil route id into the work-id tuple.
 
 3. **Threading.** Async completions either (a) carry the captured facts in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper, which names the continuation by the canonical `:rf/reply-to` reply target (the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) lowering — on match the route loader's `:status :ok` reply map is appended to the target via the shared `re-frame.reply/complete`; on mismatch the completion is suppressed and the app target is never dispatched — a stale completion never app-delivers) and threads the captured token + route id for the gate and the work-id:
 
@@ -1149,7 +1169,7 @@ When a route is loading and the user navigates away before the load completes, t
     - **Match.** The token is current; the result is committed normally (the `:rf/reply-to` target is completed with the `:status :ok` reply map).
     - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id>}`) and the `:rf/reply-to` target (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
 
-The two halves are shared infrastructure: the `:rf.route/nav-token` cofx (and its companion `:rf.route/route-id` cofx) supplies the capture-side facts to any handler that declares `{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`, and `:rf.route/with-nav-token` performs the receipt-side check for any continuation routed through it. A handler can use both (declare to capture, wrap to validate) or compare the declared `:rf.route/nav-token` coeffect directly.
+The two halves are shared infrastructure: an `:on-match` handler's activation target, or the `:rf.route/nav-token` cofx (and its companion `:rf.route/route-id` cofx) for any handler that declares `{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`, supplies the capture-side facts, and `:rf.route/with-nav-token` performs the receipt-side check for any continuation routed through it. A handler can use both (declare to capture, wrap to validate) or compare the declared `:rf.route/nav-token` coeffect directly.
 
 ### What the slice looks like over time
 
