@@ -8,6 +8,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]))
 
@@ -29,7 +30,7 @@
 (use-fixtures :each
   (fn [f]
     (rf.schemas.test-fixture/reset-runtime
-      #(try (f) (finally (rf.schemas/clear-schemas-by-frame!))))))
+      #(try (f) (finally (rf.registrar/clear-kind! :app-schema))))))
 
 (def ^:private article
   {:slug "alpha" :title "Alpha" :body "Body" :authors []})

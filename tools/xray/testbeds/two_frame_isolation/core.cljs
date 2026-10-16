@@ -35,8 +35,8 @@
 
   `standard-epochs.core` registers every event / sub / view / cofx / fx
   ONCE globally at namespace load (requiring it below is what installs
-  them), and exposes its frame-local flow + app-schema through
-  `register-frame-local-features!`; its `root` step-ladder view is the
+  them, its `[:auth]` app-schema included), and exposes its frame-local flow
+  through `register-frame-local-features!`; its `root` step-ladder view is the
   shared app code path both frames render. We do NOT call `standard-epochs.core/run` —
   that would mount the deck once into `#app` on the default frame. We
   reuse only its registrations + its `root` Var, and supply our own
@@ -140,26 +140,25 @@
 (runner/reg-runner! {:id run-step-below :steps se/steps :host-frame frame-below})
 
 ;; ============================================================================
-;; PER-FRAME FRAME-LOCAL FEATURES — the flow + app-schema rungs
+;; PER-FRAME FRAME-LOCAL FEATURES — the flow rung
 ;; ============================================================================
 ;;
-;; `standard-epochs.core`'s `:standard-epochs/derived` reg-flow and its
-;; `[:auth] → [:map [:token :string]]` app-schema are EP-0002 CONTEXT-REQUIRED
-;; FRAME-LOCAL: each lives only in the frame it is registered into. The
-;; standalone deck installs them into `:rf/default` (from its `run`); this
-;; two-frame deck mounts the same ladder in `:above` / `:below` instead, so it
-;; must install the SAME features into BOTH of its frames — otherwise the FLOW
-;; rung (step 5) would bump `:base` but NEVER recompute `:derived` (no flow in
-;; this frame), and the APP-SCHEMA rung (step 19) would write an int into
-;; `[:auth :token]` and it would STICK (no schema → no validation → no
-;; rollback): both rungs INERT in these frames.
+;; `standard-epochs.core`'s `:standard-epochs/derived` reg-flow is EP-0002
+;; CONTEXT-REQUIRED FRAME-LOCAL: it lives only in the frame it is registered
+;; into. The standalone deck installs it into `:rf/default` (from its `run`);
+;; this two-frame deck mounts the same ladder in `:above` / `:below` instead,
+;; so it must install the SAME flow into BOTH of its frames — otherwise the
+;; FLOW rung (step 5) would bump `:base` but NEVER recompute `:derived` (no
+;; flow in this frame). The `[:auth]` app-schema needs no install: it is a
+;; top-level registration both frames resolve, so the APP-SCHEMA rung (step 19)
+;; rolls back in either.
 ;;
 ;; We reuse `standard-epochs.core`'s OWN `register-frame-local-features!`
-;; (same flow body + `se/AuthSlice` schema) so the two frames exercise the
-;; IDENTICAL features the standalone deck does — a drift between the two
-;; surfaces is impossible. The per-frame isolation the deck exists to prove
-;; then holds for flows + app-schemas too: a flow recompute / a schema
-;; rollback in one frame is genuinely scoped to that frame's reactive context.
+;; (same flow body) so the two frames exercise the IDENTICAL features the
+;; standalone deck does — a drift between the two surfaces is impossible. The
+;; per-frame isolation the deck exists to prove then holds for flows and
+;; app-schema rollbacks too: a flow recompute / a schema rollback in one frame
+;; is genuinely scoped to that frame's reactive context.
 
 ;; ============================================================================
 ;; ROOT VIEW — the standard-epochs ladder mounted twice, one per frame-provider
@@ -252,12 +251,11 @@
   ;; per-frame state evolution is automatic.
   (rf/make-frame {:id frame-above :initial-events [[:standard-epochs/reset]]})
   (rf/make-frame {:id frame-below :initial-events [[:standard-epochs/reset]]})
-  ;; Register the frame-local FLOW + APP-SCHEMA into BOTH frames so the
-  ;; step-5 (flow) and step-19 (app-schema) rungs fire here instead of
-  ;; being inert (each is frame-local; the standalone deck installs them in
-  ;; :rf/default). Reuse standard-epochs' OWN registrar so the
-  ;; features match exactly. reg-flow / reg-app-schema require a LIVE frame,
-  ;; so this runs AFTER make-frame. Top-level, never inside a handler cascade.
+  ;; Register the frame-local FLOW into BOTH frames so the step-5 (flow)
+  ;; rung fires here instead of being inert (the standalone deck installs it
+  ;; in :rf/default). Reuse standard-epochs' OWN registrar so the features
+  ;; match exactly. reg-flow requires a LIVE frame, so this runs AFTER
+  ;; make-frame. Top-level, never inside a handler cascade.
   (se/register-frame-local-features! frame-above)
   (se/register-frame-local-features! frame-below)
   ;; Re-seed each frame AFTER its flow is registered so the

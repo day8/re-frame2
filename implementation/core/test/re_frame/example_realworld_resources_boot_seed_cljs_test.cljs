@@ -13,7 +13,9 @@
    implementations, and loading either app's event nses here would put a
    second provenance row into the shared source store and fail default-image
    assembly for later suites. The seeds below are local events reproducing the
-   app's own writes; what is under test is the registry, imported verbatim."
+   app's own writes; what is under test is the registry, which the schema ns
+   registers at ns-load. The suite names the app with `:app-ns`, so its tests
+   run with those rows and no other suite's baseline carries them."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -23,7 +25,7 @@
             ;; The CLJS default validator soft-passes without this, which would
             ;; make the control below vacuous.
             [re-frame.schemas.malli]
-            [realworld-resources.schema :as app-schema])
+            [realworld-resources.schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; The boot fan-out as three separate commits, with the paths and slice shapes
@@ -48,7 +50,8 @@
 ;; baseline holds them.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
+    {:adapter rf.adapter.reagent/adapter
+     :app-ns  "realworld-resources."}))
 
 (defn- boot! [f]
   (rf/dispatch-sync [:rf2-ghxt.boot/seed-auth] {:frame f})
@@ -69,7 +72,6 @@
 
 (deftest boot-under-the-shipped-registry
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
     (boot! f)
     (is (= booted-db (rf/app-db-value f))
         "every seed landed, each its own commit: a sibling the candidate still lacks is not checked")

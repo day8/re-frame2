@@ -22,7 +22,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
@@ -83,7 +82,6 @@
   `:flows/reset-flows!` fires twice — pre-test and in the `finally` — so a
   failing test leaves no residue for the next."
   {:flows/reset-flows!                2
-   :schemas/clear-by-frame!           1
    :machines/reset-timers!            1
    :fx/reset-dispatch-later-timers!   1
    :routing/reset-counters!           1
@@ -100,30 +98,24 @@
 
 (deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times
   (let [snapshot     @rf.late-bind/hooks
-        call-counts  (atom (zipmap (keys reset-hook-expected-counts) (repeat 0)))
-        orig-restore (rf.late-bind/get-fn :schemas/restore-by-frame!)]
+        call-counts  (atom (zipmap (keys reset-hook-expected-counts) (repeat 0)))]
     (try
       (doseq [k (keys reset-hook-expected-counts)]
         (rf.late-bind/set-fn! k (fn [& _] (swap! call-counts update k inc) nil)))
-      ;; the schemas snapshot/restore pair is separate plumbing, stubbed so the
-      ;; body's finally does not depend on the production restore
-      (rf.late-bind/set-fn! :schemas/restore-by-frame! (fn [_snap] nil))
-      (rf.late-bind/set-fn! :schemas/snapshot-by-frame (fn [] nil))
       ((fixture) (fn [] :ran))
       (is (= reset-hook-expected-counts @call-counts))
       (finally
-        (reset! rf.late-bind/hooks snapshot)
-        (when orig-restore
-          (rf.late-bind/set-fn! :schemas/restore-by-frame! orig-restore))))))
+        (reset! rf.late-bind/hooks snapshot)))))
 
-(deftest make-reset-runtime-fixture-resets-per-frame-schemas-with-no-option
-  (rf/reg-app-schema [:counter] :int)
+(deftest make-reset-runtime-fixture-rolls-back-a-schema-registered-in-the-body
   (let [present? #(some? (rf.schemas/app-schema-meta {:frame :rf/default :path [:counter]}))
-        in-body  (atom :unset)
-        before   (present?)]
-    ((fixture) (fn [] (reset! in-body (present?))))
-    (is (= [true false true] [before @in-body (present?)])
-        "absent inside the body, restored afterwards")))
+        in-body  (atom :unset)]
+    ((fixture) (fn []
+                 (rf/reg-app-schema [:counter] :int)
+                 (reset! in-body (present?))))
+    (is (= [true false] [@in-body (present?)])
+        "a schema is registrar state: present in the body that registered it,
+         rolled back with the rest of the table afterwards")))
 
 (deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
   ;; :pre-dispose (flows) runs before :post-dispose (epoch); the finally-block

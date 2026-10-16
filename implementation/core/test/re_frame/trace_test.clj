@@ -9,7 +9,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             ;; Registers the reg-machine late-bind the representative flow uses.
             [re-frame.machines]
@@ -25,7 +25,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; clear-all! wiped the framework :rf.route/* registrations and the

@@ -14,7 +14,7 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 
 ```clojure
 (rf/reg-app-schema path schema)                              ;; schema is the positional value slot
-(rf/reg-app-schema path {:frame :rf/default} schema)          ;; 3-slot — frame target rides the middle metadata map
+(rf/reg-app-schema path {:doc "…"} schema)                   ;; 3-slot — middle map is registration metadata (:doc, :my/*), never :frame
 
 (schemas/app-schemas      {:frame f})              ;; -> {path registration-metadata ...}
 (schemas/app-schema-meta  {:frame f :path path})   ;; -> registration-metadata or nil
@@ -35,7 +35,7 @@ schemas/default-schema-fns                            ;; the framework's own bun
 
 Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schemas` / `app-schema-meta` / `app-schemas-digest` query aliases and the `set-schema-fns!` / `schema-fns` / `default-schema-fns` validator seam is reached on `re-frame.schemas` directly (not on the `re-frame.core` façade).
 
-Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. With no `{:frame …}` in the middle metadata map the call uses the carried frame scope and requires one: at namespace load there is none, so a bare top-level `reg-app-schema` raises `:rf.error/no-frame-context`. Name the frame in the metadata map, or wrap a block of registrations in `(rf/with-frame :app …)` — the frame need not exist yet (`examples/real-apps/realworld_http/schema.cljs` registers its whole `{path → schema}` map with `reg-app-schemas` that way).
+Registration is **frame-agnostic** — `reg-app-schema` is a top-level program registration of the registrar kind `:app-schema` (the id is the canonical path), exactly like `reg-event`, and needs no frame in scope. Every frame validates against the schemas it **resolves**: live from the registration store for a frame made without `:images`, through its sealed image generation for one made with them. So an SSR per-request frame, a test frame `(rf/make-frame {})` and a Story variant built from the app image all pick a schema up with no per-frame step. A frame that should validate differently selects a later image that shadows the path — register the narrower schema in a namespace that image selects. A `:frame` on the registration (in the metadata map, as a bare frame value, or as `reg-app-schemas`' second argument) raises `:rf.error/app-schema-frame-target`. `examples/real-apps/realworld_http/schema.cljs` registers its whole `{path → schema}` map with one top-level `reg-app-schemas`.
 
 `reg-app-schema` validates the **app-db partition only**; the runtime-db partition (machine snapshots, route slice, elision declarations under `:rf.runtime/*`) is governed by its own framework schemas. So your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in — the payoff of the two-partition frame. Keep calling it "the app-db schema"; it covers exactly the partition you own.
 
@@ -147,7 +147,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 - **Neither `reg-app-schema` nor a bare `:schema` reaches production.** Both are elided from a production build, so "I registered a schema for that path" is not an answer to "what stops bad data getting in?" — see §`reg-app-schema` is a development-build assertion. The production answer is `:boundary? true` on the ingesting registration, an always-on validator in the handler body, or a decoding gate such as Managed HTTP's `:decode`.
 - **`:boundary? true` without a `:schema` key is rejected at registration.** `reg-event` raises `:rf.error/at-boundary-missing-schema` and the handler is not installed. Either attach a `:schema` to the metadata map or drop the flag.
 - **There is only ever one check.** The flag does not add a second validation pass — it keeps the existing step-1 one from being elided, so dev and production check the same value at the same site and a rejection can never produce two records.
-- **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
+- **Schemas are registrations, not frame state.** Re-registering the same `[path]` from the same namespace replaces it. The same path registered from two namespaces is ambiguous: a frame made without `:images` refuses it, so validation fails loudly with `:rf.error/ambiguous-registration` once a candidate puts a value there (the reads throw it too) — never a silent skip. To vary a schema per frame, shadow the path in a later image; `(rf/clear :app-schema path)` removes one.
 
 ## Deeper material
 

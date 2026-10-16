@@ -8,11 +8,13 @@
    development build validates, since `validate-app-schema!` is gated on
    `debug-enabled?`.
 
-   `reg-app-schemas` is frame-local and the example registers against
-   `:rf/default`, so this ns installs the example's own registry on the frame
-   under test. It requires the feature nses only, never `realworld-http.core`,
-   which would register routes into the shared node-test registrar; the boot
-   fan-out `:app/initialise` performs is spelled out below."
+   The example registers its registry at ns-load from `realworld-http.schema`,
+   a top-level program registration the frame under test resolves. The suite
+   names the app with `:app-ns`, so its own tests run with the app's rows and
+   no other suite's baseline carries them. It requires the feature nses only,
+   never `realworld-http.core`, which would register routes into the shared
+   node-test registrar; the boot fan-out `:app/initialise` performs is spelled
+   out below."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -26,7 +28,7 @@
             [re-frame.http.managed]
             [re-frame.http.test-support]
             [realworld-http.http]
-            [realworld-http.schema :as app-schema]
+            [realworld-http.schema]
             [realworld-http.auth]
             [realworld-http.articles]
             [realworld-http.comments]
@@ -38,7 +40,8 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter}))
+    {:adapter rf.adapter.reagent/adapter
+     :app-ns  "realworld-http."}))
 
 (defn- boot!
   "The app's boot sequence, one dispatch per event. `:auth/initialise` runs
@@ -61,7 +64,6 @@
 
 (deftest realworld-boots-under-its-own-app-db-schemas
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
     (boot! f)
     (let [db (rf/app-db-value f)]
       (is (= [] (remove #(contains? db %)

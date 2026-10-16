@@ -10,7 +10,7 @@
             [re-frame.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
@@ -19,7 +19,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf/make-frame {:id :rf/default})
   ;; restore the ns-load registrations clear-all! wiped, and the reg-machine hook

@@ -1,14 +1,14 @@
 (ns re-frame.example-frame-scoping-cljs-test
-  "The examples' ns-load frame scoping and replay stability, run against the
-  examples' own `.cljs` entry namespaces under `:node-test`.
+  "The examples' ns-load schema registrations and replay stability, run
+  against the examples' own `.cljs` entry namespaces under `:node-test`.
 
-  Requiring the example entry namespaces is itself a guard: `reg-app-schema`
-  is context-required frame-local, so a bare ns-load registration raises
-  `:rf.error/no-frame-context` at require and aborts the bundle."
+  Each example registers its app-db schema at ns-load as a top-level program
+  registration — the registrar kind `:app-schema`, under the example's own
+  namespace, with no frame in scope."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [nine-states.core]
@@ -20,8 +20,7 @@
             [seven-guis.cells.core]
             [realworld-http.comments]))
 
-;; No ambient frame pin, so a bare `reg-app-schema` in a test body raises
-;; instead of silently landing on `:rf/default`.
+;; No ambient frame pin: a schema registration needs none.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
@@ -37,27 +36,24 @@
    "seven-guis.cells.core"          [:cells]})
 
 ;; Read at this ns's load, right after the requires above ran the examples'
-;; registrations: the `:each` fixture clears the per-frame schema table before
-;; every test body.
-(def ^:private example-schema-on-default-at-load
-  (into {}
-        (map (fn [[ns-name path]]
-               [ns-name (some? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path path})))]))
-        example-app-schema-paths))
+;; registrations, before any fixture or later suite can move the table.
+(def ^:private example-schema-provenance-at-load
+  (let [registered (rf/registrations {:source :store :kind :app-schema})]
+    (into {}
+          (map (fn [[ns-name path]]
+                 [ns-name (:rf.provenance/ns (get registered path))]))
+          example-app-schema-paths)))
 
-(deftest example-ns-load-schemas-bound-to-rf-default-not-an-ambient-pin
-  (is (= (zipmap (keys example-app-schema-paths) (repeat true))
-         example-schema-on-default-at-load)
-      "every example registered its app-schema on :rf/default at ns-load"))
+(deftest example-ns-load-schemas-are-top-level-registrations
+  (is (= (into {} (map (fn [ns-name] [ns-name ns-name])) (keys example-app-schema-paths))
+         example-schema-provenance-at-load)
+      "every example registered its app-db schema at ns-load, from its own namespace"))
 
-(deftest bare-reg-app-schema-without-scope-raises-no-frame-context
-  (let [ex (try
-             (rf/reg-app-schema [:regression/bare] [:map])
-             nil
-             (catch :default e e))]
-    (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))
-    (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:regression/bare]})))
-        "the rejected registration left no entry on :rf/default")))
+(deftest a-schema-registers-with-no-frame-in-scope
+  (is (= [:regression/bare] (rf/reg-app-schema [:regression/bare] [:map])))
+  (is (= [:map] (:schema (rf/handler-meta {:source :store
+                                           :kind   :app-schema
+                                           :id     [:regression/bare]})))))
 
 ;; A durable id must be folded from a recordable cofx, never minted at the
 ;; write site, or replay mints a different id. `:rf.cofx/mint-policy :strict`

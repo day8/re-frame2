@@ -42,7 +42,7 @@
  :aliases
  {:test {:extra-paths ["test"]
          ;; The routing JVM test's reset-runtime fixture touches
-         ;; `re-frame.schemas/schemas-by-frame` and `re-frame.flows/flows`
+         ;; `re-frame.schemas` and `re-frame.flows/flows`
          ;; AND reloads `re-frame.ssr` so its ns-load-time
          ;; registrations resurrect after `(registrar/clear-all!)`
          ;; (the reset matrix is defensive; none of these artefacts is

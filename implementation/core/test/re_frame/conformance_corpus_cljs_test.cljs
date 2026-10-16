@@ -13,7 +13,7 @@
             [re-frame.source-store :as rf.source-store]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.flows :as rf.flows]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -79,7 +79,7 @@
   (rf.registrar/clear-kind! :route)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-kind! :app-schema)
   ;; The per-frame SSR side channel outlives the `frames` reset, and
   ;; `:ssr/request-result` reads its response slot.
   (reset! rf.ssr.request/request-slots {})

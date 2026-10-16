@@ -80,12 +80,11 @@ Because the slice is an app-db path, you can bind it to a [schema](../../core/gl
 
 ;; one shape, reused at every form's path — a form's slice is checked once
 ;; its route seeds it
-(rf/with-frame :rf/default
-  (rf/reg-app-schemas {[:auth :login-form]    FormSlice
-                       [:auth :register-form] FormSlice}))
+(rf/reg-app-schemas {[:auth :login-form]    FormSlice
+                     [:auth :register-form] FormSlice})
 ```
 
-Schemas are registered per frame, and no frame is in scope while a namespace loads, so `with-frame` names the app's frame id (it creates nothing). Until the login route seeds its slice the path is absent, and a path schema checks its path only where the path exists ([details](../../core/how-to/validate-with-schemas.md#what-a-path-schema-checks)), so `FormSlice` needs no `:maybe` wrapper: `:maybe` admits a present `nil`, and nothing writes one here. This check is dev-only: a release build [elides](../../core/glossary.md#elide) it. ([Part 6](06-test-and-ship.md#7-ship-it-the-release-build) shows which checks do survive.)
+A schema is a program registration, like an event, so the call names no frame: the app's frame resolves it, as it resolves the app's events. Until the login route seeds its slice the path is absent, and a path schema checks its path only where the path exists ([details](../../core/how-to/validate-with-schemas.md#what-a-path-schema-checks)), so `FormSlice` needs no `:maybe` wrapper: `:maybe` admits a present `nil`, and nothing writes one here. This check is dev-only: a release build [elides](../../core/glossary.md#elide) it. ([Part 6](06-test-and-ship.md#7-ship-it-the-release-build) shows which checks do survive.)
 
 Each form gets a [route](../../routing/glossary.md#route) whose `:on-match` runs the initialise event, so navigating to `/login` always lands on a fresh form:
 

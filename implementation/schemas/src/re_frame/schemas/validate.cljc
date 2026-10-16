@@ -10,7 +10,7 @@
     - validate-sub!          — post-sub-recompute (return value vs sub :schema)
 
   Event, effect, and subscription validation share `run-validation`.
-  App-db validation iterates every schema registered for a frame and keeps
+  App-db validation iterates every schema the frame resolves and keeps
   per-entry verdicts isolated. Recordable cofx validation belongs to
   `re-frame.cofx` because it is an always-on production contract.
 
@@ -866,8 +866,9 @@
   `:schemas/validate-with-registered-fn` seam, neither of which is gated
   this way. Per Spec 010 §Production builds.
 
-  Per Spec 010 §Per-frame schemas only the named frame's schemas are
-  walked — schemas registered against sibling frames are ignored.
+  The schemas walked are the ones the named frame RESOLVES (Spec 010
+  §Schemas resolve through the frame's images): every registration its
+  images, or the live store, select — a schema is not owned by a frame.
 
   Validation routes through the registered validator/explainer functions.
   When `set-schema-fns!` has installed a `nil` `:validate`
@@ -909,7 +910,7 @@
 
   Returns:
     true   — every registered schema conformed (or no validator /
-             no schemas registered for the frame / debug elided).
+             no schemas resolved for the frame / debug elided).
     false  — at least one schema failed; a trace event was emitted
              for every failing entry. The router consumes this signal
               to roll back the :db effect to the pre-handler value.
@@ -948,8 +949,16 @@
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
        ;; gate). Pass-state stays `true` only when every entry passed.
-        (loop [entries (seq (remove #(unchecked-slice? db-before db (key %))
-                                    (rf.schemas.storage/frame-schema-entries frame-id)))
+        (loop [entries (let [{:keys [entries ambiguous]}
+                             (rf.schemas.storage/frame-schema-resolution frame-id)]
+                         ;; A path more than one namespace registers fails
+                         ;; loudly the moment a candidate puts a value there to
+                         ;; check: the frame refuses it, and validating without
+                         ;; it would drop the schema silently.
+                         (doseq [path ambiguous]
+                           (when-not (unchecked-slice? db-before db path)
+                             (rf.schemas.storage/throw-ambiguous-schema! frame-id path)))
+                         (seq (remove #(unchecked-slice? db-before db (key %)) entries)))
                ok?     true]
           (if-not (continue?)
             :rf/stale-incarnation

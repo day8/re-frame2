@@ -1,6 +1,6 @@
 (ns re-frame.schemas-concurrency-stress-test
   "JVM stress test: registrations racing from several threads all land.
-  Every frame's schemas live in one global registry atom, and only the JVM
+  Schema registrations live in the one registration table, and only the JVM
   can register from more than one thread."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -22,15 +22,14 @@
 
 (deftest reg-app-schemas-race-stress
   (testing (str n-threads " threads x " stress-iters
-                " reg-app-schemas on one frame drop no registration")
+                " reg-app-schemas drop no registration a frame resolves")
     (rf/make-frame {:id stress-frame})
     (let [latch   (CountDownLatch. 1)
           futures (vec (for [t (range n-threads)]
                          (future
                            (.await latch)
                            (dotimes [m stress-iters]
-                             (rf/reg-app-schemas (into {} [(entry t m)])
-                                                 {:frame stress-frame})))))]
+                             (rf/reg-app-schemas (into {} [(entry t m)]))))))]
       (.countDown latch)
       (is (every? #(not= ::timeout (deref % 120000 ::timeout)) futures)
           "every registering thread finished within 120s")

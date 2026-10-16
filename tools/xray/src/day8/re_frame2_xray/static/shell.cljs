@@ -34,8 +34,8 @@
                     frame runtime-db); the definition catalogue is global.
     - Flows       — the flows registry is per-frame
                     (`{frame-id {flow-id ...}}`, Spec 013).
-    - Schemas     — the app-db-schema side-table is per-frame
-                    (`schemas-by-frame`); event/sub specs are global.
+    - Schemas     — the app-db schemas each frame resolves through its
+                    images differ per frame; event/sub specs are global.
     - Routes      — global: the route-definition catalogue. The panel
                     adds only its own hermetic Simulate-URL /
                     Simulate-navigation previews, so the picker does
@@ -330,7 +330,7 @@
   are shared across every frame and read the same whichever frame is
   picked. What the picker DOES scope is the genuinely per-frame data
   each Static panel projects beside those catalogues — machine
-  snapshots, the flows registry and the `schemas-by-frame` side-table —
+  snapshots, the flows registry and each frame's resolved app-db schemas —
   and three of the five Static tabs carry one. Routes and Interceptors
   are catalogue surfaces; Static Routes adds only hermetic Simulate-URL
   / Simulate-navigation previews, and the current-route slice it does

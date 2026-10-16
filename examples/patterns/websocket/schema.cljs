@@ -309,12 +309,9 @@
   ;; `reg-app-schema` at a snapshot path would validate precisely nothing —
   ;; the machine's own `[:schemas :data]` is what guards that.
   ;;
-  ;; One wrinkle: `reg-app-schema` is frame-local, so it needs a frame in
-  ;; scope. Call it bare at ns-load and you get :rf.error/no-frame-context.
-  ;; This example lives in the :rf/default frame, so we name that frame
-  ;; explicitly. See docs/core/glossary.md#capture-frame.
-  (rf/with-frame :rf/default
-    (rf/reg-app-schema [:messages]                   MessagesSlice)))
+  ;; A schema is a program registration, like an event, so it names no frame:
+  ;; the frame the example runs in resolves it.
+  (rf/reg-app-schema [:messages]                   MessagesSlice))
 
 ;; Loading this namespace registers it — the production-app idiom.
 (register!)

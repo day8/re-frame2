@@ -57,9 +57,8 @@
   []
   (reset! fx-ran 0)
   (rf/make-frame {:id frame-id})
-  (rf/with-frame frame-id
-    (doseq [p [[:conforms] [:nil-a] [:nil-b] [:leaks]]]
-      (rf/reg-app-schema p :int)))
+  (doseq [p [[:conforms] [:nil-a] [:nil-b] [:leaks]]]
+    (rf/reg-app-schema p :int))
   (rf/reg-fx :xpd8/must-not-run (fn [_ctx _args] (swap! fx-ran inc) nil))
   (rf/reg-event :xpd8/seed
     (fn [_ _] {:db {:conforms 1 :nil-a nil :nil-b nil :leaks planted-value}
@@ -219,8 +218,7 @@
   (rf/make-frame {:id malformed-frame-id})
   ;; a childless [:vector] registers cleanly (Malli checks forms lazily) and
   ;; then throws on the first candidate validation
-  (rf/with-frame malformed-frame-id
-    (rf/reg-app-schema [:broken] [:vector]))
+  (rf/reg-app-schema [:broken] [:vector])
   (rf/reg-event :vkn8/malformed-write
     (fn [_ _] {:db {:broken [1 2 3] :note planted-value}}))
   nil)

@@ -4450,8 +4450,6 @@
          :machines/on-frame-destroyed!      — clear the machines
                                               artefact's frame-scoped
                                               `:after` timer table.
-         :schemas/on-frame-destroyed!       — drop schemas registered
-                                              against this frame.
          :flows/teardown-on-frame-destroy!  — release the destroyed
                                               frame's per-frame flow-store
                                               slot, its `last-inputs`
@@ -4709,14 +4707,6 @@
         (safe-call-hook! :elision/clear-warning-cache!)
         (safe-call-hook! :ssr/on-frame-destroyed id)
         (safe-call-hook! :machines/on-frame-destroyed! id)
-        ;; Drop every schema registered against
-        ;; the destroyed frame so a re-registered frame starts with a
-        ;; clean schema slate. Without this hook, orphan app-db schemas
-        ;; from a prior construction cycle persist and re-fire under the
-        ;; rollback contract — manifesting as spurious rollbacks against
-        ;; paths the new frame's :initial-events never wrote. No-op when
-        ;; re-frame.schemas is absent (the artefact is optional).
-        (safe-call-hook! :schemas/on-frame-destroyed! id)
         ;; Drop every flow registered against the destroyed
         ;; frame plus its cached `last-inputs` rows and its pending
         ;; abandoned-output-path (vacation) state. There is NO `:flow`

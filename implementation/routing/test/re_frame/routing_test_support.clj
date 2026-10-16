@@ -37,7 +37,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002: `init!` does not synthesise `:rf/default`, and
   ;; rf.routing/nav fxs require a carried frame stamp. Register `:rf/default`

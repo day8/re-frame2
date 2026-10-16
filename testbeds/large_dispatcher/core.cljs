@@ -46,7 +46,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
 ;; The canonical "large" payload — 20 KiB above the 16 KiB threshold
@@ -79,16 +79,14 @@
   [:map
    [:schema-large-value [:maybe :string]]])
 
-;; EP-0002: reg-app-schemas is context-required frame-local; a bare ns-load
-;; call raises :rf.error/no-frame-context. This testbed hosts on :rf/default,
-;; so name it explicitly. These schemas validate SHAPE; the `:large` egress
-;; markers ride the EP-0025 commit-plane classification effect, NOT the schema.
-(with-frame :rf/default
-  (rf/reg-app-schemas
-    ;; `:maybe` on the two flat slots: `::initialise` writes nil to both.
-    {[:declared-large-value] [:maybe :string]
-     [:fx-declared-value]    [:maybe :string]
-     [:schema-bag]           SchemaLarge}))
+;; A schema is a program registration, so these name no frame. They validate
+;; SHAPE; the `:large` egress markers ride the EP-0025 commit-plane
+;; classification effect, NOT the schema.
+(rf/reg-app-schemas
+  ;; `:maybe` on the two flat slots: `::initialise` writes nil to both.
+  {[:declared-large-value] [:maybe :string]
+   [:fx-declared-value]    [:maybe :string]
+   [:schema-bag]           SchemaLarge})
 
 ;; ----------------------------------------------------------------------------
 ;; App-db

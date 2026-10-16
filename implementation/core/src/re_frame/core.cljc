@@ -373,13 +373,12 @@
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
        reg-resource-scope rf.core-resources/reg-resource-scope)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
-  registration (no source-coord capture). FRAME-OWNED, not image-selected:
-  app-db schemas are NOT a registrar kind — `reg-app-schema` writes only the
-  schemas artefact's own per-frame side-table (`schemas-by-frame`, keyed
-  `[frame-id path]`), so there is no source-store descriptor to select and
-  stamping `:ns` cannot move the registration into an explicit image.
-  Register a Malli schema at a path inside app-db (frame-scoped per Spec
-  010). Implementation ships in `day8/re-frame2-schemas`.
+  registration (no source-coord capture, so no provenance: stamp `:ns` in the
+  metadata to keep it selectable by an explicit image). Register a Malli
+  schema at a path inside app-db as the registrar kind `:app-schema`, keyed
+  by the canonical path — a frame-agnostic program registration every frame
+  resolves like any other kind (Spec 010). Implementation ships in
+  `day8/re-frame2-schemas`.
 
   DEVELOPMENT-BUILD ASSERTION. A production build registers the schema
   (tools can still introspect it) but never checks it — a violating
@@ -391,12 +390,10 @@
   §Registration."}
        reg-app-schema  rf.core-schemas/reg-app-schema)
      (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
-  programmatic registration (no source-coord capture). FRAME-OWNED, not
-  image-selected, exactly as the singular form: the batch delegates to
-  `reg-app-schema`, which writes only the schemas artefact's own per-frame
-  side-table, so stamping `:ns` cannot move it into an explicit image.
-  Bulk-register a
-  `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
+  programmatic registration (no source-coord capture, so no provenance, as
+  for the singular form). Bulk-register a `{path -> schema}` map, each entry
+  its own `:app-schema` registration. Implementation ships in
+  `day8/re-frame2-schemas`.
 
   DEVELOPMENT-BUILD ASSERTION, as for the singular form: the batch
   registers in a production build but is never checked there, so a
@@ -662,14 +659,16 @@
        {:arglists '([scope-id metadata resolve-fn])})
 
      (rf.core-reg-macros/defreg-macro reg-app-schema rf.core-schemas/reg-app-schema
-       "Register a Malli schema at a path inside app-db (frame-scoped
-       per Spec 010). `reg-app-schema` is an ordinary
+       "Register a Malli schema at a path inside app-db, as the registrar
+       kind `:app-schema` (Spec 010). `reg-app-schema` is an ordinary
        member of the `reg-*` family — the schema is the POSITIONAL value
        slot: `(reg-app-schema [:user] UserSchema)` (2-slot) /
-       `(reg-app-schema [:user] {:frame :session} UserSchema)` (3-slot, the
-       optional middle metadata map carries the `:frame` target). The path
-       is the registration id. Captures source-coords (Spec 001) at this
-       call site. Implementation ships in `day8/re-frame2-schemas`.
+       `(reg-app-schema [:user] {:doc \"…\"} UserSchema)` (3-slot, the
+       optional middle metadata map). The path is the registration id. A
+       frame-agnostic program registration: every frame validates against
+       the schemas it resolves, and a `:frame` is an error. Captures
+       source-coords (Spec 001) at this call site. Implementation ships in
+       `day8/re-frame2-schemas`.
 
        DEVELOPMENT-BUILD ASSERTION. The schema you register here is
        checked in dev builds only. A production build (`:advanced` with
@@ -688,8 +687,8 @@
        {:arglists '([path schema] [path metadata schema])})
 
      (rf.core-reg-macros/defreg-macro reg-app-schemas rf.core-schemas/reg-app-schemas
-       "Bulk-register a `{path -> schema}` map against the active frame
-       (or the `:frame` opt). Plural form of `reg-app-schema`. Captures
+       "Bulk-register a `{path -> schema}` map, each entry its own
+       `:app-schema` registration. Plural form of `reg-app-schema`. Captures
        source-coords (Spec 001) at this call site. Implementation ships
        in `day8/re-frame2-schemas`.
 
@@ -941,14 +940,15 @@
      There are TWO categories, and the remedy reaches one of them.
      REGISTRAR-BACKED kinds — `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`,
      `reg-interceptor`, `reg-head`, `reg-error-projector`, `reg-resource`,
-     `reg-mutation`, `reg-resource-scope`, `reg-route` — record a source-store
+     `reg-mutation`, `reg-resource-scope`, `reg-route`, `reg-app-schema` /
+     `reg-app-schemas` — record a source-store
      descriptor, so stamping `:ns` (or the qualified `:rf.provenance/ns`) in
      the registration metadata restores selectability on every one of them. The
      store reads the explicit key before falling back to the macro's captured
      coords, so a stamp also OVERRIDES those coords. The MACRO form is the
      other spelling of the same remedy: its source-coord capture supplies the
      provenance with no stamp needed. FRAME-OWNED kinds — `reg-flow`,
-     `reg-app-schema` / `reg-app-schemas`, `reg-http-interceptor` — record no
+     `reg-http-interceptor` — record no
      descriptor at all, so neither spelling can select them: a macro supplies
      COORDINATES, not OWNERSHIP, and both spellings delegate to the same
      per-frame writer. Their target is the explicit or ambient frame, and an
@@ -1152,9 +1152,8 @@
   not a registrar row) PLUS `:http-interceptor` (a per-frame side table owned
   by the http artefact rather than a registrar kind).
 
-  `:app-schema` is deliberately absent: it is not a registrar kind either, and
-  nobody has asked for a per-path public inverse — the demand bar. Spec 001's
-  kind table carries the per-kind `clear` column this set is the code half of."
+  Spec 001's kind table carries the per-kind `clear` column this set is the
+  code half of."
   (-> (into #{:http-interceptor} rf.registrar/kinds)
       (disj :frame)))
 
@@ -1213,7 +1212,7 @@
   `:http-interceptor` rebuilds the frame's chain, `:route` emits
   `:rf.route/cleared`, and the resources trio disposes per-frame resource
   runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
-  `:interceptor` `:view` `:head` `:error-projector` — have no owning
+  `:interceptor` `:view` `:head` `:error-projector` `:app-schema` — have no owning
   lifecycle fn, so `unregister!` (which forgets provenance, marks the
   live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
   the owner.
@@ -1246,7 +1245,7 @@
      :resource         (rf.core-resources/clear-resource id)
      :mutation         (rf.core-resources/clear-mutation id)
      :resource-scope   (rf.core-resources/clear-resource-scope id)
-     (:event :sub :fx :cofx :interceptor :view :head :error-projector)
+     (:event :sub :fx :cofx :interceptor :view :head :error-projector :app-schema)
      (rf.registrar/unregister! kind id)
      (clear-bad-request!
        kind :unknown-kind

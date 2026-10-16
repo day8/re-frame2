@@ -429,11 +429,9 @@
               (reg-machine machine-id merged))))))))
 
 (defn- realise-app-schemas!
-  "Register the fixture's app-db schemas. Called AFTER the runner's
-  destroy-frame! step (so the `:schemas/on-frame-destroyed!` hook doesn't
-  wipe them) and BEFORE `make-frame` (so the :initial-events cascade validates
-  the seeded state). The fixture key is
-  `:app-schemas` — app-db schemas are NOT a registrar kind."
+  "Register the fixture's app-db schemas. Called BEFORE `make-frame` (so the
+  :initial-events cascade validates the seeded state). The fixture key is
+  `:app-schemas`."
   [fixture]
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
     (rf/reg-app-schema path schema)))
@@ -1618,11 +1616,9 @@
           ;; reset-runtime! created :rf/default WITHOUT :initial-events;
           ;; destroy first so they fire on re-registration with the config.
           _            (rf/destroy-frame! :rf/default)
-          ;; app-schema registrations — AFTER destroy (the destroy hook wipes
-          ;; the frame's schema entries) and BEFORE make-frame (so the
+          ;; app-schema registrations — BEFORE make-frame (so the
           ;; :initial-events cascade validates the seeded state).
-          _            (rf/with-frame scope-frame
-                         (realise-app-schemas! fixture))
+          _            (realise-app-schemas! fixture)
           _            (cond
                          (seq frames-spec)
                          (doseq [f frames-spec]

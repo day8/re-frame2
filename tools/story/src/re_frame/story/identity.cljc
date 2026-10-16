@@ -336,8 +336,8 @@
   Public so the watch-mode detector's testable-hash cache can fold this
   SAME per-frame digest into its cache key. A view-schema
   hot-reload perturbs the snapshot-tuple through this slot but does NOT
-  bump the Story registrar mutation-tick (the schema registry is the
-  FRAMEWORK side-table), so the cache — keyed on the Story tick — would
+  bump the Story registrar mutation-tick (app-db schemas are FRAMEWORK
+  registrations, not Story ones), so the cache — keyed on the Story tick — would
   otherwise short-circuit a real drift. Reusing this one definition keeps
   the cache-key signal exactly the snapshot-identity input.
 
@@ -350,15 +350,14 @@
   variant snapshot identity — exactly the invalidation visual-regression
   baselines need on schema changes.
 
-  EP-0002 — app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL,
-  so the digest hook resolves a TARGET frame; absence is
+  The digest hook reads a TARGET frame's resolution; a missing target is
   `:rf.error/no-frame-context`, NEVER a synthesised `:rf/default`. Story
   computes snapshot identity for a specific variant, so the variant frame
   IS the explicit target: pass `target-frame-id` (the variant id) as the
-  hook's REQUIRED `{:frame …}` opt. The digest is computed against THAT
-  frame's registered app-db schema set (the stable empty-set digest when
-  the variant frame holds none / is not yet allocated — the digest still
-  participates in the hash and stays stable across runs)."
+  hook's REQUIRED `{:frame …}` opt. The digest covers the app-db schemas
+  THAT frame resolves through its images — a variant image that narrows a
+  schema moves it. A variant frame not yet allocated resolves each path's
+  latest registration, so the digest is stable across runs either way."
   [target-frame-id]
   (when-let [f (rf.late-bind/get-fn :schemas/app-schemas-digest)]
     (f {:frame target-frame-id})))

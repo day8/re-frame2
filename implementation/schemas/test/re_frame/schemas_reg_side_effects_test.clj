@@ -1,9 +1,10 @@
 (ns re-frame.schemas-reg-side-effects-test
   "JVM tests for the dev-only `:rf.schema/violation` trace (Spec 010 §Schema
   migration on hot-reload): when a first registration, or a re-registration
-  that CHANGES the schema at a `(frame, path)`, meets a live app-db value
-  present there that fails it, `reg-app-schema` emits a `:warning` and the
-  app keeps running."
+  that CHANGES the schema at a path, meets a live app-db value present there
+  that fails it, in any live frame that resolves the registration,
+  `reg-app-schema` emits a `:warning` for that frame and the app keeps
+  running."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [malli.core :as m]
@@ -39,23 +40,37 @@
   (select-keys (:tags violation)
                [:path :pre-reload-schema :post-reload-schema :mismatching-value :frame]))
 
-(deftest violation-fires-when-rereg-changes-schema-and-live-value-fails
-  (testing "one :warning, :logged-and-skipped, carrying the five spec'd tags
-            read from the REGISTRATION frame's live app-db"
+(deftest violation-fires-in-each-resolving-frame-whose-live-value-fails
+  (testing "one :warning, :logged-and-skipped, carrying the five spec'd tags,
+            for each live frame that resolves the re-registered path and whose
+            own live app-db fails it"
+    (rf/reg-event :probe/noop {:ns 'probe.elsewhere} (fn [_ _] {}))
     (rf/make-frame {:id :tenant/a})
-    (rf/reg-app-schema [:count] {:frame :tenant/a} :int)
+    (rf/make-frame {:id :tenant/b})
+    (rf/make-frame {:id     :tenant/elsewhere
+                    :images [(rf/image {:id        :test/elsewhere
+                                        :select-ns {:include ["probe.elsewhere"]}})]})
+    (rf/reg-app-schema [:count] :int)
     (set-app-db! :tenant/a {:count "bad"})
-    ;; The new schema accepts :rf/default's value, so a wrong-frame read reports nothing.
+    (set-app-db! :tenant/b {:count -1})
+    ;; The new schema accepts :rf/default's value, and :tenant/elsewhere
+    ;; resolves no schema at the path, so neither reports anything.
     (set-app-db! :rf/default {:count 5})
-    (is (= [[:warning :logged-and-skipped
-             {:path               [:count]
-              :pre-reload-schema  :int
-              :post-reload-schema [:int {:min 0}]
-              :mismatching-value  "bad"
-              :frame              :tenant/a}]]
-           (map (juxt :op-type :recovery spec-tags)
-                (violations #(rf/reg-app-schema [:count] {:frame :tenant/a}
-                                                [:int {:min 0}])))))))
+    (set-app-db! :tenant/elsewhere {:count "bad"})
+    (is (= #{[:warning :logged-and-skipped
+              {:path               [:count]
+               :pre-reload-schema  :int
+               :post-reload-schema [:int {:min 0}]
+               :mismatching-value  "bad"
+               :frame              :tenant/a}]
+             [:warning :logged-and-skipped
+              {:path               [:count]
+               :pre-reload-schema  :int
+               :post-reload-schema [:int {:min 0}]
+               :mismatching-value  -1
+               :frame              :tenant/b}]}
+           (set (map (juxt :op-type :recovery spec-tags)
+                     (violations #(rf/reg-app-schema [:count] [:int {:min 0}]))))))))
 
 (deftest violation-suppressed-unless-the-schema-changes-under-a-failing-value
   (testing "each row breaks exactly one firing condition, so none emits:
@@ -81,11 +96,9 @@
   (testing "a present nil is a value, so it is checked too"
     (is (= [nil] (map (comp :mismatching-value :tags)
                       (violations-on-re-registration :nil-count ::absent nil :int)))))
-  (testing "an absent path, or a frame with no app-db yet, emits nothing"
+  (testing "an absent path emits nothing"
     (set-app-db! {:other 1})
-    (is (empty? (violations #(rf/reg-app-schema [:missing] :int))))
-    (is (empty? (violations #(rf/reg-app-schema [] {:frame :tenant/not-yet}
-                                                [:map [:x :int]]))))))
+    (is (empty? (violations #(rf/reg-app-schema [:missing] :int))))))
 
 (deftest violation-fires-when-the-prior-registered-schema-token-is-nil
   (testing "a registered nil token is a real prior declaration — presence of

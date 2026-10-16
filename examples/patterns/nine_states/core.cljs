@@ -176,13 +176,9 @@
    [:errors  {:default {}} [:map-of :keyword [:vector :string]]]
    [:touched {:default #{}} [:set :keyword]]])
 
-;; `reg-app-schema` is frame-local — it needs a frame in scope or it raises
-;; `:rf.error/no-frame-context`. This example lives in `:rf/default` (the
-;; same id `run`'s `frame-root {:id …}` sets up), so we name it here.
-;; Frame identity is carried, not magically found; see the frames glossary:
-;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:new-todo] NewTodoSlice))
+;; A schema is a program registration, like an event, so it names no frame:
+;; the frame `run`'s `frame-root {:id …}` sets up resolves it.
+(rf/reg-app-schema [:new-todo] NewTodoSlice)
 
 ;; ---- The machine's own :data shape ----
 ;; A todo, as it rides in the machine's `:items` list. Both producers build

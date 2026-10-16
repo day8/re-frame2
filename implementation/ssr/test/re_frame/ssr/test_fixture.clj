@@ -10,7 +10,7 @@
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -23,7 +23,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; The producing sub-namespaces' atoms; the facade's aliases are private.
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})

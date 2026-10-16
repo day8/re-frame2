@@ -169,16 +169,10 @@
 ;; the L2 event-row wash, and the issues ribbon signal.
 
 (def AuthSlice [:map [:token :string]])
-;; EP-0002: reg-app-schema is context-required frame-local AND requires the
-;; target frame to be LIVE (reg-flow / reg-app-schema reject a non-live
-;; frame). A bare ns-load `(with-frame :rf/default …)` runs at REQUIRE time —
-;; before `run` registers `:rf/default` — so the frame is not yet live and the
-;; registration throws `:rf.error/flow-frame-not-live`. The schema (and the
-;; `:standard-epochs/derived` flow below) are therefore registered from `run`,
-;; AFTER `(rf/make-frame {:id host-frame})` makes the frame live. `register-
-;; frame-local-features!` is the single entry point (the two-frame deck calls
-;; it too, registering the same features into its own `:above` / `:below`
-;; frames).
+;; A top-level program registration, like an event: every frame that resolves
+;; this namespace's registrations — `:rf/default` here, the two-frame deck's
+;; `:above` / `:below` — validates `[:auth]` against it.
+(rf/reg-app-schema [:auth] {:doc "The session slice: its token is a string."} AuthSlice)
 
 ;; ============================================================================
 ;; COEFFECT — :standard-epochs/now  (button #2)
@@ -278,27 +272,26 @@
 ;; changed. Button #5 bumps `:base`; App-db shows `:derived` recompute
 ;; and Trace shows the flow run.
 
-;; The `:standard-epochs/derived` flow is registered from `run` (per the
-;; APP-DB SCHEMA note above) — reg-flow requires a LIVE frame, which only
-;; exists after `(rf/make-frame {:id host-frame})`. `register-frame-local-features!`
-;; installs BOTH the flow and the `[:auth]` app-schema into `frame-id`. It is
+;; The `:standard-epochs/derived` flow is registered from `run`. A flow is
+;; EP-0002 context-required frame-local AND requires its frame to be LIVE: a
+;; bare ns-load `(with-frame :rf/default …)` runs at REQUIRE time — before
+;; `run` registers `:rf/default` — and throws `:rf.error/flow-frame-not-live`.
+;; `register-frame-local-features!` installs the flow into `frame-id`. It is
 ;; the single per-frame feature-registration point: the standalone deck calls
-;; it with `:rf/default`; the two-frame deck installs the same features into
-;; its own `:above` / `:below` frames so the flow + schema rungs fire there
-;; too. Run at the TOP LEVEL, AFTER `make-frame`, never inside a
-;; handler cascade.
+;; it with `:rf/default`; the two-frame deck installs the same flow into its
+;; own `:above` / `:below` frames so the flow rung fires there too. Run at the
+;; TOP LEVEL, AFTER `make-frame`, never inside a handler cascade.
 (defn register-frame-local-features!
-  "Register the `:standard-epochs/derived` flow + the `[:auth] :string`
-  app-schema INTO `frame-id` (a live frame). Both are EP-0002 context-required
-  frame-local; the `with-frame` scope names the frame they install into."
+  "Register the `:standard-epochs/derived` flow INTO `frame-id` (a live
+  frame). A flow is EP-0002 context-required frame-local; the `with-frame`
+  scope names the frame it installs into."
   [frame-id]
   (rf/with-frame frame-id
     (rf/reg-flow :standard-epochs/derived
       {:inputs      [[:base]]
        :output-path [:derived]
        :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}
-      (fn [base] (* 2 (or base 0))))
-    (rf/reg-app-schema [:auth] AuthSlice)))
+      (fn [base] (* 2 (or base 0))))))
 
 ;; ============================================================================
 ;; EVENTS — the button ladder
@@ -828,9 +821,8 @@
   ;; in a `frame-provider` (scope-only — the host frame is
   ;; already `make-frame`'d; the carried invariant).
   (rf/make-frame {:id host-frame})
-  ;; Register the frame-local FLOW + APP-SCHEMA now the host frame is LIVE
-  ;; (reg-flow / reg-app-schema reject a non-live frame, so this cannot run at
-  ;; ns-load). Do it BEFORE the seed dispatch so the `:standard-epochs/derived`
+  ;; Register the frame-local FLOW now the host frame is LIVE (reg-flow
+  ;; rejects a non-live frame, so this cannot run at ns-load). Do it BEFORE the seed dispatch so the `:standard-epochs/derived`
   ;; flow computes `:derived` on the reset drain's flows pass.
   (register-frame-local-features! host-frame)
   (rf/with-frame host-frame

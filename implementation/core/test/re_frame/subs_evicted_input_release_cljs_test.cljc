@@ -22,7 +22,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.subs :as rf.subs]
             [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -31,7 +31,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   ;; COLD-START the adapter slot: this ns shares the node bundle
   ;; with suites that seat Reagent / UIx / SSR, so a bare `init!` would be a
   ;; no-op whenever one of them ran first.

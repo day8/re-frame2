@@ -192,7 +192,7 @@
 
   (testing "the stored session user is token-free and passes the app's real AuthSlice"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
+      (rf/reg-app-schema [:auth] app-schema/AuthSlice)
       (rf/dispatch-sync [:auth/store-session (wire-user "alice" "jwt-abc" nil)] {:frame f})
       (let [db (rf/app-db-value f)]
         (is (= [{:email "alice@example.com" :username "alice" :bio nil :image nil} "jwt-abc"]
@@ -756,7 +756,7 @@
             back"
     (with-held-fx
       (fn [f lowered]
-        (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
+        (rf/reg-app-schemas app-schema/app-db-schemas)
         (visit! f "/article/alpha")
         (settle-ok! f (:on-success (req-by-id @lowered [:comments/load "alpha"]))
                     {:comments [(saved-comment 1 "First!")]})

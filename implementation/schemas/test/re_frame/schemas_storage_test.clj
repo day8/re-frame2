@@ -1,10 +1,11 @@
 (ns re-frame.schemas-storage-test
-  "JVM tests for frame-local app-db schema storage: frame targeting on the
-  write and read surfaces, path and argument validation, registration
-  metadata, malformed-schema isolation, and frame-destroy cleanup.
+  "JVM tests for app-db schema registration and its reads: frame targeting on
+  the read surfaces, path and argument validation, registration metadata,
+  malformed-schema isolation, and frames coming and going around program
+  registrations.
 
-  Every READ takes one opts map with a REQUIRED `:frame`; the `reg-*`
-  writes also accept a bare frame-id keyword or frame value."
+  Every READ takes one opts map with a REQUIRED `:frame`; a registration
+  names no frame."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -50,14 +51,11 @@
     (is (= entries (rf.schemas.storage/frame-schema-entries :rf/default))
         "the public read and the private late-bind seam are the same fact")))
 
-(deftest app-schemas-per-frame-isolation
-  (rf/reg-app-schema [:user] {:frame :tenant/a} [:map])
-  (rf/reg-app-schema [:user] {:frame :tenant/b} [:vector])
-  (rf/reg-app-schema [:other] {:frame :tenant/b} [:int])
-  (is (= {[:user] [:map]} (schemas-in :tenant/a)))
-  (is (= [:vector] (:schema (rf.schemas/app-schema-meta {:frame :tenant/b :path [:user]}))))
-  (is (nil? (rf.schemas/app-schema-meta {:frame :tenant/never :path [:user]}))
-      "a frame holding no schemas reads as nil, never an error"))
+(deftest an-unregistered-path-reads-as-nil
+  (rf/reg-app-schema [:user] [:map])
+  (is (nil? (rf.schemas/app-schema-meta {:frame :rf/default :path [:other]})))
+  (is (= [:map] (:schema (rf.schemas/app-schema-meta {:frame :tenant/never :path [:user]})))
+      "an id naming no live frame resolves each path's latest registration"))
 
 (deftest reads-require-an-explicit-frame-map
   (testing "each read raises :rf.error/no-frame-context unless handed
@@ -67,19 +65,16 @@
                #(rf.schemas/app-schemas-digest :rf/default)]]
       (is (= :rf.error/no-frame-context (:rf.error/id (thrown-data f)))))))
 
-(deftest frame-targets-resolve-on-every-surface
-  (testing "a frame value names the frame its id names, on every write and
-            read; the bulk form also takes a bare frame-id keyword"
-    (let [fv (frame-value :tenant/fv)]
-      (rf/reg-app-schema [:a] {:frame fv} :int)
-      (rf/reg-app-schema [:b] fv :int)
-      (rf/reg-app-schemas {[:c] :int} fv)
-      (rf/reg-app-schemas {[:d] :int} :tenant/fv)
-      (is (= {[:a] :int [:b] :int [:c] :int [:d] :int} (schemas-in :tenant/fv)))
-      (is (= (rf.schemas/app-schemas {:frame :tenant/fv})
+(deftest a-frame-value-reads-what-its-id-reads
+  (testing "a frame value names the frame its id names on every read"
+    (let [fv (frame-value :rf/default)]
+      (rf/reg-app-schema [:a] :int)
+      (rf/reg-app-schemas {[:b] :int})
+      (is (= {[:a] :int [:b] :int} (schemas-in fv)))
+      (is (= (rf.schemas/app-schemas {:frame :rf/default})
              (rf.schemas/app-schemas {:frame fv})))
       (is (= :int (:schema (rf.schemas/app-schema-meta {:frame fv :path [:a]}))))
-      (is (= (rf.schemas/app-schemas-digest {:frame :tenant/fv})
+      (is (= (rf.schemas/app-schemas-digest {:frame :rf/default})
              (rf.schemas/app-schemas-digest {:frame fv}))))))
 
 ;; ---- registration ---------------------------------------------------------
@@ -95,25 +90,22 @@
              [#(rf/reg-app-schema [:user] [:map [:id :int]] [:map])
               :rf.error/app-schema-bad-metadata [:map [:id :int]]]
              [#(rf/reg-app-schema [:user] {:frame "stringframe"} [:map])
-              :rf.error/app-schemas-bad-arg "stringframe"]
-             ;; A map target is a bad frame target, not an opts map.
-             [#(rf/reg-app-schema [:user] {:frame {:not :a-frame}} [:map])
-              :rf.error/app-schemas-bad-arg {:not :a-frame}]
+              :rf.error/app-schema-frame-target "stringframe"]
              [#(rf/reg-app-schemas {[:user] [:map]} "tenant-c")
               :rf.error/app-schemas-bad-arg "tenant-c"]]]
       (is (= [id received] ((juxt :rf.error/id :received) (thrown-data f)))))
-    (is (= {} (rf.schemas/snapshot-schemas-by-frame)))))
+    (is (= {} (rf/registrations {:source :store :kind :app-schema})))))
 
 (deftest reg-app-schema-rejects-runtime-path-with-distinct-error
   (testing "a path whose head reaches runtime-db — any :rf.runtime/* key, the
             :rf.db/runtime root or the legacy :rf/runtime root — throws
-            :rf.error/app-schema-runtime-path naming the path and frame"
+            :rf.error/app-schema-runtime-path naming the path"
     (doseq [path [[:rf.runtime/machines :snapshots]
                   [:rf.db/runtime :rf.runtime/machines]
                   [:rf/runtime :legacy]]]
-      (is (= [:rf.error/app-schema-runtime-path path :tenant/rt]
-             ((juxt :rf.error/id :received :frame)
-              (thrown-data #(rf/reg-app-schema path {:frame :tenant/rt} [:map]))))))))
+      (is (= [:rf.error/app-schema-runtime-path path]
+             ((juxt :rf.error/id :received)
+              (thrown-data #(rf/reg-app-schema path [:map]))))))))
 
 (deftest reg-app-schemas-rejects-a-bad-batch-atomically
   (testing "one bad key rejects the whole batch: the well-formed entries
@@ -122,7 +114,7 @@
            (:rf.error/id (thrown-data #(rf/reg-app-schemas {[:good]          :int
                                                             [:also :good]    :string
                                                             [:bad [:nested]] :int})))))
-    (is (= {} (rf.schemas/snapshot-schemas-by-frame)))))
+    (is (= {} (rf/registrations {:source :store :kind :app-schema})))))
 
 (deftest reg-app-schemas-accepts-all-valid-paths
   (testing "the root [] and non-keyword concrete segments register"
@@ -141,15 +133,14 @@
 
 (deftest app-schema-meta-preserves-standard-and-open-registration-metadata
   (testing "every registration-metadata key, open :my/* keys included, rides
-            alongside the stamped :schema / :path / :frame"
+            alongside the stamped :schema / :path"
     (let [expected {:schema    [:map]
                     :path      [:user]
-                    :frame     :rf/default
                     :doc       "User schema"
                     :tags      #{:auth}
                     :platforms #{:client}
                     :my/tool   true}]
-      (rf/reg-app-schema [:user] (dissoc expected :schema :path :frame) [:map])
+      (rf/reg-app-schema [:user] (dissoc expected :schema :path) [:map])
       (is (= expected
              (select-keys (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})
                           (keys expected)))))))
@@ -160,29 +151,30 @@
   (testing "a malformed registered schema fails closed with its own
             :rf.error/malformed-schema trace instead of throwing, and the
             schemas after it in the frame are still validated"
-    (rf/reg-app-schema [:broken] {:frame :tenant/m} [:vector])
-    (rf/reg-app-schema [:good] {:frame :tenant/m} [:int])
+    (rf/reg-app-schema [:broken] [:vector])
+    (rf/reg-app-schema [:good] [:int])
     (with-trace-recorder! [traces]
       (is (false? (rf.schemas.validate/validate-app-schema!
-                    {:good 1 :broken [1]} :bad/ev :tenant/m))
+                    {:good 1 :broken [1]} :bad/ev :rf/default))
           "the malformed schema alone rejects the candidate")
       (is (= [{:where :app-db :path [:broken] :schema [:vector]}]
              (map #(select-keys (:tags %) [:where :path :schema])
                   (ops @traces :rf.error/malformed-schema)))))
     (with-trace-recorder! [traces]
       (rf.schemas.validate/validate-app-schema!
-        {:good "not-an-int" :broken [1]} :bad/ev :tenant/m)
+        {:good "not-an-int" :broken [1]} :bad/ev :rf/default)
       (is (= [[:good]] (map #(-> % :tags :path)
                             (ops @traces :rf.error/schema-validation-failure)))))))
 
-;; ---- frame destroy --------------------------------------------------------
+;; ---- frames come and go; registrations stay -------------------------------
 
-(deftest on-frame-destroyed-dissocs-the-frame
-  (rf/reg-app-schema [:user] {:frame :tenant/doomed} [:map])
-  (rf/reg-app-schema [:user] {:frame :tenant/survivor} [:map])
-  (rf.schemas/on-frame-destroyed! :tenant/doomed)
-  (is (= {} (schemas-in :tenant/doomed)))
-  (is (= {[:user] [:map]} (schemas-in :tenant/survivor))))
+(deftest destroying-a-frame-leaves-the-registrations-in-place
+  (rf/reg-app-schema [:user] [:map])
+  (rf/make-frame {:id :tenant/doomed})
+  (rf/destroy-frame! :tenant/doomed)
+  (rf/make-frame {:id :tenant/doomed})
+  (is (= {[:user] [:map]} (schemas-in :tenant/doomed))
+      "a schema is a program registration, so a frame made again resolves it"))
 
 (defn- survivors
   "How many references still hold their object once the collector has run. A
@@ -195,20 +187,20 @@
         (do (Thread/sleep 25) (recur (inc round)))
         n))))
 
-(deftest a-destroyed-frame-leaves-no-schema-behind
-  ;; Each cycle builds a fresh closure-bearing schema, as a per-request frame
-  ;; does, digests it, fails a dispatch against it (which walks it for
-  ;; sensitive slots) and destroys the frame. Nothing keeps the schema once
-  ;; its frame is gone.
+(deftest a-replaced-schema-is-not-kept
+  ;; Each cycle re-registers a fresh closure-bearing schema, as a hot reload
+  ;; does, then serves a per-request frame against it: digests it, fails a
+  ;; dispatch against it (which walks it for sensitive slots) and destroys the
+  ;; frame. Nothing keeps a schema once a re-registration has replaced it.
   (rf/reg-event :u/bad (fn [{:keys [db]} _] {:db (assoc db :user {:n -1})}))
   (let [cycle! (fn [i]
                  (let [id     (keyword "req" (str i))
                        schema [:map [:n [:fn (fn [x] (pos? x))]]]]
+                   (rf/reg-app-schema [:user] schema)
                    (rf/make-frame {:id id})
-                   (rf/reg-app-schema [:user] {:frame id} schema)
                    (rf.schemas/app-schemas-digest {:frame id})
                    (rf/dispatch-sync [:u/bad] {:frame id})
                    (rf/destroy-frame! id)
                    (java.lang.ref.WeakReference. schema)))
         refs   (mapv cycle! (range 20))]
-    (is (= 0 (survivors refs)))))
+    (is (= 0 (survivors (pop refs))) "every replaced schema is collected")))

@@ -88,7 +88,7 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.schemas]
             [re-frame.schemas.malli])
-  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; SCHEMAS  (Spec 010 §`:large?` per-slot meta)
@@ -116,16 +116,11 @@
 ;; may be `nil` (when the user hasn't uploaded yet), so the schema permits
 ;; nil via `:maybe`.
 ;;
-;; EP-0002: `reg-app-schema` is context-required frame-local —
-;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
-;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
-;; per Spec 002 §Frame target resolution). This demo's app runs in the
-;; `:rf/default` frame (see `core/run`), so name it explicitly here via
-;; `with-frame` — the registration carries a frame stamp even though it
-;; lands at module-load before `init!`.
-(with-frame :rf/default
-  (rf/reg-app-schema [:user/avatar-pdf]
-                     [:maybe :string]))
+;; A schema is a program registration, like an event, so it lands at
+;; module-load before `init!` with no frame in scope: the frame the demo's app
+;; runs in (see `core/run`) resolves it.
+(rf/reg-app-schema [:user/avatar-pdf]
+                   [:maybe :string])
 
 ;; ============================================================================
 ;; EVENTS  (Spec 015 §Registration-owned transient classification)

@@ -32,7 +32,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)

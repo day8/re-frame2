@@ -16,7 +16,7 @@
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -31,7 +31,6 @@
   (let [registrar-before (rf.test-support/snapshot-registrar)]
     (rf.registrar/clear-all!)
     (reset! rf.frame/frames {})
-    (rf.schemas/clear-schemas-by-frame!)
     (rf.flows/reset-flows!)
     (rf.trace.tooling/clear-listeners!)
     (rf.event-emit/clear-event-listeners!)

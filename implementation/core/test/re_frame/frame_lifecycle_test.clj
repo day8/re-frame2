@@ -13,7 +13,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.source-store :as rf.source-store]
             [re-frame.flows :as rf.flows]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -26,7 +26,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.schemas/clear-schemas-by-frame!)
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; restore the ns-load framework registrations clear-all! wiped

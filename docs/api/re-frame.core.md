@@ -276,7 +276,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   (clear kind id {:frame f}) → id
   ```
 - **Description**: Removes one registration and returns its `id`. It is the inverse of the `reg-*` forms, keyed by kind, for tests, REPL work and teardown. There are no per-kind names such as `clear-event` or `clear-resource`.
-    - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
+    - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
     - Kinds that hold runtime state clean it up: `:flow` vacates its output path and settles dependents, `:route` emits `:rf.route/cleared`, `:http-interceptor` rebuilds the frame's chain, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
     - The `{:frame f}` map is accepted only for the per-frame kinds `:flow` and `:http-interceptor`. It must be exactly `{:frame f}`, with `f` a frame-id keyword or a live frame value. Anything else, including opts on another kind, throws `:rf.error/registrar-clear-bad-request` before any frame is resolved, so a typo such as `{:fram :session}` throws instead of clearing the ambient frame's registration. An unknown kind throws the same error, naming the valid kinds.
     - Clearing a kind whose optional artefact is not loaded throws that artefact's missing-artefact error, for example `:rf.error/flows-artefact-missing` for `:flow`.
@@ -1087,7 +1087,7 @@ To replace a frame, destroy it with `destroy-frame!`, which runs `:on-destroy` a
     - `:registrations`, inline registrations in `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx` sections. Each entry is `[id body]` or `[id metadata body]`.
     - In `:images`, a later image wins, and `(:rf.gen/shadows (rf/frame-generation f))` reports what it overrode.
     - A registration made through a `reg-*` function rather than its macro records no namespace, so `:select-ns` cannot select it unless its metadata carries `:ns`.
-    - `reg-flow`, `reg-app-schema`, `reg-app-schemas` and `reg-http-interceptor` register against a frame, and no image selects them.
+    - `reg-flow` and `reg-http-interceptor` register against a frame, and no image selects them.
     - See [Images](../core/images.md).
 - **Errors**:
     - When the image is built:
@@ -1281,7 +1281,7 @@ Each optional feature's registration macros are on this facade, so one require c
 
 The feature itself ships in its own artefact, which must be loaded as its page describes; without it, the macro throws that feature's missing-artefact error: `:rf.error/machines-artefact-missing`, `:rf.error/routing-artefact-missing`, `:rf.error/flows-artefact-missing`, `:rf.error/schemas-artefact-missing`, `:rf.error/ssr-artefact-missing`, `:rf.error/http-artefact-missing` or `:rf.error/resources-artefact-missing`.
 
-Most of these register process-wide, like `reg-event`. Four register against one frame: `reg-flow`, `reg-app-schema`, `reg-app-schemas` and `reg-http-interceptor`. Name the frame with `:frame`, or call them inside [`with-frame`](#with-frame); with neither, they throw `:rf.error/no-frame-context`.
+Most of these register process-wide, like `reg-event`. Two register against one frame: `reg-flow` and `reg-http-interceptor`. Name the frame with `:frame`, or call them inside [`with-frame`](#with-frame); with neither, they throw `:rf.error/no-frame-context`.
 
 ### Machines → [re-frame.machines.md](re-frame.machines.md)
 
@@ -1344,7 +1344,7 @@ Malli schemas attached to `app-db` paths, validated on writes in development bui
   (reg-app-schema path schema) → path
   (reg-app-schema path metadata schema) → path
   ```
-- **Description**: Attaches a Malli schema to an `app-db` path. The path is the registration id, which makes this the only path-keyed `reg-*`; the optional metadata map carries the `:frame` target. Without `:frame` it registers against the frame in scope, and with neither it throws `:rf.error/no-frame-context`. Production builds register the schema but never check it. See [`reg-app-schema`](re-frame.schemas.md#reg-app-schema).
+- **Description**: Attaches a Malli schema to an `app-db` path. The path is the registration id, under the registrar kind `:app-schema`, which makes this the only path-keyed `reg-*`; the optional metadata map carries `:doc` and open `:my/*` keys. Registration is frame-agnostic, like `reg-event`: every frame validates against the schemas it resolves, and a `:frame` throws `:rf.error/app-schema-frame-target`. Production builds register the schema but never check it. See [`reg-app-schema`](re-frame.schemas.md#reg-app-schema).
 
 #### `reg-app-schemas`
 
@@ -1352,9 +1352,9 @@ Malli schemas attached to `app-db` paths, validated on writes in development bui
 - **Signature**:
   ```clojure
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...}) → [path …]
-  (reg-app-schemas {path-1 schema-1, ...} opts-or-frame-id) → [path …]
+  (reg-app-schemas {path-1 schema-1, ...} opts) → [path …]
   ```
-- **Description**: Registers many path-to-schema entries in one call, and returns the vector of registered paths. The optional second argument names the frame for every entry: an opts map (`{:frame target}`), a frame-id keyword, or a frame value. Without it the entries register against the frame in scope, and with neither it throws `:rf.error/no-frame-context`. Checked in development builds only, as for `reg-app-schema`. See [`reg-app-schemas`](re-frame.schemas.md#reg-app-schemas).
+- **Description**: Registers many path-to-schema entries in one call, and returns the vector of registered paths. Each entry is its own frame-agnostic `:app-schema` registration; a frame-id keyword, a frame value or a `:frame` as the second argument throws `:rf.error/app-schema-frame-target`. Checked in development builds only, as for `reg-app-schema`. See [`reg-app-schemas`](re-frame.schemas.md#reg-app-schemas).
 
 ### SSR → [re-frame.ssr.md](re-frame.ssr.md)
 
@@ -1707,10 +1707,10 @@ The registrar holds every registration (events, subs, fx, cofx, interceptors, ma
   (handler-meta {:frame f      :kind k :id id}) → metadata resolved through frame f's image (or nil)
   ```
 - **Description**: Returns the metadata a `reg-*` form recorded for one id, or `nil`. View registrations include source coordinates (`:ns`, `:line`, `:column`, `:file`); Pair tools resolve `data-rf2-source-coord` DOM annotations to a `:file` through this lookup.
-    - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:resource`, `:mutation`, `:resource-scope`. `:flow` and `:frame` raise, as for `registrations`.
+    - Registrar kinds: `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:resource`, `:mutation`, `:resource-scope`. `:flow` and `:frame` raise, as for `registrations`.
     - The two machine kinds `:machine-guard` and `:machine-action` take a 2-vector id: `(handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})`. They are derived on demand from the machine's registration and exist only in development builds; they are not frame-targetable, so `:frame` returns `nil` for them.
     - The source grammar and the errors are those of `registrations` (`:rf.error/registrar-query-needs-source`, `:rf.error/frame-no-generation`, `:rf.error/registrar-kind-not-queryable`, `:rf.error/unknown-registry-kind`).
-    - App-db schemas are not a registrar kind; look them up with `(app-schema-meta {:frame f :path p})` in [re-frame.schemas](re-frame.schemas.md).
+    - App-db schemas are the kind `:app-schema`, keyed by path; `(app-schema-meta {:frame f :path p})` in [re-frame.schemas](re-frame.schemas.md) reads the same registration a frame resolves.
 - **Example**:
   ```clojure
   (rf/handler-meta {:source :store :kind :sub :id :counter/value})

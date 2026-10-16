@@ -72,13 +72,11 @@
    [:tick-gen :int]                    ;; generation token — the trick for retiring stale ticks (see below)
    [:sampled-at-ms :int]])             ;; recorded clock reading of the last accepted sample — the anchor we measure from
 
-;; A schema belongs to a frame, so we need a frame in scope to register it.
-;; `with-frame` names one. We use `:rf/default` — the same id the render root's
-;; `frame-root` picks (see `run`) — so the schema guards the very frame
-;; whose commits it's meant to validate. If you want the why and the how of
-;; schemas, that's docs/core/how-to/validate-with-schemas.md.
-(rf/with-frame :rf/default
-  (rf/reg-app-schema [:timer] TimerState))
+;; A schema is a program registration, like an event, so it needs no frame in
+;; scope: the frame the render root's `frame-root` creates (see `run`) resolves
+;; it, and the schema guards that frame's commits. If you want the why and the
+;; how of schemas, that's docs/core/how-to/validate-with-schemas.md.
+(rf/reg-app-schema [:timer] TimerState)
 
 ;; ============================================================================
 ;; EVENTS

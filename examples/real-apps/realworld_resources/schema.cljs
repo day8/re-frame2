@@ -116,18 +116,14 @@
 ;;     Seeding it at boot would only manufacture an empty draft from a user who
 ;;     isn't there yet, to be overwritten on entry.
 ;;
-;; One wrinkle: reg-app-schemas is frame-local, so a bare ns-load call with no
-;; frame context would fail. This app runs in `:rf/default` (the
-;; `frame-root {:id …}` form in core.cljs creates it at the render root), so we
-;; name that id here. Worth being precise about what this is: a frame-local
-;; registration scoped by id, not a frame creation or seed. It binds the id at
-;; ns-load; the frame itself doesn't exist until the provider first renders.
+;; A schema is a program registration, like an event, so this runs at ns-load
+;; with no frame context; the frame the `frame-root {:id …}` form in core.cljs
+;; creates at the render root resolves it. It is not a frame creation or seed.
 
 (def app-db-schemas
-  "This app's app-db schema registry as a `{path -> schema}` VALUE, so the same
-   set can be registered against a frame other than `:rf/default` — registration
-   is frame-local, and a harness driving its own frame gets no schemas at all
-   unless it asks for these by name."
+  "This app's app-db schema registry as a `{path -> schema}` VALUE, registered
+   once below. A harness can name the set as data — to register it from its own
+   namespace, or to read a slice's schema."
   {[:auth]                 AuthSlice
    [:auth :login-form]     FormSlice
    [:auth :register-form]  FormSlice
@@ -139,5 +135,4 @@
    ;; answer `owns-session?` refuses.
    [:settings-save-owner]  [:maybe :string]})
 
-(rf/with-frame :rf/default
-  (rf/reg-app-schemas app-db-schemas))
+(rf/reg-app-schemas app-db-schemas)

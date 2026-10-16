@@ -9,10 +9,10 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
-            [re-frame.schemas.storage :as rf.schemas.storage]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
-            [re-frame.test-support :refer [with-trace-recorder!]]))
+            [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
@@ -136,16 +136,16 @@
   (rf/dispatch-sync [:race/seed])
   (rf/reg-app-schema [:a] [:int])
   (rf/reg-app-schema [:b] [:int])
-  (let [gen-pass (rf.schemas.storage/snapshot-schemas-by-frame)]
-    (rf.schemas.storage/clear-schemas-by-frame!)
+  (let [gen-pass (rf.test-support/snapshot-registrar)]
+    (rf.registrar/clear-kind! :app-schema)
     (rf/reg-app-schema [:a] [:string])
     (rf/reg-app-schema [:b] [:string])
-    (let [gen-fail (rf.schemas.storage/snapshot-schemas-by-frame)
+    (let [gen-fail (rf.test-support/snapshot-registrar)
           stop?    (atom false)
           flipper  (future
                      (loop [pass? true]
                        (when-not @stop?
-                         (rf.schemas.storage/restore-schemas-by-frame!
+                         (rf.test-support/restore-registrar!
                            (if pass? gen-pass gen-fail))
                          (recur (not pass?)))))]
       (try
@@ -163,4 +163,4 @@
         (finally
           (reset! stop? true)
           @flipper
-          (rf.schemas.storage/restore-schemas-by-frame! gen-pass))))))
+          (rf.test-support/restore-registrar! gen-pass))))))

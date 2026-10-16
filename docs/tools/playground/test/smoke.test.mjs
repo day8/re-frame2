@@ -198,7 +198,7 @@ const PAGE = `<!DOCTYPE html>
   <h2>schemas cell (reg-app-schema, rf2 schemas artefact)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
          '[re-frame.schemas])
-(rf/reg-app-schema [:sv] {:frame :rf2smoke/schemaframe} [:maybe [:int {:min 0}]])
+(rf/reg-app-schema [:sv] [:maybe [:int {:min 0}]])
 (rf/reg-event :rf2smoke/sv-init (fn [_ _] {:db {:sv 0}}))
 (rf/reg-event :rf2smoke/sv-set (fn [{:keys [db]} [_ v]] {:db (assoc db :sv v)}))
 (rf/reg-event :rf2smoke/sv-inc (fn [{:keys [db]} _] {:db (update db :sv inc)}))

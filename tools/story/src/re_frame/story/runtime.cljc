@@ -957,7 +957,7 @@
   (stamp-epoch-baseline! ctx))
 
 (defn- db-seed-violations
-  "Validate the seeded `db` against the frame's REGISTERED app-db schemas
+  "Validate the seeded `db` against the app-db schemas the frame RESOLVES
   (spec/017 §Setup — direct seeding bypasses event / cofx
   validation but MUST validate the affected app-db schema). Returns a
   (possibly empty) vector of `{:path :value :explain}` violations.
@@ -965,8 +965,9 @@
   REUSES the schemas late-bind seam — the SAME
   `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
   the `:sub-return` path + the `:sub-override` fold-in reach, and
-  `:schemas/frame-schema-entries` to enumerate the frame's registered
-  `{path → schema-meta}`. No validation mechanism of its own, and no hard dep on
+  `:schemas/frame-schema-entries` to enumerate the `{path → schema-meta}` the
+  frame resolves through its images — a variant image's narrower schema
+  included. No validation mechanism of its own, and no hard dep on
   the schemas artefact: when it is absent every hook resolves nil and the
   walk SOFT-PASSES (the host-free floor — a Story-only build pays nothing).
   When the schemas artefact IS present its registered validator (Malli on

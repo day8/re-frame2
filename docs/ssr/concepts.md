@@ -705,7 +705,7 @@ The version stamp is automatic. The schema digest is opt-in: compute it once at 
    :schema-digest  (schemas/app-schemas-digest {:frame :app})})
 ```
 
-The client hashes the schemas registered in the frame it hydrates (`:app` here), so compute the server's digest over the same registrations.
+The client hashes the schemas resolved by the frame it hydrates (`:app` here), so compute the server's digest through the same frame id. Schemas are top-level registrations, so both sides resolve the same set while they load the same schema namespaces.
 
 The version check always has a client-side value: it reads the SSR artefact's compiled-in protocol constant, the same value the server stamped. The schema-digest check can come up empty: when the client's digest isn't available (the schemas artefact isn't on the classpath), it emits `:rf.ssr/compatibility-check-skipped` and does nothing. These three traces are part of the dev trace stream, so add an [observability](../core/observability.md) listener for them if you want drift reported in CI.
 

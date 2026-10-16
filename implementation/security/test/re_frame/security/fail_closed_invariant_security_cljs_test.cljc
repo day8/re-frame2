@@ -19,8 +19,8 @@
             #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])))
 
-;; App schemas are frame-local. Bind a scope for registration without creating
-;; an adapter-backed frame.
+;; The validation calls below name no frame, so bind the scope they resolve
+;; without creating an adapter-backed frame.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]

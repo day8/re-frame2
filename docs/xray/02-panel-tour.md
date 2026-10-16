@@ -49,7 +49,7 @@ Switch **Mode** to **Static** to browse registrations. The event list disappears
 | --- | --- |
 | **Machines** | Definitions, topology and a simulator that leaves the app unchanged |
 | **Routes** | Registered paths and which route a URL would match |
-| **Schemas** | Frame app-db schemas and registered event and subscription schemas |
+| **Schemas** | The app-db schemas the frame resolves, and registered event and subscription schemas |
 | **Flows** | Inputs and the app-db path each registered flow writes |
 | **Interceptors** | Event chains and shared interceptors, including how many chains use each |
 

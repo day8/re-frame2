@@ -331,11 +331,11 @@
           ;; real app-db schema changes what the read WOULD compute while
           ;; invalidating nothing it watches.
           ;;
-          ;; The APP-DB registry is the lever because it is per-frame, which
-          ;; is what this liveness row needs; the event registrar, which the
-          ;; event/sub side reads through `:schema`, would be an equally good
-          ;; lever.
-          (rf/reg-app-schema [:probe] {:frame app-frame} [:map [:p :int]])
+          ;; An app-db schema registration is the lever: the frame resolves
+          ;; it, which is what this liveness row needs; an event
+          ;; registration, which the event/sub side reads through `:schema`,
+          ;; would be an equally good lever.
+          (rf/reg-app-schema [:probe] [:map [:p :int]])
           (-> (settle)
               (.then
                 (fn [_]

@@ -6,7 +6,8 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.derivation.graph :as rf.derivation.graph]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.derivation.egress :as rf.derivation.egress]
             [re-frame.classification :as rf.classification]
@@ -34,7 +35,7 @@
 (defn- refresh-families! []
   (rf.flows/reset-flows!)
   (rf.flows/reset-last-inputs!)
-  (rf.schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-kind! :app-schema)
   #?(:clj (do (require 're-frame.routing :reload)
               (require 're-frame.resources :reload)
               (require 're-frame.machines :reload)))

@@ -20,7 +20,6 @@
             ;; `:source :flow` elision marks at registration.
             [re-frame.flows]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             ;; Publishes `:schemas/validate-app-schema!`, which the rejection
             ;; tests need.
@@ -35,8 +34,6 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
-    (clear-schemas!))
   (rf.trace.tooling/clear-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf/make-frame {:id :rf/default})
@@ -178,8 +175,7 @@
   (rf/make-frame {:id :pc/rb})
   (rf.epoch/replace-frame-state! :pc/rb {:rf.db/app     {:n 0}
                                    :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
-  (rf/with-frame :pc/rb
-    (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
+  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
   (reg-fw-runtime-handler! :pc/bad
     (fn [_ _]
       {:db            {:n -5}
@@ -199,8 +195,7 @@
                        :output-path [:derived :creds]
                        :sensitive   [[:secret]]}
     (fn [n] {:secret n}))
-  (rf/with-frame :pc/rb-srcaware
-    (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
+  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
   (rf/reg-event :pc/bad-with-effect
     (fn [_ _] {:db {:n -5} :sensitive [[:another-secret]]}))
   (rf/dispatch-sync [:pc/bad-with-effect] {:frame :pc/rb-srcaware})
@@ -213,8 +208,7 @@
   ;; registry, not the discarded candidate, so the mark stands.
   (rf/make-frame {:id :pc/rb-subsys})
   (rf.epoch/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0} :rf.db/runtime {}})
-  (rf/with-frame :pc/rb-subsys
-    (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
+  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
   (rf/reg-interceptor :pc/subsystem-mark-writer
     {:after (fn [ctx]
               (rf.elision/swap-elision-slot! :pc/rb-subsys
@@ -245,8 +239,7 @@
   (is (= {[:old :creds :secret] #{{:source :flow :flow-id :mover}}}
          (rf.elision/sensitive-declarations :pc/rb-move))
       "precondition: the old-path mark is installed")
-  (rf/with-frame :pc/rb-move
-    (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
+  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
   (rf/reg-interceptor :pc/flow-mover
     {:after (fn [ctx]
               (rf/reg-flow :mover {:frame       :pc/rb-move
@@ -271,10 +264,9 @@
   (rf.epoch/replace-frame-state! :pc/rb-path
                            {:rf.db/app     {:keep :must-survive :slice {:n 0}}
                             :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
-  (rf/with-frame :pc/rb-path
-    (rf/reg-app-schema [] [:map
-                           [:keep  :keyword]
-                           [:slice [:map [:n [:int {:min 0}]]]]]))
+  (rf/reg-app-schema [] [:map
+                         [:keep  :keyword]
+                         [:slice [:map [:n [:int {:min 0}]]]]])
   (rf/reg-event :pc/path-bad
     {:interceptors [[:rf.interceptor/path [:slice]]]}
     (fn [{:keys [db]} _]
