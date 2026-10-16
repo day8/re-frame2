@@ -4004,18 +4004,31 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; :rf.machine/destroy — canonical actor-destroy fx-id (registered globally
 ;; by re-frame.machines); usable inside any event handler's :fx (machine
 ;; actions and ordinary handlers alike) to tear down a dynamic actor. Per
-;; [005 §Spawning]. Two argument shapes:
+;; [005 §Spawning]. Three argument shapes:
 ;;   - a bare actor-id keyword — the imperative form (action emits
 ;;     `[:rf.machine/destroy actor-id]` with the recorded id directly).
 ;;   - a `{:rf/parent-id :rf/invoke-id}` map — the declarative-:spawn
 ;;     exit-cascade form. The fx handler reads the spawned id back from
 ;;     `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` at call time and tears down
 ;;     whatever id is currently bound there.
+;;   - a `{:rf/parent-id :rf/invoke-id :rf/spawn-all true}` map — the
+;;     declarative-:spawn-all exit-cascade form, which a `:spawn-all` state's
+;;     exit emits. The slot at `[:rf.runtime/machines :spawned <parent-id>
+;;     <invoke-id>]` holds the join state; the handler tears down every child
+;;     in its `:children` and clears the slot.
+;; Both map shapes are closed. The `:rf/spawn-all` key selects the third
+;; shape by its presence, and its value must be exactly `true`; any other key
+;; set or value is refused with `:rf.error/machine-destroy-bad-arg`, with no
+;; teardown.
 (def DestroyMachineFxArgs
   [:or :keyword
-       [:map
+       [:map {:closed true}
         [:rf/parent-id :keyword]
-        [:rf/invoke-id [:vector :keyword]]]])
+        [:rf/invoke-id [:vector :keyword]]]
+       [:map {:closed true}
+        [:rf/parent-id :keyword]
+        [:rf/invoke-id [:vector :keyword]]
+        [:rf/spawn-all [:= true]]]])
 
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
