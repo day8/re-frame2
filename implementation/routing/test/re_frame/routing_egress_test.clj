@@ -266,9 +266,10 @@
     (is (= [[:requested-url] [:destination] [:target] [:guard]]
            (:sensitive (rf/handler-meta {:frame :rf/default :kind :event :id :rf.route/entry-denied})))
         "the frame-targeted read, which dispatch and egress resolve through, carries the same union as the default-first order")
-    ;; The positional read is the process resolver map, last-write-wins
-    ;; (Spec 012); in this order the framework's own seeding writes last.
-    (is (= {:sensitive [[:requested-url] [:destination] [:target]] :rf/framework-default? true}
+    ;; The store read resolves the registration table as a frame made without
+    ;; :images does (Spec 012), so it converges on the application descriptor
+    ;; and the same union in this order too.
+    (is (= {:sensitive [[:requested-url] [:destination] [:target] [:guard]]}
            (select-keys (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})
                         [:sensitive :rf/framework-default?])))
     (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]

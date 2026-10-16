@@ -189,9 +189,9 @@
 (defn restore-registrar!
   "Reset the registration table to a previously captured snapshot.
 
-  Any registrations made since the snapshot are dropped — no frame resolves
-  them any more, whether made with `:images`, without, or the ambient fixture
-  frame — and any registrations removed since the snapshot are restored. Use
+  Any registrations made since the snapshot are dropped — neither a frame made
+  without `:images` nor the ambient fixture frame resolves them any more — and
+  any registrations removed since the snapshot are restored. Use
   this in test fixtures to undo per-test pollution while preserving framework /
   example registrations that landed at ns-load time."
   [snapshot]
