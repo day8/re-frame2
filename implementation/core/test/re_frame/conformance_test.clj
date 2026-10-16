@@ -207,7 +207,7 @@
 (deftest run-conformance-corpus-prod-posture
   (rf.conformance-runner/run-corpus
     (filter (comp rf.conformance-runner/prod-posture-fixture? second) (all-fixtures))
-    host "JVM production-posture" 115))
+    host "JVM production-posture" 111))
 
 ;; ---- runner self-tests: each proves a check bites rather than no-ops -------
 
