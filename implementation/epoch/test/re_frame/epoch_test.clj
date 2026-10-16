@@ -23,7 +23,6 @@
             [re-frame.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.epoch.capture :as rf.epoch.capture]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.routing]
@@ -181,24 +180,18 @@
 
 ;; ---- listeners -------------------------------------------------------------
 
-(deftest multi-listener-observed-frames-and-re-register-generation
-  (testing "two listeners on one frame both fire; re-registering an id replaces
-            its fn; a destroy then silences each live observer exactly once"
+(deftest multi-listener-fan-out-and-re-register-replaces
+  (testing "two listeners on one frame both fire, and re-registering an id
+            replaces its fn"
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
-    (let [recorded (record-trace!)
-          calls    (atom [])]
+    (let [calls (atom [])]
       (rf/register-listener! :epoch ::w1 (fn [_] (swap! calls conj :w1)))
       (rf/register-listener! :epoch ::w2 (fn [_] (swap! calls conj :w2)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/register-listener! :epoch ::w1 (fn [_] (swap! calls conj :w1-new)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
-      (is (= {:w1 1 :w2 2 :w1-new 1} (frequencies @calls)))
-      (rf/destroy-frame! :test/main)
-      (is (= {::w1 1 ::w2 1}
-             (frequencies (keep #(when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation %))
-                                   (:cb-id (:tags %)))
-                                @recorded)))))))
+      (is (= {:w1 1 :w2 2 :w1-new 1} (frequencies @calls))))))
 
 (deftest listener-exception-emits-trace
   (testing "a throwing listener emits one :rf.epoch.cb/listener-exception per
@@ -1077,27 +1070,25 @@
 
 (deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil
   (testing "when the pre-dissoc snapshot hook throws, destroy still drops each
-            of the five exact-owner stores, and the nil bundle publishes no
-            :halted-destroy record, no silencing and no silence mark"
+            of the four exact-owner stores, and the nil bundle publishes no
+            :halted-destroy record"
     (let [id            :test/nil-evidence-cleanup
           render-key    ::nil-evidence-view
           records       (atom [])
-          traces        (record-trace!)
           original-snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)
           stores        (fn []
-                          {:observers    (seq (:observing (rf.epoch.state/snapshot-terminal-observers id)))
-                           :history      (seq (rf.epoch.state/history-for id))
+                          {:history      (seq (rf.epoch.state/history-for id))
                            :buffer       (seq (rf.epoch.state/buffer-for id))
                            :last-settled (rf.epoch.state/last-settled-epoch-id id)
                            :mount        (rf.epoch.state/mount-epoch-for id render-key)
                            :render-deps  (rf.epoch.state/render-deps-for id render-key)})]
       (rf/make-frame {:id id})
       (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
-      ;; An observing listener gives a fabricating publish someone to silence.
+      ;; A registered listener gives a fabricating publish someone to deliver to.
       (rf/register-listener! :epoch ::nil-evidence-cb #(swap! records conj %))
       (rf/dispatch-sync [:seed] {:frame id})
-      ;; The settle seeded observers, history and last-settled; a synchronous
-      ;; JVM cascade leaves the buffer empty and records no mount, so seed those.
+      ;; The settle seeded history and last-settled; a synchronous JVM cascade
+      ;; leaves the buffer empty and records no mount, so seed those.
       (rf.epoch.state/buffer-event! id {:operation :rf.event/run-start
                                         :tags      {:rf.trace/dispatch-id ::seed-dispatch}})
       (rf.epoch.state/record-mount-epoch! id render-key (rf.epoch.state/last-settled-epoch-id id))
@@ -1113,11 +1104,8 @@
         (finally
           (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))
       (is (= {} (into {} (filter val) (stores))) "every exact-owner store dropped")
-      (is (= [[] [] 0]
-             [(filterv #(= :halted-destroy (:outcome %)) @records)
-              (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy (:operation %)) @traces)
-              (reduce + 0 (map count (vals @@#'rf.epoch.state/terminal-silence-marks)))])
-          "no fabricated record, silence or silence mark"))))
+      (is (= [] (filterv #(= :halted-destroy (:outcome %)) @records))
+          "no fabricated record"))))
 
 ;; ---- live :halted-destroy partial record -----------------------------------
 ;;
@@ -1581,81 +1569,3 @@
                                         (:epoch-id (first (rf/epoch-history :test/obi8rr-ok))))))
           (is (= [:rf.epoch/restored :rf.resource/restored :rf.resource/owner-released]
                  (filterv success? (map :operation @recorded)))))))))
-
-;; ============================================================================
-;;  Same-id listener replacement generations
-;; ============================================================================
-;;
-;; `put-listener!` publishes a new callback with a fresh GENERATION token in one
-;; swap, and every observation is stamped with the generation that recorded it.
-;; So a same-id replacement can neither erase a fresh observation (a second,
-;; ledger-clearing swap would) nor let a stale one arm the new registration.
-
-(deftest same-id-replacement-preserves-new-callback-observation
-  (testing "a same-id replacement parked right after publishing the new
-            callback: a record fanned out during the pause is observed by the
-            new generation, the completed replacement does not erase that
-            observation, and destroying the frame silences it exactly once"
-    (rf/make-frame {:id :j538/race})
-    (let [recorded       (record-trace!)
-          published      (promise)
-          release        (java.util.concurrent.CountDownLatch. 1)
-          armed?         (atom false)
-          listeners-atom (deref #'rf.epoch.state/listeners)]
-      (rf/register-listener! :epoch ::probe (fn [_] nil))
-      ;; Park the next listeners swap (the replacement's publish) until the
-      ;; main thread has fanned a record out.
-      (add-watch listeners-atom ::barrier
-                 (fn [_ _ _ _]
-                   (when (compare-and-set! armed? true false)
-                     (deliver published :published)
-                     (.await ^java.util.concurrent.CountDownLatch release))))
-      (reset! armed? true)
-      (let [replace-fut (future (rf/register-listener! :epoch ::probe (fn [_] nil)))]
-        (try
-          (is (= :published (deref published 5000 ::timeout)))
-          (rf.epoch.listeners/notify-listeners! {:frame :j538/race :epoch-id 1})
-          (finally
-            (.countDown release)
-            (is (not= ::timeout (deref replace-fut 5000 ::timeout)))
-            (remove-watch listeners-atom ::barrier))))
-      (rf/destroy-frame! :j538/race)
-      (is (= 1 (count (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation %))
-                                    (= ::probe (:cb-id (:tags %))))
-                              @recorded)))))))
-
-(deftest stale-old-generation-fanout-cannot-arm-new-registration
-  (testing "a fan-out holding the OLD generation's token cannot record an
-            observation for the same-id replacement"
-    (rf/register-listener! :epoch ::probe (fn [_] nil))
-    (let [stale-gen (:generation (get (rf.epoch.state/listeners-snapshot) ::probe))]
-      (rf/register-listener! :epoch ::probe (fn [_] nil))
-      (rf.epoch.state/record-observation! ::probe stale-gen :j538/mirror)
-      (is (not (contains? (get (rf.epoch.state/observations-snapshot) ::probe)
-                          :j538/mirror))))))
-
-(deftest generation-scoped-observations-across-frames
-  (testing "old and new generations observing DIFFERENT frames: destroying the
-            frame only the replaced generation observed emits no silence,
-            destroying the live generation's frame emits exactly one
-            :rf.epoch.cb silence, and a same-id frame recreation re-arms it"
-    (rf/make-frame {:id :j538/frame-a})
-    (rf/make-frame {:id :j538/frame-b})
-    (let [recorded (record-trace!)
-          silences (fn [frame]
-                     (count (filter #(= [:rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                                         {:frame frame :cb-id ::probe}]
-                                        [(:op-type %) (:operation %)
-                                         (select-keys (:tags %) [:frame :cb-id])])
-                                    @recorded)))]
-      (rf/register-listener! :epoch ::probe (fn [_] nil))
-      (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-a :epoch-id 1})
-      (rf/register-listener! :epoch ::probe (fn [_] nil))
-      (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-b :epoch-id 2})
-      (rf/destroy-frame! :j538/frame-a)
-      (rf/destroy-frame! :j538/frame-b)
-      (is (= [0 1] [(silences :j538/frame-a) (silences :j538/frame-b)]))
-      (rf/make-frame {:id :j538/frame-b})
-      (rf.epoch.listeners/notify-listeners! {:frame :j538/frame-b :epoch-id 3})
-      (rf/destroy-frame! :j538/frame-b)
-      (is (= 2 (silences :j538/frame-b))))))

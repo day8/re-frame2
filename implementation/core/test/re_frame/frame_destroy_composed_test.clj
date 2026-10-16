@@ -14,7 +14,6 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.flows :as rf.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.frame :as rf.frame]
@@ -147,30 +146,23 @@
   (rf/reg-app-schema [:n] {:frame :composed/leak-audit} [:int])
   (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
   (rf/reg-flow :composed/area {:frame :composed/leak-audit :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-  ;; registered before the cascade, so the drain records the frame against it
-  (rf/register-listener! :epoch ::composed-observer (fn [_r] nil))
   (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
   ;; written directly: a sibling's flows reload can gate the walker's hook
   (rf.flows.registry/set-frame-flow-last-inputs! :composed/leak-audit :composed/area [3 4])
   (rf/reg-sub :composed/leak-rect (fn [db _] (:rect db)))
   (rf/subscribe [:composed/leak-rect] {:frame :composed/leak-audit})
-  (let [epoch-observed? #(contains? (get @(deref #'rf.epoch.state/observed-frames-by-cb)
-                                         ::composed-observer)
-                                    :composed/leak-audit)
-        rows            (fn []
-                          [(contains? (rf.schemas/snapshot-schemas-by-frame) :composed/leak-audit)
-                           (contains? (rf.flows/flows-snapshot) :composed/leak-audit)
-                           (contains? (get (rf.flows/last-inputs-snapshot) :composed/area)
-                                      :composed/leak-audit)
-                           (some? (get @rf.frame/frames :composed/leak-audit))])]
+  (let [rows (fn []
+               [(contains? (rf.schemas/snapshot-schemas-by-frame) :composed/leak-audit)
+                (contains? (rf.flows/flows-snapshot) :composed/leak-audit)
+                (contains? (get (rf.flows/last-inputs-snapshot) :composed/area)
+                           :composed/leak-audit)
+                (some? (get @rf.frame/frames :composed/leak-audit))])]
     (is (= [true true true true] (rows)) "precondition: schema, flow, last-inputs and frame rows")
     (is (pos? (count @(:sub-cache (rf.frame/frame :composed/leak-audit)))))
     (when rf.interop/debug-enabled?
-      (is (= [true true]
-             [(epoch-observed?) (pos? (count (rf/epoch-history :composed/leak-audit)))])
-          "precondition: the epoch ring and observer saw the frame"))
+      (is (pos? (count (rf/epoch-history :composed/leak-audit)))
+          "precondition: the epoch ring saw the frame"))
     (rf.frame/destroy-frame! :composed/leak-audit)
     (is (= [false false false false] (rows)))
     (when rf.interop/debug-enabled?
-      (is (= [false []] [(epoch-observed?) (rf/epoch-history :composed/leak-audit)]))))
-  (rf/unregister-listener! :epoch ::composed-observer))
+      (is (= [] (rf/epoch-history :composed/leak-audit))))))

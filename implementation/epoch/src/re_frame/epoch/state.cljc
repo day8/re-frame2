@@ -12,15 +12,10 @@
                                                        :deps #{sub-id…}}}
                             (mount anchor and learned view read-set)
     capture-buffers         frame-id → vector<trace-event> (in-flight)
-    listeners               cb-id    → {:generation token :callback fn}
-    observed-frames-by-cb   cb-id    → {frame-id → generation-token}
+    listeners               cb-id    → callback fn
 
   Capture buffers stay separate from rarely-written back-fill state because
-  every trace emit updates them. Listener observations likewise stay separate
-  from the registry snapshot read on every fan-out; they cohere through the
-  per-registration GENERATION token (see the listener-registry section) rather
-  than a cross-atom update, so no operation requires an atomic update across two
-  of these stores."
+  every trace emit updates them."
   (:require [re-frame.privacy :as rf.privacy]))
 
 ;; ---- configuration --------------------------------------------------------
@@ -79,10 +74,8 @@
 ;; `configure!` cannot return while a writer still holds a stale depth, and no
 ;; anchor decision is taken against a stale ring.
 ;;
-;; DEADLOCK-FREE BY CONSTRUCTION, and that is why it needs no place in the
-;; ledger lock order documented further down (nor in the `:drain-lock`
-;; argument beside it). This is a LEAF: every section it guards is atom swaps
-;; over the epoch stores and nothing else — no other lock is acquired
+;; DEADLOCK-FREE BY CONSTRUCTION. This is a LEAF: every section it guards is
+;; atom swaps over the epoch stores and nothing else — no other lock is acquired
 ;; underneath it and no foreign code runs there. A lock that acquires nothing
 ;; cannot supply the second edge
 ;; of a cycle. `commit-frame-owner-record!` reaches it from INSIDE the
@@ -1120,737 +1113,40 @@
   nil)
 
 ;; ---- listener registry ----------------------------------------------------
-
-;; A listener registration is ONE atomic unit: the callback plus the
-;; monotonically-increasing GENERATION token minted when it was installed.
 ;;
-;;   listeners   cb-id → {:generation <token> :callback <fn>}
+;;   listeners   cb-id → callback fn
 ;;
-;; Same-id replacement publishes a fresh generation (new token + callback) in a
-;; SINGLE swap, so a concurrent fan-out that snapshots the new generation and
-;; the registering thread can never tear the registration across two writes —
-;; the split-brain a two-swap update would allow. The token
-;; is drawn from a process-global monotonic counter so it is NEVER reused, not
-;; even across a drop-then-re-register of the same id; that closes the ABA
-;; window a per-id counter would leave (a recycled token could let a stale
-;; fan-out arm a fresh registration).
-(defonce ^:private listener-generation (atom 0))
-
-(defn- next-listener-generation
-  "Mint a fresh, process-unique listener generation token."
-  []
-  (swap! listener-generation inc))
+;; Registrations are process-global: a callback outlives every frame it
+;; receives records from, and re-registering an id replaces its callback in
+;; one swap. A tool that wants to forget a destroyed frame listens for
+;; `:rf.frame/destroyed`, which states that fact on the trace stream.
 
 (defonce ^:private listeners (atom {}))
 
-;; Track which frames each callback GENERATION has observed. When a frame is
-;; destroyed, every cb whose CURRENT generation observed that frame receives a
-;; one-shot :rf.epoch.cb/silenced-on-frame-destroy trace. Each observation is
-;; STAMPED with the generation token that recorded it:
-;;
-;;   observed-frames-by-cb   cb-id → {frame-id → generation-token}
-;;
-;; Stamping the observation with its generation is what makes same-id
-;; replacement correct WITHOUT a cross-atom clear (the split-brain a two-swap
-;; update would allow): a replacement simply mints a new token, so a stale
-;; OLD-generation observation is silently ignored by the token-scoped readers
-;; (`record-observation!` refuses to re-arm it; `snapshot-terminal-observers`
-;; skips it)
-;; and is overwritten the moment the NEW generation observes the same frame.
-;; The frame-id is the map KEY, so `(contains? (get observed cb-id)
-;; frame-id)` answers "did this cb ever observe the frame?" — the same
-;; question a bare set would answer, with the owning generation alongside.
-;; A same-keyed frame recreation re-arms because `drop-frame-observation!`
-;; removes the frame on the prior destroy and the recreated frame's cascade
-;; re-stamps it under the current generation.
-(defonce ^:private observed-frames-by-cb
-  ;; cb-id → {frame-id → generation-token}
-  (atom {}))
-
-;; ---- delayed predecessor-silencing lineage ---------------------------------
-;;
-;; A destroyed incarnation A's `:rf.epoch.cb/silenced-on-frame-destroy` fan can
-;; be DEFERRED past a same-id successor B's whole lifecycle: A's post-dissoc
-;; publish hook is held while B — constructable only after dissoc — claims,
-;; settles/re-arms, and even destroys. Gating the WHOLE fan on one coarse
-;; `cleanup-frame-owner!` result would conflate three DISTINCT events — store
-;; claim, callback delivery/re-arm, and terminal silence — so each silence is
-;; decided PER callback-generation identity, and that lineage is EXACT,
-;; LINEARIZABLE, and BOUNDED. Deciding PER identity needs two kinds of evidence:
-;;
-;;   * delivery/re-arm (live): a successor that re-armed a cb and is STILL LIVE
-;;     leaves that cb in the live observation ledger (`snapshot-terminal-observers`), so
-;;     the callback is live on the successor rather than silent.
-;;   * terminal-silence (survives cleanup): a successor that re-armed then
-;;     DESTROYED already emitted the one truthful silence AND dropped its live
-;;     observation on cleanup — so the live ledger no longer shows it. A
-;;     monotonic mark records that a `(frame, cb)` silence fired and is NOT
-;;     dropped by `cleanup-frame-owner!`; it survives long enough for a paused
-;;     predecessor to see it and NOT re-emit the identical unqualified signal
-;;     (the A→B→nil ABA). A fresh delivery to the cb supersedes the mark
-;;     (`record-observation!` prunes it — a new continuum will owe its own
-;;     silence).
-;;
-;; A snapshots a `baseline` seq BEFORE dissoc (a same-id B is constructable only
-;; AFTER dissoc, so any successor silence is stamped strictly after A's baseline).
-;; A mark ABOVE that baseline is a successor's → A skips; a mark at/below is a
-;; superseded earlier continuum, which the live-observation and generation checks
-;; already resolve.
-;;
-;; The three properties and where each is enforced:
-;;
-;;   EXACT — the owed `{cb-id → generation}` map is derived from ONE consistent
-;;     (listeners, observed) read (`snapshot-terminal-observers`) with the
-;;     generation taken from the OBSERVATION STAMP, never a second registry
-;;     re-read. A replacement landing mid-snapshot can therefore never attribute
-;;     A's observation to a fresh generation H it never observed under.
-;;   LINEARIZABLE — eligibility AND the mark write are ONE atomic operation
-;;     (`claim-and-publish-delayed-silence!`'s reservation half, under
-;;     `silence-lock`): it rechecks the current generation, the CURRENT live
-;;     observers (fresh, not a stale pre-loop set),
-;;     and the existing mark, then reserves a fresh monotonic seq BEFORE external
-;;     delivery. The seq is the single total order the observer relies on; two
-;;     overlapping same-id publishers can never both claim. A reservation is
-;;     rolled back only if envelope delivery itself throws.
-;;   BOUNDED — a per-frame outstanding-predecessor counter
-;;     (`open-`/`close-silence-lineage!`) brackets the deferred window. Marks for
-;;     a frame are retained ONLY while a deferred predecessor of THAT frame is
-;;     outstanding; when the last one resolves the frame's marks are reclaimed,
-;;     so a persistent callback destroying unboundedly many unique frame ids does
-;;     not accrete a permanent tombstone per id.
-
-(defonce ^:private terminal-silence-seq (atom 0))
-
-(defn next-terminal-silence-seq
-  "Mint a fresh, process-monotonic terminal-silence marker."
-  []
-  (swap! terminal-silence-seq inc))
-
-(defn current-terminal-silence-seq
-  "Read the current terminal-silence marker — a destroying predecessor's
-  pre-dissoc baseline. A same-id successor's silence, stamped only after that
-  predecessor snapshots, always exceeds it."
-  []
-  @terminal-silence-seq)
-
-(defonce ^:private terminal-silence-marks
-  ;; frame-id → {cb-id → terminal-silence-seq of the latest silence emitted for
-  ;; (frame, cb)}. Survives compare-owned cleanup so a paused predecessor cannot
-  ;; re-emit a silence a successor already delivered; pruned when a fresh
-  ;; delivery re-arms the cb (`record-observation!`) or the cb unregisters.
-  (atom {}))
-
-(defn- prune-terminal-silence-mark!
-  "Drop the terminal-silence mark for `(frame-id, cb-id)` — a fresh delivery to
-  the cb has re-armed it, so the prior continuum's mark is superseded."
-  [frame-id cb-id]
-  (swap! terminal-silence-marks
-         (fn [m]
-           (if-let [cbs (get m frame-id)]
-             (let [cbs' (dissoc cbs cb-id)]
-               (if (empty? cbs')
-                 (dissoc m frame-id)
-                 (assoc m frame-id cbs')))
-             m)))
-  nil)
-
-(defn drop-cb-silences!
-  "Forget one cb's terminal-silence marks across every frame — invoked when the
-  listener unregisters (its identity is gone; no predecessor can owe it a
-  silence any longer)."
-  [cb-id]
-  (swap! terminal-silence-marks
-         (fn [m]
-           (reduce-kv (fn [acc frame-id cbs]
-                        (let [cbs' (dissoc cbs cb-id)]
-                          (if (empty? cbs')
-                            (dissoc acc frame-id)
-                            (assoc acc frame-id cbs'))))
-                      {}
-                      m)))
-  nil)
-
-;; The delayed-silence ledger spans three atoms — `listeners` (the
-;; callback+generation registry), `observed-frames-by-cb` (the observation
-;; ledger), and `terminal-silence-marks` (the lineage marks). Two ORDERED
-;; monitors serialise it, split by which atom each op mutates:
-;;
-;;   listener-registry-lock  guards the `listeners` generation publish/drop.
-;;   silence-lock            guards the observation ledger, the terminal-silence
-;;                           marks, and the outstanding-lineage brackets.
-;;
-;; GLOBAL LOCK ORDER: listener-registry-lock BEFORE silence-lock, never the
-;; reverse. Any path needing both (the delayed-silence claim, `drop-listener!`,
-;; `reset-listeners!`) acquires the registry lock first — `with-claim-locks`
-;; encodes that order once.
-;;
-;; Why TWO monitors and not one: a single lock would put
-;; `put-listener!`'s `(swap! listeners …)` — and hence any atom
-;; WATCHER that swap fires — AND `record-observation!`'s re-arm on the SAME
-;; monitor. A listeners-atom watch that parks mid-`swap!` (a JVM deschedule, or
-;; a test barrier) would then hold that monitor while a concurrent
-;; `record-observation!` fan-out blocks on it forever — a hard deadlock. Splitting the
-;; domains keeps `put-listener!` on the registry lock ALONE, so a registration
-;; paused inside its swap can never block a fan-out re-arm (which takes only
-;; silence-lock).
-;;
-;; The generation-authority guarantee:
-;; `eligible-and-reserve!` (under `claim-and-publish-delayed-silence!`) holds BOTH
-;; locks across its eligibility recheck AND the mark RESERVATION — so a concurrent
-;; `put-listener!` (registry lock) and a concurrent `record-observation!`
-;; (silence-lock) are excluded from THAT window and can neither corrupt the three
-;; eligibility reads nor let two publishers both reserve. The external emit then
-;; runs OUTSIDE both locks (see `claim-and-publish-delayed-silence!` for why: the
-;; foreign trace fan-out can reach a frame's `:drain-lock`, and holding a ledger
-;; lock across it is an AB-BA deadlock). Authority survives the lock-free emit
-;; through DATA QUALIFIERS the receiver re-reads at receipt time, not a lock. A
-;; replacement, an `unregister-epoch-listener!` drop, a fresh frame destroy, or a
-;; `record-observation!` re-arm MAY all land BETWEEN the reservation and the
-;; publication, and they split into TWO kinds:
-;;
-;;   * REGISTRATION-identity mutations (a replacement, a drop) make a DIFFERENT
-;;     generation current. The emit carries `:observed-gen` (the reserved
-;;     generation), so the superseded late emit self-filters at the receiver.
-;;   * OBSERVATION-continuum mutations (a `record-observation!` re-arm by a
-;;     same-id SUCCESSOR frame) mint NO generation — a delivery never
-;;     re-registers — so `:observed-gen` still MATCHES while the callback is live
-;;     again. `:observed-gen` alone would accept a silence for a live
-;;     callback. This kind is discriminated by the observation-continuum half
-;;     of the receiver decision (`live-observer?`).
-;;
-;; The receiver weighs BOTH kinds in ONE operation — `silence-current?`, exposed
-;; publicly as `re-frame.epoch/epoch-silence-current?` — which reads the
-;; registration generation and the observation continuum inside a single
-;; `with-claim-locks` section. It is one operation and not two composable queries
-;; because the composite of two independent reads is not linearizable: a
-;; replacement or drop landing between them yields an accept for a generation
-;; that is already superseded.
-;;
-;; Ordinary fan-out never contends on either lock: the registry/observation atoms
-;; keep their own lock-free swaps for the common path.
-#?(:clj
-   (defonce ^:private listener-registry-lock (Object.)))
-
-#?(:clj
-   (defonce ^:private silence-lock (Object.)))
-
-(defn- with-listener-registry-lock [f]
-  #?(:clj  (locking listener-registry-lock (f))
-     :cljs (f)))
-
-(defn- with-silence-lock [f]
-  #?(:clj  (locking silence-lock (f))
-     :cljs (f)))
-
-(defn- with-claim-locks
-  "Acquire BOTH ledger monitors in the global order (registry → silence) for the
-  delayed-silence claim and the registry+observation wipes (`drop-listener!` /
-  `reset-listeners!`). The claim reads the `listeners` generation AND the
-  observation/mark ledger and must exclude both `put-listener!` and
-  `record-observation!` across its eligibility recheck and mark RESERVATION (NOT
-  the external emit, which the claim runs after releasing both locks);
-  the wipes mutate both domains. Encoding the order here keeps every both-locks
-  caller consistent so the registry→silence DAG can never invert."
-  [f]
-  (with-listener-registry-lock #(with-silence-lock f)))
-
-;; frame-id → count of deferred predecessors of THAT frame whose terminal
-;; evidence is currently outstanding (snapshotted but not yet published). A
-;; `(frame, cb)` mark can only ever be consulted by a deferred predecessor OF
-;; THAT SAME frame (`claim-and-publish-delayed-silence!` reads marks keyed by its
-;; own frame-id), so the frame's marks are needed only while its count is positive.
-;; When the last outstanding predecessor of a frame resolves, the frame's marks
-;; are reclaimed — this is what bounds `terminal-silence-marks` under a persistent
-;; callback that observes and destroys unboundedly many unique frame ids.
-;; Marks for OTHER frames are untouched, so a held predecessor
-;; keeps only the marks it can still consume.
-(defonce ^:private outstanding-silence-lineages (atom {}))
-
-(defn open-silence-lineage!
-  "Open the deferred-silence window for one destroyed incarnation of `frame-id`.
-  Called by `snapshot-terminal-destroy-evidence!` when it binds A's owed evidence
-  before dissoc, so the frame's terminal-silence marks survive until A publishes.
-  Balanced by exactly one `close-silence-lineage!`."
-  [frame-id]
-  (with-silence-lock
-    (fn []
-      (swap! outstanding-silence-lineages update frame-id (fnil inc 0))
-      nil)))
-
-(defn close-silence-lineage!
-  "Close one deferred-silence window for `frame-id`. When the frame's last
-  outstanding predecessor resolves, no paused predecessor of the frame can
-  consult its marks, so they are reclaimed — the boundedness guarantee. Balances
-  exactly one `open-silence-lineage!`."
-  [frame-id]
-  (with-silence-lock
-    (fn []
-      (let [remaining (swap! outstanding-silence-lineages
-                             (fn [m]
-                               (let [n (dec (get m frame-id 0))]
-                                 (if (pos? n)
-                                   (assoc m frame-id n)
-                                   (dissoc m frame-id)))))]
-        (when-not (contains? remaining frame-id)
-          (swap! terminal-silence-marks dissoc frame-id)))
-      nil)))
-
-(defn reset-frame-silences!
-  "Wipe every terminal-silence mark and every outstanding-predecessor bracket for
-  fixture/global reset.
-
-  The monotonic `terminal-silence-seq` is deliberately NOT reset. Recycling it to
-  0 could make a post-reset successor's mark compare at/below an outstanding
-  predecessor's earlier baseline, letting that predecessor re-emit a silence the
-  successor already fired. The seq is a plain process-monotonic
-  comparison domain — its absolute value is never observed, only ordering — so
-  letting it climb across resets is free and keeps the domain non-recycling."
-  []
-  (reset! terminal-silence-marks {})
-  (reset! outstanding-silence-lineages {})
-  nil)
-
-(defn- live-observer?
-  "True when `cb-id`'s CURRENT generation observes `frame-id` right now — the
-  observation stamp for the frame equals the cb's live generation token. Read
-  fresh (both derefs here), so a successor re-arming a cb mid-fan is honoured the
-  instant it lands rather than against a stale pre-loop set.
-
-  NOT SELF-COHERENT — every caller MUST hold both ledger locks. The
-  two derefs below are SEPARATE reads of two atoms guarded by DIFFERENT monitors:
-  the observation ledger (silence-lock) and then the listener registry (registry
-  lock). A same-id replacement plus a re-arm of the fresh generation landing
-  BETWEEN them is read as stamp=G against registry=H — `false`, an answer neither
-  the before-state (stamp G, registry G → true) nor the after-state (stamp H,
-  registry H → true) ever had. Under `with-claim-locks` both mutations are
-  excluded, so the pair is one consistent snapshot.
-
-  Both callers hold the locks: `eligible-and-reserve!` (the reservation's second
-  eligibility check) and `silence-current?` (the receiver decision). It is
-  deliberately PRIVATE — this fact is not independently publishable, because any
-  consumer composing it with a separate generation read reconstructs exactly the
-  torn decision the locks exist to prevent."
-  [frame-id cb-id]
-  (let [token (get-in @observed-frames-by-cb [cb-id frame-id] ::absent)]
-    (and (not= token ::absent)
-         (= token (:generation (get @listeners cb-id))))))
-
-(defn silence-current?
-  "THE receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy` signal:
-  true when the silence reserved for `(frame-id, cb-id)` under generation
-  `observed-gen` still names a CURRENT fact — the callback's live registration is
-  still the one the silence was owed to, and nothing has re-armed it on that
-  frame. Backs the public `re-frame.epoch/epoch-silence-current?`.
-
-  ONE LINEARIZATION POINT. The decision needs two facts:
-
-    * REGISTRATION identity — `observed-gen` still names the live registration
-      (a replacement or an `unregister-listener!` drop in the reserve→emit window
-      makes a DIFFERENT generation current, so G's silence no longer describes
-      the current callback).
-    * OBSERVATION continuum — the callback is not observing the frame right now
-      (a same-id SUCCESSOR frame re-arms by DELIVERY, which mints NO generation,
-      so `observed-gen` still matches while the callback is live again).
-
-  Both are read INSIDE one `with-claim-locks` critical section, which excludes
-  `put-listener!` (registry lock), `drop-listener!` / `reset-listeners!` (both)
-  and `record-observation!` (silence-lock) for its duration. That is what makes
-  the composite answer describe a state the ledger ACTUALLY HAD.
-
-  Reading the two facts through two SEPARATE public queries is NOT
-  linearizable: a replacement or drop landing between them is
-  read as generation-still-matches AND not-observing, accepting a silence for a
-  registration that is already superseded, an answer no single point in time ever
-  had. That is why there are no public low-level queries alongside this one:
-  the composite belongs behind the seam, not at every call site.
-
-  Cheap and non-blocking by construction: two derefs, no allocation, no foreign
-  code, no trace emission inside the locks — so a receiver calling this from
-  inside a trace listener cannot reach a frame's `:drain-lock` while holding a
-  ledger lock (the AB-BA hazard). The reverse direction is safe
-  too: nothing that holds a ledger lock waits on a drain-lock, and the silence
-  EMIT this decision responds to already released both locks before publishing.
-
-  A `nil` `observed-gen` is never current: a signal that carries no generation
-  cannot name a live registration (an unregistered cb also reads `nil`, and
-  `nil = nil` would otherwise accept). CLJS is single-threaded — the locks
-  compile away and the expression is atomic by construction."
-  [frame-id cb-id observed-gen]
-  (with-claim-locks
-    #(boolean
-       (and (some? observed-gen)
-            (= observed-gen (:generation (get @listeners cb-id)))
-            (not (live-observer? frame-id cb-id))))))
-
-(defn- eligible-and-reserve!
-  "The caller MUST already hold BOTH ledger locks (via `with-claim-locks`:
-  listener-registry-lock → silence-lock). Reading the `listeners` generation
-  under the registry lock and the observation / mark ledger under silence-lock is
-  what makes the recheck coherent against a concurrent `put-listener!` AND a
-  concurrent `record-observation!`. Recheck delayed-silence eligibility for
-  `(frame-id, cb-id)` against the FRESHEST listener /
-  observation / mark state and, when eligible, RESERVE a fresh monotonic seq
-  (writing the mark inside the caller's critical section) and return it; else
-  return nil, writing nothing. Separate from
-  `claim-and-publish-delayed-silence!` — its sole caller — so the eligibility
-  DECISION reads in one place under the locks while the external emit that
-  answers it runs outside them.
-
-  The three checks:
-    1. `cb-id`'s current generation still equals `observed-gen` — a replacement /
-       drop in the deferred window is a fresh generation that never observed A,
-       and a callback swapped between eligibility and delivery cannot inherit A's
-       unqualified silence.
-    2. `cb-id` is NOT a current live observer — a still-live successor that
-       re-armed it owns the live callback, not a silence. Read fresh, so a trace
-       listener that re-arms this identity earlier in the same fan is honoured.
-       This decision is RESERVATION-time only: a re-arm landing after the locks
-       release cannot be caught here, and `observed-gen` cannot express it (a
-       delivery mints no generation), so the receiver re-reads the SAME predicate
-       inside `silence-current?` — public as
-       `re-frame.epoch/epoch-silence-current?`. Note this caller and that one
-       share the locks for the SAME
-       reason: `live-observer?` is coherent only under them.
-    3. no terminal-silence mark for `(frame, cb)` stands ABOVE `baseline` — a
-       successor (or an overlapping same-id publisher) already claimed the one
-       signal; re-emitting would be the A→B→nil ABA / concurrent double-signal."
-  [frame-id cb-id observed-gen baseline]
-  (when (and (= observed-gen (:generation (get @listeners cb-id)))
-             (not (live-observer? frame-id cb-id))
-             (let [s (get-in @terminal-silence-marks [frame-id cb-id])]
-               (or (nil? s) (<= s (or baseline 0)))))
-    (let [seq (next-terminal-silence-seq)]
-      (swap! terminal-silence-marks assoc-in [frame-id cb-id] seq)
-      seq)))
-
-(defn claim-and-publish-delayed-silence!
-  "Reserve the one delayed silence for `(frame-id, cb-id)` under BOTH ledger locks
-  (`with-claim-locks`: listener-registry-lock → silence-lock), RELEASE the locks,
-  then run the external `publish!` OUTSIDE them.
-
-  `publish!` is a 0-arg thunk that performs the external
-  `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs with NO ledger lock
-  held, so any registry/observation mutation MAY land BETWEEN the reservation and
-  the emit — a same-id replacement (making a fresh generation H current), an
-  `unregister-epoch-listener!` drop, a fresh same-id frame destroy, or a
-  `record-observation!` re-arm on a live successor. That window is intended, and
-  it is made coherent by ONE receiver-side decision that weighs BOTH KINDS of
-  mutation — `silence-current?`, public as `re-frame.epoch/epoch-silence-current?`.
-
-  REGISTRATION identity (a replacement, a drop). `publish!` MUST qualify its emit
-  with `observed-gen` (the caller bakes it into the payload): the resulting
-  GENERATION-QUALIFIED signal SELF-FILTERS at the receiver — an observer whose
-  current generation for `cb-id` no longer equals the carried `observed-gen`
-  discards it. So the forbidden ordering (H current, THEN a signal attributed to
-  H) is impossible: the signal is attributed to G, and a receiver that sees G is
-  no longer current drops it. The generation stays authoritative through a data
-  qualifier, not through holding a lock across foreign code.
-
-  OBSERVATION continuum (a `record-observation!` re-arm). `observed-gen` does NOT
-  cover this kind and must not be claimed to. A delivery mints no
-  generation, so a same-id SUCCESSOR frame that re-arms `cb-id` in this window
-  leaves the carried `observed-gen` EQUAL to the live generation: the
-  generation half alone would accept a silence for a callback that is receiving
-  records again. The observation-continuum half closes it — this ledger's
-  `live-observer?` for `(cb-id, frame)` — and the signal is discarded when the
-  observation is live.
-
-  The two halves are ONE operation, not two queries a receiver composes.
-  Composed, they are not linearizable: a replacement or a drop
-  landing between the two reads is seen as generation-still-matches AND
-  not-observing, accepting a silence for an already-superseded registration — a
-  verdict no single point in time ever held. `silence-current?` takes both halves
-  under `with-claim-locks`, so its answer always names a real ledger state:
-
-      (re-frame.epoch/epoch-silence-current? tags)
-
-  Both clauses are read at RECEIPT time, so the pair is exact then: the silence is
-  current iff both hold. A re-arm landing AFTER the receiver read is simply a
-  later continuum, which the receiver observes as fresh record deliveries.
-
-  ## Why the emit MUST run OUTSIDE the ledger locks
-
-  `publish!` fans an external `trace/emit!` to ARBITRARY trace listeners, and a
-  framework-blessed listener may `dispatch-sync` (Xray
-  dispatch-syncs from its collector). `dispatch-sync` enters `drain-block!` /
-  `call-serialized-with-drain!`, which spin-CAS-acquires the target frame's
-  `:drain-lock` (`re-frame.router`, `re-frame.frame`). Meanwhile a thread DRAINING
-  a frame holds that frame's `:drain-lock` for the whole pass and, via
-  `settle!` → `notify-listeners!` → `record-observation!` re-arm (or a mid-drain
-  `drop-listener!` / destroy), acquires `silence-lock`/`registry-lock` UNDER the
-  held `:drain-lock`. Holding a ledger lock across the emit therefore inverts the
-  ledger locks against `:drain-lock`: hold-silence-lock → want-drain-lock (this
-  path) vs hold-drain-lock → want-silence-lock (the drainer) — an AB-BA HARD HANG.
-  A deadlock-freedom argument that reasons ONLY about `frame-owner-lock` misses
-  this cycle, because it runs through `:drain-lock` / the router.
-  Emitting OUTSIDE both ledger locks removes the foreign-code-under-lock edge
-  entirely: the fan-out may reach `:drain-lock` freely because no ledger lock is
-  held.
-
-  ## What the reservation-under-lock buys
-
-  `eligible-and-reserve!` runs under BOTH locks so its three eligibility reads
-  (current generation == `observed-gen`, not-a-live-observer, mark-above-baseline)
-  stay coherent against a concurrent `put-listener!` (registry lock) and
-  `record-observation!` / wipe (silence-lock), and it writes the monotonic mark
-  that makes the claim the single linearization point — two overlapping
-  publishers can never both reserve. `observed-gen` is validated equal to the
-  current generation AT reservation time, and that is the generation `publish!`
-  qualifies the emit with.
-
-  Returns true when the silence was reserved+published and nil (the `when-let`
-  short-circuit, falsey either way) when ineligible. If `publish!` throws, the
-  reservation is rolled back under `silence-lock` (only while it still stands) —
-  acquiring silence-lock ALONE keeps the global registry→silence order (no
-  inversion) — and the throw propagates.
-
-  Lock-order safety: the cross-lock nesting to `frame-owner-lock` is a strict
-  DAG (no path holds `frame-owner-lock` while acquiring either ledger lock — the
-  destroy recipe releases it in `cleanup-frame-owner!` before this fan, and the
-  settle path's `notify-listeners!`/`record-observation!` run after
-  `commit-frame-owner-record!` returns), AND NO path
-  holds either ledger lock while the emit fans to a listener that can acquire
-  `:drain-lock`, so there is no ledger↔`:drain-lock` cycle."
-  [frame-id cb-id observed-gen baseline publish!]
-  (when-let [reserved (with-claim-locks
-                        (fn []
-                          (eligible-and-reserve! frame-id cb-id observed-gen baseline)))]
-    ;; Locks RELEASED. Emit the generation-qualified signal OUTSIDE both ledger
-    ;; locks so the foreign trace fan-out cannot reach a frame's :drain-lock while
-    ;; we hold a ledger lock — the ledger↔drain-lock AB-BA deadlock.
-    (try
-      (publish!)
-      true
-      (catch #?(:clj Throwable :cljs :default) ex
-        ;; External delivery failed — release OUR reservation (only while it still
-        ;; stands) so the one signal can be legitimately re-attempted, then
-        ;; propagate contained. Re-acquire silence-lock ALONE (registry→silence
-        ;; order preserved) for the prune; no concurrent claim can interleave with
-        ;; the compare-and-prune because it is a single silence-lock section.
-        (with-silence-lock
-          (fn []
-            (when (= reserved (get-in @terminal-silence-marks [frame-id cb-id]))
-              (prune-terminal-silence-mark! frame-id cb-id))))
-        (throw ex)))))
-
 (defn put-listener!
-  "Install or replace `f` under `id` as a fresh listener GENERATION.
-
-  The callback and its freshly-minted generation token are published in ONE
-  atomic swap, so a same-id replacement can never be torn across two writes.
-  The observation ledger is deliberately NOT cleared here: observations are
-  stamped with the generation that recorded them (see `observed-frames-by-cb`),
-  so a stale OLD-generation observation is ignored by the token-scoped readers
-  and overwritten when the new generation re-observes the frame. So there is no
-  two-swap window in which a concurrent fan-out's fresh observation of the
-  new callback could be erased by a lagging second swap, nor its
-  mirror in which a stale old callback could re-arm the new registration.
-
-  Participates in `listener-registry-lock`: installing a fresh generation is a
-  `listeners`-atom mutation that
-  `claim-and-publish-delayed-silence!` reads (under the same registry lock) while
-  RESERVING a delayed silence, so it is serialized against that reservation's
-  eligibility recheck — a replacement cannot make a fresh generation current
-  DURING the reservation; it blocks on the registry lock until the reservation
-  completes. It does NOT block the silence's external EMIT: that emit runs OUTSIDE
-  the ledger locks, so a replacement MAY land between the reservation
-  and the emit and make a fresh generation current. That is sound because the emit
-  is generation-qualified (`:observed-gen`): a superseded late emit self-filters at
-  the receiver rather than depending on a held lock. It holds ONLY the registry
-  lock, NOT silence-lock, so a watcher parked inside the `(swap! listeners …)`
-  below can never block a concurrent `record-observation!` fan-out re-arm (the
-  single-monitor deadlock).
-
-  Returns the id."
+  "Install or replace `f` under `id`. Returns the id."
   [id f]
-  (with-listener-registry-lock
-    (fn []
-      (let [g (next-listener-generation)]
-        (swap! listeners assoc id {:generation g :callback f}))))
+  (swap! listeners assoc id f)
   id)
 
 (defn drop-listener!
-  "Remove the listener registered under `id` and any observation
-  bookkeeping it carried. Takes BOTH ledger locks (`with-claim-locks`):
-  it mutates the `listeners` registry (registry lock) AND the
-  observation ledger + terminal-silence marks (silence-lock). Holding both means
-  a drop is serialized against a delayed-silence claim's RESERVATION — it cannot
-  retire a generation, or clear an observation the claim is deciding against,
-  WHILE the claim's eligibility recheck+reserve runs under those locks. It does
-  NOT block the claim's external EMIT (that runs after the locks are
-  released): a drop MAY land between the reservation and the emit, and the
-  generation-qualified signal stays correct because a receiver self-filters an
-  `:observed-gen` that no longer names a live registration."
+  "Remove the listener registered under `id`."
   [id]
-  (with-claim-locks
-    (fn []
-      (swap! listeners dissoc id)
-      (swap! observed-frames-by-cb dissoc id)
-      (drop-cb-silences! id)))
+  (swap! listeners dissoc id)
   nil)
 
 (defn reset-listeners!
-  "Drop every registered listener and clear all observation bookkeeping —
-  registry, observation stamps, AND the terminal-silence lineage. Leaving the
-  silence marks behind would strand a tombstone per destroyed frame past a full
-  listener wipe; with every listener gone no predecessor can owe
-  a silence, so the whole ledger is cleared here too. Runs under BOTH ledger
-  locks (`with-claim-locks`) — it wipes the `listeners` registry
-  (registry lock) and the observation / mark ledger (silence-lock) — so a wipe
-  cannot tear a concurrent silence claim's registry / observation / mark reads."
+  "Drop every registered listener."
   []
-  (with-claim-locks
-    (fn []
-      (reset! listeners {})
-      (reset! observed-frames-by-cb {})
-      (reset-frame-silences!)
-      nil)))
+  (reset! listeners {})
+  nil)
 
 (defn listeners-snapshot
-  "Return the current `{cb-id → {:generation g :callback f}}` registry map.
-  Callers iterate this snapshot for fan-out — taking it once isolates
-  iteration from concurrent `put-listener!` / `drop-listener!` updates, and
-  each entry carries its generation token so the fan-out can stamp its
-  observation against the exact generation it invoked."
+  "Return the current `{cb-id → callback}` registry map. Callers iterate this
+  snapshot for fan-out, which isolates iteration from concurrent
+  `put-listener!` / `drop-listener!` updates."
   []
   @listeners)
-
-(defn observations-snapshot
-  "Return the current `{cb-id → {frame-id → generation-token}}` map.
-
-  Nothing in the runtime calls it. It exists because no public surface exposes
-  which listener generation has observed which frame, and the destroy-race
-  tests in epoch and core assert exactly that."
-  []
-  @observed-frames-by-cb)
-
-(defn record-observation!
-  "Mark that the cb GENERATION `token` registered under `cb-id` has seen a
-  record from `frame-id`. `notify-listeners!` snapshots `[cb-id token callback]`
-  and calls this before invoking `callback`, so the observation is attributed to
-  the exact generation that consumed the record.
-
-  Two hazards this closes, both scoped by `token`:
-
-    * The recorded generation is no longer current — a same-id replacement
-      minted a new token, or `unregister-epoch-listener!` dropped the id
-      entirely. Re-adding the observation would either re-arm a retired
-      generation or, worse, arm the NEW generation for a frame it never
-      consumed. The swap therefore lands ONLY when `token` still equals the
-      live generation for `cb-id` (a dropped id has no entry, so no token
-      matches — which covers an unregistered id too).
-
-    * A no-op re-observation of the same (cb, generation, frame) triple — the
-      steady-state hot path — must not fire the atom watcher. The outer guard
-      short-circuits before any swap when the frame is already stamped with
-      this token: one deref + lookup, no swap, NO lock.
-
-  Both checks ride INSIDE the swap as well, so the decision is taken against a
-  consistent listener snapshot on every CAS retry — a replace/drop landing
-  mid-swap is honoured.
-
-  A genuine re-arm (the outer guard passed) runs under `silence-lock`:
-  it mutates the observation ledger AND prunes the terminal-silence
-  mark, both of which `claim-and-publish-delayed-silence!` reads (under
-  silence-lock, the inner of its two claim locks) while RESERVING a delayed
-  silence. Participating in that lock makes the claim's eligibility reads coherent
-  against a concurrent re-arm — a re-arm cannot land between the claim's
-  individual reads (they run under the lock) and yield a stale-state grant. A
-  re-arm MAY still land after the reservation, while the claim's external emit
-  runs lock-free. `:observed-gen` does NOT discriminate that case —
-  a re-arm mints no generation, so the emitted qualifier still matches the live
-  one. What discriminates it is the OBSERVATION-CONTINUUM clause of
-  the receiver decision: this swap is exactly what makes `live-observer?` — the
-  observation-continuum half `silence-current?` weighs (public:
-  `re-frame.epoch/epoch-silence-current?`) — report the callback LIVE again, so a
-  receiver deciding at receipt time discards the superseded silence.
-  Crucially it takes ONLY silence-lock, NOT the registry lock
-  `put-listener!` holds, so a re-arm is never blocked behind a registration
-  paused inside the `listeners` swap (the single-monitor deadlock the two-monitor
-  split prevents). The lock-free fast no-op above keeps the fan-out
-  hot path uncontended; only the rare genuine transition takes the lock (and
-  re-checks its guards inside, so the pre-lock read cannot weaken the decision).
-  The `(get @listeners cb-id)` generation reads here are lock-free w.r.t.
-  `put-listener!`: a stale read either matches `token` (records an observation
-  the token-scoped readers accept) or not (no-op) — and a since-replaced
-  generation self-invalidates because every reader compares the stamp to the live
-  generation."
-  [cb-id token frame-id]
-  (when (and frame-id
-             ;; Lock-free fast no-op: an already-stamped (cb, generation, frame)
-             ;; triple needs no mutation. Only a genuine transition proceeds to
-             ;; take the lock and re-decide inside it.
-             (not= token (get-in @observed-frames-by-cb [cb-id frame-id])))
-    (with-silence-lock
-      (fn []
-        (when (and (not= token (get-in @observed-frames-by-cb [cb-id frame-id]))
-                   (= token (:generation (get @listeners cb-id))))
-          (swap! observed-frames-by-cb
-                 (fn [m]
-                   (if (or (= token (get-in m [cb-id frame-id]))
-                           ;; Generation re-check inside the swap: a same-id
-                           ;; replacement or `drop-listener!` that landed between
-                           ;; the outer guard and this CAS attempt must not be
-                           ;; undone by arming a retired/replaced generation.
-                           (not= token (:generation (get @listeners cb-id))))
-                     m
-                     (assoc-in m [cb-id frame-id] token))))
-          ;; A fresh observation re-arms this cb for the reused id: a new
-          ;; continuum begins and will owe its own silence, so a stale terminal-
-          ;; silence mark for (frame, cb) is superseded. Pruning it keeps the
-          ;; lineage ledger bounded across incarnation churn. It
-          ;; is correctness-preserving either way — a paused predecessor's baseline
-          ;; predates this delivery, so a still-present mark would compare below
-          ;; the SUCCESSOR's baseline, never falsely gating it.
-          (prune-terminal-silence-mark! frame-id cb-id))))))
-
-(defn snapshot-terminal-observers
-  "Snapshot the destroyed `frame-id`'s owed observers from ONE consistent read of
-  the listener registry and the observation ledger, returning
-  `{:listeners <live-registry> :observing {cb-id → generation}}`.
-
-  `:observing` carries EACH observing cb's EXACT generation, taken from the
-  OBSERVATION STAMP — never a second registry re-read. This is the exactness
-  guarantee: a two-step shape that validated a generation G against the
-  registry and then re-read the registry for the generation would
-  let a replacement landing between the two reads record a fresh generation H
-  as having observed A. Deriving the generation from the same
-  stamp used to qualify the observer makes that attribution impossible — a cb
-  already replaced by snapshot time simply fails the stamp/live-generation match
-  and is omitted (its stale silence, if any, is the successor's to decide).
-
-  `:listeners` is the SAME registry read used to qualify the observers, so a
-  mid-drain `:halted-destroy` record's listener fan and the owed-observer
-  generations can never disagree across two registry reads."
-  [frame-id]
-  (let [live     @listeners
-        observed @observed-frames-by-cb]
-    {:listeners live
-     :observing (reduce-kv
-                  (fn [acc cb-id frames]
-                    (let [token (get frames frame-id ::absent)]
-                      (if (and (not= token ::absent)
-                               (= token (:generation (get live cb-id))))
-                        (assoc acc cb-id token)
-                        acc)))
-                  {}
-                  observed)}))
-
-(defn drop-frame-observation!
-  "Drop `frame-id` from every cb's observation ledger. cbs whose ledger goes
-  empty as a result are dropped from the map entirely so the map doesn't
-  accrete keys to empty ledgers."
-  [frame-id]
-  (swap! observed-frames-by-cb
-         (fn [m]
-           (reduce-kv (fn [acc cb-id frames]
-                        (let [frames' (dissoc frames frame-id)]
-                          (if (empty? frames')
-                            (dissoc acc cb-id)
-                            (assoc acc cb-id frames'))))
-                      {}
-                      m)))
-  nil)
 
 ;; ---- frame-incarnation ownership -----------------------------------------
 ;;
@@ -1858,7 +1154,7 @@
 ;; fresh same-id incarnation: destroy(A) dissocs A before its final epoch hook,
 ;; allowing B to publish epoch state before A reaches that hook. This private
 ;; token ledger serialises owner replacement against final cleanup so A can
-;; never delete B's id-keyed history/buffer/attribution/observations.
+;; never delete B's id-keyed history/buffer/attribution.
 
 (defonce ^:private frame-owner-tokens (atom {}))
 
@@ -1873,9 +1169,8 @@
   "Drop every epoch side-table entry owned under `frame-id`.
 
   Caller holds the frame-owner serialization. Listener registrations are
-  process-wide and survive; only this frame's observation stamps are removed."
+  process-wide and survive."
   [frame-id]
-  (drop-frame-observation! frame-id)
   (drop-frame-history! frame-id)
   (drop-frame-buffer! frame-id)
   (drop-last-settled-epoch! frame-id)
@@ -1970,5 +1265,4 @@
   "Clear the private incarnation ledger for fixture/global history reset."
   []
   (reset! frame-owner-tokens {})
-  (reset-frame-silences!)
   nil)

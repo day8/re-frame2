@@ -286,15 +286,6 @@ const DEV_ONLY_SENTINELS = [
   // the other two replace failure modes; the string sentinel must elide.
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-history-disabled)',
     sentinel: 'rf.epoch/replace-history-disabled' },
-  // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
-  // silencing trace (Tool-Pair §Surface behaviour against destroyed
-  // frames). Emitted by on-frame-destroyed! once per
-  // (frame-id, cb-id) pair when a previously-firing cb's observed
-  // frame is destroyed. The entire on-frame-destroyed! body sits
-  // inside `(when interop/debug-enabled? ...)`; the string fragment
-  // must elide in production.
-  { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
-    sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
   // re-frame.views — :rf.view/render trace op (Spec 009 §`:op-type`
   // vocabulary). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit

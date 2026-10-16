@@ -57,7 +57,6 @@
             ;; closure DCE pass, not surface-pruned before DCE runs.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.epoch        :as rf.epoch]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.views        :as rf.views]
             [re-frame.machines]
@@ -246,16 +245,7 @@
   (rf.epoch/clear-history!)
   ;; The un-scoped `clear-history!` above pins the namespace for the
   ;; elision walker.
-  (rf.epoch/clear-epoch-listeners!)
-  ;; on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
-  ;; per (frame-id, cb-id) pair when a frame previously observed by a
-  ;; register-epoch-listener! callback is destroyed. The whole body sits inside
-  ;; `(when interop/debug-enabled? ...)`; the string fragment must elide
-  ;; under :advanced + goog.DEBUG=false. Touch the implementation seam
-  ;; (`re-frame.epoch.listeners/on-frame-destroyed!`) directly — the
-  ;; `re-frame.epoch` facade publishes it only through the
-  ;; `:epoch/on-frame-destroyed` late-bind hook.
-  (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil))
+  (rf.epoch/clear-epoch-listeners!))
 
 ;; ---- Spec-Schemas §`:rf/epoch-record` — reg-view* wrapper ---------------
 

@@ -64,7 +64,6 @@
 ;; second public spelling, and the manifest says so in one of two ways:
 ;;
 ;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
-;;     `epoch-silence-current?`,
 ;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
 ;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
 ;;     carve-outs). The `re-frame.core` row carries the classification alone,
@@ -156,7 +155,7 @@
 
 ;; ---- listener registry ----------------------------------------------------
 ;;
-;; The listener / observed-frames atoms and their low-level CRUD live in
+;; The listener atom and its low-level CRUD live in
 ;; `re-frame.epoch.state`; the facade keeps the public docstrings and the
 ;; fan-out / failure-isolation policy.
 
@@ -189,46 +188,6 @@
   The public door is `(rf/unregister-listener! :epoch id)`."
   [id]
   (rf.epoch.state/drop-listener! id))
-
-(defn ^:no-doc epoch-silence-current?
-  "THE supported receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy`
-  signal. Pass the signal's `:tags` map straight back:
-
-      (rf/register-listener! :trace ::watch
-        (fn [ev]
-          (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
-                     (rf/epoch-silence-current? (:tags ev)))
-            ;; the silence names a CURRENT fact — act on it
-            ...)))
-
-  True when the silence still describes the live callback: the carried
-  `:observed-gen` is still the generation registered under `:cb-id`, AND that
-  registration is not observing `:frame` right now. False otherwise — including
-  a `nil`/absent `:observed-gen`, which can never name a live registration.
-
-  ONE ATOMIC DECISION, not two composable reads. The decision needs
-  two facts about the listener ledger, and it takes both from a SINGLE consistent
-  snapshot:
-
-    * REGISTRATION identity — a same-id replacement or an
-      `(rf/unregister-listener! :epoch id)` drop in the reserve→emit window makes
-      a DIFFERENT generation current, so the reserved generation's silence no
-      longer names the current callback.
-    * OBSERVATION continuum — a same-id SUCCESSOR frame re-arms a callback by
-      DELIVERY, and a delivery mints NO generation, so the carried
-      `:observed-gen` still matches while the callback is receiving records
-      again. Registration identity alone would accept a silence for a LIVE
-      callback.
-
-  Reading those two facts through two separate queries is NOT linearizable: a
-  replacement or drop landing between them reads as
-  generation-still-matches AND not-observing, accepting a signal for a
-  registration that is already superseded, a verdict no single point in time ever
-  held. So there is no public query for either half beside this fn: exposing the
-  halves is exposing the race. Per Spec 009 §The delayed-silence emission
-  linearization law."
-  [tags]
-  (rf.epoch.state/silence-current? (:frame tags) (:cb-id tags) (:observed-gen tags)))
 
 (defn clear-epoch-listeners!
   "Drop every registered epoch-settled callback. Test fixtures use this.
@@ -878,12 +837,6 @@
    ;; ---- listener + config surface ----------------------------------
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
-   ;; The ONE supported receiver decision for a
-   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal: does
-   ;; this silence still name a current fact? Registration identity AND
-   ;; observation continuum are weighed under one ledger snapshot, because the
-   ;; two-query composite a consumer would otherwise write is not linearizable.
-   :epoch/epoch-silence-current?     epoch-silence-current?
    :epoch/configure!                 configure!
    ;; The read half, published for `re-frame.core/current-config`. Bound to
    ;; the STATE-level reader; this ns has no reader of its own, so the

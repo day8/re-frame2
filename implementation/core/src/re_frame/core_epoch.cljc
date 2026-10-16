@@ -104,29 +104,6 @@
   {:hook :epoch/unregister-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
-(defwrapper epoch-silence-current?
-  "THE supported receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy`
-  signal — pass the signal's `:tags` map back in: true when the silence still
-  names a CURRENT fact (the carried `:observed-gen` is still the generation
-  registered under `:cb-id`, AND that registration is not observing `:frame`
-  right now), false otherwise. False for a `nil`/absent `:observed-gen`, and
-  false when the `day8/re-frame2-epoch` artefact is not on the classpath (no
-  artefact, no silence signal to decide about).
-
-  ONE ATOMIC DECISION. Registration identity and observation
-  continuum are weighed under a SINGLE consistent snapshot of the listener
-  ledger. Composing them from two separate reads is
-  not linearizable: a same-id replacement or drop landing between the reads
-  would be seen as generation-still-matches AND not-observing, so the
-  composite would accept a
-  silence for an already-superseded registration, an answer no single point in
-  time ever had.
-
-  Per Spec 009 §The delayed-silence emission linearization law. Late-bound via
-  `:epoch/epoch-silence-current?`."
-  {:hook :epoch/epoch-silence-current? :artefact epoch-artefact :on-absent :false}
-  ([tags] :delegate))
-
 (defwrapper clear-epoch-listeners!
   "Drop every registered epoch-settled callback. Test-isolation only —
   production code should never call this. Returns nil. No-op (returns

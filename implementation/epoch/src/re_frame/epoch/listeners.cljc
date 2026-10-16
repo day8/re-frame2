@@ -1,7 +1,7 @@
 (ns re-frame.epoch.listeners
   "Epoch listener fan-out and frame teardown.
 
-  Two responsibilities live here:
+  Three responsibilities live here:
 
     1. `notify-listeners!` — fan a built record out to every registered
        `register-epoch-listener!` callback. Each invocation is wrapped in a
@@ -13,28 +13,22 @@
     2. `snapshot-terminal-destroy-evidence!` — the late-bind hook
        `re-frame.frame/destroy-frame!` invokes against the
        `:epoch/snapshot-frame-destroyed` slot BEFORE dissoc, binding the
-       dying incarnation's terminal evidence (halted record + silencing
-       fan) to a bundle while it still solely owns its id-keyed stores.
+       dying incarnation's `:halted-destroy` record (and the listeners it
+       fans to) while it still solely owns its id-keyed stores.
 
     3. `on-frame-destroyed!` — the late-bind hook
        `re-frame.frame/destroy-frame!` invokes against the
-       `:epoch/on-frame-destroyed` slot AFTER dissoc. Coordinates the
-       four-step destroy contract against the pre-dissoc bundle:
+       `:epoch/on-frame-destroyed` slot AFTER dissoc. It delivers the
+       pre-dissoc bundle's `:halted-destroy` partial record (carrying the
+       real pre-cascade `:db-before` and destroy-time snapshots), if any, to
+       listeners rather than the ring, and drops the frame's id-keyed
+       stores.
 
-         (a) mid-drain destroy detection → deliver the `:halted-destroy`
-             partial record (carrying the real pre-cascade `:db-before`
-              and destroy-time snapshots) to listeners, not the ring.
-         (b) emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb
-             whose observed-frames set contained `frame-id`.
-         (c) drop the per-frame ring buffer.
-         (d) drop the in-flight capture buffer.
+       Publication is independent of the compare-owned store drop, so a
+       same-id successor claiming the stores cannot lose predecessor A's
+       terminal record.
 
-       Publication of (a)/(b) is independent of the compare-owned store
-       drop (c)/(d), so a same-id successor claiming the stores cannot lose
-       predecessor A's terminal evidence.
-
-  Listener registry and observation bookkeeping live in
-  `re-frame.epoch.state`."
+  The listener registry lives in `re-frame.epoch.state`."
   (:require [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.epoch.capture :as rf.epoch.capture]
             [re-frame.epoch.state :as rf.epoch.state]
@@ -42,11 +36,7 @@
             [re-frame.trace :as rf.trace]))
 
 (defn- deliver-listener-snapshot!
-  "Deliver `record` to an already-snapshotted listener generation.
-
-  Observation stamping belongs to the caller: ordinary fan-out stamps before
-  delivery; terminal destroy fan-out snapshots the silencing set and removes
-  the dying incarnation's observation state atomically before delivery.
+  "Deliver `record` to an already-snapshotted `{cb-id → callback}` map.
 
   `terminal?` marks the destroy fan-out of predecessor A's `:halted-destroy`
   record. A's registry slot may already belong to a same-id successor B by the
@@ -56,12 +46,8 @@
   than resolved through B's bare-id policy. Ordinary
   (non-terminal) fan-out honours the live frame's no-emit policy."
   ([record listener-snapshot]
-   ;; Terminal destroy delivery already removed observation ownership and must
-   ;; not recreate it while fanning out the halted record.
-   (deliver-listener-snapshot! record listener-snapshot (constantly true) false true))
-  ([record listener-snapshot continue? record-observation?]
-   (deliver-listener-snapshot! record listener-snapshot continue? record-observation? false))
-  ([record listener-snapshot continue? record-observation? terminal?]
+   (deliver-listener-snapshot! record listener-snapshot (constantly true) true))
+  ([record listener-snapshot continue? terminal?]
    (let [frame-id (:frame record)
          emit-listener-exception!
          (fn [callback-id listener-error]
@@ -74,11 +60,7 @@
                                 :recovery    :no-recovery}))]
      (loop [entries (seq listener-snapshot)]
        (when (and entries (continue?))
-          (let [[callback-id {:keys [callback generation]}] (first entries)]
-            ;; Stamp only the callback that is actually about to run. A later
-            ;; listener suppressed by owner loss must not be reported observed.
-            (when record-observation?
-              (rf.epoch.state/record-observation! callback-id generation frame-id))
+          (let [[callback-id callback] (first entries)]
             (try
               (callback record)
               (catch #?(:clj Throwable :cljs :default) listener-error
@@ -103,9 +85,8 @@
   the broken listener (silently swallowing the throw would leave tool
   authors with no signal that their callback failed).
 
-  Op-type `:rf.epoch.cb` matches the sibling
-  `:rf.epoch.cb/silenced-on-frame-destroy` event (per Spec 009
-  §Op-type vocabulary catalogue and `epoch.cljc` row).
+  The trace's op-type is `:rf.epoch.cb`, the epoch-callback family (Spec 009
+  §`:op-type` vocabulary).
   `:recovery :no-recovery` mirrors the `:rf.http/aborted` trace
   shape — the listener's invocation is over; the next cascade
   re-invokes the same fn afresh, no automatic remediation happens
@@ -115,7 +96,7 @@
   ([record continue?]
    (let [listener-snapshot (rf.epoch.state/listeners-snapshot)]
      (when (continue?)
-       (deliver-listener-snapshot! record listener-snapshot continue? true)))))
+       (deliver-listener-snapshot! record listener-snapshot continue? false)))))
 
 ;; ---- post-settle render back-fill -----------------------------------------
 
@@ -307,75 +288,34 @@
   `re-frame.frame/destroy-frame!` calls this (via `:epoch/snapshot-frame-
   destroyed`) BEFORE `dissoc-frame!`. A same-id successor B can only be
   constructed after that dissoc, so it can never claim — and thereby drop — the
-  buffer / observation ledger out from under this snapshot.
+  capture buffer out from under this snapshot.
 
-  Returns the evidence bundle
-  `{:record :listener-snapshot :silenced-cbs :baseline-silence-seq}` consumed by
+  Returns the evidence bundle `{:record :listener-snapshot}` consumed by
   `on-frame-destroyed!`, or nil when no epoch layer participates (production /
   debug disabled). `:record` is the `:halted-destroy` partial record when the
   frame was mid-drain (a `:rf.event/run-start` is buffered), else nil.
-
-  `:silenced-cbs` captures EXACT callback-generation identities — a
-  `{cb-id → generation}` map, not a bare set. The delayed
-  silence is later decided PER identity: a cb re-registered to a fresh generation
-  in the deferred window never observed this incarnation and must receive no
-  stale signal, which a bare set could not express. The identities and their
-  generations come from ONE consistent `state/snapshot-terminal-observers` read
-  — each observing cb's generation is the OBSERVATION STAMP, so
-  a replacement landing mid-snapshot can never attribute A's observation to a
-  fresh generation H it never observed under (the exactness guarantee). For a
-  mid-drain `:halted-destroy`, the SAME registry read additionally owes every
-  listener the record will be fanned to (they observe it at delivery), so the
-  owed generations and the record's listener fan can never disagree across two
-  registry reads.
-
-  `:baseline-silence-seq` is the terminal-silence counter snapshotted BEFORE
-  dissoc. A same-id successor is constructable only AFTER dissoc, so any silence
-  it emits is stamped strictly above this baseline — the monotonic evidence a
-  paused predecessor uses to recognise a successor already silenced a cb (the
-  A→B→nil ABA) rather than re-emitting the identical unqualified signal.
-
-  Producing a non-nil bundle also OPENS this frame's deferred-silence window
-  (`state/open-silence-lineage!`), keeping its terminal-silence marks alive until
-  `on-frame-destroyed!` publishes and closes the window (the boundedness bracket).
+  `:listener-snapshot` is the `{cb-id → callback}` registry that record fans
+  to, read at destroy time, so a listener registered in the post-dissoc window
+  never receives A's terminal record; it is empty when there is no record.
 
   Schema digesting is intentionally omitted: A's schemas are already torn down
   and a bare-id digest could only resolve absent state or a same-id B."
   [frame-id fs-before fs-after committed-at]
   (when rf.interop/debug-enabled?
-    (let [buffered-events   (rf.epoch.state/buffer-for frame-id)
-          in-flight?        (some #(= :rf.event/run-start (:operation %))
-                                  buffered-events)
-          record            (when in-flight?
-                              (rf.epoch.assembly/build-record
-                                frame-id fs-before fs-after buffered-events
-                                committed-at :halted-destroy
-                                {:operation :rf.frame/destroyed-mid-drain}
-                                nil))
-          ;; ONE consistent (listeners, observed) read: the
-          ;; owed-observer generations come from the SAME registry read used to
-          ;; qualify them, so a replacement mid-snapshot can never attribute A's
-          ;; observation to a fresh generation it never observed under.
-          {:keys [listeners observing]} (rf.epoch.state/snapshot-terminal-observers frame-id)
-          ;; A mid-drain record is fanned to every current listener, so each owes
-          ;; a silence under ITS live generation (from the same `listeners` read).
-          listener-snapshot (if record listeners {})
-          silenced-cbs      (cond-> observing
-                              record (into (map (fn [[cb {:keys [generation]}]]
-                                                  [cb generation]))
-                                           listeners))
-          baseline          (rf.epoch.state/current-terminal-silence-seq)]
-      ;; Open the frame's deferred-silence window BEFORE dissoc so its
-      ;; terminal-silence marks survive until this predecessor publishes; the
-      ;; paired `close-silence-lineage!` runs in `on-frame-destroyed!`.
-      (rf.epoch.state/open-silence-lineage! frame-id)
-      {:record               record
-       :listener-snapshot    listener-snapshot
-       :silenced-cbs         silenced-cbs
-       :baseline-silence-seq baseline})))
+    (let [buffered-events (rf.epoch.state/buffer-for frame-id)
+          in-flight?      (some #(= :rf.event/run-start (:operation %))
+                                buffered-events)
+          record          (when in-flight?
+                            (rf.epoch.assembly/build-record
+                              frame-id fs-before fs-after buffered-events
+                              committed-at :halted-destroy
+                              {:operation :rf.frame/destroyed-mid-drain}
+                              nil))]
+      {:record            record
+       :listener-snapshot (if record (rf.epoch.state/listeners-snapshot) {})})))
 
 (defn on-frame-destroyed!
-  "Publish a destroyed frame's terminal epoch evidence and drop its id-keyed
+  "Publish a destroyed frame's terminal epoch record and drop its id-keyed
   stores.
 
   `terminal-evidence` is the bundle `snapshot-terminal-destroy-evidence!`
@@ -388,146 +328,59 @@
   causal time). The record is not stored: destroyed frames have empty history,
   so listener delivery is the only channel for this terminal partial record.
 
-  The delayed silence is decided PER snapshotted callback-generation identity,
-  and that decision is EXACT, LINEARIZABLE and BOUNDED.
-  Store claim, callback re-arm, and terminal silence are DISTINCT events, so the
-  coarse `cleanup-frame-owner!` result cannot gate the fan: a successor that
-  claims the stores but delivers no epoch (A still owes the silence, losing the
-  comparison notwithstanding); a successor that re-armed a cb then destroyed
-  before A resumes (A must NOT re-emit the silence B already fired, even though A
-  now wins the comparison); a cb re-registered to a fresh generation (must
-  receive no stale signal). Each owed identity is published iff
-  `state/claim-and-publish-delayed-silence!` grants it — the eligibility recheck
-  (CURRENT generation, CURRENT live observers read fresh not a stale pre-loop set,
-  any existing mark) plus the monotonic-seq RESERVATION run as ONE atomic claim
-  under both ledger locks; the claim then RELEASES the locks and emits the
-  GENERATION-QUALIFIED signal OUTSIDE them (the emit fans to
-  arbitrary listeners, one of which may `dispatch-sync` and acquire a frame's
-  `:drain-lock`, so it must not run under a ledger lock). The seq is the total
-  order the observer relies on; two overlapping same-id publishers can never both
-  claim. A reservation is rolled back only if the external envelope delivery
-  itself throws. The owed identities are fanned in a deterministic (cb-id-ordered)
-  sequence so a trace listener re-arming a LATER identity during an EARLIER
-  silence sees a stable, linearizable order.
-
   The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
   runs only while `owner-token` still owns the stores, so stale A can never
   erase a fresh same-id B. That drop runs UNCONDITIONALLY of terminal-evidence —
   cleanup authority is the frame-id + owner-token, not the snapshot bundle — so a
   throwing pre-dissoc snapshot hook (nil terminal-evidence) still frees
-  A's history / buffer / observation / last-settled-epoch / mount attribution and
+  A's history / buffer / last-settled-epoch / mount attribution and
   no same-id successor inherits them. PUBLICATION of A's already-
   snapshotted terminal record and its structural trailers is INDEPENDENT of
   winning that comparison AND conditional on a non-nil bundle — the evidence was
   bound to A's exact incarnation before dissoc and is A's to deliver whether or
-  not A still owns the stores; a nil bundle bound nothing and
-  publishes nothing. Live
-  observation is re-read INSIDE each per-identity claim AFTER the compare-owned
-  cleanup, so a winning cleanup has already dropped this incarnation's own stamps
-  while a losing one leaves the successor's — exactly the re-arm evidence the
-  claim consults. All terminal emits use structural delivery so a same-id B's
-  frame-no-emit policy can neither suppress nor capture them. Repeated destroys
-  are idempotent (a re-destroyed frame has no observers and no mid-drain record,
-  so nothing is owed). The frame's deferred-silence window opened by
-  `snapshot-terminal-destroy-evidence!` is closed here in a `finally`, reclaiming
-  the frame's marks once its last outstanding predecessor resolves (BOUNDED)."
-  ([frame-id owner-token terminal-evidence]
-   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
-   ;; concerns split INSIDE the gate: (1) exact-owner STORE CLEANUP runs
-   ;; UNCONDITIONALLY of terminal-evidence; (2) terminal-record/silencing
-   ;; PUBLICATION stays conditional on a non-nil bundle. Neither is folded into
-   ;; the gate condition itself.
-   (when rf.interop/debug-enabled?
-     ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
-     ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
-     ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
-     ;; terminal-evidence (frame.cljc converts the throw to nil), but the
-     ;; destroyed incarnation's id-keyed stores must STILL be dropped or a same-id
-     ;; successor B inherits A's history / buffer / observation / last-settled-epoch
-     ;; / mount attribution. The drop is compare-owned
-     ;; (`cleanup-frame-owner!`): A erases ONLY its own stores while `owner-token`
-     ;; still owns them, so a stale A that lost the comparison to a claimed same-id
-     ;; B no-ops and leaves B untouched (fail-closed, no cross-incarnation wipe).
-     ;; The return value is intentionally ignored for the silencing decision below —
-     ;; winning this comparison is NOT the same fact as "no successor re-armed the
-     ;; observers" (a claim without delivery loses it; a re-arm-then-destroy wins
-     ;; it), which the per-identity claim resolves precisely.
-     (rf.epoch.state/cleanup-frame-owner!
-       frame-id owner-token
-       (fn []
-         ;; Data-only exact-owner transaction: no external callback runs
-         ;; between owner comparison and the complete drop.
-         (rf.epoch.state/drop-frame-observation! frame-id)
-         (rf.epoch.state/drop-frame-history! frame-id)
-         (rf.epoch.state/drop-frame-buffer! frame-id)
-         (rf.epoch.state/drop-last-settled-epoch! frame-id)
-         (rf.epoch.state/drop-frame-mount-attribution! frame-id)
-         true))
-     ;; (2) TERMINAL-RECORD + SILENCING PUBLICATION — conditional on a non-nil
-     ;; bundle. A non-nil bundle means `snapshot-terminal-destroy-evidence!`
-     ;; participated (debug on) and opened the deferred-silence window; that is the
-     ;; exact condition under which we must publish AND close it. A nil bundle (the
-     ;; snapshot hook threw, or no epoch layer) opened no window and bound no
-     ;; evidence — it publishes and fabricates nothing, yet the store
-     ;; cleanup above already ran.
-     (when terminal-evidence
-       (try
-        (let [{:keys [record listener-snapshot silenced-cbs baseline-silence-seq]}
-              terminal-evidence]
-         ;; Publish A's terminal RECORD + trailers regardless of the cleanup
-         ;; comparison — the evidence was snapshotted before dissoc and belongs to
-         ;; A's incarnation. A late predecessor terminal record may
-         ;; arrive after a newer same-id epoch; it is HISTORICAL and consumers must
-         ;; not treat it as the successor's current ring/focus (Spec 009 / Tool-Pair
-         ;; late-record consumer rule).
-         (when record
-           ;; Same detailed/coarse trailer pair as normal commits, delivered
-           ;; structurally: excluded from capture ownership and immune to a same-id
-           ;; B's frame-no-emit policy.
-           (rf.trace/call-with-structural-delivery
-             #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                                  (:event-id record) :halted-destroy))
-           (deliver-listener-snapshot! record listener-snapshot))
-         ;; PER-IDENTITY atomic-claim-THEN-PUBLISH silencing. Iterate the owed
-         ;; identities in a
-         ;; deterministic cb-id order so the linearizable claim sees a stable
-         ;; sequence. `claim-and-publish-delayed-silence!` reserves the one signal
-         ;; under BOTH ledger locks (rechecking current generation, FRESH live
-         ;; observers, and any existing mark, then writing the monotonic mark),
-         ;; RELEASES the locks, and only THEN runs this external emit — so the
-         ;; foreign trace fan-out (a blessed listener may `dispatch-sync`,
-         ;; acquiring a frame's :drain-lock) never runs while a ledger lock is
-         ;; held. That is what breaks the ledger↔:drain-lock AB-BA deadlock
-         ;; that emitting UNDER the locks would create.
-         ;; REGISTRATION authority survives WITHOUT the lock by QUALIFYING the
-         ;; emit with `observed-gen`: the reserved generation G is carried on the
-         ;; payload, so a same-id replacement H landing in the reserve→emit window
-         ;; is never mistaken as the silence's subject — a receiver whose current
-         ;; generation for cb-id != the carried `:observed-gen` self-filters the
-         ;; stale signal. OBSERVATION-continuum authority does NOT ride that
-         ;; qualifier: a same-id SUCCESSOR frame re-arming cb-id in the same window
-         ;; mints no generation, so `:observed-gen` still matches while the callback
-         ;; is live again. The receiver discriminates that case inside the ONE
-         ;; supported decision, `re-frame.epoch/epoch-silence-current?`, which
-         ;; weighs registration identity AND observation continuum for
-         ;; (cb-id, frame) under a single ledger snapshot. Only a
-         ;; granted reservation emits; if the external
-         ;; delivery throws, the reservation is rolled back (under silence-lock)
-         ;; and the fault propagates.
-         (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
-           (rf.epoch.state/claim-and-publish-delayed-silence!
-             frame-id cb-id observed-gen baseline-silence-seq
-             ;; The silencing fact belongs to destroyed A too; never let a
-             ;; same-id successor's trace policy suppress or capture it. The
-             ;; `:observed-gen` qualifier is what lets the emit run outside the
-             ;; ledger locks without reopening the G→H window.
-             #(rf.trace/call-with-structural-delivery
-                (fn []
-                  (rf.trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                               {:frame frame-id :cb-id cb-id
-                                :observed-gen observed-gen}))))))
-        (finally
-          ;; Close the deferred-silence window opened at snapshot time. When the
-          ;; frame's last outstanding predecessor resolves, its marks are reclaimed.
-          (rf.epoch.state/close-silence-lineage! frame-id)))))))
+  not A still owns the stores; a nil bundle bound nothing and publishes nothing.
+  All terminal emits use structural delivery so a same-id B's frame-no-emit
+  policy can neither suppress nor capture them. Repeated destroys are idempotent
+  (a re-destroyed frame has no mid-drain record, so nothing is owed)."
+  [frame-id owner-token terminal-evidence]
+  ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+  ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
+  ;; concerns split INSIDE the gate: (1) exact-owner STORE CLEANUP runs
+  ;; UNCONDITIONALLY of terminal-evidence; (2) terminal-record PUBLICATION stays
+  ;; conditional on a non-nil bundle. Neither is folded into the gate condition
+  ;; itself.
+  (when rf.interop/debug-enabled?
+    ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
+    ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
+    ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
+    ;; terminal-evidence (frame.cljc converts the throw to nil), but the
+    ;; destroyed incarnation's id-keyed stores must STILL be dropped or a same-id
+    ;; successor B inherits A's history / buffer / last-settled-epoch / mount
+    ;; attribution. The drop is compare-owned (`cleanup-frame-owner!`): A erases
+    ;; ONLY its own stores while `owner-token` still owns them, so a stale A that
+    ;; lost the comparison to a claimed same-id B no-ops and leaves B untouched
+    ;; (fail-closed, no cross-incarnation wipe).
+    (rf.epoch.state/cleanup-frame-owner!
+      frame-id owner-token
+      (fn []
+        ;; Data-only exact-owner transaction: no external callback runs
+        ;; between owner comparison and the complete drop.
+        (rf.epoch.state/drop-frame-history! frame-id)
+        (rf.epoch.state/drop-frame-buffer! frame-id)
+        (rf.epoch.state/drop-last-settled-epoch! frame-id)
+        (rf.epoch.state/drop-frame-mount-attribution! frame-id)
+        true))
+    ;; (2) TERMINAL-RECORD PUBLICATION — conditional on a bundle that bound a
+    ;; record, and regardless of the cleanup comparison: the evidence was
+    ;; snapshotted before dissoc and belongs to A's incarnation. A late
+    ;; predecessor terminal record may arrive after a newer same-id epoch; it is
+    ;; HISTORICAL and consumers must not treat it as the successor's current
+    ;; ring/focus (Spec 009 / Tool-Pair late-record consumer rule).
+    (when-let [record (:record terminal-evidence)]
+      ;; Same detailed/coarse trailer pair as normal commits, delivered
+      ;; structurally: excluded from capture ownership and immune to a same-id
+      ;; B's frame-no-emit policy.
+      (rf.trace/call-with-structural-delivery
+        #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+                                                     (:event-id record) :halted-destroy))
+      (deliver-listener-snapshot! record (:listener-snapshot terminal-evidence)))))
