@@ -1,31 +1,26 @@
 # 006-Hydration-Debugger
 
-> **rf2-ici2id drift notice (2026-06-10).** The dedicated **Hydration
-> Debugger panel was dropped** (rf2-xy4yb; the Issues tab that would have
-> hosted it was also removed under rf2-gbz39 Option (c)). There is no
-> Hydration panel or tab in the live surface. SSR hydration mismatches now
-> surface as `:rf.ssr/*` rows on the L2 event timeline (category-prefix
-> `rf.ssr`) plus the always-on issues ribbon (auto-open-on-error) — see
-> the `runHydration` feature-matrix scenario
-> (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), which verifies the
-> mismatch trace fired and the Epoch panel renders cleanly, not a
-> Hydration renderer.
+> **The live surface.** There is no Hydration panel or tab. A hydrating
+> root reports each divergence React recovers from — text content, or a
+> missing / extra / wrong-type element — as `:rf.ssr/hydration-mismatch`
+> ([Spec 011 §Hydration-mismatch detection](../../../spec/011-SSR.md#hydration-mismatch-detection)).
+> The trace fires from React's `onRecoverableError`, outside any event, so
+> Xray lists it in the `:ungrouped` row of the L2 event timeline and in the
+> always-on issues ribbon, and the Trace tab shows its raw trace: React's
+> message (`:error`), the hydrating door (`:where`) and
+> `:recovery :warned-and-replaced`. The `runHydration` feature-matrix
+> scenario (`tools/xray/testbeds/feature_matrix/scenarios.cjs`) pins that
+> surface against a testbed whose server markup diverges in text. An
+> attribute-only divergence draws React's development `console.error` and
+> no trace.
 >
-> The supporting renderer code was removed in the same change as this
-> notice: `panels/hydration_pane_render.cljs`, `diff/hiccup.cljc`, and
-> `diff/hiccup_render.cljs` (plus their tests) had no live consumer — they
-> formed a closed self-loop referenced by nothing outside themselves and
-> their own tests. (The LIVE app-db diff engine is `diff/engine.cljc` +
-> `views/edn-inspector`, which is unaffected.)
->
-> **Treat the entire body below as historical reference, not normative
-> spec.** The mismatch-bisector / side-by-side / sub-attribution surface
-> it describes is a design record for a panel that does not ship. A full
-> rewrite against the surviving `:rf.ssr/*`-row surface would be separate
-> work. The panel's retirement in the rf2-qy0nu 8-dead-panel sweep is
-> recorded, with its former subs and events, at
+> **Treat the body below as a design record, not normative spec.** It
+> describes a mismatch-bisector panel that does not ship, over a substrate
+> — the server and client subtrees at the divergent node — that neither
+> React's report nor the runtime supplies. The panel's former subs and
+> events are recorded at
 > [`014-Registry-Catalogue.md` §Hydration debugger](./014-Registry-Catalogue.md#hydration-debugger),
-> and the sweep's whole panel list at
+> and the panel list at
 > [`API.md` §Panel reg-views](./API.md#panel-reg-views).
 
 ## Bug class
@@ -70,8 +65,7 @@ row with a dedicated drill-into surface:
 ```
 ┌─ Hydration mismatch  ·  cascade #1  :rf/hydrate ───────────────────────┐
 │ Failing-id:    :rf/hydrate (body mismatch)                              │
-│ Server hash:   abc123                                                    │
-│ Client hash:   def456                                                    │
+│ React:         Hydration failed because the server rendered text …      │
 │                                                                          │
 │ Bisector (depth-first over canonical EDN):                              │
 │   ✓ root <div id="app">                                                  │
@@ -121,24 +115,28 @@ On first `:rf.ssr/hydration-mismatch`:
 
 ## Substrate
 
-Per Spec 011 §Hydration equivalence rule, the runtime emits:
+Per Spec 011 §Hydration-mismatch detection, the runtime emits:
 
 ```clojure
-{:op-type   :error
+{:op-type   :warning
  :operation :rf.ssr/hydration-mismatch
- :tags      {:path           <hiccup-path-to-divergent-node>
-             :server-tree    <hiccup of server's subtree at this path>
-             :client-tree    <hiccup of client's subtree at this path>
-             :server-hash    <render-tree hash at this path on the server>
-             :client-hash    <render-tree hash at this path on the client>
-             :frame          <frame-id>
-             :view-id        <the view registration that owns this subtree>}}
+ :tags      {:error <React's recoverable-error message>
+             :where <the hydrating door>}
+ :recovery  :warned-and-replaced}
 ```
 
-Plus the SSR payload itself: the runtime stamps the full server
-render-tree onto the document at hydration time (per Spec 011); Xray
-reads it from there. The first client render-tree is captured by
-Xray's preload hook before any user dispatch lands.
+The bisector this record designs needs more than that:
+
+```clojure
+{:path        <hiccup-path-to-divergent-node>
+ :server-tree <hiccup of server's subtree at this path>
+ :client-tree <hiccup of client's subtree at this path>
+ :frame       <frame-id>
+ :view-id     <the view registration that owns this subtree>}
+```
+
+Neither React's report nor the runtime supplies the two subtrees, so
+the design is unbuilt.
 
 ## Layout
 
@@ -157,29 +155,26 @@ Side-by-side render-tree view:
 ```
 
 The divergent node (`[:p "3 items"]` vs `[:p "0 items"]`) pulses red
-on entry (600ms expand-fade ring) and is flagged with `⚠`. Hovering
-the divergent node shows a tooltip with the render-tree hash at that
-node (bisectable).
+on entry (600ms expand-fade ring) and is flagged with `⚠`.
 
-## Render-tree hash bisector
+## Divergence path
 
-Per [Spec 011 §Hydration equivalence rule](../../../spec/011-SSR.md#hydration-equivalence-rule-canonical),
-every parent node has a render-tree hash that summarises its subtree.
-Hashes match at common ancestors and diverge at the first differing
-descendant — this is the bisection property.
+A subtree containing a divergence is itself unequal, so equal subtrees
+sit off the divergence path and every node on it differs down to the
+first differing descendant — this is the bisection property.
 
-Xray renders hashes inline as faint chips on every parent:
+Xray marks each parent on the path:
 
 ```
-▾ [:div.app]              #a12b
-  ▾ [:header]             #c34d  (match)
-  ▾ [:main]               #ef56  (diverges)
-    ▾ [:section.cart]     #78ab  (diverges)
-      · [:p "3 items"]    #cd ← diverges here
+▾ [:div.app]              (diverges)
+  ▾ [:header]             (match)
+  ▾ [:main]               (diverges)
+    ▾ [:section.cart]     (diverges)
+      · [:p "3 items"]    ← diverges here
 ```
 
 The divergence path is highlighted from root to the first differing
-node. Click any hash chip → the panel re-roots at that node (zooms
+node. Click any marked parent → the panel re-roots at that node (zooms
 into the subtree).
 
 ## Multi-mismatch case
@@ -200,8 +195,8 @@ the list.
 ## Algorithm
 
 The Hydration Debugger's projection is a pure data → data pipeline:
-hydration-mismatch trace events → per-mismatch detail record → per-pane
-chip lists + bisector path → rendered hiccup. The pipeline is
+hydration-mismatch trace events → per-mismatch detail record →
+bisector path → rendered hiccup. The pipeline is
 JVM-runnable so it can be tested without a DOM (the helpers ns is
 `.cljc`, exercised under `clojure -M:test`); the view is hiccup-only.
 Nothing in the algorithm reaches into the substrate or mutates runtime
@@ -217,11 +212,8 @@ indices, indexed once per call:
   [Spec 011 §Hydration-mismatch detection](../../../spec/011-SSR.md#hydration-mismatch-detection).
   Each event's `:tags` MUST carry `:path` (the hiccup-path the runtime
   flagged), `:server-tree` and `:client-tree` (the subtrees at that
-  path), `:server-hash` and `:client-hash` (the FNV-1a render-tree
-  hashes per Spec 011), `:frame` (the affected frame), `:view-id` (the
-  divergent view's registration), and `:failing-id` (the body /
-  head discriminator — `:rf/hydrate` for body, `:rf.ssr/head-mismatch`
-  for head, treated uniformly by this projection). The optional
+  path), `:frame` (the affected frame), `:view-id` (the divergent
+  view's registration), and `:failing-id`. The optional
   `:first-diff-path` slot carries the runtime's own bisection path
   when the SSR pipeline computed one upstream; the projection
   prefers it over its own walk (see §Bisector walk below).
@@ -232,17 +224,16 @@ indices, indexed once per call:
   in the mismatch list, or `nil` (the composite picks the latest as
   default).
 - **`re-root-path`** — the hiccup-path the user has zoomed into via a
-  hash chip click, or `nil` for the full subtree.
+  marked-parent click, or `nil` for the full subtree.
 
 ### Bisector walk
 
 The walk is **parallel pre-order over `server-tree` and `client-tree`,
 descending into matching slots until the first divergence**. Pre-order
-— not leaf-first — because the runtime's structural-hash invariant
-(per [Spec 011 §Hydration-mismatch detection](../../../spec/011-SSR.md#hydration-mismatch-detection))
-guarantees that **hashes match at every common ancestor and diverge
-at the first differing descendant**; pre-order walks that bisection
-property top-down and stops at the shallowest divergence. The walk is
+— not leaf-first — because **every ancestor of the first differing
+descendant is itself unequal, and every subtree off that path is
+equal** (§Divergence path); pre-order walks that bisection property
+top-down and stops at the shallowest divergence. The walk is
 parallel — not true binary bisection over a balanced tree — because
 hiccup trees are rarely balanced (a long `<div>` chain wrapping one
 divergent leaf is the canonical shape) and the per-level child
@@ -268,7 +259,7 @@ Walk server-tree S, client-tree C:
 
 The walker returns a **vector of integer child-indices** from the
 root of the subtree the runtime flagged down to the first divergent
-node — the path the side-by-side highlights and the hash chips
+node — the path the side-by-side highlights and the parent markers
 annotate.
 
 The **child-count-mismatch rule** is MUST: when all `n` matching
@@ -281,7 +272,7 @@ The **tag-mismatch root case** is MUST: when the two roots differ in
 tag (or one is a hiccup vector and the other a text leaf), the
 walker returns `[]` — the empty path means "the divergence is at
 the root of the runtime-flagged subtree." The view renders the root
-flagged + no chips below.
+flagged and no marked parent below it.
 
 ### Tree representation
 
@@ -297,42 +288,21 @@ attrs-skipped-from-child-index convention so paths produced by their
 walker line up with paths produced by ports running against the same
 trees.
 
-### Hash stand-in
+### Node equality
 
-Spec 011 §Hydration-mismatch detection commits the runtime to an
-FNV-1a 32-bit hash over a canonical EDN serialisation; the
-runtime stamps `:server-hash` and `:client-hash` on the trace event.
-The Xray walker, however, runs against the **trees themselves** —
-not the upstream hashes — because the panel re-walks subtrees
-after the user zooms (the re-root affordance under
-§Render-tree hash bisector), and the upstream hashes annotate only
-the root of each subtree. The walker therefore uses a
-**content-equality stand-in**: a canonical `pr-str` over each node,
-treated as the structural fingerprint. Two structurally-equal nodes
-produce the same string; two different nodes produce different
-strings. This mirrors the bisection property of the FNV-1a hash
-without depending on the SSR artefact's hash module.
-
-The stand-in MUST behave like the runtime hash on the bisection
-question — "are these two subtrees structurally equal?" — but it is
-**not** the runtime hash. The view renders the runtime's hashes on
-the hash chips (faint pills) when available; the stand-in's role is
-internal to the bisector walk. Ports that integrate a host-native
-hash module SHOULD swap the stand-in for the host hash provided the
-canonical-EDN traversal in
-[Spec 011 §Hydration-mismatch detection](../../../spec/011-SSR.md#hydration-mismatch-detection)
-is preserved — the substitution is value-equality-preserving by the
-spec's traversal contract.
+The walker runs against the **trees themselves**, because the panel
+re-walks subtrees after the user zooms (the re-root affordance under
+§Divergence path). It compares nodes by **content equality**: a
+canonical `pr-str` over each node, treated as the structural
+fingerprint. Two structurally-equal nodes produce the same string; two
+different nodes produce different strings.
 
 ### Runtime path override
 
-When the runtime supplies `:first-diff-path` on the trace event's
-`:tags`, the projection **prefers it over its own walk**. The
-upstream computation has the canonical FNV-1a hashes per parent and
-can compute the bisection path during emission; recomputing in Xray
-would be redundant. The local walk is the fallback when the runtime
-omits the slot (older SSR builds, ports that have not yet shipped
-upstream bisection, or hand-constructed test events).
+When a trace event's `:tags` carry `:first-diff-path`, the projection
+**prefers it over its own walk**. The local walk is the fallback when
+the slot is absent — as it is from React's adoption report, which names
+no path.
 
 This is a MUST: the runtime is the source of truth (per
 [`Principles.md`](./Principles.md) §Observation only — no new runtime
@@ -374,17 +344,6 @@ dominate later ones. The classifier MUST be evaluated at the
 **divergent subtree's root**, not at the runtime-flagged path's root,
 so the hypothesis-text aligns with the node the user sees flagged.
 
-### Chip-list derivation
-
-For each side (server / client), the projection walks the tree from
-the root of the runtime-flagged subtree down the bisector path,
-emitting one `{:path [...] :hash <string>}` entry per parent. The
-root carries the empty path; the chip at the bisector path's final
-slot is the **divergent chip** the view paints red (per §Render-tree
-hash bisector). The walk runs in lock-step on both sides; chip lists
-on the two sides have the same length and the same `:path` slots,
-differing only in their `:hash` values where the trees diverge.
-
 ### Source-coord resolution
 
 Per §Source-coord drilldown, the panel surfaces the divergent view's
@@ -414,8 +373,6 @@ may be several files removed from the divergent view.
   [`007-UX-IA.md`](./007-UX-IA.md) §Performance budget — virtualised
   lists never DOM-mount more than ~200 rows; the hydration debugger
   inherits this).
-- **Chip-list derivation** is O(bisector-depth) per side — typically
-  small (single-digit) for real apps.
 - **Divergence-kind classification** is O(1) — one decision over the
   divergent subtree's root.
 - **Re-walk on re-root** runs the bisector walk again against the
@@ -435,12 +392,11 @@ The projection hands the panel view a plain map:
 :source-coord :re-root-path :target-frame}` (per
 [`014-Registry-Catalogue.md` §Hydration debugger](./014-Registry-Catalogue.md#hydration-debugger)).
 The `:detail` slot carries the per-mismatch projection record:
-`{:id :path :server-tree :client-tree :server-hash :client-hash
-:frame :view-id :failing-id :divergence-kind :hypothesis
-:bisector-path :server-chips :client-chips}`. The view consumes those
-data and emits hiccup; visual encoding (tree pane, hash chip,
+`{:id :path :server-tree :client-tree :frame :view-id :failing-id
+:divergence-kind :hypothesis :bisector-path}`. The view consumes those
+data and emits hiccup; visual encoding (tree pane, parent marker,
 divergent marker, hypothesis row, source-coord row) is computed
-per-record off the slots per §Layout, §Render-tree hash bisector, and
+per-record off the slots per §Layout, §Divergence path, and
 §Cause hypothesis. The pipeline MUST NOT emit SVG, React, or
 substrate-specific output: keeping projection pure data preserves
 the JVM-test surface and lets every surface that names a hydration
@@ -497,9 +453,10 @@ indicates "showing mismatches for `<frame-id>`."
 ## Production posture
 
 Hydration panel surfaces are dev-only. Per Spec 009, the entire trace
-surface elides in production; the `:rf.ssr/hydration-mismatch` event
-is never emitted in a production build. Xray's panel renders an
-empty state in prod-like builds.
+surface elides in production; the `:rf.ssr/hydration-mismatch` trace
+compiles out of a production build, where the always-on error record
+is the report. Xray's panel renders an empty state in prod-like
+builds.
 
 In dev, the panel's first-paint cost is paid only when a mismatch
 fires — the panel's render code is lazy-loaded on first activity

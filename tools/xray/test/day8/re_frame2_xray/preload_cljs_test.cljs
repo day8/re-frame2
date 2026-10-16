@@ -15,7 +15,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.ssr :as rf.ssr]
+            [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.projection :as rf.trace.projection]
@@ -53,20 +53,25 @@
 ;; ---- (2) trace collector wiring -----------------------------------------
 
 (deftest a-hydration-mismatch-reaches-xrays-buffer
-  (testing "`verify-hydration!` runs after the first render, outside any
-            dispatch, so its mismatch names its frame but carries no
-            dispatch id. The framework's per-frame ring skips it, so Xray's
-            secondary ring must keep it, and it surfaces as an issue in the
-            `:ungrouped` bundle"
+  (testing "A hydrating root's adoption reporter fires from React's
+            `onRecoverableError`, outside any dispatch, so its mismatch
+            carries no dispatch id and names no frame. The framework's
+            per-frame ring skips it, so Xray's secondary ring must keep it,
+            and it surfaces as an issue in the `:ungrouped` bundle"
     (preload/register-trace-collector!)
-    (rf.ssr/verify-hydration! :rf/default [:div "client"] {:server-hash "deadbeef"})
+    ;; The real reporter a hydrating root installs, called the way React
+    ;; calls it while the adoption window is open. The authored callback
+    ;; stands in for the host's, so React's default report stays quiet.
+    ((rf.substrate.spine/native-hydration-reporter #js {:adopting true} (fn [_ _]))
+     (js/Error. "Hydration failed because the server rendered text didn't match the client.")
+     #js {})
     (let [mismatch? #(= :rf.ssr/hydration-mismatch (:operation %))
           retained  (filter mismatch? (trace-collector/buffer-for-test))
           ev        (first retained)]
       (is (not-any? mismatch? (rf/trace-buffer :rf/default {:flat true}))
           "PRECONDITION: the framework's per-frame ring skips it")
       (is (= 1 (count retained)) "Xray's buffer keeps it")
-      (is (= :rf/default (rf.trace/trace-event-frame ev)) "it names its frame")
+      (is (nil? (rf.trace/trace-event-frame ev)) "it names no frame")
       (is (nil? (get-in ev [:tags :rf.trace/dispatch-id])) "outside any run")
       (let [bundle (some #(when (= :ungrouped (:dispatch-id %)) %)
                          (rf.trace.projection/group-by-event

@@ -17,9 +17,8 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 | `n-A`, `n-B` | The seeded `:n` from each counter frame's payload slice (`10`, `99`). |
 | `entries-count` | The `:log` frame's payload-seeded entry count (`2`). |
 | `hyd-A`, `hyd-B`, `hyd-log` | `true` once each frame's `[:rf.runtime/ssr :hydration]` metadata lands in its runtime-db (read via a `reg-runtime-sub`). |
-| `hash-A`, `hash-B`, `hash-log` | The payload-supplied `:rf/render-hash` per frame (`aaaa1111`, `bbbb2222`, `cccc3333`). |
-| `summary-{a,b,log}-hash` | Cross-frame readout via `rf/subscribe-once frame-id`. |
-| `summary-all-distinct` | `true` iff the three per-frame `:server-hash` values are pairwise distinct — proves no cross-frame bleed. |
+| `summary-{a,b,log}-seed` | Cross-frame readout of each frame's seeded value (`10`, `99`, `2`) through a frame-explicit `rf/subscribe`. |
+| `summary-all-distinct` | `true` iff all three frames are hydrated and their seeded values are pairwise distinct — proves no cross-frame bleed. |
 | `inc-A`, `inc-B` | Per-frame post-hydration interactivity; clicking `inc-A` bumps `:counter/a`'s `:n` only — `:counter/b` and `:log` are untouched. |
 
 ## What this surface tests (per spec/011-SSR.md and spec/002-Frames.md)
@@ -33,10 +32,10 @@ and dispatches `[:rf/hydrate slice]` against each frame.
 
 ## What this surface deliberately omits
 
-- hash-mismatch detection per frame. Each frame's payload carries a
-  symbolic hash (`aaaa1111`, …) — `verify-hydration!` isn't called
-  here. Sibling [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
-  exercises the mismatch path on a single frame
+- the hydrating render and its mismatch report. The client renders the
+  three panels with a fresh root over placeholder markup. Sibling
+  [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
+  hydrates server markup and exercises the mismatch path
 - cross-frame `:dispatch` fan-out. That's the
   [`testbeds/multi_frame/`](../multi_frame/) surface's concern;
   conflating the two would dilute what this surface proves
@@ -64,9 +63,9 @@ next to that `main.js` and serve the directory:
 ```bash
 cp testbeds/ssr_multi_frame/index.html out/examples/testbed-ssr-multi-frame/
 npx http-server out/examples/testbed-ssr-multi-frame -p 8080
-# open http://127.0.0.1:8080/ — the summary block shows three distinct
-# per-frame server-hashes (all-distinct=true), each read from its own
-# frame's runtime-db.
+# open http://127.0.0.1:8080/ — the summary block shows three hydrated
+# frames with distinct seeded values (all-distinct=true), each read from
+# its own frame.
 ```
 
 ## Cross-references

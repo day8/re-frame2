@@ -2164,10 +2164,10 @@
   ;; index.html bakes pre-rendered HTML + a :rf/hydration-payload script
   ;; (mirroring what the JVM-side render-to-string + payload builder
   ;; would emit per spec/011-SSR.md). The browser-side run reads the
-  ;; payload, dispatches :rf/hydrate, renders, and calls
-  ;; verify-hydration!. A trace listener mirrors every :rf.ssr/* and
-  ;; :rf/hydrate trace event onto window.__rf_trace_events(), where a
-  ;; browser harness can read the hydration handshake.
+  ;; payload, dispatches :rf/hydrate, and renders. A trace listener
+  ;; mirrors every :rf.ssr/* and :rf/hydrate trace event onto
+  ;; window.__rf_trace_events(), where a browser harness can read the
+  ;; hydration handshake.
   ;;
   ;; :output-dir lands under out/examples/ (not out/testbeds/) so the
   ;; examples orchestrator's http-server root serves the bundle
@@ -2186,11 +2186,12 @@
                            day8.re-frame2-xray.preload]}}
 
   ;; Ssr-hydration-mismatch testbed (the deliberate-mismatch
-  ;; surface). The payload bakes a known-wrong :rf/render-hash so
-  ;; verify-hydration! emits :rf.ssr/hydration-mismatch with
-  ;; :recovery :warned-and-replaced per spec/011 §Hydration-mismatch
-  ;; detection. The same trace listener as ssr-basic exposes the trace
-  ;; event payload on window so the dev-mode assertion can read it.
+  ;; surface). The static server markup's text diverges from the
+  ;; client's render, so the hydrating root's adoption reporter emits
+  ;; :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced per
+  ;; spec/011 §Hydration-mismatch detection. The same trace listener as
+  ;; ssr-basic exposes the trace on window so the dev-mode assertion can
+  ;; read it.
   :testbeds/ssr-hydration-mismatch
   {:target     :browser
    :output-dir "out/examples/testbed-ssr-hydration-mismatch"
