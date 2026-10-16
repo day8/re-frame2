@@ -176,9 +176,9 @@
   it composes as a safe exclusive lower bound with plain `<` comparisons.
 
   This is a genuine, globally-monotonic IDENTITY, not a
-  ring-length/count snapshot. `rf/epoch-history` is a bounded per-frame
+  ring-length/count snapshot. The epoch history is a bounded per-frame
   ring (default depth 50); a count of its current length PLATEAUS once
-  the ring is full (`(count (rf/epoch-history frame-id))` stops growing
+  the ring is full (`(count (epoch-history frame-id))` stops growing
   even though epochs keep committing), so a boundary bookkeeper built on
   it silently loses the ability to tell dispatch steps apart on a long
   run. `:epoch-id` keeps incrementing regardless of ring occupancy and
@@ -188,9 +188,9 @@
   evicted since. Public — `runtime.cljc` reads this too (`:epoch-baseline`
   uses the same identity so the tape-scoping and the boundary bookkeeping
   agree on what a run's epochs look like). Tolerant — 0 when the frame
-  has no history / the epoch dep is absent (the facade degrades to `[]`)."
+  has no history / the epoch dep is absent (the read degrades to `[]`)."
   [frame-id]
-  (try (or (:epoch-id (last (rf/epoch-history frame-id))) 0)
+  (try (or (:epoch-id (last (rf.story.assertions/epoch-history frame-id))) 0)
        (catch #?(:clj Throwable :cljs :default) _ 0)))
 
 (defn- record-settle-boundary!

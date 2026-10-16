@@ -53,7 +53,7 @@ the `:articles` vector, whose entries here also carry a `:summary` and an `:imag
                    {:route {:route-id :articles/show :params {:id "1"}}}))]
 ```
 
-On a server, `:rf/server-init` seeds `:articles` and hands the URL to routing, as in
+On a server, `:app/server-init` seeds `:articles` and hands the URL to routing, as in
 [Reading the request](concepts.md#reading-the-request), and a request for `/articles/1`
 gets a `<head>` holding the title, the `<meta>` tags, the stylesheet and canonical
 `<link>`s, and a `<script type="application/ld+json">`. The end of the cell builds that

@@ -66,7 +66,7 @@
   Pure hiccup — frame isolation via the enclosing
   `rf.fresco/frame-provider` that `shell.cljs`'s `shell-view-tree` opens."
   (:require [clojure.string :as string]
-            [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.theme.tokens
@@ -374,7 +374,7 @@
   cause — the `(mounted)` label already conveys the first render.
   Hovering toggles the pink DOM highlight."
   [{:keys [id slug label action triggered-by elapsed-ms x y w h] :as node}]
-  (let [meta      (when id (rf/handler-meta {:source :store :kind :view :id id}))
+  (let [meta      (when id (host-registrar/store-meta :view id))
         disp-name (view-display-name id meta)
         coord     (when (string? (:file meta))
                     {:file (:file meta) :line (:line meta) :ns (:ns meta)})
@@ -537,7 +537,7 @@
        (into [:div {:data-testid "rf-xray-reactive-unmounted-list"
                     :style list-card-style}]
              (for [{:keys [view-id]} rows
-                   :let [meta (when view-id (rf/handler-meta {:source :store :kind :view :id view-id}))
+                   :let [meta (when view-id (host-registrar/store-meta :view view-id))
                          nm   (view-display-name view-id meta)]]
                (list-row {:row-key (str view-id)
                           :testid (str "rf-xray-reactive-unmounted-row-"

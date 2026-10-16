@@ -15,7 +15,7 @@
    The tour, in the order you'll meet it below:
    - A fresh frame per request on the server (make-frame + with-frame), torn
      down again when the request is done.
-   - :rf/server-init — the per-request boot event, dispatched as the frame
+   - :app/server-init — the per-request boot event, dispatched as the frame
      comes up.
    - A client-only effect, gated with :platforms #{:client}, that the server
      render simply skips.
@@ -99,7 +99,7 @@
 ;; Parking the schema in a `def` means namespace-load never has to reach for an
 ;; ambient frame that isn't there yet.
 ;;
-;; The articles slice is absent for a beat: the server's `:rf/server-init`
+;; The articles slice is absent for a beat: the server's `:app/server-init`
 ;; commits a db with no articles in it (all it does is start the fetch), and a
 ;; fresh client frame is empty until hydration lands. A path schema checks a
 ;; slice only where app-db has it, so a bare `[:vector …]` lets those commits
@@ -134,14 +134,14 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc       "Per-request server-side boot. Reads the incoming request through
                the :rf.server/request coeffect and starts the work the page
                needs. Server only. See
                ../../../../docs/ssr/concepts.md#reading-the-request."
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
-  (fn handler-rf-server-init [{:keys [db rf.server/request]} _]
+  (fn handler-app-server-init [{:keys [db rf.server/request]} _]
     ;; Where's the request? Not in the event vector — it rides in on the
     ;; `:rf.server/request` coeffect we declared just above. That's `request`:
     ;; the host's HTTP request map (Ring-shaped under the bundled adapter), the
@@ -281,7 +281,7 @@
 ;;
 ;; The one step people leave out. `make-frame` drains the SYNCHRONOUS event
 ;; work its `:initial-events` set in motion — and that is all it promises. The
-;; article fetch `:rf/server-init` starts is not synchronous: the JVM managed
+;; article fetch `:app/server-init` starts is not synchronous: the JVM managed
 ;; transport issues it through `HttpClient/sendAsync`. So the moment
 ;; `make-frame` returns, the request is very probably still in flight, app-db
 ;; still has no `:articles`, and a render taken right there emits "No
@@ -296,7 +296,7 @@
 ;;     than the one we're fixing.
 ;;   - It settles on FAILURE too, not just success. Polling for non-nil
 ;;     `:articles` would look simpler and would hang for the full deadline on
-;;     every failed fetch — which is exactly why `:rf/server-init` declares an
+;;     every failed fetch — which is exactly why `:app/server-init` declares an
 ;;     `:on-failure` target.
 ;;
 ;; (This page has no route table, so the framework's route-keyed
@@ -339,7 +339,7 @@
 ;;   2. set-request! drops it into the per-frame slot that the
 ;;      :rf.server/request coeffect will read back out.
 ;;   3. make-frame stands up a fresh frame; its :initial-events step fires
-;;      :rf/server-init, which pulls the request via that coeffect.
+;;      :app/server-init, which pulls the request via that coeffect.
 ;;   4. await-page-load! blocks until the article fetch reaches a terminal
 ;;      outcome — loaded, failed, or out of time. Only `:loaded` goes on to
 ;;      render; the other two answer 503 rather than dress a pending request
@@ -362,14 +362,14 @@
            _   (rf.ssr/set-request! fid request)
            ;; Schema first, frame second — order matters. `make-frame` runs its
            ;; `:initial-events` pipeline run synchronously, and that run includes
-           ;; the `:articles` commit `:rf/server-init` sets in motion. If the
+           ;; the `:articles` commit `:app/server-init` sets in motion. If the
            ;; schema weren't already registered against this per-request frame
            ;; (the gensym `fid`), there'd be nothing to validate that commit
            ;; against by the time it fires.
            _   (rf/reg-app-schema [:articles] {:frame fid} ArticlesSchema)
            f   (rf/make-frame {:id fid :doc       "ssr-example per-request frame"
                                :platform  :server
-                               :initial-events [[:rf/server-init]]})]
+                               :initial-events [[:app/server-init]]})]
        (try
          (rf/with-frame f
            ;; Step 4 — wait for the page load to finish before reading a thing
@@ -507,10 +507,10 @@
 ;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
 ;; A quick naming note. App events live under a namespace you pick; the reserved
-;; `:rf/*` root is the framework's. `:rf/hydrate` is framework-owned, and
-;; `:rf/server-init` is the documented per-request boot pattern you fill a body
-;; into. This little bootstrap-for-a-plain-load, though, is your own brand-new
-;; event — so it gets the app's own `:ssr/` namespace, not `:rf/`.
+;; `:rf/*` root is the framework's. `:rf/hydrate` is framework-owned. The
+;; per-request boot event above is the app's own, `:app/server-init`, and so is
+;; this little bootstrap-for-a-plain-load — so it gets the app's own `:ssr/`
+;; namespace, not `:rf/`.
 (rf/reg-event :ssr/client-bootstrap
   {:doc "Client-side init that runs even when the server never rendered this page."}
   (fn [{:keys [db]} _] {:db db}))
@@ -605,7 +605,7 @@
 ;; (implementation/core/test/) and run on the JVM. If you're curious what's
 ;; covered:
 ;;   - `ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch` — the
-;;     whole round trip: per-request frame, :rf/server-init, the article fetch
+;;     whole round trip: per-request frame, :app/server-init, the article fetch
 ;;     through a canned stub, render-to-string, and a payload whose render
 ;;     hash the client frame stashes when it hydrates.
 ;;   - `ssr-example-handle-request-tears-down-on-throw` — the per-request frame

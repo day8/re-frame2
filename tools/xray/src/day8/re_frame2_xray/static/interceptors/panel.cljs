@@ -69,6 +69,7 @@
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
@@ -83,11 +84,11 @@
   2-vector) to its registered descriptor metadata via the HOST app's
   `:interceptor` registrar — the kind reg-interceptor populates (EP-0022).
   Returns the metadata map (carrying the `:rf/interceptor-descriptor` slot) or
-  nil when the id is not registered / the runtime can't answer. Pure-read,
-  fail-soft: a browse catalogue must never throw on an unregistered or
-  hot-reloaded ref.
+  nil when the id is not registered, more than one namespace registers it, or
+  the runtime can't answer. Pure-read, fail-soft: a browse catalogue must never
+  throw on an unregistered, ambiguous or hot-reloaded ref.
 
-  Read via `rf/handler-meta` with `{:source :store …}` (the SOURCE-STORE read, which never
+  Read via `host-registrar/store-meta` (the SOURCE-STORE read, which never
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   interceptors `registry` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
@@ -95,7 +96,7 @@
   ref enrichment would lose the host app's interceptor descriptors. See
   spec/API.md §Public registrar query API."
   [icpt-id]
-  (rf/handler-meta {:source :store :kind :interceptor :id icpt-id}))
+  (host-registrar/store-meta :interceptor icpt-id))
 
 (defn- classify-entry
   "Classify one `:interceptors` chain entry (EP-0022, Spec 002 §Interceptor

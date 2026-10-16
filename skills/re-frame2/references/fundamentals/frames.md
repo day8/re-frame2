@@ -60,9 +60,9 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 ;; Install from outside a cascade (tools / tests / SSR — NOT app code). ONE
 ;; write surface taking a PARTIAL frame-state map: a present key replaces
 ;; that partition, an absent key is preserved.
-(rf/replace-frame-state! :frame-id {:rf.db/app app-db})                          ;; replace ONLY app-db; runtime-db preserved
-(rf/replace-frame-state! :frame-id {:rf.db/runtime runtime-db})                  ;; replace ONLY runtime-db
-(rf/replace-frame-state! :frame-id {:rf.db/app app-db :rf.db/runtime runtime-db}) ;; replace BOTH atomically (full-frame install)
+(rf.epoch/replace-frame-state! :frame-id {:rf.db/app app-db})                          ;; replace ONLY app-db; runtime-db preserved
+(rf.epoch/replace-frame-state! :frame-id {:rf.db/runtime runtime-db})                  ;; replace ONLY runtime-db
+(rf.epoch/replace-frame-state! :frame-id {:rf.db/app app-db :rf.db/runtime runtime-db}) ;; replace BOTH atomically (full-frame install)
 ```
 
 Verified in `re-frame.frame` / `re-frame.live-frame`; the public facade is `re-frame.core`. A db-shaped key never silently overwrites the other partition, and a map with no recognized partition key — or an unrecognized key — is rejected.

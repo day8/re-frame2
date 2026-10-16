@@ -100,16 +100,11 @@
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; LOADED FOR ITS HOOKS, NOT FOR A NAME. `rf/restore-epoch!`
-            ;; and `rf/epoch-history` are LATE-BOUND (`:epoch/restore-
-            ;; epoch!`, `:on-absent :false`), so without the artefact on
-            ;; the page the first answers `false` and the second `[]` —
-            ;; and `[]` is the shape a clean history has, which is how a
-            ;; missing artefact reads as a passing row. Criterion 4's
-            ;; rewind arm is the consumer; it asserts a non-empty history
-            ;; and a nil failure flash so an absent artefact reddens here
-            ;; rather than hiding.
-            [re-frame.epoch]
+            ;; Criterion 4's rewind arm reads `rf.epoch/epoch-history` and
+            ;; calls `rf.epoch/restore-epoch!`. It asserts a non-empty
+            ;; history and a nil failure flash, because `[]` is also the
+            ;; shape a clean history has.
+            [re-frame.epoch :as rf.epoch]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -523,7 +518,7 @@
   artefact back-fills a post-settle render into the causing epoch record
   — so the raw ring is strictly UPSTREAM: contamination cannot reach
   `:renders` without appearing here first. And this arm cannot go
-  VACUOUSLY green, where an epoch arm could: `rf/epoch-history` answers
+  VACUOUSLY green, where an epoch arm could: `rf.epoch/epoch-history` answers
   `[]` when the epoch artefact is merely absent from the build, which is
   the very shape a clean epoch answers with, and this harness loads
   Xray's `registry` rather than the `install` / `preload` namespaces that
@@ -861,7 +856,7 @@
   with `(:dispatch (rf/capture-frame))`, `:rf.xray/reset-to-epoch` with
   the OBSERVED frame and the focused epoch, the
   `:rf.xray.fx/restore-epoch` effect, and the framework's own
-  `rf/restore-epoch!` rewinding that frame's `app-db`. Nothing here
+  `rf.epoch/restore-epoch!` rewinding that frame's `app-db`. Nothing here
   dispatches on Xray's behalf.
 
   THREE THINGS IT ASSERTS, AND THEY ARE THE CRITERION'S OWN WORDS:
@@ -898,7 +893,7 @@
   Dynamic panels all target the SURROUNDING INSTANCE FRAME — Xray's own —
   and `:rf.xray/set-target-frame` writes Xray's own `app-db` too. The
   single Xray affordance whose effect lands in an inspected application
-  is this one, and it reaches it through `rf/restore-epoch!` rather than
+  is this one, and it reaches it through `rf.epoch/restore-epoch!` rather than
   through a `{:frame …}` dispatch option at all — so a census of
   `{:frame …}` dispatch options cannot see it."
   [{:keys [label]} done]
@@ -1030,7 +1025,7 @@
                 ;; at its seed, so the last epoch on its ring is provably
                 ;; the `{:count 0}` state this arm rewinds to. Nothing
                 ;; between the two lines can move it.
-                (reset! !rewind (last (rf/epoch-history app-frame)))
+                (reset! !rewind (last (rf.epoch/epoch-history app-frame)))
                 (is (some? (rewind-id))
                     (str "[" label "] NON-VACUITY: the application's epoch ring "
                          "carries a recorded epoch to rewind TO. `rf/epoch-"
@@ -1039,7 +1034,7 @@
                          "answers with — so this is the assertion that makes "
                          "the rewind below a claim about Xray rather than about "
                          "a no-op. Ring: "
-                         (pr-str (mapv :epoch-id (rf/epoch-history app-frame)))))
+                         (pr-str (mapv :epoch-id (rf.epoch/epoch-history app-frame)))))
                 ;; ---- move BOTH applications off the rewind point --------
                 ;; The second one is already at (inc second-app-seed) from
                 ;; the instrument control above. Moving the first is what

@@ -273,7 +273,7 @@
   - There is no `:clear-epoch-history` verb. Xray's `:epoch-history`
     slot is a MIRROR of the framework's epoch history rather than the
     store. The next recorded epoch re-seeds the slot wholesale from
-    `(vec (rf/epoch-history target))`, so clearing it would last
+    `(vec (rf.epoch/epoch-history target))`, so clearing it would last
     exactly one event before silently undoing itself. The Buffer
     tab's \"Clear buffer now\" is the real scrub. Clearing the
     substrate's epoch ring is a Tool-Pair question — Xray does not

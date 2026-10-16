@@ -7,6 +7,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.subs.tooling :as rf.subs.tooling]
@@ -1020,7 +1021,7 @@
 (deftest epoch-recorded-adopts-the-recording-frame-when-target-unselected
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (with-redefs [rf/epoch-history (fn [frame-id]
+    (with-redefs [rf.epoch/epoch-history (fn [frame-id]
                                      (if (= :above frame-id)
                                        [{:epoch-id :e-above :frame :above}]
                                        []))]

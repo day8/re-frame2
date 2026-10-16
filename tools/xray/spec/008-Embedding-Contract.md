@@ -746,13 +746,12 @@ stated once.
   made Xray refuse element-shaped adapters, and it is severed.
 - **`:make-reaction`.** A ratom-family late-bind hook. Xray observes through
   the two activation ops above, which are defined on both families.
-- **`:adapter/as-element`.** PREFERRED where it answers — `substrate.cljs`
-  reads the installed build's hiccup→element walk so a surviving `reg-view`
-  island is rendered by the same build whose in-flight component the frame
-  resolver consults — but it is published by the ratom family alone and is
-  ROUTED, so it answers `nil` under any other adapter. Fresco's codec passes
-  an already-built React element through untouched, which is the documented
-  fallback and a REAL path rather than a defensive flourish.
+- **A hiccup→element walk.** `substrate.cljs` converts a surviving `reg-view`
+  island with stock Reagent's own `as-element`: stock Reagent is the one ratom
+  runtime, so under Reagent that is the installed renderer's walk, and under
+  UIx or Fresco Xray paints through its own React root. Fresco's codec passes
+  an already-built React element through untouched, which is a REAL path
+  rather than a defensive flourish.
 - **Any view-side hook.** Nothing about how the host binds views to state
   reaches Xray.
 
@@ -774,8 +773,7 @@ The mount verbs (`open!`, `open-overlay!`, `popout!`, and the preload
 auto-open) do not, and they are the host-facing contract. A host on an
 element-shaped adapter uses the mount verbs. This is deliberate (ruled under
 rf2-l1jm, 2026-09-13): revisit only when a host on an element-shaped adapter
-actually needs a single panel in its own layout — Story moving stock Reagent
-to reagent-slim is NOT that, reagent-slim being ratom-family too.
+actually needs a single panel in its own layout.
 
 ## Rejected substrate options (recorded so they are not re-proposed)
 

@@ -2299,7 +2299,7 @@ the "false GREEN" in which run-state and the assertions slot disagree.
 The evidential run-result slots are **projections from one retained epoch
 tape**, not a second capture path. The boundary lives in
 `re-frame.story.play.evidence` (re-exported as `story/project-evidence`);
-the runner reads the retained tape via `re-frame.core/epoch-history` and
+the runner reads the retained tape via `re-frame.epoch/epoch-history` and
 merges the projection into the run-result. There is exactly one source of
 truth — Story UI, CI, docs, agents, and the golden/diff tools cannot
 disagree about what happened, and no parallel accumulator can drift from
@@ -3434,7 +3434,7 @@ Replay MUST:
   (Spec 014 §Testing); the http artefact rides Story's main `:deps`, so the
   namespace is always present (the JVM resolves it lazily via
   `requiring-resolve`).
-- **Capture a NEW epoch tape** — read from `re-frame.core/epoch-history`
+- **Capture a NEW epoch tape** — read from `re-frame.epoch/epoch-history`
   after the program settles, NOT the artifact's captured tape. The replay
   proves what the program does NOW.
 - **Return the shared run-result shape** (§Run result) — the tape is

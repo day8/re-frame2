@@ -33,6 +33,7 @@
   classifies the status (`:no-focus / :focused / :epoch-evicted`) and
   resolves the matching record."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
@@ -43,8 +44,9 @@
 ;; `:rf.xray/epoch-pipeline` sub COMPUTATION (threaded into
 ;; `proj/project-numbered`), and Xray seats in its OWN image-loaded `:rf/xray`
 ;; frame, so the sub build binds the registrar to Xray's image generation. They
-;; therefore read the HOST app's registrar via `rf/handler-meta` with `{:source :store …}`
-;; (the SOURCE-STORE read, which never consults a bound image generation),
+;; therefore read the HOST app's registrar through the source store
+;; (`host-registrar/store-meta`, which never consults a bound image generation
+;; and reads an id more than one namespace registers as unregistered),
 ;; NOT `{:frame …}`: a
 ;; bare read would resolve the focused event / its interceptors / its cofx
 ;; declarations through Xray's OWN image (which carries none of the host's), and
@@ -57,11 +59,10 @@
 ;; so the INTERCEPTORS step surfaces an event's AUTHORED interceptor chain
 ;; (including the clean, non-throwing case an exception-only step would not
 ;; show).
-;; Reads `(rf/handler-meta {:source :store :kind :event :id event-id})` for the authored `:interceptors`
-;; refs and supplies a `resolve-meta-fn` reading `(rf/handler-meta
-;; :interceptor id)` for each ref's registered descriptor. Fail-soft: any
-;; lookup that throws (unregistered event, runtime that can't answer)
-;; degrades to no step rather than crashing the panel render.
+;; Reads the event's store metadata for the authored `:interceptors` refs and
+;; supplies a `resolve-meta-fn` reading each ref's registered descriptor the
+;; same way. An unregistered or ambiguous id reads as nil, so it degrades to
+;; no step rather than crashing the panel render.
 
 (defn resolve-event-interceptors
   "Return `{:entries <authored :interceptors vector> :resolve-meta-fn <fn>}`
@@ -71,12 +72,12 @@
   authored interceptors yields no step."
   [event-id]
   (when (some? event-id)
-    (let [meta    (rf/handler-meta {:source :store :kind :event :id event-id})
+    (let [meta    (host-registrar/store-meta :event event-id)
           entries (:interceptors meta)]
       (when (seq entries)
         {:entries         entries
          :resolve-meta-fn (fn [icpt-id]
-                            (rf/handler-meta {:source :store :kind :interceptor :id icpt-id}))}))))
+                            (host-registrar/store-meta :interceptor icpt-id))}))))
 
 ;; ---- declared-recordable resolver (EP-0017 §9) ----------------------------
 ;;
@@ -115,7 +116,7 @@
   [cofx-id]
   (or (= cofx-id :rf/time-ms)
       (boolean
-        (:recordable? (rf/handler-meta {:source :store :kind :cofx :id cofx-id})))))
+        (:recordable? (host-registrar/store-meta :cofx cofx-id)))))
 
 (defn resolve-event-recordables
   "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017
@@ -128,7 +129,7 @@
   not falsely presented as a recordable input."
   [event-id]
   (when (some? event-id)
-    (let [meta     (rf/handler-meta {:source :store :kind :event :id event-id})
+    (let [meta     (host-registrar/store-meta :event event-id)
           requires (:rf.cofx/requires meta)]
       (when (seq requires)
         (let [recordables (into #{}

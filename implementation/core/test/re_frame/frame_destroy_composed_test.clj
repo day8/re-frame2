@@ -160,9 +160,9 @@
     (is (= [true true true true] (rows)) "precondition: schema, flow, last-inputs and frame rows")
     (is (pos? (count @(:sub-cache (rf.frame/frame :composed/leak-audit)))))
     (when rf.interop/debug-enabled?
-      (is (pos? (count (rf/epoch-history :composed/leak-audit)))
+      (is (pos? (count (rf.epoch/epoch-history :composed/leak-audit)))
           "precondition: the epoch ring saw the frame"))
     (rf.frame/destroy-frame! :composed/leak-audit)
     (is (= [false false false false] (rows)))
     (when rf.interop/debug-enabled?
-      (is (= [] (rf/epoch-history :composed/leak-audit))))))
+      (is (= [] (rf.epoch/epoch-history :composed/leak-audit))))))

@@ -42,7 +42,7 @@ Pick it when your components are React function components written with `defui` 
 
 Everything else a UIx app calls is on [`re-frame.core`](re-frame.core.md), including the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. Nothing is injected into a UIx component: it reads with `use-sub` and takes `dispatch` from `use-frame`. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it.
 
-Components are plain `defui` functions that you mount by referring to their Var, the React idiom; the `reg-view` macro is Reagent-only. Register one with `rf/reg-view*` only when the call site holds an id rather than the Var (see [Registry-keyed views](#registry-keyed-views)). [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) covers choosing and switching substrate.
+Components are plain `defui` functions that you mount by referring to their Var, the React idiom; the `reg-view` macro is Reagent-only. Register one with `rf/reg-view*` only when the call site holds an id rather than the Var (see [Registry-keyed views](#registry-keyed-views)). [Use UIx](../core/how-to/use-uix-or-slim.md) covers choosing and switching substrate.
 
 ## Adapter spec
 
@@ -325,5 +325,5 @@ To use the port instead, set the var yourself after requiring the adapter and be
 
 - [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) — the Reagent adapter, which the Core guide uses, with the same client-root functions.
 - [`re-frame.fresco.native`](re-frame.fresco.native.md) — the `use-sub` / `use-frame` hooks for React islands under Fresco, reading the same frame context.
-- [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — worked examples and the full substrate decision.
+- [Use UIx](../core/how-to/use-uix-or-slim.md) — worked examples and the full substrate decision.
 - [Adapter](../core/glossary.md#adapter) in the glossary.

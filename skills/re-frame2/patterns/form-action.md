@@ -12,7 +12,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 
 1. **The HTML form** renders `method="POST" action="/<route>"` + a hidden CSRF token. The standard Pattern-Forms slice (server-rendered from `app-db`) drives field values.
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame. What it binds is what the wire carried: HTML form encoding has no types and no keywords, so the parsed body is **strings keyed by strings**, and neither the host nor the framework is obliged to fix that.
-3. **`:rf/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET it resolves the request URL with its query (`[:rf.route/handle-url-change url]`; Ring carries the query in `:query-string`, apart from `:uri`), and the matched route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
+3. **`:app/server-init` normalises, then routes**, declaring `:rf.cofx/requires [:rf.server/request]` — on GET it resolves the request URL with its query (`[:rf.route/handle-url-change url]`; Ring carries the query in `:query-string`, apart from `:uri`), and the matched route's `:resources` plan ensures the page's blocking reads ([`resources.md` §Route-driven loading](resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR); on POST decode that wire shape into domain values and dispatch the domain event with the result. This dispatch is the pattern's single normalisation seam.
 4. **The domain handler validates** `form-params` **in its own body** — not via `:schema`, which is a dev tripwire and elides from the production build. On failure → write the submitted fields back into the form slice's `:draft` and structured errors into its `:errors`, emit `[:rf.server/set-status 400]`, let the drain settle, re-render the page populated and with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
@@ -79,7 +79,7 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 
 The browser callbacks use `#?(:cljs ... :clj nil)` in a `.cljc` view, leaving the HTML form's native POST intact on the JVM.
 
-`:rf/server-init` routes GET vs POST **and owns normalisation**. A POST body does not arrive as domain data: the browser sends `csrf-token=tok-abc&item-id=sku-1&quantity=2`, and what lands under `:form-params` is `{"quantity" "2"}`, not `{:quantity 2}`. Putting the one decode here is what makes "one handler, both platforms" a fact rather than an aspiration — a handler that normalised its own input would first have to work out which platform sent it, which is exactly the knowledge this pattern spends its effort not needing.
+`:app/server-init` routes GET vs POST **and owns normalisation**. A POST body does not arrive as domain data: the browser sends `csrf-token=tok-abc&item-id=sku-1&quantity=2`, and what lands under `:form-params` is `{"quantity" "2"}`, not `{:quantity 2}`. Putting the one decode here is what makes "one handler, both platforms" a fact rather than an aspiration — a handler that normalised its own input would first have to work out which platform sent it, which is exactly the knowledge this pattern spends its effort not needing.
 
 ```clojure
 ;; `m` / `mt` are malli.core / malli.transform.
@@ -99,7 +99,7 @@ The browser callbacks use `#?(:cljs ... :clj nil)` in a `.cljc` view, leaving th
   [schema form-params]
   (m/decode schema (update-keys form-params keyword) mt/string-transformer))
 
-(rf/reg-event :rf/server-init
+(rf/reg-event :app/server-init
   {:doc "Per-request boot. GET → route the URL; POST → normalise, then form action."
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -201,7 +201,7 @@ Do **not** emit the redirect and the navigate together and label the navigate "c
 
 **re-frame2 ships no CSRF surface** — there is no `:rf.csrf/*` sub, cofx, or app-db slot, and `:rf/*` (every sub-namespace, `:rf.csrf/*` included) is reserved (`SKILL.md` Cardinal rule 7; `spec/Conventions.md` single-root reserved set). Register the CSRF surface under **your app's own feature prefix** — the `:app.csrf/*` ids below are illustrative placeholders for *your* registrations, not framework-provided surfaces (substitute `:auth.csrf/*` or whatever prefix your app owns).
 
-Every form POST MUST carry a CSRF token; the server MUST reject a bad one *before any state mutation*. Store the session token at an app-owned slot like `[:app.csrf :session-token]` (seeded by `:rf/server-init` from the request); the view subscribes to `[:app.csrf/token]` and emits a hidden `csrf-token` field; an app-owned `:app.csrf/active-token` cofx exposes it to the handler.
+Every form POST MUST carry a CSRF token; the server MUST reject a bad one *before any state mutation*. Store the session token at an app-owned slot like `[:app.csrf :session-token]` (seeded by `:app/server-init` from the request); the view subscribes to `[:app.csrf/token]` and emits a hidden `csrf-token` field; an app-owned `:app.csrf/active-token` cofx exposes it to the handler.
 
 **The compare fails closed on both limbs, and getting that wrong is silent.** The handler answers 403 unless the session **has** an active token *and* it equals the submitted one — which is why the arm above reads `(not (and (some? active-token) (= …)))`. Do **not** write `(not= (:csrf-token form-params) active-token)`: on a request with no session `active-token` is `nil`, an attacker's token-less POST supplies `nil`, `nil` equals `nil`, and the arm never fires. The one shape that looks tidiest is the one that opens the endpoint.
 

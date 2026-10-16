@@ -6,7 +6,7 @@
 ;;;; timing + matcher, the snapshot-scope resolver, and the orient assembler.
 ;;;;
 ;;;; WHY IT EXISTS. `runtime.cljs` is the SHIPPED preload; it reads live
-;;;; framework surfaces (`rf/frame-ids`, `rf/epoch-history`, …) and mutates
+;;;; framework surfaces (`rf/frame-ids`, `re-frame.epoch/epoch-history`, …) and mutates
 ;;;; session atoms (the operating-frame pin, the
 ;;;; recorder registry). None of that runs deterministically off-box.
 ;;;; The DECISION logic underneath, however, is pure data → data. Extracting

@@ -496,7 +496,7 @@ to `{}`, clears the subscription cache and queue, and runs `:initial-events` aga
 Tests and Story "reset" buttons use it. For a frame built from images, pass the same
 `:images` again. The two calls are not atomic, so run them outside any handler. To
 reset only app-db, dispatch `[:rf/set-db {}]` to the frame, or, with
-`day8/re-frame2-epoch` loaded, call `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
+`day8/re-frame2-epoch` loaded, call `(rf.epoch/replace-frame-state! frame-id {:rf.db/app {}})`.
 
 Creating a frame inside an event handler throws
 `:rf.error/frame-construction-in-handler`, which the error stream reports as a
@@ -547,7 +547,7 @@ Code gets its frame in one of three ways. Prefer them in this order:
     - In a Reagent `reg-view`, the injected `dispatch` and `subscribe` are already
       bound.
     - In UIx, the `(use-frame)` hook returns the same frame api (see
-      [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api)).
+      [Use UIx](how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api)).
     - Anywhere else, call `rf/capture-frame` directly.
 2. **Scope**: make a frame current for a region. `frame-root` and `frame-provider` do
    it for a React subtree through context; `with-frame` does it for a synchronous

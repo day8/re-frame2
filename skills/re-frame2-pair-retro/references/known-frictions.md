@@ -115,12 +115,12 @@ Typical improvements:
 ### Time-travel restore failures
 
 Signals:
-- `restore-epoch` refused with `:restore-rejected` and the session never ran the `trace-buffer` read the refusal's own `:hint` names, so which of the seven failure modes fired stayed unknown
+- `restore-epoch` refused and the session did not report the refusal's `:reason`, so which of the seven failure modes fired stayed unknown
 - the target epoch aged out silently because `:depth` was at default
 - a hot-swapped handler or evolved schema invalidated an older snapshot, but the failure tag was not surfaced helpfully
 
 Typical improvements:
-- check first — this already ships: `restore-epoch` returns a structured refusal (`:restore-rejected`), and the seven failure modes with their `:tags` (`:history-size`, `:schema-digest-recorded`/`:current`, `:missing`, `:failing-paths`) are pinned in re-frame2's Tool-Pair contract — route there rather than re-listing them. **The envelope carries no failure mode, by design**: the runtime primitive returns a bare `false`, so the tool surfaces `:restore-rejected` alone, and the `:tags` ride the error trace op (`:rf.epoch/restore-*` for six modes; unknown frame rides `:rf.error/no-such-handler`) that the refusal's own `:hint` tells the session to read with `(re-frame.core/trace-buffer <frame-id> {:flat true :op-type :error})`. So the discriminator is **the hint, not the tags**: a session that never followed it is discoverability, i.e. tool-shaped (route the wording to `re-frame2-pair/references/errors.md`, whose `:restore-rejected` entry points to the seven-row table in `ops.md` §Time-travel); a session that followed it and still found the row's tags left the next step unclear is a presentation gap — cite the row.
+- check first — this already ships: `restore-epoch` returns the framework's structured refusal, whose `:reason` is the failure mode (`:rf.epoch/restore-*` for six modes; unknown frame is `:rf.error/no-such-handler`) and whose other keys are that mode's `:tags` (`:history-size`, `:schema-digest-recorded`/`:current`, `:missing`, `:failing-paths`), pinned in re-frame2's Tool-Pair contract — route there rather than re-listing them. A session that ignored a `:reason` it was handed is discoverability, i.e. tool-shaped (route the wording to `re-frame2-pair/references/errors.md`, whose restore entry points to the seven-row table in `ops.md` §Time-travel); a session that read the reason and its tags and still found the next step unclear is a presentation gap — cite the row.
 - a next-best-action per failure mode, which the contract pins but does not prescribe
 
 ### Dry-run versus a live write
@@ -129,7 +129,7 @@ Signals:
 - a throwaway probe went through a live `dispatch` and took the frame's app-db with it — a handler returning `{:db <bare-map>}` REPLACES app-db wholesale
 - "what would this event do?" was answered by committing it, then undoing it
 - a write refused with `:rf.error/writes-disabled` was read as a broken tool — that is the default-OFF `--allow-writes` gate refusing before the write reaches the runtime, and it lifts at server launch
-- a write refused with `:restore-rejected` / `:reset-rejected` was read as that same closed gate — these are post-gate runtime refusals (restore target absent, drain in flight, frame / drain / schema rejection), so the gate was already open and lifting it changes nothing
+- a `restore-epoch` / `replace-app-db` refusal carrying a framework `:reason` (`:rf.epoch/*`, `:rf.error/no-such-handler`) was read as that same closed gate — these are post-gate runtime refusals (restore target absent, drain in flight, frame / drain / schema rejection), so the gate was already open and lifting it changes nothing
 
 Background: `dispatch-dry-run` simulates the registered event with declared effects suppressed, then attempts state rollback. Child `:dispatch` effects are recorded, not executed, so it does not simulate the whole downstream cascade. Reducers, interceptors, and listeners still run; arbitrary side effects inside them cannot be undone, and listeners / diagnostic history can observe the simulation. Treat rollback as successful only when the session result says `:ok? true` and `:rolled-back? true`; a rollback failure can leave simulated state live. The named write tools (`restore-epoch`, `replace-app-db`) sit behind the server's `--allow-writes` flag, **OFF by default**. That flag gates those named tools, not ordinary `dispatch` or raw `eval-cljs`; it is not a general read-only mode.
 

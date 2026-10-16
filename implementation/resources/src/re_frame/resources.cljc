@@ -163,7 +163,7 @@
   (when (nil? frame)
     (rf.error/throw-error!
       :rf.error/no-frame-context
-      'rf/resource-state
+      'rf.resources/resource-state
       (str "resource-state requires an explicit :frame "
            "introspection target. A frameless call would "
            "pass nil through to the runtime-db lookup and "
@@ -207,7 +207,7 @@
   (when (nil? frame)
     (rf.error/throw-error!
       :rf.error/no-frame-context
-      'rf/mutation-state
+      'rf.resources/mutation-state
       (str "mutation-state requires an explicit :frame "
            "introspection target. A frameless call would "
            "pass nil through to the runtime-db lookup and "
@@ -690,17 +690,16 @@
 (rf.late-bind/set-fns!
   {:resources/reg-resource   reg-resource
    :resources/clear-resource rf.resources.registry/clear-resource
-   :resources/resource-state resource-state
-   ;; Mutation registration + introspection, published through the same
-   ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
-   ;; / `mutation-state` wrappers reach the producing impl without a
-   ;; static :require. There are no `:resources/resource-meta` /
+   ;; Mutation registration, published through the same late-bind table so
+   ;; `re-frame.core`'s `reg-mutation` / `clear-mutation` wrappers reach the
+   ;; producing impl without a static :require. `resource-state` /
+   ;; `mutation-state` publish no hook: introspection is called here, at
+   ;; home. There are no `:resources/resource-meta` /
    ;; `:resources/mutation-meta` hooks: the registered spec is
    ;; read through the generic `rf/handler-meta` plus the `:rf/resource` /
    ;; `:rf/mutation` inner-key projection, which needs no artefact at all.
    :resources/reg-mutation   reg-mutation
    :resources/clear-mutation rf.resources.mutation-registry/clear-mutation
-   :resources/mutation-state mutation-state
    ;; Named resource-scope resolvers, published through the same late-bind
    ;; table so
    ;; `re-frame.core`'s `reg-resource-scope` / `clear-resource-scope` /

@@ -91,7 +91,7 @@ It schedules an auto-open into `[data-rf-xray-host]` once
 during namespace load; it MAY schedule a bounded adapter-ready retry.
 
 **Any installed browser adapter will do.** Xray paints through its own
-React root, so the ratom family (Reagent, reagent-slim) and the
+React root, so the ratom family (Reagent) and the
 React-hook substrates (UIx, Fresco) mount it alike; all it needs is that
 the host called `rf/init!` with one
 ([`008-Embedding-Contract.md` §The minimum host contract](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md#the-minimum-host-contract)).

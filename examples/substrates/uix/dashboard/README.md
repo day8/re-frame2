@@ -150,7 +150,7 @@ source needs `defui` and `$` — but never `com.pitch/uix.dom`. Add that fourth
 coordinate only if something in your app drives a React root by hand; the
 [component-test recipe](../../../../docs/core/testing/views.md#4-uix-hook-components-mount-it-for-real)
 does, and this example does not. See
-[Use UIx or reagent-slim](../../../../docs/core/how-to/use-uix-or-slim.md#one-adapter-per-build-the-coordinate-table)
+[Use UIx](../../../../docs/core/how-to/use-uix-or-slim.md#one-adapter-per-build-the-coordinate-table)
 for the recipe in context.
 
 ## Accessibility + responsive — what to copy

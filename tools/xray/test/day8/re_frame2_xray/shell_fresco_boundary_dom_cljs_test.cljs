@@ -57,6 +57,7 @@
             [clojure.string :as str]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
@@ -726,7 +727,7 @@
           (-> (poll-until tab-testid)
               (.then
                 (fn [_]
-                  (reset! !before (vec (rf/epoch-history embed-app-frame)))
+                  (reset! !before (vec (rf.epoch/epoch-history embed-app-frame)))
                   (is (seq @!before)
                       "instrument control: the host app's ring is NON-EMPTY,
                        so `unchanged` below is a claim about real records")
@@ -748,14 +749,14 @@
                   ;; string and this frame would hold nothing.
                   (is (= clicked-tab (selected-tab-in embed-xray-frame))
                       "and the write landed in the embed's OWN frame")
-                  (is (= @!before (vec (rf/epoch-history embed-app-frame)))
+                  (is (= @!before (vec (rf.epoch/epoch-history embed-app-frame)))
                       "MEASURED: the embed adds NO epoch record to the host
                        application's ring and leaves every existing record
                        byte-identical — the outer provider `mount-shell!` does
                        not add is not a leak, and cannot become one")
                   ;; The ring is LIVE, not merely quiet.
                   (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
-                  (is (not= @!before (vec (rf/epoch-history embed-app-frame)))
+                  (is (not= @!before (vec (rf.epoch/epoch-history embed-app-frame)))
                       "control: a genuine APPLICATION event DOES move the
                        same ring — the equality above is Xray being absent,
                        not the instrument being deaf")))

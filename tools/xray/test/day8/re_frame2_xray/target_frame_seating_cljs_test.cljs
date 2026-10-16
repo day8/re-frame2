@@ -32,6 +32,7 @@
   that nothing mounts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -99,7 +100,7 @@
 (def ^:private main-epochs
   "Stand-in for the framework's per-frame epoch ring on `:app/main`. Non-empty
   on purpose: `:rf.xray/set-target-frame` re-seeds `:epoch-history` from
-  `(rf/epoch-history target)`, so a target silently reset to nil leaves the
+  `(rf.epoch/epoch-history target)`, so a target silently reset to nil leaves the
   slot `[]` — a discriminating value the empty ring could not supply."
   [{:epoch-id      :e-main-1
     :frame         :app/main
@@ -110,7 +111,7 @@
     :trace-events  []}])
 
 (defn- stub-epoch-history
-  "`rf/epoch-history` narrowed to the frames these deftests name. In production
+  "`rf.epoch/epoch-history` narrowed to the frames these deftests name. In production
   the framework's ring already carries these records; stubbing keeps the
   assertion about Xray's seeding, not about the ring."
   [frame-id]
@@ -242,7 +243,7 @@
             open, silently, with no error to read."
     (registry/register-xray-handlers!)
     (config/set-auto-open! false)
-    (with-redefs [rf/epoch-history stub-epoch-history]
+    (with-redefs [rf.epoch/epoch-history stub-epoch-history]
       (core/set-target-frame! :app/main)
       (is (some? (rf.frame/frame :rf/xray))
           "the facade seated the frame")
@@ -277,7 +278,7 @@
             rather than a disabled policy."
     (registry/register-xray-handlers!)
     (config/set-auto-open! false)
-    (with-redefs [rf/epoch-history stub-epoch-history]
+    (with-redefs [rf.epoch/epoch-history stub-epoch-history]
       (trace-collector/seed-trace-for-test!
         (pre-mount-dispatch-event 1 100 :other/frame :other/event))
       (core/set-target-frame! :app/main)
@@ -324,7 +325,7 @@
         "precondition: nothing has seated Xray's frame — the same start
          state as the unseated control, and NOT what the core-cljs-test
          init! deftests set up")
-    (with-redefs [rf/epoch-history stub-epoch-history]
+    (with-redefs [rf.epoch/epoch-history stub-epoch-history]
       (let [seen (capture-errors!)]
         (core/init! {:target-frame :app/main})
         (is (some? (rf.frame/frame :rf/xray))
@@ -348,7 +349,7 @@
             rows pin, now reached through the manual boot route."
     (config/set-auto-open! false)
     (rf/make-frame {:id :app/main})
-    (with-redefs [rf/epoch-history stub-epoch-history]
+    (with-redefs [rf.epoch/epoch-history stub-epoch-history]
       (trace-collector/seed-trace-for-test!
         (pre-mount-dispatch-event 1 100 :other/frame :other/event))
       (core/init! {:target-frame :app/main})

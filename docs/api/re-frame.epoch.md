@@ -4,26 +4,27 @@ In development builds, re-frame records an epoch for every event a frame handles
 
 Most of the time you use epochs through a tool: Xray's time-travel view, re-frame2-pair and Story read the history and call these functions for you. At a REPL the usual loop is the one below: find the event that went wrong, rewind to just before it, fix and reload its handler, and replay it.
 
-Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it. Without it, `rf/epoch-history` returns `[]`, `rf/restore-epoch!` and `rf/replay-epoch!` return `false`, and `rf/replace-frame-state!` throws `:rf.error/epoch-artefact-missing`.
+Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it, and call the functions on this page there, as `rf.epoch/…`. A tool that must also run without the artefact reads the history through `rf/epoch-history`, which returns `[]` when it is absent.
 
 ```clojure
 (:require [re-frame.core  :as rf]
-          [re-frame.epoch :as epoch])
+          [re-frame.epoch :as rf.epoch])
 ```
 
 ```clojure
 ;; What did the recent events do? History is oldest-first.
-(def history (rf/epoch-history :app/main))
+(def history (rf.epoch/epoch-history :app/main))
 (map :event-id history)                  ;; => (:cart/add :cart/add :cart/checkout)
 (select-keys (peek history) [:trigger-event :db-before :db-after])
 
 ;; :cart/checkout went wrong. Rewind to the state just before it,
 ;; which is the previous epoch's after-state.
-(rf/restore-epoch! :app/main (:epoch-id (nth history 1)))   ;; => true
+(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history 1)))
+;; => {:ok? true :frame :app/main :epoch-id … :to :after}
 
 ;; Fix and reload the :cart/checkout handler, then run the recorded event
 ;; again. Its effects, such as an HTTP request, run again too.
-(rf/replay-epoch! :app/main (:epoch-id (nth history 2)))
+(rf.epoch/replay-epoch! :app/main (:epoch-id (nth history 2)))
 ;; => {:ok? true :frame :app/main :event-id :cart/checkout …}
 ```
 
@@ -33,7 +34,7 @@ last event and checkout runs again, recording a new epoch.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf]
-         '[re-frame.epoch])
+         '[re-frame.epoch :as rf.epoch])
 
 (rf/reg-event :cart/add
   (fn [{:keys [db]} [_ item]]
@@ -50,7 +51,7 @@ last event and checkout runs again, recording a new epoch.
   (let [items   @(subscribe [:cart/items])
         ordered @(subscribe [:cart/ordered])
         ;; Not a subscription: read again whenever the cart changes.
-        history (rf/epoch-history :app/main)
+        history (rf.epoch/epoch-history :app/main)
         n       (count history)]
     [:div
      [:button {:on-click #(dispatch [:cart/add "apple"])} "Add an apple"]
@@ -59,18 +60,18 @@ last event and checkout runs again, recording a new epoch.
      [:p "Cart: " (pr-str items) ", ordered: " (pr-str ordered)]
      [:p "History: " (pr-str (map :event-id history))]
      [:button {:disabled (< n 2)
-               :on-click #(rf/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
+               :on-click #(rf.epoch/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
       "Rewind to before the last event"]
      " "
      [:button {:disabled (zero? n)
-               :on-click #(rf/replay-epoch! :app/main (:epoch-id (peek history)))}
+               :on-click #(rf.epoch/replay-epoch! :app/main (:epoch-id (peek history)))}
       "Replay the last event"]]))
 
 [rf/frame-root {:id :app/main}
  [cart-history]]
 ```
 
-You call everything on this page through `rf/`, including listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`). The same-named `re-frame.epoch` vars are the implementations behind the facade; a test calls only the teardown functions `clear-history!` and `clear-epoch-listeners!` on `epoch/`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
+Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`) go through `rf/`; everything else on this page is called on `rf.epoch/`, including the teardown functions a test calls, `clear-history!` and `clear-epoch-listeners!`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
 
 ## Epoch history
 
@@ -90,8 +91,8 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; All recorded epochs for a frame, oldest-first; peek the latest.
-  (rf/epoch-history :app/main)
-  (last (rf/epoch-history :app/main))
+  (rf.epoch/epoch-history :app/main)
+  (last (rf.epoch/epoch-history :app/main))
   ```
 
 ## The epoch record
@@ -135,20 +136,20 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch! frame-target epoch-id)      → boolean
-  (restore-epoch! frame-target epoch-id opts) → boolean
+  (restore-epoch! frame-target epoch-id)      → envelope map, or false
+  (restore-epoch! frame-target epoch-id opts) → envelope map, or false
   ```
 - **Description**: Rewinds the frame to the named epoch's `:frame-state-after` in one atomic write, or with `opts` `{:to :before}` to its `:frame-state-before`. Both partitions rewind: `app-db` and `runtime-db` alike, so machine snapshots and the route slice go back too.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
     - `{:to :before}` undoes a `replace-frame-state!` write: restore the record it left `:before`. That needs no earlier epoch, so it works on a fresh frame too. It also reaches the state before the oldest retained event. `:to` defaults to `:after`; any other value throws.
-    - Returns `true` on success and emits `:rf.epoch/restored`. Returns `false` and does nothing in a production build, or when the `day8/re-frame2-epoch` artefact is not loaded.
+    - On success it returns `{:ok? true :frame … :epoch-id … :to …}`, naming the epoch restored and the direction, and emits `:rf.epoch/restored`. Returns `false` and does nothing in a production build, or when the `day8/re-frame2-epoch` artefact is not loaded.
     - The history is kept: epochs recorded after the target stay in the ring, so you can still restore or replay them. A restore records no epoch of its own.
     - Work the frame had in flight belongs to the abandoned timeline, so a successful restore cancels or settles it, and a late reply from before the restore changes nothing:
         - the frame's in-flight managed HTTP requests are aborted, and their replies are not delivered;
         - its machine `:after` timers are cancelled;
         - a resource that was mid-fetch in the recorded state settles to its last stable status (`:loaded` when it holds data, otherwise `:error` or `:idle`), and a mutation that was pending settles to `:error`.
     - A timer or HTTP cleanup that throws emits `:rf.warning/restore-quiesce-hook-exception`, and the remaining cleanup still runs.
-- **Errors**: Returns `false`, leaves the frame-state unchanged, and emits one of these error traces on the `:trace` stream; the return value carries no reason. Read them with `(rf/register-listener! :trace …)`, in Xray, or with [`with-trace-recorder!`](re-frame.test-support.md#with-trace-recorder) in a test:
+- **Errors**: Returns `{:ok? false :reason … :frame … <tags>}`, leaves the frame-state unchanged, and emits the error trace its `:reason` names on the `:trace` stream. The envelope carries that trace's tags, with `:rf.epoch/id` spelled `:epoch-id`, so `(:reason r)` says why without reading the trace:
     - `:rf.error/no-such-handler` (kind `:frame`): the frame is not registered, or was destroyed.
     - `:rf.epoch/restore-during-drain`: called while a drain is in flight.
     - `:rf.epoch/restore-unknown-epoch`: `epoch-id` is not in the frame's current history.
@@ -158,8 +159,10 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
     - `:rf.epoch/restore-version-mismatch`: a machine snapshot's version differs from the current definition.
 - **Example**:
   ```clojure
-  (let [target (last (rf/epoch-history :app/main))]
-    (rf/restore-epoch! :app/main (:epoch-id target)))
+  (let [target (last (rf.epoch/epoch-history :app/main))
+        r      (rf.epoch/restore-epoch! :app/main (:epoch-id target))]
+    (when-not (:ok? r)
+      (println "restore refused:" (:reason r))))
   ```
 
 ### `replay-epoch!`
@@ -189,8 +192,8 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; Replay the most recent epoch through the app's own handlers, strictly.
-  (let [source (last (rf/epoch-history :app/main))]
-    (rf/replay-epoch! :app/main (:epoch-id source)))
+  (let [source (last (rf.epoch/epoch-history :app/main))]
+    (rf.epoch/replay-epoch! :app/main (:epoch-id source)))
   ;; => {:ok? true :frame :app/main :source-epoch-id 41 :event-id :cart/add :epoch-id 42}
   ```
 
@@ -201,17 +204,17 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (replace-frame-state! frame-target new-frame-state) → boolean
+  (replace-frame-state! frame-target new-frame-state) → envelope map, or false
   ```
 - **Description**: Writes a frame's partitions directly, without dispatching an event. Use it from a REPL or a tool to put a frame into a particular state without writing an event for it; pair tools inject state this way. Development builds only: in a production build it returns `false` and writes nothing. Application code resets state with the [`:rf/set-db`](re-frame.core.md#rfset-db) or [`:rf/install-frame-state`](re-frame.core.md#rfinstall-frame-state) event instead.
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
     - `new-frame-state` is a partial frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A key that is present replaces that partition; a key that is absent leaves its partition unchanged. Writing one partition never touches the other.
     - This is the only frame-state write function. There is no `replace-app-db!`, `reset-app-db!` or `replace-runtime-db!`; write the one partition you mean.
-    - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Restoring that record with `{:to :before}` undoes the write. Returns `true`.
+    - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Restoring that record with `{:to :before}` undoes the write. Returns `{:ok? true :frame … :epoch-id …}`, where `:epoch-id` names that synthetic record (`nil` if the frame was destroyed just after the write, before the record could be kept).
 - **Errors**:
     - Throws `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch` artefact is not loaded. It cannot quietly return `false` as the other functions do, because the record it writes is what makes the write undoable.
-    - Otherwise, a refused write returns `false`, changes nothing, and emits one of these error traces on the `:trace` stream, as for `restore-epoch!`:
-        - `:rf.error/replace-frame-state-bad-keys`: the map has no recognised partition key, or has an unrecognised key. Checked before the frame is resolved.
+    - Otherwise, a refused write returns `{:ok? false :reason … :frame … <tags>}`, changes nothing, and emits the error trace its `:reason` names, as for `restore-epoch!`:
+        - `:rf.error/replace-frame-state-bad-keys`: the map has no recognised partition key, or has an unrecognised key. Checked before the frame is resolved. The envelope's `:cause` says which (`:no-recognized-keys` or `:unknown-keys`), beside `:keys`.
         - `:rf.error/no-such-handler`: the frame is not registered.
         - `:rf.epoch/replace-during-drain`: called while a drain is in flight.
         - `:rf.epoch/replace-schema-mismatch`: a present `app-db` value fails the frame's registered app-schemas, or a present `runtime-db` value fails the framework's `runtime-db` validator.
@@ -219,16 +222,16 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 - **Example**:
   ```clojure
   ;; Replace app-db only; runtime-db is kept.
-  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
 
   ;; Empty app-db while keeping machines and routes alive.
-  (rf/replace-frame-state! :app/main {:rf.db/app {}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {}})
 
   ;; Replace runtime-db only; app-db is kept.
-  (rf/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
 
   ;; Replace both partitions atomically.
-  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
+  (rf.epoch/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
   ```
 
 ## Epoch listeners
@@ -273,11 +276,11 @@ The ring and the `:epoch` listeners always hold the raw record, so on-box tools 
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).
-(rf/project-egress (last (rf/epoch-history :app/main)))
+(rf/project-egress (last (rf.epoch/epoch-history :app/main)))
 ;; Tool wire: elided slots carry the marker's structural fields, no digest.
 (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
 ;; The whole ring.
-(mapv #(rf/project-egress % opts) (rf/epoch-history :app/main))
+(mapv #(rf/project-egress % opts) (rf.epoch/epoch-history :app/main))
 ```
 
 ## Configuration
@@ -344,7 +347,7 @@ Not for application code — used by adapters, tools and the test harness.
 - **Example**:
   ```clojure
   ;; Reset epoch state between test fixtures.
-  (epoch/clear-history!)
+  (rf.epoch/clear-history!)
   ```
 
 ### `clear-epoch-listeners!`

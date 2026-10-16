@@ -1663,39 +1663,19 @@
 
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;
-;; The optional resources artefact (`day8/re-frame2-resources`). `reg-resource`
-;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
-;; non-registration surface is plain re-exports below. Each delegates
-;; through the late-bind table and throws `:rf.error/resources-artefact-missing`
-;; when the artefact is absent. Per Spec 016 §Public API.
-
-;; There is no `resource-meta` export. A resource's registered spec is
-;; the generic registrar read plus the documented `:rf/resource` inner-key
-;; projection, which needs no artefact and no per-kind alias:
+;; The optional resources artefact (`day8/re-frame2-resources`). The
+;; registration macros `reg-resource` / `reg-mutation` / `reg-resource-scope`
+;; are above, for source-coord capture. The facade carries what app code
+;; authors — the registrations and `resolve-resource-scope`, which a logout
+;; handler calls. Introspection (`resource-state`, `mutation-state`) lives at
+;; home in `re-frame.resources` (spec/API.md §Conventions, the role rule).
+;; The re-export below delegates through the late-bind table and throws
+;; `:rf.error/resources-artefact-missing` when the artefact is absent.
+;;
+;; A resource's / mutation's registered spec has no per-kind accessor: it is
+;; the generic registrar read plus the documented inner-key projection —
 ;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
-
-(def ^{:doc "Return a resource instance's runtime state for an
-  explicit-frame target `{:resource :scope :params :frame}`. Per EP-0002
-  the frame is carried explicitly. Per Spec 016 §Introspection.
-  Implementation ships in `day8/re-frame2-resources`."}
-  resource-state  rf.core-resources/resource-state)
-
-;; Mutations (EP-0003 §Mutations).
-;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
-;; fn-alias; the non-registration surface is plain re-exports below.
-
-;; No `mutation-meta` export either —
 ;;   (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id id}))
-
-(def ^{:doc "Return a mutation INSTANCE's durable runtime row (`{:status
-  :result :error …}`) for an explicit-frame target `{:instance :frame}`, or
-  `nil`. Per EP-0002 the frame is carried explicitly. Per EP-0003
-  §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  mutation-state  rf.core-resources/mutation-state)
-
-;; Named resource-scope resolvers (EP-0016 D3). `reg-resource-scope`
-;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
-;; non-registration surface is plain re-exports below.
 
 (def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
   the supplied `db` value, returning a canonical concrete scope or nil — a
@@ -2553,39 +2533,19 @@
 ;; same surface. Per Spec 009 §Event-bundle projection.
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
+;;
+;; The epoch surface is inspection, history and tooling, so it lives at home
+;; in `re-frame.epoch` (spec/API.md §Conventions, the role rule):
+;; `epoch-history`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!`.
+;; `epoch-history` is also re-exported here, forwarding to the same function.
 
 (def ^{:doc "Return the vector of `:rf/epoch-record` values for the
-  frame, oldest-first. Empty when the frame has no recorded epochs,
-  when recording is disabled, or when the `day8/re-frame2-epoch`
-  artefact is not on the classpath. Per Tool-Pair §Time-travel.
-  Late-bound via `:epoch/epoch-history`."}
+  frame, oldest-first: the same function as `re-frame.epoch/epoch-history`,
+  which new code calls. Empty when the frame has no recorded epochs, when
+  recording is disabled, or when the `day8/re-frame2-epoch` artefact is not
+  on the classpath. Per Tool-Pair §Time-travel. Late-bound via
+  `:epoch/epoch-history`."}
   epoch-history      rf.core-epoch/epoch-history)
-
-(def ^{:doc "Rewind the named frame's WHOLE frame-state — BOTH the app-db
-  AND runtime-db partitions — to the named epoch's `:frame-state-after`,
-  reinstalled atomically via `replace-frame-state!` (EP-0001),
-  so machine snapshots, the route slice, elision declarations, and SSR
-  metadata are revived alongside app-db, not just the app-db projection
-  (`:db-after`). Returns `true` on success, `false` on any of the seven
-  documented failure modes (each emits a structured `:rf.epoch/*` error
-  trace) or when the epoch artefact is absent. Per Tool-Pair
-  §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
-  restore-epoch!     rf.core-epoch/restore-epoch!)
-
-(def ^{:doc "Re-drive the named retained epoch's recorded event through the
-  frame's own handlers in ONE call, as a strict replay (Tool-Pair §Replay):
-  the raw `:trigger-event`, the recorded post-generation `:rf.cofx` under
-  `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` /
-  `:interceptor-overrides` are folded into the dispatch in-process — nothing
-  is exported or re-supplied by hand. Same frame in and out; replay runs
-  against the frame's CURRENT state and code (no implicit restore), effects
-  fire again, and the replayed dispatch records a new ordinary epoch.
-  Returns a structured `{:ok? …}` envelope (refusals are decided before
-  anything dispatches; a declared fact absent from the token stays the
-  canonical `:rf.error/missing-required-cofx` hard error), or `false` when
-  the surface is elided / the epoch artefact is absent. Per Tool-Pair
-  §Replay. Late-bound via `:epoch/replay-epoch!`."}
-  replay-epoch!      rf.core-epoch/replay-epoch!)
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports.
@@ -2603,57 +2563,10 @@
 
 ;; ---- frame-state write surface -------------------------------------------
 ;;
-;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the
-;; partition write surface is ONE fn: `replace-frame-state!` — WHICH
-;; partitions a write touches is data (the keys of the frame-state map),
-;; not a family of per-partition mutators.
-;;
-;; `replace-frame-state!` takes a PARTIAL frame-state map: a present key
-;; (`:rf.db/app` and/or `:rf.db/runtime`) replaces that partition; an
-;; absent key is preserved unchanged. A db-shaped key never silently
-;; touches the OTHER partition — the partition is named explicitly by its
-;; real key at every call site, and a typo'd or unrecognized key fails
-;; loudly rather than silently no-opping. It is an epoch-backed Tool-Pair
-;; injection write: records a synthetic `:rf/epoch-record` so `restore-epoch!`
-;; can rewind past the injection, returns a boolean, shares the drain-guard
-;; + the reject-bad-keys contract + the per-present-partition schema-
-;; validation contract, and raises `:rf.error/epoch-artefact-missing` when
-;; the epoch artefact is absent. Late-binds through `re-frame.epoch` via
-;; `:epoch/replace-frame-state!`.
-;;
-;; A single-partition write composes a one-key map:
-;;   - app-only injection    → `(replace-frame-state! id {:rf.db/app v})`
-;;   - app-only reset        → `(replace-frame-state! id {:rf.db/app {}})`
-;;   - runtime-only injection → `(replace-frame-state! id {:rf.db/runtime v})`
-;;   - both-partition install → supply both keys
-
-(def ^{:doc "Atomically install `frame-state` — a PARTIAL frame-state map
-  (any subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
-  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
-  partition, an ABSENT key is preserved unchanged (the ONE frame-state
-  write surface). A db-shaped key never silently
-  touches the other partition — the partition is named explicitly at
-  every call site. The
-  canonical Tool-Pair write surface for state injection — pair tools,
-  story fixtures, conformance harnesses, and time-travel from JSON
-  repros. Records a synthetic `:rf/epoch-record` so `restore-epoch!` can
-  rewind. Returns `true` on success, `false` on a documented failure
-  (bad keys, unknown frame, drain in flight, history disabled, schema
-  mismatch on a PRESENT partition). Dev-only (gated on
-  `rf.interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
-  when the epoch artefact is absent.
-
-  App-only injection: `(replace-frame-state! id {:rf.db/app v})`; an
-  app-only reset is `(replace-frame-state! id {:rf.db/app {}})`.
-  Runtime-only injection:
-  `(replace-frame-state! id {:rf.db/runtime v})`. A map with no recognized partition key, or an
-  unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys`
-  (checked before frame resolution — a caller-input-shape error).
-
-  Per Spec 002 §Frame-state value accessors and mutators, Tool-Pair
-  §Pair-tool writes, and API.md `replace-frame-state!`. Late-bound via
-  `:epoch/replace-frame-state!`."}
-  replace-frame-state!   rf.core-epoch/replace-frame-state!)
+;; The Tool-Pair frame-state write, `replace-frame-state!`, is a tool's
+;; out-of-band injection rather than something app code authors, so it lives
+;; at home in `re-frame.epoch` beside the restore that undoes it. App code
+;; writes state through events (`:rf/set-db`, `:rf/install-frame-state`).
 
 ;; Per Security.md §Epoch privacy posture — off-box epoch
 ;; egress. There is deliberately NO `projected-record` façade export:

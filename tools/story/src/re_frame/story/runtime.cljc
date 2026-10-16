@@ -329,6 +329,15 @@
    :reason    "loaders-complete-when did not report completion; events and play were skipped"
    :passed?   false})
 
+(defn restore-epoch!
+  "Rewind `frame-id` to `epoch-id` — `re-frame.epoch/restore-epoch!`, called
+  through its `:epoch/restore-epoch!` late-bind hook so Story carries no hard
+  dependency on the epoch artefact. Returns the restore's `{:ok? …}`
+  envelope, or nil when the artefact is not loaded."
+  [frame-id epoch-id]
+  (when-let [restore! (rf.late-bind/get-fn :epoch/restore-epoch!)]
+    (restore! frame-id epoch-id)))
+
 (defn record-error!
   "Append an error record to the variant frame's `[:rf.story/assertions]`
   accumulator. Per `002-Runtime.md` §Error projection errors continue the play sequence
@@ -572,14 +581,13 @@
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script
            executed-play-keys plan runner-selection epoch-baseline]} start-ms]
   (let [app-db   (rf/app-db-value variant-id)
-        ;; Read the epoch tape through the
-        ;; late-bound `re-frame.core/epoch-history` facade (mirroring
+        ;; Read the epoch tape through the late-bound
+        ;; `rf.story.assertions/epoch-history` (mirroring
         ;; `re-frame.story.artifact`'s replay-path read), NOT a hard
         ;; `[re-frame.epoch …]` require. Story's published surface (and
         ;; its downstream consumer `tools/story-mcp`) carry no epoch dep on
-        ;; the production classpath; the facade degrades to `[]` there
-        ;; (per `re-frame.core/epoch-history`'s contract) while the
-        ;; `:test`-alias epoch dep makes it the live tape under the gate.
+        ;; the production classpath; the read degrades to `[]` there while
+        ;; the `:test`-alias epoch dep makes it the live tape under the gate.
         ;;
         ;; Same-id reruns reset app-db/runtime-db in place so mounted view
         ;; reactions survive, but the epoch ring is frame-owned across
@@ -592,7 +600,7 @@
         ;; Reading it whole is what lets the truncation signal see
         ;; whether the ring evicted the baseline record itself — the
         ;; baseline-filtered `tape` alone cannot witness its own truncation.
-        full-ring (rf/epoch-history variant-id)
+        full-ring (rf.story.assertions/epoch-history variant-id)
         ;; The per-run epoch-tape truncation signal: true when
         ;; the bounded ring evicted the run's earliest epochs (the ring does
         ;; not reach back to the baseline). Threaded to `rf.story.result/run-result` so an in-bounds
