@@ -44,7 +44,7 @@
       (rf.trace/emit! :rf.registry :rf.test/fenced-emit {:frame frame-id}))))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug listener-body-runs-neutral-while-fence-suppresses-a-tail
   (reg-test-events!)

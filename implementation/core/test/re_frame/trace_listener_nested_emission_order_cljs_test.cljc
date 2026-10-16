@@ -31,7 +31,7 @@
   (filterv #{outer inner} (mapv :operation evs)))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug nested-emit-completes-synchronously
   ;; L0 (emitter, first) emits `inner` while handling `outer`, then checks — the

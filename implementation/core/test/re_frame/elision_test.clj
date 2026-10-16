@@ -5,7 +5,7 @@
   ## Posture split
 
   Elision is production behaviour, so almost every assertion here runs under
-  `scripts/test-core-prod-gate.sh`. The exception is
+  `clojure -M:test:prod-gate`. The exception is
   `:rf.warning/large-value-unschema'd`, the dev-only auto-detect warning. It is
   the size threshold's only observable, because an unschema'd large value is
   never elided, so every assertion that reads it sits in a

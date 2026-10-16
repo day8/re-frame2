@@ -678,12 +678,10 @@
 ;;
 ;; NOTHING ELSE SEES IT, and that is not for want of guards.  `RF2_MIN_TESTS`
 ;; above is a COLLAPSE detector: one file's handful of tests sits far inside
-;; the headroom any growing lane must leave itself.  `verify_roster` in
-;; `scripts/test-core-prod-gate.sh` compares the file count against the
-;; namespace count but SCRAPES the `(ns ` line with `sed`, and
-;; `scripts/check_test_lane_bijection.py` matches it with a regex — both
-;; therefore match the APPEARANCE of a declaration rather than the
-;; declaration, and both stay green over such a broken file.
+;; the headroom any growing lane must leave itself.
+;; `scripts/check_test_lane_bijection.py` matches the `(ns ` line with a
+;; regex, so it matches the APPEARANCE of a declaration rather than the
+;; declaration, and stays green over such a broken file.
 ;; Reading the form is the whole point, so the check lives HERE, in the one
 ;; process that already has the lane's classpath and the discovery library
 ;; on it, rather than in a script that would have to imitate a reader.

@@ -1,7 +1,8 @@
 (ns re-frame.prod-gate-lane-pin-test
-  "The posture pin for `scripts/test-core-prod-gate.sh`. That lane runs a subset
-  of what already passes in dev posture, so if `-Dre-frame.debug=false` stops
-  reaching its JVM the lane goes GREEN on the wrong posture rather than red.
+  "The posture pin for the core production-gate lane, `clojure -M:test:prod-gate`.
+  Every test that lane runs already passes in dev posture, so if
+  `-Dre-frame.debug=false` stops reaching its JVM the lane goes GREEN on the
+  wrong posture rather than red.
   `debug-enabled?` is read once at load, so only the command-line property can
   set it.
 
@@ -14,7 +15,7 @@
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
   (is (= "false" (System/getProperty "re-frame.debug"))
-      "run this lane via `sh scripts/test-core-prod-gate.sh`"))
+      "run this lane as `clojure -M:test:prod-gate` in implementation/core"))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
   (is (false? rf.interop/debug-enabled?)))

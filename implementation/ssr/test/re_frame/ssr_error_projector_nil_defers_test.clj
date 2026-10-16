@@ -8,7 +8,7 @@
 
   Every assertion holds in both postures: the captures read the always-on
   axis as well as the dev trace, so the namespace means the same thing under
-  `scripts/test-ssr-prod-gate.sh`."
+  `clojure -M:test:prod-gate`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]

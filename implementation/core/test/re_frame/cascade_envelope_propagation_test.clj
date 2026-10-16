@@ -9,7 +9,7 @@
 
   Every claim reads a production surface — fx-handler arguments or
   `(:envelope m)` — so the whole namespace runs under
-  `scripts/test-core-prod-gate.sh` too."
+  `clojure -M:test:prod-gate` too."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

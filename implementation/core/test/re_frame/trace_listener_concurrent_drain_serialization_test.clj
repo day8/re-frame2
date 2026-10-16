@@ -43,7 +43,7 @@
   (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug concurrent-drains-of-different-frames-never-overlap-one-listener
   (testing (str "two simultaneous drains of DIFFERENT frames neither enter one "

@@ -43,7 +43,7 @@
 (def ^:private latch-timeout-s 10)
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug fanout-monitor-drain-lock-ab-ba-does-not-deadlock
   (testing (str "T1 (fanout-monitor -> listener -> dispatch-sync F) against the "

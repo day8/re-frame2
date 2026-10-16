@@ -155,14 +155,12 @@
   ;; `re-frame.prod-gate-lane-pin-test` fails the run if it ever stops
   ;; arriving.
   ;;
-  ;; NOT THE WHOLE SUITE. Namespaces that assert dev instrumentation
-  ;; (traces, the `:errors` sink, doc metadata, source coords) inline with
-  ;; semantics are red under the real gate — legitimate dev-posture tests,
-  ;; not defects. The runnable
-  ;; roster therefore lives in `scripts/test-core-prod-gate.sh`, which appends
-  ;; `-n` selectors for every namespace MINUS a documented known-red list, so
-  ;; a NEW namespace joins the lane by default. Do not invoke this alias
-  ;; bare; run the script.
+  ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
+  ;; directory, is the whole production-gate lane, in CI (the
+  ;; `jvm-core-prod-gate` job) and on a laptop alike. The runner discovers
+  ;; every `.*-test$` namespace, so a NEW namespace joins the lane by default,
+  ;; and the deftests that assert dev instrumentation are excluded by the tag
+  ;; below rather than by any list of namespaces.
   ;;
   ;; `-e :requires-debug` — THE DEV-ONLY DECLARATION. A namespace that mixes
   ;; instrumentation and semantics is SPLIT: the instrumentation assertions
@@ -185,11 +183,11 @@
   ;; tagged namespace is UNTAGGED, so it joins the gate lane by default and has
   ;; to be excluded deliberately. A namespace-level marker would swallow it.
   ;;
-  ;; AND THE NAMESPACE STILL RUNS SOMETHING. cognitect `require`s every `-n`
-  ;; namespace BEFORE it filters vars, so a tagged namespace is still LOADED
-  ;; under `-Dre-frame.debug=false` and a load-time failure there still reddens
-  ;; this job — strictly more than a roster exclusion, which would keep the
-  ;; file off the classpath altogether. What the tag does NOT do is claim the
+  ;; AND THE NAMESPACE STILL RUNS SOMETHING. cognitect `require`s every
+  ;; namespace it discovers BEFORE it filters vars, so a tagged namespace is
+  ;; still LOADED under `-Dre-frame.debug=false` and a load-time failure there
+  ;; still reddens this job — strictly more than leaving the namespace out of
+  ;; the run altogether. What the tag does NOT do is claim the
   ;; tests ran: `contains-tests?` drops a fully-tagged namespace before
   ;; `run-tests` sees it, so it contributes no test and no assertion to the
   ;; tally, and nothing green is reported for work that did not happen.

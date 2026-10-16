@@ -7,7 +7,7 @@
   process-wide `[kind id]` index tooling reads by `re-frame.source-coords-test`.
 
   JVM-only (`_test.clj`) so the gate can be modelled with `with-redefs`; under
-  `scripts/test-core-prod-gate.sh` the redef is a no-op over an already-false
+  `clojure -M:test:prod-gate` the redef is a no-op over an already-false
   flag. The CLJS bundle-level absence is pinned by `scripts/check-elision.cjs`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]

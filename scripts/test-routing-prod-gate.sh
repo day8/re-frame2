@@ -5,7 +5,8 @@
 # WHY THIS EXISTS.  `SECURITY.md` documents `-Dre-frame.debug=false` (and
 # `RE_FRAME_DEBUG=false`) as the JVM/SSR production setting, and
 # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-# `scripts/test-core-prod-gate.sh` covers `implementation/core` ONLY, so every
+# The core lane (`clojure -M:test:prod-gate` in `implementation/core`) covers
+# `implementation/core` ONLY, so every
 # other artefact needs a lane of its own to be executed under the documented
 # production configuration; this is routing's.
 # The suites that CALL THEMSELVES production-gate tests rebind
@@ -26,10 +27,10 @@
 # CI arm: the `jvm-routing-prod-gate` job in `.github/workflows/test.yml`,
 # which is in `all-required-passed`'s `needs:`.
 #
-# WHY A SEPARATE SCRIPT AND NOT A FLAG ON `test-core-prod-gate.sh`.  The core
-# roster is core-specific and load-bearing — `verify_roster` hard-errors on an
-# entry naming no live namespace, so three artefacts' triage debt in one list
-# means a rename in one artefact fails a list another artefact owns.  The flag
+# WHY A LANE OF ITS OWN AND NOT A FLAG ON THE CORE LANE.  An exclusion roster
+# is load-bearing — `verify_roster` hard-errors on an entry naming no live
+# namespace, so several artefacts' triage debt in one list would mean a rename
+# in one artefact fails a list another artefact owns.  The flag
 # lives in a per-artefact `:prod-gate` alias's `:jvm-opts`, and the `:test`
 # alias's own shape differs per artefact.  Above all, the EXCLUSION polarity
 # below only holds when the roster and the namespace set live in the same
