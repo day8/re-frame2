@@ -1,5 +1,6 @@
 ;;;; tests/runtime/app_db_reset_test.clj — `app-db-reset!` must write through
-;;;; `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes), the surface that
+;;;; `re-frame.epoch/replace-frame-state!` (Tool-Pair §Pair-tool writes), reached
+;;;; through the runtime's `framework-replace!` late-bind read — the surface that
 ;;;; also appends the synthetic epoch `restore-epoch` rewinds past. That
 ;;;; surface's semantics are covered by implementation/epoch/test/re_frame/epoch_test.clj:
 ;;;;   replace-frame-state-app-only-replaces-container
@@ -21,8 +22,10 @@
 
 (deftest app-db-reset-writes-through-replace-frame-state
   (let [form (rt/defn-named 'app-db-reset!)]
-    (is (rt/calls? 'rf/replace-frame-state! form)
-        "app-db-reset! must delegate to rf/replace-frame-state!, which records the epoch restore-epoch needs")
+    (is (rt/calls? 'framework-replace! form)
+        "app-db-reset! must delegate to re-frame.epoch/replace-frame-state! (framework-replace!), which records the epoch restore-epoch needs")
+    (is (rt/form-contains? #(= :epoch/replace-frame-state! %) (rt/defn-named 'framework-replace!))
+        "framework-replace! must reach re-frame.epoch/replace-frame-state! through its late-bind hook")
     (is (rt/calls? 'tap> form)
         "app-db-reset! must tap> the change so the human sees what the agent wrote (docs/capabilities.md guardrails)")
     (is (rt/form-contains? #(= '(:ok? r) %) form)

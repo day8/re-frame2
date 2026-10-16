@@ -78,14 +78,14 @@
     (let [target-id (with-redefs [rf.interop/debug-enabled? true]
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
                       (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
-                      (:epoch-id (first (rf/epoch-history :rf/default))))]
+                      (:epoch-id (first (rf.epoch/epoch-history :rf/default))))]
       (with-redefs [rf.interop/debug-enabled? false]
-        (is (false? (rf/restore-epoch! :rf/default target-id))
+        (is (false? (rf.epoch/restore-epoch! :rf/default target-id))
             "restore-epoch! returns false (refuses to operate)")
         (is (= 2 (:n (app-db-of :rf/default)))
             "app-db is not rewound to the target epoch"))
       (with-redefs [rf.interop/debug-enabled? true]
-        (is (:ok? (rf/restore-epoch! :rf/default target-id))
+        (is (:ok? (rf.epoch/restore-epoch! :rf/default target-id))
             "CONTROL: with the gate open the same restore succeeds, so the
              refusal above was the gate's alone")))))
 
@@ -99,10 +99,10 @@
     ;; exercised against a RETAINED id; under the production-gate lane the ring
     ;; stays empty and the id falls back to an unknown one — both must refuse.
     (rf/dispatch-sync [:prod-gate.epoch/replay-probe])
-    (let [recorded-id (or (:epoch-id (last (rf/epoch-history :rf/default)))
+    (let [recorded-id (or (:epoch-id (last (rf.epoch/epoch-history :rf/default)))
                           :some-epoch-id)]
       (with-redefs [rf.interop/debug-enabled? false]
-        (is (false? (rf/replay-epoch! :rf/default recorded-id))
+        (is (false? (rf.epoch/replay-epoch! :rf/default recorded-id))
             "replay-epoch! returns false (refuses to operate)"))
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the probe ran exactly once — it did run, and the refused
@@ -114,7 +114,7 @@
             concern as `restore-epoch!` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
     (with-redefs [rf.interop/debug-enabled? false]
-      (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
+      (is (false? (rf.epoch/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-frame-state! returns false (refuses to operate)"))))
 
 (deftest ^:requires-debug epoch-still-records-with-default-gate

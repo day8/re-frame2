@@ -7,6 +7,7 @@
   no React tree is built; the rendered hiccup is covered by the shell tests."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -381,7 +382,7 @@
     (fn [_doc]
       (let [{:keys [render-fn]} (mk-render-stub)]
         (with-redefs [rf.fresco/render! render-fn
-                      rf/epoch-history  (fn [_] [])]
+                      rf.epoch/epoch-history  (fn [_] [])]
           (mount/open!)
           (rf/with-frame :rf/xray
             (is (nil? @(rf/subscribe [:rf.xray/target-frame])))))))))
@@ -397,7 +398,7 @@
                            :trigger-event [:cart/add] :event-id :cart/add
                            :trace-events []}]]
         (with-redefs [rf.fresco/render! render-fn
-                      rf/epoch-history  (fn [frame-id]
+                      rf.epoch/epoch-history  (fn [frame-id]
                                           (case frame-id
                                             :cart-frame cart-records
                                             []))]
@@ -1017,13 +1018,13 @@
 
 (defn- assert-xray-event-leaves-app-ring-alone! [app]
   (rf/dispatch-sync [:app/inc] {:frame app})
-  (let [before (vec (rf/epoch-history app))]
+  (let [before (vec (rf.epoch/epoch-history app))]
     (is (seq before) "control: the ring under inspection is not empty")
     (rf/dispatch-sync [:rf.xray/select-tab :trace] {:frame shell/default-frame-id})
-    (is (= before (vec (rf/epoch-history app)))
+    (is (= before (vec (rf.epoch/epoch-history app)))
         "an Xray chrome event leaves the app's epoch ring byte-identical")
     (rf/dispatch-sync [:app/inc] {:frame app})
-    (is (not= before (vec (rf/epoch-history app)))
+    (is (not= before (vec (rf.epoch/epoch-history app)))
         "control: an application event does move the same ring")))
 
 (deftest xray-shell-render-never-lands-in-inspected-app-epoch

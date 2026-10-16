@@ -22,7 +22,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -50,7 +50,7 @@
   "The epoch-id of the recorded epoch whose `:db-after` equals `db`."
   [frame-id db]
   (some (fn [r] (when (= db (:db-after r)) (:epoch-id r)))
-        (rf/epoch-history frame-id)))
+        (rf.epoch/epoch-history frame-id)))
 
 (deftest restore-epoch!-serialized-against-concurrent-drain
   (testing "a restore that races an event which read db first serializes after
@@ -81,7 +81,7 @@
                  (deliver precond-passed result)
                  (await-latch release-precond))
                result))]
-          (let [restore-fut (future (rf/restore-epoch! frame-id eid-1))]
+          (let [restore-fut (future (rf.epoch/restore-epoch! frame-id eid-1))]
             (await-promise precond-passed)
             (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
               (await-promise handler-read)
@@ -120,7 +120,7 @@
           {:rf.db/runtime {:rf.runtime/marker :r1}}))
       (rf/dispatch-sync [:seed] {:frame frame-id})
       (let [orig-check     rf.epoch.tool-pair/check-replace-frame-state-preconditions!
-            history-before (count (rf/epoch-history frame-id))]
+            history-before (count (rf.epoch/epoch-history frame-id))]
         (with-redefs
           [rf.epoch.tool-pair/check-replace-frame-state-preconditions!
            (fn [f fs]
@@ -129,7 +129,7 @@
                  (deliver precond-passed result)
                  (await-latch release-precond))
                result))]
-          (let [replace-fut (future (rf/replace-frame-state! frame-id {:rf.db/app {:app :patched}}))]
+          (let [replace-fut (future (rf.epoch/replace-frame-state! frame-id {:rf.db/app {:app :patched}}))]
             (await-promise precond-passed)
             (let [drain-fut (future (rf/dispatch-sync [:bump-runtime] {:frame frame-id}))]
               (await-promise runtime-read)
@@ -140,7 +140,7 @@
                 (await-future drain-fut)
                 (is (:ok? replace-result) "replace reported success")
                 (let [installed (rf/frame-state-value frame-id)
-                      history   (rf/epoch-history frame-id)
+                      history   (rf.epoch/epoch-history frame-id)
                       synthetic (first (filter #(= :rf.epoch/db-replaced (:event-id %)) history))]
                   (is (= :r1 (:rf.runtime/marker (:rf.db/runtime installed)))
                       "the concurrent event's runtime-db update survived the omitted-partition carry-forward")

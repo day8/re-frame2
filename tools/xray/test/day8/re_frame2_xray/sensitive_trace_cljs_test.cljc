@@ -26,7 +26,7 @@
             #?(:cljs [re-frame.epoch.assembly :as rf.epoch.assembly])
             ;; The epoch PRODUCER, loaded so the re-seed tests' real
             ;; dispatches record into the framework ring they read back.
-            #?(:cljs [re-frame.epoch])
+            #?(:cljs [re-frame.epoch :as rf.epoch])
             #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
             #?(:cljs [re-frame.test-support :as rf.test-support])
             #?(:cljs [day8.re-frame2-xray.epoch :as xray-epoch])
@@ -329,7 +329,7 @@
      (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})
      (rf/dispatch-sync [::re-seed-login re-seed-secret] {:frame re-seed-app})
      (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})
-     (let [ring (vec (rf/epoch-history re-seed-app))]
+     (let [ring (vec (rf.epoch/epoch-history re-seed-app))]
        (is (= 3 (count ring)) "precondition: the ring holds all three records")
        ring)))
 

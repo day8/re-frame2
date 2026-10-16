@@ -136,7 +136,7 @@ Add them **at the moment** the author writes code that calls into them — not b
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
-| `(rf/epoch-history ...)` or `(rf/restore-epoch! ...)` directly | `day8/re-frame2-epoch` |
+| `(rf.epoch/epoch-history ...)` or `(rf.epoch/restore-epoch! ...)` directly | `day8/re-frame2-epoch` |
 
 (**`re-frame2-pair` does not add `-epoch` for you.** Its runtime ships as a shadow-cljs `:devtools` preload, and a preload cannot put a jar on the classpath. So to get the pair skill's epoch history / `restore-epoch` time-travel, add `day8/re-frame2-epoch` to your own `deps.edn` and require `re-frame.epoch` at boot; without it every epoch read comes back empty and `restore-epoch` refuses, mostly silently — only the pair skill's `replace-app-db` raises `:rf.error/epoch-artefact-missing`.)
 

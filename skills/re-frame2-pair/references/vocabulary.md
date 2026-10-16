@@ -99,7 +99,7 @@ drops entirely. Net: structured reads are safe to fire by default.
 which also refuses a `tail-build` `:probe` — never
 `--allow-sensitive-reads`) and returns the form's value **without
 the elision walker**. So a raw `(re-frame2-pair.runtime/snapshot)` / `(…/sub-cache)` /
-`(re-frame.trace.tooling/trace-buffer frame-id)` / `(rf/epoch-history …)` eval can return
+`(re-frame.trace.tooling/trace-buffer frame-id)` / `(rf.epoch/epoch-history …)` eval can return
 verbatim app-db, sub-cache, trace-buffer, or epoch-history — passwords, tokens, PII —
 to the AI host even with `--allow-sensitive-reads` OFF.
 
@@ -108,7 +108,7 @@ path, sub value, trace event, or epoch payload when a structured elided
 tool fits** — use `get-path` / `read-sub` / `snapshot {path}` / `trace-window` /
 `watch-epochs`. Reserve raw eval for forensics / cross-referencing /
 recovery, and pour raw state into an eval only on explicit user/operator request. The
-same carve-out applies to the time-travel **eval forms** (`app-db-reset!`, `rf/restore-epoch!`):
+same carve-out applies to the time-travel **eval forms** (`app-db-reset!`, `rf.epoch/restore-epoch!`):
 un-elided and un-gated, so for a *named* write prefer the dedicated `--allow-writes`-gated
 tools (`replace-app-db` / `restore-epoch`) — the eval forms are the backstop for a
 gate-OFF server (see [ops.md §Time-travel](ops.md#time-travel-epoch-restore)).

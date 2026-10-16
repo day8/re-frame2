@@ -26,7 +26,7 @@
             ;; the resources artefact (Spec 016), a test-only dep on the core
             ;; test classpath: the resource kind, the `:rf.resource/*`
             ;; events/subs, and the SSR projection / hydration hooks
-            [re-frame.resources]
+            [re-frame.resources :as rf.resources]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.ssr :as rf.resources.ssr]
             [re-frame.ssr :as rf.ssr]
@@ -383,7 +383,7 @@
           edn/read-string))
 
 (defn- resource-status [frame]
-  (:status (rf/resource-state {:resource :articles/list :scope :rf.scope/global :params {} :frame frame})))
+  (:status (rf.resources/resource-state {:resource :articles/list :scope :rf.scope/global :params {} :frame frame})))
 
 (deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/resources_ssr — under its :payload []
@@ -449,7 +449,7 @@
       (let [client-frame @(resolve 'resources-ssr.core/app-frame)]
         (rf/make-frame {:id client-frame :doc "resources-ssr static-payload client frame" :platform :client})
         (is (= payload (rf.ssr/hydrate! {:frame client-frame :payload payload})))
-        (let [state (rf/resource-state {:resource :articles/list :scope :rf.scope/global
+        (let [state (rf.resources/resource-state {:resource :articles/list :scope :rf.scope/global
                                         :params {} :frame client-frame})
               html  (resources-ssr-html client-frame)
               rdb   (:rf.db/runtime (rf/frame-state-value client-frame))]
@@ -596,7 +596,7 @@
       (is (= 1 @calls) "released: the same invalidation refetches nothing (still 1 in total)"))))
 
 ;; `await-resource-loaded!` must be handed the frame ID, not the frame VALUE
-;; `make-frame` returns: `rf/resource-state` keys the frame registry by id, so
+;; `make-frame` returns: `rf.resources/resource-state` keys the frame registry by id, so
 ;; with a value every poll reads nil and the loop runs to
 ;; `preload-deadline-ms` on EVERY request while the response still carries the
 ;; article. So this test reads what a content assertion cannot see: the target
@@ -610,10 +610,10 @@
     (init-ssr!)
     (reg-canned-fx! :resources-ssr.http/canned :rf.http/managed-canned-success
                     {:value [{:slug "welcome" :title "Welcome to re-frame2"}]})
-    (let [original rf/resource-state
+    (let [original rf.resources/resource-state
           polls    (atom [])
           ;; record what each poll was asked and got, returning the real answer
-          resp     (with-redefs [rf/resource-state
+          resp     (with-redefs [rf.resources/resource-state
                                  (fn [opts]
                                    (let [entry (original opts)]
                                      (swap! polls conj {:keyword-target? (keyword? (:frame opts))

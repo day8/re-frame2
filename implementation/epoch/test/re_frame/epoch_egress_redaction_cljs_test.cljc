@@ -55,7 +55,7 @@
 
 (defn- last-record
   ([] (last-record frame-id))
-  ([fid] (last (rf/epoch-history fid))))
+  ([fid] (last (rf.epoch/epoch-history fid))))
 
 (defn- fresh-frame!
   "Make the suite's frame with `[:auth :password]` sensitive and

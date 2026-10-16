@@ -9,9 +9,11 @@
 ;;;;
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
-;;;;     surfaces (`re-frame.core/register-listener!`, `trace-buffer`,
-;;;;     `register-epoch-listener!`, `epoch-history`, `restore-epoch`). No
-;;;;     reaching into private namespaces.
+;;;;     surfaces (`re-frame.core/register-listener!`, `trace-buffer`, and
+;;;;     `re-frame.epoch`'s `epoch-history` / `restore-epoch!` /
+;;;;     `replay-epoch!` / `replace-frame-state!`, reached through their
+;;;;     late-bind hooks so the preload compiles without the epoch
+;;;;     artefact). No reaching into private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame2-pair`) and one epoch
 ;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
@@ -83,6 +85,9 @@
             ;; direct require is bundle-isolation-safe.
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.interop :as rf.interop]
+            ;; The epoch surface (`re-frame.epoch`) is called through its
+            ;; late-bind hooks, not required: see `retained-epochs` below.
+            [re-frame.late-bind :as rf.late-bind]
             ;; `parse-source-coord` (the canonical inverse of
             ;; `format-source-coord`) is the source-coord contract owner's
             ;; parser for the `data-rf2-source-coord` DOM attribute. The pair
@@ -290,6 +295,57 @@
    see `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
   []
   (pure/app-frame-ids (rf/frame-ids)))
+
+;; ---- the epoch surface ---------------------------------------------------
+;;
+;; `re-frame.epoch` owns `epoch-history`, `restore-epoch!`, `replay-epoch!`
+;; and `replace-frame-state!`. The preload reaches them through the
+;; artefact's late-bind hooks rather than a `:require`, because it compiles
+;; into an app that does not carry `day8/re-frame2-epoch` — only the epoch
+;; ops need it — and each op reads that absence as data.
+
+(defn- epoch-fn
+  "The epoch artefact's implementation behind late-bind `hook`, or nil when
+   `day8/re-frame2-epoch` is not loaded."
+  [hook]
+  (rf.late-bind/get-fn hook))
+
+(defn- retained-epochs
+  "`frame-id`'s retained `:rf/epoch-record`s, oldest-first
+   (`re-frame.epoch/epoch-history`); `[]` without the epoch artefact."
+  [frame-id]
+  (if-let [read-history (epoch-fn :epoch/epoch-history)]
+    (read-history frame-id)
+    []))
+
+(defn- framework-restore!
+  "`re-frame.epoch/restore-epoch!`: its `{:ok? …}` envelope, or `false`
+   without the epoch artefact (the same answer an elided build gives)."
+  ([frame-id epoch-id] (framework-restore! frame-id epoch-id nil))
+  ([frame-id epoch-id opts]
+   (if-let [restore! (epoch-fn :epoch/restore-epoch!)]
+     (restore! frame-id epoch-id opts)
+     false)))
+
+(defn- framework-replay!
+  "`re-frame.epoch/replay-epoch!`: its `{:ok? …}` envelope, or `false`
+   without the epoch artefact (the same answer an elided build gives)."
+  [frame-id epoch-id opts]
+  (if-let [replay! (epoch-fn :epoch/replay-epoch!)]
+    (replay! frame-id epoch-id opts)
+    false))
+
+(defn- framework-replace!
+  "`re-frame.epoch/replace-frame-state!`: its `{:ok? …}` envelope. Without
+   the epoch artefact the write cannot record the epoch that makes it
+   undoable, so it is refused with `:rf.error/epoch-artefact-missing`."
+  [frame-id frame-state]
+  (if-let [replace! (epoch-fn :epoch/replace-frame-state!)]
+    (replace! frame-id frame-state)
+    {:ok?    false
+     :reason :rf.error/epoch-artefact-missing
+     :frame  frame-id
+     :hint   "add day8/re-frame2-epoch to the app's dev build and require re-frame.epoch at boot"}))
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
@@ -527,7 +583,7 @@
    `tap>` so the human sees what the agent changed.
 
    Delegates to the canonical Tool-Pair write surface
-   `(rf/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
+   `(re-frame.epoch/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
    §Pair-tool writes), in its app-only partial-map form. That
    surface bypasses the event pipeline (no event, no pipeline run) but DOES
    record a synthetic `:rf/epoch-record` with `:event-id
@@ -555,8 +611,8 @@
      :rf.error/no-such-handler          — frame not registered
      :rf.epoch/replace-during-drain     — drain in flight
      :rf.epoch/replace-schema-mismatch  — v fails the frame's app-schema
-   A missing re-frame2-epoch artefact throws, and returns
-   `{:ok? false :reason <the thrown :reason, else :reset-throw> …}`."
+   Without the re-frame2-epoch artefact it is refused with
+   `:reason :rf.error/epoch-artefact-missing`."
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame2-pair/op :app-db/reset
@@ -565,7 +621,7 @@
           :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
-     (let [r (rf/replace-frame-state! frame-id {:rf.db/app v})]
+     (let [r (framework-replace! frame-id {:rf.db/app v})]
        (if (:ok? r)
          ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the write
          ;; published (Tool-Pair §Pair-tool writes); the envelope names it.
@@ -1327,7 +1383,7 @@
 ;; The pair session is a THIN, runtime-direct reader: every epoch read
 ;; (`epoch-history`, `epochs-since`, `last-epoch`, `find-where`, and the
 ;; MCP `trace-window` / `watch-epochs` tools that eval them) hits
-;; `(rf/epoch-history frame-id)` — the framework's AUTHORITATIVE ring,
+;; `(re-frame.epoch/epoch-history frame-id)` — the framework's AUTHORITATIVE ring,
 ;; the SAME source `eval-cljs` reaches directly. There is deliberately
 ;; NO session-side capture buffer that mirrors the ring: such a buffer
 ;; only fills while a listener is attached, so it would return EMPTY while
@@ -1350,7 +1406,7 @@
 ;; The pair-epoch attribution rides the `:epoch` listener slot through
 ;; `on-epoch-settled` below. The listener remembers attribution; it does
 ;; NOT retain a copy of the ring (reads go straight to
-;; `(rf/epoch-history frame-id)`).
+;; `(re-frame.epoch/epoch-history frame-id)`).
 
 (declare on-epoch-settled)
 
@@ -1362,17 +1418,17 @@
   (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-settled))
 
 (defn epoch-history
-  "Pass-through to (rf/epoch-history frame-id) — the framework's
+  "Pass-through to (re-frame.epoch/epoch-history frame-id) — the framework's
    per-frame ring, oldest-first."
   ([] (epoch-history (current-frame)))
   ([frame-id]
-   (vec (rf/epoch-history frame-id))))
+   (vec (retained-epochs frame-id))))
 
 (defn last-epoch
   "Most recent epoch in the operating frame's history."
   ([] (last-epoch (current-frame)))
   ([frame-id]
-   (peek (rf/epoch-history frame-id))))
+   (peek (retained-epochs frame-id))))
 
 (defn last-pair-epoch
   "Most recent epoch THIS skill dispatched (`:origin :pair`) in `frame-id`,
@@ -1389,14 +1445,14 @@
   ([] (last-pair-epoch (current-frame)))
   ([frame-id]
    (pure/pick-pair-epoch (get @pair-epochs frame-id #{})
-                         (rf/epoch-history frame-id))))
+                         (retained-epochs frame-id))))
 
 (defn epoch-by-id
   "Look up an epoch by id in the operating frame's history."
   ([epoch-id] (epoch-by-id epoch-id (current-frame)))
   ([epoch-id frame-id]
    (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
-         (rf/epoch-history frame-id))))
+         (retained-epochs frame-id))))
 
 (defn epochs-since
   "Records appended *after* the given epoch-id in the operating frame.
@@ -1409,7 +1465,7 @@
      - `id` not found            -> [], :id-aged-out? true"
   ([epoch-id] (epochs-since epoch-id (current-frame)))
   ([epoch-id frame-id]
-   (let [history (vec (rf/epoch-history frame-id))
+   (let [history (vec (retained-epochs frame-id))
          head-id (some-> history peek :epoch-id)]
      (cond
        (nil? epoch-id)
@@ -1429,7 +1485,7 @@
   ([ms] (epochs-in-last-ms ms (current-frame)))
   ([ms frame-id]
    (let [cutoff (- (js/Date.now) ms)]
-     (->> (rf/epoch-history frame-id)
+     (->> (retained-epochs frame-id)
           (filterv #(>= (or (:committed-at %) 0) cutoff))))))
 
 (defn find-where
@@ -1455,7 +1511,7 @@
    into this state?' post-mortems."
   ([pred] (find-where pred (current-frame)))
   ([pred frame-id]
-   (->> (rf/epoch-history frame-id)
+   (->> (retained-epochs frame-id)
         reverse
         (filter pred)
         first)))
@@ -1466,7 +1522,7 @@
    :cart changed' — not just the most recent transition."
   ([pred] (find-all-where pred (current-frame)))
   ([pred frame-id]
-   (->> (rf/epoch-history frame-id)
+   (->> (retained-epochs frame-id)
         reverse
         (filterv pred))))
 
@@ -1535,14 +1591,14 @@
   [record]
   (when-let [frame-id (:frame record)]
     (let [registered (set (rf/frame-ids))
-          live-ids   (into #{} (map :epoch-id) (rf/epoch-history frame-id))]
+          live-ids   (into #{} (map :epoch-id) (retained-epochs frame-id))]
       (swap! pair-epochs pure/attribute-pair-epoch record registered live-ids))))
 
 (defn- on-epoch-settled
   "Assembled-epoch listener. Drives derived state only — the
    frame-qualified pair-epoch attribution (`attribute-pair-epoch!`). It does
    NOT retain a copy of the epoch ring: every
-   epoch read hits `(rf/epoch-history frame-id)` directly, so there is no
+   epoch read hits `(re-frame.epoch/epoch-history frame-id)` directly, so there is no
    session-side buffer to drift."
   [record]
   (attribute-pair-epoch! record))
@@ -1604,7 +1660,7 @@
 ;; (counts instead of full vectors, db-diff path-only summary instead of
 ;; the raw `:db-before`/`:db-after` pair) so the cascade-summary rides
 ;; under the 5K-token wire-cap without further elision; an operator who
-;; wants the full epoch reads `(rf/epoch-history)` or runs `trace-window`
+;; wants the full epoch reads `(re-frame.epoch/epoch-history)` or runs `trace-window`
 ;; / `watch-epochs` for the same id.
 ;;
 ;; Slot inventory (every slot is optional — absent on epochs that lack
@@ -1732,7 +1788,7 @@
    The response carries a `:cascade-summary` slot when
    the runtime drained the queue synchronously (the typical CLJS
    single-threaded case — `rf/dispatch` enqueues, the goog.async tick
-   drains, and by the time our `(rf/epoch-history)` read fires the
+   drains, and by the time our `epoch-history` read fires the
    head has advanced). When the head did NOT advance (the cascade is
    still pending), the response omits `:cascade-summary` and ships
    `:cascade-summary-pending? true :before-epoch-id <prior-head>` so
@@ -1753,9 +1809,9 @@
          ;; the router honours first) so the dispatch lands on the frame
          ;; `current-frame` chose.
          opts      (cond-> opts frame-id (assoc :frame frame-id))
-         before-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))]
+         before-id (when frame-id (some-> (retained-epochs frame-id) peek :epoch-id))]
      (rf/dispatch event-v (merge {:origin :pair} opts))
-     (let [after-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))
+     (let [after-id (when frame-id (some-> (retained-epochs frame-id) peek :epoch-id))
            base     {:ok? true :queued? true :event event-v :opts opts}]
        (cond
          (and after-id (not= before-id after-id))
@@ -1802,9 +1858,9 @@
          ;; scope, so `rf/dispatch-sync` would otherwise
          ;; `require-current-frame!` and throw `:rf.error/no-frame-context`.
          opts      (assoc opts :frame frame-id)
-         before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
+         before-id (some-> (retained-epochs frame-id) peek :epoch-id)]
      (rf/dispatch-sync event-v (merge {:origin :pair} opts))
-     (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
+     (let [after-id (some-> (retained-epochs frame-id) peek :epoch-id)]
        (cond
          (and after-id (not= before-id after-id))
          ;; The listener fired synchronously during dispatch-sync and has
@@ -1966,12 +2022,12 @@
 
        :else
        (let [before-state (rf/frame-state-value frame-id)
-             before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)
+             before-id (some-> (retained-epochs frame-id) peek :epoch-id)
              sink (atom [])
              dispatch-opts (merge opts {:origin :pair :frame frame-id})]
          (binding [rf.fx/*effect-sink* sink]
            (rf/dispatch-sync event-v dispatch-opts))
-         (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
+         (let [after-id (some-> (retained-epochs frame-id) peek :epoch-id)]
            (if (= before-id after-id)
              {:ok? false
               :reason :no-new-epoch
@@ -1983,7 +2039,7 @@
                    ;; Keep the snapshot in-process. The public replacement
                    ;; validates both partitions and records the rollback so
                    ;; the next read's head agrees with the restored live state.
-                   rollback (rf/replace-frame-state! frame-id before-state)
+                   rollback (framework-replace! frame-id before-state)
                    rolled-back? (true? (:ok? rollback))
                    shared {:dry-run? true
                            :rolled-back? rolled-back?
@@ -2035,7 +2091,7 @@
                                       (:allow-raw-state? @raw-state-config) to))))
 
 (defn restore-epoch
-  "(rf/restore-epoch! frame-id epoch-id opts). Returns a structured envelope:
+  "(re-frame.epoch/restore-epoch! frame-id epoch-id opts). Returns a structured envelope:
 
      - `{:ok? true :restored? true :epoch-id <id> :frame <id>
          :cascade-summary {...} :unreplayable-effects [...]}` on success.
@@ -2051,7 +2107,7 @@
        the trace buffer need not be read to learn why.
      - `false` when the epoch surface is elided or the artefact absent.
 
-   `opts` is `rf/restore-epoch!`'s: `{:to :before}` installs the record's
+   `opts` is `restore-epoch!`'s: `{:to :before}` installs the record's
    `:frame-state-before` rather than its `:frame-state-after`. The arities
    mirror `pair-dispatch-sync!`'s shape — 1-arity reads `(current-frame)`,
    2-arity is explicit, and the 3-arity resolves a nil `frame-id` to
@@ -2061,7 +2117,7 @@
   ([epoch-id frame-id opts]
    (let [frame-id (or frame-id (current-frame))
          pre-db   (rf/app-db-value frame-id)
-         r        (rf/restore-epoch! frame-id epoch-id opts)]
+         r        (framework-restore! frame-id epoch-id opts)]
      (cond
        (:ok? r)
        (let [extras (restore-cascade-summary pre-db frame-id epoch-id (:to opts))]
@@ -2078,7 +2134,7 @@
        false))))
 
 (defn replay-epoch
-  "(rf/replay-epoch! frame-id epoch-id {:origin :pair}) — the ONE-CALL strict
+  "(re-frame.epoch/replay-epoch! frame-id epoch-id {:origin :pair}) — the ONE-CALL strict
    replay of a retained epoch (Tool-Pair §Time-travel, the
    `replay-epoch` and `replay-mint-policy` anchors). The framework
    resolves the raw record in-process and re-drives its `:trigger-event`
@@ -2120,7 +2176,7 @@
    (ensure-epoch-listener!)
    (if-not frame-id
      (ambiguous-frame-error :replay-epoch {:epoch-id epoch-id})
-     (let [result (try (rf/replay-epoch! frame-id epoch-id {:origin :pair})
+     (let [result (try (framework-replay! frame-id epoch-id {:origin :pair})
                        (catch :default e
                          {:ok?      false
                           :reason   (or (:rf.error/id (ex-data e)) :replay-failed)
@@ -2137,7 +2193,7 @@
           :reason   :replay-unavailable
           :epoch-id epoch-id
           :frame    frame-id
-          :hint     (str "rf/replay-epoch! returned false — the epoch surface is elided "
+          :hint     (str "replay-epoch! returned false — the epoch surface is elided "
                          "(rf.interop/debug-enabled? false) or day8/re-frame2-epoch is not loaded.")}
 
          (and (map? result) (:ok? result))
@@ -2151,7 +2207,7 @@
          result)))))
 
 (defn- refused-restore
-  "The envelope for a restore `rf/restore-epoch!` did not perform: the
+  "The envelope for a restore `restore-epoch!` did not perform: the
    framework's own `{:ok? false :reason <op> …tags}` refusal, with
    `:restored? false`. A bare `false` (an elided epoch surface) has no
    refusal to pass on and reads `:reason :epoch-unavailable`."
@@ -2172,14 +2228,14 @@
    is refused. Carries a cascade-summary slot."
   ([] (undo-step-back (current-frame)))
   ([frame-id]
-   (let [history (vec (rf/epoch-history frame-id))
+   (let [history (vec (retained-epochs frame-id))
          n       (count history)]
      (if (< n 2)
        {:ok? false :reason :no-prior-epoch :history-size n :frame frame-id}
        (let [prior     (nth history (- n 2))
              epoch-id  (:epoch-id prior)
              pre-db    (rf/app-db-value frame-id)
-             r         (rf/restore-epoch! frame-id epoch-id)]
+             r         (framework-restore! frame-id epoch-id)]
          (if (:ok? r)
            (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
                   (restore-cascade-summary pre-db frame-id epoch-id))
@@ -2192,7 +2248,7 @@
    `restore-epoch`'s success envelope, carrying a cascade-summary slot)
    or the framework's refusal (`refused-restore`: `{:ok? false :reason
    <op> :epoch-id <id> :restored? false :frame <id> …tags}`) when
-   `rf/restore-epoch!` refuses the restore (any of the seven Tool-Pair
+   `restore-epoch!` refuses the restore (any of the seven Tool-Pair
    time-travel failure modes: aged-out id, schema/version mismatch,
    missing handler, restore-during-drain, halted-cascade target, unknown
    frame). Mirrors `undo-step-back`'s failure envelope — a rejected
@@ -2200,7 +2256,7 @@
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
-         r      (rf/restore-epoch! frame-id epoch-id)]
+         r      (framework-restore! frame-id epoch-id)]
      (if (:ok? r)
        (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
               (restore-cascade-summary pre-db frame-id epoch-id))
@@ -3585,7 +3641,7 @@
                                         [:rf.runtime/machines :snapshots])
                                 {})]
                   {:ids ids :state state})
-    :epochs     (vec (rf/epoch-history frame-id))
+    :epochs     (vec (retained-epochs frame-id))
     ;; The trace ring is per-frame and event-bundle-shaped: this slot
     ;; delivers bundles (the storage unit), matching the event-bundle
     ;; read shape (Tool-Pair
@@ -3714,7 +3770,7 @@
      ;; symbol-resolve of its own.
      :epoch-history-depth       (get-in (rf/current-config) [:epoch-history :depth])
      :epoch-counts              (into {} (map (fn [fid]
-                                                [fid (count (rf/epoch-history fid))])
+                                                [fid (count (retained-epochs fid))])
                                               fids))
      ;; Total pair-attributed epochs across all frames. Bounded by live
      ;; retained history (the store prunes rolled-over + destroyed-frame

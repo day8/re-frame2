@@ -18,7 +18,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -72,7 +72,7 @@
                           frames)]
         (.countDown latch)
         (is (all-completed? futures) "every settle thread completed")
-        (let [histories (mapv rf/epoch-history frames)
+        (let [histories (mapv rf.epoch/epoch-history frames)
               expected  (bumps stress-iters)]
           ;; Exact per-frame order also rules out a dropped, doubled or
           ;; cross-keyed record.
@@ -144,7 +144,7 @@
                       (fn [frame-id]
                         (future
                           (.await latch)
-                          (let [epoch-id (-> (rf/epoch-history frame-id) first :epoch-id)]
+                          (let [epoch-id (-> (rf.epoch/epoch-history frame-id) first :epoch-id)]
                             (dotimes [i stress-iters]
                               (let [sid (keyword (str "s" i))]
                                 (rf.epoch.state/back-fill-sub-run!
@@ -155,7 +155,7 @@
         (.countDown latch)
         (is (all-completed? futures) "every back-fill thread completed")
         (is (empty? (for [frame-id frames
-                          :let  [values (->> (rf/epoch-history frame-id)
+                          :let  [values (->> (rf.epoch/epoch-history frame-id)
                                              first :sub-runs (map :value) sort)]
                           :when (not= (range stress-iters) values)]
                       frame-id))
@@ -200,7 +200,7 @@
                                 (.await latch)
                                 (try
                                   (while (not @recorder-done)
-                                    (when-let [hist (seq (rf/epoch-history :qh13yf.race/main))]
+                                    (when-let [hist (seq (rf.epoch/epoch-history :qh13yf.race/main))]
                                       (let [target-id (:epoch-id (rand-nth (vec hist)))]
                                         ;; nil when the target evicted before the splice.
                                         (when (rf.epoch.state/back-fill-sub-run!
@@ -215,7 +215,7 @@
         (is (empty? @errors)
             (str "no thread threw; got "
                  (pr-str (mapv #(.getMessage ^Throwable %) (take 3 @errors)))))
-        (is (empty? (for [record (rf/epoch-history :qh13yf.race/main)
+        (is (empty? (for [record (rf.epoch/epoch-history :qh13yf.race/main)
                           row    (:sub-runs record)
                           :when  (= :race-sub (:sub-id row))
                           :when  (not= (:value row) (:epoch-id record))]

@@ -1,7 +1,7 @@
 (ns re-frame2-pair.runtime-dry-run-test
   (:require [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
@@ -38,19 +38,19 @@
             (inc (get-in before [:rf.db/app :n] 0)) before :rf.epoch/db-replaced]
            [(:ok? result) (:rolled-back? result) @handler-calls @effect-calls
             (:would-fire-effects result) (get-in result [:db-state-after-simulation :n])
-            (rf/frame-state-value frame-id) (:event-id (peek (rf/epoch-history frame-id)))]))))
+            (rf/frame-state-value frame-id) (:event-id (peek (rf.epoch/epoch-history frame-id)))]))))
 
 (deftest first-event-can-be-simulated-without-a-retained-anchor
   (with-probe-frame
     (fn [frame-id handler-calls effect-calls]
-      (is (empty? (rf/epoch-history frame-id)))
+      (is (empty? (rf.epoch/epoch-history frame-id)))
       (assert-simulation-restores frame-id handler-calls effect-calls))))
 
 (deftest repeated-simulations-restore-actual-state-not-the-history-head
   (with-probe-frame
     (fn [frame-id handler-calls effect-calls]
       (rf/dispatch-sync [:review/seed] {:frame frame-id})
-      (is (:ok? (rf/replace-frame-state! frame-id {:rf.db/runtime {:review/checkpoint {:token 7}}})))
+      (is (:ok? (rf.epoch/replace-frame-state! frame-id {:rf.db/runtime {:review/checkpoint {:token 7}}})))
       (assert-simulation-restores frame-id handler-calls effect-calls)
       (assert-simulation-restores frame-id handler-calls effect-calls))))
 
@@ -62,7 +62,7 @@
         (fn [frame-id handler-calls effect-calls]
           (rf/dispatch-sync [:review/seed] {:frame frame-id})
           (assert-simulation-restores frame-id handler-calls effect-calls)
-          (is (= 1 (count (rf/epoch-history frame-id))))))
+          (is (= 1 (count (rf.epoch/epoch-history frame-id))))))
       (finally (rf/configure! {:epoch-history {:depth depth}})))))
 
 (deftest a-refused-rollback-is-a-failure-naming-the-refusal
@@ -92,5 +92,5 @@
                 result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
             (is (= [false :no-epoch-recorded 0 0 before []]
                    [(:ok? result) (:reason result) @handler-calls @effect-calls
-                    (rf/frame-state-value frame-id) (rf/epoch-history frame-id)])))))
+                    (rf/frame-state-value frame-id) (rf.epoch/epoch-history frame-id)])))))
       (finally (rf/configure! {:epoch-history {:depth depth}})))))

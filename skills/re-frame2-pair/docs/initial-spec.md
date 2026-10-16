@@ -62,7 +62,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 ### Terminology
 
 - **Trace stream** — `(rf/register-listener! :trace id cb)` listeners + `(re-frame.trace.tooling/trace-buffer frame-id)` retain-N ring. The fine-grained, per-emit stream (Spec 009). (`trace-buffer` is re-exported on `rf/` on both platforms, and an `eval-cljs` form spells whichever home fully qualified. Frame-id is the first positional arg — a missing frame returns `[]`.)
-- **Assembled epoch** — one `:rf/epoch-record` per dequeued event (its run-to-completion), not per drain-settle — a parent event plus the `:fx [[:dispatch …]]` child it queues commits two records, while a machine macrostep stays one epoch. Carries structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-listener! :epoch id cb)` and `(rf/epoch-history frame-id)`.
+- **Assembled epoch** — one `:rf/epoch-record` per dequeued event (its run-to-completion), not per drain-settle — a parent event plus the `:fx [[:dispatch …]]` child it queues commits two records, while a machine macrostep stays one epoch. Carries structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-listener! :epoch id cb)` and `(rf.epoch/epoch-history frame-id)`.
 - **Frame** — a re-frame2 isolated runtime instance (Spec 002). Most apps have one (`:rf/default`); larger apps have several.
 - **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch — the *actor* axis, an open vocabulary defaulting to `:app` (`:pair`, `:claude`, `:story`, `:test`, …). The skill stamps `:pair` on its own dispatches. Distinct from `:source` — the *trigger kind* (`:ui`, `:frame-init`, `:after-timer`, `:http`, …), the closed `:rf/dispatch-envelope` enum.
 - **Session sentinel** — a UUID interned at preload-load time. The MCP server probes the load-time mirror at `js/globalThis.__re_frame2_pair_runtime`; its absence means the preload isn't configured (or the page refreshed and the next bundle load hasn't run the preload yet).
@@ -102,8 +102,8 @@ Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame
 - `(rf/register-listener! :trace :re-frame2-pair cb)` — raw trace stream. The skill's listener id is fixed (one listener per skill per Spec 009).
 - `(rf/register-listener! :epoch :re-frame2-pair-epoch cb)` — assembled-epoch stream (the `:epoch` stream of the one listener verb).
 - `(re-frame.trace.tooling/trace-buffer frame-id)` / `(re-frame.trace.tooling/trace-buffer frame-id opts)` — retain-N trace ring (default 50 retained events — one slot per dispatched event, configurable via `(rf/configure! {:trace-buffer {:events-retained N}})`). Frame-id is the first positional arg (a missing frame returns `[]`); the default shape is event bundles, and `:operation` / `:op-type` / `:since` / `:severity` are `:flat-only` filters (pass `{:flat true ...}`). `rf/trace-buffer` names the same fn on both platforms; an `eval-cljs` form spells whichever home fully qualified, because the eval namespace carries no `rf` alias.
-- `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`).
-- `(rf/restore-epoch! frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
+- `(rf.epoch/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`).
+- `(rf.epoch/restore-epoch! frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
 
 No adapter layer; no internal-state introspection; no second source of truth. If a feature isn't in the Tool-Pair contract, the skill doesn't ship it (and the gap becomes a `bd` bead candidate — see "Asymmetries to monitor in the spec" in `STATUS.md`).
 

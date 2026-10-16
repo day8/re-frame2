@@ -694,7 +694,7 @@ chrome affordances besides the tabs:
   frame (`:rf.xray/observed-frame` — the frame-switcher selection, NEVER
   `:rf/xray`) and the **focused** epoch-id (`:rf.xray/focus-epoch-id`),
   which trampolines into the `:rf.xray.fx/restore-epoch` effect →
-  `(rf/restore-epoch! <observed-frame> <epoch-id>)`. The target is the
+  `(rf.epoch/restore-epoch! <observed-frame> <epoch-id>)`. The target is the
   epoch's `:db-after` ("if the event still exists, app state must be as if
   the event happened" — matches the shipped runtime, zero framework
   change).
@@ -706,7 +706,7 @@ chrome affordances besides the tabs:
     [Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
   - **Disabled** (dimmed, `not-allowed` cursor) when no epoch is focused.
   - **Failure** (the rare framework cases — epoch aged out of the buffer,
-    or a restore-during-drain rejection → `rf/restore-epoch!` returns
+    or a restore-during-drain rejection → `rf.epoch/restore-epoch!` returns
     `false`) sets `:rf.xray/reset-flash`, a brief **inline** message left of
     the button (`role=status`), NEVER a modal — and never a silent lie. The
     framework's structured `:rf.epoch/*` failure row also lands on the trace
@@ -1316,7 +1316,7 @@ The single-axis selection that every layer reads from.
 | `:rf.xray/focus-event-next` | `›` button · `k` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
 | `:rf.xray/follow-head` | `»` button · `l` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
-| `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
+| `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf.epoch/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.xray/preview-event <id> [<frame>]` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id` / `:epoch-id` `<id>` transiently. A non-destructive overlay: it snapshots the committed selection into `[:focus :pre-preview]` on the first hover of a gesture and RESTORES it on hover-out (nil `<id>`), and resolves the previewed epoch against the previewed frame's ring DIRECTLY without persisting a cross-frame `:target-frame` / `:epoch-history` re-key (rf2-uo0rc.5). The optional `<frame>` hint disambiguates a dispatch-id present in two frames (rf2-bz7flo) — the L2 row knows its frame; when omitted the lookup degrades to an id-only match. |
 
 ### Per-layer rebind table
@@ -1724,7 +1724,7 @@ landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
 |---|---|---|
 | `:focus :frame` | spine | Set to picked frame-id; clears `:dispatch-id` to head of new frame. |
 | `:rf.xray/target-frame` | per-frame projection axis | Re-seeded to picked frame-id. This is the legacy axis the App-db diff + Views composites compose against; pre-fix the picker only wrote the spine's `:focus :frame` and the composites stayed bound to whichever frame was last targeted (commonly `:rf/default`). |
-| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db tab's `:rf.xray/app-db-current+diff` (rf2-p53m2 — was the pruned `:selected-epoch-diff`) and the Views panel's `:rf.xray/reactive-data` composite refresh against the new frame's epoch ring in the same dispatch. |
+| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf.epoch/epoch-history <picked-frame>)` so the App-db tab's `:rf.xray/app-db-current+diff` (rf2-p53m2 — was the pruned `:selected-epoch-diff`) and the Views panel's `:rf.xray/reactive-data` composite refresh against the new frame's epoch ring in the same dispatch. |
 
 **Invariant P (Panel follows focus):** every per-frame panel
 composite (App-db diff, Views, Machines, Routing, Trace) MUST refresh
@@ -1755,7 +1755,7 @@ COMMITTED focus handlers that resolve an epoch-id from the slot —
 `:rf.xray/focus-event`, `:rf.xray/focus-epoch`, `:rf.xray/select-
 dispatch-id` — first call `spine/reseed-epoch-history-for-frame`,
 which re-keys `:rf.xray/target-frame` + `:rf.xray/epoch-history` onto
-the clicked cascade's frame (resolved via `rf/epoch-history`) BEFORE
+the clicked cascade's frame (resolved via `rf.epoch/epoch-history`) BEFORE
 the epoch-id lookup runs. The re-seed is a no-op when the clicked
 frame already equals `:target-frame` (a same-frame click), and a
 no-op when the frame is unknown (nil). This makes the line above —
@@ -1788,7 +1788,7 @@ genuinely held the settling epoch.
 (rf2-uo0rc.5).** A preview is a transient hover, not a commit, so it
 must NOT persist a cross-frame `:target-frame` / `:epoch-history`
 re-key. The preview handler resolves the previewed cascade's epoch
-against that frame's ring DIRECTLY (`rf/epoch-history previewed-frame`,
+against that frame's ring DIRECTLY (`rf.epoch/epoch-history previewed-frame`,
 a read) and leaves the committed `:target-frame` / `:epoch-history`
 untouched. It also snapshots the committed `:focus :dispatch-id` /
 `:epoch-id` into `[:focus :pre-preview]` on the first hover of a

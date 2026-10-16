@@ -486,9 +486,6 @@
    {:key         :resources/clear-resource
     :producer-ns 're-frame.resources
     :description "Remove a registered resource (registration-lifecycle, NOT data invalidation). Per Spec 016 §Registration."}
-   {:key         :resources/resource-state
-    :producer-ns 're-frame.resources
-    :description "Return a resource instance's runtime state for an explicit-frame target {:resource :scope :params :frame}. Per Spec 016 §Introspection."}
    ;; ---- mutations (EP-0003 §Mutations) -------------------------------------
    ;; The causal-write counterpart of the resource registration surface.
    {:key         :resources/reg-mutation
@@ -497,9 +494,6 @@
    {:key         :resources/clear-mutation
     :producer-ns 're-frame.resources
     :description "Remove a registered mutation (registration-lifecycle, NOT a form-error reset; the causal runtime-instance reset is the [:rf.mutation/clear …] event). Per EP-0003 §Mutations."}
-   {:key         :resources/mutation-state
-    :producer-ns 're-frame.resources
-    :description "Return a mutation INSTANCE's durable runtime row for an explicit-frame target {:instance :frame}, or nil. Per EP-0003 §Mutations."}
    ;; ---- named resource-scope resolvers (EP-0016 D3) ------------------------
    ;; The third resources kind: pure named db-derived scope resolvers.
    {:key         :resources/reg-resource-scope
@@ -646,16 +640,16 @@
     :description "Teardown sibling of :epoch/record-render! / :epoch/record-sub-run!. Attribute a post-settle view-unmount emit (a :rf.view/unmounted op firing at React componentWillUnmount / useEffect-cleanup time, after the cascade that removed the view settled) back to the cascade that caused the teardown — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when an unmount op arrives with no in-flight cascade. Without it the unmount would fall through to the orphan-drop branch and be silently dropped, so a view teardown would produce NO signal anywhere; this back-fills it into the causing epoch's :trace-events (no structured row — an unmount is neither a :renders nor a :sub-runs entry) and re-fans the record to epoch listeners, where Xray's VIEWS-step unmounted-views-rows surfaces it."}
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
-    :description "Return the committed-epoch ring buffer (introspection)."}
+    :description "Return the committed-epoch ring buffer (introspection). Behind re-frame.core/epoch-history, and read directly by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
    {:key         :epoch/restore-epoch!
     :producer-ns 're-frame.epoch
-    :description "Restore app-db / schemas to a previously-captured epoch."}
+    :description "Restore a frame's whole frame-state to a retained epoch, returning the {:ok? …} write-result envelope. Read by tools that treat the epoch artefact as optional (the re-frame2-pair preload, Story), which call the hook when it is set rather than requiring re-frame.epoch."}
    {:key         :epoch/replay-epoch!
     :producer-ns 're-frame.epoch
-    :description "Re-drive a retained epoch's recorded event through the frame's own handlers in ONE call as a strict replay (Tool-Pair §Replay): the raw :trigger-event, the post-generation :rf.cofx token under :rf.cofx/mint-policy :strict, and the record's serializable :fx-overrides / :interceptor-overrides are folded into the dispatch opts in-process, so no replay material is exported or re-supplied by hand. Same frame in and out; runs against the frame's CURRENT state and code (no implicit restore) and records a new ordinary epoch. Returns a structured envelope; refuses BEFORE dispatch on an unknown / aged-out id, a drain in flight, a halted / synthetic / incomplete record, or a recorded :rf/fn-override. A declared fact absent from the token stays the canonical :rf.error/missing-required-cofx hard error (no mint)."}
+    :description "Re-drive a retained epoch's recorded event through the frame's own handlers in ONE call as a strict replay (Tool-Pair §Replay): the raw :trigger-event, the post-generation :rf.cofx token under :rf.cofx/mint-policy :strict, and the record's serializable :fx-overrides / :interceptor-overrides are folded into the dispatch opts in-process, so no replay material is exported or re-supplied by hand. Same frame in and out; runs against the frame's CURRENT state and code (no implicit restore) and records a new ordinary epoch. Returns a structured envelope; refuses BEFORE dispatch on an unknown / aged-out id, a drain in flight, a halted / synthetic / incomplete record, or a recorded :rf/fn-override. A declared fact absent from the token stays the canonical :rf.error/missing-required-cofx hard error (no mint). Read by the re-frame2-pair preload, which treats the epoch artefact as optional and so calls the hook rather than requiring re-frame.epoch."}
    {:key         :epoch/replace-frame-state!
     :producer-ns 're-frame.epoch
-    :description "Atomically install a PARTIAL frame-state map (any subset of {:rf.db/app ... :rf.db/runtime ...}) — a present key replaces that partition, an absent key is preserved. The ONE Tool-Pair frame-state write surface, covering every partition. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + rejects a map with no recognized / an unrecognized partition key + per-present-partition schema-validation contract."}
+    :description "Atomically install a PARTIAL frame-state map (any subset of {:rf.db/app ... :rf.db/runtime ...}) — a present key replaces that partition, an absent key is preserved. The ONE Tool-Pair frame-state write surface, covering every partition. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns the {:ok? …} write-result envelope, shares the drain-guard + rejects a map with no recognized / an unrecognized partition key + per-present-partition schema-validation contract. Read by the re-frame2-pair preload, which treats the epoch artefact as optional and so calls the hook rather than requiring re-frame.epoch."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}

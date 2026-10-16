@@ -220,7 +220,7 @@ It returns ONE `(rf.story/reg-variant …)` form that drops the `:sub-overrides`
 Each variant has its own isolated copy of every per-frame surface. State does not leak between variants — that is the whole point.
 
 - **`app-db`** — each variant starts with `{}` (or whatever loaders + events populate). `(rf/app-db-value :story.counter/loaded)` and `:story.counter/empty` return independent values.
-- **Epoch history** — `(rf/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's.
+- **Epoch history** — `(rf.epoch/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's.
 - **Sub cache** — the live snapshot (`re-frame.subs.tooling/sub-cache-snapshot`) is per-frame; `[:count]` materialised in one variant is independent of `[:count]` in another.
 - **Trace events** — `:frame` is stamped on every emitted event (Spec 009 §Frame identity on the raw event), so filter raw trace by `{:frame :story.counter/loaded}` to scope.
 - **`[:rf.runtime/elision :declarations]`** — the elision registry lives in the runtime-db partition under the reserved `:rf.runtime/elision` child (Spec 009 §Nomination — the classification registry), so large-path nominations are per-frame too.
@@ -252,7 +252,7 @@ Each variant has its own isolated copy of every per-frame surface. State does no
    }
    ```
    The runtime helper `(re-frame2-pair.runtime/frame-diff :a-id :b-id)` returns `{:only-in-a :only-in-b :common}` — semantics match `epoch-diff` but across frames instead of across one epoch's before/after.
-3. Cross-check the cascade: `(re-frame.core/epoch-history :story.counter/empty)` and `(re-frame.core/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
+3. Cross-check the cascade: `(re-frame.epoch/epoch-history :story.counter/empty)` and `(re-frame.epoch/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
 4. Narrate the divergence in terms the user can act on: *"variant `:loaded` carries `[:items]` with 7 entries from its `:counter/initialise 7` event; variant `:empty` has no `:items` key because its events list is empty."*
 
 **Expected output shape.** A compact `{:only-in-a ... :only-in-b ... :common ...}` map (or the model's prose summary), keyed off paths that actually differ. Common subtree omitted unless the user asks for it.

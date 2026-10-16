@@ -16,14 +16,14 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; publishes the `:epoch/*` hooks the core wrappers delegate to
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.machines]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- last-record [frame-id]
-  (last (rf/epoch-history frame-id)))
+  (last (rf.epoch/epoch-history frame-id)))
 
 (defn- install-large-path! [frame-id]
   (rf.frame/swap-runtime-db! frame-id

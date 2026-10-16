@@ -6,6 +6,7 @@
             [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             ;; The codec's own hiccup->element door, so the
             ;; L2 row key is graded by the SHIPPED renderer rather than by
             ;; reading the attribute map back.
@@ -1454,18 +1455,18 @@
 (deftest reset-to-epoch-event-trampolines-into-restore-fx
   (testing "`:rf.xray/reset-to-epoch` is a thin event-fx that
             routes into the `:rf.xray.fx/restore-epoch` effect, which calls
-            the framework's `rf/restore-epoch!` with the supplied frame +
+            the framework's `rf.epoch/restore-epoch!` with the supplied frame +
             epoch-id (the framework call lives in the fx, not a db
             reducer)."
     (xray-setup!)
     (let [restore-calls (atom [])]
-      (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
+      (with-redefs [rf.epoch/restore-epoch! (fn [frame epoch-id]
                                        (swap! restore-calls conj [frame epoch-id])
                                        {:ok? true :frame frame :epoch-id epoch-id :to :after})]
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-7"])))
       (is (= [[:rf/default "epoch-7"]] @restore-calls)
-          "the event→fx chain called rf/restore-epoch! with frame + epoch-id"))))
+          "the event→fx chain called rf.epoch/restore-epoch! with frame + epoch-id"))))
 
 (deftest reset-to-epoch-clears-stale-flash-before-reattempt
   (testing "`:rf.xray/reset-to-epoch` dissocs any stale `:reset-flash` on
@@ -1473,7 +1474,7 @@
             gesture that produced it; no manual clear runs between attempts."
     (xray-setup!)
     ;; first attempt fails → flash set, naming the refusal's reason
-    (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
+    (with-redefs [rf.epoch/restore-epoch! (fn [frame epoch-id]
                                       {:ok? false :reason :rf.epoch/restore-unknown-epoch
                                        :frame frame :epoch-id epoch-id :history-size 0})]
       (rf/with-frame :rf/xray
@@ -1484,7 +1485,7 @@
           "first failed reset sets the flash, naming the refusal's :reason"))
     ;; the next attempt succeeds → no manual clear; the attempt's own
     ;; dissoc must wipe the flash.
-    (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
+    (with-redefs [rf.epoch/restore-epoch! (fn [frame epoch-id]
                                       {:ok? true :frame frame :epoch-id epoch-id :to :after})]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-3"])))

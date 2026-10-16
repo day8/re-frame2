@@ -432,7 +432,7 @@
           ;; (There is no `:palette/clear-epoch-history` verb. Xray's
           ;; `:epoch-history` slot is a MIRROR of the framework's epoch
           ;; history, not the store: the next recorded epoch re-seeds it
-          ;; wholesale from `(vec (rf/epoch-history target))`, so
+          ;; wholesale from `(vec (rf.epoch/epoch-history target))`, so
           ;; dissoc'ing it would last one event and then silently undo
           ;; itself. The Buffer tab's "Clear buffer now" is the real
           ;; scrub; clearing the substrate's epoch ring is a Tool-Pair

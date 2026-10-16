@@ -58,21 +58,22 @@
 
 ;; ---- ONE GRAMMAR FOR THE EPOCH RING ----------------------------------------
 ;;
-;; Every var below is an IMPLEMENTATION SEAM — a late-bind hook target the
-;; `re-frame.core` facade reaches through `re-frame.core-epoch`'s defwrappers
-;; (see the publication block at the foot of this file). None of them is a
-;; second public spelling, and the manifest says so in one of two ways:
+;; The epoch surface is inspection, history and tooling, so it lives HERE, its
+;; feature namespace, not on the `re-frame.core` facade (spec/API.md
+;; §Conventions, the role rule):
 ;;
-;;   * The vars the facade re-exports under the SAME name — `epoch-history`,
-;;     `replace-frame-state!`, `replay-epoch!`, `restore-epoch!` — carry
-;;     `^:no-doc` and are NOT rowed here (spec/API.md §Not-rowed internal
-;;     carve-outs). The `re-frame.core` row carries the classification alone,
-;;     so one public name has exactly one row.
-;;   * The vars with no same-named facade twin — `configure!`,
-;;     `clear-history!`, `register-epoch-listener!`,
-;;     `unregister-epoch-listener!`, `clear-epoch-listeners!` — keep a row,
-;;     tiered `:implementation`, because that row is the only record of them.
-;;     They follow `settle!` rather than `^:no-doc`: the generator drops a
+;;   * `epoch-history`, `restore-epoch!`, `replay-epoch!` and
+;;     `replace-frame-state!` are this namespace's public surface, tiered
+;;     `:tooling`. Each is also published under its `:epoch/*` late-bind hook
+;;     (the block at the foot of this file), which `re-frame.core`'s
+;;     `epoch-history` forwards through and which tools that treat the
+;;     artefact as optional call instead of requiring this namespace.
+;;   * `configure!`, `clear-history!`, `register-epoch-listener!`,
+;;     `unregister-epoch-listener!` and `clear-epoch-listeners!` are
+;;     IMPLEMENTATION SEAMS — hook targets for core's doors
+;;     (`rf/configure!`, the `:epoch` stream of `rf/register-listener!`, the
+;;     test-support reset table). They keep a row tiered `:implementation`,
+;;     following `settle!` rather than `^:no-doc`: the generator drops a
 ;;     `^:no-doc` var from the manifest entirely, and this repo tiers a seam
 ;;     honestly rather than quieting it.
 ;;
@@ -130,7 +131,7 @@
 ;; to the back; the front evicts when the buffer exceeds the configured
 ;; depth. The atom + ring-buffer mutators live in `re-frame.epoch.state`.
 
-(defn ^:no-doc epoch-history
+(defn epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
   depth is 0, which disables recording — including records retained
@@ -370,7 +371,7 @@
 
 ;; ---- restore --------------------------------------------------------------
 ;;
-(defn ^:no-doc restore-epoch!
+(defn restore-epoch!
   "Rewind the frame to one of the named epoch's canonical frame-state
   snapshots — its `:frame-state-after` by default, or its
   `:frame-state-before` with `opts` `{:to :before}` — the WHOLE
@@ -441,7 +442,7 @@
 
 ;; ---- replay (Tool-Pair §Replay) --------------------------------------------
 ;;
-(defn ^:no-doc replay-epoch!
+(defn replay-epoch!
   "Re-drive the named retained epoch's recorded event through `frame-id`'s
   own handlers, in ONE call, as a faithful-or-fail-loud strict replay
   (Tool-Pair §Replay). The record is resolved in-process and its replay
@@ -660,7 +661,7 @@
                       (merge frame-state-before new-frame-state))
                     #(rf.frame/replace-frame-state! frame-id incarnation-token new-frame-state)))
 
-(defn ^:no-doc replace-frame-state!
+(defn replace-frame-state!
   "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
   subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
   frame-state, bypassing the dispatch loop: a present key replaces that
@@ -846,6 +847,8 @@
    :epoch/on-frame-destroyed  rf.epoch.listeners/on-frame-destroyed!
 
    ;; ---- introspection + Tool-Pair write surface --------------------
+   ;; Read by `re-frame.core/epoch-history` and by tools that treat this
+   ;; artefact as optional, which call the hook rather than require this ns.
    :epoch/epoch-history       epoch-history
    :epoch/restore-epoch!      restore-epoch!
    :epoch/replay-epoch!       replay-epoch!

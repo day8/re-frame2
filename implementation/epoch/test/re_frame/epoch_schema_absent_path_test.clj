@@ -5,7 +5,7 @@
   checked, and a present value, `nil` included, is."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.epoch]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -28,8 +28,8 @@
 (deftest ^:requires-debug replace-frame-state-admits-an-app-db-lacking-a-registered-path
   (rf/make-frame {:id ::f})
   (rf/reg-app-schema [:n] {:frame ::f} :int)
-  (is (:ok? (rf/replace-frame-state! ::f {:rf.db/app {:other 1}})))
+  (is (:ok? (rf.epoch/replace-frame-state! ::f {:rf.db/app {:other 1}})))
   (is (= {:other 1} (rf/app-db-value ::f)))
-  (is (false? (:ok? (rf/replace-frame-state! ::f {:rf.db/app {:n nil}})))
+  (is (false? (:ok? (rf.epoch/replace-frame-state! ::f {:rf.db/app {:n nil}})))
       "a present nil is refused")
   (is (= {:other 1} (rf/app-db-value ::f))))

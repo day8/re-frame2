@@ -14,7 +14,7 @@
    [re-frame.elision :as rf.elision]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
-   [re-frame.resources]
+   [re-frame.resources :as rf.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.mutation-events :as rf.resources.mutation-events]
@@ -659,13 +659,13 @@
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (is (thrown-with-msg?
         #?(:clj Throwable :cljs js/Error) #"no-frame-context"
-        (rf/mutation-state {:instance :ms-no-frame})))
-  (is (nil? (rf/mutation-state {:instance :ms-absent :frame :rf/default})))
-  (is (nil? (rf/mutation-state {:instance :ms-absent :frame :no/such-frame})))
+        (rf.resources/mutation-state {:instance :ms-no-frame})))
+  (is (nil? (rf.resources/mutation-state {:instance :ms-absent :frame :rf/default})))
+  (is (nil? (rf.resources/mutation-state {:instance :ms-absent :frame :no/such-frame})))
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ms-present}])
   (reply-success! @last-managed-args {:ok true})
-  (is (= :success (:status (rf/mutation-state {:instance :ms-present :frame :rf/default})))))
+  (is (= :success (:status (rf.resources/mutation-state {:instance :ms-present :frame :rf/default})))))
 
 ;; ---- params and exact-target validation -------------------------------------
 

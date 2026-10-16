@@ -205,8 +205,8 @@ const ARTEFACTS = [
   // dev classpath so every Xray-enabled build has working time-travel;
   // the preload is dev-only (gated by shadow-cljs `:devtools/preloads`)
   // so the anchor must NOT pull epoch into a production bundle. Core's
-  // public re-exports (`rf/epoch-history`, `rf/restore-epoch!`, …) look
-  // the producing fns up through the late-bind hook table at call time;
+  // `rf/epoch-history` forwarder looks the producing fn up through the
+  // late-bind hook table at call time;
   // a non-zero internal-sentinel hit means the epoch namespace got
   // dragged in (most likely a stray `:require` in a core/* ns).
   // These two literals survive the real
