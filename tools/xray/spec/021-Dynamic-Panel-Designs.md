@@ -811,7 +811,7 @@ consumer onto the provider* asks for.
 
 **Re-pointing at the ADAPTERS was not an option either**, and for a blunter
 reason: they publish no tool tier at all. There is no `tool` or `evidence`
-namespace anywhere under `implementation/adapters/`, for Reagent, reagent-slim
+namespace anywhere under `implementation/adapters/`, for Reagent
 or UIx — no mounted roster, no manifest, no evidence schema, nothing to read.
 
 **Nothing is stranded.** A Fresco host's boundaries, reads, intents and
