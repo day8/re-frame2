@@ -9,7 +9,7 @@ spelling matters, and a link to the page that teaches it.
 
 The value that connects re-frame2 to a view layer (the [substrate](#substrate)). It
 is a map of functions, not the library itself. Fresco's is
-`re-frame.fresco.substrate/adapter`; Reagent, UIx and reagent-slim each ship one.
+`re-frame.fresco.substrate/adapter`; Reagent and UIx each ship one.
 Install it once at boot with [`init!`](#init):
 
 ```clojure
@@ -461,11 +461,11 @@ Related: [Subscriptions](subscriptions.md).
 
 ### **substrate**
 
-The view layer that renders to React: Fresco (re-frame2's own), Reagent, UIx or
-reagent-slim. An [adapter](#adapter) connects re-frame2 to it. Events, subscriptions
+The view layer that renders to React: Fresco (re-frame2's own), Reagent or
+UIx. An [adapter](#adapter) connects re-frame2 to it. Events, subscriptions
 and app-db are the same on every substrate; only how views are written differs.
 
-Related: [Fresco](fresco/index.md), [Use UIx or slim](how-to/use-uix-or-slim.md).
+Related: [Fresco](fresco/index.md), [Use UIx](how-to/use-uix-or-slim.md).
 
 ### **view**
 

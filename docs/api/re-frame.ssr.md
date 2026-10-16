@@ -180,7 +180,7 @@ The server writes the hydration payload into the page as EDN, in a `<script id="
 
 On the client, `hydrate!` installs that state into the frame before the first render and checks the render against the server's; then the view adapter adopts the server's DOM, as in the [`hydrate!` example](#hydrate). Three checks guard hydration, and by default each reports the problem and lets the page carry on:
 
-- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent, Reagent-slim), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
+- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
 - `:rf.ssr/version-mismatch` — the payload and client disagree on the SSR pattern-protocol version, which is separate from the library release version.
 - `:rf.ssr/schema-digest-mismatch` — the app's schema set has changed since the payload was built.
 
@@ -206,7 +206,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     - `:frame` — required; the frame to hydrate, as its id or as the frame value `make-frame` returns, the same frame the root `frame-provider` names. The version and schema-digest checks run only on a `:client`-platform frame, the default on CLJS.
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
-    - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent, Reagent-slim). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
+    - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
     - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict.
 - **Errors**:
     - `:rf.error/no-frame-context` — no `:frame`. Emitted, then thrown.
