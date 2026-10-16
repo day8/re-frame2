@@ -407,8 +407,14 @@
         ;; Thread that coordinate into the SAME
         ;; canonical machine work-id generation slot used by its join fold, so
         ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
-        ;; Ordinary `:spawn` data has no membership record and stays unchanged.
-        join-work-generation (:work-generation join-child)
+        ;; A single-`:spawn` child has no membership record; it carries its
+        ;; spawn's `:rf/invoke-attempt`, which is a fixed id's generation
+        ;; because that address is the same on every attempt. A hand-emitted
+        ;; spawn carries neither and keeps the actor-id convention.
+        work-generation (or (:work-generation join-child)
+                            (when-some [attempt (:rf/invoke-attempt child-data)]
+                              (rf.machines.reply/spawn-attempt-generation
+                                machine-id attempt)))
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path
@@ -439,8 +445,8 @@
                              :parent-id         reply-parent-id
                              :work-bearing-path reply-invoke-id
                              :frame             frame-id}
-                      (some? join-work-generation)
-                      (assoc :work-generation join-work-generation)
+                      (some? work-generation)
+                      (assoc :work-generation work-generation)
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Choose the carrier. The ERROR leaf of a single-`:spawn` child
         ;; (it carries `:rf/invoke-id`) rides the FAILURE carrier whatever the
@@ -511,9 +517,9 @@
         parent-live?  (rf.machines.lifecycle-fx.spawn-error/parent-instance-live?
                         runtime-db reply-parent-id)
         stale-spawn?  (and reply-parent-id reply-invoke-id (not parent-live?))
-        ;; The carried generation is parsed off THIS finishing actor's id;
-        ;; the CURRENT generation is the LIVE counterpart — the generation of
-        ;; the actor currently occupying the spawn slot at
+        ;; The carried generation is THIS finishing attempt's work-id
+        ;; generation; the CURRENT generation is the LIVE counterpart — the
+        ;; generation of the actor currently occupying the spawn slot at
         ;; `[:rf.runtime/machines :spawned parent-id invoke-id]`, read ONLY
         ;; when the parent is still live. With the parent gone there is no
         ;; live counterpart, so `:current` is nil — exactly the supersession

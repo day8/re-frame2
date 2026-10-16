@@ -129,8 +129,7 @@ exercising the load-bearing subtleties, not just the happy path:
   frame-local, the `[:articles]` schema is held as a plain value and
   registered explicitly against each frame at its entry point — so
   the server commit and the client commit validate against the same
-  contract. (It's `[:maybe …]` because the slice is legitimately absent
-  until the fetch lands.) That validation is a development-time
+  contract. That validation is a development-time
   assertion on both sides: a production build performs the registration
   and elides the check ([Spec 010 §Production
   builds](../../../../spec/010-Schemas.md#production-builds)), so

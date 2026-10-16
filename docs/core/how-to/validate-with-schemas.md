@@ -24,14 +24,14 @@ Most schema checks run only in dev builds and are elided from release builds, so
    [:done? :boolean]])
 
 (rf/with-frame :app
-  (rf/reg-app-schema [:todos] [:maybe [:map-of :int Todo]]))
+  (rf/reg-app-schema [:todos] [:map-of :int Todo]))
 ```
 
-`Todo` is plain data in [Malli](https://github.com/metosin/malli), the default schema language; the common shapes are [below](#the-shapes-youll-actually-write). The `:maybe` lets `[:todos]` stay `nil` until something writes it, because every registered path is checked on every commit ([below](#every-registered-path-is-checked-on-every-commit)).
+`Todo` is plain data in [Malli](https://github.com/metosin/malli), the default schema language; the common shapes are [below](#the-shapes-youll-actually-write). Until something writes `[:todos]` the path is absent, and an absent path is not checked ([below](#what-a-path-schema-checks)).
 
-The registration runs inside `with-frame` because schemas are registered per [frame](../glossary.md#frame), so it has to name one. A bare top-level call raises `:rf.error/no-frame-context`. You can instead pass the frame in a metadata map: `(rf/reg-app-schema [:todos] {:frame :app} [:maybe [:map-of :int Todo]])`. The frame doesn't have to exist yet. Schemas belong to the frame, so `rf/destroy-frame!` drops them: a frame re-created under the same id is unchecked until your `reg-app-schema` forms run again.
+The registration runs inside `with-frame` because schemas are registered per [frame](../glossary.md#frame), so it has to name one. A bare top-level call raises `:rf.error/no-frame-context`. You can instead pass the frame in a metadata map: `(rf/reg-app-schema [:todos] {:frame :app} [:map-of :int Todo])`. The frame doesn't have to exist yet. Schemas belong to the frame, so `rf/destroy-frame!` drops them: a frame re-created under the same id is unchecked until your `reg-app-schema` forms run again.
 
-After every event handler runs, the runtime validates what the new app-db holds at `[:todos]` before installing it. If the value doesn't conform, the runtime emits `:rf.error/schema-validation-failure`, app-db keeps its pre-event value, and the dispatch is treated as failed.
+When an event handler writes `[:todos]`, the runtime validates the new value before installing it. If the value doesn't conform, the runtime emits `:rf.error/schema-validation-failure`, app-db keeps its pre-event value, and the dispatch is treated as failed.
 
 !!! note "One require wires the validator"
 
@@ -54,7 +54,7 @@ A todo's title must never be blank. In this example the rule appears twice, on p
   [:map [:id :int] [:title [:string {:min 1}]] [:done? :boolean]])
 
 ;; Registered against the :app frame the root below creates.
-(rf/reg-app-schema [:todos] {:frame :app} [:maybe [:map-of :int Todo]])
+(rf/reg-app-schema [:todos] {:frame :app} [:map-of :int Todo])
 
 (rf/reg-event :todo/initialise
   {:schema [:cat [:= :todo/initialise]]}
@@ -119,10 +119,10 @@ Beyond these seven, `[:set …]`, `[:map-of …]`, `[:tuple …]`, `[:or …]`, 
 ;; Todo and TodoUi are your own schemas.
 (rf/with-frame :app
   (rf/reg-app-schemas
-   {[:todos]          [:maybe [:map-of :int Todo]]
-    [:showing]        [:maybe [:enum :all :active :done]]
-    [:todo.ui]        [:maybe TodoUi]
-    [:todo.ui :draft] [:maybe :string]}))
+   {[:todos]          [:map-of :int Todo]
+    [:showing]        [:enum :all :active :done]
+    [:todo.ui]        TodoUi
+    [:todo.ui :draft] :string}))
 ```
 
 Paths may nest: a write under `[:todo.ui :draft]` is checked against that schema and against the surrounding `[:todo.ui]` one. The empty path `[]` covers the whole of app-db. [The Conduit example](../../../examples/real-apps/realworld_http) registers every slice that holds server data, and every form draft, this way.
@@ -131,30 +131,26 @@ A duplicate path is last-write-wins, and the call returns the vector of paths it
 
 These paths cover your data only. The framework's [runtime-db partition](../app-db.md) validates itself, and registering a schema against it is an error ([Troubleshooting](#troubleshooting)).
 
-## Every registered path is checked on every commit
+## What a path schema checks
 
-Validation is not limited to the paths the committing event touched. After a handler returns `:db`, the runtime checks the candidate app-db at every path registered for the frame and rejects the whole transaction if any one fails. A handler that writes only `[:showing]` is still checked against your `[:todos]` schema.
+A path schema constrains the value at its path only where that path exists. After a handler returns `:db`, the runtime checks the registered slices the commit writes, and rejects the whole transaction if any one fails:
 
-`get-in` on a path nothing has written returns `nil`, and `nil` is checked like any other value, so a `[:map …]` over an unseeded slice fails. A schema registered before its slice exists rejects every commit until the slice is seeded.
+- A registered path whose slice the new app-db leaves `identical?` to the old one is skipped, because the commit didn't write it. A handler that writes only `[:showing]` is not checked against your `[:todos]` schema.
+- A parent path is checked when a write lands anywhere beneath it, so a write to `[:todo.ui :draft]` is checked against `[:todo.ui]` too, and `[]` is checked whenever app-db changes.
+- An absent path is not checked, and a present `nil` is. A slice nothing has written yet blocks no commit, so schemas can be registered at namespace load and each slice seeded later by its own feature's `:*/initialise` event, one commit at a time. Wrap a schema in `:maybe` only where a handler writes `nil` there.
 
-That breaks a common boot shape: `reg-app-schemas` at namespace load, then a boot event that dispatches per-feature `:*/initialise` events. The first seed to commit is checked against every sibling slice that hasn't been seeded, fails on their `nil`s, and is rejected. A rejected transition doesn't run its `:fx`, so the remaining seeds are never dispatched, app-db never leaves `{}`, and each attempt reports a failure at a path the handler never touched.
+This is how optional properties behave in Zod and TypeScript: a missing key passes, and a `null` is checked against the declared type.
 
-There are two fixes. Seed every schema'd slice in one commit (a single `:db` write), so no registered path ever reads `nil`. Or wrap each schema in `:maybe` for as long as the slice can legitimately be empty:
+Whether a key must exist is a separate statement, made by an enclosing schema, usually the root `[]`:
 
 ```clojure
 (rf/with-frame :app
-  (rf/reg-app-schemas
-   {[:config] [:maybe Config]     ;; nil until the config request returns
-    [:flags]  [:maybe Flags]
-    [:user]   [:maybe User]
-    [:routes] [:maybe Routes]}))
+  (rf/reg-app-schema [] [:map [:cart CartSchema]]))   ;; :cart must exist
 ```
 
-The [boot example](../../../examples/patterns/boot/schema.cljs) does this: each slot starts out `nil` until the boot machine fills it, so every registration is `:maybe`. You give up the check that the slice is populated, which is right while it legitimately isn't.
+`(rf/reg-app-schema [:cart] CartSchema)` alone admits an app-db with no `:cart`; the root's required entry makes a missing `:cart`, never seeded or removed with `dissoc`, a failure. Because `[]` is checked on every write, seed the keys a root schema requires in one `:db` write, before any other event writes app-db.
 
-!!! warning "Broken in dev, fine in production"
-
-    App-db validation is dev-only, so an app with this defect works in a release build and is stuck at boot in a dev build. A dead dev app beside a healthy release build usually means a schema registered ahead of its data, not a broken release pipeline.
+Registering a schema also checks the value already at its path. In a dev build, a present value that fails it emits an `:rf.schema/violation` warning, the same one a hot reload of a changed schema emits ([Troubleshooting](#troubleshooting)); an absent path, or a frame that doesn't exist yet, emits nothing. The root of a running frame is always present, so register a root schema before its frame is created, as the namespace-load registrations on this page are, or after the seed has landed. Registered against a running frame whose app-db is still `{}`, the root schema above warns once.
 
 ## Put a schema on the event too
 
@@ -273,8 +269,8 @@ Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps op
 | `:rf.error/app-schemas-bad-batch` | `reg-app-schemas` got something other than a `{path schema}` map | Pass a map of vector paths |
 | `:rf.error/app-schema-runtime-path` | The path starts with `:rf/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
 | `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form (a childless `[:vector]`, an unknown op) registers cleanly because Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
-| Every commit rejected, naming a path the handler never touched | A schema registered before its slice was seeded | Seed every slice in one commit, or wrap the schema in `:maybe` ([above](#every-registered-path-is-checked-on-every-commit)) |
-| `:rf.schema/violation` warning (Xray Issues panel) after a hot reload | A tightened schema no longer matches the value already in app-db; the warning carries `:pre-reload-schema`, `:post-reload-schema` and `:mismatching-value` | Dispatch the event that rewrites the slice, or reload the page |
+| Every commit rejected against `[]`, naming a key the handler never wrote | A root schema requires a key nothing has seeded yet, and `[]` is checked on every write | Seed the keys it requires in one `:db` write, before other events write app-db ([above](#what-a-path-schema-checks)) |
+| `:rf.schema/violation` warning (Xray Issues panel) at registration or after a hot reload | A schema registered for the first time, or tightened, doesn't match the value already in app-db; the warning carries `:post-reload-schema` and `:mismatching-value`, plus `:pre-reload-schema` when it replaced a schema | Dispatch the event that rewrites the slice, or reload the page. For a root schema at boot, register it before the frame exists ([above](#what-a-path-schema-checks)) |
 
 ## Advanced
 
@@ -297,9 +293,9 @@ A validation failure carries the failing value, which is what makes it debuggabl
 ```clojure
 (rf/with-frame :app
   (rf/reg-app-schema [:auth]
-    [:maybe [:map
-             [:user  [:maybe [:map [:email :string] [:username :string]]]]
-             [:token {:sensitive? true} [:maybe :string]]]]))   ;; a bad :token fails redacted
+    [:map
+     [:user  [:maybe [:map [:email :string] [:username :string]]]]
+     [:token {:sensitive? true} [:maybe :string]]]))   ;; a bad :token fails redacted
 ```
 
 - **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
@@ -317,13 +313,13 @@ Registered schemas can be queried, by you, by tools, and by AI agents: "what sha
 (require '[re-frame.schemas :as schemas])
 
 (schemas/app-schema-meta {:frame :app :path [:todos]})
-;; => {:path [:todos] :schema [:maybe [:map-of :int Todo]] :frame :app :ns ... :line ... :file ...}
+;; => {:path [:todos] :schema [:map-of :int Todo] :frame :app :ns ... :line ... :file ...}
 
 (schemas/app-schemas {:frame :app})
 ;; => {[:todos] {:path [:todos] :schema [...] ...}, ...}   one frame, keyed by path
 
 (update-vals (schemas/app-schemas {:frame :app}) :schema)
-;; => {[:todos] [:maybe [:map-of :int Todo]], ...}         the schemas alone
+;; => {[:todos] [:map-of :int Todo], ...}                  the schemas alone
 
 (schemas/app-schemas-digest {:frame :app})
 ;; => "sha256:abc1234567890def"                                       a hash of the whole set

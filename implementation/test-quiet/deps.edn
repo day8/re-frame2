@@ -18,10 +18,10 @@
 ;;     forwards every other stdout byte a test/fixture/CLI emits — `-H`
 ;;     usage, parse-error diagnostics, and bare `(println …)` — so runner
 ;;     misuse and failure-time diagnostics stay visible.
-;;     Only cognitect's own `Running tests in #{…}` discovery banner is
-;;     dropped. A green run is therefore "summary + whatever a test chose
-;;     to print", which under the repo's no-stray-println discipline is
-;;     just the summary.
+;;     cognitect's own `Running tests in #{…}` line, naming the
+;;     directories it scanned, passes through too, so a green JVM run is
+;;     that line, the summary, and whatever a test chose to print — which
+;;     under the repo's no-stray-println discipline is nothing.
 ;;   - STDERR/WARNINGS are buffered, replayed on red, dropped on green.
 ;;     the JVM runner (`re-frame.test-quiet.runner`) buffers JVM stderr
 ;;     (`*err*` / `System.err`) while the CLJS node runner

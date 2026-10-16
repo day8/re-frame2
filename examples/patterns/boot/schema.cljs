@@ -135,11 +135,12 @@
 ;; ============================================================================
 
 ;; A failing app-db schema makes the runtime roll the commit back, post-commit.
-;; Each slot below starts out nil — the boot machine fills it in later — so
-;; every registration wears a `:maybe` to stay valid through the loading phases.
-;; (No machine snapshots here: those validate via the machine's own
-;; `:schemas {:data ...}` in boot.cljs. A `reg-app-schema` on a snapshot path
-;; would guard nothing, since snapshots live in runtime-db, not app-db.)
+;; Each slot below is absent until `:boot/apply-hydration` (boot.cljs) writes all
+;; four in one commit, and a path schema checks a slot only where app-db has
+;; it, so the schemas are bare. (No machine snapshots here: those validate via
+;; the machine's own `:schemas {:data ...}` in boot.cljs. A `reg-app-schema` on
+;; a snapshot path would guard nothing, since snapshots live in runtime-db, not
+;; app-db.)
 
 ;; One wrinkle worth knowing: `reg-app-schema` is frame-local, so a bare
 ;; ns-load call with no frame in scope raises `:rf.error/no-frame-context`.
@@ -150,7 +151,7 @@
   ;; The boot machine promotes its final payloads into these top-level slices
   ;; on entering `:hydrating` — the very slices the main app reads through subs
   ;; once the boot hits `:ready`.
-  (rf/reg-app-schema [:config] [:maybe Config])
-  (rf/reg-app-schema [:flags]  [:maybe Flags])
-  (rf/reg-app-schema [:user]   [:maybe User])
-  (rf/reg-app-schema [:routes] [:maybe Routes]))
+  (rf/reg-app-schema [:config] Config)
+  (rf/reg-app-schema [:flags]  Flags)
+  (rf/reg-app-schema [:user]   User)
+  (rf/reg-app-schema [:routes] Routes))

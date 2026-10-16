@@ -156,7 +156,7 @@ Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI work
 
 **The spec is the artefact; the code is downstream.** The normative description of re-frame2 lives in [`spec/`](spec/); [`implementation/`](implementation/) is a CLJS reference that validates the spec end-to-end. See the repo-root [`README.md`](README.md) for the marketing-voice introduction and the project-layout map, and [`spec/README.md`](spec/README.md) for the spec index.
 
-The `adapters/` (Reagent, reagent-slim, UIx) are **first-class and actively supported**, and `fresco/` (re-frame.fresco) is the re-frame-native view layer. Retired adapter kinds are reserved and never recycled — see the `:rf.adapter/*` row of `spec/Conventions.md`.
+The `adapters/` (Reagent, UIx) are **first-class and actively supported**, and `fresco/` (re-frame.fresco) is the re-frame-native view layer. Retired adapter kinds are reserved and never recycled — see the `:rf.adapter/*` row of `spec/Conventions.md`.
 
 `tools/` holds dev/inspection tools consuming the Spec 009 instrumentation API and Tool-Pair contract. They are bundle-isolated from production builds: **nothing in `implementation/` may `:require` from `tools/`.**
 

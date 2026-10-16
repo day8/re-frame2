@@ -48,14 +48,12 @@
                 :rf/head-hash   "head-hash-server-A"}]]
 
  :fixture/render-after-hydrate
- ;; Harness simulates the client recomputing BOTH channels to the same
- ;; hashes: the BODY render-tree (via :render-tree-fn) matches
- ;; :rf/render-hash, and the head model (recomputed via head-model against
- ;; the hydrated state) matches :rf/head-hash. No mismatch trace. Per Spec
- ;; 011 §Mismatch detection — head: body and head ride SEPARATE channels;
- ;; a host attributes a head-only mismatch via :failing-id.
- {:simulated-client-render-hash "render-hash-server-A"
-  :simulated-client-head-hash   "head-hash-server-A"}
+ ;; Harness simulates the client recomputing the BODY render-tree hash (via
+ ;; :render-tree-fn), which matches :rf/render-hash. No mismatch trace. Per
+ ;; Spec 011 §Mismatch detection — head: body and head ride SEPARATE
+ ;; channels, the bundled client never reads :rf/head-hash, and a host that
+ ;; checks the head attributes a head-only mismatch via :failing-id.
+ {:simulated-client-render-hash "render-hash-server-A"}
 
  :fixture/expect
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"

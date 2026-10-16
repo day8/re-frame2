@@ -85,6 +85,7 @@
 ;; markers ride the EP-0025 commit-plane classification effect, NOT the schema.
 (with-frame :rf/default
   (rf/reg-app-schemas
+    ;; `:maybe` on the two flat slots: `::initialise` writes nil to both.
     {[:declared-large-value] [:maybe :string]
      [:fx-declared-value]    [:maybe :string]
      [:schema-bag]           SchemaLarge}))

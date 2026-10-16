@@ -24,7 +24,7 @@ The clauses are id'd `SA-NN` (spec-authoring) to keep them visually distinct fro
 >
 > - **SA-2** (MUST — addressed to spec authors). Every spec document MUST be readable without consulting re-frame v1 source. Where re-frame v1 behaviour is the contract, the spec MUST capture it explicitly (with examples); "see re-frame v1 for the existing behaviour" is not a sufficient specification.
 >
-> - **SA-3** (MUST — addressed to spec authors). Every shape that flows on the wire or appears in a spec example — event vector, dispatch envelope, registration metadata, effect map, snapshot, hydration payload, trace event, fixture file — MUST have a schema in [Spec-Schemas.md](Spec-Schemas.md).
+> - **SA-3** (MUST — addressed to spec authors). Every shape that flows on the wire or appears in a spec example — event vector, dispatch envelope, registration metadata, effect map, snapshot, hydration payload, trace event, fixture file — MUST have a schema in [Spec-Schemas.md](Spec-Schemas.md), or in a schema file this catalogue names.
 >
 > - **SA-4** (MUST — addressed to spec authors). Every item under a `## Open questions` heading in a per-Spec document MUST be classified per the four-term vocabulary below; resolved items MUST move out of `## Open questions` to `## Resolved decisions`; indefinite "we'll figure out X later" items are incompatible with [000 Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone) and MUST be resolved before the corpus ships.
 >

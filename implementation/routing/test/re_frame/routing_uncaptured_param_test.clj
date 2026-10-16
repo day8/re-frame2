@@ -44,7 +44,7 @@
   posture-independent), the programmatic door leaves the slice untouched and
   pushes no history entry, and prefetch never consults the warm hook. Those
   run in the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+  `clojure -M:test:prod-gate` (the `-Dre-frame.debug=false` lane).
 
   What is dev-only is how the rejection is ANNOUNCED on the two EVENT doors:
   `:rf.error/schema-validation-failure` and `:rf.error/prefetch-bad-address`

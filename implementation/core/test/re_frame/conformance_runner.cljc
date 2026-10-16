@@ -559,8 +559,8 @@
 (def classification-effect-axes
   "The four EP-0025 commit-plane axes a `:fixture/classification-effects`
   op-map may carry. An op carries EXACTLY ONE of them — see
-  `spec/Spec-Schemas.md` §`:rf/fixture-file` and
-  `spec/conformance/README.md` §The `:fixture/classification-effects`
+  `:conformance/classification-op` in `spec/conformance/fixture-file.edn`
+  and `spec/conformance/README.md` §The `:fixture/classification-effects`
   harness step."
   #{:sensitive :large :clear-sensitive :clear-large})
 
