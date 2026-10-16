@@ -420,6 +420,21 @@
                   "declares :sensitive / :large as a vector of projection-relative "
                   "`:rf/path` vectors (e.g. {:sensitive [[:data :ssn]]}).")
              {:resource-id resource-id :axis axis :value (get spec axis)})))
+  ;; A resource's params and scope are its identity, not a classified slot:
+  ;; off-box the scope always tokenises by the standing scope rule, and the
+  ;; params ride unless the owner claims the whole resource. So a `:params`- or
+  ;; `:scope`-rooted path is refused, naming the claim that does the job.
+  (when-let [[axis path] (rf.resources.classification/identity-rooted-declaration spec)]
+    (throw (registration-error
+             :rf.error/resource-bad-spec
+             'rf/reg-resource
+             (str "resource " resource-id " declares " (pr-str path) " under " axis
+                  ", but a resource's params and scope are its identity, not a "
+                  "classified slot. Off-box its scope is always tokenised, and its "
+                  "params ride unless the resource claims the whole entry: declare "
+                  ":sensitive? true (or :large? true) on the resource instead. "
+                  "Per Spec 016 §Resource registration spec.")
+             {:resource-id resource-id :axis axis :path path})))
   nil)
 
 ;; ---- :gc-after-ms normalization ------------------------------------------
