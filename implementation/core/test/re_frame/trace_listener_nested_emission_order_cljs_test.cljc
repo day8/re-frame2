@@ -1,14 +1,15 @@
 (ns re-frame.trace-listener-nested-emission-order-cljs-test
-  "Per-listener event order survives NESTED emission (Spec 009 §The listener
-  contract point 4): when listener L0 emits B while the outer event A is still
-  being fanned out, no listener may observe B before A — and the nested `emit!`
-  returns only after B reached every listener (Spec 009 §Emitting trace events).
+  "Trace listeners are delivered from one FIFO queue owned by the outermost
+  deliverer (Spec 009 §Listener invocation rules). When listener L0 emits B
+  while the outer event A is being fanned out, B is queued: the nested `emit!`
+  returns at once, no listener callback is re-entered, every listener sees A
+  before B, and B reaches every listener before the outermost `emit!` returns.
 
-  A plain fan-out loop breaks the first law: B would reach the still-unvisited
+  A plain recursive fan-out breaks the order: B would reach the still-unvisited
   L1 before A did, so a tool folding `:rf.flow/cleared` then a nested
-  `:rf.flow/registered` would end with a live flow marked cleared. The shared
-  `re-frame.trace.tooling/*fanout-ctx*` schedule advances A to the remaining
-  listeners first, then delivers B, before the nested `emit!` returns.
+  `:rf.flow/registered` would end with a live flow marked cleared. Driving B to
+  every listener inside the nested `emit!` keeps the order but re-enters L0,
+  whose callback for A is still on the stack.
 
   The listeners live in a small array-map, so the first registered fans out
   first on both hosts."
@@ -33,30 +34,42 @@
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
 ;; end (see the `:prod-gate` alias in deps.edn).
 
-(deftest ^:requires-debug nested-emit-completes-synchronously
-  ;; L0 (emitter, first) emits `inner` while handling `outer`, then checks — the
+(deftest ^:requires-debug nested-emit-is-queued-behind-the-outer-event
+  ;; L0 (emitter, first) emits `inner` while handling `outer`, then records — the
   ;; instant the nested `emit!` returns — whether L1 (observer) already has it.
   (let [seen-observer       (atom [])
         seen-emitter        (atom [])
+        emitter-depth       (atom 0)
+        reentered?          (atom false)
         observer-caught-up? (atom :not-recorded)]
     (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
-        (swap! seen-emitter conj ev)
-        (when (= outer (:operation ev))
-          (rf.trace/emit! :info inner {})
-          (reset! observer-caught-up?
-                  (boolean (some #{inner} (ops-only @seen-observer)))))))
+        (when (pos? @emitter-depth)
+          (reset! reentered? true))
+        (swap! emitter-depth inc)
+        (try
+          (swap! seen-emitter conj ev)
+          (when (= outer (:operation ev))
+            (rf.trace/emit! :info inner {})
+            (reset! observer-caught-up?
+                    (boolean (some #{inner} (ops-only @seen-observer)))))
+          (finally
+            (swap! emitter-depth dec)))))
     (rf.trace.tooling/register-listener! ::observer
       (fn [ev] (swap! seen-observer conj ev)))
     (try
       (rf.trace/emit! :info outer {})
-      (is (true? @observer-caught-up?)
-          (str "the observer had NOT received inner when the nested emit "
-               "returned. Recorded: " (pr-str @observer-caught-up?)))
+      (is (false? @reentered?)
+          (str "the emitter's callback was re-entered: its callback for inner "
+               "started while its callback for outer was still on the stack"))
+      (is (false? @observer-caught-up?)
+          (str "the nested emit delivered inner before returning instead of "
+               "queueing it. Observer already held inner: "
+               (pr-str @observer-caught-up?)))
       (is (= [outer inner] (ops-only @seen-observer))
-          "the observer sees outer before the reentrantly-emitted inner")
+          "the observer sees outer, then inner, before the outermost emit returns")
       (is (= [outer inner] (ops-only @seen-emitter))
-          "the emitter also receives its own nested inner, after outer")
+          "the emitter receives its own nested inner after outer, before the outermost emit returns")
       (finally
         (rf.trace.tooling/unregister-listener! ::emitter)
         (rf.trace.tooling/unregister-listener! ::observer)))))

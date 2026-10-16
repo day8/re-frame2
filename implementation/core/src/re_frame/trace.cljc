@@ -161,7 +161,9 @@
   "Run `f` as one post-drain trace-listener delivery region.
   Trace events emitted inside it while the framework owns a frame's `:drain-lock`
   are appended rather than fanned out, and delivered on the way out, serialized
-  process-wide, before the enclosing dispatch / drain call returns.
+  process-wide, before the enclosing dispatch / drain call returns — or, when a
+  listener callback started the drain, queued behind the event that callback is
+  handling and delivered before the outermost delivery returns.
 
   The drain engine wraps its `:drain-lock` acquire → run → release regions in this
   (`re-frame.router/drain-try!` / `drain-block!` and
@@ -842,10 +844,14 @@
   (Closure DCE on the `rf.interop/debug-enabled?` gate); in dev / JVM
   the envelope is built and delivered to the ring buffer and epoch
   capture at once. Registered listeners are called synchronously when
-  the emit is raised outside any frame drain; an emit raised inside a
-  drain reaches them at the post-drain boundary, before the enclosing
-  dispatch / drain call returns — on JVM and CLJS alike (see
-  `call-with-deferred-listener-delivery`).
+  the emit is raised outside any frame drain and outside any listener
+  callback. An emit raised inside a drain reaches them at the post-drain
+  boundary, before the enclosing dispatch / drain call returns — on JVM
+  and CLJS alike (see `call-with-deferred-listener-delivery`). An emit
+  raised inside a listener callback, directly or through a drain the
+  callback started, is queued behind the event being delivered and
+  returns at once; the outermost delivery reaches every listener with
+  it, in emission order, before that delivery returns.
 
   Reads `*handler-scope*` to hoist the in-scope slots onto the
   envelope: `:trigger-handler` on every emit, `:dispatch-id` merged

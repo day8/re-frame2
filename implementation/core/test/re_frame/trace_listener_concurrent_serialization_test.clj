@@ -3,10 +3,10 @@
   emits (Spec 009 §The listener contract; `docs/api/re-frame.core.md`:
   \"Delivery is synchronous: the callback returns before the next record\").
 
-  `*fanout-ctx*` orders same-thread reentrant emits only. Emits racing on two
-  threads each open their own outermost fan-out, so the process-wide
-  `fanout-monitor` is what keeps one listener from running on two threads at
-  once. JVM-only: CLJS has one thread and no monitor."
+  The per-thread fan-out queue orders same-thread nested emits only. Emits
+  racing on two threads each open their own outermost fan-out, so the
+  process-wide `fanout-monitor` is what keeps one listener from running on two
+  threads at once. JVM-only: CLJS has one thread and no monitor."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]

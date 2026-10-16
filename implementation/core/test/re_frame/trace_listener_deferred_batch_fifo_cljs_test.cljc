@@ -14,7 +14,7 @@
   and deliver `run-end` before the new trace. A misorder never throws, so the order is the assertion.
 
   One deftest per flush seam: the outermost flush (top-level `dispatch-sync`,
-  `*fanout-ctx*` unbound) and the integrate path (a listener-initiated
+  no fan-out in progress) and the integrate path (a listener-initiated
   `dispatch-sync` folding into an active outer fan-out)."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -72,7 +72,7 @@
 (deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-when-integrated
   (let [seen (atom [])]
     (rf/reg-event :t6vs3/inner (fn [{:keys [db]} _] {:db db}))
-    ;; Registered first: a clean emit's fan-out (so `*fanout-ctx*` is bound)
+    ;; Registered first: a clean emit's fan-out (so a fan-out queue is active)
     ;; opens the nested drain whose batch integrates on flush.
     (rf.trace.tooling/register-listener! ::trigger
       (fn [ev]
