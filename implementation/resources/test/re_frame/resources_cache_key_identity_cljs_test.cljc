@@ -42,19 +42,26 @@
 (def ^:private both-key-ids #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)})
 
 (deftest carrier-2-work-ledger-keys-distinctly
-  (let [wv   (rf.resources.work-ledger/resource-work-id kv 1)
-        wl   (rf.resources.work-ledger/resource-work-id kl 1)
+  ;; A read's work id carries no params, so the kind distinction reaches the
+  ;; ledger key only through a mutation work id, which embeds the
+  ;; caller-supplied instance id.
+  (is (= [:rf.work/resource :r/x 1] (rf.resources.work-ledger/resource-work-id :r/x 1))
+      "a read work id is the resource id and generation")
+  (let [iv   [:rf.mutation [:row 1 2 3]]
+        il   [:rf.mutation '(:row 1 2 3)]
+        wv   (rf.resources.work-ledger/resource-work-id iv 1)
+        wl   (rf.resources.work-ledger/resource-work-id il 1)
         rec  (fn [wid k] (rf.resources.work-ledger/work-record {:work-id wid :frame-id :f :resource/key k
                                                                 :generation 1 :transport :rf.http/managed}))
         rdb  (-> {}
-                 (rf.resources.work-ledger/put-record wv (rec wv kv))
-                 (rf.resources.work-ledger/put-record wl (rec wl kl)))]
+                 (rf.resources.work-ledger/put-record wv (rec wv iv))
+                 (rf.resources.work-ledger/put-record wl (rec wl il)))]
     (is (= wv wl) "precondition: the work-id vectors are Clojure-=")
     (is (= 2 (count (:rf.runtime/work-ledger rdb))))
-    (is (= [kv kl] [(:resource/key (rf.resources.work-ledger/get-record rdb wv))
+    (is (= [iv il] [(:resource/key (rf.resources.work-ledger/get-record rdb wv))
                     (:resource/key (rf.resources.work-ledger/get-record rdb wl))]))
-    (is (vector? (get-in (rf.resources.work-ledger/get-record rdb wv) [:resource/key 2 :xs])))
-    (is (seq? (get-in (rf.resources.work-ledger/get-record rdb wl) [:resource/key 2 :xs])))))
+    (is (vector? (get-in (rf.resources.work-ledger/get-record rdb wv) [:resource/key 1])))
+    (is (seq? (get-in (rf.resources.work-ledger/get-record rdb wl) [:resource/key 1])))))
 
 (deftest carrier-3-ssr-projection-round-trip-keeps-two-entries
   (let [wired (get-in (rf.resources.ssr/project-resources-runtime-db (byte-keyed-runtime-db))

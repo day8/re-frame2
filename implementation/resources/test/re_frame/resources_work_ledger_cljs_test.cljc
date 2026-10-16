@@ -117,7 +117,11 @@
                         :cause [:route-entry :route/article 1]}])
     (let [wid (:current-work (entry k))
           r   (record wid)]
-      (is (= [:rf.work/resource k 1] wid))
+      (is (= [:rf.work/resource :wl/article 1] wid)
+          "the work id names the resource id and generation, never the scoped key")
+      (is (= [:rf.req :rf/default [:rf.work/resource :wl/article 1]]
+             (:request-id @last-managed-args))
+          "the transport request id keeps its frame")
       (is (= {:work/id wid :work/kind :resource :work/frame :rf/default :resource/key k
               :generation 1 :status :running :owners #{[:route :r 1]}
               :causes [[:route-entry :route/article 1]]}
@@ -334,7 +338,7 @@
     (update runtime-db :rf.runtime/work-ledger (fn [l] (reduce dissoc l drop-ids)))))
 
 (defn- record-for [scoped-key generation status started-at]
-  {:work/id      [:rf.work/resource scoped-key generation]
+  {:work/id      [:rf.work/resource (second scoped-key) generation]
    :work/kind    :resource
    :resource/key scoped-key
    :generation   generation
@@ -389,7 +393,7 @@
                                                        (nth [:running :completed :failed :cancelled]
                                                             (nextint 4))
                                                        (nextint 1000))]
-                                     (rf.resources.work-ledger/put-record rdb [:rf.work/resource k g] r))
+                                     (rf.resources.work-ledger/put-record rdb (:work/id r) r))
                                  1 (rf.resources.work-ledger/prune-terminal-for-key rdb k (nextint 3)))]
                       (recur (inc step) rdb' (if (zero? op) (inc gen) gen)
                              (cond-> drift (index-drift rdb') (conj [step op]))))))]
