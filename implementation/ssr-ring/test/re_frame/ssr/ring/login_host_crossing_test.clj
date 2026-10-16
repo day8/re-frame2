@@ -22,9 +22,9 @@
   login_host.cjs`, over a real socket on port 0, and drives
   `fresco.login.host/make-handler` — the same constructor the shipped
   `handler` Var is built from, pointed at the ephemeral endpoint the
-  spawned sidecar reported. The fixture is configured FROM
-  `fresco.login.policy`, so the sidecar enforces the application's own
-  entry allowlists rather than a second copy of them.
+  spawned sidecar reported. The fixture takes its entry id FROM
+  `fresco.login.policy`, the Var the shipped bundle publishes as its entry
+  table.
 
   ## What this witnesses, and what it does not
 
@@ -42,14 +42,13 @@
   bundle inside a JVM test would buy nothing that test does not already
   hold, and would put shadow-cljs on this lane.
 
-  ## The fail-open, proved closed
+  ## One policy, one owner
 
-  The sidecar refuses a host that asks for MORE than the entry allows. It
-  cannot refuse one that asks for LESS — that host is served a page
-  rendered from incomplete state, with nothing to notice. Two copies of one
-  list drift both ways; one Var cannot. `render-state-is-one-source`
-  asserts the single owner, and `a-widened-host-is-refused` proves the
-  other direction still bites at the seam."
+  Which keys Node sees is the host's `:render-state` alone; the sidecar
+  checks their shape, never their names. `render-state-is-one-source`
+  asserts the single owner, and `a-key-the-entry-never-names-renders`
+  proves a key the JVM projects reaches the render although the bundle's
+  entry table names no keys, and stays out of `__rf_payload`."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -113,18 +112,13 @@
     (.start)))
 
 (defn- entry-env
-  "The environment the fixture module reads its entry table out of — the
-  application's OWN policy, JSON-encoded for a CommonJS module to parse.
-  Nothing in the fixture spells a key; this is where they come from, and
-  it is the same Var `server.cljs` derives the shipped bundle's
-  `stateAllowlist` / `runtimeAllowlist` from."
+  "The environment the fixture module reads its identity out of — the
+  application's OWN entry id and build id. Nothing in the fixture spells
+  either; this is where they come from, and the entry id is the same Var
+  `server.cljs` publishes as the shipped bundle's entry table."
   []
-  {"RF2_LOGIN_ENTRY"             policy/root-entry
-   "RF2_LOGIN_BUILD_ID"          host/build-id
-   "RF2_LOGIN_STATE_ALLOWLIST"   (json/write-str
-                                   (mapv pr-str (:app-db policy/render-state-policy)))
-   "RF2_LOGIN_RUNTIME_ALLOWLIST" (json/write-str
-                                   (mapv pr-str (:runtime-db policy/render-state-policy)))})
+  {"RF2_LOGIN_ENTRY"    policy/root-entry
+   "RF2_LOGIN_BUILD_ID" host/build-id})
 
 (defn- spawn-sidecar!
   "Spawn `node bin/serve.cjs --module <login fixture> --port 0 …` and wait
@@ -209,10 +203,14 @@
 (deftest render-state-is-one-source
   ;; host.clj is Clojure and server.cljs ClojureScript, so neither compiler
   ;; can read the other's file and a copy in either would drift silently.
-  (doseq [f ["../../examples/substrates/fresco/login/host.clj"
-             "../../examples/substrates/fresco/login/server.cljs"]]
-    (let [src (slurp (io/file f))]
-      (is (str/includes? src "policy/render-state-policy") (str f " reads the shared Var"))
+  ;; The host projects under the shared policy; the bundle publishes the
+  ;; shared entry id.
+  (let [src-of     #(slurp (io/file (str "../../examples/substrates/fresco/login/" %)))
+        host-src   (src-of "host.clj")
+        server-src (src-of "server.cljs")]
+    (is (str/includes? host-src "policy/render-state-policy") "host.clj reads the shared policy Var")
+    (is (str/includes? server-src "policy/root-entry") "server.cljs reads the shared entry id")
+    (doseq [[f src] [["host.clj" host-src] ["server.cljs" server-src]]]
       (is (not (str/includes? src (pr-str (:app-db policy/render-state-policy))))
           (str f " keeps no copy of the app-db key list")))))
 
@@ -367,13 +365,12 @@
           "and it is render state, not payload: the browser's allowlist is
            app-db keys and names none of this"))))
 
-(deftest ^:crossing a-widened-host-is-refused
-  (testing "a host that asks for a key the entry does not allow is refused
-            by the sidecar rather than served — the direction that CAN be
-            caught at the seam, and the reason the other direction is
-            closed by construction instead"
-    ;; The widened key has to be PRESENT in app-db, or the projection's
-    ;; `select-keys` omits it and the sidecar never sees the overreach.
+(deftest ^:crossing a-key-the-entry-never-names-renders
+  (testing "a key the host's :render-state projects reaches the render
+            although the bundle's entry table names no keys, and stays out
+            of __rf_payload because :payload does not name it"
+    ;; The extra key has to be PRESENT in app-db, or the projection's
+    ;; `select-keys` omits it and nothing crosses.
     (rf/reg-event :login-host-test/seed-extra
       {:platforms #{:server}}
       (fn [{:keys [db]} _]
@@ -390,12 +387,12 @@
                                         :render-state (update policy/render-state-policy
                                                               :app-db conj
                                                               :auth.login/not-on-the-list)
-                                        :timeout-ms   1000})
-                     :error-view     (fn [{:keys [code]}]
-                                       [:main#login-error [:p (str "projected:" (name code))]])})
-          {:keys [status body]} (widened request)]
-      (is (>= status 500) (str "a refusal is a projected 5xx, got " status))
-      (is (str/includes? body "projected:")
-          "the error view rendered, so the refusal reached the projector")
-      (is (not (str/includes? body "<main data-entry="))
-          "and no partial page was served"))))
+                                        :timeout-ms   1000})})
+          {:keys [status headers body]} (widened request)]
+      (is (= 200 status))
+      (is (= ":auth :auth.login/not-on-the-list" (marked body "login-state-keys"))
+          "the projected key crossed, and the render received it")
+      (is (not (str/includes? (str (payload-edn-of body)) "not-on-the-list"))
+          "the browser's payload never carries it")
+      (is (not (str/includes? (pr-str headers) "not-on-the-list"))
+          "nor does any response header"))))

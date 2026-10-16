@@ -779,10 +779,11 @@ catches.
 
 #### 2. Write the render module
 
-Use two files. What both halves must agree on — the entry id, the
-per-partition key lists and the app's frame config — goes in its own `.cljc`
-namespace, because the render module is ClojureScript, the Ring host in step 3
-is Clojure, and a `.cljc` namespace is the only file both compilers read:
+Use two files. What both halves must agree on — the entry id and the app's
+frame config — goes in its own `.cljc` namespace beside the render-state policy
+the host projects under, because the render module is ClojureScript, the Ring
+host in step 3 is Clojure, and a `.cljc` namespace is the only file both
+compilers read:
 
 ```clojure
 (ns my-app.policy
@@ -802,13 +803,13 @@ is Clojure, and a `.cljc` namespace is the only file both compilers read:
                      "/my-app")})
 ```
 
-Write those lists once. Two hand-kept copies drift, and the sidecar can refuse
-only one direction of drift: a host asking for *more* than the entry allows is
-refused by name, while a host asking for *less* is served a page rendered from
-incomplete state, and nothing reports it.
+`render-state-policy` is the one render-visibility policy. The JVM projects
+under it, and the sidecar checks the shape of what arrives, never which keys,
+so a key missing from it is refused nowhere: the render reads `nil` for it and
+draws the wrong page. Name every key a render reads.
 
 The sidecar renders nothing itself; it loads your bundle. The module publishes
-a build id, an **entry table** derived from that policy, a once-per-isolate
+a build id, an **entry table** of the ids a host may name, a once-per-isolate
 `boot` and a per-request `render`:
 
 ```clojure
@@ -817,7 +818,7 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
             [re-frame.fresco.server :as server]
             [re-frame.fresco.substrate :as substrate]
             [re-frame.ssr.render-state :as render-state]
-            ;; The one policy, shared with the host in step 3.
+            ;; The entry id and frame config, shared with the host in step 3.
             [my-app.policy :as policy]
             [my-app.views :as views]))
 
@@ -825,9 +826,6 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
 ;; This one stays in the bundle rather than the shared namespace: `goog-define`
 ;; is a ClojureScript form, and the id is this bundle's own identity.
 (goog-define build-id "my-app-dev")
-
-(defn- allowlist [slot]
-  (into-array (map pr-str (get policy/render-state-policy slot))))
 
 (defn- boot! []
   (rf/init! substrate/adapter))
@@ -848,19 +846,14 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
 (def module
   #js {:protocol 1
        :buildId  build-id
-       :entries  (js-obj policy/root-entry
-                         #js {:stateAllowlist   (allowlist :app-db)
-                              :runtimeAllowlist (allowlist :runtime-db)})
+       :entries  #js [policy/root-entry]
        :boot     boot!
        :render   render!})
 ```
 
-Two details matter. **The allowlists belong to the entry**, not to the caller,
-so a host cannot widen its own allowance; an entry that declares no list for a
-partition cannot be rendered at all, because a missing list means nothing may
-be read. And **`render` returns the body markup as a string** (or a promise of
-one), here `render-body`'s answer. That string is the module's only output, and
-the service refuses a render that returns anything else.
+**`render` returns the body markup as a string** (or a promise of one), here
+`render-body`'s answer. That string is the module's only output, and the
+service refuses a render that returns anything else.
 
 **Only projected state crosses to Node.** The request carries the two
 render-state partitions and none of the JVM frame's config, so the render
@@ -901,8 +894,8 @@ Add one option; nothing else about the handler changes:
 at the top level beside `:payload` looks like the live policy but is silently
 ignored, because `ssr-handler` has no such option, so the render projects under
 whatever the renderer was given. For the same reason, step 2's entry table and
-this step's `:render-state` read one shared Var rather than two literals that
-happen to agree today, and so do step 2's `:frame-opts` and this step's
+this step's `:entry` read one shared Var rather than two literals that happen
+to agree today, and so do step 2's `:frame-opts` and this step's
 `:url-strategy`.
 
 `:renderer` is validated at construction, so a misconfigured deployment fails
@@ -939,7 +932,10 @@ whose numbers the browser reads as one (`1` beside `1.0`). It is stricter than
 the payload in one respect: it also refuses `##NaN`, `#inst` and `#uuid`,
 which the payload carries, so convert a date to a string or epoch millis before
 it is sent. Where the allowlist cannot express a projection, `:render-state`
-also accepts `(fn [frame-id] → partitions)`.
+also accepts `(fn [frame-id] → partitions)`. The fn replaces both the allowlist
+and the frame's classification: the framework still checks the envelope and
+the wire domain, but which keys cross and whether a `:sensitive` value is
+redacted are then yours to decide.
 
 #### 5. Start the sidecar, and mind the skew
 
