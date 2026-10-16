@@ -31,7 +31,9 @@
  *    a runner builds one thing at a time, so the lock is always free and costs one file.
  *
  * 2. THE PROCESS TREE. The compiler is spawned shell-free under this node — the runner's
- *    `.js` resolved from the project directory, never `npx` or a `.cmd` — and on POSIX as
+ *    `.js` resolved from the project directory, or, for a project with no `node_modules`
+ *    of its own (the Fresco bench lane), from the implementation install beside this
+ *    helper; never `npx` or a `.cmd` — and on POSIX as
  *    a process-group leader, so its whole tree (node runner, JVM) dies together. A signal
  *    to this process, or its exit, reaps that tree before the lock is released.
  *
@@ -374,8 +376,14 @@ function buildIds(args) {
   return ids;
 }
 
+// The implementation install, beside this helper.
+const IMPL_DIR = path.resolve(__dirname, '..', '..');
+
+// A project with no install of its own shares the implementation's; a project that
+// has one must carry shadow-cljs in it, so a broken install fails loudly.
 function resolveRunner(projectDir) {
-  return require.resolve('shadow-cljs/cli/runner.js', { paths: [projectDir] });
+  const own = fs.existsSync(path.join(projectDir, 'node_modules'));
+  return require.resolve('shadow-cljs/cli/runner.js', { paths: own ? [projectDir] : [projectDir, IMPL_DIR] });
 }
 
 // Spawn the compiler as an owned child and settle with how it ended. Under the

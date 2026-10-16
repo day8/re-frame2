@@ -61,10 +61,11 @@
  * Via npm (from implementation/):
  *   npm run dev:example -- examples/counter-uix
  *
- * SPAWN FORM: resolve shadow-cljs's / http-server's own JS entry-points and
- * run them under THIS node binary (process.execPath), shell-free — never
- * `npx`/`npx.cmd` under a shell. Same hardened posture as
- * serve-and-run-adapter-smokes.cjs.
+ * SPAWN FORM: the shared shadow-cljs launcher (implementation/scripts/lib/
+ * shadow.cjs) and http-server's own JS entry-point, run under THIS node binary
+ * (process.execPath), shell-free — never `npx`/`npx.cmd` under a shell. The
+ * launcher takes the machine-wide build lane: a watch holds it until its first
+ * build reports, then runs on outside it.
  */
 
 'use strict';
@@ -72,6 +73,7 @@
 const path = require('path');
 const { resolveExamplesPort } = require('./examples-port.cjs');
 const { stageExample, listStandaloneExamples, cleanStageDirs } = require('./examples-staging.cjs');
+const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -330,16 +332,6 @@ function parseArgs(argv) {
   return { build, watch, list };
 }
 
-function resolveShadowRunner() {
-  try {
-    return require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
-  } catch {
-    throw new Error(
-      `serve-example: could not resolve shadow-cljs. Run \`npm install\` in ${IMPL_ROOT} first.`,
-    );
-  }
-}
-
 function resolveHttpServerBin() {
   return require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] });
 }
@@ -379,7 +371,6 @@ async function main() {
   // Pre-flight the port before any compile work so a clash fails fast.
   const PORT = await resolveExamplesPort({ env: process.env });
 
-  const shadowRunner = resolveShadowRunner();
   const httpServerBin = resolveHttpServerBin();
 
   // Clean-stage boundary: remove + recreate the
@@ -407,7 +398,7 @@ async function main() {
   // stale bundle.
   if (!watch) {
     const { spawnSync } = require('child_process');
-    const result = spawnSync(process.execPath, [shadowRunner, 'compile', entry.build], {
+    const result = spawnSync(process.execPath, [SHADOW_CLI, 'compile', entry.build], {
       cwd: IMPL_ROOT,
       stdio: 'inherit',
     });
@@ -444,7 +435,7 @@ async function main() {
 
   if (watch) {
     const watchProc = cleanup.trackProcess(
-      spawnHarnessProcess(process.execPath, [shadowRunner, 'watch', entry.build], {
+      spawnHarnessProcess(process.execPath, [SHADOW_CLI, 'watch', entry.build], {
         cwd: IMPL_ROOT,
         stdio: 'inherit',
       }),

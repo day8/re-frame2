@@ -15,13 +15,16 @@
  * compiles in its own JVM: it never sees this process's environment, but it
  * merges each invocation's `--config-merge` into the build config.
  *
- * Spawns shadow-cljs's own JS entry point under this node binary, with no
- * shell, so one command works on Windows and POSIX alike.
+ * Runs the shared shadow-cljs launcher (implementation/scripts/lib/shadow.cjs)
+ * under this node binary, with no shell, so one command works on Windows and
+ * POSIX alike, the compile takes the machine-wide build lane, and a failed
+ * compile leaves no stale out/server.js behind.
  */
 'use strict';
 
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
+const { SHADOW_CLI } = require('../../../implementation/scripts/lib/shadow.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const BUILT_FROM_DEFINE =
@@ -43,11 +46,10 @@ function headCommit() {
 const builtFrom = headCommit();
 const configMerge =
   `{:compiler-options {:closure-defines {${BUILT_FROM_DEFINE} "${builtFrom}"}}}`;
-const runner = require.resolve('shadow-cljs/cli/runner.js', { paths: [ROOT] });
 console.log(`re-frame2-pair-mcp: building out/server.js from ${builtFrom}`);
 const child = spawnSync(
   process.execPath,
-  [runner, 'compile', 'server', '--config-merge', configMerge],
+  [SHADOW_CLI, '--clean', 'out/server.js', 'compile', 'server', '--config-merge', configMerge],
   { cwd: ROOT, stdio: 'inherit' },
 );
 process.exit(child.status === null ? 1 : child.status);

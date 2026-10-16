@@ -63,15 +63,14 @@
 // any verdict this module prints.
 
 const { spawnSync } = require('node:child_process');
-const path = require('node:path');
 
 // The bench project has no `node_modules` of its own: `bench/fresco/package.json`
-// declares the shadow-cljs pin so the CLI does not warn, and the CLI itself is
-// spawned from the implementation install — the same JS entry-point every
-// other lane in the repo spawns. `shadow-cljs.edn` beside the project reaches
-// the same install for npm packages through `:js-options :node-modules-dir`.
-const IMPL = path.resolve(__dirname, '../../../../../../implementation');
-const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
+// declares the shadow-cljs pin so the CLI does not warn, and the shared launcher
+// every lane in the repo builds through resolves the CLI from the implementation
+// install, taking the machine-wide build lane first. `shadow-cljs.edn` beside the
+// project reaches the same install for npm packages through
+// `:js-options :node-modules-dir`.
+const { SHADOW_CLI } = require('../../../../../../implementation/scripts/lib/shadow.cjs');
 
 // shadow-cljs colours its output, so every pattern here reads ANSI-stripped
 // text. The lane's build id is a BARE keyword (`[:fresco-bench]`), unlike the
@@ -205,11 +204,11 @@ function judgeBuild({ status, output }) {
  * shadow-cljs's CLI re-splits `--config-merge` on whitespace once the EDN
  * contains a newline and then reports `EOF while reading` from a fragment.
  *
- * Spawn form is the hardened one used across the repo: shadow's own JS
- * entry-point under THIS node binary, `shell:false`, never a `.cmd` shim.
+ * Spawn form is the hardened one used across the repo: the shared launcher
+ * under THIS node binary, `shell:false`, never a `.cmd` shim.
  */
 function shadowBuildVerdict({ project, mode, buildId, configMerge }) {
-  const args = [RUNNER, mode, buildId];
+  const args = [SHADOW_CLI, mode, buildId];
   if (configMerge) args.push('--config-merge', configMerge);
 
   const r = spawnSync(process.execPath, args, {

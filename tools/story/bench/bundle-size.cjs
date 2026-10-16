@@ -58,6 +58,7 @@ const { spawnSync } = require('child_process');
 const fs   = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const { SHADOW_CLI } = require('../../../implementation/scripts/lib/shadow.cjs');
 
 const BENCH_DIR = __dirname;                                          // tools/story/bench
 const REPO_ROOT = path.resolve(BENCH_DIR, '..', '..', '..');          // <repo>
@@ -84,15 +85,13 @@ const BUILDS = [
   },
 ];
 
+// Through the shared shadow-cljs launcher (build lane, owned process tree),
+// shell-free under this node binary.
 function release(targets) {
-  const isWin = process.platform === 'win32';
-  const cmd   = isWin ? 'npx.cmd' : 'npx';
-  const args  = ['shadow-cljs', 'release', ...targets];
-  console.log(`> (cwd=implementation) ${cmd} ${args.join(' ')}`);
-  const result = spawnSync(cmd, args, {
+  console.log(`> (cwd=implementation) shadow-cljs release ${targets.join(' ')}`);
+  const result = spawnSync(process.execPath, [SHADOW_CLI, 'release', ...targets], {
     cwd:   IMPL_ROOT,
     stdio: 'inherit',
-    shell: isWin,
   });
   if (result.status !== 0) {
     throw new Error(`shadow-cljs release failed (exit ${result.status})`);
