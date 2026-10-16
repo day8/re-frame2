@@ -2891,12 +2891,20 @@
                   ;; `:rf.error/fx-handler-exception` is NOT captured — the event
                   ;; committed and the fx throw is best-effort (FX atomicity
                   ;; asymmetry).
+                  ;;
+                  ;; The listener CLAIMS (returns `true` for) only the record
+                  ;; it captures, because the step re-raises it as
+                  ;; `:rf.error/initial-events-step-failed`. Every other record
+                  ;; the step produces — a handler-less step's
+                  ;; `:rf.error/no-such-handler`, a post-commit fx failure —
+                  ;; stays unclaimed, so an untooled dev build still prints it.
                   listener   (fn [record]
                                (when (and (= id (:frame record))
                                           (contains? setup-step-failure-categories
                                                      (:error record))
                                           (nil? @captured))
-                                 (reset! captured record)))]
+                                 (reset! captured record)
+                                 true))]
               (when (and register remove-cb)
                 (register listener-k listener))
               (try
@@ -4048,11 +4056,16 @@
             listener-k   [::on-destroy-throw-watch
                           id
                           (swap! on-destroy-watch-counter inc)]
+            ;; Claims (returns `true` for) only the record it captures, which
+            ;; is re-emitted below as `:rf.error/on-destroy-handler-exception`;
+            ;; any other record the `:on-destroy` dispatch produces stays
+            ;; unclaimed and reaches the dev console fallback.
             listener     (fn [record]
                            (when (and (= :rf.error/handler-exception (:error record))
                                       (= id (:frame record))
                                       (nil? @captured))
-                             (reset! captured record)))]
+                             (reset! captured record)
+                             true))]
         (when (and register remove-cb)
           (register listener-k listener))
         (try

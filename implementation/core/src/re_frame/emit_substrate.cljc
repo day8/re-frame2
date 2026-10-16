@@ -23,18 +23,25 @@
     {:register   (fn [id f] ...)              ;; returns id
      :unregister (fn [id] ...)                ;; returns nil
      :clear      (fn [] ...)                  ;; returns nil
-     :fan-out    (fn [record continue?] ...)} ;; returns nil
+     :fan-out    (fn [record continue?] ...)} ;; returns claimed?
 
   Pass the listener atom in as `:listeners`, held in a `defonce` (or
   equivalent), so that hot reload of the consuming namespace does not
   silently drop long-lived production listeners. Without it the factory
   makes a fresh atom on every call.
 
-  `fan-out` short-circuits to nil when the registry is empty so the
-  per-emit hot-path cost reduces to one deref + an `empty?` check.
-  Listener exceptions are caught. `continue?` is checked before and after
-  every snapshotted listener; exact-owner loss stops later framework-owned
-  sibling callbacks while ordinary callers pass `(constantly true)`."
+  `fan-out` short-circuits when the registry is empty so the per-emit
+  hot-path cost reduces to one deref + a `seq` check. Listener exceptions
+  are caught. `continue?` is checked before and after every snapshotted
+  listener; exact-owner loss stops later framework-owned sibling callbacks
+  while ordinary callers pass `(constantly true)`.
+
+  `fan-out` returns true when at least one listener it delivered to CLAIMED
+  the record by returning exactly `true`, else false. Any other return
+  value claims nothing, so a listener whose last form happens to be a
+  truthy `swap!` or `reset!` does not claim by accident, and a listener
+  that throws claims nothing. A consumer that has no use for claims ignores
+  the result."
   [{:keys [listeners]}]
   (let [reg (or listeners (atom {}))]
     {:register   (fn register [id f]
@@ -49,14 +56,15 @@
      :fan-out    (fn fan-out
                    ([record] (fan-out record (constantly true)))
                    ([record continue?]
-                    (let [snap @reg]
-                      (when (seq snap)
-                        (loop [entries (seq snap)]
-                          (when (and entries (continue?))
-                            (let [[_id f] (first entries)]
-                              (try
-                                (f record)
-                                (catch #?(:clj Throwable :cljs :default) _ nil))
-                              (when (continue?)
-                                (recur (next entries))))))))
-                    nil))}))
+                    (loop [entries  (seq @reg)
+                           claimed? false]
+                      (if (and entries (continue?))
+                        (let [[_id f]  (first entries)
+                              claimed? (or (true? (try
+                                                    (f record)
+                                                    (catch #?(:clj Throwable :cljs :default) _ nil)))
+                                           claimed?)]
+                          (if (continue?)
+                            (recur (next entries) claimed?)
+                            claimed?))
+                        claimed?))))}))
