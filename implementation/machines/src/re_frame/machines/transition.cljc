@@ -2247,7 +2247,7 @@
              {}
              after))
 
-(defn- collect-actions
+(defn collect-actions
   "Walk `step` maps in order, calling each step's `:action` with snap+event
   and threading the resulting :data updates forward (so each action sees
   the previous one's data). Returns a `rf.machines.result/ok` carrying
@@ -2991,40 +2991,28 @@
                            (contains? r :data) (merge (:data r)))]
             (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 
-(defn run-root-transition-action
-  "Per Spec 005 §Transition broadcast §Root parallel `:on`: run a
-  PARALLEL ROOT's selected `:on` transition's `:action` ONCE against the
-  parallel `snap`'s shared `:data`, threading the standard `{:data :fx}`
-  effects-map contract. Unlike the per-region apply, the root transition's
-  action is a SINGLE root-level action — it fires once and writes the shared
-  `:data` (not once per targeted region), exactly as XState v5 runs a parent
-  parallel transition's action once before the targeted region(s) move.
+(defn root-action-steps
+  "Per Spec 005 §Root parallel `:on`: the cascade step for a PARALLEL ROOT
+  transition's `:action` — one `:action` step at the root's empty decl-path
+  under phase `:transition`, or `[]` when the transition declares no
+  `:action`. The root `:on`, root `:after` and root-`:spawn` carrier
+  transitions all apply through it. The caller runs it with the parallel
+  machine itself (`collect-actions`) between the targeted regions' exits and
+  their entries, so the action fires ONCE against the shared `:data` at the
+  root boundary of the exit → action → entry cascade (§Entry/exit cascading
+  along the LCA), and its effects pass the same `enforce-db-disallow`
+  choke-point as every other phase.
 
-  `transition` is the already-selected root transition map (resolved by
-  `root-on-match`); its `:action` (a keyword ref or fn) runs under phase
-  `:transition` — the root parallel `:on` IS a transition, consistent with
-  the parallel root `:on-done` (`apply-on-done-action`) and the embedded
-  compound `:on-done` path. The action's effects flow through the shared
-  `enforce-db-disallow` choke-point so a `:db` write produces the same
-  `:rf.error/machine-action-wrote-db` diagnostic + strip as every other
-  phase. Returns a `rf.machines.result/ok` carrying `[snap' fx]` (action's `:data`
-  merged, `:fx` collected), or a `rf.machines.result/fail` if the action threw. A
-  targetless / action-less transition returns `(ok snap [])`."
-  [machine snap transition event]
-  (let [;; The root `:on` lives OUTSIDE `:states` (decl-path
-        ;; `[]`). `root-on-match` → `match-on-clause` stamped the partial
-        ;; `:on` discriminator; finalize it with the empty decl-path so the
-        ;; Xray cascade row addresses `[:on <event-key>]` (root-relative, no
-        ;; `:states` prefix) → `:root? true`.
-        transition (finalize-on-transition-slot transition [])
-        r0 (run-action machine snap (:action transition) event :transition []
-                       (:rf/transition-slot transition))]
-    (if (rf.machines.result/fail? r0)
-      r0
-      (let [r        (enforce-db-disallow machine r0 (:action transition) (:state snap))
-            new-data (cond-> (:data snap)
-                       (contains? r :data) (merge (:data r)))]
-        (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))
+  The root `:on` lives OUTSIDE `:states` (decl-path `[]`): `root-on-match` →
+  `match-on-clause` stamped the partial `:on` discriminator, finalized here
+  with the empty decl-path so the Xray cascade row addresses `[:on
+  <event-key>]` (root-relative, no `:states` prefix) → `:root? true`."
+  [transition]
+  (if-let [action (:action transition)]
+    (let [slot (:rf/transition-slot (finalize-on-transition-slot transition []))]
+      [(cond-> {:kind :action :phase :transition :state [] :region nil :action action}
+         slot (assoc :transition-slot slot))])
+    []))
 
 ;; ---- destroy-time exit cascade --------------------------------------------
 ;;
@@ -3240,8 +3228,11 @@
 ;;                            Threads snapshot + acc-fx; short-circuits to
 ;;                            `rf.machines.result/fail` on `:data`-fn throws.
 
-(defn- compute-transition-geometry
-  "Phase 1 — derive the transition's geometry. Returns a map with:
+(defn compute-transition-geometry
+  "Phase 1 — derive the transition's geometry. Public for a caller that runs
+  one transition's cascade in pieces: the parallel root's transition runs
+  every targeted region's exits, then its own `:action`, then every targeted
+  region's entries. Returns a map with:
     :src-path       — source state path (vector).
     :target-leaf    — initial-cascaded target path (nil for internal).
     :internal?      — the EFFECTIVE internal flag: true iff the
@@ -3789,6 +3780,78 @@
           (let [[snap-after-spawns spawn-fx] step]
             (rf.machines.result/ok snap-after-spawns spawn-fx)))))))
 
+(defn commit-transition
+  "Phases 3–4 of a transition whose cascade has already run: commit the
+  target configuration onto `snap-after` (the post-cascade snapshot), record
+  the exited history-bearing compounds and emit the history traces, then
+  build the machine-emitted fx groups 2–5 and any compound-done raise —
+  `:after` cancels, destroys, spawns, `:after` schedules (per Spec 005
+  §Machine-emitted fx and their order). `snapshot` is the pre-transition
+  snapshot and `geometry` comes from `compute-transition-geometry`. Returns a
+  `rf.machines.result/ok` carrying the committed snapshot and those fx, or
+  the `rf.machines.result/fail` a `:spawn` `:data` fn produced."
+  [machine snapshot snap-after event transition geometry]
+  (let [snap-committed  (commit-snapshot machine snapshot snap-after geometry)
+        ;; Per Spec 005 §Recording — on compound-state exit: as part of the
+        ;; exit-cascade commit, write each history-bearing exited compound's
+        ;; last-active config into `:rf/history`, keyed by the
+        ;; (region-qualified) declaration path. The active config recorded is
+        ;; the PRE-transition source leaf (`:src-path`).
+        [snap-final history-recorded]
+                        (if (:internal? geometry)
+                          [snap-committed []]
+                          (record-exit-history machine snap-committed
+                                               (:src-path geometry)
+                                               (:lca-len geometry)))
+        ;; Per Spec 005 §Restoring + Spec 009: emit the history traces.
+        ;; `restored` when this transition resolved a history pseudo-state;
+        ;; `recorded` once per history-bearing compound exited.
+        _ (when-let [{:keys [compound-path resolved-leaf source kind
+                             restored-config fallback]}
+                     (:history-restore geometry)]
+            (emit-history-restored! machine compound-path resolved-leaf
+                                    source kind restored-config fallback))
+        _ (doseq [rec history-recorded]
+            (emit-history-recorded! machine rec))
+        parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
+        after-fx        (build-after-fx machine (:entered-pairs geometry)
+                                        (:internal? geometry) snap-final)
+        after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs geometry)
+                                               (:internal? geometry))
+        destroy-fx      (build-destroy-fx parent-id (:exited-pairs geometry)
+                                          (:internal? geometry))
+        spawn-r         (run-spawn-phase machine event snap-final geometry)]
+    (if (rf.machines.result/fail? spawn-r)
+      (rf.machines.result/fail-with spawn-r {:decl-path  (:decl-path geometry)
+                                             :transition transition
+                                             :state-path (:src-path geometry)})
+      (rf.machines.result/with-ok [snap-after-spawns spawn-fx] spawn-r
+        (let [;; Per Spec 005 §Final states §The done-state signal: if the
+              ;; committed configuration makes an EMBEDDED compound newly done
+              ;; (its active direct child is a `:final?` leaf), raise
+              ;; `[:rf.machine/done <compound-path>]` into the macrostep's FIFO
+              ;; `:raise` queue so the enclosing `:on-done` transition fires in
+              ;; the SAME macrostep (drained by the unified
+              ;; `drain-to-fixed-point` loop / the parallel parent queue, after
+              ;; `:always` settles). Only an EXTERNAL transition (a new
+              ;; configuration was entered) can newly satisfy a compound's done
+              ;; condition — an internal transition keeps the same `:state`, so
+              ;; the signal (if any) already fired on the entry that reached
+              ;; the final leaf. A TOP-LEVEL `:final?` leaf (direct child of the
+              ;; machine root) raises NO compound-done — it is whole-machine
+              ;; finality handled at the lifecycle boundary (auto-destroy /
+              ;; spawning parent's `:on-done`), the D7 reconciliation. A region
+              ;; body's direct `:final?` child DOES raise one: the region body
+              ;; is done (`compound-done-paths`).
+              done-fx (when-not (:internal? geometry)
+                        (done-raise-fx machine (state-path (:state snap-after-spawns))))]
+          (rf.machines.result/ok snap-after-spawns
+                                 (vec (concat (or after-cancel-fx [])
+                                              (or destroy-fx [])
+                                              spawn-fx
+                                              (or after-fx [])
+                                              (or done-fx [])))))))))
+
 (defn apply-transition-once
   "Apply one transition (exit cascade → action → entry cascade → state
   change). Returns a `rf.machines.result/ok` Result carrying the new snapshot + fx,
@@ -3813,9 +3876,10 @@
   lifecycle-handler boundary so the pure-call surface (conformance corpus,
   JVM pure-fn tests) stays free of transient runtime metadata.
 
-  The body composes four named phases:
-  `compute-transition-geometry` → `run-cascade` → `commit-snapshot` →
-  `run-spawn-phase`. Each phase is a pure helper above.
+  The body composes three named phases:
+  `compute-transition-geometry` → `run-cascade` → `commit-transition` (which
+  runs `commit-snapshot` and `run-spawn-phase`). Each phase is a pure helper
+  above.
 
   `transition` is the transition map with a synthetic :decl-path key
   recording where in the state-path tree the transition was declared.
@@ -3838,80 +3902,19 @@
                                    :transition transition
                                    :state-path (:src-path geometry)})
       (rf.machines.result/with-ok [snap-after fx] cascade-r
-        (let [;; The structured cascade steps `collect-actions`
-              ;; recorded ride `cascade-r` via `::cascade`; re-stamp them onto
-              ;; the final Result (the `rf.machines.result/ok` below builds a fresh Result
-              ;; that would otherwise drop them) so `machine-transition-single`
-              ;; can accumulate the macrostep's full step sequence.
-              cascade-steps   (rf.machines.result/cascade cascade-r)
-              snap-committed  (commit-snapshot machine snapshot snap-after geometry)
-              ;; Per Spec 005 §Recording — on compound-state exit:
-              ;; as part of the exit-cascade commit, write
-              ;; each history-bearing exited compound's last-active config
-              ;; into `:rf/history`, keyed by the (region-qualified)
-              ;; declaration path. The active config recorded is the
-              ;; PRE-transition source leaf (`:src-path`).
-              [snap-final history-recorded]
-                              (if (:internal? geometry)
-                                [snap-committed []]
-                                (record-exit-history machine snap-committed
-                                                     (:src-path geometry)
-                                                     (:lca-len geometry)))
-              ;; Per Spec 005 §Restoring + Spec 009: emit the
-              ;; history traces. `restored` when this transition resolved a
-              ;; history pseudo-state; `recorded` once per history-bearing
-              ;; compound exited.
-              _ (when-let [{:keys [compound-path resolved-leaf source kind
-                                   restored-config fallback]}
-                           (:history-restore geometry)]
-                  (emit-history-restored! machine compound-path resolved-leaf
-                                          source kind restored-config fallback))
-              _ (doseq [rec history-recorded]
-                  (emit-history-recorded! machine rec))
-              parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
-              after-fx        (build-after-fx machine (:entered-pairs geometry)
-                                              (:internal? geometry) snap-final)
-              after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs geometry)
-                                                     (:internal? geometry))
-              destroy-fx      (build-destroy-fx parent-id (:exited-pairs geometry)
-                                                (:internal? geometry))
-              spawn-r         (run-spawn-phase machine event snap-final geometry)]
-          (if (rf.machines.result/fail? spawn-r)
-            (rf.machines.result/fail-with spawn-r {:decl-path  (:decl-path geometry)
-                                       :transition transition
-                                       :state-path (:src-path geometry)})
-            (rf.machines.result/with-ok [snap-after-spawns spawn-fx] spawn-r
-              (let [;; Per Spec 005 §Final states §The done-state signal:
-                    ;; if the committed configuration
-                    ;; makes an EMBEDDED compound newly done (its active direct
-                    ;; child is a `:final?` leaf), raise `[:rf.machine/done
-                    ;; <compound-path>]` into the macrostep's FIFO `:raise`
-                    ;; queue so the enclosing `:on-done` transition fires in
-                    ;; the SAME macrostep (drained by the unified
-                    ;; `drain-to-fixed-point` loop / the parallel parent
-                    ;; queue, after `:always` settles). Only an
-                    ;; EXTERNAL transition
-                    ;; (a new configuration was entered) can newly satisfy a
-                    ;; compound's done condition — an internal transition keeps
-                    ;; the same `:state`, so the signal (if any) already fired
-                    ;; on the entry that reached the final leaf. A TOP-LEVEL
-                    ;; `:final?` leaf (direct child of the machine root) raises
-                    ;; NO compound-done — it is whole-machine finality handled
-                    ;; at the lifecycle boundary (auto-destroy / spawning
-                    ;; parent's `:on-done`), the D7 reconciliation. A region
-                    ;; body's direct `:final?` child DOES raise one: the region
-                    ;; body is done (`compound-done-paths`).
-                    done-fx (when-not (:internal? geometry)
-                              (done-raise-fx machine (state-path (:state snap-after-spawns))))
-                    all-fx (vec (concat fx
-                                        (or after-cancel-fx [])
-                                        (or destroy-fx [])
-                                        spawn-fx
-                                        (or after-fx [])
-                                        (or done-fx [])))]
-                (rf.machines.result/with-cascade
-                  (rf.machines.result/ok snap-after-spawns all-fx)
-                  cascade-steps))))))))))
+        (let [commit-r (commit-transition machine snapshot snap-after event transition geometry)]
+          (if (rf.machines.result/fail? commit-r)
+            commit-r
+            (rf.machines.result/with-ok [snap-final tail-fx] commit-r
+              ;; The structured cascade steps `collect-actions` recorded ride
+              ;; `cascade-r` via `::cascade`; re-stamp them onto the final
+              ;; Result (the `rf.machines.result/ok` below builds a fresh
+              ;; Result that would otherwise drop them) so
+              ;; `machine-transition-single` can accumulate the macrostep's
+              ;; full step sequence.
+              (rf.machines.result/with-cascade
+                (rf.machines.result/ok snap-final (into (vec fx) tail-fx))
+                (rf.machines.result/cascade cascade-r))))))))))
 
 (defn pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
