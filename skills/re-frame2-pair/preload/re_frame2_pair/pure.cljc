@@ -343,18 +343,19 @@
 (defn db-diff-summary
   "Depth-1 path summary of the db-before → db-after delta. Each path is a
    one-key vector; operators drill via `get-path`. Bounded by the depth-1 walk
-   so a cascade-summary stays under the wire cap regardless of db size."
+   so a cascade-summary stays under the wire cap regardless of db size. Keys
+   sort in [[compare-ids]] order, because an app-db's top-level keys can mix
+   types (`:a` beside `\"b\"`) that `compare` cannot order."
   [db-before db-after]
   (cond
     (and (map? db-before) (map? db-after))
     (let [ks-b   (set (keys db-before))
           ks-a   (set (keys db-after))
-          common (set/intersection ks-b ks-a)]
-      {:added-paths   (vec (sort (map vector (set/difference ks-a ks-b))))
-       :removed-paths (vec (sort (map vector (set/difference ks-b ks-a))))
-       :changed-paths (vec (sort (for [k common
-                                       :when (not= (get db-before k) (get db-after k))]
-                                   [k])))})
+          common (set/intersection ks-b ks-a)
+          paths  (fn [ks] (mapv vector (sort-ids ks)))]
+      {:added-paths   (paths (set/difference ks-a ks-b))
+       :removed-paths (paths (set/difference ks-b ks-a))
+       :changed-paths (paths (filter #(not= (get db-before %) (get db-after %)) common))})
 
     (= db-before db-after)
     {:added-paths [] :removed-paths [] :changed-paths []}
