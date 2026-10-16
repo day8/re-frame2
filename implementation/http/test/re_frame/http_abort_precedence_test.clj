@@ -2,10 +2,9 @@
   "Spec 014 §Abort precedence: abort wins over decode-failure, transport and
   success classification. Each test sequences the contended side instead of
   racing the clock: a latch-gated decoder holds decode mid-run while the abort
-  fires (the abort-fn wins the once-only `:finalised?` CAS and the late
-  classification bails), or the finalise seam is driven directly on a handle
-  whose abort intent is already recorded (the classification wins the CAS and
-  is reclassified to `:rf.http/aborted`)."
+  fires, or the interleaving hook fires the abort at the completion's commit
+  boundary, once the transport failure is already classified. Either way the
+  abort commits first and the late classification is dropped."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -67,49 +66,44 @@
 
 ;; A closed-port request with the abort in the same dispatch would be a clock
 ;; race (the connection-refused completion runs on the HttpClient's own
-;; thread), so the precedence is pinned at the finalise seam instead.
-(def ^:private finalise-failure!*
-  @#'rf.http.transport/finalise-failure!)
-
-(deftest transport-classification-loses-to-recorded-abort-precedence-seam
+;; thread), so the abort is injected at the completion's commit boundary: the
+;; `:rf.http/transport` failure is already classified when the abort lands.
+(deftest transport-classification-loses-to-abort-at-commit-boundary
   (let [replies (atom [])
         rows    (atom [])
-          cb-id   ::precedence-seam-trace]
-      (rf.trace.tooling/register-listener! cb-id
-        (fn [ev]
-          (when (#{:rf.http/aborted :rf.http/transport} (:operation ev))
-            (swap! rows conj ev))))
-      (rf/reg-event :reply/recorder
-        (fn [_ [_ payload]] (swap! replies conj payload) {}))
-      ;; A handle as run-attempt! records it, its :aborted? cell pre-flipped:
-      ;; the abort intent was recorded before the transport reached finalise.
-      (let [finalised? (atom false)
-            aborted?   (atom {:reason :user :actor-id nil})
-            handle     (rf.http.registry/record-in-flight!
-                         :race nil
-                         {:abort-fn   (fn [_] nil)
-                          :url        "http://127.0.0.1:1/"
-                          :finalised? finalised?
-                          :aborted?   aborted?
-                          :sensitive? false
-                          :frame      :rf/default})
-            ctx        {:request-id          :race
-                        :url                 "http://127.0.0.1:1/"
-                        :handle              handle
-                        :frame               :rf/default
-                        :sensitive?          false
-                        :origin-event        [:issue]
-                        :explicit-on-failure {:supplied? true :value [:reply/recorder]}}]
-        (try
-          (finalise-failure!* ctx {:kind :rf.http/transport :message "Connection refused" :cause "java.net.ConnectException"})
-          (finally
-            (rf.trace.tooling/unregister-listener! cb-id)))
-        (is (= [[:rf.http/aborted :info :user]]
-               (mapv (juxt :operation :op-type (comp :reason :tags)) @rows))
-            "one :info :rf.http/aborted row, and no :rf.http/transport error row")
-        (await-condition! #(seq @replies))
-        (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
-        (is (empty? (rf.http.managed/in-flight-snapshot))))))
+        fired?  (atom false)
+        cb-id   ::precedence-seam-trace]
+    (rf.trace.tooling/register-listener! cb-id
+      (fn [ev]
+        (when (#{:rf.http/aborted :rf.http/transport} (:operation ev))
+          (swap! rows conj ev))))
+    (rf/reg-event :reply/recorder
+      (fn [_ [_ payload]] (swap! replies conj payload) {}))
+    (rf/reg-event :issue
+      (fn [_ _]
+        {:fx [[:rf.http/managed {:request    {:url "http://127.0.0.1:1/"}
+                                 :decode     :text
+                                 :request-id :race
+                                 :on-failure [:reply/recorder]
+                                 :on-success [:reply/recorder]}]]}))
+    (rf.http.transport/set-test-interleave-hook!
+      (fn [point ctx]
+        (when (and (= point :completed/before-commit)
+                   (= :race (:request-id ctx))
+                   (compare-and-set! fired? false true))
+          (rf.http.registry/abort-in-flight! :race :user))))
+    (try
+      (rf/dispatch-sync [:issue])
+      (await-condition! #(seq @replies))
+      (finally
+        (rf.http.transport/set-test-interleave-hook! nil)
+        (rf.trace.tooling/unregister-listener! cb-id)))
+    (is (true? @fired?) "the abort landed at the commit boundary")
+    (is (= [[:rf.http/aborted :info :user]]
+           (mapv (juxt :operation :op-type (comp :reason :tags)) @rows))
+        "one :info :rf.http/aborted row, and no :rf.http/transport error row")
+    (is (= [[:cancelled :rf.http/aborted :user]] (mapv reply-shape @replies)))
+    (is (empty? (rf.http.managed/in-flight-snapshot)))))
 
 (deftest abort-via-actor-destroy-wins-over-decode-failure
   (let [srv               (start-200-server! "application/json" "{\"k\":1}")

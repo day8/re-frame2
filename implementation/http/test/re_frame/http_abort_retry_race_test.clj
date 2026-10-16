@@ -1,12 +1,13 @@
 (ns re-frame.http-abort-retry-race-test
   "JVM-only races between an abort, a retry and a same-id successor: the
-  completion runs on a ForkJoinPool thread while the abort runs on the event
-  thread, so they can interleave inside a retry handoff. There are two
-  handoffs, live fetch to backoff and backoff timer to attempt N+1. An abort
-  landing inside either must yield one aborted reply and no re-issue (Spec 014
-  §Abort precedence, §Aborts), and a successor issued inside either must keep
-  its request-id slot. `transport/set-test-interleave-hook!` fires the abort
-  or the successor synchronously at a named point inside the handoff, so the
+  completion runs on an HttpClient thread and the retry on the backoff
+  scheduler's while the abort runs on the event thread. There are two retry
+  transitions, a failed attempt committing to its backoff and the backoff
+  timer starting attempt N+1. An abort landing at either must yield one
+  aborted reply and no re-issue (Spec 014 §Abort precedence, §Aborts), and a
+  successor issued at either must keep its request id.
+  `transport/set-test-interleave-hook!` fires the abort or the successor
+  synchronously at the transition's boundary, before it commits, so the
   ordering is injected rather than timed."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -113,20 +114,19 @@
         (rf.http.transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 
-(deftest abort-injected-at-backoff-registration-boundary-no-reissue
-  ;; At the backoff registration boundary; the prior clear is deferred, so the
-  ;; prior handle is still resolvable.
-  (run-injected-abort-case! :backoff/before-register))
+(deftest abort-injected-at-backoff-commit-boundary-no-reissue
+  ;; The failed attempt has decided to retry but not committed its backoff:
+  ;; the abort commits first, so no retry timer is ever armed.
+  (run-injected-abort-case! :completed/before-commit))
 
-(deftest abort-injected-at-timer-fire-handoff-no-reissue-no-phantom-retried
-  ;; After the timer won `fired?`, before the successor registers: the abort
-  ;; resolves the predecessor handle, and run-attempt!'s post-registration
-  ;; re-check delivers the reply and suppresses the fresh attempt.
+(deftest abort-injected-at-timer-fire-boundary-no-reissue-no-phantom-retried
+  ;; The timer has fired but attempt N+1 has not committed: the abort finds the
+  ;; request sleeping, ends it, and the fire then commits nothing.
   (run-injected-abort-case! :retry/before-attempt))
 
-(deftest clear-in-flight-2arg-preserves-successor-actor-index
-  ;; An OLD attempt's identity-conditional clear evicts neither a same-id
-  ;; successor's request-id slot nor its actor-index entry.
+(deftest clear-in-flight-preserves-successor-actor-entry
+  ;; Clearing an OLD record evicts neither a same-id successor's record nor
+  ;; its actor entry.
   (let [h-a (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
         h-b (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
     (rf.http.registry/clear-in-flight! :R h-a)
@@ -136,12 +136,13 @@
               (boolean (some #(identical? % h-b) v))
               (boolean (some #(identical? % h-a) v))])))))
 
-;; R1 gets a 500 and hands off into its retry. At `inject-point` — squarely
-;; inside a handoff, on R1's own thread — the interleaving hook issues the
+;; R1 gets a 500 and heads into its retry. At `inject-point` — a retry
+;; transition's boundary, on R1's own thread — the interleaving hook issues the
 ;; same-id successor R2 through the real fx body, exactly as the event thread
-;; would: `supersede!` aborts R1 (reply suppressed) and R2 registers and goes on
-;; the wire, where the server parks it. R1's handoff then resumes. It decided to
-;; proceed before the supersede landed, so it must now leave R2's slot alone.
+;; would: `supersede!` aborts R1 (reply suppressed) and R2 is published and goes
+;; on the wire, where the server parks it. R1's transition then resumes. It
+;; decided to proceed before the supersede landed, so it must now leave R2
+;; alone.
 
 (defn- start-500-then-parked-server!
   "Hit 1 answers 500; every later hit parks on `release`, then answers 200."
@@ -200,11 +201,11 @@
       (rf/dispatch-sync [:issue])
       (is (.await hook-done 5 TimeUnit/SECONDS) "the successor was issued inside the window")
       (await-condition! #(= 2 (.get hits)))
-      ;; R1's handoff resumes on its own thread the instant the hook returns and
-      ;; finishes in microseconds; this bound only lets it get there.
+      ;; R1's transition resumes on its own thread the instant the hook returns
+      ;; and finishes in microseconds; this bound only lets it get there.
       (Thread/sleep 300)
       (is (= 2 (:issuance (get (rf.http.registry/in-flight-snapshot :rf/default) :race)))
-          "the successor R2 still holds the request-id slot after R1's handoff")
+          "the successor R2 still holds the request id after R1's transition")
       (rf/dispatch-sync [:abort])
       (await-condition! #(seq @replies))
       (.countDown release)
@@ -222,8 +223,8 @@
         (Thread/sleep 300)
         (stop-server! srv)))))
 
-(deftest successor-issued-at-backoff-registration-keeps-its-slot
-  (run-successor-in-window-case! :backoff/before-register))
+(deftest successor-issued-at-backoff-commit-keeps-its-slot
+  (run-successor-in-window-case! :completed/before-commit))
 
-(deftest successor-issued-at-timer-fire-handoff-keeps-its-slot
+(deftest successor-issued-at-timer-fire-keeps-its-slot
   (run-successor-in-window-case! :retry/before-attempt))

@@ -129,12 +129,11 @@
 ;; `:require [re-frame.http.managed :as http-managed]`) see the same
 ;; public surface while storage and lifecycle ownership stay in the sibling.
 
-;; Registry surface — the in-flight indexes are internal storage. Tests
-;; observe them through the immutable snapshot helpers and seed test state
-;; through `seed-in-flight-for-test!` (which preserves both-index invariants
-;; via `record-in-flight!`); the raw `in-flight` / `actor-in-flight` /
-;; `anonymous-in-flight` atoms are not re-exported because direct mutation
-;; would bypass the by-identity cleanup invariant.
+;; Registry surface — the in-flight registry is internal storage. Tests
+;; observe it through the immutable snapshot helpers and seed test state
+;; through `seed-in-flight-for-test!` (which publishes through
+;; `record-in-flight!`); the raw registry atom is not re-exported because
+;; direct mutation would bypass the token-keyed record invariants.
 (def clear-all-in-flight!        rf.http.registry/clear-all-in-flight!)
 (def in-flight-snapshot          rf.http.registry/in-flight-snapshot)
 (def actor-in-flight-snapshot    rf.http.registry/actor-in-flight-snapshot)

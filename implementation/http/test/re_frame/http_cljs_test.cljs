@@ -344,11 +344,10 @@
     (fn [] (set! (.-fetch js/globalThis) orig))))
 
 (defn- backoff-sleeping?
-  "Attempt 1 has failed and `request-id` sleeps in its backoff: a backoff handle
-  lacks the live-fetch handle's `:finalised?` cell."
+  "Attempt 1 has failed and `request-id` sleeps in its backoff."
   [fetch-count request-id]
-  (let [handle (get (rf.http.registry/in-flight-snapshot) request-id)]
-    (and (= 1 @fetch-count) (some? handle) (nil? (:finalised? handle)))))
+  (let [record (get (rf.http.registry/in-flight-snapshot) request-id)]
+    (and (= 1 @fetch-count) (= :backoff (:phase record)))))
 
 (def ^:private retry-5xx-every-80ms
   {:on #{:rf.http/http-5xx} :max-attempts 5 :backoff {:base-ms 80 :factor 1 :max-ms 80}})
@@ -417,10 +416,10 @@
 
 ;; ---- the external :abort-signal ----------------------------------------------
 ;;
-;; The signal routes to whichever handle owns the current phase (live fetch or
-;; sleeping backoff) through its `:abort-fn :user`, sharing the once-only
-;; precedence cells with managed-abort, supersede and actor-destroy, and its
-;; listener detaches on ownership transfer and on every terminal path.
+;; The signal is bound once, at issuance, to the request's abort with `:reason
+;; :user` — the abort managed-abort, supersede and actor-destroy use — so it
+;; reaches whichever phase is current (live fetch or sleeping backoff), and its
+;; listener detaches when the request retires.
 
 (defn- fake-abort-signal
   "An AbortSignal stand-in that records its live 'abort' listeners."
@@ -437,17 +436,18 @@
                        (aset sig "aborted" true)
                        (doseq [f @listeners] (f #js {})))}))
 
-(deftest external-abort-rebind-detaches-prior-phase-listener
-  ;; A retry hands ownership from the live fetch to the backoff: exactly one
-  ;; listener stays attached, and the signal reaches the current phase.
+(deftest external-abort-binds-one-listener-and-detach-removes-it
+  ;; One request, one listener: the signal reaches the bound abort, and
+  ;; detaching on retirement leaves the shared signal clean.
   (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
         binding (rf.http.transport-cljs/make-external-abort signal)
         fired   (atom [])]
-    (rf.http.transport-cljs/bind-external-abort! binding #(swap! fired conj :live-fetch))
-    (rf.http.transport-cljs/bind-external-abort! binding #(swap! fired conj :backoff))
+    (rf.http.transport-cljs/bind-external-abort! binding #(swap! fired conj :aborted))
     (is (= 1 (listener-count)))
     (fire!)
-    (is (= [:backoff] @fired))))
+    (is (= [:aborted] @fired))
+    (rf.http.transport-cljs/detach-external-abort! binding)
+    (is (zero? (listener-count)))))
 
 (defn- with-controlled-body-fetch
   "Stub `js/fetch` with a 200 whose `.text()` the test settles through
@@ -549,8 +549,8 @@
           (.then (fn [_] (restore) (done)))))))
 
 (deftest cljs-external-abort-racing-managed-abort-single-outcome
-  ;; Both sources route through the one handle, so its once-only CAS yields
-  ;; exactly one cancel.
+  ;; Both sources abort the one request, which finishes once: exactly one
+  ;; cancel.
   (async done
     (reset-runtime!)
     (let [replies    (record-replies!)

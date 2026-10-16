@@ -2,11 +2,11 @@
   "Managed-request cancellation and supersession are FRAME-SCOPED.
 
   Reusable app code mounts one stable `:request-id` (or one machine spec, so one
-  actor address) in several isolated frames. The registry therefore keys its
-  cancellation indexes on `[issuing-frame id]`: a supersession, a
-  `:rf.http/managed-abort`, an actor destroy or a cleanup in one frame must never
-  reach a sibling frame's live request. A cleanup that deletes a sibling's slot
-  is as bad as an abort — the sibling's request stays live but unabortable."
+  actor address) in several isolated frames. The registry therefore files every
+  request under its issuing frame: a supersession, a `:rf.http/managed-abort`,
+  an actor destroy or a cleanup in one frame must never reach a sibling frame's
+  live request. A cleanup that deletes a sibling's record is as bad as an abort
+  — the sibling's request stays live but unabortable."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.handlers :as rf.http.handlers]
@@ -113,15 +113,16 @@
       (is (= [[:frame/b shared-id :epoch-restored]] @seen)))))
 
 (deftest frame-exact-clear-walks-the-actor-index-too
-  (testing "`clear-in-flight-in-frame!` also drops the handle from that frame's
-            actor slot, and leaves a same-named actor in a sibling frame alone"
+  (testing "clearing frame A's request also drops it from that frame's actor
+            entry, and leaves a same-named actor in a sibling frame alone"
     (let [actor-id :worker/proc
           slot     #(get (rf.http.registry/actor-in-flight-snapshot %) actor-id)]
       (doseq [frame-id [:frame/a :frame/b]]
         (rf.http.registry/record-in-flight!
           shared-id actor-id {:frame frame-id :abort-fn (fn [_] nil)}))
       (is (= 1 (count (slot :frame/a))))
-      (rf.http.registry/clear-in-flight-in-frame! :frame/a shared-id)
+      (rf.http.registry/clear-in-flight!
+        shared-id (rf.http.registry/lookup-in-flight :frame/a shared-id))
       (is (nil? (slot :frame/a)) "frame A's actor slot is emptied, not stranded")
       (is (= 1 (count (slot :frame/b))) "the same-named actor in frame B keeps its handle"))))
 
@@ -182,14 +183,13 @@
       (is (= #{:frame/a} (set (map first @seen))))
       (is (actor-live? :frame/b)))))
 
-;; ---- the two-index publication window --------------------------------------
+;; ---- publication -----------------------------------------------------------
 ;;
-;; `record-in-flight!` publishes an actor-owned, named handle to the request
-;; index and then the actor index, in two swaps. A cleanup or destroy landing
-;; between them must neither leave a ghost actor slot nor reach a sibling frame.
-;; An atom's watches run on the swapping thread before `swap!` returns, so a
-;; watch on the request index runs its callback strictly between the two
-;; publications — the interleaving is decided, not raced.
+;; A request is published to the registry in one swap. A cleanup or destroy
+;; landing the instant it appears must neither leave a ghost actor entry nor
+;; reach a sibling frame. An atom's watches run on the swapping thread before
+;; `swap!` returns, so a watch on the registry runs its callback the moment the
+;; record is published — the interleaving is decided, not raced.
 
 (def ^:private publication-actor :worker/publication)
 
@@ -203,35 +203,31 @@
     shared-id publication-actor
     {:frame frame-id :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
 
-(defn- record-actor-handle-with-midpoint!
-  "Publish a named actor-owned handle in `frame-id`, running `at-midpoint!`
-  between the two publications. Its abort-fn makes the cleanup the transport
-  makes inside the window, where the handle cell is still nil."
-  [frame-id seen at-midpoint!]
-  (let [slot [frame-id shared-id]]
-    (add-watch rf.http.registry/in-flight ::publication-midpoint
-               (fn [_ _ before after]
-                 (when (and (nil? (get before slot)) (some? (get after slot)))
-                   ;; Once only: the abort's own cleanup swaps this atom again.
-                   (remove-watch rf.http.registry/in-flight ::publication-midpoint)
-                   (at-midpoint!))))
-    (try
-      (rf.http.registry/record-in-flight!
-        shared-id publication-actor
-        {:frame    frame-id
-         :abort-fn (fn [reason]
-                     (swap! seen conj [frame-id reason])
-                     (rf.http.registry/clear-in-flight! frame-id shared-id nil))})
-      (finally
-        (remove-watch rf.http.registry/in-flight ::publication-midpoint)))))
+(defn- record-actor-handle-then!
+  "Publish a named actor-owned handle in `frame-id`, running `at-publication!`
+  the moment the registry holds it."
+  [frame-id seen at-publication!]
+  (add-watch rf.http.registry/requests ::publication
+             (fn [_ _ before after]
+               (when (and (empty? (get before frame-id)) (seq (get after frame-id)))
+                 ;; Once only: the abort's own cleanup swaps this atom again.
+                 (remove-watch rf.http.registry/requests ::publication)
+                 (at-publication!))))
+  (try
+    (rf.http.registry/record-in-flight!
+      shared-id publication-actor
+      {:frame    frame-id
+       :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))})
+    (finally
+      (remove-watch rf.http.registry/requests ::publication))))
 
-(deftest the-publication-window-reconcile-is-frame-exact
-  (testing "an abort inside frame A's publication window leaves A no ghost actor
-            slot, while frame B — live under the same request-id and actor
-            address — keeps both slots"
+(deftest an-abort-at-publication-is-frame-exact
+  (testing "an abort the moment frame A's request is published leaves A no ghost
+            actor entry, while frame B — live under the same request-id and
+            actor address — keeps its request"
     (let [seen (atom [])]
       (seed-named-actor-handle! seen :frame/b)
-      (record-actor-handle-with-midpoint!
+      (record-actor-handle-then!
         :frame/a seen
         #(rf.http.registry/abort-in-flight-in-frame! :frame/a shared-id :user))
       (is (= [[:frame/a :user]] @seen))
@@ -239,12 +235,12 @@
       (is (= 1 (actor-slot-count :frame/b)))
       (is (zero? (actor-slot-count :frame/a))))))
 
-(deftest actor-destroy-inside-the-publication-window-is-frame-exact
-  (testing "an actor destroy inside frame A's publication window reaches A's
-            handle through the request index, and only A's"
+(deftest actor-destroy-at-publication-is-frame-exact
+  (testing "an actor destroy the moment frame A's request is published reaches
+            A's request, and only A's"
     (let [seen (atom [])]
       (seed-named-actor-handle! seen :frame/b)
-      (record-actor-handle-with-midpoint!
+      (record-actor-handle-then!
         :frame/a seen
         #(rf.http.registry/abort-on-actor-destroy :frame/a publication-actor))
       (is (= [[:frame/a :actor-destroyed]] @seen)))))

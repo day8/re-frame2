@@ -8,8 +8,8 @@
 
   The swallow detection is private, so these drive the transport's
   `dispatch-failure!` / `dispatch-success!` directly with a synthetic ctx: with
-  no `:handle` the once-only reply guard no-ops, and with no router the
-  late-bind dispatch no-ops, so the only side effect is the warning trace."
+  no router the late-bind dispatch no-ops, so the only side effect is the
+  warning trace."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.http.middleware]
             [re-frame.http.transport :as rf.http.transport]

@@ -72,10 +72,10 @@
      accepts. The caller's external `:abort-signal` is NOT wired here.
      External cancellation is REQUEST-lifecycle-owned:
      the shared lifecycle (`re-frame.http.transport`) binds the external
-     signal to the CURRENT phase handle's canonical `:abort-fn` (which
-     aborts THIS internal controller when it fires), so abort precedence,
-     the once-only reply CAS, registry cleanup, and backoff-timer
-     cancellation apply uniformly regardless of lifecycle phase — rather
+     signal to the request's abort (which aborts THIS internal controller
+     while the attempt is in flight), so abort precedence, the single
+     reply, registry retirement and backoff-timer cancellation apply
+     uniformly regardless of lifecycle phase — rather
      than an attempt-local `internal-controller.abort()` that bypasses all
      of them. The internal controller still arms the per-attempt timeout
      independently of any external signal.
@@ -172,9 +172,8 @@
            ;; (which also rejects an in-progress body reader) and rejects
            ;; with the canonical `:rf.error/http-timeout` ex-info — the
            ;; same shape `classify-cljs-error` maps to `:rf.http/timeout`
-           ;; and routes through `maybe-retry!` → `finalise-failure!`,
-           ;; whose once-only `:finalised?` CAS clears the in-flight
-           ;; registry and respects abort precedence (no double-abort).
+           ;; and routes through `maybe-retry!`, which retries or ends the
+           ;; request — unless an abort already ended it.
            read-body
            (fn [resp]
              (let [ok?     (.-ok resp)
@@ -276,30 +275,25 @@
 ;; ---- external AbortSignal → request-lifecycle binding ----------------------
 ;;
 ;; An external `:abort-signal` is a REQUEST-lifecycle cancellation source, not
-;; an attempt-local one. It must route to whichever canonical in-flight handle
-;; owns the CURRENT phase (live-fetch or sleeping-backoff) and flip that
-;; handle's `:aborted?` / `:finalised?` cells through its canonical
-;; `:abort-fn`, exactly like `:rf.http/managed-abort` / supersede /
-;; actor-destroy do — so abort precedence, the once-only reply CAS, registry
-;; cleanup, and backoff-timer cancellation all apply uniformly (Spec 014
+;; an attempt-local one: it aborts the request through the same abort
+;; `:rf.http/managed-abort`, supersession and actor destroy use, so abort
+;; precedence, the single reply, registry retirement and backoff-timer
+;; cancellation apply uniformly whichever phase the request is in (Spec 014
 ;; §`:abort-signal` external + §Abort precedence). The shared lifecycle
-;; (`re-frame.http.transport`) owns the binding lifecycle: it BINDS on entry
-;; to each phase (detaching the prior phase's listener) and DETACHES on every
-;; terminal path, so a long-lived shared/parent `AbortController` never
-;; accumulates completed-attempt listeners.
+;; (`re-frame.http.transport`) BINDS it once, at issuance, and DETACHES it when
+;; the request retires, so a long-lived shared/parent `AbortController` never
+;; accumulates completed requests' listeners.
 ;;
-;; The binding is a single mutable cell over ONE signal; `bind-external-abort!`
-;; swaps the live listener on phase-ownership transfer (never a second
-;; concurrent listener), and `detach-external-abort!` is idempotent.
+;; The binding is a single mutable cell over ONE signal and its one listener;
+;; `detach-external-abort!` is idempotent.
 
 #?(:cljs
    (defn make-external-abort
-     "Create the phase-neutral external-abort binding over `signal` (the
-     caller's `:abort-signal`). Returns a stateful binding value the shared
-     lifecycle threads through the request ctx (`:external-abort`) and rebinds
-     phase-by-phase, or nil when `signal` is nil (no external cancellation
-     source). The binding holds the signal plus the currently-attached
-     listener (nil until the first `bind-external-abort!`)."
+     "Create the external-abort binding over `signal` (the caller's
+     `:abort-signal`). Returns a stateful binding value the shared lifecycle
+     keeps on the request's record (`:external-abort`), or nil when `signal`
+     is nil (no external cancellation source). The binding holds the signal
+     plus its attached listener (nil until `bind-external-abort!`)."
      [signal]
      (when signal
        (atom {:signal signal :listener nil}))))
@@ -308,9 +302,8 @@
    (defn detach-external-abort!
      "Idempotently remove the currently-attached abort listener from the
      binding's signal. A no-op on a nil binding or when no listener is
-     attached. Called on every phase-ownership transfer (before re-binding)
-     and on every terminal completion path, so a shared/parent signal retains
-     no completed-attempt listeners."
+     attached. Called when the request retires, so a shared/parent signal
+     retains no completed request's listener."
      [binding]
      (when binding
        (let [{:keys [signal listener]} @binding]
@@ -322,15 +315,12 @@
 #?(:cljs
    (defn bind-external-abort!
      "Route the binding's signal `abort` event to `cancel!` — a 0-arg thunk
-     that fires the CURRENT phase handle's canonical `:abort-fn :user`. First
-     DETACHES any listener from a prior phase (ownership transfer), so exactly
-     one listener is ever live on the signal. If the signal is ALREADY
-     aborted, fires `cancel!` synchronously and attaches nothing — the caller
-     then short-circuits the rest of attempt/backoff setup once the canonical
-     abort has won its once-only CAS. A no-op on a nil binding."
+     that aborts the request with `:reason :user`. Bound once, at issuance. If
+     the signal is ALREADY aborted, fires `cancel!` synchronously and attaches
+     nothing, so the request ends before its first attempt prepares anything.
+     A no-op on a nil binding."
      [binding cancel!]
      (when binding
-       (detach-external-abort! binding)
        (let [signal (:signal @binding)]
          (if (.-aborted signal)
            (cancel!)

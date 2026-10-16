@@ -94,7 +94,7 @@
     (try
       (rf.trace.tooling/register-listener! ::cap #(swap! captured conj %))
       (without-malli
-        (with-redefs [rf.http.transport/run-attempt! #(swap! issued conj (:decode %))]
+        (with-redefs [rf.http.transport/issue! #(swap! issued conj (:decode %))]
           (rf/dispatch-sync [:decode/load])))
       (is (= [:json] @issued)
           "the schema request never reached the transport; the :json one did")
