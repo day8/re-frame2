@@ -11,7 +11,7 @@
 
 {:fixture/id           :machine/parallel-root-on-multi-region-target
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :fsm/parallel-regions :core/event-handler}
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
  :fixture/doc          "Multi-region root :on target — all named regions update atomically; the untargeted region is unchanged; the root :action runs ONCE against the shared :data."
 
  :fixture/registry
