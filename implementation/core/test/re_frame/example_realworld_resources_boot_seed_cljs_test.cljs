@@ -5,9 +5,8 @@
    has it (Spec 010 §When schemas are checked). `[:auth]`, `[:auth
    :login-form]` and `[:auth :register-form]` are seeded by separate events
    and `[:settings-form]` only on settings-route entry, so a seed is never
-   checked against a sibling it has not written yet, and a registry of bare
-   slice schemas boots as the shipped one does. Only a development build
-   validates.
+   checked against a sibling it has not written yet, and the registry's bare
+   slice schemas boot. Only a development build validates.
 
    This ns requires the example's `schema` ns and nothing else from the app:
    both RealWorld apps register the same event ids with different
@@ -16,14 +15,13 @@
    assembly for later suites. The seeds below are local events reproducing the
    app's own writes; what is under test is the registry, imported verbatim."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             ;; The CLJS default validator soft-passes without this, which would
-            ;; let the bare registry boot as happily as the shipped one.
+            ;; make the control below vacuous.
             [re-frame.schemas.malli]
             [realworld-resources.schema :as app-schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
@@ -67,31 +65,12 @@
           :login-form    {:draft {:email "" :password ""} :touched #{}}
           :register-form {:draft {:username "" :email "" :password ""} :touched #{}}}})
 
-(def ^:private bare-registry
-  "The four boot-relevant registrations without `:maybe`."
-  {[:auth]                app-schema/AuthSlice
-   [:auth :login-form]    app-schema/FormSlice
-   [:auth :register-form] app-schema/FormSlice
-   [:settings-form]       app-schema/FormSlice})
-
 (deftest boot-under-the-shipped-registry
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
     (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
     (boot! f)
     (is (= booted-db (rf/app-db-value f))
-        "every seed landed, each its own commit, with [:settings-form] never seeded")))
-
-(deftest boot-under-a-bare-registry
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-    (rf/reg-app-schemas bare-registry {:frame f})
-    (boot! f)
-    (is (= booted-db (rf/app-db-value f))
-        "every seed landed: a sibling the candidate still lacks is not checked")
+        "every seed landed, each its own commit: a sibling the candidate still lacks is not checked")
     (rf/dispatch-sync [:rf2-ghxt.boot/break-settings-form] {:frame f})
     (is (= booted-db (rf/app-db-value f))
         "control: the validator is live, so a present non-conforming slice is rejected")))
-
-(deftest every-shipped-registration-tolerates-absence
-  (is (= (zipmap (keys app-schema/app-db-schemas) (repeat true))
-         (into {} (map (fn [[path schema]] [path (m/validate schema nil)]))
-               app-schema/app-db-schemas))))
