@@ -208,18 +208,24 @@
 
 ;; ---- negative control: the shared id is what does the work ---------------------
 
-(rf/reg-event :nine-states.overlap-test/load-under-a-different-id
-  {:doc "The shipped `:nine-states.demo/load` request with a different `:request-id`."}
-  (fn handler-overlap-test-load [_ [_ {:keys [n]}]]
-    {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
-          [:rf.http/managed
-           {:request    {:method :get
-                         :url    "/api/todos"
-                         :query  {:n (or n 0)}}
-            :decode     :json
-            :request-id :nine-states.overlap-test/a-different-slot
-            :on-success [:nine-states.demo/loaded]
-            :on-failure [:nine-states.demo/load-failed]}]]}))
+(defn- reg-load-under-a-different-id!
+  "Register the shipped `:nine-states.demo/load` request under a different
+  `:request-id`. Called from the test body: this suite builds no runtime
+  fixture, so it runs on whatever table the suite before it left, and a
+  top-level registration here need not be in it."
+  []
+  (rf/reg-event :nine-states.overlap-test/load-under-a-different-id
+    {:doc "The shipped `:nine-states.demo/load` request with a different `:request-id`."}
+    (fn handler-overlap-test-load [_ [_ {:keys [n]}]]
+      {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
+            [:rf.http/managed
+             {:request    {:method :get
+                           :url    "/api/todos"
+                           :query  {:n (or n 0)}}
+              :decode     :json
+              :request-id :nine-states.overlap-test/a-different-slot
+              :on-success [:nine-states.demo/loaded]
+              :on-failure [:nine-states.demo/load-failed]}]]})))
 
 (deftest a-different-request-id-lets-the-stale-reply-through
   ;; The same overlap under a different id inverts the witness: nothing
@@ -227,6 +233,7 @@
   (async done
     (rf/init! rf.adapter.reagent/adapter)
     (rf.frame/ensure-default-frame!)
+    (reg-load-under-a-different-id!)
     (let [{:keys [restore attempts]} (with-parked-fetch)
           frame (fresh-frame! "negative control: different request id")]
       (rf/dispatch-sync [:nine-states.demo/load {:n 25}] {:frame frame})
