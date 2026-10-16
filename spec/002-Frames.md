@@ -14,7 +14,7 @@ A **frame** is an **isolated runtime boundary**, identified by keyword, that own
 
 Registrations go into **one process-global source store**. A frame built with explicit `:images` resolves through its own sealed [resolved image generation](Conventions.md#frame-vocabulary--one-name-per-frame-fact), assembled from that store; a frame that omits `:images` resolves the whole store live (per [§Image resolution and composition](#image-resolution-and-composition)), so the common multi-frame case — devcards, isolated widgets, story variants, test fixtures — is several instances of one app's handlers. Frames built with explicit `:images` select and compose their own registrations, so **different handler sets can run on one page**: that is what explicit `:images` is for. Separately built and deployed apps sharing a page (micro-frontends, embedded white-label widgets) are out of scope; iframes serve them.
 
-**Single-frame is one shape of multi-frame.** An app with one frame in play is a multi-frame app — same runtime, same routing, same drain loop — that has established exactly one frame scope. Inside that scope every dispatch and subscription stays ambient and ergonomic; the single frame is invisible *inside its own scope*. There is **no** process-global `:rf/default` that catches operations issued under **no** scope at all: per [§Frame target resolution](#frame-target-resolution--the-carried-invariant) below (EP-0002), the runtime never synthesises a frame from absence. `:rf/default` is a legal frame id a small app or test may **explicitly** choose; it is not a fallback the runtime infers.
+**Single-frame is one shape of multi-frame.** An app with one frame in play is a multi-frame app — same runtime, same routing, same drain loop — that has established exactly one frame scope. Inside that scope every dispatch and subscription stays ambient and ergonomic; the single frame is invisible *inside its own scope*. There is **no** process-global `:rf/default` that catches operations issued under **no** scope at all: per [§Frame target resolution](#frame-target-resolution--the-carried-invariant) below (EP-0002), the runtime never synthesises a frame from absence. `:rf/default` is the conventional name a single-frame app writes at its own root ([§`:rf/default` is the conventional app-frame id](#rfdefault-is-the-conventional-app-frame-id-no-runtime-privilege)); it is not a fallback the runtime infers.
 
 ## Goals
 
@@ -231,12 +231,25 @@ raises; a tool read that finds *plural* returns `:ambiguous-frame`; a tool surfa
 with no pinned target returns `:no-frame-selected`. Same stamp, one ladder,
 different layer.
 
-### `:rf/default` is an ordinary id
+### `:rf/default` is the conventional app-frame id (no runtime privilege)
 
-`:rf/default` carries **no framework privilege**. It is not created by `init!`, not
+By convention a single-frame app names its frame `:rf/default`. The scaffold, the
+examples, the guide, the test-support fixture
+([008 §Pattern 5](008-Testing.md#pattern-5--single-frame-e2e-fixture)) and the v1
+migration ([M-20](../migration/from-re-frame-v1/README.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)
+rewrites `:re-frame/default` to it) all use that name, so a reader meets one id for
+the app's frame wherever they look. It is a teaching convention, not an address
+anything depends on: an app may choose any other id, and the pair tools resolve a
+sole app frame whatever its id
+([Tool-Pair §Operating frame](Tool-Pair.md#operating-frame--multi-frame-resolution)).
+Where a passage teaches genuinely independent frames — two roots, per-request SSR
+frames, stories, an embedded widget — each frame keeps a descriptive id.
+
+`:rf/default` carries **no runtime privilege**. It is not created by `init!`, not
 the React-context default, not a lookup tier, and not a request the runtime infers
-from a missing `:rf.frame/id`. It is a perfectly legal frame id that a small
-app, example, or test may **explicitly** register and select:
+from a missing `:rf.frame/id`, so absence is `:rf.error/no-frame-context`, never a
+silent selection of `:rf/default`. The app writes the id out and registers it
+**explicitly**, like any other frame:
 
 ```clojure
 (rf/make-frame {:id :rf/default :doc "The app frame for this program."})
@@ -245,8 +258,9 @@ app, example, or test may **explicitly** register and select:
   (rf/dispatch [:app/boot]))
 ```
 
-A migration may choose `:rf/default` as its explicit app-frame id; the runtime will
-not infer it.
+A `frame-root` still requires its `:id` written out
+([§`frame-root`](#frame-root--the-ensure-component-cljs-reference)); there is no
+`:rf/default` floor.
 
 ### What this revokes — and what it does not
 
@@ -897,18 +911,18 @@ This composition is the right tool for "I want this back to its initial state." 
 
 `destroy-frame!` alone (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame recovers (dispatch no-ops, subscribe returns nil) and emits a production-survivable `:rf.error/frame-destroyed` through the always-on error-emit listener (see the [§Destroy](#destroy) contract).
 
-### `:rf/default`
+### `:rf/default` — the conventional app-frame id
 
-`:rf/default` is an **ordinary frame id** with no framework privilege (per
-[§Frame target resolution §`:rf/default` is an ordinary id](#rfdefault-is-an-ordinary-id)).
+`:rf/default` is the **conventional** id a single-frame app gives its frame, with no
+runtime privilege (per
+[§Frame target resolution §`:rf/default` is the conventional app-frame id](#rfdefault-is-the-conventional-app-frame-id-no-runtime-privilege)).
 The runtime does **not** register it at load time, does **not** create it from
-`init!`, and does **not** infer it from a missing frame stamp. It is a perfectly
-legal keyword a small app, example, or test may **explicitly** register and select
-via `(rf/make-frame {:id :rf/default …})`, like any other frame — the
+`init!`, and does **not** infer it from a missing frame stamp. An app, example, or
+test registers and selects it **explicitly** via `(rf/make-frame {:id :rf/default …})`
+or `[rf/frame-root {:id :rf/default …} …]`, like any other frame — the
 surgical-update rules above apply, and the runtime emits `:rf.frame/re-registered`
-on re-registration. A migration may adopt `:rf/default` as its explicit app-frame
-id; the runtime will not infer it. Absence of any frame is `:rf.error/no-frame-context`,
-not a silent selection of `:rf/default`.
+on re-registration. A v1 app migrated under M-20 arrives at the same id. Absence of
+any frame is `:rf.error/no-frame-context`, not a silent selection of `:rf/default`.
 
 ### Frame presets — capability bundles for common configurations
 
@@ -2775,7 +2789,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 |---|---|
 | Unified frame identity & lifecycle (EP-0024) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation; **scope vs ensure vs own vs carry** are separate jobs — `with-frame` (lexical) / `frame-provider {:frame …}` (into a React subtree) scope to an *existing* frame (no lifecycle; fails loud if absent), `frame-root {:id …}` is the **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount**), explicit `make-frame` + `destroy-frame!` owns teardown, `capture-frame` carries across async; **one `make-frame`** over image-selection + record-config opts; **duplicate-id is idempotent replacement** (preserves durable state on re-mount; irreconcilable conflicts fail loud); `make-capture-frame` and the frame-first operation arities are internal, not app API, and there is no `subscribe*`; **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§`frame-provider` — the SCOPE-only component](#frame-provider--the-scope-only-component-cljs-reference), [§`frame-root` — the ENSURE component](#frame-root--the-ensure-component-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
 | Frame targeting has exactly THREE intents — scope (ambient) / override (`{:frame …}`) / hold (`capture-frame`, the ONE public carry primitive); there is no frame-FIRST positional shape-discrimination (no `vector?`-punned 2-arity) — every sig is `[payload]` / `[payload opts]`; there is no `frame-bound-fn` (macro) / `frame-bound-fn*` (fn) on the facade (the dynamic-rebinding mechanism is internal, `re-frame.frame/bind-fn`); `frame-provider`'s `:frame` accepts a frame value as well as a keyword id, so there is no facade `frame-value->id` — the routing operations accept a frame value or its id interchangeably (they normalize a value to its id), while `destroy-frame!` accepts either but reads the value's exact-incarnation lifecycle authority (a stale value no-ops against a same-id successor; a keyword is address-directed) | [§`capture-frame` is the ONE carry primitive](#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference), [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent), [§`frame-provider` — the SCOPE-only component](#frame-provider--the-scope-only-component-cljs-reference) |
-| Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism**. **The refusal tier** — a substrate may withdraw the ambient FIND for the render extent it owns (`call-with-ambient-frame-refused`), applied in the READER so every ambient door is covered; the finding is deleted, never the carrying, **except** where the extent declares its own `:extent-frame`, when a MISMATCHED carried stamp is refused too (`:rf.error/ambient-frame-refused`) — the one documented exception to a carried stamp winning, and one the `{:frame …}` override never meets; **a declared `:extent-frame` is also ANSWERED to the two pure doors** — `current-frame-id` and 0-arity `capture-frame` resolve to it when nothing is carried, checked after the mismatch, while stateful ambient operations stay refused | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [§The refusal tier](#the-refusal-tier--a-substrate-may-withdraw-the-ambient-find), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
+| Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is the conventional app-frame id, which the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism**. **The refusal tier** — a substrate may withdraw the ambient FIND for the render extent it owns (`call-with-ambient-frame-refused`), applied in the READER so every ambient door is covered; the finding is deleted, never the carrying, **except** where the extent declares its own `:extent-frame`, when a MISMATCHED carried stamp is refused too (`:rf.error/ambient-frame-refused`) — the one documented exception to a carried stamp winning, and one the `{:frame …}` override never meets; **a declared `:extent-frame` is also ANSWERED to the two pure doors** — `current-frame-id` and 0-arity `capture-frame` resolve to it when nothing is carried, checked after the mismatch, while stateful ambient operations stay refused | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [§The refusal tier](#the-refusal-tier--a-substrate-may-withdraw-the-ambient-find), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
 | Two-partition frame contract (EP-0001) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); a full reset (`destroy-frame!` + `make-frame`) resets the whole frame; accessors `app-db-value`/`frame-state-value`, one mutator `replace-frame-state!` (see the frame-state I/O row below) | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | Frame-state I/O is ONE partial-map write — **`replace-frame-state!`** takes a PARTIAL frame-state map: a present key replaces that partition, an absent key is preserved; a map with no recognized partition key, or an unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys` (checked before frame resolution); there is no per-partition mutator and no `snapshot-of` / `runtime-db-value` on the facade — the reads are `(get-in (app-db-value frame-id) path)` and `(:rf.db/runtime (frame-state-value frame-id))` | [§Frame-state value accessors and mutators](#frame-state-value-accessors-and-mutators) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fourth preset is a Spec-change-only operation; there is no `:ssr-server` preset (the frame config carries `{:platform :server}` directly), no `:devcards` (`:story` covers it), no `:repl` (`:default` covers it), and no `:replay` (too coupled to Tool-Pair to stabilise) | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |

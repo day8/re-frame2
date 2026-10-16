@@ -45,8 +45,9 @@
   NOT a hardcoded `:rf/xray` literal, so the guard holds for every `:rf/*`
   tool frame any project mounts (Xray's `:rf/xray`, an SSR slot, …). The
   SOLE carve-out is `:rf/default`, which Conventions.md names \"the
-  universal default frame id\" — it shares the `:rf/*` root but IS the
-  canonical APP frame, so it is never treated as a tool frame.
+  conventional app-frame id an app or test MAY explicitly register\" — it
+  shares the `:rf/*` root but is an APP frame, so it is never treated as a
+  tool frame.
 
   This is the server-side mirror: the snapshot tool already filters the
   LIVE registry through the runtime predicate app-side, but
@@ -61,7 +62,7 @@
 
   Server-side mirror of `re-frame2-pair.runtime/reserved-tool-frame?`
   — the reserved-namespace convention (namespace = \"rf\"),
-  minus the `:rf/default` carve-out (the canonical app frame). A
+  minus the `:rf/default` carve-out (the conventional app frame). A
   non-keyword / un-namespaced id (a user's `:stories`, `:sandbox`) is an
   app frame and returns false."
   [frame-id]

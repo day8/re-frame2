@@ -259,7 +259,7 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
      :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
 (rf/make-frame
-  {:id :app/main
+  {:id :rf/default
    :initial-events [[:app/initialise]]
    ;; … views, fx-overrides, etc …
    })
