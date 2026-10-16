@@ -234,14 +234,12 @@ Pilot 1 — RealWorld/Conduit:
 
  :aliases
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
-  :test   {:extra-paths ["test"]
-           :extra-deps  {day8/re-frame2-fresco-test-kit
-                         {:local/root "../re-frame2/implementation/fresco/test_kit"}}}}}
+  :test   {:extra-paths ["test"]}}}
 ```
 
 Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas`, `ssr` and `markdown` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
 
-The `:test` alias follows the published testing chapter's `:local/root` route, where the Fresco test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly — as a second `:local/root` coordinate, which is what keeps it inside a project boundary and off the Clojure CLI's external-path deprecation. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
+The Fresco test kit needs no row: `day8/re-frame2-fresco` puts its source root on the classpath, so the published testing chapter's `:local/root` route has nothing to add, and both pilots have it from the first hour — which outcome 1 needs, because it is to preserve the app's behavioural tests. The `:test` alias carries `"test"`, the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
 
 ### `app/shadow-cljs.edn`
 
@@ -261,7 +259,7 @@ Pilot 2 uses `:init-fn linearlite.core/run` and `:dev-http {8081 "public"}`.
 
 The port differs on purpose, and it is the one line in this file that must not be copied between the two workspaces. Both pilots may run at once, and a second server asking for a port the first already holds does not fail — it warns and keeps building, and the port keeps serving the first pilot's app. Distinct ports remove that; they also make what remains loud rather than silent, because a browser pointed at the wrong port now shows either nothing at all or an obviously different application, instead of a plausible one. Added under `rf2-v6l6`.
 
-Both aliases are named on purpose. `:shadow` puts the compiler on the classpath; without it the build dies at `Could not locate shadow/cljs/devtools/cli`. `:test` carries the test kit and the app's test root, and shadow reads its classpath from `deps.edn`, so an alias not named here is not on it.
+Both aliases are named on purpose. `:shadow` puts the compiler on the classpath; without it the build dies at `Could not locate shadow/cljs/devtools/cli`. `:test` carries the app's test root, and shadow reads its classpath from `deps.edn`, so an alias not named here is not on it.
 
 The `:test` build compiles every namespace on the classpath whose name ends in `-test` — the baseline under `app/test/`, and whatever the pilot ports or adds beside it — into one Node script. Node is enough for the baseline, which drives events and reads subscriptions without rendering, and for the browser-free rungs of the published testing ladder. A test that mounts real React needs a DOM the Node target does not supply; what to do about that when a ported test reaches for it is the pilot's call, and a call worth logging.
 
