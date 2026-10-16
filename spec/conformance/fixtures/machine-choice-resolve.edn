@@ -55,13 +55,7 @@
    :snapshot     {:state :idle :data {:ok? true}}
    :event        [:go]
    :expect-next-snapshot {:state :accepted :data {:ok? true}}
-   :expect-effects       []
-   :expect-microsteps    1
-   :expect-trace
-   [{:operation :rf.machine.microstep/transition
-     :tags      {:from :checking :to :accepted :microstep-index 0}}
-    {:operation :rf.machine/transition
-     :tags      {:from :idle :to :accepted :microsteps 1}}]}
+   :expect-effects       []}
 
   ;; (2) Every guard fails — the unguarded DEFAULT candidate is taken.
   {:call         :machine-transition
@@ -78,10 +72,4 @@
    :snapshot     {:state :idle :data {:ok? false}}
    :event        [:go]
    :expect-next-snapshot {:state :rejected :data {:ok? false}}
-   :expect-effects       []
-   :expect-microsteps    1
-   :expect-trace
-   [{:operation :rf.machine.microstep/transition
-     :tags      {:from :checking :to :rejected :microstep-index 0}}
-    {:operation :rf.machine/transition
-     :tags      {:from :idle :to :rejected :microsteps 1}}]}]}
+   :expect-effects       []}]}

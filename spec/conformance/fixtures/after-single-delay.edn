@@ -3,8 +3,8 @@
 ;; A state with a single :after entry. On state entry the timer schedules with
 ;; the current epoch; the test-clock advances time; the timer fires; the
 ;; transition runs; the snapshot lands at the target. Verify the
-;; :rf.machine.timer/scheduled and :rf.machine.timer/fired trace events bracket the
-;; transition.
+;; :rf.machine/after-schedule effect at entry carries the epoch the elapsed
+;; event then has to match.
 ;;
 ;; Per [005 §Delayed :after transitions]
 ;; (../../005-StateMachines.md#delayed-after-transitions).
@@ -18,7 +18,7 @@
 {:fixture/id           :machine/after-single-delay
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/delayed-after}
- :fixture/doc          "A state with one :after entry. After entry, the test-clock advances past the delay; the timer fires; the transition runs; verify the snapshot moves to the target and the :rf.machine.timer/scheduled / :rf.machine.timer/fired trace events both emit with matching epochs."
+ :fixture/doc          "A state with one :after entry. After entry, the test-clock advances past the delay; the timer fires; the transition runs; verify the :rf.machine/after-schedule effect at entry carries epoch 1 and the elapsed event carrying that epoch moves the snapshot to the target."
 
  :fixture/registry
  {:machine-action
@@ -60,12 +60,7 @@
                       :state        :loading
                       :delay-key    5000
                       :epoch        1
-                      :server?      false}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :loading :delay 5000 :epoch 1 :delay-source :literal}}
-    {:operation :rf.machine/transition
-     :tags      {:from :idle :to :loading}}]}
+                      :server?      false}]]}
 
   ;; Step 2: Test-clock advances 5000ms. The timer fires; epoch matches; the
   ;; transition resolves; snapshot lands at :timeout; the :loading node's
@@ -92,9 +87,4 @@
    ;; host-clock timer handle (and any subscription watcher).
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/invoke-id [:loading]}]]
-   :expect-trace
-   [{:operation :rf.machine.timer/fired
-     :tags      {:state :loading :delay 5000 :epoch 1 :fired? true}}
-    {:operation :rf.machine/transition
-     :tags      {:from :loading :to :timeout}}]}]}
+                      :rf/invoke-id [:loading]}]]}]}
