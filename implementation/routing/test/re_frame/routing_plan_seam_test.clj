@@ -485,12 +485,14 @@
         ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (is (= [:rf.warning/malformed-url] (:warnings url-driven) (:warnings programmatic)))))))
-  (testing "a VALIDATION miss routes the URL-driven door to not-found with
-            :reason :validation (the programmatic door rejects instead, Spec 012
+  (testing "a VALIDATION miss — a raw URL is user input at every door, so both
+            route to not-found with :reason :validation (Spec 012
             §Validation-error surfacing)"
-    (let [url-driven (door-fallback [:rf.route/handle-url-change "/typed/not-an-int"])]
-      (is (= :rf.route/not-found (:route-id url-driven)))
-      (is (= {:url "/typed/not-an-int" :reason :validation} (:params url-driven))))))
+    (let [url-driven   (door-fallback [:rf.route/handle-url-change "/typed/not-an-int"])
+          programmatic (door-fallback [:rf.route/navigate {:url "/typed/not-an-int-either"}])]
+      (is (= :rf.route/not-found (:route-id url-driven) (:route-id programmatic)))
+      (is (= {:url "/typed/not-an-int" :reason :validation} (:params url-driven)))
+      (is (= {:url "/typed/not-an-int-either" :reason :validation} (:params programmatic))))))
 
 ;; ---- the URL-change door reports WHICH of its sub-doors fired --------------
 

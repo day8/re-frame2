@@ -24,6 +24,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.routing.test-support]
@@ -240,13 +241,12 @@
     (is (= 2 @on-match-calls))
     (is (= "nav-2" (:nav-token (nav-slice))))))
 
-;; ---- param validation at the programmatic door ----------------------------
+;; ---- param validation: a caller's address vs a raw URL ---------------------
 
-(deftest navigate-validation-failure-rejects-and-leaves-slice-unchanged
-  ;; Spec 012 §Param validation at the call site: params that fail the route's
-  ;; schema REJECT — slice unchanged, nothing pushed, in both postures. A
-  ;; `{:url}` that MATCHES the route but fails its schema rejects the same way;
-  ;; it does not degrade to the 404 view the URL-driven door would show.
+(deftest navigate-to-validation-failure-rejects-and-leaves-slice-unchanged
+  ;; Spec 012 §Param validation at the call site: a named address whose params
+  ;; fail the route's schema is the caller's bug, so it REJECTS — slice
+  ;; unchanged, nothing pushed, in both postures.
   (let [restore (rf.routing-test-support/with-stub-validator)
         pushed  (record-pushes!)]
     (try
@@ -261,14 +261,71 @@
         (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}])
         (rf/unregister-listener! :trace ::reject)
         (is (= before (nav-slice)))
+        (is (empty? @pushed))
         (when rf.interop/debug-enabled?
           (is (= :event (->> @traces
                              (filter #(= :rf.error/schema-validation-failure (:operation %)))
-                             first :tags :where))))
-        (rf/dispatch-sync [:rf.route/navigate {:url "/articles/zoo"}])
-        (is (= before (nav-slice)))
-        (is (empty? @pushed)))
+                             first :tags :where)))))
       (finally (restore)))))
+
+(deftest a-raw-url-failing-its-route-schema-renders-not-found-at-every-door
+  ;; Spec 012 §Validation-error surfacing: a raw URL is user input whichever
+  ;; event carries it. One that MATCHES a route but fails its schema commits
+  ;; `:rf.route/not-found` with `:reason :validation`; the forward doors push
+  ;; the requested URL, and the URL-driven door, whose address bar already
+  ;; moved, pushes nothing.
+  (let [restore (rf.routing-test-support/with-stub-validator)
+        pushed  (record-pushes!)]
+    (try
+      (rf/reg-route :route/article
+                    {:params (fn [{:keys [id]}]
+                               (str/starts-with? (or id "") "a"))} "/articles/:id")
+      (rf/reg-route :rf.route/not-found {} "/404")
+      (doseq [[event url pushes]
+              [[[:rf.route/navigate {:url "/articles/zoo"}]      "/articles/zoo"    ["/articles/zoo"]]
+               [[:rf.route/url-requested {:url "/articles/yak"}] "/articles/yak"    ["/articles/yak"]]
+               [[:rf.route/handle-url-change "/articles/xenops"] "/articles/xenops" []]]]
+        (reset! pushed [])
+        (rf/dispatch-sync event)
+        (is (= {:route-id :rf.route/not-found :params {:url url :reason :validation}}
+               (select-keys (nav-slice) [:route-id :params]))
+            (pr-str event))
+        (is (= pushes @pushed) (pr-str event)))
+      (finally (restore)))))
+
+(deftest a-raw-url-route-miss-reports-the-same-record-at-every-door
+  ;; Spec 009 §Error event catalogue: a raw URL that resolves to
+  ;; `:rf.route/not-found` is a route miss whichever door carried it — one
+  ;; always-on `:rf.error/no-such-handler` `:kind :route` record (both
+  ;; postures) and, in dev, the same error on the trace bus.
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :rf.route/not-found {} "/404")
+  (record-pushes!)
+  (let [records (atom [])
+        traces  (atom [])]
+    (rf.error-emit/register-error-listener! ::route-miss #(swap! records conj %))
+    (rf/register-listener! :trace ::route-miss (fn [ev] (swap! traces conj ev)))
+    (try
+      (doseq [[event url] [[[:rf.route/navigate {:url "/miss-a"}]      "/miss-a"]
+                           [[:rf.route/url-requested {:url "/miss-b"}] "/miss-b"]
+                           [[:rf.route/handle-url-change "/miss-c"]    "/miss-c"]]]
+        (reset! records [])
+        (reset! traces [])
+        (rf/dispatch-sync event)
+        (is (= [{:kind :route :url url :frame :rf/default}]
+               (->> @records
+                    (filter #(= :rf.error/no-such-handler (:error %)))
+                    (mapv #(select-keys % [:kind :url :frame]))))
+            (pr-str event))
+        (when rf.interop/debug-enabled?
+          (is (= [url]
+                 (->> @traces
+                      (filter #(= :rf.error/no-such-handler (:operation %)))
+                      (mapv #(get-in % [:tags :url]))))
+              (pr-str event))))
+      (finally
+        (rf/unregister-listener! :trace ::route-miss)
+        (rf.error-emit/unregister-error-listener! ::route-miss)))))
 
 ;; ---- the fail-closed open-redirect matrices --------------------------------
 ;;

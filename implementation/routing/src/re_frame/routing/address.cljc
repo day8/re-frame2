@@ -29,7 +29,8 @@
       so ONLY the extracted address (never the convenient flat request /
       props map) reaches `:rf/route-address` validation.
 
-  Consumed by `:rf.route/navigate` (`navigate.cljc`), `route-url`
+  Consumed by the navigation pipeline every door runs (`url_change.cljc`'s
+  `navigate*`), `route-url`
   (`registry.cljc`), and `rf/route-link` (`link.cljc`) so
   the public surfaces share ONE definition of what an address is and
   which keys are policy / edit / behaviour.
@@ -251,7 +252,7 @@
       ;; `:query-merge`'s VALUE is a map of query deltas. PRESENCE
       ;; discriminates the in-place branch (`edit-keys`), so this gate is the
       ;; only place that can speak about the value at all; without this rule a
-      ;; non-map would sail through to `navigate-handler`'s `merge` fold, where
+      ;; non-map would sail through to the in-place `merge` fold, where
       ;; Clojure's collection semantics would decide the outcome three ways: a
       ;; two-element vector IS a map entry to `merge`, so `{:query-merge
       ;; [:page 2]}` would silently COMMIT a real navigation (query changed,

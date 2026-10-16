@@ -6,11 +6,11 @@
       `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events);
     - `merge-route-slice` — the slice-publish merge over
       `[:rf.runtime/routing :current]` (encodes the slice-shape
-      contract once for both the programmatic-nav and URL-driven paths);
-    - `commit-navigation` — the shared successful-commit assembler
-      (nav-token alloc + allocated/activation traces + slice publish +
+      contract once for every door);
+    - `commit-navigation` — the successful-commit assembler (nav-token
+      alloc + allocated/activation traces + slice publish +
       fire-and-forget `:on-match` dispatch + resource-derived readiness
-      projection) used by both nav entry points.
+      projection) the one navigation pipeline ends in.
 
   EP-0037 R1: `:on-match` is FIRE-AND-FORGET — it dispatches (in order,
   run-to-completion) only after a valid plan, never sets the transition,
@@ -153,11 +153,10 @@
               (recur parent acc' (conj seen cur) false)
               {:branch (vec acc')})))))))
 
-;; Per Spec 012 §Navigation is an event / §URL changes are events: a
-;; successful navigation commit is identical across the two entry points
-;; (programmatic `:rf.route/navigate` and URL-driven
-;; `:rf.route/handle-url-change`) once the target slice
-;; fields have been resolved. Both:
+;; Per Spec 012 §The one planning pipeline: a successful navigation commit is
+;; identical at every door (`:rf.route/navigate`, `:rf.route/url-requested`,
+;; `:rf.route/handle-url-change`) once the target slice fields have been
+;; resolved. It:
 ;;   1. allocate a fresh nav-token (the cascade-begin marker)
 ;;      from the injected host-side counter snapshot — PURE: read the
 ;;      next id, publish it, and emit the high-water bump as an fx;
@@ -168,25 +167,24 @@
 ;;      pending leave question (Spec 012 §The leave decision);
 ;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
 ;;      nav-counter`) → capture-scroll (the leaving route's position) →
-;;      [push-fx, when the programmatic path must drive the browser URL]
+;;      [push-fx, when the door has not yet moved the browser URL]
 ;;      → the fire-and-forget `:on-match` dispatches (ONLY on a valid plan —
 ;;      a planning failure dispatches none, Spec 012 §Failed activation) →
 ;;      the resource ensure/release fx → the scroll fx. There is NO settle
 ;;      event: readiness is the resource projection.
-;; The URL-driven path passes no `push-fx` (the browser URL already
-;; changed); the programmatic path passes `[:rf.nav/push-url ...]` /
-;; `[:rf.nav/replace-url ...]`. Holding the commit shape in ONE place
-;; keeps the trace ordering, the slice contract, and the fx assembly
-;; from drifting between the two callers.
+;; A URL-driven door passes no `push-fx` (the browser URL already changed);
+;; a forward door passes `[:rf.nav/push-url ...]` / `[:rf.nav/replace-url
+;; ...]`. Its one caller is the pipeline's full-commit branch
+;; (`re-frame.routing.url-change/navigate*`).
 (defn commit-navigation
-  "Pure navigation-commit assembler shared by the programmatic-nav and
-  URL-driven paths. `rdb` is the pre-commit runtime-db value. `slice`
+  "Pure navigation-commit assembler every door's full transition ends in.
+  `rdb` is the pre-commit runtime-db value. `slice`
   carries `{:route-id :params :query :fragment :transition}` (the
   published fields minus `:nav-token`, which rides the recordable
   allocation). `on-match-vec` is
   the resolved `:on-match` event vector (possibly empty). `capture-fx` /
   `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
-  optional history-mutation fx entry (nil on the URL-driven path).
+  optional history-mutation fx entry (nil on a URL-driven door).
   `nav-allocation` is the RECORDABLE allocation `{:token \"nav-N\"
   :counter N}` delivered by the generator-backed `:rf.route/nav-allocation`
   cofx — the nav-token is published from `:token` (recorded so
@@ -198,9 +196,9 @@
   against the same causal app-db value before resource work is planned;
   routing itself does not inspect app-db.
 
-  `frame` is the in-flight cascade's carried frame stamp (the
-  nav handler's `:rf.frame/id` cofx; both nav entry points already
-  validate it via `frame/require-frame-stamp!` and thread it in). It is
+  `frame` is the in-flight cascade's carried frame stamp (the door
+  handler's `:rf.frame/id` cofx, validated via `frame/require-frame-stamp!`
+  and threaded in). It is
   stamped onto the `:rf.route.nav-token/allocated` trace and passed to
   `emit-activation-traces!` so the lifecycle pair carries `:frame` too.
   Without it those frame-known traces would miss epoch capture (which buffers
@@ -208,8 +206,9 @@
 
   `branch-contributors` / `branch-error` are the route plan's
   already-resolved `:parent` walk (`resolve-branch`, called ONCE per navigation
-  in `re-frame.routing.resolve/route-plan`), threaded in by the door. Both doors
-  build the plan immediately before calling this, so the value is in hand; a
+  in `re-frame.routing.resolve/route-plan`), threaded in by the pipeline,
+  which builds the plan immediately before calling this, so the value is in
+  hand; a
   second walk here could let the plan REPORT one branch and EXECUTE another.
   Reading it off the
   plan makes the reported branch and the composed branch the same value by

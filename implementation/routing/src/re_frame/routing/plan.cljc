@@ -1,9 +1,10 @@
 (ns re-frame.routing.plan
-  "Pure navigation-planning seam shared by the programmatic
-  (`:rf.route/navigate`) and URL-driven
-  (`:rf.route/handle-url-change`) entry points.
+  "Pure navigation-planning seam of the one navigation pipeline
+  (`re-frame.routing.url-change/navigate*`), which every door —
+  `:rf.route/navigate`, `:rf.route/url-requested` and
+  `:rf.route/handle-url-change` — runs.
 
-  Both entry points share the same pre-commit policy: fragment normalisation,
+  The pre-commit policy lives here: fragment normalisation,
   the `:rf.route/not-found` fallback shape + `:reason` vocabulary, the
   identical-/fragment-only/no-op classification, the telemetry the
   hostile-URL / missing-not-found-route streams must surface, and the
@@ -13,16 +14,12 @@
   inputs\", so the shared pre-commit policy lives here, in ONE place,
   rather than as parallel policy bodies.
 
-  Everything here is PURE (or returns telemetry as DATA). The two entry
-  points resolve their target differently — the programmatic path has
-  destination (`:to` / `:url`) and in-place request forms, the request-map
-  structural gate, open-redirect fail-closed gating, the in-place
-  `:query-merge` fold,
-  and `route-url` validation/reject; the URL-driven path just matches a
-  URL string and carries a default scroll strategy (`:top` forward,
-  `:restore` for popstate/SSR). Those input-resolution differences stay
-  in `navigate.cljc` / `url_change.cljc`. Once the slice fields and the
-  classification flags are resolved, BOTH feed the shared helpers below
+  Everything here is PURE (or returns telemetry as DATA). Target
+  resolution forks on the request's source kind — a named address or
+  in-place edit (the `:query-merge` fold, `route-url` validation/reject) or
+  a raw URL (open-redirect gating, app-URL reduction, `match-url`) — and
+  lives with the pipeline in `url_change.cljc`. Once the target and the
+  classification flags are resolved, the pipeline feeds the helpers below
   and then `commit-navigation`.
 
   Internal namespace; the public facade is `re-frame.routing`."
@@ -52,11 +49,11 @@
 ;; Per Spec 012 §Route-not-found + §Routing failure semantics: every
 ;; not-found fallback writes `{:url url}` into the slice's `:params`,
 ;; discriminated by an optional `:reason` for per-route error UIs and SSR
-;; projections. The reason vocabulary is SHARED across both entry points:
+;; projections. The reason vocabulary is SHARED by every door:
 ;; an unexpected `match-url` throw stamps
 ;; `:match-error`; a malformed percent-encoding stamps `:malformed-url`; a
 ;; schema-validation miss stamps `:validation`; a bare route-miss carries
-;; no reason. Encoding the shape once keeps the two paths' fallback params
+;; no reason. Encoding the shape once keeps every door's fallback params
 ;; byte-for-byte identical.
 
 (defn not-found-params
@@ -115,18 +112,18 @@
 
 ;; ---- scroll plan ---------------------------------------------------------
 
-;; Both entry points assemble the SAME scroll fx pair before a commit:
+;; Every door assembles the SAME scroll fx pair before a commit:
 ;;   - `capture-fx` — `[:rf.nav/capture-scroll {:url <leaving-url>}]`,
 ;;     keyed off the CURRENT slice so a later `:restore` finds the
 ;;     position the user is leaving;
 ;;   - `scroll-fx`  — `[:rf.nav/scroll {:strategy :from :to :saved-pos
 ;;     :fragment}]`, resolved from the route's `:scroll` meta + opts +
 ;;     the entry-point default strategy.
-;; The only per-entry-point variation is the default strategy (`:top`
-;; forward, `:restore` for popstate/SSR) and whether opts carries a
-;; per-call `:scroll` override (programmatic only). Holding the assembly
-;; here keeps the `:from`/`:to`/`:saved-pos`/`:fragment` shape and the
-;; `:restore`-only saved-pos lookup from drifting between the two callers.
+;; The only per-door variation is the default strategy (`:top` forward,
+;; `:restore` for popstate/initial/SSR) and whether the request carries a
+;; per-call `:scroll` override. Holding the assembly here keeps the
+;; `:from`/`:to`/`:saved-pos`/`:fragment` shape and the `:restore`-only
+;; saved-pos lookup in one place.
 
 (defn scroll-plan
   "Pure: build the `{:capture-fx :scroll-fx}` pair for a navigation.
@@ -136,8 +133,8 @@
   `re-frame.routing.scroll/frame-scroll-cache`, threaded in EXPLICITLY by
   the caller so this helper stays pure and never reaches the host atom).
   `route-meta` is the TARGET route's metadata (for its
-  `:scroll` strategy). `opts` is the navigate opts map (or nil on the
-  URL-driven path — no per-call `:scroll` override). `default-strategy` is
+  `:scroll` strategy). `opts` is the door's request map, whose `:scroll`
+  is the per-call override. `default-strategy` is
   `:top` (forward) or `:restore` (popstate/SSR). `url` keys the `:restore`
   saved-position lookup. Returns a map; either fx may be nil (no current
   route to capture from; `:scroll false` suppression)."
@@ -173,21 +170,18 @@
 ;; ---- pre-commit telemetry intents ----------------------------------------
 
 ;; Per Spec 009 + Spec 012: a fail-closed navigation must surface the same
-;; structured telemetry regardless of which entry point the hostile or
-;; unmatched URL arrived on. Returning the intents as data — a vector of
-;; `[kind level-or-op op-or-tags tags?]` tuples — and
-;; running them through one `emit-intents!` driver makes the parity
-;; structural: both callers build the same intent list from the same
-;; inputs, so they cannot drift without changing this one fn.
+;; structured telemetry regardless of which door the hostile or unmatched
+;; URL arrived on. Returning the intents as data — a vector of
+;; `[kind level-or-op op-or-tags tags?]` tuples — run through one
+;; `emit-intents!` driver keeps the telemetry one definition.
 ;;
-;; `:rf.error/no-such-handler` is NOT included here: the URL-driven path
-;; emits it (every URL-driven fallback is a handler-miss), the
-;; programmatic path does not (a `{:url ...}` miss is the documented
-;; not-found escape hatch, not a handler-resolution error). It stays at
-;; the URL-driven call site as an entry-point-specific intent.
+;; `:rf.error/no-such-handler` is NOT included here: it also rides the
+;; always-on error axis, so the pipeline's route-miss emitter
+;; (`re-frame.routing.url-change`) builds its one redacted tag map, fans the
+;; production record out, and appends the dev-trace intent itself.
 
 (defn fallback-telemetry-intents
-  "Pure: the telemetry both entry points emit on a fail-closed / not-found
+  "Pure: the telemetry every door emits on a fail-closed / not-found
   navigation, returned as a vector of intents for `emit-intents!`. Inputs:
 
     :throw-reason — non-nil when `match-url` threw an unexpected error

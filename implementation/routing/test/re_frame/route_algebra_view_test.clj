@@ -53,6 +53,7 @@
                    :output      route-output
                    :source-form {:kind :reg-route :id :route/article}
                    :inputs      [[:event :rf.route/navigate]
+                                 [:event :rf.route/url-requested]
                                  [:event :rf.route/handle-url-change]]})
            (dissoc ((rf.routing.tooling/route-algebra-view) :route/article) :source)))))
 
