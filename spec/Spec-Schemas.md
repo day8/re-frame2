@@ -509,7 +509,7 @@ Visualisers walking the transition table consume the `:rf/machine` projection; t
 > **Owner:** [013-Flows §The registration shape](013-Flows.md#the-registration-shape)
 > **Status:** v1-required
 
-The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:derive`, `:output-path`) and the registration metadata (`:doc`, `:schema`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
+The flow definition `reg-flow` registers under the registrar's `:flow` kind: the call's metadata map with the flow id (its first slot) and the `:derive` fn (its third slot) folded in, so the definition carries both the wiring (`:id`, `:inputs`, `:derive`, `:output-path`) and the registration metadata (`:doc`, `:schema`, source coords), per [013 §The registration shape](013-Flows.md#the-registration-shape). It carries no `:frame`: a definition names no frame, the frames that run it each name it in their `:flows` config ([013 §Activation](013-Flows.md#activation)), and a `:frame` in the metadata map is rejected with `:rf.error/invalid-flow-metadata`.
 
 ```clojure
 (def FlowMeta
@@ -4220,6 +4220,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:fx-overrides {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]       ;; the InterceptorOverrides map (per §:rf/interceptor-ref)
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
+    [:flows        {:optional true} [:vector :keyword]]                    ;; flow ids the frame runs (none by default), resolved through its own view; per [013 §Activation](013-Flows.md#activation)
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame
