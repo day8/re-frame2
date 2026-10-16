@@ -38,7 +38,7 @@ them be stated at all.
 | 2 | **Allowlisted request, fail-closed** | `src/protocol.cjs` | `test/protocol.test.cjs` |
 | 3 | **One in-flight render per isolate** | `src/isolate.cjs`, `src/pool.cjs` | `test/concurrency.test.cjs` |
 | 4 | **Timeout and hard termination** | `src/isolate.cjs`, `src/pool.cjs` | `test/timeout.test.cjs` |
-| 5 | **A pre-registered caller latency envelope** | `src/envelope.cjs` | `test/envelope.test.cjs` |
+| 5 | **A pre-registered caller latency envelope** | `test/envelope.cjs` | `test/envelope.test.cjs` |
 
 Two further obligations ride alongside them: build identity, which the
 operator's ruling names beside the other 5, and the bytes reaching
@@ -206,7 +206,7 @@ is in whatever state the stopped instruction left it.
 
 ### 5. A pre-registered caller latency envelope
 
-Stated before it was measured, in `src/envelope.cjs`, in its own commit
+Stated before it was measured, in `test/envelope.cjs`, in its own commit
 with no measurement code in the tree — `git log --follow` on that file is
 the witness for the ordering. What is bounded is the service's own
 overhead, total elapsed minus the render module's own render duration,
@@ -231,7 +231,7 @@ ceiling, which is `--max-request-bytes` and an order of magnitude higher.
 The condition originally named `state` alone, because that was the only
 partition a request carried when the envelope was registered; widening it
 to the request moved no ceiling and no sample count, and the amendment
-note in `src/envelope.cjs` records that separation.
+note in `test/envelope.cjs` records that separation.
 
 ## The measured envelope
 

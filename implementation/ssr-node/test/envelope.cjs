@@ -84,7 +84,7 @@
 // milliseconds at the median and never runs away — and never as a
 // benchmark to diff a future run against.
 
-const { PARTITIONS } = require('./protocol.cjs');
+const { PARTITIONS } = require('../src/protocol.cjs');
 
 const ENVELOPE = Object.freeze({
   /** Median service overhead, milliseconds. */
