@@ -95,13 +95,17 @@
                         (vals (rf.registrar/registrations :view)))))))
 
 (deftest the-view-kind-is-populated-under-prod-so-the-absence-above-is-real
-  ;; The positive control the row above needs. This build compiles every
-  ;; `-elision-prod-test` namespace in the repository, and the Reagent
-  ;; adapter's three register views at load — so `registrations :view`
-  ;; answering non-empty is what proves the nil above is the DECLARATION's
-  ;; absence and not a registrar that answers nothing for anyone.
-  (testing "other substrates' views are registered here"
-    (is (seq (rf.registrar/registrations :view)))))
+  ;; The positive control the row above needs: a view registered the way
+  ;; every other substrate registers one IS listed under prod, so the nil
+  ;; above is the DECLARATION's absence and not a registrar that answers
+  ;; nothing for anyone. The control registers its own view because this
+  ;; suite builds no runtime fixture and runs on whatever table the suite
+  ;; before it left.
+  (testing "a view registered through the registrar is listed here"
+    (rf.registrar/register! :view ::control-view {:handler-fn (fn [] [:div])})
+    (try
+      (is (seq (rf.registrar/registrations :view)))
+      (finally (rf.registrar/unregister! :view ::control-view)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A refusal carries neither ambient field
