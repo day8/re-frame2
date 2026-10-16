@@ -959,9 +959,10 @@
    with `:live-store? true`, `:images []`, and `:ambiguous` — each id the
    process registers that the frame refuses because more than one namespace
    registers it, as `{:kind k :id id :namespaces [ns …]}`. The query omits such
-   an id, so it is found by comparing against `{:source :store}` and confirmed
-   through `rf/handler-meta`, whose `:rf.error/ambiguous-registration` names the
-   namespaces. Ambiguous ids are not counted: the frame cannot run them.
+   an id, so they are read through the PUBLIC
+   `(rf/ambiguous-registrations {:frame f :kind k})`, whose `{id {ns
+   descriptor}}` names the namespaces. Ambiguous ids are not counted: the frame
+   cannot run them.
 
    FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-id` names no frame
    that seals an image or resolves the store live — the facade's
@@ -973,12 +974,13 @@
         counts    (into {}
                         (keep (fn [[k regs]] (when (seq regs) [k (count regs)])))
                         by-kind)
-        ambiguous (vec (for [k     frame-query-kinds
-                             id    (sort-by str (keys (rf/registrations {:source :store :kind k})))
-                             :when (not (contains? (get by-kind k) id))
-                             :let  [namespaces (ambiguous-namespaces frame-id k id)]
-                             :when namespaces]
-                         {:kind k :id id :namespaces namespaces}))]
+        ambiguous (vec (for [k             frame-query-kinds
+                             [id ns->desc] (sort-by (comp str key)
+                                                    (rf/ambiguous-registrations
+                                                      {:frame frame-id :kind k}))]
+                         {:kind       k
+                          :id         id
+                          :namespaces (vec (sort (map str (keys ns->desc))))}))]
     (cond-> {:ok?         true
              :frame       frame-id
              :live-store? true
