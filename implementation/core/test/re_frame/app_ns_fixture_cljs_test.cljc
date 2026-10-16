@@ -186,9 +186,7 @@
   (is (some? (src-row :route shared-route "kuky27j.routing"))))
 
 (deftest the-owning-apps-live-slot-is-removed
-  ;; another namespace's row for the shared route may remain — a CLJS bundle
-  ;; loads other apps — but none of the hidden app's
   (register-app! "kuky27k." "k")
   (app-fixture "kuky27k.")
-  (is (not= "k" (slot-tag :route shared-route)))
+  (is (nil? (reg-slot :route shared-route)))
   (is (= [] (src-rows-under "kuky27k."))))
