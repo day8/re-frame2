@@ -2,7 +2,9 @@
   "`:elided-large` indicator counting in `wire-pipeline/run-wire-pipeline`.
   The `:epoch-vector` arm counts markers over the PRE-dedup payload,
   because dedup pools N identical `:rf.size/large-elided` maps into one
-  cache entry. The `:snapshot-map` arm counts the markers it ships."
+  cache entry. The `:snapshot-map` arm counts the markers it ships.
+  Records and trace bundles flagged sensitive arrive already projected,
+  so both arms ship them, flag and all, and count nothing as dropped."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
@@ -73,3 +75,34 @@
                              {:slice-modes {:epochs :full}})))
     (is (= 0 (snapshot-count {:rf/default {:app-db {} :epochs epochs}} {}))
         "control: a summarised :epochs slice ships no marker")))
+
+;; The eval form projected every record and bundle app-side through
+;; `re-frame.core/project-egress`, so a sensitivity flag is a label that the
+;; record contained classified material, not a reason to withhold it.
+
+(def ^:private flagged-epoch
+  {:epoch-id            1
+   :event-id            :auth.login/submit-form
+   :rf.epoch/sensitive? true
+   :db-before           {:auth {:draft {:password :rf/redacted}}}
+   :db-after            {:auth {:draft {:password :rf/redacted}}}
+   :trace-events        [{:operation :rf.event/run-end :sensitive? true}]})
+
+(deftest flagged-epochs-ship-with-their-label
+  (let [epochs [flagged-epoch {:epoch-id 2 :event-id :counter/inc}]
+        {:keys [value indicators]}
+        (wp/run-wire-pipeline epochs {:kind :epoch-vector :mode :full :dedup? false})]
+    (is (= epochs value))
+    (is (not (contains? indicators :dropped)))))
+
+(deftest snapshot-ships-flagged-epochs-and-trace-bundles
+  (let [bundle {:dispatch-id  7
+                :event        [:auth.login/submit-form :rf/redacted]
+                :trace-events [{:operation :rf.event/run-end :sensitive? true}]}
+        {:keys [value indicators]}
+        (wp/run-wire-pipeline {:rf/default {:app-db {} :epochs [flagged-epoch] :traces [bundle]}}
+                              {:kind :snapshot-map :mode :full :dedup? false
+                               :slice-mode :full :slice-modes {}})]
+    (is (= [flagged-epoch] (get-in value [:rf/default :epochs])))
+    (is (= [bundle] (get-in value [:rf/default :traces])))
+    (is (not (contains? indicators :dropped)))))
