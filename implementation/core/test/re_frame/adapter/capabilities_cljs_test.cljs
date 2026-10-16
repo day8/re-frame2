@@ -11,8 +11,8 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.reagent :as reagent]
-            [re-frame.adapter.uix :as uix]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -50,33 +50,33 @@
   (let [scheduled (atom [])
         traced    (fn traced-after-render [f] (swap! scheduled conj f) nil)
         f         (fn [] :after)]
-    (rf/init! (assoc reagent/adapter :after-render traced))
+    (rf/init! (assoc rf.adapter.reagent/adapter :after-render traced))
     (rf.interop/after-render f)
     (is (= [f] @scheduled)
         "the copy's own :after-render answers, not the closure Reagent's namespace built")))
 
 (deftest a-loaded-adapter-contributes-nothing-until-installed
   ;; UIx is loaded (required above) but Reagent is the installed adapter.
-  (rf/init! reagent/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (is (= {} (published [:adapter/wrap-view :adapter/componentize-view]))
       "UIx's view capabilities do not answer while Reagent is installed"))
 
 (deftest a-view-registered-before-init-takes-the-installed-adapters-head
   (let [id ::row-before-init]
     (rf/reg-view* id (fn [] [:div "row"]))
-    (rf/init! uix/adapter)
+    (rf/init! rf.adapter.uix/adapter)
     (is (true? (.-uix-component? ^js (rf/view id)))
         "the head is UIx's marked component, derived against the adapter installed at lookup")))
 
 (deftest a-swap-leaves-no-capability-of-the-departed-adapter
-  (rf/init! reagent/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (is (= (set reagent-only-slots) (set (keys (published reagent-only-slots))))
       "control: Reagent fills every one of these slots")
   (rf/destroy-adapter!)
-  (rf/init! uix/adapter)
+  (rf/init! rf.adapter.uix/adapter)
   (is (= {} (published reagent-only-slots))
       "after the swap no Reagent-only slot resolves")
-  (is (identical? (:after-render uix/adapter) (rf.late-bind/get-fn :adapter/after-render))
+  (is (identical? (:after-render rf.adapter.uix/adapter) (rf.late-bind/get-fn :adapter/after-render))
       "and the shared slots hold UIx's own capabilities"))
 
 (defn- seed-layered-subs! [frame-id]
@@ -106,7 +106,7 @@
           "core's teardown emptied the frame's sub-cache"))))
 
 (deftest teardown-disposes-through-the-departing-ratom-map
-  (assert-teardown-disposes-through-the-departing-map reagent/adapter ::ratom-frame))
+  (assert-teardown-disposes-through-the-departing-map rf.adapter.reagent/adapter ::ratom-frame))
 
 (deftest teardown-disposes-through-the-departing-plain-atom-map
   (assert-teardown-disposes-through-the-departing-map rf.substrate.plain-atom/adapter
@@ -137,17 +137,17 @@
 (deftest a-same-kind-reinit-republishes-the-fresh-maps-capabilities
   ;; Hot reload: re-evaluating an adapter namespace hands `init!` a map of the
   ;; same canonical kind with fresh function identities.
-  (rf/init! reagent/adapter)
+  (rf/init! rf.adapter.reagent/adapter)
   (let [scheduled (atom 0)
-        reloaded  (assoc reagent/adapter
+        reloaded  (assoc rf.adapter.reagent/adapter
                          :after-render (fn [_f] (swap! scheduled inc) nil))]
     (rf/init! reloaded)
     (rf.interop/after-render (fn []))
     (is (= 1 @scheduled) "the reloaded map's capability answers")
-    (is (identical? reagent/adapter (rf/current-adapter))
+    (is (identical? rf.adapter.reagent/adapter (rf/current-adapter))
         "the seated generation, which owns the live containers and roots, is kept")
     (testing "an identical re-init has nothing new to publish"
       (let [stub (fn [_f] nil)]
         (rf.late-bind/set-fn! :adapter/after-render stub)
-        (rf/init! reagent/adapter)
+        (rf/init! rf.adapter.reagent/adapter)
         (is (identical? stub (rf.late-bind/get-fn :adapter/after-render)))))))
