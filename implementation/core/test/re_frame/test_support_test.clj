@@ -213,6 +213,25 @@
       (is (= [:rf/default nil] @seen)
           "the bare reg-app-schema ran under the ambient :rf/default; `:ambient-frame nil` keeps :init-fn frameless"))))
 
+;; ---- snapshot-registrar / restore-registrar! -------------------------------
+;;
+;; A frame made without `:images` resolves the registration table live, so the
+;; bracket has to roll back what that frame runs, not only what the ambient
+;; frame resolves.
+
+(deftest restore-registrar-drops-a-registration-a-frame-without-images-would-run
+  (let [ran  (atom false)
+        snap (rf.test-support/snapshot-registrar)]
+    (rf/reg-event :test-support/bracketed (fn [_ _] (reset! ran true) {}))
+    (rf.test-support/restore-registrar! snap)
+    (let [f (rf/make-frame {})]
+      (try
+        (try (rf/dispatch-sync [:test-support/bracketed] {:frame f})
+             (catch Exception _ nil))
+        (is (false? @ran)
+            "the handler registered inside the bracket no longer runs once the bracket is restored")
+        (finally (rf/destroy-frame! f))))))
+
 ;; ---- destroy-frame! hook cascade ------------------------------------------
 
 (deftest destroy-frame-cleanup-hooks-receive-frame-id

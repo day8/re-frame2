@@ -24,12 +24,10 @@
 (use-fixtures :each
   (fn [t]
     (rf.source-store/clear-all!)
-    (reset! rf.registrar/kind->id->metadata {})
     (rf.image-assembly/clear-standards!)
     (rf.image-assembly/clear-generation-cache!)
     (t)
     (rf.source-store/clear-all!)
-    (reset! rf.registrar/kind->id->metadata {})
     (rf.image-assembly/clear-standards!)
     (rf.image-assembly/clear-generation-cache!)))
 

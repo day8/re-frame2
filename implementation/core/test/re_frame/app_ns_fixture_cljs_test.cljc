@@ -42,12 +42,13 @@
    nil))
 
 (defn- reg-slot
-  "The live registrar metadata for `(kind, id)`, or nil."
+  "The latest registration of `(kind, id)` — what the ambient fixture frame
+  resolves — or nil."
   [kind id]
-  (get-in @rf.registrar/kind->id->metadata [kind id]))
+  (rf.source-store/latest-descriptor kind id))
 
 (defn- slot-tag
-  "Which app's registration currently owns the resolver slot for `(kind, id)`."
+  "Which app made the latest registration of `(kind, id)`."
   [kind id]
   (:app-tag (reg-slot kind id)))
 
@@ -176,8 +177,7 @@
     (is (nil? (collision)))))
 
 (deftest sibling-live-registration-is-not-clobbered
-  ;; the registrar slot is the LAST writer's (here app j's); hiding app i
-  ;; forgets only i's source row
+  ;; the latest registration is app j's; hiding app i forgets only i's row
   (register-app! "kuky27i." "i")
   (register-app! "kuky27j." "j")
   (app-fixture "kuky27i.")

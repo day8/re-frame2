@@ -40,9 +40,9 @@
   wiped they cannot be reinstated for downstream tests in the same run,
   and every later test sees the pollution.
 
-  The right pattern is **snapshot/restore**: capture
-  `@rf.registrar/kind->id->metadata` before the test, allow the test to
-  register additional ids, then reset the registrar to the captured map
+  The right pattern is **snapshot/restore**: capture the registration table
+  (`@rf.source-store/kind->id->ns->descriptor`) before the test, allow the
+  test to register additional ids, then reset the table to the captured value
   on the way out. Framework-shipped registrations survive (they're in
   the snapshot); user-test registrations are rolled back; the next test
   starts from the same baseline as this one.
@@ -125,21 +125,18 @@
             ;; sealed generation, so a `[:rf.interceptor/path …]` ref needs the
             ;; published standard there.
             [re-frame.std-interceptors :as rf.std-interceptors]
-            ;; EP-0026 §Default Image: `make-frame {}` projects the DEFAULT
-            ;; image over the active SOURCE STORE. Every `reg-*` writes a
-            ;; provenance-tagged descriptor into `source-store` (in lockstep with
-            ;; the registrar resolver map — `rf.registrar/register!`), so the source
-            ;; store ACCUMULATES across the consolidated node-test bundle exactly
-            ;; the way the registrar would without snapshot/restore. Two sibling
-            ;; test namespaces registering the same `[kind id]` under different
-            ;; provenance namespaces leave a cross-namespace collision in the
-            ;; shared store, and the next test's `make-frame {}` default projection
-            ;; FAILS LOUD (`:rf.error/image-duplicate-id`) — correctly, per the
-            ;; default-image semantics. The fixture isolates each test's source
-            ;; store (snapshot/restore + generation-cache clear) so a default
-            ;; projection sees ONLY this test's own registrations. The
-            ;; resolved-generation cache is keyed on the source-store generation,
-            ;; so clearing it on reset stops a stale default generation leaking.
+            ;; EP-0026 §Default Image: `make-frame {}` resolves the
+            ;; registration table (`source-store`) live. Every `reg-*` writes a
+            ;; provenance-tagged descriptor there, so the table ACCUMULATES
+            ;; across the consolidated node-test bundle without
+            ;; snapshot/restore. Two sibling test namespaces registering the
+            ;; same `[kind id]` under different provenance namespaces leave a
+            ;; cross-namespace collision in the shared table, and the next
+            ;; test's frame raises `:rf.error/ambiguous-registration` where it
+            ;; uses the id — correctly, per the default-image semantics. The
+            ;; fixture restores the table around each test and clears the
+            ;; resolved-generation cache, which is keyed on the table's
+            ;; generation, so a stale default generation cannot leak.
             [re-frame.source-store :as rf.source-store]
             [re-frame.image-assembly :as rf.image-assembly]
             ;; The flows / schemas / machines / routing / http-managed /
@@ -174,50 +171,44 @@
 
 ;; ---- registrar snapshot/restore -------------------------------------------
 
-(defn- restore-source-store!
-  "Reset the live source store to the suite's ns-load `baseline` (EP-0026
-  source-store isolation; the store leg of the per-test rollback). NOTE:
-  a suite registering top-level state AFTER its
-  `use-fixtures` form places those rows outside this baseline — register
-  above the fixture form, or re-seed in the suite's :init-fn (frames
-  resolve through the STORE: the default image is assembled from it)."
-  [baseline]
-  (reset! rf.source-store/kind->id->ns->descriptor baseline)
-  nil)
-
 (defn snapshot-registrar
-  "Capture the current registrar contents.
+  "Capture the registration table.
 
-  Returns the value of `@rf.registrar/kind->id->metadata` — a plain map of
-  `kind → id → metadata` — at the moment of the call. Pair with
-  [[restore-registrar!]] to roll the registrar back to this point.
+  Returns the value of the one registration table
+  (`@rf.source-store/kind->id->ns->descriptor`, `kind → id → provenance-ns →
+  descriptor`) at the moment of the call — every registration a frame made
+  without `:images` resolves, and the ambient fixture frame's too. Pair with
+  [[restore-registrar!]] to roll the registrations back to this point.
 
-  The returned value is the persistent map the registrar atom holds; it
-  is safe to keep across mutations (subsequent `register!` calls produce
-  new persistent maps and don't alter the captured one)."
+  The returned value is a persistent map; it is safe to keep across
+  mutations (subsequent `register!` calls produce new persistent maps and
+  don't alter the captured one)."
   []
-  @rf.registrar/kind->id->metadata)
+  @rf.source-store/kind->id->ns->descriptor)
 
 (defn restore-registrar!
-  "Reset the registrar to a previously captured snapshot.
+  "Reset the registration table to a previously captured snapshot.
 
-  Any registrations made since the snapshot are dropped; any registrations
-  removed since the snapshot are restored. Use this in test fixtures to
-  undo per-test pollution while preserving framework / example
-  registrations that landed at ns-load time."
+  Any registrations made since the snapshot are dropped — no frame resolves
+  them any more, whether made with `:images`, without, or the ambient fixture
+  frame — and any registrations removed since the snapshot are restored. Use
+  this in test fixtures to undo per-test pollution while preserving framework /
+  example registrations that landed at ns-load time."
   [snapshot]
-  (reset! rf.registrar/kind->id->metadata snapshot)
+  (rf.source-store/restore! snapshot)
   nil)
 
 (defn- merge-registrar-snapshots
-  "Two-level merge of two registrar snapshots (`kind → id → metadata`).
+  "Two-level merge of two registration-table snapshots (`kind → id →
+  provenance-ns → descriptor`).
 
-  Entries from `overlay` win on a per-`[kind id]` collision; ids present
-  only in `base` survive; ids present only in `overlay` are added. Because
-  the registrar value is a map of `kind → (map of id → metadata)`, the
-  merge must be two-deep — `(merge-with merge base overlay)` — so that two
-  snapshots that each populate a *different* id under the same `kind` are
-  unioned rather than one `kind` map clobbering the other.
+  An id's entry from `overlay` — all of its provenance slots — wins on a
+  per-`[kind id]` collision; ids present only in `base` survive; ids present
+  only in `overlay` are added. The merge is two-deep — `(merge-with merge base
+  overlay)` — so that two snapshots that each populate a *different* id under
+  the same `kind` are unioned rather than one `kind` map clobbering the other,
+  and it stops at the id, so an overlay id never gains a provenance slot it did
+  not hold.
 
   Used by [[make-reset-runtime-fixture]] to fold a stable ns-load baseline
   back over whatever the registrar currently holds, so a test ns's own
@@ -232,13 +223,14 @@
 ;; test runs, so two co-loaded example apps that register the same per-app id
 ;; (the canonical case `:rf.route/not-found`; the RealWorld twins also share
 ;; `:settings/load`, `:auth/initialise`, …) leave TWO provenance rows in the
-;; shared source store — and every suite whose fixture baseline is captured
-;; after the second app loads then fails default-image assembly loud
-;; (`:rf.error/image-duplicate-id`) on `make-frame {}`.
+;; shared registration table — and every suite whose fixture baseline is
+;; captured after the second app loads then raises
+;; `:rf.error/ambiguous-registration` where its `make-frame {}` frame uses the
+;; id.
 ;;
 ;; That is a BASELINE concern, and `make-reset-runtime-fixture` already owns
-;; the baseline: it pins the registrar + source store at fixture-build time and
-;; restores both around every test. `:app-ns` therefore folds the whole cycle
+;; the baseline: it pins the registration table at fixture-build time and
+;; restores it around every test. `:app-ns` therefore folds the whole cycle
 ;; into the fixture rather than spelling it a second time beside it — capture
 ;; the app's rows at BUILD time, before the baselines are taken, and reinstate
 ;; them per test.
@@ -253,9 +245,9 @@
 ;; SO A SUITE THAT USES AN APP DECLARES IT — every suite, not only the one that
 ;; happens to load it first. That is not a tidiness rule; it is what the option
 ;; requires, and the way it bites is worth writing down because it is invisible.
-;; `reinstate-and-snapshot!` folds the ns-load baseline OVER the live registrar
+;; `reinstate-and-snapshot!` folds the ns-load baseline OVER the live table
 ;; (`merge-with merge live baseline`), so a suite silently resolves ids that were
-;; never in its own baseline but merely sat LIVE in the registrar because some
+;; never in its own baseline but merely sat LIVE in the table because some
 ;; other test ns's `:require` chain registered them. Measured on this tree: the
 ;; RealWorld password-classification suite requires the app's feature namespaces
 ;; but NOT its `core`, and reached `:auth/classify-token` — a `core`
@@ -271,7 +263,7 @@
 ;; which risks capturing an app before it has finished loading.
 
 (defonce ^:private app-ns-rows
-  ;; prefix string → {[kind id provenance-ns] → source-store descriptor}
+  ;; prefix string → {[kind id provenance-ns] → registration-table descriptor}
   ;;
   ;; Rows `:app-ns` removed at fixture-build time, UNIONED across fixture
   ;; builds and read back at TEST time. Both halves are load-bearing, because
@@ -288,19 +280,13 @@
   (atom {}))
 
 (defn- capture-app-ns-rows!
-  "Remove every live source-store row whose provenance namespace starts with
-  `prefix` from BOTH stores and union the captured rows into `app-ns-rows`
-  under `prefix`. Called once per fixture build, BEFORE the fixture takes its
-  baselines, so the rows are absent from every baseline in the bundle.
-
-  The registrar leg is OWNERSHIP-GUARDED. The registrar's single `(kind, id)`
-  slot is the LAST writer's, and for an id BOTH apps register that may be a
-  SIBLING's — so drop it only when its current writer is itself under `prefix`,
-  leaving a sibling's live registration standing. This app's own source row is
-  forgotten either way, which is what keeps registrar and source-store
-  authority coherent. NOT `rf.registrar/unregister!`: that forgets EVERY
-  provenance slot for `(kind, id)` and would clobber a sibling's row for a
-  shared id."
+  "Remove every live registration-table row whose provenance namespace starts
+  with `prefix` and union the captured rows into `app-ns-rows` under `prefix`.
+  Called once per fixture build, BEFORE the fixture takes its baseline, so the
+  rows are absent from every baseline in the bundle. Each row goes on its own,
+  so a SIBLING's row for an id both apps register stays live — NOT
+  `rf.registrar/unregister!`, which forgets EVERY provenance slot for
+  `(kind, id)`."
   [prefix]
   (let [rows (vec (for [[kind id->ns] @rf.source-store/kind->id->ns->descriptor
                         [id ns->d]    id->ns
@@ -309,25 +295,15 @@
                                    (clojure.string/starts-with? pns prefix))]
                     [[kind id pns] d]))]
     (doseq [[[kind id pns] _] rows]
-      (swap! rf.registrar/kind->id->metadata update kind
-             (fn [m]
-               (let [cur    (get m id)
-                     cur-ns (or (get cur rf.source-store/provenance-ns-key)
-                                (some-> (:ns cur) str))]
-                 (if (and cur
-                          (string? cur-ns)
-                          (clojure.string/starts-with? cur-ns prefix))
-                   (dissoc m id)
-                   m))))
       (rf.source-store/forget-descriptor! kind id pns))
     (swap! app-ns-rows update prefix (fnil into {}) rows)
     nil))
 
 (defn- reinstate-app-ns-rows!
   "Reinstate every row captured for `prefix` through `rf.registrar/register!`,
-  so registrar and source store go back in lockstep (an image-loaded frame
-  resolves through the STORE; a raw registrar-atom write would be invisible to
-  its generation).
+  so each goes back under its own provenance namespace and the live-frame
+  projection is marked dirty (a raw table write would leave an image-loaded
+  frame's generation stale).
 
   Reads `app-ns-rows` HERE rather than closing over the build-time capture:
   the union is what makes repeated suites for one app work in either order, and
@@ -494,21 +470,21 @@
 ;; The per-test reset is the SAME work whether it runs inside the synchronous
 ;; fn-form fixture (`(fn [test-fn] …)`) or split across an async map-form
 ;; fixture's `:before` / `:after`. Both shapes share these three halves so the
-;; hairy EP-0026 (source-store isolation) / EP-0027 (`:rf/set-db` re-seed) /
+;; hairy EP-0026 (registration-table isolation) / EP-0027 (`:rf/set-db` re-seed) /
 ;; stable ns-load baseline sequencing lives in ONE place. The
 ;; halves are split at the boundaries the fn-form's try/finally already drew:
 ;;
 ;;   1. `reinstate-and-snapshot!`  — the pre-try work: fold the ns-load
-;;      registrar baseline back over the live registrar, restore the source
-;;      store, clear the generation cache, and CAPTURE the restore context
-;;      (registrar snapshot + the late-bound schemas snapshot/restore fns +
+;;      baseline back over the live registration table, clear the generation
+;;      cache, and CAPTURE the restore context
+;;      (table snapshot + the late-bound schemas snapshot/restore fns +
 ;;      the per-frame schemas snapshot, taken BEFORE the frames reset).
 ;;   2. `reset-runtime!`           — the reset body proper: frames reset, the
 ;;      pre/post-dispose hook phases, adapter dispose+install, the framework-
 ;;      standard re-seeds, `:clear-kinds`. Runs inside the caller's try so
 ;;      the finish half still fires if it throws.
-;;   3. `finish-runtime-reset!`    — the finally body: restore the registrar +
-;;      per-frame schemas + source store, reset the frames + flows registries.
+;;   3. `finish-runtime-reset!`    — the finally body: restore the table +
+;;      per-frame schemas, reset the frames + flows registries.
 ;;
 ;; What the halves DELIBERATELY leave to each shape: establishing the ambient
 ;; frame scope. The fn-form wraps the body in a dynamic `binding` (unwound when
@@ -520,21 +496,19 @@
 
 (defn- reinstate-and-snapshot!
   "Pre-reset half (the fn-form's pre-try block). Fold the stable ns-load
-  registrar baseline back over whatever the live registrar holds (run-order
-  independence), restore the source store to its ns-load baseline and
-  clear the resolved-generation cache (EP-0026 source-store isolation), then
+  baseline back over whatever the live registration table holds (run-order
+  independence) and clear the resolved-generation cache (EP-0026), then
   capture and return the restore context the reset + finish halves consume:
 
-    {:snap         <registrar snapshot to restore to on the way out>
+    {:snap         <table snapshot to restore to on the way out>
      :restore-fn   <late-bound schemas restore-by-frame! fn, or nil>
      :schemas-snap <per-frame schemas snapshot, taken BEFORE the frames reset>}
 
   No frames / adapter mutation happens here — that is `reset-runtime!`, run
   inside the caller's try so `finish-runtime-reset!` still fires if it throws."
-  [ns-load-baseline source-store-baseline]
+  [ns-load-baseline]
   (restore-registrar!
     (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
-  (restore-source-store! source-store-baseline)
   (rf.image-assembly/clear-generation-cache!)
   (let [snapshot-fn (rf.late-bind/get-fn :schemas/snapshot-by-frame)]
     {:snap         (snapshot-registrar)
@@ -586,14 +560,12 @@
 
 (defn- finish-runtime-reset!
   "The post-test finally body shared by both fixture shapes. Restore the
-  registrar to `:snap` and the per-frame schemas to `:schemas-snap`, restore the
-  source store to its ns-load baseline + clear the generation cache (EP-0026
-  symmetry with the registrar restore), then reset the frames + flows
-  registries so nothing a test body seated survives into the next fixture run."
-  [{:keys [snap restore-fn schemas-snap]} source-store-baseline]
+  registration table to `:snap` and the per-frame schemas to `:schemas-snap`,
+  clear the generation cache, then reset the frames + flows registries so
+  nothing a test body seated survives into the next fixture run."
+  [{:keys [snap restore-fn schemas-snap]}]
   (restore-registrar! snap)
   (when restore-fn (restore-fn schemas-snap))
-  (restore-source-store! source-store-baseline)
   (rf.image-assembly/clear-generation-cache!)
   (reset! rf.frame/frames {})
   (when-let [reset-flows! (rf.late-bind/get-fn :flows/reset-flows!)]
@@ -605,43 +577,41 @@
 
   ## Run-order independence
 
-  ## Source-store isolation (EP-0026 §Default Image)
+  ## Registration-table isolation (EP-0026 §Default Image)
 
-  `make-frame {}` (omitted `:images`) resolves the whole active SOURCE STORE live,
-  plus the framework standards. Every
-  `reg-*` writes a provenance-tagged descriptor into the source store in lockstep
-  with the registrar resolver map (`rf.registrar/register!`), so without isolation
-  the source store accumulates across the consolidated node-test bundle: two
-  sibling namespaces registering the same `[kind id]` under different provenance
-  namespaces leave a cross-namespace collision in the shared store, and the next
-  test's frame raises `:rf.error/ambiguous-registration` when it uses the id. The
-  fixture captures the source store's ns-load contents at build time (the same
-  stable-baseline moment as the registrar) and RESTORES the store to that baseline
-  before and after each test, clearing the resolved-generation cache (keyed on the
-  source-store generation) on each reset. Each test's frames therefore see only
-  its own registrations plus the ns-load set — no cross-bundle leakage.
+  `make-frame {}` (omitted `:images`) resolves the whole registration table
+  live, plus the framework standards. Every `reg-*` writes a provenance-tagged
+  descriptor into the table (`rf.registrar/register!`), so without isolation
+  the table accumulates across the consolidated node-test bundle: two sibling
+  namespaces registering the same `[kind id]` under different provenance
+  namespaces leave a cross-namespace collision in the shared table, and the
+  next test's frame raises `:rf.error/ambiguous-registration` when it uses the
+  id. The fixture captures the table's ns-load contents at build time and
+  folds that baseline back in before each test — every id the baseline holds
+  comes back with exactly the provenance slots it had then — restores the
+  table after each test, and clears the resolved-generation cache (keyed on
+  the table's generation) on each reset.
 
-  The registrar baseline is captured ONCE, when the fixture is built —
+  The baseline is captured ONCE, when the fixture is built —
   i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,
   which is AT THIS TEST NS'S LOAD (after its `:require` chain has
   registered its framework + example handlers / subs / views / machines /
   fx). `cljs.test` runs every test ns in one shared bundle; a sibling ns's
-  `:each` fixture can restore the registrar to a snapshot that predates
+  `:each` fixture can restore the table to a snapshot that predates
   this ns's load, stranding this ns's registrations (e.g. leaving the
-  whole `:event` registrar empty for an alphabetically-later example ns).
+  whole `:event` kind empty for an alphabetically-later example ns).
   Before each test, the fixture folds the stable ns-load baseline back
-  over the live registrar (via [[merge-registrar-snapshots]]) and only
+  over the live table (via [[merge-registrar-snapshots]]) and only
   THEN snapshots — so the snapshot it restores to is always populated with
   this ns's own registrations, regardless of run order, and no test needs a
   bespoke outer fixture to work around it.
 
   Per call (i.e. per test), the fixture:
 
-    0. Reinstates the stable ns-load baseline over the live registrar
-       (run-order independence — see above), and RESTORES the source store
-       to its ns-load baseline + clears the resolved-generation cache
-       (EP-0026 source-store isolation — see below).
-    1. Captures the current (baseline-reinstated) registrar (so user-test
+    0. Reinstates the stable ns-load baseline over the live registration
+       table (run-order independence — see above) and clears the
+       resolved-generation cache (EP-0026 — see above).
+    1. Captures the current (baseline-reinstated) table (so user-test
        registrations can be rolled back without losing ns-load-time
        framework / example registrations).
     2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
@@ -661,15 +631,14 @@
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).
     7. If an `:app-ns` was supplied, reinstates the app rows it removed at
-       fixture-build time (registrar + source store in lockstep) — so this
-       suite sees its own app, and no other suite's baseline ever did.
+       fixture-build time — so this suite sees its own app, and no other
+       suite's baseline ever did.
     8. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter
        live — e.g. seeding test data into the just-installed adapter's
        app-db.
     9. Runs the test.
-   10. Restores the registrar to the captured snapshot, and the source
-       store to its ns-load baseline.
+   10. Restores the registration table to the captured snapshot.
    11. Restores the schemas per-frame registry to the snapshot taken before
        the reset (via the `:schemas/restore-by-frame!` late-bind hook, when
        the schemas artefact is loaded), then resets `rf.frame/frames` back
@@ -677,8 +646,8 @@
        `:flows/reset-flows!` late-bind hook, when flows is loaded).
 
   Steps 10–11 run in a `finally` block so they fire even on test
-  exceptions. The source-store restore they carry is also what takes the
-  `:app-ns` rows of step 7 back out — the baseline they restore to never
+  exceptions. The table restore they carry is also what takes the
+  `:app-ns` rows of step 7 back out — the snapshot they restore to never
   held them — so an exceptional teardown leaves no app row behind.
 
   Options (all optional):
@@ -686,26 +655,26 @@
                     is installed by the fixture.
     :app-ns       — BUNDLE CO-LOAD HYGIENE. A provenance-namespace PREFIX
                     string naming THIS suite's own app, e.g. `\"realworld-http.\"`
-                    — every source-store row whose `:rf.provenance/ns` starts
-                    with it is this suite's app. Name your own app's root
+                    — every registration-table row whose `:rf.provenance/ns`
+                    starts with it is this suite's app. Name your own app's root
                     namespace and cover its WHOLE tree (`\"linearlite.\"`, not
                     `\"linearlite.core\"`); NEVER name a sibling app's.
-                    The rows are captured and removed from the live registrar +
-                    source store when this fixture is BUILT (i.e. at this test
-                    ns's load, after its `:require` chain), so they are absent
-                    from every suite's ns-load baseline; they are reinstated
-                    through `rf.registrar/register!` before each test, after
-                    the reset and before `:init-fn`, and the ordinary
-                    source-store restore takes them back out on the way out
+                    The rows are captured and removed from the live
+                    registration table when this fixture is BUILT (i.e. at this
+                    test ns's load, after its `:require` chain), so they are
+                    absent from every suite's ns-load baseline; they are
+                    reinstated through `rf.registrar/register!` before each
+                    test, after the reset and before `:init-fn`, and the
+                    ordinary table restore takes them back out on the way out
                     (including on a test exception).
                     Why: a CLJS node runner loads EVERY test namespace into one
                     bundle before any test runs, so two co-loaded example apps
                     registering the same per-app id (`:rf.route/not-found`; the
                     RealWorld twins' shared `:settings/load`, …) leave two
-                    provenance rows in the shared source store, and any suite
-                    whose baseline was captured after the second app loaded
-                    then fails `make-frame {}` loud with
-                    `:rf.error/image-duplicate-id`. When every app suite hides
+                    provenance rows in the shared registration table, and any
+                    suite whose baseline was captured after the second app
+                    loaded then raises `:rf.error/ambiguous-registration` where
+                    its `make-frame {}` frame uses the id. When every app suite hides
                     ITSELF, no suite needs to know its sibling's name. A
                     workspace with one app in its bundle never meets the
                     collision and never needs this key.
@@ -772,8 +741,8 @@
       `dispatch-sync` in the async body therefore drains and lands, exactly
       as it does under the fn-form in a sync test.
     - `:after` tears the ambient scope back down (`set!` to nil) and runs the
-      shared restore half (registrar / source-store / schemas / frames /
-      flows baselines). `cljs.test` guarantees `:after` runs AFTER the test's
+      shared restore half (registration table / schemas / frames / flows
+      baselines). `cljs.test` guarantees `:after` runs AFTER the test's
       `done`, so the restore does not race the async body.
 
   All other options (`:adapter`, `:app-ns`, `:init-fn`, `:clear-kinds`,
@@ -864,14 +833,12 @@
    ;; called when the test ns's `(use-fixtures :each ...)` form is evaluated —
    ;; i.e. AT THIS TEST NS'S LOAD, after its `:require` chain has registered
    ;; its framework + example handlers / subs / views / machines / fx.
-   ;; Capturing the registrar + source store HERE — once, at fixture-build
+   ;; Capturing the registration table HERE — once, at fixture-build
    ;; time — pins every registration this ns brought live as a stable baseline,
-   ;; folded back over the live registrar before each test by
+   ;; folded back over the live table before each test by
    ;; `reinstate-and-snapshot!` (run-order independence; see that helper and
    ;; the shared-halves section comment above for the full EP-0026 rationale).
    (let [ns-load-baseline      (snapshot-registrar)
-         source-store-baseline* @rf.source-store/kind->id->ns->descriptor
-         source-store-baseline (fn [] source-store-baseline*)
          ambient-frame         (if (contains? opts :ambient-frame)
                                  (:ambient-frame opts)
                                  :rf/default)
@@ -924,7 +891,7 @@
        (let [ctx-atom (atom nil)]
          {:before
           (fn before-reset-runtime []
-            (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
+            (let [ctx (reinstate-and-snapshot! ns-load-baseline)]
               (reset! ctx-atom ctx)
               (reset-runtime! opts)
               ;; Establish the ambient scope PERSISTENTLY — `set!` on the root
@@ -944,7 +911,7 @@
             ;; races the async body.
             (when scope?
               (set! rf.frame/*current-frame* nil))
-            (finish-runtime-reset! @ctx-atom (source-store-baseline))
+            (finish-runtime-reset! @ctx-atom)
             (reset! ctx-atom nil))})
        ;; ---- sync fn-form (default; clojure.test + non-async cljs.test) ----
        ;; EP-0002: when an adapter is installed the fixture
@@ -954,7 +921,7 @@
        ;; inner `with-frame` re-binds and an explicit `{:frame …}` opt still
        ;; wins. The `finally` restore fires even on a test exception.
        (fn [test-fn]
-         (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
+         (let [ctx (reinstate-and-snapshot! ns-load-baseline)]
            (try
              (reset-runtime! opts)
              (if scope?
@@ -965,7 +932,7 @@
                  (run-init!)
                  (test-fn)))
              (finally
-               (finish-runtime-reset! ctx (source-store-baseline))))))))))
+               (finish-runtime-reset! ctx)))))))))
 
 ;; ---- test-flavoured helpers ----------------------------------------------
 ;;

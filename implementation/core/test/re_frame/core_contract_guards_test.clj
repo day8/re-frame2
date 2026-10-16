@@ -8,6 +8,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.subs :as rf.subs]))
 
 (defn isolate-registrar-state [test-fn]
@@ -28,11 +29,11 @@
 (use-fixtures :each isolate-registrar-state)
 
 (deftest register!-throws-on-an-unknown-kind
-  (let [before @(deref #'rf.registrar/kind->id->metadata)
+  (let [before @rf.source-store/kind->id->ns->descriptor
         data   (try
                  (rf.registrar/register! :bogus-kind :some/id {:handler-fn identity})
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-    (is (= before @(deref #'rf.registrar/kind->id->metadata))
+    (is (= before @rf.source-store/kind->id->ns->descriptor)
         "the throw precedes the write")
     (is (= {:rf.error/id :rf.error/unknown-registry-kind
             :where       'rf/register-handler
@@ -65,7 +66,7 @@
     (is (= {:was nil :now {:handler-fn :the-fn}}
            (rf.registrar/register! :sub :s/iso {:handler-fn :the-fn})))
     (is (true? @reached))
-    (is (= {:handler-fn :the-fn} (rf.registrar/lookup :sub :s/iso)))))
+    (is (= :the-fn (:handler-fn (rf.registrar/lookup :sub :s/iso))))))
 
 (deftest throwing-replacement-hook-is-swallowed
   (rf.registrar/add-replacement-hook! (fn [_] (throw (ex-info "bad repl hook" {}))))

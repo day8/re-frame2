@@ -83,6 +83,35 @@
         (is (= #{shared-id :host/only}
                (set (keys (rf/registrations {:frame :host/main :kind :sub})))))))))
 
+(deftest a-store-read-of-an-ambiguous-id-answers-as-a-frame-without-images
+  ;; two namespaces register one id: the store read refuses it exactly as a
+  ;; frame made without :images does, and the public door lists it
+  (rf.registrar/register! :event :dup/id {:handler-fn ::a :rf.provenance/ns "dup.a"})
+  (rf.registrar/register! :event :dup/id {:handler-fn ::b :rf.provenance/ns "dup.b"})
+  (rf.registrar/register! :event :dup/single {:handler-fn ::single :rf.provenance/ns "dup.a"})
+  (let [frame     (rf/make-frame {})
+        refusal   (fn [query]
+                    (try (rf/handler-meta query) nil
+                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                           (select-keys (ex-data e) [:rf.error/id :namespaces]))))
+        listed    (fn [query]
+                    (into {} (map (fn [[id ns->desc]] [id (set (keys ns->desc))]))
+                          (rf/ambiguous-registrations query)))
+        store-err (refusal {:source :store :kind :event :id :dup/id})]
+    (is (= {:rf.error/id :rf.error/ambiguous-registration :namespaces ["dup.a" "dup.b"]}
+           store-err))
+    (is (= store-err (refusal {:frame frame :kind :event :id :dup/id}))
+        "the frame raises the same refusal")
+    (is (= [false true]
+           (mapv #(contains? (rf/registrations {:source :store :kind :event}) %)
+                 [:dup/id :dup/single]))
+        "registrations omits the ambiguous id and keeps its single-owner control")
+    (is (= {:dup/id #{"dup.a" "dup.b"}}
+           (listed {:source :store :kind :event})
+           (listed {:frame frame :kind :event})))
+    (is (= ::b (:handler-fn (rf.registrar/lookup :event :dup/id)))
+        "with no frame resolution bound the latest registration answers")))
+
 (deftest reserved-empty-kinds-are-not-queryable
   ;; {} for a reserved-but-empty slot would read as an authoritative empty
   ;; catalogue; the error names the read that owns the data

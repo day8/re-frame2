@@ -46,14 +46,14 @@
     wrapper (`:rf/default? true`), which is framework machinery, not an
     application-authored chain entry.
 
-  ## Realm-awareness
+  ## Frame-awareness
 
-  Resolution goes through `rf.registrar/lookup`, which reads the active
-  registrar (`rf.registrar/*registrar*` when an explicit-realm seating is in
-  flight, else the process-default). Refs therefore resolve through the owning
-  realm's registrar wherever an explicit realm is bound — no realm argument is
-  threaded here (per Spec 002 §Effective chain ordering — the lookup direction
-  is recorded; no realm-patching API is added).
+  Resolution goes through `rf.registrar/lookup`, which resolves through the
+  frame view bound around the call (a sealed generation, or a live view of the
+  registration table). Refs therefore resolve through the owning frame's view
+  wherever one is bound — no frame argument is threaded here (per Spec 002
+  §Effective chain ordering — the lookup direction is recorded; no patching
+  API is added).
 
   ## The framework default-wrapper carve-out
 

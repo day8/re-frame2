@@ -5,6 +5,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]
@@ -22,9 +23,9 @@
 (def ^:private last-managed-args (atom nil))
 
 (def ^:private resource-kind-snapshot
-  (get @rf.registrar/kind->id->metadata :resource))
+  (rf.registrar/registrations :resource))
 
-(swap! rf.registrar/kind->id->metadata update :resource
+(swap! rf.source-store/kind->id->ns->descriptor update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
 ;; Reset clears resource rows; reinstall the example before constructing its URL-bound frame.

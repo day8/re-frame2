@@ -93,39 +93,24 @@
   reserved-but-empty slots the query refuses."
   (disj rf.registrar/kinds :frame :flow))
 
-(defn- ambiguous-namespaces
-  "The namespaces registering `[kind id]` when frame `frame-id` refuses the id
-  as ambiguous, read off the `:rf.error/ambiguous-registration` that
-  `rf/handler-meta` raises for it. nil when the frame resolves the id, or
-  lacks it."
-  [frame-id kind id]
-  (try
-    (rf/handler-meta {:frame frame-id :kind kind :id id})
-    nil
-    (catch #?(:clj Exception :cljs :default) e
-      (let [data (ex-data e)]
-        (when (= :rf.error/ambiguous-registration (:rf.error/id data))
-          (mapv str (:namespaces data)))))))
-
 (defn- live-store-frame-view
   "The frame view of `frame-id`, a frame that resolves the registration store
   live: every `[kind id]` it can run, read through the public
-  `(rf/registrations {:frame f :kind k})`, and every id the process registers
-  that the frame refuses as ambiguous, with the namespaces registering it.
-  The query omits an ambiguous id, so it is found by comparing against the
-  store and confirmed through `rf/handler-meta`. Throws when the query refuses
-  the frame (one that neither seals an image nor resolves the store live)."
+  `(rf/registrations {:frame f :kind k})`, and every id it refuses as
+  ambiguous, with the namespaces registering it, read through the public
+  `(rf/ambiguous-registrations {:frame f :kind k})`. Throws when the query
+  refuses the frame (one that neither seals an image nor resolves the store
+  live)."
   [frame-id]
   (let [registrations (into {}
                             (for [kind      queryable-kinds
                                   [id meta] (rf/registrations {:frame frame-id :kind kind})]
                               [[kind id] meta]))
-        ambiguous     (vec (for [kind  queryable-kinds
-                                 id    (keys (rf/registrations {:source :store :kind kind}))
-                                 :when (not (contains? registrations [kind id]))
-                                 :let  [namespaces (ambiguous-namespaces frame-id kind id)]
-                                 :when namespaces]
-                             {:kind kind :id id :namespaces namespaces}))
+        ambiguous     (vec (for [kind          queryable-kinds
+                                 [id ns->desc] (rf/ambiguous-registrations {:frame frame-id :kind kind})]
+                             {:kind       kind
+                              :id         id
+                              :namespaces (vec (sort (map str (keys ns->desc))))}))
         adapter       (rf.frame/frame-adapter frame-id)]
     (cond-> {:rf.frame/id            frame-id
              :rf.frame/live-store?   true

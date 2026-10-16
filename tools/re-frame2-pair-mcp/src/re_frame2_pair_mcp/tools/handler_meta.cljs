@@ -142,7 +142,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private registrar-kinds
-  "Kinds that map directly to the registrar's `kind->id->metadata`
+  "Kinds that map directly to the registrar's registration
   table — the closed v1 registrar set (per Spec 001 §Registry model),
   including the three resources-artefact kinds `:resource` / `:mutation`
   / `:resource-scope` (Spec 001 §Registry model — `reg-resource` /

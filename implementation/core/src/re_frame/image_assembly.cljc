@@ -1489,14 +1489,9 @@
 ;; plus the framework-standard generation:
 ;;
 ;;   * single-arity (live store): `[rf.source-store/store-identity
-;;     rf.source-store/store-generation]` — the active store atom paired with its
-;;     monotonic generation. The generation alone is NOT enough: it is keyed
-;;     PER store (see source-store), so two DISTINCT stores (a realm-bound
-;;     `*source-store*` vs the process-default) can each sit at the same
-;;     generation integer over DIFFERENT descriptor pools. The store identity
-;;     disambiguates them so a sealed generation assembled from one store is
-;;     never handed back for another. ANY reg-*/forget-*/clear on
-;;     the active store bumps its generation leg.
+;;     rf.source-store/store-generation]` — the registration table atom paired
+;;     with its monotonic generation. ANY reg-*/forget-*/clear/restore on the
+;;     table bumps its generation leg.
 ;;   * the framework-standard generation: `standard-generation` — ANY
 ;;     register-standard!/clear bumps it.
 ;;

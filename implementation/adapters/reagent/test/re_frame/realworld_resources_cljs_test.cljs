@@ -7,6 +7,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
@@ -36,10 +37,12 @@
 (def ^:private managed-args-log (atom []))
 
 (def ^:private resource-kind-snapshots
-  (select-keys @rf.registrar/kind->id->metadata
-               [:resource :mutation :resource-scope]))
+  (into {} (for [kind [:resource :mutation :resource-scope]
+                :let [id->desc (rf.registrar/registrations kind)]
+                :when (seq id->desc)]
+            [kind id->desc])))
 
-(swap! rf.registrar/kind->id->metadata
+(swap! rf.source-store/kind->id->ns->descriptor
        (fn [reg]
          (reduce (fn [r [kind id->meta]]
                    (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
