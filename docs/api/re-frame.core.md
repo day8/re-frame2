@@ -1636,7 +1636,7 @@ See [Observability](../core/observability.md).
   (register-observability-sink! sink-id f) → sink-id
   ```
 - **Description**: Registers a production observability sink `f` under the keyword `sink-id`, the id a frame's `:observability {:handled-events [{:sink <sink-id> :rf.egress/profile …}]}` entry names. Use it to send handled events and errors to a monitoring service. A frame's `:observability` has two streams, `:handled-events` (one record per processed event) and `:errors` (one per `:rf.error/*` error), and each lists the sinks it goes to.
-    - `f` receives one record at a time, already projected under the owning frame's classification and the entry's egress profile, which defaults to `:rf.egress/off-box-observability`; it does no redaction of its own. A handled-event record carries `:kind`, `:frame`, `:event-id`, `:status` and `:elapsed-ms`, plus `:effects` and `:correlation` when present, and the `:event` vector only under a profile that includes sensitive values, such as `:rf.egress/local-raw`.
+    - `f` receives one record at a time, already projected under the owning frame's classification and the entry's egress profile, which defaults to `:rf.egress/off-box-observability`; it does no redaction of its own. A handled-event record carries `:kind`, `:frame`, `:event-id`, `:time`, `:outcome` and `:elapsed-ms`, plus `:effects` and `:correlation` when present, and the `:event` vector only under a profile that includes sensitive values, such as `:rf.egress/local-raw`.
     - A sink that throws is isolated: the event and the other sinks are unaffected.
     - Registering the id again replaces the sink. Returns `sink-id`.
     - It works in every build, including CLJS `:advanced` with `goog.DEBUG=false`.

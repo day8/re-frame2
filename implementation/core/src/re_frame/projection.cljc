@@ -333,17 +333,17 @@
 ;;
 ;; EP-0015 issue 4: the off-box default record omits the
 ;; `:event` ARGS slot entirely. It carries only summary fields — frame,
-;; event id, status, elapsed, effect keys, work/correlation ids. Tools may
+;; event id, time, outcome, elapsed, effect keys, work/correlation ids. Tools may
 ;; opt into a richer PROJECTED payload (never raw): a `:rf.egress/local-raw`
 ;; or any profile that opts `:rf.egress/include-sensitive? true` keeps the
 ;; `:event` slot, projected through the walker.
 ;;
-;; "Summary-only" slots (`:event-id`, `:status`, `:elapsed-ms`, `:effects`,
-;; `:correlation`, `:kind`, `:frame`) are structural metadata, never raw
-;; user values, so they pass through unchanged.
+;; "Summary-only" slots (`:event-id`, `:time`, `:outcome`, `:elapsed-ms`,
+;; `:effects`, `:correlation`, `:kind`, `:frame`) are structural metadata,
+;; never raw user values, so they pass through unchanged.
 
 (def ^:private handled-event-summary-keys
-  #{:kind :frame :event-id :status :elapsed-ms :effects :correlation})
+  #{:kind :frame :event-id :time :outcome :elapsed-ms :effects :correlation})
 
 (defn- include-event-args?
   "Whether the off-box-default-omitted `:event` args slot is retained. Only

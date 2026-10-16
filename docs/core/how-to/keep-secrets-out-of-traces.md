@@ -272,7 +272,7 @@ A profile names who is about to see the data. A shipper uses one of these two:
 
 **Omitting `:frame` is not the same as `:frame nil`.** Without the key, projection uses the frame in the current scope, and a frame that declares nothing redacts nothing, so a secret goes out as is; it redacts everything only when no live frame is in scope. With an explicit `:frame nil`, projection ignores the current scope and redacts the whole value. Use `:frame nil` when projecting one frame's data from code running in another frame, such as a tool showing the inspected app's data. (`re-frame.elision/elide-wire-value` is the lower-level walker `project-egress` uses for plain values; you rarely call it directly.)
 
-**The off-box default omits event args.** A projected handled-event record carries the frame, event id, status, timing, and effect keys, but no `:event` at all. Check it at the REPL:
+**The off-box default omits event args.** A projected handled-event record carries the frame, event id, timestamp, outcome, elapsed time and effect keys, but no `:event` at all. Check it at the REPL:
 
 ```clojure
 (rf/project-egress

@@ -2950,6 +2950,7 @@
                 #(route-handled! event
                                  event-id
                                  frame
+                                 end-ms
                                  outcome
                                  elapsed-ms
                                  effects

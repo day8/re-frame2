@@ -68,16 +68,17 @@ A sink receives the record **already projected** under the governing classificat
 {:kind        :rf.observe/handled-event            ;; always present; branch on it
  :frame       :rf/default                          ;; resolved frame-id
  :event-id    :cart/checkout
- :status      :ok                                  ;; :ok | :error | :rolled-back | :flow-error | :rejected
+ :time        1715600000000                        ;; ms since epoch, when the event settled
+ :outcome     :ok                                  ;; :ok | :error | :rolled-back | :flow-error | :rejected
  :elapsed-ms  12                                   ;; queue → settle, integer
  :effects     [:fx :dispatch]                      ;; the effect keys the cascade walked (when any)
  :correlation {:work-id … :dispatch-id …}          ;; when the cascade carried one
  :event       [:cart/checkout {:items [...]}]}     ;; ONLY under a sensitive-opted profile; see below
 ```
 
-> **A profile chooses projection OPTIONS, not a different record.** `:rf.egress/profile` never selects which record constructor runs — the runtime always builds the `:rf.observe/handled-event` above and then projects it. So `:rf.egress/local-raw` does **not** hand you the substrate envelope: it is the trusted-local option set (`:rf.egress/include-sensitive? true`, `:rf.egress/include-large? true`), and its one visible effect on this record is that the `:event` args slot is **kept** — still projected, never raw — where the off-box default omits it entirely. The dispatch result is spelled **`:status`** on every profile, and there is **no `:time` slot on a handled-event record at all**. Destructuring `outcome` or `time` in a sink fn binds `nil`.
+> **A profile chooses projection OPTIONS, not a different record.** `:rf.egress/profile` never selects which record constructor runs — the runtime always builds the `:rf.observe/handled-event` above and then projects it. So `:rf.egress/local-raw` does **not** hand you the substrate envelope: it is the trusted-local option set (`:rf.egress/include-sensitive? true`, `:rf.egress/include-large? true`), and its one visible effect on this record is that the `:event` args slot is **kept** — still projected, never raw — where the off-box default omits it entirely. `:time` and `:outcome` are summary slots, present on every profile.
 
-`:status` covers **every** cascade-failure path, not just the interceptor-chain exception, so a dispatch that aborted is never mis-reported as a clean `:ok`:
+`:outcome` covers **every** cascade-failure path, not just the interceptor-chain exception, so a dispatch that aborted is never mis-reported as a clean `:ok`:
 
 - `:ok` — clean settle (db committed, flows ran, `:fx` walked).
 - `:error` — the interceptor chain (handler or interceptor) threw.
@@ -100,11 +101,11 @@ The sink route lowers onto the always-on `re-frame.event-emit` substrate, whose 
  :event-id   :cart/checkout
  :frame      :rf/default
  :time       1715600000000                         ;; emit timestamp, ms since epoch
- :outcome    :ok                                   ;; the substrate's spelling of :status
+ :outcome    :ok                                   ;; the same value the sink record carries
  :elapsed-ms 12}
 ```
 
-`:outcome` and `:time` live **only** here. The projected `:rf.observe/handled-event` above is the record every sink sees, on every profile.
+Its `:time` and `:outcome` are the values the sink record carries for the same event; it has no `:kind`, `:effects` or `:correlation`. The projected `:rf.observe/handled-event` above is the record every sink sees, on every profile.
 
 **Privacy is path-based, applied at egress — the record always fans out.** **There are TWO independent projections of one source event, never one feeding the other.** The substrate walks *its* `:event` copy with `elide-wire-value` under off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) before its own fan-out. The sink route is fed separately: it builds a fresh `:rf.observe/*` record from the **original dispatched vector** and projects that once, under the governing frame's classification and the entry's profile. So the profile on your entry decides what *your* sink sees, and the substrate's redaction neither constrains nor contributes to it — an entry on `:rf.egress/local-raw` receives classified values in the clear on a dispatch whose substrate record reads `:rf/redacted`. Sensitivity is owner-classified by *path* (the registration's `:sensitive` paths for transient event args; the durable app-db `:sensitive` classification effect a handler returns alongside `:db`), **fail-open** — an unclassified path ships raw. **No** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted — removed from the runtime, see `event_emit.cljc` docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta — a **documented opt-out for tool authors**, not a privacy knob. It exists so a tool that dispatches its own events (a recorder, an inspector, the pair MCP) does not narrate its own bookkeeping onto the wire it is watching; Xray, Story and the pair use it, and so may you. Its frame-scoped sibling is `:rf.trace/frame-no-emit?` in the frame config. Never reach for either to hide sensitive data: sensitivity is path-classified and redacted at egress, and a `no-emit?` handler drops the record for *everyone*, auditors included. (Spec 009 §Trace-emission opt-out is the contract; the observability guide's Advanced section is the worked recipe.)
 
@@ -144,7 +145,7 @@ The payload is an **error-keyed union** of several record shapes — the per-eve
  :elapsed-ms 8}                                    ;; queue → throw, integer
 ```
 
-Unlike the handled-event record this one **does** carry `:time`, and it carries `:error` rather than `:status`. `:failing-id`, `:flow-id`, `:where` and `:source-coord` ride the top level as summary slots when the producer supplied them; every other attribution slot (`:reason` among them) is lifted onto a `:tags` tree the projector walks — so read `(get-in record [:tags :reason])`, not `(:reason record)`.
+Like the handled-event record this one carries `:time`; in place of `:outcome` it carries `:error`, the category. `:failing-id`, `:flow-id`, `:where` and `:source-coord` ride the top level as summary slots when the producer supplied them; every other attribution slot (`:reason` among them) is lifted onto a `:tags` tree the projector walks — so read `(get-in record [:tags :reason])`, not `(:reason record)`.
 
 The `:rf.egress/profile` on the entry chooses **how much of the tree survives**, never which record you get: the default `:rf.egress/off-box-observability` redacts classified-sensitive paths and elides large ones, `:rf.egress/local-raw` keeps both, and `:rf.egress/public-error` additionally drops the top-level `:exception`. `:kind`, `:error` and the summary ids are there on all three.
 
@@ -243,16 +244,14 @@ The record shapes are tight enough to ship verbatim — every observability vend
   {:observability {:handled-events [{:sink :observability/events}]}})
 
 (rf/register-observability-sink! :observability/events
-  (fn [{:keys [event-id status elapsed-ms frame effects]}]
+  (fn [{:keys [event-id time outcome elapsed-ms frame effects]}]
     (forward!
       {:name      (str event-id)
-       :timestamp (js/Date.now)            ;; a handled-event record carries NO :time slot
-       :tags      {:status status :frame frame}
+       :timestamp time                     ;; when the event settled, ms since epoch
+       :tags      {:outcome outcome :frame frame}
        :duration  elapsed-ms
        :effects   effects})))
 ```
-
-**Destructure `:status`, not `:outcome`, and stamp your own timestamp.** Those two slots are where a hand-written sink goes wrong: `:outcome` and `:time` belong to the implementation-tier substrate record, not to the `:rf.observe/handled-event` your sink receives — bind them here and you forward `nil` under both keys, and `(name nil)` throws.
 
 Want the event args as a payload too? Add `:rf.egress/profile :rf.egress/local-raw` to the entry and read the `:event` slot, which the off-box default omits entirely. **Understand what you are asking for:** `local-raw` is the trusted-local option set, so classified-sensitive paths arrive **in the clear** and large values arrive **whole** — it is the profile that stops eliding, not one that hands you a different record. Use it for an on-box pipeline, not for a hosted back-end. On the off-box default the surviving slots are structural metadata only, and there is nothing left to re-walk. See [`privacy-and-elision.md`](privacy-and-elision.md) for the elision composition rules.
 

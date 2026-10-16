@@ -334,9 +334,11 @@
   (EP-0015 §9, the central claim).
 
   Builds the canonical handled-event record — `:frame`, `:event-id`,
-  `:status` (the dispatch outcome), `:elapsed-ms`, `:effects` (the effect
-  keys), and `:correlation` ids — and the `:event` slot (the raw dispatched
-  vector). The projector applies the off-box rule: under the default
+  `:time`, `:outcome` (the dispatch outcome), `:elapsed-ms`, `:effects` (the
+  effect keys), and `:correlation` ids — and the `:event` slot (the raw
+  dispatched vector). `:time` and `:outcome` are the values the router hands
+  the `event-emit` record for the same event, so the two records name each
+  fact once and agree on it. The projector applies the off-box rule: under the default
   off-box-observability profile the `:event` ARGS slot is OMITTED ENTIRELY
   (EP-0015 issue 4); a trusted-local profile keeps it PROJECTED (never raw).
   Each sink receives the ALREADY-PROJECTED record.
@@ -357,7 +359,7 @@
   is then absent). Called once per processed event from the router's
   cascade trailers via the `:observability/route-handled-event` late-bind
   hook, ALONGSIDE the always-on `event-emit` fan-out."
-  [event event-id frame-id status elapsed-ms effects correlation]
+  [event event-id frame-id time outcome elapsed-ms effects correlation]
   (let [[entries governing-frame] (resolve-route frame-id :handled-events true)]
     (when (and (seq entries)
                (not (rf.trace/no-emit?-from-meta (rf.registrar/lookup :event event-id))))
@@ -365,7 +367,8 @@
                             :frame      frame-id
                             :event-id   event-id
                             :event      event
-                            :status     status
+                            :time       time
+                            :outcome    outcome
                             :elapsed-ms elapsed-ms}
                      (some? effects)     (assoc :effects effects)
                      (some? correlation) (assoc :correlation correlation))]

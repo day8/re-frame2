@@ -131,7 +131,7 @@ A secret carried positionally (`[:auth/login "alice" "hunter2"]`) has **no stabl
 
 Sink routing — `:handled-events` / `:errors` entries on a frame's `:observability` or once per process with `(rf/configure! {:observability …})`, the sink fn registered with `rf/register-observability-sink!`, per-stream inheritance and fail-closed routing — is [`production-observability.md`](production-observability.md)'s. The privacy half is this leaf's:
 
-- **A sink receives an already-projected record.** The framework composes the owning frame's classification with the entry's `:rf.egress/profile` before the sink runs, so the sink fn does no redaction of its own. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, status, elapsed, effect keys and correlation ids, and **omits the `:event` args slot entirely**; an entry that opts into `:rf.egress/local-raw` is asking for classified values in the clear.
+- **A sink receives an already-projected record.** The framework composes the owning frame's classification with the entry's `:rf.egress/profile` before the sink runs, so the sink fn does no redaction of its own. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, time, outcome, elapsed, effect keys and correlation ids, and **omits the `:event` args slot entirely**; an entry that opts into `:rf.egress/local-raw` is asking for classified values in the clear.
 - **Inheritance moves the sink list, never the redaction authority.** A frame inheriting the process default's sinks still projects its records under its own classification.
 - **A record with no frame authority is projected with the governing frame explicitly nil.** Frameless producers, and a `:frame` that no longer resolves, reach the process default alone: tree slots `:rf/redacted`, summary ids intact, a stale id kept as a diagnostic and never re-resolved into a same-id successor's sink.
 - **There is no unprojected second door.** `register-listener!` takes only the dev-only `:trace` / `:epoch` streams; an `:events` or `:errors` stream throws `:rf.error/unknown-listener-stream`.
@@ -164,7 +164,7 @@ Real egress surfaces emit **records**, not bare values. The public, record-level
 ```clojure
 (rf/project-egress
   {:kind :rf.observe/handled-event :frame :app/main
-   :event [:auth/login {:password "secret"}] :status :ok}
+   :event [:auth/login {:password "secret"}] :outcome :ok}
   {:rf.egress/profile :rf.egress/off-box-observability})
 ```
 

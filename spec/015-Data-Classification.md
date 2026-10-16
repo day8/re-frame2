@@ -242,7 +242,7 @@ Real egress surfaces emit **records**, not bare values: handled-event records, e
   {:kind   :rf.observe/handled-event
    :frame  :app/main
    :event  [:auth/login {:password "secret"}]
-   :status :ok
+   :outcome :ok
    :effects [:db :rf.http/managed]}
   {:rf.egress/profile :rf.egress/off-box-observability})
 ```
@@ -289,7 +289,7 @@ Production observability sink policy belongs on the frame, under the `:observabi
 
 A sink entry is a **closed map**: `:sink`, plus the optional `:rf.egress/profile`, and nothing else. Vendor configuration (`{:service "checkout-spa" :env "prod"}`) is the registered sink fn's own — it closes over it — and per-frame branching reads the projected record's `:frame` slot, which every record carries.
 
-Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, status, elapsed, effect keys, work / correlation ids).
+Two streams are routed: `:handled-events` (one production-safe observation record per re-frame event processed by this frame — **not** the dev trace stream's fine-grained events) and `:errors` (production-survivable error records, per [EP-0008](../docs/EP/EP-0008-production-observability-channels.md)'s always-on error axis). Shape validation **fails loud** on a non-map entry, a non-keyword `:sink`, a `:rf.egress/profile` outside the closed enum, or any key beyond `:sink` / `:rf.egress/profile` — a typo'd profile is a registration-time error, never a silent install, and a slot the routing seam would not read is refused rather than accepted and dropped. The candidate record kinds are `:rf.observe/handled-event` and `:rf.observe/error`; the off-box default record omits the `:event` args slot entirely and carries only summary fields (frame, event id, time, outcome, elapsed, effect keys, work / correlation ids).
 
 ### The `:rf.observe/error` record carries the producer's component attribution
 
