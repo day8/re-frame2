@@ -881,6 +881,7 @@ While the revision is staged, ordinary traffic — dispatch, drain, subscribe �
 - `:interceptor-overrides` map — applied to envelopes built after re-registration.
 - `:interceptors` vector of interceptor refs — applied to events handled after re-registration.
 - `:flows` vector of flow ids — the frame runs the named flows from its next event; a flow dropped from the vector stops running, and its output path is vacated on that event. The activation checks ([013 §Activation](013-Flows.md#activation)) run on the new vector before the revision publishes, so an unregistered id, a cycle or an output overlap fails the re-registration and the prior record is restored.
+- `:http-interceptors` vector of HTTP interceptor ids — applied to requests issued after re-registration; a request already in flight keeps the chain it captured at issue ([014 §Chain order and frame scope](014-HTTPRequests.md#chain-order-and-frame-scope)).
 - `:doc`, `:ns`/`:line`/`:file` metadata.
 - `:drain-depth` — applied to subsequent drains.
 - `:initial-events` / `:on-destroy` — recorded for a future full-reset composition ([§Resetting a frame](#resetting-a-frame--destroy--make-frame)) / `destroy-frame!` call; not re-fired on surgical update.
