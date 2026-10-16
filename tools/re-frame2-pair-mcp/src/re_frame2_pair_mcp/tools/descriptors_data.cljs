@@ -911,6 +911,12 @@
                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                      "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                      "`:sensitive? true`; opt back in with `include-sensitive true`. "
+                     "Every `:epochs` record, and the trace events of every `:traces` event bundle, cross "
+                     "`re-frame.core/project-egress`'s epoch projector under `:rf.egress/off-box-tool` whatever "
+                     "their flags: event arguments, effect arguments and unschematized HTTP bodies read "
+                     "`:rf/redacted`, declared-sensitive app-db slots redact, and a bundle's domino slots are "
+                     "rebuilt from its projected events; `include-sensitive true` lifts only the app-db "
+                     "sensitive axis inside that projection. "
                      "Per Tool-Pair §Direct-read privacy posture the `:app-db` and `:sub-cache` "
                      "slices are routed through `re-frame.core/project-egress` with off-box defaults — "
                      "declared-sensitive paths return the `:rf/redacted` sentinel and large slots return "
@@ -1009,9 +1015,11 @@
                               :include-sensitive {:type "boolean"
                                                    :description (str "Opt back in to BOTH (a) forwarding `:sensitive? true` "
                                                                      "items in the :traces / :epochs slices AND (b) seeing "
-                                                                     "the raw value at declared-sensitive paths in the "
-                                                                     ":app-db / :sub-cache slices (the walker's "
-                                                                     "`:rf.egress/include-sensitive?` opt). Default false.")}
+                                                                     "the raw value at declared-sensitive app-db paths, in the "
+                                                                     ":app-db / :sub-cache slices and inside the :epochs / "
+                                                                     ":traces projection (the walker's "
+                                                                     "`:rf.egress/include-sensitive?` opt; event and effect "
+                                                                     "arguments stay redacted). Default false.")}
                               :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                  :additionalProperties false}})
 
