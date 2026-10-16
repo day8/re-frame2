@@ -2,6 +2,7 @@
   (:require [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame.epoch]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
 
@@ -49,7 +50,7 @@
   (with-probe-frame
     (fn [frame-id handler-calls effect-calls]
       (rf/dispatch-sync [:review/seed] {:frame frame-id})
-      (is (rf/replace-frame-state! frame-id {:rf.db/runtime {:review/checkpoint {:token 7}}}))
+      (is (:ok? (rf/replace-frame-state! frame-id {:rf.db/runtime {:review/checkpoint {:token 7}}})))
       (assert-simulation-restores frame-id handler-calls effect-calls)
       (assert-simulation-restores frame-id handler-calls effect-calls))))
 
@@ -63,6 +64,23 @@
           (assert-simulation-restores frame-id handler-calls effect-calls)
           (is (= 1 (count (rf/epoch-history frame-id))))))
       (finally (rf/configure! {:epoch-history {:depth depth}})))))
+
+(deftest a-refused-rollback-is-a-failure-naming-the-refusal
+  ;; A refusal envelope is a truthy map, so the rollback must be read by its
+  ;; :ok?, never by truthiness.
+  (with-probe-frame
+    (fn [frame-id _ _]
+      (rf/dispatch-sync [:review/seed] {:frame frame-id})
+      (let [replace! (rf.late-bind/get-fn :epoch/replace-frame-state!)]
+        (try
+          (rf.late-bind/set-fn! :epoch/replace-frame-state!
+                                (fn [f _]
+                                  {:ok? false :reason :rf.epoch/replace-schema-mismatch
+                                   :frame f :failing-paths [[:n]]}))
+          (let [result (rt/dispatch-dry-run [:review/probe] {:frame frame-id})]
+            (is (= [false :rollback-failed false :rf.epoch/replace-schema-mismatch]
+                   ((juxt :ok? :reason :rolled-back? :rollback-reason) result))))
+          (finally (rf.late-bind/set-fn! :epoch/replace-frame-state! replace!)))))))
 
 (deftest disabled-history-refuses-before-running-the-handler
   (let [depth (get-in (rf/current-config) [:epoch-history :depth])]

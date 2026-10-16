@@ -43,12 +43,12 @@
   a restore source (there is no db-only fallback). Restoring the synthetic
   record `replace-frame-state!` leaves `{:to :before}` undoes the injection,
   even when it is the only record retained. A `:to` other than `:after` or
-  `:before` throws. Per Tool-Pair §Time-travel: returns `true` on success,
-  `false` on any
-  of the seven documented failure modes (each emits a structured
-  `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath. The
-  seven modes are `:rf.error/no-such-handler` (frame not registered),
+  `:before` throws. Per Tool-Pair §Time-travel: returns the
+  `{:ok? true :frame … :epoch-id … :to …}` envelope on success and
+  `{:ok? false :reason <op> :frame … …tags}` on any of the seven documented
+  failure modes (each also emits a structured `:rf.epoch/*` error trace and
+  leaves `app-db` unchanged), and `false` when the `day8/re-frame2-epoch`
+  artefact is not on the classpath. The seven modes are `:rf.error/no-such-handler` (frame not registered),
   `:rf.epoch/restore-during-drain`, `:rf.epoch/restore-unknown-epoch`,
   `:rf.epoch/restore-non-ok-record` (target epoch's `:outcome` is not
   `:ok`), `:rf.epoch/restore-schema-mismatch`,
@@ -163,6 +163,7 @@
   artefact is not on the classpath (it records an epoch and so cannot
   degrade silently).
 
-  Returns `true` on success, `false` on any failure."
+  Returns `{:ok? true :frame … :epoch-id …}` on success and
+  `{:ok? false :reason <op> :frame … …tags}` on any failure."
   {:hook :epoch/replace-frame-state! :artefact epoch-artefact :on-absent :throw}
   ([frame-id frame-state] :delegate))

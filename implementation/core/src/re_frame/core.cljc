@@ -2566,9 +2566,10 @@
   reinstalled atomically via `replace-frame-state!` (EP-0001),
   so machine snapshots, the route slice, elision declarations, and SSR
   metadata are revived alongside app-db, not just the app-db projection
-  (`:db-after`). Returns `true` on success, `false` on any of the seven
-  documented failure modes (each emits a structured `:rf.epoch/*` error
-  trace) or when the epoch artefact is absent. Per Tool-Pair
+  (`:db-after`). Returns `{:ok? true …}` on success and
+  `{:ok? false :reason <op> …}` on any of the seven documented failure modes
+  (each also emits a structured `:rf.epoch/*` error trace), or `false` when
+  the epoch artefact is absent. Per Tool-Pair
   §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
   restore-epoch!     rf.core-epoch/restore-epoch!)
 
@@ -2615,7 +2616,7 @@
 ;; real key at every call site, and a typo'd or unrecognized key fails
 ;; loudly rather than silently no-opping. It is an epoch-backed Tool-Pair
 ;; injection write: records a synthetic `:rf/epoch-record` so `restore-epoch!`
-;; can rewind past the injection, returns a boolean, shares the drain-guard
+;; can rewind past the injection, returns an `{:ok? …}` envelope, shares the drain-guard
 ;; + the reject-bad-keys contract + the per-present-partition schema-
 ;; validation contract, and raises `:rf.error/epoch-artefact-missing` when
 ;; the epoch artefact is absent. Late-binds through `re-frame.epoch` via
@@ -2637,9 +2638,9 @@
   canonical Tool-Pair write surface for state injection — pair tools,
   story fixtures, conformance harnesses, and time-travel from JSON
   repros. Records a synthetic `:rf/epoch-record` so `restore-epoch!` can
-  rewind. Returns `true` on success, `false` on a documented failure
-  (bad keys, unknown frame, drain in flight, history disabled, schema
-  mismatch on a PRESENT partition). Dev-only (gated on
+  rewind. Returns `{:ok? true …}` on success and `{:ok? false :reason <op>
+  …}` on a documented failure (bad keys, unknown frame, drain in flight,
+  history disabled, schema mismatch on a PRESENT partition). Dev-only (gated on
   `rf.interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
   when the epoch artefact is absent.
 

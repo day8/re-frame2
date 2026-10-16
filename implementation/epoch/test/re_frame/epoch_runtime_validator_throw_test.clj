@@ -50,9 +50,9 @@
   ;; map of snapshots, so a value there that is not one throws inside the walk.
   (rf/make-frame {:id ::f :doc "pair-tool write target"})
   (let [before (rf/frame-state-value ::f)]
-    (is (false? (rf/replace-frame-state!
-                  ::f {:rf.db/runtime {:rf.runtime/machines {:snapshots :not-a-map}}}))
+    (is (false? (:ok? (rf/replace-frame-state!
+                  ::f {:rf.db/runtime {:rf.runtime/machines {:snapshots :not-a-map}}})))
         "the write is refused")
     (is (= before (rf/frame-state-value ::f)) "the frame-state is untouched")
-    (is (true? (rf/replace-frame-state! ::f {:rf.db/runtime well-formed-runtime-db}))
+    (is (:ok? (rf/replace-frame-state! ::f {:rf.db/runtime well-formed-runtime-db}))
         "CONTROL — a runtime-db the validator can walk is accepted on the same frame")))

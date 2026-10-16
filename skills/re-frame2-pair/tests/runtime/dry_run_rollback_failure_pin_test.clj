@@ -20,9 +20,12 @@
         (apply hash-map (drop 2 else))))))
 
 (deftest failed-rollback-reports-ok-false
-  (let [else (else-arm-of-if-rolled-back (rt/defn-named 'dispatch-dry-run))]
-    (is (= [false :rollback-failed] ((juxt :ok? :reason) else))
-        "the not-rolled-back arm must return :ok? false :reason :rollback-failed")))
+  (let [form (rt/defn-named 'dispatch-dry-run)
+        else (else-arm-of-if-rolled-back form)]
+    (is (rt/form-contains? #(= '(true? (:ok? rollback)) %) form)
+        "rolled-back? must read the rollback's :ok?: a refusal envelope is a truthy map")
+    (is (= [false :rollback-failed '(:reason rollback)] ((juxt :ok? :reason :rollback-reason) else))
+        "the not-rolled-back arm must return :ok? false :reason :rollback-failed with the refusal's reason")))
 
 (let [{:keys [fail error]} (run-tests 'dry-run-rollback-failure-pin-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -116,9 +116,9 @@ The composition has these properties:
 
 **Query.** `(rf/epoch-history frame-id)` returns the vector of `:rf/epoch-record` values for the frame, oldest-first. Projecting the whole ring for off-box egress is `(mapv #(rf/project-egress % opts) (rf/epoch-history frame-id))`.
 
-**Restore.** `(rf/restore-epoch! frame-id epoch-id)` rewinds the frame's whole **frame-state** to the named epoch's `:frame-state-after` value — both partitions (app-db AND runtime-db), reinstalled atomically via `replace-frame-state!` so machine snapshots, the route slice, elision declarations, and SSR metadata are revived alongside app-db, not just the app-db projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) decision #2 + #9). Emits `:rf.epoch/restored`. `(rf/restore-epoch! frame-id epoch-id {:to :before})` reinstalls the record's `:frame-state-before` instead, through the same preconditions (each reads the snapshot being installed), the same exact-incarnation write, and the same reconcile and quiesce; `:to` defaults to `:after`, and any other value throws. Every record carries both snapshots, so `:before` reaches the state before the oldest retained event after the record that produced it has been evicted, and undoes a `replace-frame-state!` injection even when its synthetic record is the only one retained (see [§Pair-tool writes](#pair-tool-writes--state-injection)). **The ring is not self-describing across a restore.** A restore records no epoch of its own — it emits that trace and re-anchors the frame, leaving the history reading `… E, E+1 … R` while the frame holds E's state, so the next real record's `:frame-state-before` is E's after rather than R's. A tool walking `epoch-history` alone therefore sees a discontinuity with nothing in the ring to explain it: the `:rf.epoch/restored` trace is the ONLY marker, and a consumer must not expect `:frame-state-before` continuity across one. The other tool-write surface differs deliberately here — `replace-frame-state!` DOES record a synthetic epoch, so that write can be undone as an ordinary target while "undo the restore" is not one.
+**Restore.** `(rf/restore-epoch! frame-id epoch-id)` rewinds the frame's whole **frame-state** to the named epoch's `:frame-state-after` value — both partitions (app-db AND runtime-db), reinstalled atomically via `replace-frame-state!` so machine snapshots, the route slice, elision declarations, and SSR metadata are revived alongside app-db, not just the app-db projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) decision #2 + #9). Emits `:rf.epoch/restored` and returns `{:ok? true :frame <id> :epoch-id <the restored epoch> :to :after|:before}` — the write-result envelope `replay-epoch!` returns. `(rf/restore-epoch! frame-id epoch-id {:to :before})` reinstalls the record's `:frame-state-before` instead, through the same preconditions (each reads the snapshot being installed), the same exact-incarnation write, and the same reconcile and quiesce; `:to` defaults to `:after`, and any other value throws. Every record carries both snapshots, so `:before` reaches the state before the oldest retained event after the record that produced it has been evicted, and undoes a `replace-frame-state!` injection even when its synthetic record is the only one retained (see [§Pair-tool writes](#pair-tool-writes--state-injection)). **The ring is not self-describing across a restore.** A restore records no epoch of its own — it emits that trace and re-anchors the frame, leaving the history reading `… E, E+1 … R` while the frame holds E's state, so the next real record's `:frame-state-before` is E's after rather than R's. A tool walking `epoch-history` alone therefore sees a discontinuity with nothing in the ring to explain it: the `:rf.epoch/restored` trace is the ONLY marker, and a consumer must not expect `:frame-state-before` continuity across one. The other tool-write surface differs deliberately here — `replace-frame-state!` DOES record a synthetic epoch, so that write can be undone as an ordinary target while "undo the restore" is not one.
 
-**Restore failure modes.** `restore-epoch!` is a query against a finite per-frame history; the restore can fail for distinct, named reasons. Each is an error trace event with a stable `:operation` key under the reserved `:rf.epoch/*` namespace; the call is a no-op on failure (the frame's `app-db` is unchanged):
+**Restore failure modes.** `restore-epoch!` is a query against a finite per-frame history; the restore can fail for distinct, named reasons. Each is an error trace event with a stable `:operation` key under the reserved `:rf.epoch/*` namespace; the call is a no-op on failure (the frame's `app-db` is unchanged) and returns `{:ok? false :reason <the :operation> …the row's :tags}`, with `:rf.epoch/id` spelled `:epoch-id` per the identity spelling above. The caller learns why from `(:reason r)`; the trace still fires for observers:
 
 | Failure | `:operation` | When it fires | `:tags` |
 |---|---|---|---|
@@ -177,14 +177,13 @@ A pair tool that re-dispatches a recorded event therefore always pairs the recor
 
 ### Worked example: walking history and restoring
 
-A pair tool that wants to render a per-frame undo affordance walks `epoch-history`, picks a target epoch (typically by index, by `:event-id`, or by user click on a visualised list), and calls `restore-epoch!`. The round-trip below covers the dev-shape consumption pattern end-to-end, including the listener wiring that catches restore failure traces:
+A pair tool that wants to render a per-frame undo affordance walks `epoch-history`, picks a target epoch (typically by index, by `:event-id`, or by user click on a visualised list), and calls `restore-epoch!`. The round-trip below covers the dev-shape consumption pattern end-to-end, including reading why a restore was refused:
 
 ```clojure
 ;; A pair tool's "rewind to before that event" affordance.
 ;; - Walks the per-frame epoch history (oldest-first vector).
 ;; - Picks the most recent epoch BEFORE a target event-id.
-;; - Calls restore-epoch! and listens for either
-;;   :rf.epoch/restored (success) or any :rf.epoch/restore-* error.
+;; - Calls restore-epoch! and reads the outcome off its envelope.
 
 (defn epoch-before-event
   "Return the epoch-id of the most recent epoch in `frame-id`'s history
@@ -195,31 +194,18 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
     (when (seq before)
       (:epoch-id (last before)))))
 
-;; Listener: catch restore success / failure traces and fan out to UI.
-(rf/register-listener!
-  :trace
-  :my-tool/restore-watcher
-  (fn [ev]
-    (case (:operation ev)
-      :rf.epoch/restored                    (notify-ui :restored ev)
-      :rf.epoch/restore-unknown-epoch       (notify-ui :error ev)
-      :rf.epoch/restore-schema-mismatch     (notify-ui :error ev)
-      :rf.epoch/restore-missing-handler     (notify-ui :error ev)
-      :rf.epoch/restore-version-mismatch    (notify-ui :error ev)
-      :rf.epoch/restore-during-drain        (notify-ui :error ev)
-      :rf.epoch/restore-non-ok-record       (notify-ui :error ev)
-      ;; Unknown-frame rides :rf.error/no-such-handler (kind :frame); see note above.
-      nil)))
-
-;; Trigger the rewind. restore-epoch! returns false on failure (the failure mode
-;; is delivered via the trace stream); on success, the whole frame-state (both
-;; partitions) has been rewound to the epoch's :frame-state-after and
-;; :rf.epoch/restored has fired.
+;; Trigger the rewind. On success the whole frame-state (both partitions) has
+;; been rewound to the epoch's :frame-state-after and :rf.epoch/restored has
+;; fired. A refusal's :reason is the failure-mode :operation from the table
+;; above, and its other keys are that row's :tags.
 (when-let [target (epoch-before-event :app/main :checkout/submit)]
-  (rf/restore-epoch! :app/main target))
+  (let [r (rf/restore-epoch! :app/main target)]
+    (if (:ok? r)
+      (notify-ui :restored r)
+      (notify-ui :error (:reason r) r))))
 ```
 
-The walk-history-then-restore shape is the canonical pair-tool gesture; render-tree visualisers, "what did this event do?" probes, and conformance harnesses all build on the same primitives. Tools that want post-restore confirmation without registering a trace listener can re-call `(rf/app-db-value :app/main)` and diff against the pre-restore snapshot.
+The walk-history-then-restore shape is the canonical pair-tool gesture; render-tree visualisers, "what did this event do?" probes, and conformance harnesses all build on the same primitives. The `:rf.epoch/restored` and failure traces still fire, so a tool observing the trace stream sees every restore — including those another tool performed.
 
 ### Pair-tool writes — state injection
 
@@ -245,14 +231,14 @@ Every call bypasses the event pipeline, calls `replace-container!` on the frame-
 
 **Contract.**
 
-- **Rejects a bad-shaped map before touching the frame.** `frame-state` MUST carry at least one recognized partition key (`:rf.db/app` and/or `:rf.db/runtime`) and no unrecognized key. This check runs BEFORE frame resolution — a malformed map is malformed against any frame, and a caller's typo'd or empty map must never silently no-op the call while still returning `true` (see **Failure modes** below).
+- **Rejects a bad-shaped map before touching the frame.** `frame-state` MUST carry at least one recognized partition key (`:rf.db/app` and/or `:rf.db/runtime`) and no unrecognized key. This check runs BEFORE frame resolution — a malformed map is malformed against any frame, and a caller's typo'd or empty map must never silently no-op the call while still reporting success (see **Failure modes** below).
 - **Replaces the container.** `(rf/replace-frame-state! frame-id frame-state)` calls `replace-container!` on the frame's ONE physical frame-state container, installing the merge of the current frame-state with the present keys of `frame-state`. Subscribers route off the post-replace value the same way they do after a `restore-epoch!` happy path or a normal pipeline-run settle.
 - **Records a synthetic epoch.** A fresh `:rf/epoch-record` lands in `(rf/epoch-history frame-id)` carrying `:event-id :rf.epoch/db-replaced`, `:trigger-event [:rf.epoch/db-replaced]`, `:frame-state-before` (the pre-replace frame value), and `:frame-state-after` (the post-replace frame value — the merge result, so an absent key's PRESERVED value is visible there too). The `:sub-runs` / `:renders` / `:effects` projections are empty — no pipeline run ran. `restore-epoch!` of a *prior* epoch rewinds past the injection; `restore-epoch!` of the synthetic record itself rewinds *to* the injected value (i.e. a round-trip to where the replace already left things), and `(rf/restore-epoch! frame-id <synthetic-id> {:to :before})` reinstalls the pre-injection value, which needs no prior epoch — it works on a fresh frame and at depth 1, where the injection has evicted every other record.
 - **Emits `:rf.epoch/db-replaced`** on success with `:tags {:frame <id> :rf.epoch/id <id>}`, `:op-type :rf.epoch`. Pair-tool dashboards filter on the operation to route pair-tool injections distinctly from run-driven epochs.
 - **Fires `register-epoch-listener!` listeners.** The assembled record is delivered to every registered epoch listener after it lands in the ring buffer — same shape as a pipeline-run-settle delivery.
-- **Returns `true`** on success, `false` on any failure.
+- **Returns the write-result envelope** `replay-epoch!` and `restore-epoch!` return. Success is `{:ok? true :frame <id> :epoch-id <id>}`, where `:epoch-id` names the synthetic record this call published — never whichever record heads the history — and is `nil` when the frame's incarnation was lost after the write landed, so that no record was published. A refusal is `{:ok? false :reason <the failure's :operation> :frame <id> …}` carrying the row's `:tags` below; the **Bad keys** row's own `:reason` tag rides as `:cause`, beside `:keys`, so it never overwrites the operation.
 
-**Failure modes** (each is a no-op on the frame-state and emits a structured error trace):
+**Failure modes** (each is a no-op on the frame-state, emits a structured error trace, and returns its refusal envelope):
 
 | Failure | `:operation` | When it fires | `:tags` |
 |---|---|---|---|
@@ -260,7 +246,7 @@ Every call bypasses the event pipeline, calls `replace-container!` on the frame-
 | **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame <id>}` |
 | **Drain in flight** | `:rf.epoch/replace-during-drain` | the injection was called while the frame's run-to-completion drain is still running (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). The injection is rejected; the caller retries after settle. | `{:frame <id>}` |
 | **Schema mismatch** | `:rf.epoch/replace-schema-mismatch` | a PRESENT `:rf.db/app` value fails the frame's currently-registered `app-schema` set (per [Spec 010 §Per-frame schemas](010-Schemas.md#per-frame-schemas)); a PRESENT `:rf.db/runtime` value is checked against the framework-owned runtime-db validator (`reg-runtime-schema`, per [010 §App schemas validate the app-db partition only](010-Schemas.md#app-schemas-validate-the-app-db-partition-only)). An ABSENT key is not walked (it is preserved, not written). When no schemas are registered the validation is a no-op — every value is accepted. | `{:frame <id>, :failing-paths [<path> ...]}` |
-| **History disabled** | `:rf.epoch/replace-history-disabled` | the injection was called while the epoch ring buffer is disabled (`(rf/configure! {:epoch-history {:depth 0}})`, per [§Time-travel](#time-travel-epoch-snapshots-and-undo)). The synthetic `:rf.epoch/db-replaced` undo-anchor cannot land in the (disabled) ring, so the injection's "undo works after this call" invariant is unsatisfiable — it is rejected loudly rather than returning a false `true` (the in-artefact analogue of the absent-artefact `:rf.error/epoch-artefact-missing` throw). The caller re-enables history (`:depth > 0`) before injecting if it needs undo. | `{:frame <id>}` |
+| **History disabled** | `:rf.epoch/replace-history-disabled` | the injection was called while the epoch ring buffer is disabled (`(rf/configure! {:epoch-history {:depth 0}})`, per [§Time-travel](#time-travel-epoch-snapshots-and-undo)). The synthetic `:rf.epoch/db-replaced` undo-anchor cannot land in the (disabled) ring, so the injection's "undo works after this call" invariant is unsatisfiable — it is rejected loudly rather than reporting a false success (the in-artefact analogue of the absent-artefact `:rf.error/epoch-artefact-missing` throw). The caller re-enables history (`:depth > 0`) before injecting if it needs undo. | `{:frame <id>}` |
 
 All five failures have `:op-type :error` and `:recovery :no-recovery`. The closed-set v1 failure surface mirrors `restore-epoch!`'s shape.
 
@@ -279,17 +265,18 @@ All five failures have `:op-type :error` and `:recovery :no-recovery`. The close
 ;; (machines, routes) intact; use a both-key map when the repro also
 ;; seeds those.
 
-(when (rf/replace-frame-state! :app/main {:rf.db/app {:cart {:items [{:sku "abc" :qty 2}]}
-                                                      :checkout/state :ready}})
-  ;; replace-frame-state! has fired :rf.epoch/db-replaced and recorded a
-  ;; synthetic epoch. Now drive a dispatch to exercise the new handler.
-  (rf/dispatch [:checkout/submit] {:frame :app/main}))
+(let [r (rf/replace-frame-state! :app/main {:rf.db/app {:cart {:items [{:sku "abc" :qty 2}]}
+                                                         :checkout/state :ready}})]
+  (when (:ok? r)
+    ;; replace-frame-state! has fired :rf.epoch/db-replaced and recorded a
+    ;; synthetic epoch, named by (:epoch-id r). Now drive a dispatch to
+    ;; exercise the new handler.
+    (rf/dispatch [:checkout/submit] {:frame :app/main})
 
-;; To undo the injection, restore the synthetic record's before-state.
-;; That needs no earlier epoch, so it works on a fresh frame too.
-(let [synthetic (last (filter #(= :rf.epoch/db-replaced (:event-id %))
-                              (rf/epoch-history :app/main)))]
-  (rf/restore-epoch! :app/main (:epoch-id synthetic) {:to :before}))
+    ;; To undo the injection later, restore that synthetic record's
+    ;; before-state. That needs no earlier epoch, so it works on a fresh
+    ;; frame too.
+    (rf/restore-epoch! :app/main (:epoch-id r) {:to :before})))
 ```
 
 **What the injection surface is not.** It is **not** a substitute for `dispatch` — handlers, interceptors, fx, and the trace stream all stay quiet during a replace. Use it only when bypass-the-pipeline-run is *required* (the four use cases above); for any change you want the event pipeline to see, dispatch a real event. The synthetic epoch's empty `:sub-runs` / `:renders` / `:effects` projections are the visible signal that no pipeline run ran.
@@ -304,9 +291,9 @@ Pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when .
 |---|---|---|
 | `(rf/epoch-history frame-id)` | read | Returns `[]` (empty vector). Identical to "no epochs yet recorded" — consumers that want to distinguish a destroyed frame from a fresh one must consult `(rf/frame-meta frame-id)` or `(rf/frame-ids)` separately. |
 | `(rf/app-db-value frame-id)` | read | Returns `nil`. Consumers that want a destroyed-vs-unknown distinction consult `(rf/frame-meta frame-id)`. |
-| `(rf/restore-epoch! frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`, tags `{:kind :frame, :frame <id>}`) and returns `false`. Same trace shape as any other registry-lookup miss — already enumerated as the **Unknown frame** row of [§Time-travel](#time-travel-epoch-snapshots-and-undo)'s restore-failure table. |
-| `(rf/replace-frame-state! frame-id frame-state)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. Identical wording to `restore-epoch!`'s frame-miss row — pair-tool writers can match on a single category for both surfaces. |
-| `(rf/replay-epoch! frame-id epoch-id)` | mutate (a dispatch) | Returns `{:ok? false :reason :rf.error/no-such-handler :kind :frame …}` and dispatches nothing — the same category as `restore-epoch!`'s frame-miss, carried in the refusal envelope rather than emitted as a trace (per [§Replay](#replay-epoch)). |
+| `(rf/restore-epoch! frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`, tags `{:kind :frame, :frame <id>}`) and returns `{:ok? false :reason :rf.error/no-such-handler :kind :frame :frame <id>}`. Same trace shape as any other registry-lookup miss — already enumerated as the **Unknown frame** row of [§Time-travel](#time-travel-epoch-snapshots-and-undo)'s restore-failure table. |
+| `(rf/replace-frame-state! frame-id frame-state)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `{:ok? false :reason :rf.error/no-such-handler :kind :frame :frame <id>}`. Identical wording to `restore-epoch!`'s frame-miss row — pair-tool writers can match on a single `:reason` for both surfaces. |
+| `(rf/replay-epoch! frame-id epoch-id)` | mutate (a dispatch) | Returns `{:ok? false :reason :rf.error/no-such-handler :kind :frame …}` and dispatches nothing — the same envelope as `restore-epoch!`'s frame-miss, but without a trace emit (per [§Replay](#replay-epoch)). |
 | `(rf/register-listener! :epoch id callback)` (process-global) | register | The current API is process-global and does not bind a callback to a specific frame; this row therefore does not apply to the existing signature. A future opts-form (`{:frame frame-id}`) would raise `:rf.error/no-such-handler` (kind `:frame`) at registration time when its target is absent — the same shape registration-against-an-absent-target uses elsewhere. The framework reserves the spelling. |
 
 A pre-registered `register-epoch-listener!` callback whose frame is destroyed simply receives no more records for it — the runtime stops producing records for a frame the moment its destroy walks, and the registration stays in place, so eviction is the consumer's call (per [009 §`register-epoch-listener!` invocation rules](009-Instrumentation.md#the-epoch-stream--assembled-epoch-listener)). A tool that wants to forget a destroyed frame listens for `:rf.frame/destroyed` on the trace stream, which states the fact, and a late `:halted-destroy` record is history:

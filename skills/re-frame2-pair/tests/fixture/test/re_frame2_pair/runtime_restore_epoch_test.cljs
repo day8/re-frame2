@@ -16,7 +16,7 @@
   (rf/make-frame {:id frame-id})
   (try
     (let [before (rf/frame-state-value frame-id)]
-      (is (true? (rf/replace-frame-state! frame-id {:rf.db/app {:injected true}})))
+      (is (:ok? (rf/replace-frame-state! frame-id {:rf.db/app {:injected true}})))
       (let [record (peek (rf/epoch-history frame-id))]
         (is (= [:rf.epoch/db-replaced] (mapv :event-id (rf/epoch-history frame-id)))
             "the injection's synthetic record is the only one retained")

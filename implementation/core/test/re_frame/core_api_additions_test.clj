@@ -113,7 +113,7 @@
   (is (= {:rf.db/app {:k 1} :rf.db/runtime {:rf.runtime/machines {:m 1}}}
          (rf/frame-state-value :pp/reset-app))
       "a runtime-only map leaves the absent app partition untouched")
-  (is (true? (rf/replace-frame-state! :pp/reset-app {:rf.db/app {}})))
+  (is (:ok? (rf/replace-frame-state! :pp/reset-app {:rf.db/app {}})))
   (is (= {:rf.db/app {} :rf.db/runtime {:rf.runtime/machines {:m 1}}}
          (rf/frame-state-value :pp/reset-app))
       "an app-only map leaves the absent runtime partition untouched"))
@@ -133,9 +133,13 @@
     (rf/register-listener! :trace ::bad-keys
       (fn [ev] (when (= :error (:op-type ev)) (swap! errors conj ev))))
     (try
-      (is (= [false false]
+      (is (= [{:ok? false :reason :rf.error/replace-frame-state-bad-keys
+               :frame :pp/bad-keys-empty :cause :no-recognized-keys :keys []}
+              {:ok? false :reason :rf.error/replace-frame-state-bad-keys
+               :frame :pp/bad-keys-empty :cause :unknown-keys :keys [:unrelated]}]
              [(rf/replace-frame-state! :pp/bad-keys-empty {})
-              (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1})]))
+              (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1})])
+          "the op is the envelope's :reason; the bad-keys diagnostic rides as :cause")
       (finally (rf/unregister-listener! :trace ::bad-keys)))
     ;; the unknown-keys check runs first, so only-unrelated keys report :unknown-keys
     (is (= [[:rf.error/replace-frame-state-bad-keys :no-recognized-keys]
@@ -144,7 +148,7 @@
 
 (deftest ^:requires-debug replace-frame-state-rejects-unknown-keys
   (rf/make-frame {:id :pp/bad-keys-typo :doc "bad-keys-typo"})
-  (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
+  (is (false? (:ok? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}})))
       "an unrecognized key beside a recognized one rejects the whole write")
   (is (= {} (rf/app-db-value :pp/bad-keys-typo))))
 

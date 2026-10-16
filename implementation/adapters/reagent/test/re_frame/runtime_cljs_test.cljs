@@ -403,6 +403,6 @@
           a-target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
                           a-history)]
       (is (= [true 1 101]
-             [(true? (rf/restore-epoch! :restore/a (:epoch-id a-target))) @a-r @b-r]))
+             [(true? (:ok? (rf/restore-epoch! :restore/a (:epoch-id a-target)))) @a-r @b-r]))
       (rf/unsubscribe a-r)
       (rf/unsubscribe b-r))))

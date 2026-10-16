@@ -1461,7 +1461,7 @@
     (let [restore-calls (atom [])]
       (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
                                        (swap! restore-calls conj [frame epoch-id])
-                                       true)]
+                                       {:ok? true :frame frame :epoch-id epoch-id :to :after})]
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-7"])))
       (is (= [[:rf/default "epoch-7"]] @restore-calls)
@@ -1472,16 +1472,20 @@
             every fresh attempt, so a stale failure never outlives the
             gesture that produced it; no manual clear runs between attempts."
     (xray-setup!)
-    ;; first attempt fails → flash set
-    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
+    ;; first attempt fails → flash set, naming the refusal's reason
+    (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
+                                      {:ok? false :reason :rf.epoch/restore-unknown-epoch
+                                       :frame frame :epoch-id epoch-id :history-size 0})]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-1"])))
     (rf/with-frame :rf/xray
-      (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
-          "first failed reset sets the flash"))
+      (is (= "Reset failed — :rf.epoch/restore-unknown-epoch"
+             @(rf/subscribe [:rf.xray/reset-flash]))
+          "first failed reset sets the flash, naming the refusal's :reason"))
     ;; the next attempt succeeds → no manual clear; the attempt's own
     ;; dissoc must wipe the flash.
-    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] true)]
+    (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
+                                      {:ok? true :frame frame :epoch-id epoch-id :to :after})]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-3"])))
     (rf/with-frame :rf/xray

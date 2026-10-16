@@ -99,7 +99,7 @@
                (select-keys (:rf.cofx rec) [:strictmint/roll :rf/time-ms]))
             "the record's token captured the mid-run mint beside the external fact")
         (is (= durable [ev cofx]) "the replay material survives an EDN round-trip")
-        (is (true? (rf/restore-epoch! :rf/default pre-epoch-id)))
+        (is (:ok? (rf/restore-epoch! :rf/default pre-epoch-id)))
         (is (= [#{} :running] [(:done (join-state :j1/rp)) (machine-state a)])
             "restore rewound the join slot and the child's snapshot")
         (reset! calls 0)

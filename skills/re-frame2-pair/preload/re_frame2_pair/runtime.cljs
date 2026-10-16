@@ -549,12 +549,14 @@
    before-vs-after delta at depth 1, and `:fx-fired` is empty (state
    injection bypasses fx).
 
-   Failure modes (each is a no-op on app-db; corresponding
-   `:rf.epoch/*` or `:rf.error/*` trace fires per Spec 009):
-     :no-such-frame                  — frame not registered
-     :replace-during-drain           — drain in flight
-     :schema-mismatch                — v fails the frame's app-schema
-     :epoch-artefact-missing         — re-frame2-epoch artefact not loaded"
+   A refused write is a no-op on app-db and returns the framework's own
+   `{:ok? false :reason <op> :frame … …tags}` refusal, whose `:reason` is
+   the op of the `:rf.epoch/*` or `:rf.error/*` trace it fired (Spec 009):
+     :rf.error/no-such-handler          — frame not registered
+     :rf.epoch/replace-during-drain     — drain in flight
+     :rf.epoch/replace-schema-mismatch  — v fails the frame's app-schema
+   A missing re-frame2-epoch artefact throws, and returns
+   `{:ok? false :reason <the thrown :reason, else :reset-throw> …}`."
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame2-pair/op :app-db/reset
@@ -563,26 +565,18 @@
           :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
-     (if (rf/replace-frame-state! frame-id {:rf.db/app v})
-       ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the
-       ;; framework just appended (Tool-Pair §Pair-tool writes). The new
-       ;; head IS this epoch by construction; reading the history head is
-       ;; the canonical way to project it.
-       (let [head-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
-         (attach-cascade {:ok? true :frame frame-id :epoch-id head-id}
-                         frame-id head-id))
-       ;; replace-frame-state! returns false on the soft-failure modes
-       ;; (bad keys, unknown frame, in-drain, schema-mismatch). The
-       ;; structured reason is in the trace stream
-       ;; (`:rf.error/replace-frame-state-bad-keys`,
-       ;; `:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`,
-       ;; `:rf.epoch/replace-schema-mismatch`); we surface a
-       ;; `:reset-rejected` umbrella so callers know the call did
-       ;; not land without having to interpret the trace.
-       {:ok?    false
-        :frame  frame-id
-        :reason :reset-rejected
-        :hint   "rf/replace-frame-state! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer names the same fn on both platforms; an eval form spells whichever home fully qualified.)"})
+     (let [r (rf/replace-frame-state! frame-id {:rf.db/app v})]
+       (if (:ok? r)
+         ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the write
+         ;; published (Tool-Pair §Pair-tool writes); the envelope names it.
+         (attach-cascade {:ok? true :frame frame-id :epoch-id (:epoch-id r)}
+                         frame-id (:epoch-id r))
+         ;; The framework's refusal carries its own `:reason` (the failure
+         ;; trace's op) and that trace's tags; pass it through. A bare
+         ;; `false` is an elided epoch surface, which has no reason to pass.
+         (if (map? r)
+           r
+           {:ok? false :frame frame-id :reason :reset-rejected})))
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -1942,9 +1936,10 @@
    Refuses caller `:fx-overrides` with `:fx-overrides-unsupported`; refuses
    disabled/missing epoch recording with `:no-epoch-recorded` BEFORE dispatch.
    A dispatch that records nothing returns `:no-new-epoch`.
-   If replacement rejects, returns `:ok? false :reason :rollback-failed`:
-   the simulated state can still be live. The caller must inspect the
-   failure before issuing more writes."
+   If replacement rejects, returns `:ok? false :reason :rollback-failed`
+   with the refused rollback's own `:reason` as `:rollback-reason`: the
+   simulated state can still be live. The caller must inspect the failure
+   before issuing more writes."
   ([event-v] (dispatch-dry-run event-v {}))
   ([event-v opts]
    (let [frame-id (or (:frame opts) (current-frame))
@@ -1988,7 +1983,8 @@
                    ;; Keep the snapshot in-process. The public replacement
                    ;; validates both partitions and records the rollback so
                    ;; the next read's head agrees with the restored live state.
-                   rolled-back? (boolean (rf/replace-frame-state! frame-id before-state))
+                   rollback (rf/replace-frame-state! frame-id before-state)
+                   rolled-back? (true? (:ok? rollback))
                    shared {:dry-run? true
                            :rolled-back? rolled-back?
                            :event event-v
@@ -2002,9 +1998,10 @@
                  (assoc shared
                         :ok? false
                         :reason :rollback-failed
-                        :hint (str "replace-frame-state! rejected the rollback; simulated "
-                                   "state can still be live. Inspect the frame state and "
-                                   "replacement failure trace before further writes.")))))))))))
+                        :rollback-reason (:reason rollback)
+                        :hint (str "replace-frame-state! refused the rollback (see "
+                                   ":rollback-reason); simulated state can still be live. "
+                                   "Inspect the frame state before further writes.")))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Time-travel — first-class via re-frame2
@@ -2048,10 +2045,11 @@
        `:db-before` under `{:to :before}`. `:unreplayable-effects`
        enumerates the fx the original cascade fired that the restore
        cannot undo.
-     - `false` on any failure mode. Failure traces fire under
-       `:rf.epoch/*` — read them with
-       `(re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error})`
-       (frame-id first; `:op-type` is a `:flat-only` filter).
+     - the framework's `{:ok? false :reason <op> :frame … …tags}` refusal,
+       with `:restored? false`, on any failure mode. `:reason` is the op
+       of the `:rf.epoch/*` / `:rf.error/*` trace the refusal fired, so
+       the trace buffer need not be read to learn why.
+     - `false` when the epoch surface is elided or the artefact absent.
 
    `opts` is `rf/restore-epoch!`'s: `{:to :before}` installs the record's
    `:frame-state-before` rather than its `:frame-state-after`. The arities
@@ -2063,15 +2061,20 @@
   ([epoch-id frame-id opts]
    (let [frame-id (or frame-id (current-frame))
          pre-db   (rf/app-db-value frame-id)
-         ok?      (rf/restore-epoch! frame-id epoch-id opts)]
-     (if ok?
+         r        (rf/restore-epoch! frame-id epoch-id opts)]
+     (cond
+       (:ok? r)
        (let [extras (restore-cascade-summary pre-db frame-id epoch-id (:to opts))]
          (merge {:ok? true :restored? true :epoch-id epoch-id :frame frame-id}
                 extras))
-       ;; Return the framework's `false` on failure — the MCP
-       ;; restore-epoch tool turns that into a structured envelope at
-       ;; the wire boundary. (`app-db-reset!`, by contrast, builds its
-       ;; soft-failure envelope here on the runtime side.)
+
+       ;; The framework's refusal, verbatim plus `:restored? false`.
+       (map? r)
+       (assoc r :restored? false)
+
+       ;; An elided epoch surface answers a bare `false`; the MCP
+       ;; restore-epoch tool turns that into its envelope at the wire.
+       :else
        false))))
 
 (defn replay-epoch
@@ -2147,12 +2150,26 @@
          :else
          result)))))
 
+(defn- refused-restore
+  "The envelope for a restore `rf/restore-epoch!` did not perform: the
+   framework's own `{:ok? false :reason <op> …tags}` refusal, with
+   `:restored? false`. A bare `false` (an elided epoch surface) has no
+   refusal to pass on and reads `:reason :epoch-unavailable`."
+  [r epoch-id frame-id]
+  (merge {:ok?       false
+          :epoch-id  epoch-id
+          :restored? false
+          :frame     frame-id
+          :reason    :epoch-unavailable}
+         (when (map? r) r)))
+
 (defn undo-step-back
   "Restore the previous epoch in the operating frame. Returns
    `{:ok? true :epoch-id <previous> :restored? true :cascade-summary
    {...} :unreplayable-effects [...]}` on success or
    `{:ok? false :reason :no-prior-epoch}` when there is no previous
-   record. Carries a cascade-summary slot."
+   record, and the framework's refusal (`refused-restore`) when the restore
+   is refused. Carries a cascade-summary slot."
   ([] (undo-step-back (current-frame)))
   ([frame-id]
    (let [history (vec (rf/epoch-history frame-id))
@@ -2162,36 +2179,32 @@
        (let [prior     (nth history (- n 2))
              epoch-id  (:epoch-id prior)
              pre-db    (rf/app-db-value frame-id)
-             ok?       (rf/restore-epoch! frame-id epoch-id)]
-         (if ok?
+             r         (rf/restore-epoch! frame-id epoch-id)]
+         (if (:ok? r)
            (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
                   (restore-cascade-summary pre-db frame-id epoch-id))
-           {:ok? false :epoch-id epoch-id :restored? false :frame frame-id
-            :reason :restore-rejected}))))))
+           (refused-restore r epoch-id frame-id)))))))
 
 (defn undo-to-epoch
   "Restore a specific epoch by id. Returns
    `{:ok? true :epoch-id <id> :restored? true :frame <id> :cascade-summary
    {...} :unreplayable-effects [...]}` on success (the same shape as
    `restore-epoch`'s success envelope, carrying a cascade-summary slot)
-   or `{:ok? false :epoch-id <id> :restored? false :frame <id> :reason
-   :restore-rejected}` when `rf/restore-epoch!` rejects the restore (any
-   of the seven Tool-Pair time-travel failure modes: aged-out id,
-   schema/version mismatch, missing handler, restore-during-drain,
-   halted-cascade target, unknown frame). Mirrors `undo-step-back`'s failure envelope — a
-   rejected restore left the frame UNCHANGED and must not read as success."
+   or the framework's refusal (`refused-restore`: `{:ok? false :reason
+   <op> :epoch-id <id> :restored? false :frame <id> …tags}`) when
+   `rf/restore-epoch!` refuses the restore (any of the seven Tool-Pair
+   time-travel failure modes: aged-out id, schema/version mismatch,
+   missing handler, restore-during-drain, halted-cascade target, unknown
+   frame). Mirrors `undo-step-back`'s failure envelope — a rejected
+   restore left the frame UNCHANGED and must not read as success."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
-         ok?    (rf/restore-epoch! frame-id epoch-id)]
-     (if ok?
+         r      (rf/restore-epoch! frame-id epoch-id)]
+     (if (:ok? r)
        (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
               (restore-cascade-summary pre-db frame-id epoch-id))
-       {:ok?       false
-        :epoch-id  epoch-id
-        :restored? false
-        :frame     frame-id
-        :reason    :restore-rejected}))))
+       (refused-restore r epoch-id frame-id)))))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM ↔ source bridge

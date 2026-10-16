@@ -91,7 +91,7 @@
               (.countDown release-handler)
               (let [restore-result (await-future restore-fut)]
                 (await-future drain-fut)
-                (is (true? restore-result) "restore reported success")
+                (is (:ok? restore-result) "restore reported success")
                 ;; The event read {:n 2} and commits {:n 3}; only the restore
                 ;; committing LAST yields {:n 1}. An unserialized write leaves {:n 3}.
                 (is (= {:n 1} (rf/app-db-value frame-id))
@@ -138,7 +138,7 @@
               (.countDown release-handler)
               (let [replace-result (await-future replace-fut)]
                 (await-future drain-fut)
-                (is (true? replace-result) "replace reported success")
+                (is (:ok? replace-result) "replace reported success")
                 (let [installed (rf/frame-state-value frame-id)
                       history   (rf/epoch-history frame-id)
                       synthetic (first (filter #(= :rf.epoch/db-replaced (:event-id %)) history))]
