@@ -21,7 +21,6 @@
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -93,35 +92,6 @@
         (is (= [reason] (mapv (comp :reason :tags) traces))
             "exactly one :rf.machine.timer/cancelled, carrying the cleanup's reason")))))
 
-(deftest arm-after-cleanup-sub-delay-balances-subscription-and-watcher
-  ;; The sentinel carries the sub-delay's reaction, so a mid-arm cleanup releases
-  ;; the held subscription; the losing publish installs no watcher.
-  (rf/reg-sub :armrace/dyn (fn [_db _] 5000))
-  (rf/reg-machine :armrace/sub
-                  {:initial :idle :data {}
-                   :states {:idle    {:on {:go :waiting}}
-                            :waiting {:after {[:armrace/dyn] :done}}
-                            :done    {}}})
-  (let [reaction    (atom 5000)
-        unsub-count (atom 0)
-        cancelled   (atom [])]
-    (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  rf.subs/unsubscribe-if-reaction (fn [_ _ _] (swap! unsub-count inc) nil)
-                  rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
-                  rf.interop/schedule-after!
-                  (fn [_thunk _ms]
-                    (rf.machines.timer/cancel-all-timers! :rf/default)
-                    (fresh-handle))]
-      (rf/dispatch-sync [:armrace/sub [:go]])
-      (is (pos? @unsub-count)
-          "the held subscription ref-count was released (balanced)")
-      ;; Every arm here is cleaned up mid-arm and ends in an orphan cancel, so a
-      ;; re-arm would show up as one more cancelled handle.
-      (let [cancels-before (count @cancelled)]
-        (reset! reaction 9999)
-        (is (= cancels-before (count @cancelled))
-            "a later sub change re-armed nothing — no watcher was installed")))))
-
 ;; ---- RACE 2 — old-cancel-deletes-successor --------------------------------
 
 (deftest cancellation-of-old-attempt-does-not-delete-successor
@@ -147,37 +117,39 @@
       (is (= [hA] @cancelled)
           "A's cancellation released A's handle and never B's"))))
 
+(defn- five-seconds
+  "A fn delay; the hydration re-arm below names it again as the same key."
+  [_ctx]
+  5000)
+
 (deftest same-epoch-loser-thunk-cannot-reap-or-dispatch-the-winner
-  ;; A dynamic-delay re-arm keeps the durable epoch, so only the per-attempt
-  ;; token tells a stale loser thunk from the winner. The guard is false, so a
-  ;; fire never exits the state: the fire itself must reap its entry.
-  (rf/reg-sub :lose/dyn (fn [_db _] 5000))
+  ;; A hydration re-arm keeps the durable epoch, so only the per-attempt token
+  ;; tells a stale loser thunk from the winner. The guard is false, so a fire
+  ;; never exits the state: the fire itself must reap its entry.
   (rf/reg-machine :lose/m
                   {:initial :idle :data {}
                    :guards {:no (fn [_] false)}
                    :states {:idle    {:on {:go :waiting}}
-                            :waiting {:after {[:lose/dyn] {:guard :no :target :done}}}
+                            :waiting {:after {five-seconds {:guard :no :target :done}}}
                             :done    {}}})
-  (let [reaction (atom 5000)
-        thunks   (atom [])]
-    (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  rf.subs/unsubscribe-if-reaction (fn [_ _ _] nil)
-                  rf.interop/schedule-after! (fn [thunk _ms]
-                                            (swap! thunks conj thunk)
-                                            (fresh-handle))
+  (let [thunks (atom [])]
+    (with-redefs [rf.interop/schedule-after! (fn [thunk _ms]
+                                               (swap! thunks conj thunk)
+                                               (fresh-handle))
                   rf.interop/cancel-scheduled! (fn [_h] nil)]
       (rf/dispatch-sync [:lose/m [:go]])
-      (reset! reaction 6000)
+      (let [snap (rf.machines.test-support/snapshot :lose/m)]
+        (rf.machines.timer/rearm-hydrated-after-timer!
+          :rf/default :lose/m [:waiting] :waiting five-seconds
+          (get-in snap [:data :rf/after-epoch [:waiting]]) snap (constantly false)))
       (is (= [1 2] [(count (inner)) (count @thunks)])
-          "a sub change before any fire re-armed the one live entry")
+          "the same-epoch re-arm superseded the one live entry")
       ((first @thunks))
       (is (= [1 2] [(count (inner)) (count @thunks)])
           "the stale loser thunk neither reaped the winner nor re-armed")
       ((second @thunks))
-      (reset! reaction 9999)
       (is (= [0 2] [(count (inner)) (count @thunks)])
-          (str "the winning thunk reaped its entry and released its watcher, so "
-               "the spent one-shot does not re-arm on a later sub change")))))
+          "the winning thunk reaped its own entry and armed nothing more"))))
 
 ;; ---- SYNC-FIRE — the host fires the callback inside the arm ---------------
 

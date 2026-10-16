@@ -1,9 +1,9 @@
 (ns re-frame.after-delay-validation-test
   "`:after` delay KEYS are validated at registration. A key is a positive
   integer (literal ms), an ISO-8601 duration string (`\"PT5S\"`, the `:timeout`
-  duration grammar), a non-empty subscription vector, or a function; any other
-  static key is rejected with `:rf.error/machine-bad-after-delay`. A dynamic
-  key that resolves badly at runtime is reported at fx time instead
+  duration grammar), or a function; any other static key, a vector included,
+  is rejected with `:rf.error/machine-bad-after-delay`. A fn delay that
+  resolves badly at runtime is reported at fx time instead
   (`after_dynamic_delay_report_test.clj`)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -37,7 +37,7 @@
           [["0: pos-int? excludes zero" (mk-machine 0) 0]
            ["\"5s\": the shorthand :timeout refuses too" (mk-machine "5s") "5s"]
            ["nil" (mk-machine nil) nil]
-           ["[]: an empty subscription vector" (mk-machine []) []]
+           ["[]: an empty vector" (mk-machine []) []]
            ["-5 on a NESTED compound child"
             {:initial :outer
              :data    {}
@@ -52,6 +52,17 @@
     (is (= {:rf.error/id :rf.error/machine-bad-after-delay :slot :after :delay-key delay-key}
            (select-keys (registration-error machine) [:rf.error/id :slot :delay-key]))
         label)))
+
+(deftest subscription-vector-delay-key-is-refused-at-registration
+  (let [refusal (try (rf/reg-machine :adv/sub-vec (mk-machine [:settings/idle-warning-ms])) nil
+                     (catch clojure.lang.ExceptionInfo e
+                       (assoc (ex-data e) ::message (ex-message e))))]
+    (is (= {:rf.error/id :rf.error/machine-bad-after-delay
+            :slot        :after
+            :delay-key   [:settings/idle-warning-ms]}
+           (select-keys refusal [:rf.error/id :slot :delay-key])))
+    (is (some? (re-find #"fn over the machine's :data" (str (::message refusal))))
+        "the refusal says what to write instead")))
 
 (deftest iso-8601-delay-key-arms-its-ms
   (rf/reg-machine :adv/iso-run (mk-machine "PT1H"))

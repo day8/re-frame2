@@ -5,7 +5,7 @@
   state and survives, so every declaration the replacement drops must be
   released. The epoch gate would suppress the stale transition but releases no
   host work, so these tests read the timer table, the released handles and
-  subscriptions, and the cancellation trace rather than the transitions. Each
+  the cancellation trace rather than the transitions. Each
   installs two server-produced runtime-dbs into the SAME frame. Runs on both
   hosts."
   (:require [clojure.test :refer [deftest is use-fixtures]]
@@ -18,7 +18,6 @@
             [re-frame.machines.hydrate :as rf.machines.hydrate]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -75,11 +74,12 @@
              :timeout {}}})
 
 (def ^:private dynamic-delay-machine
-  "The same shape with a SUBSCRIPTION-vector delay."
+  "The same shape with a config-driven fn delay reading `:data`."
   {:initial :idle
-   :data    {}
+   :data    {:delay-ms 2500}
    :states  {:idle    {:on {:go :waiting}}
-             :waiting {:after {[:hydrec/dyn-delay] {:target :timeout}}
+             :waiting {:after {(fn [{:keys [snapshot]}] (get-in snapshot [:data :delay-ms]))
+                               {:target :timeout}}
                        :on    {:settle :settled}}
              :settled {}
              :timeout {}}})
@@ -121,28 +121,21 @@
     (is (= [:on-destroy] (mapv :reason (cancelled-rows :hydrec/dropped)))
         "the actor itself is gone, which is the `:on-destroy` reading, not `:on-exit`")))
 
-(deftest hydration-releases-a-dropped-dynamic-delays-watcher-and-subscription
-  ;; A lingering subscription-delay entry would hold its reaction, watcher and
-  ;; shared `(frame, query-v)` ref-count for the life of the frame.
-  (let [reaction (atom 2500)
-        unsubs   (atom [])
+(deftest hydration-releases-a-dropped-fn-delay-timer
+  (let [released (atom [])
         cfid     (fresh-frame! :client)]
-    (rf/reg-sub :hydrec/dyn-delay (fn [_db _] @reaction))
     (rf/reg-machine :hydrec/dyn dynamic-delay-machine)
-    (with-redefs [rf.subs/subscribe            (fn ([_q] reaction) ([_q _o] reaction))
-                  rf.subs/unsubscribe-if-reaction (fn [_frame q _r] (swap! unsubs conj q) nil)
-                  rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                  rf.interop/cancel-scheduled! (fn [_h] nil)]
+    (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                  rf.interop/cancel-scheduled! (fn [h] (swap! released conj h) nil)]
       (let [rt-waiting (server-runtime-db :hydrec/dyn [[:go]])
             rt-settled (server-runtime-db :hydrec/dyn [[:go] [:settle]])]
         (install! cfid rt-waiting)
         (let [entry (val (first (inner cfid)))]
-          (is (= [:sub reaction true]
-                 [(:delay-source entry) (:reaction entry) (some? (:sub-watcher-key entry))])
-              "hydration armed the subscription delay, holding its reaction and change-watcher"))
+          (is (= [:fn 2500] [(:delay-source entry) (:resolved-ms entry)])
+              "hydration armed the fn delay at the value the hydrated `:data` carries"))
         (install! cfid rt-settled)
-        (is (= [[:hydrec/dyn-delay]] @unsubs)
-            "the dropped entry's shared subscription ref-count was released exactly once")))))
+        (is (= [{} [::handle]] [(inner cfid) @released])
+            "the dropped entry is gone and its host handle was released")))))
 
 (deftest the-reconcile-is-frame-scoped
   (rf/reg-machine :hydrec/sib toggling-machine)

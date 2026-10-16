@@ -23,8 +23,7 @@
             ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.subs]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -471,25 +470,6 @@
   (rf/dispatch-sync [mid [:rf.machine/start]])
   (thrown-value-rows #(rf/dispatch-sync [mid [:go]])))
 
-(defn- after-sub-throw-rows
-  "A user sub body's throw is caught inside the subscription layer, so the
-  delay reaction's deref throws directly: `subscribe` is stubbed to return one."
-  [mid spec]
-  (let [sub-id (keyword (namespace mid) (str (name mid) "-delay"))]
-    (rf/reg-sub sub-id (fn [_db _] 1000))
-    (rf/reg-machine mid
-      (merge {:initial :idle
-              :data    {:token nil}
-              :states  {:idle    {:on {:go :running}}
-                        :running {:after {[sub-id] :timeout}}
-                        :timeout {}}}
-             spec))
-    (rf/dispatch-sync [mid [:rf.machine/start]])
-    (let [throwing (reify clojure.lang.IDeref (deref [_] (throw-secret! nil)))]
-      (with-redefs [re-frame.subs/subscribe (fn ([_query-v] throwing)
-                                              ([_query-v _opts] throwing))]
-        (thrown-value-rows #(rf/dispatch-sync [mid [:go]]))))))
-
 (def ^:private throw-sites
   "Each place a machine's code throws, with the operations of the rows that then
   carry the thrown value."
@@ -502,9 +482,7 @@
    ["destroy-exit" destroy-exit-throw-rows
     #{:rf.machine/action-ran :rf.error/machine-action-exception}]
    ["after-fn"     after-fn-throw-rows
-    #{:rf.error/machine-after-fn-threw}]
-   ["after-sub"    after-sub-throw-rows
-    #{:rf.error/machine-after-sub-threw}]])
+    #{:rf.error/machine-after-fn-threw}]])
 
 (deftest every-thrown-value-row-redacted-when-machine-sensitive
   (doseq [[label rows-of ops] throw-sites]

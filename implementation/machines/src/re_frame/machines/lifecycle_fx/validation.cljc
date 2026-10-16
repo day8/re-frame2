@@ -1539,37 +1539,35 @@
 (defn- valid-after-delay-key?
   "Per Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
   an `:after` map KEY (the delay) is well-formed iff it is one of the
-  four closed forms:
+  three closed forms:
 
     - a POSITIVE integer — literal milliseconds (the schema's `pos-int?`),
     - an ISO-8601 duration STRING — `\"PT5S\"`, read by the parser the
       `:timeout` duration uses (`rf.machines.timeout/valid-duration?`), so the
       two delay slots accept the same strings and refuse the same `\"5s\"`
       shorthand; the timer lowers it to milliseconds when it arms,
-    - a NON-EMPTY vector — a subscription vector `[sub-id & args]`
-      re-resolved at runtime (the schema's `[:vector :any]`),
     - a FUNCTION — `(fn [{:keys [snapshot]}] ms)` computed once at entry
-      (the schema's `fn?`).
+      (the schema's `fn?`). A config-driven delay is a fn reading its value
+      from the machine's `:data`.
 
-  Mirrors `transition/classify-delay-source`'s `{:literal :sub :fn}`
-  triad (an ISO string is a literal), but applied as a REGISTRATION gate so
-  an invalid static key (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) is
+  Mirrors `transition/classify-delay-source`'s `{:literal :fn}`
+  pair (an ISO string is a literal), but applied as a REGISTRATION gate so
+  an invalid static key (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, a vector) is
   rejected at `reg-machine` time
-  rather than arming nothing at fx time. Dynamic resolutions (a sub vector /
-  fn that RETURNS an invalid ms at runtime) report the same
+  rather than arming nothing at fx time. A fn that RETURNS an invalid ms
+  at runtime reports the same
   `:rf.error/machine-bad-after-delay` at fx time — only the STATIC key shape
   is gated here."
   [delay-key]
   (boolean
     (or (and (integer? delay-key) (pos? delay-key))
         (and (string? delay-key) (rf.machines.timeout/valid-duration? delay-key))
-        (and (vector? delay-key) (seq delay-key))
         (fn? delay-key))))
 
 (defn- validate-after-delays!
   "Reject any `:after` map KEY that is not a positive
-  integer, an ISO-8601 duration string, a non-empty subscription vector, or a
-  function, at registration. Walks every transition-bearing node: each state node
+  integer, an ISO-8601 duration string, or a function, at registration.
+  Walks every transition-bearing node: each state node
   (`walk-state-nodes`), every region root + the parallel root, and the
   flat-machine root — the same coverage the guard/action `:after` ref
   check applies, so an invalid delay key cannot hide on a root fallback
@@ -1581,7 +1579,7 @@
   widget / conformance can discriminate \"the delay key is wrong\" from
   \"the transition spec is wrong\".
 
-  A DYNAMIC delay (sub-vector / fn) that resolves to an invalid ms at
+  A fn delay that resolves to an invalid ms at
   runtime reports the same id at fx time, where the timer is skipped —
   only the STATIC key shape is gated here."
   [machine]
@@ -1594,10 +1592,16 @@
                           " on state " state-key " is invalid — an :after "
                           "delay must be a POSITIVE integer (literal ms), an "
                           "ISO-8601 duration string (\"PT5S\", \"PT2M\"; not the "
-                          "\"5s\" shorthand), a NON-EMPTY subscription vector "
-                          "([sub-id & args]), or a function "
-                          "((fn [{:keys [snapshot]}] ms)). Per "
-                          "Spec-Schemas §:rf/state-node :after.")
+                          "\"5s\" shorthand), or a function "
+                          "((fn [{:keys [snapshot]}] ms)). "
+                          (when (vector? delay-key)
+                            (str "A subscription vector is not a delay: put the "
+                                 "configured value in the machine's :data (seed "
+                                 "it at spawn, set it with an event, or sample "
+                                 "the subscription on entry through a recorded "
+                                 "{:rf/sub query-v :as fact-id} source) and read "
+                                 "it with a fn over the machine's :data. "))
+                          "Per Spec-Schemas §:rf/state-node :after.")
                      {:state     state-key
                       :slot      :after
                       :delay-key delay-key}))))
@@ -2407,9 +2411,9 @@
 
   Per Spec-Schemas §`:rf/state-node` `:after`: every `:after`
   map KEY (the delay) must be a positive integer, an ISO-8601 duration string
-  (the `:timeout` duration grammar), a non-empty subscription vector, or a
-  function. Throws `:rf.error/machine-bad-after-delay` for a static key that
-  is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) —
+  (the `:timeout` duration grammar), or a function. Throws
+  `:rf.error/machine-bad-after-delay` for a static key that
+  is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, a vector) —
   gated at registration rather than arming nothing at fx time.
 
   Per Conventions §No silent swallow + §Reserved state-node keys /
@@ -2571,7 +2575,7 @@
   ;; Every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
   ;; Every `:after` delay KEY must be a positive integer, an ISO-8601
-  ;; duration string, a non-empty subscription vector, or a function — gated at registration
+  ;; duration string, or a function — gated at registration
   ;; rather than arming nothing at fx time.
   (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id

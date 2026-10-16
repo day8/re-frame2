@@ -598,8 +598,8 @@
   `ctx` keys: `:actor-id` (the timer's owning actor INSTANCE — optional),
   `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, and `:reason` — the
   closed `:rf.machine.timer/cancelled` `:reason` vocabulary of Spec 005:
-  `:on-exit` (state exit), `:on-destroy` (actor destroy), `:on-resolution`
-  (subscription-delay re-resolution), `:on-supersede` (in-place reschedule),
+  `:on-exit` (state exit), `:on-destroy` (actor destroy), `:on-supersede`
+  (in-place re-arm),
   `:on-frame-destroy` (frame teardown), or `:on-restore` (epoch-restore
   host-timer cleanup, `timer/cancel-frame-timers-on-restore!`)."
   [{:keys [actor-id state delay decl-path epoch frame reason]}]

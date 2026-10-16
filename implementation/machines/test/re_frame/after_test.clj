@@ -8,8 +8,7 @@
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.subs]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
@@ -132,53 +131,3 @@
   (is (= [{:op-type :error :recovery :skipped :exception? true}]
          (error-reports :rf.error/machine-after-fn-threw []))))
 
-;; A user sub body's throw is caught inside the subscription layer, so this arm
-;; is for a reaction whose deref throws directly: `subscribe` is stubbed to
-;; return one.
-(deftest after-sub-vec-deref-throw-surfaces-trace
-  (rf/reg-sub :s/well-formed (fn [_db _] 1000))
-  (rf/reg-machine :s/throws-machine
-                  {:initial :idle
-                   :data    {}
-                   :states  {:idle    {:on {:go :running}}
-                             :running {:after {[:s/well-formed] :timeout}}
-                             :timeout {}}})
-  (let [throwing-reaction (reify clojure.lang.IDeref
-                            (deref [_] (throw (ex-info "reaction deref blew up" {}))))]
-    (with-redefs [re-frame.subs/subscribe (fn
-                                            ([_query-v] throwing-reaction)
-                                            ([_query-v _opts] throwing-reaction))]
-      (rf/dispatch-sync [:s/throws-machine [:go]])))
-  (is (= [{:op-type        :error
-           :recovery       :skipped
-           :exception?     true
-           :rf.sub/id      :s/well-formed
-           :rf.sub/query-v [:s/well-formed]}]
-         (error-reports :rf.error/machine-after-sub-threw [:rf.sub/id :rf.sub/query-v]))))
-
-;; A failed watch would otherwise stop a dynamic delay re-resolving with no
-;; signal; the timer still arms at its first resolution (:recovery :static-delay).
-(deftest after-sub-vec-watch-failure-surfaces-trace
-  (rf/reg-sub :s/well-behaved (fn [_db _] 1000))
-  (rf/reg-machine :w/throws-machine
-                  {:initial :idle
-                   :data    {}
-                   :states  {:idle    {:on {:go :running}}
-                             :running {:after {[:s/well-behaved] :timeout}}
-                             :timeout {}}})
-  (let [real-add-watch add-watch]
-    (with-redefs [clojure.core/add-watch
-                  (fn [target key f]
-                    (if (and (vector? key)
-                             (= :re-frame.machines.timer/after-watch (first key)))
-                      (throw (ex-info "add-watch blew up on after-watch" {:key key}))
-                      (real-add-watch target key f)))]
-      (rf/dispatch-sync [:w/throws-machine [:go]])))
-  (is (= [{:op-type        :error
-           :recovery       :static-delay
-           :exception?     true
-           :rf.sub/id      :s/well-behaved
-           :rf.sub/query-v [:s/well-behaved]
-           :actor-id       :w/throws-machine}]
-         (error-reports :rf.error/machine-after-watch-failed
-                        [:rf.sub/id :rf.sub/query-v :actor-id]))))

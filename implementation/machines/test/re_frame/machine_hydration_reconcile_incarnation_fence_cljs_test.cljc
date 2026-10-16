@@ -22,7 +22,6 @@
             [re-frame.machines.hydrate :as rf.machines.hydrate]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -62,22 +61,35 @@
   (rf.frame/replace-runtime-db! frame-id runtime-db)
   (rf.machines.hydrate/rearm-after-timers! frame-id))
 
-(def ^:private no-host-work {:subscribes 0 :arms 0})
+(def ^:private no-host-work {:resolutions 0 :arms 0})
+
+(def ^:private active-counts
+  "The tally `with-host-stubs!` is collecting into, which the fn delays read."
+  (atom nil))
+
+(defn- tallied-delay
+  "A config-driven fn delay body: tallies one resolution into the active counts
+  and reads its ms from `:data`."
+  [{:keys [snapshot]}]
+  (some-> @active-counts (swap! update :resolutions inc))
+  (get-in snapshot [:data :delay-ms] 2500))
+
+(defn- dyn-a [ctx] (tallied-delay ctx))
+(defn- dyn-b [ctx] (tallied-delay ctx))
 
 (defn- with-host-stubs!
-  "Run `f` with subscriptions and the host clock stubbed, tallying every
-  subscribe and host arm into `counts`. Releases are not tallied: each is
-  identity-guarded on the reaction its own entry holds, so one that runs after
-  the swap finds nothing of A's in B's cache and cannot land there."
+  "Run `f` with the host clock stubbed, tallying every delay resolution and
+  host arm into `counts`. Releases are not tallied: each cancels only the
+  handle its own entry holds, so one that runs after the swap cannot land
+  on B."
   [counts f]
-  (let [reaction (atom 2500)
-        tally!   (fn [k] (swap! counts update k inc))]
-    (with-redefs [rf.subs/subscribe            (fn ([_q] (tally! :subscribes) reaction)
-                                                 ([_q _o] (tally! :subscribes) reaction))
-                  rf.subs/unsubscribe-if-reaction (fn [_f _q _r] nil)
-                  rf.interop/schedule-after!   (fn [_thunk _ms] (tally! :arms) ::handle)
-                  rf.interop/cancel-scheduled! (fn [_h] nil)]
-      (f))))
+  (let [tally! (fn [k] (swap! counts update k inc))]
+    (reset! active-counts counts)
+    (try
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] (tally! :arms) ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
+        (f))
+      (finally (reset! active-counts nil)))))
 
 (defn- install-republishing!
   "`install!` from a clean trace capture, with a listener that on the FIRST
@@ -99,8 +111,8 @@
       (finally (rf.trace.tooling/unregister-listener! ::republish)))))
 
 (defn- assert-successor-took-no-a-work!
-  "B holds no timer, carries no `/scheduled` row, and saw no subscription or
-  host-clock work after the swap. Without the swap A would keep its timers, so
+  "B holds no timer, carries no `/scheduled` row, and saw no delay resolution
+  or host-clock work after the swap. Without the swap A would keep its timers, so
   these readings also prove the tooth bit."
   [frame-id counts]
   (is (= {:timers {} :scheduled [] :counts no-host-work}
@@ -109,12 +121,12 @@
           :counts    @counts})))
 
 (def ^:private dyn-machine
-  "A single SUBSCRIPTION-vector `:after`, so an arm takes a reaction, watcher
-  and subscription ref-count with it."
+  "A single config-driven fn `:after`, so an arm resolves its delay and takes
+  a host handle."
   {:initial :idle
    :data    {}
    :states  {:idle    {:on {:go :waiting}}
-             :waiting {:after {[:hydfence/dyn] {:target :timeout}}}
+             :waiting {:after {dyn-a {:target :timeout}}}
              :timeout {}}})
 
 (def ^:private literal-machine
@@ -131,8 +143,8 @@
   {:initial :idle
    :data    {}
    :states  {:idle      {:on {:go :waiting}}
-             :waiting   {:after {[:hydfence/dyn-a] {:target :timeout}
-                                 [:hydfence/dyn-b] {:target :elsewhere}}}
+             :waiting   {:after {dyn-a {:target :timeout}
+                                 dyn-b {:target :elsewhere}}}
              :timeout   {}
              :elsewhere {}}})
 

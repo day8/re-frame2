@@ -8,8 +8,8 @@
     - :always microsteps with bounded depth and atomic rollback on
       depth-exceeded.
     - :after delayed transitions with per-node epoch staleness checks;
-      delays may be positive integer literals, subscription vectors, or
-      functions computed at state entry.
+      delays may be positive integer literals, ISO-8601 duration strings,
+      or functions computed at state entry.
     - :timeout and :choice authoring forms lowered onto :after and :always.
     - Declared :internal-events that only the machine's raise queue may drive.
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
@@ -208,8 +208,8 @@
   fixtures. Clears the entire frame-scoped table.
 
   1-arity: just the given frame's timers — the `rf.frame/destroy-frame!`
-  hook shape used to release a destroyed frame's host-clock handles and
-  subscription watchers without touching sibling frames.
+  hook shape used to release a destroyed frame's host-clock handles
+  without touching sibling frames.
 
   Spawn-id allocation lives inside the parent snapshot's
   `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's

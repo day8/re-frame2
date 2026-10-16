@@ -640,23 +640,21 @@
 
 (defn classify-delay-source
   "Classify an `:after` delay-key into its source form — the closed set
-  `{:literal :sub :fn}` owned by the `:after` grammar (Spec 005 §Delayed
-  `:after` transitions). A `number?` key is the literal-ms form; a
-  `vector?` key is a subscription-vector (`[:sub-id & args]`); a `fn?`
-  key is the computed-once-at-entry form. Any other shape falls back to
-  `:literal` (the schema constrains the canonical forms; this is
-  defensive).
+  `{:literal :fn}` owned by the `:after` grammar (Spec 005 §Delayed
+  `:after` transitions). A `number?` key is the literal-ms form; a `fn?`
+  key is the computed-once-at-entry form. Any other shape (an ISO-8601
+  duration string included) falls back to `:literal` (the schema constrains
+  the canonical forms; this is defensive).
 
   The single home for the classification, shared by the pure side
   (`build-after-fx`, which tags the `:rf.machine.timer/scheduled` /
   `/skipped-on-server` trace) and the fx side
   (`re-frame.machines.timer/schedule-after-timer!`, which routes the
-  delay resolution + watcher install) so the two can never disagree on
+  delay resolution) so the two can never disagree on
   what a given delay-key's source is."
   [delay-key]
   (cond
     (number? delay-key) :literal
-    (vector? delay-key) :sub
     (fn? delay-key)     :fn
     :else               :literal))
 
@@ -2325,7 +2323,7 @@
   `:after` is a no-op under `:platform :server`. Emit the
   canonical `:rf.machine.timer/scheduled` (or /skipped-on-server) trace
   synchronously here AND emit `:rf.machine/after-schedule` fx; the fx
-  handler resolves the delay (literal / sub-vec / fn) and installs the
+  handler resolves the delay (literal / fn) and installs the
   host-clock timer.
 
   Walks the entered pairs (each `[prefix-path node]`) looking for `:after`
@@ -2363,39 +2361,27 @@
                   (fn [[delay-key _target]]
                     (let [delay-source (classify-delay-source delay-key)
                           ;; Pure-context delay value: literal keys ARE the
-                          ;; resolved ms; sub-vec / fn are resolved at the fx
-                          ;; layer (which emits a fresh /scheduled with the
-                          ;; actual resolved-ms once it has frame access).
+                          ;; resolved ms; a fn is resolved at the fx layer.
                           ms-tag       delay-key]
                       (if server?
                         (rf.trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
-                                     (cond-> {;; Owning actor INSTANCE.
-                                              :actor-id     parent-id
-                                              :state        leaf-state
-                                              :delay        ms-tag
-                                              :delay-source delay-source
-                                              :epoch        epoch
-                                              :platform     :server
-                                              :frame        frame-id
-                                              :recovery     :skipped}
-                                       ;; Canonical subscription
-                                       ;; identity, not the bare `:sub-id`.
-                                       (= :sub delay-source)
-                                       (assoc :rf.sub/id      (first delay-key)
-                                              :rf.sub/query-v (vec delay-key))))
+                                     {;; Owning actor INSTANCE.
+                                      :actor-id     parent-id
+                                      :state        leaf-state
+                                      :delay        ms-tag
+                                      :delay-source delay-source
+                                      :epoch        epoch
+                                      :platform     :server
+                                      :frame        frame-id
+                                      :recovery     :skipped})
                         (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                     (cond-> {;; Owning actor INSTANCE.
-                                              :actor-id     parent-id
-                                              :state        leaf-state
-                                              :delay        ms-tag
-                                              :delay-source delay-source
-                                              :epoch        epoch
-                                              :frame        frame-id}
-                                       ;; Canonical subscription
-                                       ;; identity, not the bare `:sub-id`.
-                                       (= :sub delay-source)
-                                       (assoc :rf.sub/id      (first delay-key)
-                                              :rf.sub/query-v (vec delay-key))))))
+                                     {;; Owning actor INSTANCE.
+                                      :actor-id     parent-id
+                                      :state        leaf-state
+                                      :delay        ms-tag
+                                      :delay-source delay-source
+                                      :epoch        epoch
+                                      :frame        frame-id})))
                     [:rf.machine/after-schedule
                      {:rf/parent-id parent-id
                       :rf/invoke-id (vec prefix)
@@ -2409,9 +2395,8 @@
 (defn- build-after-cancel-fx
   "When exiting an `:after`-bearing state node, emit
   `:rf.machine/after-cancel` fx so the runtime tears down any pending
-  wall-clock timer (and watcher, for sub-vec delays). The epoch advance
-  backstops correctness; explicit cancellation releases the timer handle
-  promptly and avoids zombie sub watchers across state re-entries."
+  wall-clock timer. The epoch advance backstops correctness; explicit
+  cancellation releases the timer handle promptly."
   [parent-id exited-pairs internal?]
   (when-not internal?
     (vec

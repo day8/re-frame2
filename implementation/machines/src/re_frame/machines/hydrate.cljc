@@ -44,9 +44,8 @@
   replaced by a no-`:after` one, a shrunken delay set. Superseding cannot
   reach those; it only ever touches the one timer-table key it is arming.
   The epoch and active-path gates would suppress the eventual stale
-  TRANSITION, but the host work would still be held — a literal handle
-  until it fired, and a subscription-delay entry indefinitely, holding its
-  reaction, its change-watcher and its subscription ref-count with it.
+  TRANSITION, but the host work would still be held until the handle
+  fired.
 
   Enumeration is ACTIVE-configuration-shaped, not whole-spec-shaped:
 
@@ -300,8 +299,7 @@
        difference and releases every entry outside the live set, each with
        the ordinary closed-set `:reason` naming why it went
        (`:on-destroy` for a dropped actor, `:on-exit` for a declaring node
-       no longer on the active configuration). A subscription-delay entry
-       releases its reaction, watcher and subscription ref-count with it.
+       no longer on the active configuration).
     2. ARM — one `rearm-hydrated-after-timer!` per live declaration, at
        the epoch the snapshot already carries. A declaration that was
        already armed is superseded in place by the ordinary timer-table
