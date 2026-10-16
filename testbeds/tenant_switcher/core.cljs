@@ -119,24 +119,20 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The resource runtime lowers an ensure into `:rf.http/managed`, stamping the
-;; reply addressing it OWNS (`:on-success` / `:on-failure` carrying the
-;; verification payload — work-id + resource-key + scope + generation). This
-;; testbed overrides that fx with a stub that reads the runtime's own
-;; `:on-success` target and replies with a synthetic success through the
-;; ordinary internal reply path — so the entry loads exactly as a live read
-;; would, but deterministically and with no network. The success `:value` is
-;; derived from the resolved scope baked into the resource-key, so each
-;; tenant's entry loads ITS OWN distinct payload (a real cross-tenant leak
-;; would surface as the wrong motto in the DOM).
-
-(defn- tenant-id-of
-  "Extract the tenant-id from a scoped resource key's scope segment
-  `[:rf.scope/tenant {:tenant-id …}]`. The scope is the first element of the
-  `[scope resource-id params]` key the runtime computed."
-  [resource-key]
-  (let [[scope] resource-key]
-    (when (and (vector? scope) (= :rf.scope/tenant (first scope)))
-      (:tenant-id (second scope)))))
+;; reply addressing it OWNS: `:on-success` / `:on-failure` carry an opaque
+;; verification payload (work id, generation, frame) and no resource key or
+;; scope. This testbed overrides that fx with a stub that replies through the
+;; runtime's own `:on-success` target with a synthetic success — so the entry
+;; loads exactly as a live read would, but deterministically and with no
+;; network.
+;;
+;; The stub plays the server, and a server decides whose data to return from
+;; the session, not from the request: here the session is the admin's current
+;; impersonation, `[:viewer :active-tenant]`, read from the frame's app-db as
+;; the request is issued. The ensure issuing it resolved its scope from that
+;; same app-db in the same event, so each tenant's entry loads ITS OWN distinct
+;; payload (a real cross-tenant leak would surface as the wrong motto in the
+;; DOM).
 
 ;; The stub is a TESTBED-OWNED fx id routed through the frame's
 ;; `:fx-overrides` (see `run` below) — the designed per-frame replacement
@@ -144,13 +140,13 @@
 ;; id, which would sit beside the framework row as a cross-namespace
 ;; duplicate and fail the frame's default-image assembly loud.
 (rf/reg-fx ::fake-http
-  (fn [_frame-ctx {:keys [on-success]}]
+  (fn [{:keys [frame]} {:keys [on-success]}]
     ;; HOT PATH — synthesise the success reply the live transport would have
     ;; dispatched. `on-success` is `[reply-id verification-payload]`; the
     ;; runtime verifies frame + work-id + generation on the payload before it
     ;; writes, so stale/superseded replies are suppressed correctly.
     (let [[reply-id payload] on-success
-          tenant (tenant-id-of (:resource/key payload))
+          tenant (get-in (rf/app-db-value frame) [:viewer :active-tenant])
           motto  (get-in tenant-index [tenant :motto])]
       ;; Synthesise the canonical success reply the live transport would have
       ;; appended (the reply is the uniform envelope; the resources

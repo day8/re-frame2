@@ -33,9 +33,10 @@ Part-2 leak-boundary scenario 5 (rf2-5e22yc, spun from rf2-wwhedk).
 - transport is a deterministic in-memory stub: the testbed overrides the
   `:rf.http/managed` fx to reply through the runtime's own `:on-success`
   target, so the entry loads exactly as a live read would — no network, fully
-  deterministic. The success `:value` is derived from the resolved scope baked
-  into the resource-key, so each tenant loads its own distinct payload (a real
-  cross-tenant leak would surface as the wrong motto in the DOM)
+  deterministic. The stub plays the server, which decides whose data to return
+  from the session rather than the request: it reads the impersonated tenant
+  from app-db as the request is issued, so each tenant loads its own distinct
+  payload (a real cross-tenant leak would surface as the wrong motto in the DOM)
 
 ## Controls
 
