@@ -1282,16 +1282,17 @@ them), each re-expressed through the reframing above:
    lookup tier. (This is the "otherwise make it ordinary" branch of the
    Recommendation.)
 
-   *Follow-up note, 2026-10-16:* `:rf/default` is now the documented
-   **conventional app-frame id** for a single-frame app, and everything above
-   about privilege still holds: the runtime never creates, infers or falls back
-   to it, and absence is still `:rf.error/no-frame-context`. What no longer holds
-   is the premise that the reservation buys nothing. Migration rule M-20 rewrites
-   v1's `:re-frame/default` to `:rf/default`, the test-support fixture seats it as
-   its ambient frame, and the Tool-Pair resolver carves it out of the reserved
-   `:rf/*` tool frames, so one shared name does serve migration and docs clarity.
-   The scaffold, examples, guide and spec boot templates converge on it (per
-   [`spec/002-Frames.md` §`:rf/default` is the conventional app-frame id](../../spec/002-Frames.md#rfdefault-is-the-conventional-app-frame-id-no-runtime-privilege)).
+    *Follow-up note, 2026-10-16:* `:rf/default` is now the documented
+    **conventional app-frame id** for a single-frame app, and everything above
+    about privilege still holds: the runtime never creates, infers or falls back
+    to it, and absence is still `:rf.error/no-frame-context`. What no longer holds
+    is the premise that the reservation buys nothing. Migration rule M-20 rewrites
+    v1's `:re-frame/default` to `:rf/default`, the test-support fixture seats it as
+    its ambient frame, and the Tool-Pair resolver carves it out of the reserved
+    `:rf/*` tool frames, so one shared name does serve migration and docs clarity.
+    The scaffold, examples, guide and spec boot templates converge on it (per
+    [`spec/002-Frames.md` §`:rf/default` is the conventional app-frame id](../../spec/002-Frames.md#rfdefault-is-the-conventional-app-frame-id-no-runtime-privilege)).
+
 5. **Migration prefers root/provider wrapping.** Migration tooling rewrites bare v1
    calls into a `with-frame` / provider root; explicit `{:frame …}` call sites are
    for async callbacks, tools, tests, and SSR — i.e. the *hold* / *override* cases
