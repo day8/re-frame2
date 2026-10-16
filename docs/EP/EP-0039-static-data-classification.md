@@ -120,7 +120,7 @@ The rules:
 
 The name keeps the noun the contract already uses: Spec 015's title, and `:rf.error/bad-classification`. It needs no `app-` qualifier, because app-db is the only partition an app names absolutely; subsystems classify on their own registrations.
 
-**Flows.** A `reg-flow` output's `:sensitive` / `:large` is already a static declaration on the flow, relative to its `:output-path`. Flows are frame-scoped registrations, not image ones ([Spec 013 §Frame-scoping](../../spec/013-Flows.md#frame-scoping)). So the flows artefact contributes the frame's flow-output paths to that frame's app-db classification through one late-bound hook, `:flows/output-classification`. Nothing else about flows changes.
+**Flows.** A `reg-flow` output's `:sensitive` / `:large` is already a static declaration on the flow, relative to its `:output-path`. Flows are top-level registrations that a frame runs by naming them in its `:flows` config, resolved through the frame's own view like any other kind ([Spec 013 §Activation](../../spec/013-Flows.md#activation)). So the flows artefact contributes the output paths of the flows a frame runs to that frame's app-db classification through one late-bound hook, `:flows/output-classification`. Nothing else about flows changes.
 
 ### 3. Resolution through the target frame's image
 
