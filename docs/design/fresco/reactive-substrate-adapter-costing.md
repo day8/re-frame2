@@ -64,7 +64,7 @@ entries; `dispose-adapter!` is the lifecycle one.
 **Read at source** — `implementation/core/src/re_frame/substrate/plain_atom.cljc`,
 whose adapter map is 10 entries wide, and
 `implementation/core/src/re_frame/substrate/atom_container.cljc` (35 lines),
-which supplies the container quartet it shares with the test-react adapter.
+which supplies the container quartet.
 
 | # | Required fn | Plain-atom status |
 |---|---|---|

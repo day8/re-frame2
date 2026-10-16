@@ -279,11 +279,9 @@ MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
 # correct siblings.
 #
 # This is a ROSTER and deliberately not a glob over
-# `implementation/adapters/*/README.md`: `adapters/test-react/` is
-# local-test-only, has no Maven coordinate and is deliberately unsmoked (see
-# `implementation/adapters/README.md` §"Local-test-only adapter"), so a glob
-# would scan it and would silently acquire any future local-test-only
-# adapter. A new SHIPPING adapter is added here by hand.
+# `implementation/adapters/*/README.md`: a glob would silently acquire any
+# README that lands under that tree whether or not its adapter ships. A new
+# SHIPPING adapter is added here by hand.
 ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "uix" / "README.md",
