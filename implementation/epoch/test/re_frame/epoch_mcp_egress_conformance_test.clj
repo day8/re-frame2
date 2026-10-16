@@ -337,8 +337,8 @@
 ;; into a trace tag no app-db path can match it. The resources artefact owns
 ;; the family projector, which the epoch projection reaches through late-bound
 ;; hooks on two routes: by OPERATION NAMESPACE for the family's own rows, and
-;; by SLOT for the `:rf.fx/args` / `:rf.event/fx` carriers of the effects an
-;; `ensure` lowers into, which address the work by its scoped key.
+;; by SLOT for the `:rf.fx/args` / `:rf.event/fx` carriers of the effects the
+;; family's events lower into, which can carry a scoped key.
 
 (def ^:private sensitive-resource-id :secret/article)
 (def ^:private plain-resource-id     :plain/article)
@@ -390,10 +390,11 @@
   beside it), a `release-owner`, then two `invalidate-tags` stamping the
   resolved scope as a FREE `:scope` tag in both shapes — the identity-bearing
   tuple and the `:rf.scope/global` scalar — and last an `ensure` of the
-  session-scoped owner, which plants that tuple inside the fx carriers' arg
-  maps. The invalidations run after the release so no active owner refetches.
+  session-scoped owner, whose transport payload carries its work id and no
+  scope. The invalidations run after the release so no active owner refetches.
   No reply is replayed, so no `:reply-to` continuation reaches the carriers;
-  that coverage lives in `epoch_egress_resource_trace_test`."
+  that coverage — and a free `:scope` inside a carrier — lives in
+  `epoch_egress_resource_trace_test`."
   [frame-id]
   (doseq [event [[:rf.resource/ensure {:resource sensitive-resource-id
                                        :params   {:auth-token secret-password}
@@ -431,8 +432,8 @@
 
 (defn- embedded-keys-naming
   "Every scoped-key-shaped 3-vector naming `resource-id` embedded anywhere in
-  `x` — a named `:resource/key`, inside a work-id, a request-id, a `:released`
-  vector or a continuation arg map."
+  `x` — a named `:resource/key`, a `:released` vector or a continuation arg
+  map."
   [x resource-id]
   (let [found (atom [])
         walk  (fn walk [v]
@@ -518,11 +519,12 @@
 
       (testing "a FREE `:scope` keeps its tier and tokenizes an identity map,
                 and the `:rf.scope/global` scalar rides verbatim, on the family
-                rows and inside the fx carriers alike"
+                rows; a read plants no free `:scope` in the fx carriers"
         (is (tokenized-scope? session))
-        (is (= #{session :rf.scope/global}
-               (into #{(invalidated-scope proj-rows global-cause)}
-                     (mapcat carrier-scopes carrier-hist)))))
+        (is (= :rf.scope/global (invalidated-scope proj-rows global-cause)))
+        (is (= [] (mapcat carrier-scopes carrier-hist))
+            "a read's transport payload names its attempt by work id; the
+             handler resolves the scoped key from the ledger row"))
 
       (is (= proj-hist (mapv rf/project-egress proj-hist))
           "re-projection is a fixed point — tokens are not re-hashed"))))

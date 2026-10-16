@@ -209,7 +209,7 @@
 
 (deftest ledger-row-projection
   (let [row (re/ledger-row (find ledger "w-res-2"))]
-    (is (= {:work-id [:rf.work/resource :k 2] :work-id-text "[:rf.work/resource :k 2]"
+    (is (= {:work-id [:rf.work/resource :k 2]
             :work-kind :resource :status :running :live? true :frame :f
             :owners [[:dashboard/opened :a]] :cancellable? true :started-at 1000
             :deadline-at nil :attempt 2 :transport :rf.http/managed :outcome nil}
@@ -275,58 +275,3 @@
     (is (= [] (re/trace-buffer-for-frame
                 [{:id 6 :operation :rf.http/stale-suppressed :tags {:frame :app/b}}]
                 :app/a)))))
-
-;; ---------------------------------------------------------------------------
-;; the displayed work id — a resource work id embeds its scoped key.
-;; ---------------------------------------------------------------------------
-
-(def ^:private id-secret "tok-work-id-secret-5b2")
-
-(defn- secret-work-id
-  "A resource work id whose scope and params both carry `id-secret`."
-  [rid]
-  [:rf.work/resource [[:rf.scope/session {:token id-secret}] rid {:slug id-secret}] 5])
-
-(def ^:private secret-ledger
-  "One running record per resource; only `:article/by-slug` is `:sensitive?`."
-  {"opaque-s" {:work/id (secret-work-id :article/by-slug) :work/kind :resource
-               :generation 5 :status :running}
-   "opaque-c" {:work/id (secret-work-id :comments/list) :work/kind :resource
-               :generation 5 :status :running}})
-
-(defn- secret-trace
-  "One trace row per resource's work id, on `op`, carrying `tags`."
-  [op tags]
-  (vec (map-indexed (fn [i rid]
-                      {:id i :operation op :time (* 10 (inc i))
-                       :tags (assoc tags :rf.reply/work-id (secret-work-id rid))})
-                    [:article/by-slug :comments/list])))
-
-(def ^:private sensitive-rids #{:article/by-slug})
-
-(def ^:private redacted-text
-  (str [:rf.work/resource [:rf/redacted :article/by-slug :rf/redacted] 5]))
-
-(defn- by-rid
-  "Index rows by the resource-id inside their raw work id."
-  [rows]
-  (into {} (map (juxt #(get-in % [:work-id 1 1]) identity)) rows))
-
-(deftest work-id-text-redacts-a-sensitive-resource
-  (let [live  (by-rid (re/live-work secret-ledger
-                                    (secret-trace :rf.resource/work-started {})
-                                    sensitive-rids))
-        races (by-rid (vals (re/races-by-work-id
-                              (secret-trace :rf.resource/stale-suppressed
-                                            {:rf.reply/status :stale})
-                              sensitive-rids)))]
-    (testing "the live-work and stale-race rows print the sensitive resource's
-              work id with its scope and params redacted"
-      (is (= redacted-text (:work-id-text (:article/by-slug live))))
-      (is (= redacted-text (:work-id-text (:article/by-slug races)))))
-    (testing "CONTROL — a resource that is not :sensitive? prints its work id as-is"
-      (is (= (str (secret-work-id :comments/list))
-             (:work-id-text (:comments/list live))
-             (:work-id-text (:comments/list races)))))
-    (testing "the raw work id stays on the row, so the trace join still keys on it"
-      (is (= :issued (:latest-phase (:article/by-slug live)))))))

@@ -176,7 +176,8 @@ Two elision layers compose:
    `nil`. **The on-box gate for the trace-borne sections is a separate,
    ROW-level one** (rf2-y8doi.15, extending rf2-9zix0u's instance-row
    gate): a trace row carries no runtime-db path, so the instance gate
-   cannot be reused — what it does carry is a **resource-id**, and the
+   cannot be reused — what it does carry is a **resource-id** (in its
+   scoped key, or, on an attempt's rows, in `:resource/id`), and the
    static registry carries that resource's coarse root `:sensitive?`
    declaration. The composite builds `sensitive-resource-ids` from the
    projected registry rows and threads the set into
@@ -198,19 +199,15 @@ Two elision layers compose:
    The **work-ledger** rows (§3) take the same gate. They are runtime-db
    state, but no per-instance declaration is lowered under the work
    ledger, so the instance gate has nothing to match there either, and a
-   work record names its resource-id in its scoped key. A **work id** is
-   gated too, because a resource work id `[:rf.work/resource <scoped-key>
-   <generation>]` embeds its scoped key: the **live-work** (§3a) and
-   **stale-races** (§3b) rows render its display text,
-   `resources-helpers/work-id-text`, which prints a `:sensitive?`
-   resource's scope and params as `:rf/redacted` and keeps the head,
-   resource-id and generation readable. Each row keeps the raw work id as
-   its React key and as the key every join matches on (§Uniform
-   reply-envelope reads). A mutation work id `[:rf.work/resource
-   [:rf.mutation <instance-id>] <generation>]` embeds only the instance
-   id, never the mutation's scope or params, and no mutation declaration
-   classifies an instance id, so it prints as-is, on the §6c continuation
-   row too.
+   work record names its resource-id in its scoped key. A **work id** needs
+   no gate: a resource work id `[:rf.work/resource <resource-id>
+   <generation>]` names its attempt without its scope or params, and a
+   mutation work id `[:rf.work/resource [:rf.mutation <instance-id>]
+   <generation>]` names only the instance id, which no mutation
+   declaration classifies. Both print as-is — on the **live-work** (§3a),
+   **stale-races** (§3b) and §6c continuation rows — and stay each row's
+   React key and the key every join matches on (§Uniform reply-envelope
+   reads).
 
 The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
 local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
@@ -310,9 +307,8 @@ stacked sections:
    reply-envelope reads below): the live (non-terminal) work-ledger rows
    joined to their latest reply-envelope trace **phase + emitting op** per
    `:work/id`, each row carrying work-kind, ledger status, the joined
-   latest phase/op, attempt, owner count, and the work id's display text,
-   which redacts a `:sensitive?` resource's scope and params (§PRIVACY);
-   the raw `:work/id` stays the row's key and join key.
+   latest phase/op, attempt, owner count, and the work id, which is also
+   the row's key and join key.
    Below the rows, the **per-kind suppression tally** headline (the
    active-effects dashboard count of stale suppressions per family).
    **Silent-by-default**: the section renders nothing when there is no live
@@ -322,7 +318,7 @@ stacked sections:
    **stale-suppression correctness boundary** (carried ≠ current — one
    attempt superseded another), grouped by `:work/id` and rendered with its
    terminal `:stale` status, the phases the arc passed through, and the
-   work id's display text, redacted as in §3a. Only **suppressed** arcs
+   work id. Only **suppressed** arcs
    render. **Silent-by-default**: the
    section renders nothing when no arc was suppressed.
 4. **Route / resource graph** — per route declaring `:resources`: the
@@ -354,6 +350,11 @@ stacked sections:
    transition (rf2-y8doi.15 added the last two — without them a timeline
    over several params-keyed entries of one resource could not say which
    instance a row was about, nor what the event did to its status).
+   An attempt's rows after its `:rf.resource/work-started` row name it by
+   `:work/id` and `:resource/id` only; the timeline reads the resource id
+   from `:resource/id` and joins the scoped key from the work-started row
+   of the same frame and work id. An attempt whose work-started row has
+   left the trace ring shows its resource id and no params.
    `:owner` and `:cause` are projected but not rendered today. **The
    infinite-feed page evidence
    (EP-0021):** the four load-more family ops (`:rf.resource/load-more` /
@@ -477,7 +478,7 @@ stacked sections:
    apply for the same instance genuinely in flight would then be
    mislabelled. The frame is part of that key, and of the `:snapshot-id`
    key the terminal settle joins on, because every other element of both
-   is FRAME-LOCAL: a work-id's scoped key and generation carry no frame
+   is FRAME-LOCAL: a work-id carries no frame
    identity, a mutation instance id is the caller's own value or one
    derived from the frame's own monotone generation, and the
    `:snapshot-id` is derived from that instance id plus that generation,
@@ -547,7 +548,7 @@ reserved-namespace fallback — recognised as a family member, classed
 | `:rf.resource/work-abort-requested` | lifecycle | `events.cljc` (abort/cancel of in-flight work) |
 | `:rf.resource/work-completed` | success | `events.cljc` (work row settled terminal) |
 | `:rf.resource/succeeded` | success | `events.cljc` (reply landed, entry `:loaded`) |
-| `:rf.resource/replied` | lifecycle (namespace fallback — not in `trace-ops`) | `events.cljc` (EP-0016 D1 extension, rf2-p1yri7 — a call-site `:reply-to` READ-completion continuation was dispatched for an ACCEPTED terminal reply, the read mirror of `:rf.mutation/replied`; carries `:targets` (a read fans out to every joined target), `:work/id`, `:resource/key`, `:status` and `:cache-hit?` (true only for the fresh-skip immediate dispatch); never emitted for a stale/suppressed reply, nor when the read carried no `:reply-to`) |
+| `:rf.resource/replied` | lifecycle (namespace fallback — not in `trace-ops`) | `events.cljc` (EP-0016 D1 extension, rf2-p1yri7 — a call-site `:reply-to` READ-completion continuation was dispatched for an ACCEPTED terminal reply, the read mirror of `:rf.mutation/replied`; carries `:targets` (a read fans out to every joined target), `:work/id`, `:resource/id`, `:status` and `:cache-hit?` (true only for the fresh-skip immediate dispatch); never emitted for a stale/suppressed reply, nor when the read carried no `:reply-to`) |
 | `:rf.resource/failed` | failure | `events.cljc` (first-load failure → `:error`) |
 | `:rf.resource/refresh-failed` | failure | `events.cljc` (background-refresh failure, data kept) |
 | `:rf.resource/load-more` | lifecycle | `events.cljc` (EP-0021 — a load-more issued the next-page fetch; an APPEND at a positive page index; carries `:page-param` `:page-index` `:page-count`) |
@@ -585,7 +586,7 @@ reply-envelope vocabulary ADDITIVELY (rf2-mn4j89) — `:rf.reply/status
 `:generation {:carried N :current M}`) — produced through the shared
 `re-frame.reply` substrate, so a suppressed late resource reply classifies
 the SAME way the HTTP / mutation / machine stale paths do (the bespoke
-`:resource/key` / `:work/id` / `:generation` / `:outcome` facts are
+`:resource/id` / `:generation` / `:outcome` facts are
 preserved alongside). The mutation analogue `:rf.mutation/stale-suppressed`
 carries the identical `:rf.reply/*` shape (`:rf.reply/stale-reason
 :rf.mutation/superseded`, correlation `:instance/id` + the generation
@@ -749,9 +750,8 @@ stale-races view groups every cross-family work/reply row by `:work/id`.
 All three read the trace buffer restricted to the **observed frame's** rows
 (`reply_envelope/trace-buffer-for-frame`; a row carrying no frame is kept as
 unattributable): the buffer merges every host frame's ring while a work-id
-is frame-local — two frames loading the same resource at the same
-generation mint the same work-id — so an unscoped join labelled one
-frame's running work with another frame's outcome (rf2-3x7nj.23.3). The
+carries no frame identity, so an unscoped join could label one
+frame's running work with another frame's outcome. The
 scope is by frame only; the reads stay cross-family.
 The live-work join keys on the canonical `:work/id` **vector** carried on
 the ledger record (`reply_envelope/ledger-row` reads `(:work/id record)`,
