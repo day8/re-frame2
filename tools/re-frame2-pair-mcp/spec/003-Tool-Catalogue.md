@@ -259,6 +259,27 @@ default. The projection closes that asymmetry; `snapshot :epochs`
 now carries the same fail-closed posture as the cursor-paged
 epoch tools.
 
+`snapshot`'s `:traces` slot takes the same projection. It ships the
+frame's trace ring as event bundles, and a bundle carries the same raw
+trace events an epoch record's `:trace-events` slot does — event
+arguments, effect arguments and HTTP bodies, none of them app-db paths,
+so a bare-value walk would redact none of them. Each bundle's
+`:trace-events` therefore crosses `project-egress` inside a record
+stamped `:kind :rf/epoch-record` (the bundle's own `:frame`, no other
+slot), under the same opts as the `:epochs` slot, and the bundle's
+`:event` / `:dispatched` / `:handler` / `:fx` / `:effects` / `:subs` /
+`:renders` / `:other` / `:parent-dispatch-id` slots are rebuilt from the
+projected events with the ring's own fold
+(`re-frame.trace.projection/absorb`), so none of them can carry a byte
+the projection removed. Off-box, every event argument, effect argument
+and unschematized HTTP body reads `:rf/redacted` whether or not anything
+declared it sensitive (`[:login "pw"]` ships as
+`[:login :rf/redacted]`), and declared-sensitive app-db slots redact.
+The `:include-sensitive` two-key opt-in lifts only the app-db sensitive
+axis, exactly as it does for `:epochs`. The client-side whole-bundle
+sensitive drop still applies afterwards, on the per-event `:sensitive?`
+stamps the projection keeps.
+
 ## Universal: `:typicalTokens` on every tool descriptor
 
 Every MCP tool descriptor emitted by `tools/list` carries a
@@ -2211,7 +2232,7 @@ catalogue, rf2-urjnc), `build` (string).
                         :machines  {:ids [<machine-id>...]
                                     :state {<machine-id> <snapshot>}}
                         :epochs    [<:rf/epoch-record> ...]
-                        :traces    [<trace-event> ...]}
+                        :traces    [<event-bundle> ...]}  ; trace events projected, slots rebuilt
             ...}
  :path-not-found {<frame-id> {:exists? false
                               :deepest-valid-prefix [...]}}  ; when present}
@@ -2227,9 +2248,11 @@ tells the agent which slices it can drill into without a second call.
 
 The `:machines` slice combines the global registrar's machine-id list
 (the `:rf/machine?` filter over the `:event` registrations) with the per-frame state stash at `[:rf.runtime/machines :snapshots]` in
-the frame's runtime-db partition (per Spec 005). The `:traces` slice filters the
-retain-N trace ring buffer by `:frame`. Other slices delegate
-verbatim to the public per-slice surface.
+the frame's runtime-db partition (per Spec 005). The `:traces` slice is
+the frame's retain-N trace ring as event bundles (`trace-buffer`'s
+default shape), each projected as §Universal: framework projection on
+epoch consumers describes. Other slices delegate to the public
+per-slice surface.
 
 ### `:epochs` slice modes (rf2-1wdzp)
 
