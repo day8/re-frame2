@@ -1734,16 +1734,11 @@ registrations; neither is a Reagent rendering prerequisite, which the
 chart's own DOM suite demonstrates by mounting the same component
 through `adapters/react-chart` and a bare `react-dom/client` root.
 
-Until rf2-6r9j.115 the page did require `re-frame.adapter.reagent`, and
-that require was the sharper half of the rf2-k7l2o argument: a library
-jar carrying it would have to declare `day8/re-frame2-reagent`, and
-`day8/reagent-slim` publishes its own adapter at the same canonical
-`re-frame.adapter.reagent` namespace, so a slim application adding
-machines-viz would then hold two implementations of one namespace with
-classpath order deciding which its own
-`(:require [re-frame.adapter.reagent])` resolved to. That hazard is now
-discharged at the source rather than merely fenced by the source-root
-split — no adapter coordinate appears anywhere in
+Until rf2-6r9j.115 the page did require `re-frame.adapter.reagent`, so a
+library jar carrying it would have had to declare `day8/re-frame2-reagent`
+and push that adapter onto every application adding machines-viz. That
+hazard is now discharged at the source rather than merely fenced by the
+source-root split — no adapter coordinate appears anywhere in
 `tools/machines-viz/deps.edn`, test aliases included.
 
 Source: lifted from

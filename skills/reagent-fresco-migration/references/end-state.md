@@ -46,9 +46,8 @@ the repair is to *add* a direct `reagent/reagent` entry, not remove one.
 So decide 2 on a measurement rather than an inference from 1. Re-run the
 reporter (step 0) over the **whole** repository, not the subtree this migration
 touched, and read its census half — it counts view-substrate API call sites
-across the nine recognised Reagent namespaces (`reagent.core`, `reagent.dom`,
-`reagent.dom.client`, `reagent.ratom`, `reagent.dom.server`, and their four
-`reagent2.*` siblings) plus everything under the `re-frame.adapter.` prefix, and
+across the five recognised Reagent namespaces (`reagent.core`, `reagent.dom`,
+`reagent.dom.client`, `reagent.ratom` and `reagent.dom.server`) plus everything under the `re-frame.adapter.` prefix, and
 reports what it cannot resolve instead of skipping it. The answer is a file
 count in the written report, not the call count:
 

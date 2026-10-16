@@ -467,8 +467,7 @@ neither wrapper sanitises HTML.
 Stock Reagent 2.0.1 deleted that unwrapped prop; Fresco passes it through, so
 previously inert markup starts being injected. Surface that behaviour change
 to the author and establish that the string is still trusted before retaining
-it. Reagent-slim already accepts the plain map, so check the actual donor
-rather than claiming every site becomes live. The codemod flags crossings as
+it. The codemod flags crossings as
 `:dangerous-html` for review; it does not perform this value rewrite.
 
 One further trap: only the camel spelling reaches React.
