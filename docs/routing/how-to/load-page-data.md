@@ -168,7 +168,7 @@ article.
    [:p [:code (pr-str {:transition @(subscribe [:rf.route/transition])
                        :error      (:rf.error/id @(subscribe [:rf.route/error]))})]]])
 
-[rf/frame-root {:id             :app
+[rf/frame-root {:id             :rf/default
                 :fx-overrides   {:rf.http/managed :rf.http/managed-test-stub}
                 :initial-events [[:rf.route/navigate {:to     :app/article
                                                       :params {:slug "intro"}}]]}

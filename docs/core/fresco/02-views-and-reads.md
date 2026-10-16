@@ -113,7 +113,7 @@ count updates because `todo-list` recorded the helper's read as its own.
       [todo-row {:key id :id id}])]
    [:p (remaining-label)]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list {}]]
 ```
 

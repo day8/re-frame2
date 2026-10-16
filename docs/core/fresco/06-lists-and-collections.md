@@ -178,7 +178,7 @@ its id rather than its position.
     (for [id (h/sub [:todo/visible-ids])]
       [todo-row {:key id :id id}])]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list {}]]
 ```
 

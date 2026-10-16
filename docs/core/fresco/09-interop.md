@@ -358,7 +358,7 @@ a row to see both work.
    [:> todo-row* {:id 1}]
    [:> todo-row* {:id 2}]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 

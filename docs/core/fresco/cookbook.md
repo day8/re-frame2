@@ -167,7 +167,7 @@ boot recipe renders.
    [:h1 "Todos"]
    [todo-list {}]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-app {}]]
 ```
 

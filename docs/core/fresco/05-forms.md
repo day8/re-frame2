@@ -145,7 +145,7 @@ the committed title again.
    [title-field {:id id}]
    [:p "Committed: " (pr-str (h/sub [:todo/title id]))]])
 
-[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[h/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [title-editor {:id 1}]]
 ```
 

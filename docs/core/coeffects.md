@@ -57,7 +57,7 @@ Instead, declare the fact and receive it as a plain value:
        [:span {:style {:color "#888" :margin-left "1em"}}
         "added at " created-at " ms"]])]])
 
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]}
  [todo-list]]
 ```
 
