@@ -19,7 +19,7 @@
 
    For the boundary mechanics — `use-sub`, `use-frame`,
    `frame-root` / `frame-provider`, and what stays put across React wrappers — see
-   docs/core/how-to/use-uix-or-slim.md."
+   docs/core/how-to/use-uix.md."
   (:require [uix.core :as uix :refer [$ defui]]
             [re-frame.core :as rf]
             ;; The substrate-free model owner (examples/core/login/model.cljc).
@@ -40,7 +40,7 @@
 ;; simply handed `dispatch`/`subscribe` — the same hold primitive in its other
 ;; spelling. The subscription vectors and event vectors don't change one
 ;; character between them; all that differs is how a React component reaches
-;; the wires. See docs/core/how-to/use-uix-or-slim.md.
+;; the wires. See docs/core/how-to/use-uix.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from
 ;; `:auth.login/draft`, and `:on-change` dispatches an edit event

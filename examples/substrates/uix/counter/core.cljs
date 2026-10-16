@@ -18,7 +18,7 @@
        so `use-sub` and `use-frame` resolve to it
 
    For the full substrate tour see
-   `docs/core/how-to/use-uix-or-slim.md`."
+   `docs/core/how-to/use-uix.md`."
   (:require [uix.core :refer [$ defui]]
             [re-frame.core    :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]))

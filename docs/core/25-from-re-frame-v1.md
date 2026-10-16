@@ -34,7 +34,7 @@ The rest of this page explains the categories of change you will see at step 3; 
 re-frame2 ships each capability as a separate artefact, so the ones you don't use are never bundled. The skill makes these changes; the list tells you what to expect.
 
 1. **Swap the core coord.** Remove `re-frame/re-frame`. Add `day8/re-frame2`.
-2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or `day8/re-frame2-uix` if you've already moved to UIx. ([Adapters](how-to/use-uix-or-slim.md) covers the [substrate](glossary.md#substrate).)
+2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or `day8/re-frame2-uix` if you've already moved to UIx. ([Adapters](how-to/use-uix.md) covers the [substrate](glossary.md#substrate).)
 3. **Add per-feature artefacts only for features you use.** Don't add them all "to be safe" — the skill reports which ones the codebase trips. Split: `day8/re-frame2-{machines, flows, routing, http, resources, ssr, schemas, epoch}`.
 4. **Don't bump anything else in the same change.** Keep React, shadow-cljs, and the rest on current versions until the migration settles. A migration that is also a dependency upgrade is two failure modes in one diff.
 

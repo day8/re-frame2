@@ -465,7 +465,7 @@ The view layer that renders to React: Fresco (re-frame2's own), Reagent or
 UIx. An [adapter](#adapter) connects re-frame2 to it. Events, subscriptions
 and app-db are the same on every substrate; only how views are written differs.
 
-Related: [Fresco](fresco/index.md), [Use UIx](how-to/use-uix-or-slim.md).
+Related: [Fresco](fresco/index.md), [Use UIx](how-to/use-uix.md).
 
 ### **view**
 

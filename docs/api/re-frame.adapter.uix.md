@@ -42,7 +42,7 @@ Pick it when your components are React function components written with `defui` 
 
 Everything else a UIx app calls is on [`re-frame.core`](re-frame.core.md), including the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. Nothing is injected into a UIx component: it reads with `use-sub` and takes `dispatch` from `use-frame`. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it.
 
-Components are plain `defui` functions that you mount by referring to their Var, the React idiom; the `reg-view` macro is Reagent-only. Register one with `rf/reg-view*` only when the call site holds an id rather than the Var (see [Registry-keyed views](#registry-keyed-views)). [Use UIx](../core/how-to/use-uix-or-slim.md) covers choosing and switching substrate.
+Components are plain `defui` functions that you mount by referring to their Var, the React idiom; the `reg-view` macro is Reagent-only. Register one with `rf/reg-view*` only when the call site holds an id rather than the Var (see [Registry-keyed views](#registry-keyed-views)). [Use UIx](../core/how-to/use-uix.md) covers choosing and switching substrate.
 
 ## Adapter spec
 
@@ -85,7 +85,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required: a missing or `nil` `:frame` raises `:rf.error/no-frame-context`. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
     - A query id with no registered subscription emits `:rf.error/no-such-sub`, and a frame that does not exist or has been destroyed emits `:rf.error/frame-destroyed`. In both cases the hook returns `nil`.
     - Read with `use-sub`, not `rf/subscribe`, in a `defui` body. Dereferencing a subscription in a UIx render does not re-render the component, and the cache reference each `subscribe` call takes is never released. The same holds for the `:subscribe` op in [`use-frame`](#use-frame)'s map.
-    - See [Write a UIx view](../core/how-to/use-uix-or-slim.md#2-write-a-uix-view).
+    - See [Write a UIx view](../core/how-to/use-uix.md#2-write-a-uix-view).
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -111,7 +111,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - It takes no options. For a named frame, call `(rf/capture-frame frame-id)` directly.
     - The map is the same object across re-renders while the resolved frame stays the same, so it is safe in effect deps and child props. A provider that switches frames re-renders the caller with a map for the new frame. Destroying the frame and creating another under the same id does not re-render the caller: its next render returns a map for the new frame, and until then the old map's ops emit `:rf.error/frame-destroyed`. The map belongs to the frame it was captured from, not to the id.
     - There is no hook that reads the frame context alone. `(:frame (use-frame))` gives the frame from React context; `(rf/current-frame-id)` checks a `with-frame` binding first, so inside a `with-frame` around a render the two can differ.
-    - See [Why callbacks dispatch off the frame api](../core/how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api).
+    - See [Why callbacks dispatch off the frame api](../core/how-to/use-uix.md#3-why-callbacks-dispatch-off-the-frame-api).
 - **Example**:
   ```clojure
   (defui inc-button []
@@ -121,7 +121,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
 
 ## Components
 
-`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse. See [Ensure a view's own frame](../core/how-to/use-uix-or-slim.md#5-ensure-a-views-own-frame).
+`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse. See [Ensure a view's own frame](../core/how-to/use-uix.md#5-ensure-a-views-own-frame).
 
 ### `frame-provider`
 
@@ -325,5 +325,5 @@ To use the port instead, set the var yourself after requiring the adapter and be
 
 - [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) — the Reagent adapter, which the Core guide uses, with the same client-root functions.
 - [`re-frame.fresco.native`](re-frame.fresco.native.md) — the `use-sub` / `use-frame` hooks for React islands under Fresco, reading the same frame context.
-- [Use UIx](../core/how-to/use-uix-or-slim.md) — worked examples and the full substrate decision.
+- [Use UIx](../core/how-to/use-uix.md) — worked examples and the full substrate decision.
 - [Adapter](../core/glossary.md#adapter) in the glossary.

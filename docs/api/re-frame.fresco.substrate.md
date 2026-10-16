@@ -33,7 +33,7 @@ Reagent and UIx adapters also work under a Fresco tree, because every
 React adapter writes the same frame context. An app that already installs one for
 its other views runs its Fresco views on it and needs no second adapter.
 [Installation](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter)
-teaches the boot line, and [Use UIx](../core/how-to/use-uix-or-slim.md)
+teaches the boot line, and [Use UIx](../core/how-to/use-uix.md)
 lists the other adapters and their coordinates.
 
 ## Adapter spec
