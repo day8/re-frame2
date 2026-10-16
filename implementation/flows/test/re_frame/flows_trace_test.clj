@@ -2,6 +2,7 @@
   "Flow trace payloads, always-on errors, rollback and privacy."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
@@ -160,22 +161,46 @@
            (select-keys (:rf.size/large-elided (:before tags)) [:path :reason])))
     (is (rf.elision/marker? (:result tags)))))
 
-(deftest flow-failed-redacts-ex-data-when-frame-sensitive
-  ;; On a frame holding sensitive data the author-keyed ex-data may embed a
-  ;; secret, so it is redacted whole; attribution survives.
-  (classify! :rf/default :sensitive [:auth :token])
+(defn- sign-in-through-throwing-flow!
+  "Sign in with `token` through a flow whose `:derive` throws an ex-info quoting
+  the token in its message and its data; return the `:rf.flow/failed` events."
+  [token]
   (rf/reg-event :auth/signed-in {:interceptors [[:rf.interceptor/path [:auth]]]}
     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
   (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]}
-    (fn [tok] (throw (ex-info "derive failed" {:leaked-token tok}))))
-  (rf/dispatch-sync [:auth/signed-in "TOP-SECRET"])
-  (let [[ev & more] (by-op :rf.flow/failed)]
+    (fn [tok] (throw (ex-info (str "rejected " tok) {:leaked-token tok}))))
+  (rf/dispatch-sync [:auth/signed-in token])
+  (by-op :rf.flow/failed))
+
+(deftest flow-failed-redacts-exception-slots-when-frame-sensitive
+  ;; On a frame holding sensitive data the message and the author-keyed ex-data
+  ;; may embed a secret, so both are redacted whole; attribution survives.
+  (classify! :rf/default :sensitive [:auth :token])
+  (let [[ev & more] (sign-in-through-throwing-flow! "TOP-SECRET")]
     (is (nil? more))
     (is (= {:flow-id :auth/derived-user :frame :rf/default
+            :exception-message rf.privacy/redacted-sentinel
             :exception-data rf.privacy/redacted-sentinel :sensitive? true}
-           (assoc (select-keys (:tags ev) [:flow-id :frame :exception-data])
+           (assoc (select-keys (:tags ev) [:flow-id :frame :exception-message :exception-data])
                   :sensitive? (:sensitive? ev))))
     (is (not (str/includes? (pr-str ev) "TOP-SECRET")))))
+
+(deftest flow-failed-keeps-exception-text-when-frame-unclassified
+  ;; Only a sensitive frame redacts: elsewhere the message stays useful.
+  (let [[ev] (sign-in-through-throwing-flow! "TOP-SECRET")]
+    (is (= ["rejected TOP-SECRET" {:leaked-token "TOP-SECRET"} nil]
+           [(-> ev :tags :exception-message) (-> ev :tags :exception-data) (:sensitive? ev)]))))
+
+(deftest flow-failed-fails-closed-on-an-unresolvable-frame
+  ;; With no frame there is no classification to consult, so the row redacts.
+  (let [tags (:tags (rf.classification/project-trace-event
+                      {:operation :rf.flow/failed
+                       :tags      {:flow-id           :auth/derived-user
+                                   :frame             nil
+                                   :exception-message "rejected TOP-SECRET"
+                                   :exception-data    {:leaked-token "TOP-SECRET"}}}))]
+    (is (= [:rf/redacted :rf/redacted true]
+           ((juxt :exception-message :exception-data :sensitive?) tags)))))
 
 (deftest flow-trace-sensitive-value-also-redacted-on-wire
   ;; Both privacy layers fire for a sensitive flow: the cascade's top-level
