@@ -2,8 +2,9 @@
 ;;;;
 ;;;; This namespace holds the pure, side-effect-free helpers `runtime.cljs`
 ;;;; delegates to: cascade / consequence projections, the multi-frame
-;;;; operating-frame resolver, the id-validation core, the epoch
-;;;; timing + matcher, the snapshot-scope resolver, and the orient assembler.
+;;;; operating-frame resolver, the id-validation core, the registrar id
+;;;; order, the epoch timing + matcher, the snapshot-scope resolver, and the
+;;;; orient assembler.
 ;;;;
 ;;;; WHY IT EXISTS. `runtime.cljs` is the SHIPPED preload; it reads live
 ;;;; framework surfaces (`rf/frame-ids`, `re-frame.epoch/epoch-history`, …) and mutates
@@ -140,6 +141,49 @@
                            (str/join ", " (map pr-str near)) "?")
                       (str "unknown " kind " " (pr-str id)
                            "; nothing is registered under " kind "."))})))
+
+;; ===========================================================================
+;; Registrar id order
+;; ===========================================================================
+
+(defn- id-type-rank
+  "Where a value's type sorts among the types `compare` cannot order against
+   one another."
+  [x]
+  (cond (nil? x)     0
+        (boolean? x) 1
+        (number? x)  2
+        (string? x)  3
+        (keyword? x) 4
+        (symbol? x)  5
+        (vector? x)  6
+        :else        7))
+
+(defn compare-ids
+  "A total order over registrar ids, agreeing with `compare` wherever
+   `compare` answers — so keyword ids keep `compare`'s order. `:app-schema`
+   ids are app-db paths, and `compare` throws on two same-length paths whose
+   segments differ in type at one position (`[:todos 0]` vs `[:todos
+   :filter]`). Here vectors compare length-first and then segment by segment
+   under this same order, values of one type compare with `compare`, values
+   of different types order by type (nil, booleans, numbers, strings,
+   keywords, symbols, vectors), and any other value orders by its `pr-str`."
+  [a b]
+  (let [ra (id-type-rank a)
+        rb (id-type-rank b)]
+    (cond
+      (not= ra rb) (compare ra rb)
+      (= 6 ra)     (let [c (compare (count a) (count b))]
+                     (if (zero? c)
+                       (or (first (remove zero? (map compare-ids a b))) 0)
+                       c))
+      (= 7 ra)     (compare (pr-str a) (pr-str b))
+      :else        (compare a b))))
+
+(defn sort-ids
+  "`ids` as a vector in [[compare-ids]] order."
+  [ids]
+  (vec (sort compare-ids ids)))
 
 ;; ===========================================================================
 ;; Epoch timing + matcher
@@ -516,7 +560,7 @@
    / `:sub` / `:fx` additionally surface their full sorted id vectors). Drill
    any other kind via `list-handlers {kind ...}`."
   [:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
-   :error-projector :resource :mutation :resource-scope])
+   :error-projector :resource :mutation :resource-scope :app-schema])
 
 (defn top-keys
   "The sorted top-level keys of an app-db value (nil when it is not a map).
