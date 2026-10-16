@@ -200,7 +200,7 @@
                 ;; EP-0002 — `rf/init!` installs adapters /
                 ;; runtime capabilities; it does NOT register `:rf/default`
                 ;; (the runtime never synthesises a default frame — Spec 002
-                ;; §`:rf/default` is an ordinary id). The app registers its
+                ;; §`:rf/default` is the conventional app-frame id). The app registers its
                 ;; own frame explicitly (`make-frame` / a root provider), so
                 ;; the hint points at app boot / explicit registration
                 ;; rather than teaching `init!` as a way to create a default.

@@ -2973,13 +2973,13 @@
   after-load fn.
 
   `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
-  is an ordinary id (EP-0002), the runtime never synthesises a default
+  is the conventional app-frame id (EP-0002), the runtime never synthesises a default
   frame — frame identity is carried, not found. Declare your app's root
-  frame explicitly (`(rf/make-frame {:id :app …})` / `with-frame` / a
+  frame explicitly (`(rf/make-frame {:id :rf/default …})` / `with-frame` / a
   `frame-root` (ENSURE — creates it if absent) or `frame-provider` (SCOPE —
-  scopes an already-created one)) and dispatch / subscribe within that scope. A small app
-  or test may still choose `:rf/default` as its explicit frame id; the
-  runtime will not infer it."
+  scopes an already-created one)) and dispatch / subscribe within that scope.
+  `:rf/default` is the conventional id for a single-frame app's frame, but
+  the app names it explicitly; the runtime will not infer it."
   [adapter-map]
   (cond
     (nil? adapter-map)        (bad-init-arg! nil)
