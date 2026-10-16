@@ -224,16 +224,16 @@
   ;; -------------------------------------------------------------------------
 
   ;; Empty — the state a user first lands on. The one bit of stage-setting:
-  ;; we fire a harmless `:auth.login/dismiss` to nudge the machine's
-  ;; `:initial` cascade into seeding the snapshot. Without that nudge the
+  ;; the variant starts the machine with the reserved `[:rf.machine/start]`
+  ;; kick, which runs its `:initial` entry and stops. Without the kick the
   ;; `[:rf.runtime/machines :snapshots :auth.login/flow]` slot sits nil until
-  ;; the first real event, and there'd be nothing to render.
+  ;; the first real event.
   (rf.story/reg-variant :story.login/empty
     {:compose    [:fragment.login/form-base]
      :doc        "Fresh form, nothing typed, no submit clicked — the
                  `:idle` entry state a user lands on. Email + password
                  inputs + an enabled 'Sign in' button."
-     :setup      [[:auth.login/flow [:auth.login/dismiss]]]
+     :setup      [[:auth.login/flow [:rf.machine/start]]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -250,7 +250,7 @@
                  via real edit events (email via `:auth.login/edit-field`,
                  password via the classified `:auth.login/edit-password`), so
                  the inputs show their `:value` and the flow is still `:idle`."
-     :setup      [[:auth.login/flow [:auth.login/dismiss]]
+     :setup      [[:auth.login/flow [:rf.machine/start]]
                   [:auth.login/edit-field :email "ada@example.com"]
                   [:auth.login/edit-password {:value "correct-horse"}]]
      :tags       #{:dev :docs}
@@ -287,7 +287,7 @@
                  `submit-form`'s pre-submit `Credentials` validation: field
                  errors surface under each input, `:submit-attempted?` latches,
                  and nothing is dispatched, so the flow stays at `:idle`."
-     :setup      [[:auth.login/flow [:auth.login/dismiss]]
+     :setup      [[:auth.login/flow [:rf.machine/start]]
                   [:auth.login/edit-field :email "nope"]
                   [:auth.login/edit-password {:value "short"}]
                   [:auth.login/submit-form]]

@@ -255,12 +255,19 @@ inside `:data`. The snapshots printed in this guide show only those a page is
 about, so compare the slots you care about rather than a whole `:data` map,
 and never write one of those keys yourself.
 
-`[:rf/machine id]` is `nil` until the first event. A view that renders earlier
-should fall back to the definition's `:initial` and `:data`. To boot a
-singleton eagerly instead, dispatch the reserved start marker at startup:
-`(rf/dispatch [:auth.login/flow [:rf.machine/start]] {:frame login-frame})`. It runs the initial
-entry — `:entry` actions fire, `:after` timers arm — and stops; it never
-matches an `:on` transition. The first ordinary event runs the same initial
+`[:rf/machine id]` is `nil` until the machine is born, by its first event or
+by the reserved start kick. A view that needs the machine at first paint
+starts it where the frame is created, with the kick in the frame's
+`:initial-events`, which run before `make-frame` returns. A machine nobody
+reads at first paint can stay lazy.
+
+```clojure
+(rf/make-frame {:id :app
+                :initial-events [[:auth.login/flow [:rf.machine/start]]]})
+```
+
+The kick runs the initial entry — `:entry` actions fire, `:after` timers
+arm — and stops; it never matches an `:on` transition. The first ordinary event runs the same initial
 entry before it is handled, and either way those `:entry` actions see `:event`
 as `[:rf.machine/start]`, never the trigger that started the machine.
 
