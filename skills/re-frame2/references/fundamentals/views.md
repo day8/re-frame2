@@ -58,7 +58,7 @@ Every call site of a registered view must be **hiccup** — `[counter …]` (the
 
 **Distinguish the bracket-head function-position form, which is supported.** `[(rf/view :counter) "Count"]` *looks* like a call but it is still inside the hiccup brackets — the `(rf/view :counter)` evaluates to the wrapped fn and Reagent mounts it as the vector head, so the component (and its `:contextType`) is minted normally. The footgun is only the **bare** `(counter "Count")` with no enclosing brackets.
 
-The canonical bite is at a render root: `[rf/frame-provider {:frame :app/main} (app-root)]` evaluates `(app-root)` *outside* the provider's React subtree (it runs while building the provider's argument vector, before the provider mounts) — so it throws. Defer the render *inside* the subtree by keeping it in hiccup: `[rf/frame-provider {:frame :app/main} [app-root]]`.
+The canonical bite is at a render root: `[rf/frame-provider {:frame :rf/default} (app-root)]` evaluates `(app-root)` *outside* the provider's React subtree (it runs while building the provider's argument vector, before the provider mounts) — so it throws. Defer the render *inside* the subtree by keeping it in hiccup: `[rf/frame-provider {:frame :rf/default} [app-root]]`.
 
 ## `reg-view*` — the plain-fn escape hatch
 
