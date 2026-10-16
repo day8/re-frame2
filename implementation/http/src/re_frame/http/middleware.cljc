@@ -206,7 +206,7 @@
 (defn- throw-unregistered!
   [frame-id ids id]
   (rf.error/throw-error!
-    :rf.error/unregistered-interceptor 'rf.http/capture-chain
+    :rf.error/unregistered-interceptor 'rf.http.middleware/capture-chain
     (str "frame `" frame-id "` names HTTP interceptor `" id "` in its "
          "`:http-interceptors` chain " (pr-str ids) ", but no "
          "`reg-http-interceptor` defines it. Register the definition, or "
