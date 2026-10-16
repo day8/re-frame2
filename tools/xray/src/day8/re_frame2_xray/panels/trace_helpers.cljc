@@ -548,7 +548,10 @@
           (when-let [eid (:epoch-id tags)] (str "#" eid)))
 
       (:error :warning)
+      ;; a `:rf.ssr/hydration-mismatch` adoption row carries React's message
+      ;; under `:error`; any non-string there is not row text
       (or (:reason tags) (:exception-message tags)
+          (let [e (:error tags)] (when (string? e) e))
           (some-> (:rf.error/operation tags) str))
 
       nil)))
