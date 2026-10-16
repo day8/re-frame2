@@ -275,3 +275,61 @@
               nil
               (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
       "the fallback to the compound's :initial would name the pseudo-state itself"))
+
+;; A chain of history initials: `:group`'s `:initial` names its history `:sh`,
+;; whose `:default-target` `:inner` names its own history `:sh2` the same way.
+;; Every pseudo-state the descent reaches restores its own recording, else its
+;; `:default-target`, so the committed leaf is always a real state.
+(def ^:private nested-initial-history-machine
+  {:initial :park
+   :actions {:enter-inner (log-action :enter/inner) :enter-leaf (log-action :enter/leaf)}
+   :states  {:park  {:on {:enter :group}}
+             :group {:initial :sh
+                     :states  {:sh    {:type :history :default-target :inner}
+                               :b     {}
+                               :inner {:entry   :enter-inner
+                                       :initial :sh2
+                                       :states  {:sh2   {:type :history :default-target :leaf}
+                                                 :leaf  {:entry :enter-leaf}
+                                                 :other {}}}}}}})
+
+(deftest entering-through-a-chain-of-history-initials-restores-each-level
+  (is (= [[[:group :inner :leaf] [:enter/inner :enter/leaf]]
+          [[:group :inner :other] [:enter/inner]]
+          [[:group :inner :other] [:enter/inner]]]
+         (mapv (fn [recorded]
+                 (let [after (step nested-initial-history-machine
+                                   (cond-> {:state :park :data {:log []}}
+                                     recorded (assoc :rf/history recorded))
+                                   [:enter])]
+                   [(:state after) (get-in after [:data :log])]))
+               [nil {[:group :inner] :other} {[:group] :inner [:group :inner] :other}]))
+      "each level restores its recording, else its :default-target")
+  (is (= [:group :inner :leaf]
+         (get-in (first (history-events :rf.machine.history/restored)) [:tags :resolved-leaf]))
+      "the restored trace names the real leaf"))
+
+(deftest the-birth-cascade-resolves-a-chain-of-history-initials
+  (let [flat     (assoc nested-initial-history-machine :initial :group :data {:log []})
+        parallel {:type    :parallel
+                  :actions (:actions flat)
+                  :data    {:log []}
+                  :regions {:r1 (select-keys flat [:initial :states])
+                            :r2 {:initial :x :states {:x {}}}}}
+        born     (fn [m]
+                   (:snapshot (rf.machines.parallel/apply-initial-entry-cascade
+                                m (rf.machines.parallel/build-initial-snapshot m {:bootstrap-pending? false}))))]
+    (is (= [[[:group :inner :leaf] [:enter/inner :enter/leaf]]
+            [{:r1 [:group :inner :leaf] :r2 :x} [:enter/inner :enter/leaf]]]
+           (mapv (comp (juxt :state #(get-in % [:data :log])) born) [flat parallel])))))
+
+(deftest a-nested-initial-that-names-history-needs-a-default-target
+  (is (= [nil :rf.error/machine-history-bad-default-target]
+         (mapv (fn [m]
+                 (try (rf.machines/validate-machine! m)
+                      nil
+                      (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+               [nested-initial-history-machine
+                (update-in nested-initial-history-machine
+                           [:states :group :states :inner :states :sh2] dissoc :default-target)]))
+      "the chain registers, and its inner pseudo-state needs a :default-target as the outer one does"))
