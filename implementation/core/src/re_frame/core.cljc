@@ -420,19 +420,13 @@
   `re-frame.core-ssr/-reg-head` and Spec 011 §Head/meta contract."}
        reg-head        rf.core-ssr/-reg-head)
      (def ^{:doc "Fn-alias of the `reg-http-interceptor` macro for HoF /
-  programmatic registration (no source-coord capture). FRAME-OWNED, not
-  image-selected: this writes only the http artefact's own per-frame
-  middleware store, never a registrar entry or a source-store descriptor,
-  so there is nothing for `:select-ns` to match and stamping `:ns` cannot
-  move it into an explicit image — its target is the frame (the `:frame`
-  override below). Register an HTTP
-  interceptor on a frame's `:rf.http/managed` middleware chain:
-  `(reg-http-interceptor id interceptor-map)` — the surface
-  mirrors the event-interceptor `{:id :before :after}` shape, so the single
-  map argument carries at least one of `:before` / `:after` plus an optional
-  `:frame` override. Implementation ships in `day8/re-frame2-http`; require
-  `re-frame.http.managed` at boot. See
-  `re-frame.core-http/reg-http-interceptor` and Spec 014 §Middleware."}
+  programmatic registration (no source-coord capture). Register the
+  frame-agnostic HTTP interceptor definition `id` under the registrar kind
+  `:http-interceptor`: `(reg-http-interceptor id interceptor-map)`, the map
+  carrying at least one of `:before` / `:after`. A frame runs it only by
+  naming `id` in its `:http-interceptors` config vector. Implementation
+  ships in `day8/re-frame2-http`; require `re-frame.http.managed` at boot.
+  See `re-frame.core-http/reg-http-interceptor` and Spec 014 §Middleware."}
        reg-http-interceptor rf.core-http/reg-http-interceptor)
      (def ^{:doc "Fn-alias of the `dispatch` macro for HoF / programmatic
   dispatch (no call-site source-coord capture). Appends `event-vec` to the
@@ -713,19 +707,17 @@
        contract.")
 
      (rf.core-reg-macros/defreg-macro reg-http-interceptor rf.core-http/reg-http-interceptor
-       "Register an HTTP interceptor on a frame's `:rf.http/managed`
-       middleware chain. Captures source-coords (Spec 001) at this call
-       site. Implementation ships in `day8/re-frame2-http` (Spec 014
-       §Middleware). Signature: `(reg-http-interceptor id
-       interceptor-map)` — the surface mirrors the
-       event-interceptor `{:id :before :after}` shape: a single map
-       carrying at least one of `:before (fn [ctx] ctx')` or
-       `:after (fn [ctx response] response')`, plus an optional
-       `:frame` (the EP-0002 *override*) and any
-       `:rf/registration-metadata` slots. Absent an explicit `:frame`
-       the carried-invariant scope chain resolves the target; under no
-       scope the call raises `:rf.error/no-frame-context` (no
-       `:rf/default` is synthesised)."
+       "Register the frame-agnostic HTTP interceptor definition `id` under
+       the registrar kind `:http-interceptor`. Captures source-coords
+       (Spec 001) at this call site. Implementation ships in
+       `day8/re-frame2-http` (Spec 014 §Middleware). Signature:
+       `(reg-http-interceptor id interceptor-map)` — a single map carrying
+       at least one of `:before (fn [ctx] ctx')` or
+       `:after (fn [ctx response] response')`, plus any
+       `:rf/registration-metadata` slots. A frame runs the definition only
+       by naming `id` in its `:http-interceptors` config vector, which
+       also fixes its position in the chain. A `:frame` in the map is
+       `:rf.error/http-bad-interceptor`."
        {:arglists '([id interceptor-map])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
@@ -938,18 +930,17 @@
      REGISTRAR-BACKED kinds — `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`,
      `reg-interceptor`, `reg-head`, `reg-error-projector`, `reg-resource`,
      `reg-mutation`, `reg-resource-scope`, `reg-route`, `reg-app-schema` /
-     `reg-app-schemas` — record a source-store
+     `reg-app-schemas`, `reg-http-interceptor` — record a source-store
      descriptor, so stamping `:ns` (or the qualified `:rf.provenance/ns`) in
      the registration metadata restores selectability on every one of them. The
      store reads the explicit key before falling back to the macro's captured
      coords, so a stamp also OVERRIDES those coords. The MACRO form is the
      other spelling of the same remedy: its source-coord capture supplies the
-     provenance with no stamp needed. FRAME-OWNED kinds — `reg-flow`,
-     `reg-http-interceptor` — record no
-     descriptor at all, so neither spelling can select them: a macro supplies
-     COORDINATES, not OWNERSHIP, and both spellings delegate to the same
-     per-frame writer. Their target is the explicit or ambient frame, and an
-     image is not a frame.
+     provenance with no stamp needed. The FRAME-OWNED kind — `reg-flow` —
+     records no descriptor at all, so neither spelling can select it: a
+     macro supplies COORDINATES, not OWNERSHIP, and both spellings delegate
+     to the same per-frame writer. Its target is the explicit or ambient
+     frame, and an image is not a frame.
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam: `rf/image` is value-oriented, but a LITERAL inline
@@ -1141,18 +1132,16 @@
   "The kinds whose tear-down is PER-FRAME, and so the only kinds whose
   `{:frame f}` opts map is accepted. Every other kind clears a process-wide
   registrar row, where a frame would be meaningless."
-  #{:flow :http-interceptor})
+  #{:flow})
 
 (def ^:private clear-kinds
   "The closed kind set of `clear` — the registrar's own kind set MINUS
   `:frame` (a frame is a live runtime object torn down by `destroy-frame!`,
-  not a registrar row) PLUS `:http-interceptor` (a per-frame side table owned
-  by the http artefact rather than a registrar kind).
+  not a registrar row).
 
   Spec 001's kind table carries the per-kind `clear` column this set is the
   code half of."
-  (-> (into #{:http-interceptor} rf.registrar/kinds)
-      (disj :frame)))
+  (disj rf.registrar/kinds :frame))
 
 (defn- clear-bad-request!
   "Fail loud (`:rf.error/registrar-clear-bad-request`) for `clear`'s own
@@ -1170,8 +1159,8 @@
 
 (defn- clear-frame-target
   "Validate `clear`'s trailing opts for `kind` and return the frame target it
-  names. `opts` is EXACTLY `{:frame f}`, accepted only for the two
-  frame-scoped kinds. A tolerant destructure here would silently
+  names. `opts` is EXACTLY `{:frame f}`, accepted only for the
+  frame-scoped kind. A tolerant destructure here would silently
   mis-clear — `{:fram :session}` binding `frame` to
   nil and clearing the AMBIENT frame instead — so validation happens BEFORE
   any frame is resolved or any registry is touched."
@@ -1206,7 +1195,7 @@
   Each kind routes to its OWNING lifecycle fn, never short-cutting a kind that
   owns runtime state straight to `rf.registrar/unregister!`: `:flow` vacates
   the output path and settles dependents (Spec 013 §Sequencing),
-  `:http-interceptor` rebuilds the frame's chain, `:route` emits
+  `:http-interceptor` emits `:rf.http.interceptor/cleared`, `:route` emits
   `:rf.route/cleared`, and the resources trio disposes per-frame resource
   runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
   `:interceptor` `:view` `:head` `:error-projector` `:app-schema` — have no owning
@@ -1214,8 +1203,8 @@
   live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
   the owner.
 
-  OPTS. The trailing `{:frame f}` map is accepted for `:flow` and
-  `:http-interceptor` ONLY — the two per-frame kinds — and is EXACT: the sole
+  OPTS. The trailing `{:frame f}` map is accepted for `:flow` ONLY — the
+  per-frame kind — and is EXACT: the sole
   key is `:frame`, its value a frame-id keyword or a live frame value.
   Anything else fails closed with `:rf.error/registrar-clear-bad-request`,
   BEFORE any frame is resolved. `(rf/clear :flow id {:fram f})` therefore
@@ -1252,8 +1241,7 @@
   ([kind id opts]
    (let [frame (clear-frame-target kind opts)]
      (case kind
-       :flow             (rf.core-flows/clear-flow id {:frame frame})
-       :http-interceptor (rf.core-http/clear-http-interceptor id {:frame frame}))
+       :flow (rf.core-flows/clear-flow id {:frame frame}))
      id)))
 
 ;; ---- dispatch and subscribe ----------------------------------------------
