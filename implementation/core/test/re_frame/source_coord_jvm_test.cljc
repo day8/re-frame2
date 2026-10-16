@@ -112,6 +112,6 @@
                   (throw (ex-info "boom" {}))))
   (let [{:keys [traces errors]} (record-both #(rf/dispatch-sync [:rf2-ts1a/throws]))
         rec (assert-production-record errors :rf.error/handler-exception)]
-    (is (= (rf.source-coords/error-coords-for :event :rf2-ts1a/throws) (:source-coord rec)))
+    (is (= (rf.source-coords/registration-coords (rf.registrar/lookup :event :rf2-ts1a/throws)) (:source-coord rec)))
     (when rf.interop/debug-enabled?
       (assert-call-site-shape (first (errors-of traces :rf.error/handler-exception))))))

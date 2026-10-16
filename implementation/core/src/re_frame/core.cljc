@@ -1736,10 +1736,13 @@
 ;; subscribe build, dispatch, fx and view resolution against a frame, so an
 ;; implicit "default store" read issued from inside a sub computation or an
 ;; event handler would silently read THAT FRAME'S view instead. `{:source
-;; :store}` reads the atom via `rf.registrar/store-registrations` /
-;; `store-lookup`, which consult neither, so the answer does not depend on the
-;; caller's context — the public door for a tool that needs the host process's
-;; registrations.
+;; :store}` reads the registration table through a fresh
+;; `re-frame.live-frame/live-view` and consults no binding, so the answer does
+;; not depend on the caller's context — the public door for a tool that needs
+;; the host process's registrations. It answers exactly as a frame made without
+;; `:images` does: an id more than one namespace registers throws
+;; `:rf.error/ambiguous-registration` from `handler-meta`, is omitted by
+;; `registrations`, and is listed by `ambiguous-registrations`.
 ;;
 ;; NOT-QUERYABLE KINDS. `:flow` and `:frame` are RESERVED-BUT-EMPTY registrar
 ;; slots (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for
@@ -2046,11 +2049,13 @@
   ONE argument: a query map naming EXACTLY ONE source.
 
     `(registrations {:source :store :kind k})` — the `{id metadata}` for `k` in
-        the process SOURCE STORE, `{}` if none. This read NEVER consults a bound
-        image generation, so it returns the same answer from inside a sub
-        computation, an event handler or an inspector frame as it does from the
-        REPL. It is the read a tool wants when it is asking what the HOST
-        PROCESS registered.
+        the process registration table, resolved as a frame made without
+        `:images` resolves it, `{}` if none. An id more than one namespace
+        registers is not in it ([[ambiguous-registrations]] lists those). This
+        read NEVER consults a bound frame view, so it returns the same answer
+        from inside a sub computation, an event handler or an inspector frame as
+        it does from the REPL. It is the read a tool wants when it is asking
+        what the HOST PROCESS registered.
 
     `(registrations {:frame f :kind k})` — FRAME-TARGETED (EP-0023):
         the `{id metadata}` for `k` resolved through live frame `f`'s OWN sealed
@@ -2081,7 +2086,7 @@
       (rf.live-frame/call-with-frame-resolution
         frame
         #(rf.registrar/registrations kind))
-      (rf.registrar/store-registrations kind))))
+      ((rf.live-frame/live-view) kind))))
 
 (defn handler-meta
   "Return the registration metadata map for `[kind id]`, or `nil`. The
@@ -2092,12 +2097,14 @@
   ONE argument: a query map naming EXACTLY ONE source.
 
     `(handler-meta {:source :store :kind k :id id})` — the metadata for
-      `[k id]` in the process SOURCE STORE, or nil. For the registrar kinds
-      (`:event :sub :fx :cofx :interceptor :view :route :head :error-projector
-      :resource :mutation :resource-scope`) this reads the registrar atom
-      directly and NEVER consults a bound image generation. For `:interceptor`
-      the metadata carries the registered `:rf/interceptor-descriptor` plus
-      source coords + `:doc` (EP-0022).
+      `[k id]` in the process registration table, or nil, resolved as a frame
+      made without `:images` resolves it: an id more than one namespace
+      registers throws `:rf.error/ambiguous-registration`, naming the
+      namespaces. For the registrar kinds (`:event :sub :fx :cofx :interceptor
+      :view :route :head :error-projector :resource :mutation :resource-scope`)
+      it NEVER consults a bound frame view. For `:interceptor` the metadata
+      carries the registered `:rf/interceptor-descriptor` plus source coords +
+      `:doc` (EP-0022).
 
     `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023):
       the metadata for `[k id]` resolved through live frame `f`'s
@@ -2140,7 +2147,36 @@
         #(rf.registrar/handler-meta kind id))
       (case kind
         (:machine-guard :machine-action) (rf.core-machines/machine-handler-meta kind id)
-        (rf.registrar/store-lookup kind id)))))
+        ((rf.live-frame/live-view) kind id)))))
+
+(defn ambiguous-registrations
+  "Return the ids of `:kind` that more than one namespace registers and so
+  cannot run, as `{id {provenance-ns descriptor}}` — every registration of
+  each, keyed by the namespace that made it. The ids [[registrations]] omits
+  and [[handler-meta]] throws `:rf.error/ambiguous-registration` for. Per Spec
+  002 §The public registrar query API.
+
+  ONE argument: a query map naming EXACTLY ONE source, the grammar
+  [[registrations]] takes.
+
+    `(ambiguous-registrations {:source :store :kind k})` — the ambiguous ids of
+        `k` in the process registration table.
+
+    `(ambiguous-registrations {:frame f :kind k})` — the ambiguous ids of `k`
+        that live frame `f` refuses: those of the registration table for a
+        frame made without `:images`, `{}` for a frame running a sealed image
+        generation (assembly already refused a duplicate there). FAILS LOUD
+        when `f` names neither kind of frame (`:rf.error/frame-no-generation`).
+
+  `{}` when there are none. Errors as [[registrations]]."
+  [arg]
+  (let [[source frame] (registrar-query-source arg 'rf/ambiguous-registrations)
+        kind           (:kind arg)]
+    (if (= :frame source)
+      (rf.live-frame/call-with-frame-resolution
+        frame
+        #(rf.registrar/ambiguous-registrations kind))
+      (rf.registrar/ambiguous-registrations (rf.live-frame/live-view) kind))))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
   Spec 002 §The public registrar query API."}

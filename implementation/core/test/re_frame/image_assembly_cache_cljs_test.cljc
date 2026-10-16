@@ -113,19 +113,20 @@
                    (:rf.error/id (ex-data e))))
             (rf.image-assembly/cache-size)]))))
 
-(deftest distinct-stores-same-generation-do-not-alias
-  ;; the store generation counter is per store, so the key also carries the
-  ;; store's identity
-  (let [img      (rf.image/image {:id :shared/main :select-ns {:include ["shared.core"]}})
-        seal-in  (fn [handler]
-                   (binding [rf.source-store/*source-store* (atom {})]
-                     (record! "shared.core" :event :shared/boot handler)
-                     [(rf.source-store/store-generation)
-                      (:handler-fn (rf.image-assembly/resolve-descriptor
-                                     (rf.image-assembly/assemble [img]) :event :shared/boot))]))]
-    (is (= [[1 ::a-handler] [1 ::b-handler]]
-           [(seal-in ::a-handler) (seal-in ::b-handler)])
-        "both stores at generation 1, each resolving its own handler")))
+(deftest a-restored-store-is-a-new-generation
+  ;; a restore moves the table back to an earlier value but the generation
+  ;; forward, so the entry sealed from the later table cannot answer for it
+  (let [img     (rf.image/image {:id :shared/main :select-ns {:include ["shared.core"]}})
+        resolve #(:handler-fn (rf.image-assembly/resolve-descriptor
+                                (rf.image-assembly/assemble [img]) :event :shared/boot))]
+    (record! "shared.core" :event :shared/boot ::a-handler)
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor
+          sealed-a (resolve)]
+      (record! "shared.core" :event :shared/boot ::b-handler)
+      (let [sealed-b (resolve)]
+        (rf.source-store/restore! snapshot)
+        (is (= [::a-handler ::b-handler ::a-handler] [sealed-a sealed-b (resolve)])
+            "after the restore the table's own handler resolves again")))))
 
 (deftest a-re-seal-drops-the-generation-it-supersedes
   ;; the store and standard generations only move forward, so a composition's

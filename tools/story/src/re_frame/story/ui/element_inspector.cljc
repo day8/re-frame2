@@ -64,6 +64,7 @@
   (:require [re-frame.source-coords :as rf.source-coords]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
+                       [re-frame.registrar :as rf.registrar]
                        [re-frame.story.ui.canvas-listeners :as rf.story.ui.canvas-listeners]
                        [re-frame.story.ui.open-in-editor :as rf.story.ui.open-in-editor]])
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
@@ -121,18 +122,24 @@
      comes from the registered view's metadata (see
      `re-frame.source-coords` / `docs/xray/05-click-to-source.md`).
 
-     Falls back to the always-on `error-coords-by-id` registry when the
-     public meta has been stripped by production elision — that registry
-     survives `:advanced` + `goog.DEBUG=false` and keeps the `:file` slot
-     reachable for tooling."
+     Falls back to the registration coordinate the view's descriptor carries
+     (`re-frame.source-coords/registration-coords`) when production elision
+     has stripped the public meta — it survives `:advanced` +
+     `goog.DEBUG=false` and keeps the `:file` slot reachable for tooling. A
+     view id more than one namespace registers resolves to no descriptor, so
+     only the DOM attribute's line and column remain."
      [parsed]
      (when-let [view-id (coord->handler-keyword parsed)]
-       (let [meta (rf/handler-meta {:source :store :kind :view :id view-id})
-             err  (rf.source-coords/error-coords-for :view view-id)
-             file (or (:file meta) (:file err))]
+       (let [meta (try
+                    (rf/handler-meta {:source :store :kind :view :id view-id})
+                    (catch :default e
+                      (when-not (rf.registrar/ambiguous-registration? e)
+                        (throw e))))
+             reg  (rf.source-coords/registration-coords meta)
+             file (or (:file meta) (:file reg))]
          {:file   file
-          :line   (or (:line parsed) (:line meta) (:line err) 1)
-          :column (or (:col parsed) (:column meta) (:column err) 1)
+          :line   (or (:line parsed) (:line meta) (:line reg) 1)
+          :column (or (:col parsed) (:column meta) (:column reg) 1)
           :ns     (or (:ns parsed) (some-> meta :ns str))}))))
 
 ;; ---- DOM helpers ---------------------------------------------------------
