@@ -1178,7 +1178,14 @@
    ;; EP-0012 — the CEDN-1 canonical-identity golden ops, the frozen byte
    ;; contract.
    :canonical-bytes
-   {:observe  (fn [call _] (rf.identity/canonical-bytes (:value call)))
+   {:observe  (fn [call _]
+                (when (= (contains? call :value) (contains? call :ident))
+                  (throw (ex-info "a :canonical-bytes record carries exactly one of :value and :ident"
+                                  {:call call})))
+                (rf.identity/canonical-bytes
+                  (if-let [[kind ns nm] (:ident call)]
+                    ((case kind :keyword keyword :symbol symbol) ns nm)
+                    (:value call))))
     :matchers {:expect       (equal-to)
                :expect-error thrown-error-id}}
 
