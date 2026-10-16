@@ -3784,6 +3784,11 @@ The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all`
 
 `:spawn-all` is **sugar the transition reducer lowers**, exactly as it lowers `:spawn`: the spec keeps the literal `:spawn-all` map, and a transition entering the state emits a `:rf.machine/spawn-all-init` fx seeding the join state followed by N parallel `:rf.machine/spawn` fx, while one exiting it emits a `:rf.machine/destroy` fx that tears down every child the slot tracks that is still this join's own. The parent's event handler carries an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves. Destroying the parent ends its `:spawn-all` children through that same destroy (per [§Desugaring rules](#desugaring-rules)).
 
+**What entering it emits.** The reducer allocates every child's address up front, then emits, in this order ([§Machine-emitted fx and their order](#machine-emitted-fx-and-their-order)):
+
+- `[:rf.machine/spawn-all-init {:rf/parent-id :rf/invoke-id :join-state :child-args}]` ([Spec-Schemas `SpawnAllInitFxArgs`](Spec-Schemas.md#standard-fx-args-schemas)). `:join-state` is a **seed**, `{:children :fixed-children :done #{} :failed #{} :resolved? false :invoke-id}`, not the live join of [§Join semantics](#join-semantics): the fx runs the admission preflight (per [§Errors](#errors_1)) over `:child-args`, the prepared per-child spawn args, and on admission writes the seed plus `:cancelled #{}` and a freshly minted `:rf/attempt`. The token is minted by the fx, never by the reducer.
+- One `[:rf.machine/spawn …]` per child, in `:children` order, whose args are that child's spec minus `:id`, treated as a single `:spawn`'s are (per [§Desugaring rules](#desugaring-rules)), with `:rf/spawn-all-id` (the join slot key) and `:rf/spawn-all-child-id` (the child's `:id`) in place of `:rf/invoke-id` / `:rf/invoke-attempt`. A `:spawn-all` writes no `[:rf/spawn-attempts …]` entry; the join's `:rf/attempt` fences its stragglers.
+
 ### The pattern
 
 ```clojure

@@ -2780,6 +2780,10 @@ A frame owns two durable partitions held as one physical frame-state container (
   ;; callbacks and configuration (per-child :on-done, :join, the resolution
   ;; events) are read from the parent's CURRENT definition at the invoke path,
   ;; so they follow hot reload; membership and attempt identity do not.
+  ;; The reducer does not emit this map: its :rf.machine/spawn-all-init fx
+  ;; carries a seed (SpawnAllInitFxArgs :join-state) lacking :cancelled and
+  ;; :rf/attempt, which that fx adds when it writes the slot. The seed's
+  ;; :invoke-id rides along, which this open map admits.
   [:map
    [:children  [:map-of :keyword :keyword]]                                   ;; child-id → spawned-id
    [:fixed-children [:set :keyword]]                                          ;; child-ids whose spec declared :fixed-actor-id — the work-identity provenance (fixed children key their work on :rf/attempt, generated ones on the address's #<n>), captured at seed so a later reload cannot change the identity of work already running
@@ -4047,6 +4051,27 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
         [:rf/invoke-id [:vector :keyword]]
         [:rf/spawn-all [:= true]]]])
 
+;; :rf.machine/spawn-all-init — machine-internal. The transition reducer emits one
+;; per entered :spawn-all state, ahead of that state's per-child :rf.machine/spawn
+;; fx (005 §Machine-emitted fx and their order). :join-state is the reducer's
+;; SEED, not a live InvokeAllJoinState: the handler runs the admission preflight
+;; over :child-args, then writes the seed plus :cancelled #{} and a freshly
+;; minted :rf/attempt to [:rf.runtime/machines :spawned <parent-id> <invoke-id>],
+;; or writes InvokeAllRejectedState when any child fails admission.
+(def SpawnAllInitFxArgs
+  [:map
+   [:rf/parent-id :keyword]                                                 ;; the machine's own actor address (:rf/transition-pure from pure machine-transition)
+   [:rf/invoke-id [:vector :keyword]]                                       ;; the :spawn-all state's prefix-path, the join slot key (region-qualified inside a parallel region)
+   [:join-state
+    [:map
+     [:children       [:map-of :keyword :keyword]]                          ;; child :id → the address the reducer allocated (or its :fixed-actor-id)
+     [:fixed-children [:set :keyword]]                                      ;; child :ids whose spec declared :fixed-actor-id
+     [:done           [:= #{}]]
+     [:failed         [:= #{}]]
+     [:resolved?      [:= false]]
+     [:invoke-id      [:vector :keyword]]]]                                 ;; the reducer's own prefix-path, NOT region-qualified; it rides into the slot as bookkeeping
+   [:child-args [:vector SpawnFxArgs]]])                                    ;; each child's spawn args, in :children order: the maps the per-child spawn fx carry, before region qualification. The handler re-stamps each entry's :rf/parent-id and :rf/spawn-all-id from its own two keys above
+
 ;; :rf.machine/after-schedule — machine-internal. The transition reducer emits
 ;; one per :after entry of each entered :after-bearing state (005 §Machine-emitted
 ;; fx and their order). The handler resolves the delay and arms a host timer
@@ -4147,6 +4172,7 @@ These are registered under spec ids:
 | `:rf.fx.nav/capture-scroll-args` | `:rf.nav/capture-scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id, per [005](005-StateMachines.md); accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
+| `:rf.fx/spawn-all-init-args` | `:rf.machine/spawn-all-init` (machine-internal: seeds a `:spawn-all` join, per [005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all)) |
 | `:rf.fx/after-schedule-args` | `:rf.machine/after-schedule` (machine-internal: arms one `:after` timer, per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) |
 | `:rf.fx/after-cancel-args` | `:rf.machine/after-cancel` (machine-internal: releases an exited state's `:after` timers) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
