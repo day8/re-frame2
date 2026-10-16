@@ -483,7 +483,7 @@ The reserved fx-ids above span **three sub-namespaces** under the `:rf/*` root, 
 
 A handler cannot call a registrar directly — registration is a side effect, so it belongs in `:fx` — which is why a few registrars carry an fx form and most do not. **A registrar gets one only when both of these hold:** the registrar is **frame-scoped**, so the effect threads the dispatching frame in as the `:frame` mounting concern and the call site never names a frame; and **handler-time registration has a named consumer** — a shipped call site that registers or clears from inside an event handler, rather than once at boot where the fn call already serves. Where both hold, the fx args are the registrar's **positional argument vector**, verbatim: the effect is `(apply reg-x args)` with the frame threaded, degenerating to the bare argument where the registrar takes one, and the fx form never re-spells those arguments as a map, reorders them, or adds a positional `:frame` slot. One registration has one argument shape, whichever channel reaches it. No registrar has one. Flows fail the first clause — `reg-flow` is a top-level registration, and a frame activates flows through its `:flows` config ([013 §Activation](013-Flows.md#activation)) — so the flow fx-ids `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are retired, reserved and never recycled ([§Reserved fx-ids](#reserved-fx-ids)).
 
-**There is no `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor`.** The HTTP interceptor registrar satisfies the frame-scoping half but not the second clause: there is no shipped handler-time consumer. HTTP interceptors register through the `reg-http-interceptor` fn/macro pair at boot (per [014 §Middleware](014-HTTPRequests.md#middleware)). **Un-park trigger:** a shipped handler must change the interceptor chain ITSELF from inside an event — reading the current frame's state on every request (the bearer-token interceptor pattern) is boot registration and does not qualify. Should that consumer appear, the shape is pre-settled by the rule above as positional — `[:rf.fx/reg-http-interceptor [id interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never a map form.
+**There is no `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` either.** HTTP interceptors fail the first clause the same way: `reg-http-interceptor` is a top-level registration, and a frame activates definitions by naming them, in order, in its `:http-interceptors` config ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)).
 
 ### Reserved state-node keys (machine transition tables)
 
@@ -1397,7 +1397,7 @@ The bang axis above answers *whether* a tear-down surface carries `!`. The **ver
 
 Symmetric inverse of `reg-*`. Removes an id from a registry the process owns (event registrar, sub registrar, fx registrar, flow registrar, route registrar, http-interceptor registrar, resource / mutation / resource-scope registrars) or drops a process-local cache / buffer outright.
 
-- Single-id decrement, registry-shaped: **ONE verb, `clear`, keyed by kind** — `(rf/clear kind id)` / `(rf/clear kind id {:frame f})` on the `re-frame.core` façade, covering every registrar kind plus `:http-interceptor`. There are no per-kind names (no `clear-event`, `clear-sub`, `clear-fx`, `clear-resource`, `clear-mutation`, `clear-resource-scope`, `clear-http-interceptor`, `clear-flow` or `clear-route`): per-kind names would differ on where the name lived, whether a nilary clear-all existed, how the frame was named, and what came back, and the registrar's own `(kind, id)` grammar is what the one name is keyed by. Per [API.md §Clearing registrations](API.md#clearing-registrations). (bucket 1, no bang)
+- Single-id decrement, registry-shaped: **ONE verb, `clear`, keyed by kind** — `(rf/clear kind id)` on the `re-frame.core` façade, covering every registrar kind. It takes no frame: every registration is a program member, so clearing one removes it for every frame at once. There are no per-kind names (no `clear-event`, `clear-sub`, `clear-fx`, `clear-resource`, `clear-mutation`, `clear-resource-scope`, `clear-http-interceptor`, `clear-flow` or `clear-route`): per-kind names would differ on where the name lived, whether a nilary clear-all existed, how the frame was named, and what came back, and the registrar's own `(kind, id)` grammar is what the one name is keyed by. Per [API.md §Clearing registrations](API.md#clearing-registrations). (bucket 1, no bang)
 - Drop-everything, process-level: `clear-sub-cache!`, `clear-trace-buffer!` (bucket 3, bang)
 
 ### `destroy-*` — lifecycle boundary
@@ -1593,19 +1593,6 @@ The uniformity is load-bearing. It lets call-site code thread the registration i
 ```
 
 Tooling, generators, and CP scaffolds rely on the return value to chain registrations into wiring code. The contract is **fixed-and-additive**: future `reg-*` surfaces ship with the same return shape.
-
-## `reg-*` frame-binding convention — opts kwarg, not main arg
-
-The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. **`:frame` is a kwarg, never a positional argument and never mixed into the handler/value slot.** The one frame-scoped registration surface is `reg-http-interceptor` (`(rf/reg-http-interceptor id interceptor-map)`): because HTTP interceptors are themselves data — a registration IS an interceptor-map carrying `:before` / `:after` / `:frame` / `:rf/registration-metadata` — `:frame` folds into the interceptor-map alongside its sibling slots, mirroring the event-interceptor `{:id :before :after}` mental model (Spec 002). Its teardown, whose primary args are themselves the id, takes `:frame` in a trailing `opts` map (there is no metadata slot on a `clear` surface).
-
-```clojure
-(rf/reg-http-interceptor :session/auth {:before add-session-token :frame :session})
-(rf/clear :http-interceptor :session/auth {:frame :session})
-```
-
-`reg-flow` and `reg-app-schema` are not frame-scoped. A flow is a top-level registration that each frame activates by naming it in its `:flows` config, so a `:frame` in a flow's metadata map is `:rf.error/invalid-flow-metadata` (per [013 §Activation](013-Flows.md#activation)). An app-db schema is a program registration resolved by every frame that resolves it, and a frame that should validate differently selects a later image that shadows the path, so a `:frame` on `reg-app-schema` / `reg-app-schemas` is `:rf.error/app-schema-frame-target` (per [010 §Schemas resolve through the frame's images](010-Schemas.md#schemas-resolve-through-the-frames-images)).
-
-The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is the same mounting key, in kwarg position, across the dispatch / subscribe / `reg-*` / `clear-*` family.
 
 ## `reg-view` auto-id derivation rule
 

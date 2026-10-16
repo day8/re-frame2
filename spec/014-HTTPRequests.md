@@ -6,7 +6,7 @@
 >
 > **Code samples are in ClojureScript** (the CLJS reference). The contract is host-agnostic; the spec calls out per-host divergences (CLJS Fetch / JVM `java.net.http.HttpClient`) explicitly per row.
 >
-> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping, and — property 9 — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) for async completions, which managed HTTP delivers as its [one canonical reply payload](#reply-payload-shape--the-one-canonical-envelope)).
+> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor chains, and — property 9 — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) for async completions, which managed HTTP delivers as its [one canonical reply payload](#reply-payload-shape--the-one-canonical-envelope)).
 
 ## Abstract
 
@@ -822,25 +822,31 @@ Frame awareness covers a request's **lifetime**, not only where its reply lands.
 
 ## Middleware
 
-Apps repeatedly want to apply a transform to every `:rf.http/managed` request or response: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev (request side); parse rate-limit headers, compute response-time deltas, flag a 401 for auth refresh (response side). v1 ships a **per-frame interceptor chain** with both phases — a `:before` request-side transform that sits between the user's args and the transport, and an `:after` response-side transform that sits between the transport's reply and the `:on-success` / `:on-failure` dispatch. The shape mirrors the event-interceptor `{:id :before :after}` onion (Spec 002): symmetric on both sides, `:before` in registration order, `:after` in reverse.
+Apps repeatedly want to apply a transform to every `:rf.http/managed` request or response: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev (request side); parse rate-limit headers, compute response-time deltas, flag a 401 for auth refresh (response side). v1 ships **HTTP interceptors** with both phases — a `:before` request-side transform that sits between the user's args and the transport, and an `:after` response-side transform that sits between the transport's reply and the `:on-success` / `:on-failure` dispatch. An interceptor is a frame-agnostic **definition**, registered once at the top level; a frame **activates** definitions by naming them, in order, in its `:http-interceptors` config. The shape mirrors the event-interceptor `{:id :before :after}` onion and the frame `:interceptors` ref chain (Spec 002): symmetric on both sides, `:before` in the frame's vector order, `:after` in reverse.
 
 ### Shape
 
-The public surface is `(reg-http-interceptor id interceptor-map)` — positional `id` keyword and a single interceptor-map carrying at least one of `:before` / `:after`, plus optional `:frame` (the EP-0002 *override*; absent, the carried scope it registers under resolves it — registering under no scope raises `:rf.error/no-frame-context`, never `:rf/default`) and any `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:schema`. Request sensitivity is not interceptor metadata: it is the per-call `:sensitive?` or `[:request :sensitive?]` of each `:rf.http/managed` request ([§3](#3-per-request--per-call-sensitive)). Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The shape mirrors the event-interceptor `{:id :before :after}` mental model (Spec 002) — one `{:before :after}` map per registration, fully symmetric on the request and response sides.
+The public surface is `(reg-http-interceptor id interceptor-map)` — positional `id` keyword and a single interceptor-map carrying at least one of `:before` / `:after`, plus any `:rf/registration-metadata` (per [Spec-Schemas §`:rf/http-interceptor-meta`](Spec-Schemas.md#rfhttp-interceptor-meta)): `:doc` / `:tags` / `:schema`. It registers the registrar kind `:http-interceptor` ([001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)) and reads no frame: like every `reg-*`, it declares a program member, at namespace load. A `:frame` in the interceptor map is `:rf.error/http-bad-interceptor`, whose message names the `:http-interceptors` frame-config key — honouring it would make one registration mean different things to different frames, and ignoring it would leave the author's frame without the interceptor they asked for. Request sensitivity is not interceptor metadata: it is the per-call `:sensitive?` or `[:request :sensitive?]` of each `:rf.http/managed` request ([§3](#3-per-request--per-call-sensitive)). Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured at the call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference).
 
 ```clojure
 (rf/reg-http-interceptor
-  :auth-header
+  :shop/auth
   {:doc    "Stamp Bearer <token> on every outgoing request."
-   :frame  :rf/default                           ;; the frame whose requests it decorates
    :before (fn [ctx]
              (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})
+
+(rf/make-frame {:id                :shop/app
+                :http-interceptors [:shop/auth :shop/telemetry]})
 ```
 
-Registration names its frame: the explicit `:frame` above, or an enclosing `(rf/with-frame :rf/default …)` around a block of registrations. At namespace load no frame is in scope, so a frameless registration there raises `:rf.error/no-frame-context` and installs nothing. The frame need not exist yet: the chain is keyed by frame id and read each time a request is issued ([§Chain order and frame scope](#chain-order-and-frame-scope)), so an app registers at load, before `(rf/make-frame {:id :rf/default})` creates the frame.
+### Activation — the frame's `:http-interceptors`
+
+A frame names its chain through the frame-config key `:http-interceptors`: a vector of keyword ids, the shape the frame `:interceptors` ref chain already has ([002 §`:interceptors`](002-Frames.md#interceptors--the-frame-level-interceptor-ref-chain-global-within-this-frame)). A frame that names no chain runs no HTTP interceptor, however many definitions are registered, and a definition no frame names is simply unused — nothing warns about it. The chain is frame config, so it travels with `make-frame` / `frame-root` like every other config key: `destroy-frame!` drops it, and a `frame-root` re-supplies it on every mount. A value that is not a vector of keywords is `:rf.error/http-bad-interceptor` at `make-frame`.
+
+The ids resolve through the frame's own registrations when a request is issued — its image generation for a frame made with `:images`, the live registration table otherwise ([002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)). Per-frame divergence is therefore a matter of naming different ids: a user frame names `:user/auth` and an admin frame `:admin/auth`. And a later image's definition of an id shadows the app's for frames built on that image — a test double, or a Story variant's fake auth. An id with no definition fails the request at issue with `:rf.error/unregistered-interceptor` naming the id, before any `:before` runs and before the transport sees anything, the way an unknown interceptor ref fails its chain.
 
 ### `:before` — request-side ctx contract
 
@@ -878,12 +884,11 @@ Returns the (possibly-transformed) response map. The runtime threads each `:afte
 
 ### Chain order and frame scope
 
-- **`:before` chain — registration order.** The `:before` chain runs in the order `reg-http-interceptor` calls were made on that frame. Re-registering an existing id replaces the slot **in place** — the position is preserved.
-- **`:after` chain — REVERSE registration order.** The `:after` chain runs in the **reverse** of registration order: interceptor A registered before B means request flows `A.before → B.before → transport` and response flows `transport → B.after → A.after → reply dispatch`. This mirrors the event-interceptor onion (Spec 002): the outermost registration wraps the innermost on the request side and again on the response side.
+- **`:before` chain — vector order.** The `:before` chain runs in the order the frame's `:http-interceptors` vector names its ids. Registration and load order configure nothing: the registration table has no order across namespaces, so the order is stated where the chain is used. Re-registering an id replaces its definition, and every frame naming it runs the new one from its next request.
+- **`:after` chain — REVERSE vector order.** `:http-interceptors [:a :b]` means request flows `a.before → b.before → transport` and response flows `transport → b.after → a.after → reply dispatch`. This mirrors the event-interceptor onion (Spec 002): the first id wraps the rest on the request side and again on the response side.
 - **Skip-when-absent.** Interceptors with no `:before` are transparent on the request side; interceptors with no `:after` are transparent on the response side. A `:before`-only interceptor and an `:after`-only interceptor compose cleanly. At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is rejected at registration with `:rf.error/http-bad-interceptor`.
-- **Clear-then-re-register.** `clear-http-interceptor` removes the slot entirely; a subsequent `reg-http-interceptor` of the same id is a fresh registration and **appends to the end** of the chain. The position is *not* preserved across a clear — the slot's prior index is forgotten on clear. Tools that want to mutate-in-place (e.g. hot-reload) should call `reg-http-interceptor` directly without clearing first; tools that want a fresh end-of-chain slot use clear-then-reg explicitly.
-- **Per-frame.** An interceptor registered against frame A does NOT fire for a request dispatched from frame B. Multi-frame apps register independent chains per frame; the auth interceptor on the user-app frame doesn't leak into a hypothetical admin-app frame.
-- **Chain resolution is at issue time.** Each managed request captures its frame's HTTP interceptor chain immediately before running `:before`, and its response walks the SAME captured registrations in reverse; retries retain it. Registering, replacing or clearing an interceptor affects only requests that capture their chain afterwards, including changes made from inside an interceptor. This is what makes the ctx-carried-from-`:before` contract above sound: an `:after` only ever runs for a request whose `:before` chain it was part of. This fixes *which* chain a response walks, not *whether* a response is delivered — a reply already suppressed by the failure, cancellation or stale-reply rules stays suppressed.
+- **Per-frame.** A frame runs only the chain it names. Multi-frame apps diverge by naming different ids; the auth interceptor the user-app frame names does not run for an admin-app frame that does not name it.
+- **Chain resolution is at issue time.** Each managed request resolves its frame's chain immediately before running `:before`, captures the resolved definitions — the empty chain included — and its response walks the SAME captured definitions in reverse; retries retain it. Re-registering or clearing a definition, or re-making the frame with a different `:http-interceptors`, affects only requests issued afterwards, including changes made from inside an interceptor. This is what makes the ctx-carried-from-`:before` contract above sound: an `:after` only ever runs for a request whose `:before` chain it was part of. This fixes *which* chain a response walks, not *whether* a response is delivered — a reply already suppressed by the failure, cancellation or stale-reply rules stays suppressed.
 
 ### Failure mode
 
@@ -903,16 +908,16 @@ Pair tools and 10x panels see exactly two traces per interceptor failure: on the
 
 ### Clearing
 
-`(rf/clear :http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear :http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — EP-0024). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The opts form is **exact and fail-closed**: the opts MUST be exactly `{:frame target}` (a present, non-nil frame-id keyword or live frame value). A `{}`, a typo'd key (`{:fram f}`), or a non-map opts raises `:rf.error/registrar-clear-bad-request` (reason `:malformed-opts` — `rf/clear`'s own argument check, shared with the other frame-scoped kind) BEFORE any ambient frame is resolved — it is never reinterpreted as a positional frame nor silently cleared against the ambient scope. The internal frame-first `(frame id)` form is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — frame teardown, actor destroy — **not** a public arity of `clear-http-interceptor`. A frame-first positional spelling on the public surface would misbind — `(clear-http-interceptor id {:frame f})` always reads `id` as the interceptor-id and `{:frame f}` as the opts map; there is no public frame-first arity to guess at.
+`(rf/clear :http-interceptor id)` removes the definition `id`. It takes no frame: a definition belongs to no frame, so clearing it removes it for every frame at once, and a trailing opts map is `:rf.error/registrar-clear-bad-request`. A frame that still names the id fails its next request at issue, as it would for an id never registered. To stop one frame running an interceptor, re-make that frame without it.
 
-Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the slot in place.
+Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the definition, and a namespace that stops registering an id loses it through the hot-reload sweep, as for any other kind.
 
 ### Trace events
 
 | `:operation` | `:op-type` | When |
 |---|---|---|
-| `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Tags: `:frame`, `:id`. |
-| `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot (no trace fires for a clear-of-unknown-id). Tags: `:frame`, `:id`. |
+| `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Tags: `:id`. |
+| `:rf.http.interceptor/cleared` | `:info` | `(rf/clear :http-interceptor id)` removed an existing definition (no trace fires for a clear-of-unknown-id). Tags: `:id`. |
 | `:rf.error/http-interceptor-failed` | `:error` | A `:before` or `:after` threw; see [§Failure mode](#failure-mode). Tags: `:frame`, `:interceptor-id`, `:url`, `:cause`, `:phase` (`:after` for response-side, absent for `:before`). |
 
 ### Example — Bearer auth with a single registration
@@ -920,12 +925,13 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 ```clojure
 (rf/reg-http-interceptor
   :app/bearer-auth
-  {:frame  :rf/default
-   :before (fn [ctx]
+  {:before (fn [ctx]
              (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})
+
+(rf/make-frame {:id :rf/default :http-interceptors [:app/bearer-auth]})
 
 ;; All subsequent `:rf.http/managed` requests on `:rf/default` carry the
 ;; header automatically — no per-call-site threading. The interceptor
@@ -944,8 +950,9 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 | API | Kind | Signature |
 |---|---|---|
-| `reg-http-interceptor` | Macro | `(rf/reg-http-interceptor id interceptor-map)` — positional `id`, single `interceptor-map`. `interceptor-map` carries at least one of `:before` / `:after`, optional `:frame`, optional `:rf/registration-metadata`. |
-| `clear` (kind `:http-interceptor`) | Fn | `(rf/clear :http-interceptor id)` / `(rf/clear :http-interceptor id {:frame frame-id})` — the exact public shapes (ambient scope, or the trailing `{:frame …}` opts map; the opts form is fail-closed on anything but `{:frame target}`). There is no `clear-http-interceptor` name on `re-frame.core`. The frame-first `(frame id)` spelling is artefact-internal plumbing, not a public call. |
+| `reg-http-interceptor` | Macro | `(rf/reg-http-interceptor id interceptor-map)` — positional `id`, single `interceptor-map`. `interceptor-map` carries at least one of `:before` / `:after` and optional `:rf/registration-metadata`; a `:frame` is refused. |
+| `:http-interceptors` | Frame config | `(rf/make-frame {:id f :http-interceptors [id …]})` — the frame's ordered chain, also accepted by `frame-root`. |
+| `clear` (kind `:http-interceptor`) | Fn | `(rf/clear :http-interceptor id)` — removes the definition. There is no `clear-http-interceptor` name on `re-frame.core`. |
 
 `reg-http-interceptor` is re-exported from `re-frame.core`, and `clear` is core's own kind-keyed verb. Both reach code that ships in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 
@@ -1116,7 +1123,7 @@ For test suites that need to inspect or reset the in-flight request registry dir
 | `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` / `(actor-in-flight-snapshot frame-id)` → map | Reads the in-flight requests issued from inside spawned actors, keyed by the raw actor-id (per [§Abort on actor destroy](#abort-on-actor-destroy)). For tests that need to assert which requests an actor owns. The 0-arity concatenates same-named actors across frames; the 1-arity reads one frame's actors. |
 | `seed-in-flight-for-test!` | `(seed-in-flight-for-test! handle)` / `(seed-in-flight-for-test! request-id actor-id handle)` → handle | Publishes a fabricated in-flight request into the one registry, exactly as a real request is published. For fixtures that need an in-flight slot present without issuing a real request. The 1-arity reads `:request-id` / `:actor-id` off the handle. The registry atom is NOT exported — a fixture must seed through this helper rather than `swap!`-ing it directly. |
 
-These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying registry atom is **not** re-exported from `re-frame.http.managed` — exposing mutable internal storage as API would let callers bypass the registry's one-record-per-request invariants. The per-frame HTTP-interceptor chain has the symmetric pair: `interceptors-snapshot` (`(interceptors-snapshot)` → `frame-id → [slot …]`, or `(interceptors-snapshot frame-id)` → `[slot …]`) reads the chain for assertions; registration / clearing route through `reg-http-interceptor` / `clear-http-interceptor`, never a raw atom `swap!`.
+These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying registry atom is **not** re-exported from `re-frame.http.managed` — exposing mutable internal storage as API would let callers bypass the registry's one-record-per-request invariants. HTTP interceptors have a reader too: `interceptors-snapshot` (`(interceptors-snapshot)` → `{id definition}`, or `(interceptors-snapshot frame-id)` → the frame's chain as a request issued now would capture it) for assertions; registration and clearing route through `reg-http-interceptor` and `(rf/clear :http-interceptor id)`.
 
 ## Machine-shape wrapper
 
@@ -1484,7 +1491,7 @@ Per [§Cross-origin classification](#cross-origin-classification) the `:cross-or
 
 ### Per-frame interceptor chain with both request- and response-side phases
 
-Per [§Middleware](#middleware) the v1 middleware contract is a per-frame interceptor chain carrying both phases: a `:before` request-side transform between the user's args and the transport, and an `:after` response-side transform between the transport's reply and the `:on-success` / `:on-failure` dispatch. The request-side cases (Bearer token, correlation-id, base-URL rewrite) and the response-side cases (rate-limit header parsing, response-time telemetry, 401 auth-refresh tagging) are the high-frequency patterns it serves. The two phases compose via one `{:id :before :after}` registration that mirrors the event-interceptor onion (Spec 002): `:before` runs in registration order, `:after` in reverse, and the `:after` sees the same ctx the `:before` chain produced for that request — so request-correlated response handling (e.g. a start-mark stamped by `:before`, read by `:after`) is a single-interceptor concern. Response-side composition with `:accept`: `:accept` runs first inside the transport (domain-failure normalisation produces the canonical `{:status :ok|:error …}` response), then the `:after` chain transforms that response before the reply dispatch.
+Per [§Middleware](#middleware) the v1 middleware contract is a per-frame chain of interceptor definitions carrying both phases: a `:before` request-side transform between the user's args and the transport, and an `:after` response-side transform between the transport's reply and the `:on-success` / `:on-failure` dispatch. The request-side cases (Bearer token, correlation-id, base-URL rewrite) and the response-side cases (rate-limit header parsing, response-time telemetry, 401 auth-refresh tagging) are the high-frequency patterns it serves. The two phases compose via one `{:id :before :after}` registration that mirrors the event-interceptor onion (Spec 002): `:before` runs in the order the frame's `:http-interceptors` names, `:after` in reverse, and the `:after` sees the same ctx the `:before` chain produced for that request — so request-correlated response handling (e.g. a start-mark stamped by `:before`, read by `:after`) is a single-interceptor concern. Response-side composition with `:accept`: `:accept` runs first inside the transport (domain-failure normalisation produces the canonical `{:status :ok|:error …}` response), then the `:after` chain transforms that response before the reply dispatch.
 
 ### Frame-aware reply dispatch
 
