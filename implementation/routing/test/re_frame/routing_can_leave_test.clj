@@ -12,7 +12,7 @@
   `:requested-url`, an unbound `:subs/subscribe-once` hook degrades to
   ALLOW, and an external URL never touches the routing slice. Those run in
   the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+  `clojure -M:test:prod-gate` (the `-Dre-frame.debug=false` lane).
 
   The `:trace` stream is not
   production-real: every `trace/emit!` / `trace/emit-error!` site sits behind

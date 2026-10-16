@@ -14,7 +14,7 @@
   invariants (nothing commits, no pending value, exactly-once dispatch, the
   address-bar restore, the SSR 403 floor) are read off the runtime-db and the
   SSR response. Those run in the ordinary `clojure -M:test` suite AND in
-  `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
+  `clojure -M:test:prod-gate` (the `-Dre-frame.debug=false` lane).
 
   Trace reads — the `:rf.error/can-enter-non-boolean` tags and the NEGATIVE
   `not-any?` read for `:rf.error/no-such-handler` — sit behind `trace/emit!` /
