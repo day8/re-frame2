@@ -108,7 +108,7 @@ Every entry in the table above is JVM-runnable, with the exceptions listed below
 - ✓ `compute-sub` (sub computation against an `app-db` value)
 - ✓ Public registrar queries (`registrations`, `frame-meta`, `sub-topology`, etc.)
 - ✓ **Hiccup → HTML string emission** (per [011](011-SSR.md)) — pure function over hiccup data, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
-- ✓ **Hiccup-walk** (`re-frame.test-helpers`, per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)) — `find-by-testid`, `text-content`, `invoke-handler` and siblings. Pure walkers over hiccup data; expand fn-components and Form-3 class components without instantiating React. The reagent-slim Form-3 discriminator is a CLJS-only branch (reader-conditional); the JVM sees the same hiccup tree.
+- ✓ **Hiccup-walk** (`re-frame.test-helpers`, per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)) — `find-by-testid`, `text-content`, `invoke-handler` and siblings. Pure walkers over hiccup data; expand fn-components and Form-3 class components without instantiating React. The Form-3 discriminator is a CLJS-only branch (reader-conditional); the JVM sees the same hiccup tree.
 - ✗ React-actually-mounting (mount lifecycle, `:on-click` event firing into the real DOM, scroll events) — CLJS-only.
 - ✗ Reactive subscription *tracking* (auto-subscribe-on-deref, dispose lifecycle) — CLJS-only. Subscription *computation* (running the body against an `app-db` value) is JVM-runnable via `compute-sub`.
 
@@ -553,7 +553,7 @@ Thirteen public defs, organised by role. Every entry is JVM-runnable against `cl
 
 | Helper | Form | Signature | Purpose |
 |---|---|---|---|
-| `expand-tree` | Fn | `(expand-tree tree) → tree` | Recursively expand a hiccup tree, invoking any fn-components (and Form-3 class components, per the reagent-slim discriminator) with their args. After expansion every vector's first element is a keyword tag or a non-component value, never a fn / class. Lazy seqs are walked through `map`; vectors through `mapv`. Public so test files mid-walk can re-expand a sub-tree. |
+| `expand-tree` | Fn | `(expand-tree tree) → tree` | Recursively expand a hiccup tree, invoking any fn-components (and Form-3 class components built by Reagent's `create-class`) with their args. After expansion every vector's first element is a keyword tag or a non-component value, never a fn / class. Lazy seqs are walked through `map`; vectors through `mapv`. Public so test files mid-walk can re-expand a sub-tree. |
 | `attrs` | Fn | `(attrs node) → map?` | Return the attrs map of a hiccup node, or `nil` if the node has no attrs map. A hiccup vector's second element is the attrs map iff it is a map. |
 | `children` | Fn | `(children node) → vector` | Return the child elements — everything after the tag (and optional attrs map). Always a vector (empty if no children). `nil` for non-hiccup input. |
 | `text-content` | Fn | `(text-content node) → string` | Recursively collect string leaves under `node` and join into a single string. Numbers coerce to strings; nils are skipped. Useful for `(is (= "Count: 5" (text-content label)))`. |
@@ -573,7 +573,7 @@ For the single-frame e2e shape — install hook + root view + dispatch + testid 
 
 Reagent hiccup admits a function in the first slot of a vector — `[my-component {...}]` — and lazily invokes it during render. The walkers expand nested function components by calling them with their args (just like Reagent's renderer would) before walking, so a test that calls a parent view-fn sees the leaf hiccup the user sees. Expansion is recursive but terminating: a non-vector / non-fn leaf is a fixed point.
 
-Form-3 components built via `r/create-class` are detected (the reagent-slim class tag + the stashed `:reagent-render` slot) and expanded by invoking the render fn directly with the hiccup args. **The walker does NOT instantiate React or run lifecycle methods** — if a Form-3 view's hiccup output depends on lifecycle state (`componentDidMount`-style behaviour), the test sees the initial render only. JVM runs identically: class-3 detection is a no-op because the JVM has no JS class instances.
+Form-3 components built via `r/create-class` from `:reagent-render` are detected (the `reagentRender` fn Reagent 2's `create-class` sets on the class prototype) and expanded by invoking the render fn directly with the hiccup args; a class built from the legacy `:render` key is left unexpanded. **The walker does NOT instantiate React or run lifecycle methods** — if a Form-3 view's hiccup output depends on lifecycle state (`componentDidMount`-style behaviour), the test sees the initial render only. JVM runs identically: class-3 detection is a no-op because the JVM has no JS class instances.
 
 ### Selector convention — `:data-testid` vs `:data-test` vs custom
 
@@ -625,7 +625,7 @@ Authoring side — emit a testid at the view call site:
 
 ### JVM-runnable boundary for hiccup-walk
 
-Every helper in `re-frame.test-helpers` is JVM-runnable. The hiccup-walk core is classpath-clean against `clojure.string` and `re-frame.error` alone — it does not pull React, Reagent, `re-frame.frame`, or any substrate adapter into the classpath. The reagent-slim Form-3 detection uses a reader-conditional (`#?(:cljs ...)`) that's a no-op on the JVM (the JVM has no `.-cljsReagentClass` property access on plain fns), so Form-3 expansion is a CLJS-only optimisation and JVM tests see the same hiccup tree. The async view-content case composes these pure walkers with `re-frame.test-support/poll-until`, whose per-platform shape (JVM synchronous; CLJS `js/Promise`) is reader-conditional, per [§Pattern 5](#pattern-5--single-frame-e2e-fixture).
+Every helper in `re-frame.test-helpers` is JVM-runnable. The hiccup-walk core is classpath-clean against `clojure.string` and `re-frame.error` alone — it does not pull React, Reagent, `re-frame.frame`, or any substrate adapter into the classpath. The Form-3 detection uses a reader-conditional (`#?(:cljs ...)`) that's a no-op on the JVM (the JVM has no class prototype to read `reagentRender` from), so Form-3 expansion is a CLJS-only optimisation and JVM tests see the same hiccup tree. The async view-content case composes these pure walkers with `re-frame.test-support/poll-until`, whose per-platform shape (JVM synchronous; CLJS `js/Promise`) is reader-conditional, per [§Pattern 5](#pattern-5--single-frame-e2e-fixture).
 
 This complements the JVM-runnable list in [§Normative surface §JVM-runnable boundary](#jvm-runnable-boundary-authoritative): hiccup-walk joins `render-to-string` as a JVM-runnable view-test path.
 
