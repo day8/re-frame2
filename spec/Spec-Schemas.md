@@ -4030,6 +4030,31 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
         [:rf/invoke-id [:vector :keyword]]
         [:rf/spawn-all [:= true]]]])
 
+;; :rf.machine/after-schedule — machine-internal. The transition reducer emits
+;; one per :after entry of each entered :after-bearing state (005 §Machine-emitted
+;; fx and their order). The handler resolves the delay and arms a host timer
+;; that, on expiry, dispatches
+;; [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <invoke-id>]]
+;; with :delay-key, :epoch and :rf/invoke-id exactly as they arrived here.
+;; Per [005 §Epoch-based stale detection].
+(def AfterScheduleFxArgs
+  [:map
+   [:rf/parent-id :keyword]                                                 ;; the machine's own actor address (:rf/transition-pure from pure machine-transition)
+   [:rf/invoke-id [:vector :keyword]]                                       ;; the :after-bearing state's declaring path: region-qualified inside a :type :parallel region, [] for a parallel root's own :after
+   [:state        :keyword]                                                 ;; that state's own name (the path's last segment); :rf/parallel-root for a parallel root's own :after
+   [:delay-key    [:or pos-int? :string fn?]]                               ;; the :after map key as declared: ms, an ISO-8601 string, or the delay fn. A :timeout arrives as its resolved ms
+   [:epoch        :int]                                                     ;; the state's :rf/after-epoch entry after this entry bumped it
+   [:server?      :boolean]])                                               ;; true under :platform :server; the handler then arms nothing
+
+;; :rf.machine/after-cancel — machine-internal. The transition reducer emits one
+;; per exited :after-bearing state. The handler releases every host timer armed
+;; under the pair; the epoch the exit bumped is what makes a late firing stale,
+;; so the cancel releases host work early and decides nothing.
+(def AfterCancelFxArgs
+  [:map
+   [:rf/parent-id :keyword]                                                 ;; as AfterScheduleFxArgs
+   [:rf/invoke-id [:vector :keyword]]])                                     ;; as AfterScheduleFxArgs — the pair the state's schedules carried
+
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
 ;; :rf.server/set-status — set the response status code
@@ -4105,6 +4130,8 @@ These are registered under spec ids:
 | `:rf.fx.nav/capture-scroll-args` | `:rf.nav/capture-scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id, per [005](005-StateMachines.md); accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
+| `:rf.fx/after-schedule-args` | `:rf.machine/after-schedule` (machine-internal: arms one `:after` timer, per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) |
+| `:rf.fx/after-cancel-args` | `:rf.machine/after-cancel` (machine-internal: releases an exited state's `:after` timers) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |
