@@ -964,7 +964,9 @@
   When the schemas artefact IS present its registered validator (Malli on
   the CLJS reference) is the same one the framework's dev-mode hot path
   uses, so the seed is held to exactly the contract a real handler commit
-  would be (spec/010 §Production builds)."
+  would be (spec/010 §Production builds): a path absent from the seeded db
+  is not checked, a present value (`nil` included) is, and every registered
+  entry delegates its schema token to the validator, a `nil` token included."
   [frame-id db]
   (let [entries-fn  (rf.late-bind/get-fn :schemas/frame-schema-entries)
         validate-fn (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
@@ -975,9 +977,9 @@
       (into []
             (keep (fn [[reg-path schema-meta]]
                     (let [schema    (:schema schema-meta)
-                          reg-slice (get-in db reg-path)]
-                      (when (and (some? schema)
-                                 (not (validate-fn schema reg-slice)))
+                          reg-slice (get-in db reg-path ::absent)]
+                      (when-not (or (= ::absent reg-slice)
+                                    (validate-fn schema reg-slice))
                         {:path    reg-path
                          :value   reg-slice
                          :schema  schema
