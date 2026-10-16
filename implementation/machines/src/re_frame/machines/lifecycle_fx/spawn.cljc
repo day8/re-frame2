@@ -457,34 +457,23 @@
   and clears the parent's `:rf/spawned` mirror entry
   (`clear-rejected-mirror!`).
 
-  `continue?` is A's exact-frame-incarnation continuation predicate.
-  The schema validator is application code that can destroy
-  A / publish same-id B; when it does, `validate-spawn-data!` returns
-  `:rf/stale-incarnation` (NOT a schema verdict), which is `(false? …)` → this
-  fn returns `false` (not a schema reject) and the ENCLOSING cascade fence in
-  `spawn-fx*` — gated on `(continue?)` — is what suppresses the install. Only a
-  literal `false` (a genuine schema violation while A still owns) is a reject.
-
-  Returns `false` for a no-schema / no-validator / conforming / owner-lost
-  spawn; `true` only on a genuine schema violation."
-  [spec spawned-id initial-snap continue?]
+  Only a literal `false` from the validator (a genuine schema violation) is a
+  reject. Returns `false` for a no-schema / no-validator / conforming spawn;
+  `true` only on a genuine schema violation."
+  [spec spawned-id initial-snap]
   (and (some? spec)
        (false? (rf.machines.data-validation/validate-spawn-data!
-                 spawned-id spec initial-snap continue?))))
+                 spawned-id spec initial-snap))))
 
 (defn- install-spawn!
   "Atomically install the spawned actor's `initial-snap` (with its
   revertible `:rf/machine-type` TYPE reference stamped at the root) and
   the runtime-owned spawn registry slot into the frame's runtime-db.
 
-  Returns an EXPLICIT committed/live result: `:committed`
-  when the runtime-db swap landed, `:skipped` when the exact-owner recheck
-  fenced the swap (an earlier callback destroyed A / published same-id B).
-  The caller (`spawn-fx*`)
-  runs NO post-install tail (classification /
-  `:rf.machine.lifecycle/spawned` / `:start`) unless install COMMITTED and
-  the exact owner is STILL current — a bare-id write otherwise resolves to
-  the CURRENT incarnation B.
+  Returns an EXPLICIT result: `:committed` when the runtime-db swap landed,
+  `:skipped` when the exact write did not. The caller (`spawn-fx*`) runs NO
+  post-install tail (classification / `:rf.machine.lifecycle/spawned` /
+  `:start`) unless install COMMITTED.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
@@ -523,74 +512,51 @@
   unregistered, and a re-registered type is simply the definition it runs
   (Spec 005 §Spawn-and-join via `:spawn-all` §Join state)."
   [frame-id rt-after-alloc spawned-id initial-snap
-   {:keys [machine-id parent-id invoke-id track? continue? owner-token]}]
-  ;; The caller's `:rf.machine.spawn/spawned` trace is
-  ;; callback-bearing; recheck the exact-incarnation continuation before the
-  ;; runtime-db swap so a listener that destroyed A / published same-id B
-  ;; cannot land the A-derived snapshot / spawn-slot install (a bare-id
-  ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). `continue?`
-  ;; is nil only for a hypothetical caller that did not thread it — treated
-  ;; as live.
-  ;; Return the swap outcome EXPLICITLY (`:committed` / `:skipped`) so the
-  ;; caller can fence its own post-install tail on it (an outcome the caller
-  ;; could ignore would let a `:skipped` install still run classification /
-  ;; lifecycle-spawned against B).
-  ;; The pre-swap `(continue?)` check fences a LISTENER, but the
-  ;; WRITE ITSELF is callback-bearing: a synchronous container watch can
-  ;; destroy A / publish same-id B DURING the physical install. The bare
-  ;; `swap-runtime-db!` would still bump the id-keyed commit epoch (now B's).
-  ;; With an event owner, route the install through `swap-runtime-db-exact!`:
-  ;; it binds the write to A's own container, and on mid-write loss returns
-  ;; nil WITHOUT bumping B's epoch — so we report `:skipped`. Without an
-  ;; owner (conformance / pure-fn), fall back to the bare write (its non-nil
-  ;; return marks `:committed`).
-  (if (or (nil? continue?) (continue?))
-    (let [;; Stamp the revertible TYPE reference onto the snapshot root so
-          ;; the lazy resolver can re-materialise the handler from runtime-db
-          ;; alone.
-          initial-snap (cond-> initial-snap
-                         initial-snap (assoc :rf/machine-type machine-id))
-          install-fn (fn [_rt]
-                       (cond-> rt-after-alloc
-                         initial-snap (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
-                         ;; Append the actor to the DURABLE
-                         ;; spawn-order vector in the SAME swap that lands its
-                         ;; snapshot, so the frame's total creation order is
-                         ;; recorded rather than reconstructed. The per-prefix
-                         ;; `#<n>` suffix of `spawned-id` cannot order actors
-                         ;; of different machine types and is absent entirely
-                         ;; on a `:fixed-actor-id`, so frame destroy has no
-                         ;; other durable fact to read.
-                         ;; Gated on the same `initial-snap` as the snapshot
-                         ;; assoc: the order tracks exactly the actors that have
-                         ;; snapshots.
-                         initial-snap (rf.machines.spawn-order/record-in-runtime-db spawned-id)
-                         track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
-                         ;; Write the parent's `:rf/spawned`
-                         ;; mirror beside the registry slot it mirrors: the
-                         ;; teardown projection clears the two TOGETHER, so the
-                         ;; install writes them together (and a rejected spawn
-                         ;; clears the mirror, `clear-rejected-mirror!`). The reducer binds the
-                         ;; mirror too, but a macrostep that exits and
-                         ;; re-enters the spawning state drains the old child's
-                         ;; destroy FIRST, and that clear takes the successor's
-                         ;; freshly bound mirror with it. A value no-op otherwise.
-                         (and track?
-                              (contains? (get-in rt-after-alloc (rf.machines.paths/snapshot-path))
-                                         parent-id))
-                         (assoc-in (rf.machines.paths/spawned-mirror-path
-                                     rt-after-alloc parent-id invoke-id)
-                                   spawned-id)))
-          written    (if owner-token
-                       (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
-                       (rf.frame/swap-runtime-db! frame-id install-fn))]
-      (if (some? written)
-        :committed
-        ;; The exact write reported mid-write owner loss (a container watch
-        ;; published same-id B): no snapshot / spawn-slot landed on B, and no
-        ;; commit epoch was bumped for B.
-        :skipped))
-    :skipped))
+   {:keys [machine-id parent-id invoke-id track? owner-token]}]
+  ;; With an event owner, route the install through `swap-runtime-db-exact!`,
+  ;; which binds the write to that incarnation's own container. Without an
+  ;; owner (conformance / pure-fn), take the bare write (its non-nil return
+  ;; marks `:committed`).
+  (let [;; Stamp the revertible TYPE reference onto the snapshot root so
+        ;; the lazy resolver can re-materialise the handler from runtime-db
+        ;; alone.
+        initial-snap (cond-> initial-snap
+                       initial-snap (assoc :rf/machine-type machine-id))
+        install-fn (fn [_rt]
+                     (cond-> rt-after-alloc
+                       initial-snap (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
+                       ;; Append the actor to the DURABLE
+                       ;; spawn-order vector in the SAME swap that lands its
+                       ;; snapshot, so the frame's total creation order is
+                       ;; recorded rather than reconstructed. The per-prefix
+                       ;; `#<n>` suffix of `spawned-id` cannot order actors
+                       ;; of different machine types and is absent entirely
+                       ;; on a `:fixed-actor-id`, so frame destroy has no
+                       ;; other durable fact to read.
+                       ;; Gated on the same `initial-snap` as the snapshot
+                       ;; assoc: the order tracks exactly the actors that have
+                       ;; snapshots.
+                       initial-snap (rf.machines.spawn-order/record-in-runtime-db spawned-id)
+                       track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
+                       ;; Write the parent's `:rf/spawned`
+                       ;; mirror beside the registry slot it mirrors: the
+                       ;; teardown projection clears the two TOGETHER, so the
+                       ;; install writes them together (and a rejected spawn
+                       ;; clears the mirror, `clear-rejected-mirror!`). The reducer binds the
+                       ;; mirror too, but a macrostep that exits and
+                       ;; re-enters the spawning state drains the old child's
+                       ;; destroy FIRST, and that clear takes the successor's
+                       ;; freshly bound mirror with it. A value no-op otherwise.
+                       (and track?
+                            (contains? (get-in rt-after-alloc (rf.machines.paths/snapshot-path))
+                                       parent-id))
+                       (assoc-in (rf.machines.paths/spawned-mirror-path
+                                   rt-after-alloc parent-id invoke-id)
+                                 spawned-id)))
+        written    (if owner-token
+                     (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
+                     (rf.frame/swap-runtime-db! frame-id install-fn))]
+    (if (some? written) :committed :skipped)))
 
 ;; ---- authoritative :spawn-all prepared-children handoff -------------------
 
@@ -1002,7 +968,7 @@
   taken only when `pre-allocated-actor-id` returned nil, and a `:fixed-actor-id`
   spawn always has one.
 
-  Between this read and the swap sit only the `(continue?)` rechecks and the
+  Between this read and the swap sits only the
   `:rf.machine.spawn/spawned` trace — no
   `runtime-db` writer —
   so the rebased base is as current at commit as the caller's own read is on the
@@ -1010,23 +976,20 @@
 
   RETURNS NIL WHEN THE TEARDOWN COST US THE FRAME. The occupant's authored
   `:exit` is APPLICATION code running synchronously inside the teardown: it can
-  destroy this frame outright (the live `runtime-db` then reads nil) or destroy
-  incarnation A and publish a same-id B (`continue?` goes false — and note that
-  fence is a FRAME fence, so it is checked here explicitly rather than assumed
-  to cover same-address actor churn). Either way the replacement must not
-  install, and returning nil suppresses the spawned traces as well as the write.
+  destroy this frame outright, outside any drain (the live `runtime-db` then
+  reads nil). The replacement must not install, and returning nil suppresses
+  the spawned traces as well as the write.
   On the untouched path `rt-after-alloc` is handed straight back, so a spawn at
   an EMPTY address pays one `occupant-actor-live?` read and nothing else."
-  [frame-id args spawned-id prepared rt-after-alloc continue?]
+  [frame-id args spawned-id prepared rt-after-alloc]
   (if-not (and (contains? args :fixed-actor-id)
                (rf.machines.lifecycle-fx.destroy/destroy-occupant-for-replacement!
                  frame-id spawned-id))
     rt-after-alloc
-    (when (or (nil? continue?) (continue?))
-      (when-let [rt (rf.frame/frame-runtime-db-value frame-id)]
-        (if prepared
-          (drop-prepared-entry rt args spawned-id)
-          rt)))))
+    (when-let [rt (rf.frame/frame-runtime-db-value frame-id)]
+      (if prepared
+        (drop-prepared-entry rt args spawned-id)
+        rt))))
 
 (defn- spawn-fx*
   "The accepted-spawn body of `spawn-fx` — runs only after the
@@ -1036,31 +999,13 @@
   inheritable keys ride the newborn's bootstrap dispatch; `args` the spawn
   args. Returns the allocated `spawned-id`."
   [frame-id envelope args]
-  (let [;; A's exact-frame-incarnation continuation predicate.
-        ;; The `[:schemas :data]` spawn validator (`validate-spawn-data!`, run
-        ;; inside `spawn-rejected?` below) is APPLICATION code that can
-        ;; synchronously destroy this frame incarnation A and publish a same-id
-        ;; successor B before returning. Everything after that callback — the
-        ;; snapshot / spawn-slot install, per-instance
-        ;; classification lowering, the spawn-order record, the two spawned
-        ;; traces, and the `:start` (or synthetic) dispatch — is framework-owned
-        ;; tail computed from A's already-read runtime-db. Re-checking
-        ;; `(continue?)` at the cascade gate fences that whole tail so no
-        ;; A-derived allocation or bookkeeping lands on B (whose bare-id
-        ;; `swap-runtime-db!` would otherwise resolve to B). Built ONCE here and
-        ;; threaded into `spawn-rejected?` so the callback and the cascade fence
-        ;; against the SAME token.
-        continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; The RAW exact owner token (`continue?` closes over it),
-        ;; threaded into `install-spawn!` so the snapshot / spawn-slot install
-        ;; rides `swap-runtime-db-exact!`: a synchronous container watch
-        ;; that destroys A / publishes same-id B DURING the physical write neither
-        ;; redirects the write into B nor bumps B's commit epoch (a bare
-        ;; `swap-runtime-db!` bumps the id-keyed epoch — now B's — before the
-        ;; later owner check). nil for a
-        ;; non-router pure-fn / conformance caller (no event owner) — the install
-        ;; then takes the bare-id write, symmetric with `continue?`'s
-        ;; `(constantly true)`.
+  (let [;; The RAW event-owner token, threaded into `install-spawn!` and the
+        ;; classification lowering so both ride the EXACT durable write. nil
+        ;; for a non-router pure-fn / conformance caller (no event owner) —
+        ;; those writes then take the bare-id path. A destroy of the owning
+        ;; frame requested by the `[:schemas :data]` validator or a container
+        ;; watch waits for the event boundary, so the whole spawn tail runs
+        ;; against the incarnation it started in.
         owner-token (rf.frame/current-event-owner-token)
         ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
@@ -1148,38 +1093,32 @@
         ;; validator ALREADY ran once there — so it is never re-validated here.
         rejected?  (if prepared
                      false
-                     (spawn-rejected? spec'' spawned-id initial-snap continue?))]
+                     (spawn-rejected? spec'' spawned-id initial-snap))]
     ;; A schema-rejected spawn clears the parent's `:rf/spawned` mirror entry
     ;; the reducer bound, as the unregistered-TYPE and generated-collision
-    ;; rejects do. `rejected?` is true only while A still owned the event when
-    ;; the validator returned; the `(continue?)` recheck and the exact write
-    ;; inside `clear-rejected-mirror!` keep the cleanup off a same-id successor.
-    (when (and rejected? (continue?))
+    ;; rejects do.
+    (when rejected?
       (clear-rejected-mirror! frame-id args))
     ;; Gate the ENTIRE accepted-spawn cascade — the
     ;; `:rf.machine.spawn/spawned` trace, the snapshot/spawn-slot
-    ;; install, AND the `:start` (or synthetic) dispatch — on THREE conditions:
+    ;; install, AND the `:start` (or synthetic) dispatch — on TWO conditions:
     ;;   (1) the spawn being accepted (`not rejected?` — no schema violation),
+    ;;       and
     ;;   (2) the frame being LIVE at read time (`old-rt` non-nil — a
     ;;       destroyed / never-created frame reads nil and allocates a nil
     ;;       `spawned-id`; firing a phantom spawned trace + `[nil <start>]`
-    ;;       dispatch would be an atomicity violation), and
-    ;;   (3) the exact frame incarnation that owns the event STILL being live
-    ;;       AFTER the schema callback (`(continue?)`). A
-    ;;       validator that destroyed A / published same-id B loses the token;
-    ;;       none of the A-derived install / classification / spawn-order /
-    ;;       trace / dispatch tail may land on B.
-    ;; A destroyed-frame or owner-lost spawn is a clean no-op — no trace, no
-    ;; install, no dispatch — symmetric with the schema-reject path's atomicity.
+    ;;       dispatch would be an atomicity violation).
+    ;; A destroyed-frame spawn is a clean no-op — no trace, no install, no
+    ;; dispatch — symmetric with the schema-reject path's atomicity.
     ;;
-    ;; A FOURTH condition shares the same `and`, after the three above: the
+    ;; A THIRD condition shares the same `and`, after the two above: the
     ;; install base must be obtainable. `install-base-after-replacing-occupant!` runs LAST — after the
     ;; validator verdict, so a rejected spawn never disturbs an occupant — and it
     ;; tears a LIVE occupant of a supplied `:fixed-actor-id` down through the
     ;; ORDINARY destroy path before returning the POST-teardown value the install
     ;; must be built on. It returns nil when the occupant's authored `:exit` cost
-    ;; us the frame or the exact owner, which suppresses the spawned traces and
-    ;; the install together. On every other spawn it returns `rt-after-alloc`
+    ;; us the frame, which suppresses the spawned traces and the install
+    ;; together. On every other spawn it returns `rt-after-alloc`
     ;; unchanged.
     ;;
     ;; The teardown sits AHEAD of the `:rf.machine.spawn/spawned` trace on
@@ -1187,7 +1126,7 @@
     ;; BEFORE the replacement's spawned traces, and a tool pairing lifecycle
     ;; events never sees one address spawned twice with no destroy between.
     ;;
-    ;; That fourth condition SPLITS in two on the SAME occupancy
+    ;; That third condition SPLITS in two on the SAME occupancy
     ;; question, because occupancy means opposite things at the two kinds of
     ;; address. At a SUPPLIED `:fixed-actor-id` it means REPLACE (above). At a
     ;; GENERATED `<type>#<n>` it means REJECT: the counter is
@@ -1200,13 +1139,13 @@
     ;; together, exactly as an unobtainable install base does. It sits INSIDE
     ;; the same `and`, after the validator verdict, so a schema-rejected spawn
     ;; still reports only its own diagnostic.
-    (when-let [rt-install (and (not rejected?) old-rt (continue?)
+    (when-let [rt-install (and (not rejected?) old-rt
                                (if (generated-address-collision?
                                      frame-id args prepared spawned-id)
                                  (reject-generated-address-collision!
                                    frame-id args spawned-id)
                                  (install-base-after-replacing-occupant!
-                                   frame-id args spawned-id prepared rt-after-alloc continue?)))]
+                                   frame-id args spawned-id prepared rt-after-alloc)))]
       (rf.trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE;
@@ -1218,19 +1157,6 @@
                     :start      (:start args)
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
-      ;; The `:rf.machine.spawn/spawned` trace above is
-      ;; callback-bearing when `spawn-fx` is called directly, outside any
-      ;; drain: its trace LISTENERS then run synchronously and can destroy A /
-      ;; publish same-id B before the emit returns (inside a drain they run
-      ;; after the drain). Recheck the exact-incarnation
-      ;; continuation HERE, after the trace fanout and before ANY framework-
-      ;; owned bookkeeping — the install / classification / spawn-order record /
-      ;; `:rf.machine.lifecycle/spawned` trace / `:start` dispatch tail is all
-      ;; A-derived and would otherwise commit into B's name (the bare-id
-      ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). The initial
-      ;; `(continue?)` cascade gate fences only the SCHEMA-validator callback;
-      ;; this fences the trace-listener callback that gate runs ahead of.
-      ;;
       ;; NO per-instance handler registration. The actor's liveness IS its
       ;; snapshot's presence in the (revertible) frame value; the snapshot's
       ;; `:rf/machine-type` (stamped by `install-spawn!`) lets the lazy resolver
@@ -1242,113 +1168,84 @@
       ;; consistent state). When the spawned id was allocated from the frame's
       ;; runtime-db (the hand-emitted-spawn fallback path), `rt-after-alloc`
       ;; already carries the bumped counter — install the snapshot on top of
-      ;; that. `continue?` is threaded into `install-spawn!` so the write is
-      ;; rechecked against the exact incarnation immediately before it lands.
-      (when (continue?)
-        (let [installed (install-spawn! frame-id rt-install spawned-id initial-snap
-                                        {:machine-id  (:machine-id args)
-                                         :parent-id   parent-id
-                                         :invoke-id   invoke-id
-                                         :track?      track?
-                                         :continue?   continue?
-                                         :owner-token owner-token})]
-        ;; The emissions ahead of `install-spawn!`'s swap are
-        ;; callback-bearing: on the direct-call path a listener can destroy A /
-        ;; publish same-id B on the trace's own stack. Run the framework-owned tail —
-        ;; per-instance classification and the
-        ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
-        ;; AND the exact owner is STILL current after those callbacks. Otherwise
-        ;; the bare-id classification writes + the
-        ;; lifecycle-spawned trace would commit into B's name. The initial
-        ;; `(continue?)` gate at the cascade top fences only the earlier
-        ;; `:rf.machine.spawn/spawned` trace-listener callback; this fences the
-        ;; install's own two callbacks that gate runs ahead of.
-        (when (and (= :committed installed) (continue?))
-        ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
-        ;; `:data` declarations
-        ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
-        ;; each snapshot-relative `[:data …]` path to this instance's absolute
-        ;; snapshot path. The classification travels with the machine def and
-        ;; applies to every generated `<type>#n`, dropped on destroy
-        ;; (`teardown-live-actor!`). The egress READ path
-        ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is not
-        ;; involved — this writes the registry-entry source `:source :machine`, a peer of
-        ;; the general commit-plane `:source :effect` route. A spec declaring
-        ;; no classification is a no-op. Thread A's `owner-token`
-        ;; so the per-instance classification lowering rides the EXACT elision
-        ;; write: a container watch that destroys A / publishes same-id B DURING
-        ;; the registry write cannot re-root the lowered `:sensitive` / `:large`
-        ;; declarations onto B's snapshot path or bump B's commit epoch (the
-        ;; install itself is already exact; this closes the sibling classification
-        ;; write the earlier fences ran ahead of).
-        (rf.machines.classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
-        ;; `lower-at-spawn!` writes through the EXACT elision swap, a
-        ;; container-write boundary: a synchronous watch can destroy A / publish
-        ;; same-id B DURING the classification lowering. Recheck `(continue?)`
-        ;; AFTER it before the lifecycle trace / `:start`
-        ;; dispatch tail — otherwise the lifecycle-spawned
-        ;; trace / bootstrap dispatch land against B. The install itself is already
-        ;; exact (`install-spawn!`); this fences the classification-lowering seam
-        ;; the earlier `(= :committed installed) (continue?)` gate ran ahead of.
-        (when (continue?)
-        ;; The REGISTRAR-substrate "instance appeared" observation, the
-        ;; symmetric partner of
-        ;; `:rf.machine.lifecycle/created` (handler registered) and
-        ;; `:rf.machine.lifecycle/destroyed` (handler/snapshot reaped).
-        ;; The fx-substrate emit above (`:rf.machine.spawn/spawned`) says
-        ;; "the spawn fx ran"; this emit says "a spawned actor's snapshot
-        ;; landed in runtime-db". Spec 009 §Two-axis machine
-        ;; observation: tools that just want "did an actor appear?"
-        ;; subscribe to the `:rf.machine.lifecycle/*` channel; causal-graph
-        ;; builders subscribe to both and disambiguate by the naming axis.
-        ;; The `:state` tag carries the actor's initial state so the Xray
-        ;; managed-fx invoke adapter can render it without re-reading
-        ;; runtime-db (`managed_fx_helpers/machine-invoke-adapter`).
-        (rf.trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
-                     {:frame      frame-id
-                      ;; `:machine-id` = spec-time registered TYPE;
-                      ;; `:spawned-id` = live instance address;
-                      ;; `:invoke-id` = declarative invocation path.
-                      :machine-id (:machine-id args)
-                      :spawned-id spawned-id
-                      :invoke-id  invoke-id
-                      :parent-id  parent-id
-                      :state      (:state initial-snap)})
-      ;; The `:rf.machine.lifecycle/spawned` trace above is
-      ;; likewise callback-bearing; recheck ownership once more before the
-      ;; `:start` (or synthetic) actor-bootstrap dispatch so a listener that
-      ;; just replaced A with B cannot kick B's bootstrap under A's authority.
-      (when (continue?)
-        ;; (6) Fire the :start event into the new actor. Spawns that don't
-        ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
-        ;; generic child machines can declare their first transition out of an
-        ;; :initial state at spec-write time.
-        ;; Stamp `:source :machine-spawn` on the actor-bootstrap dispatch so
-        ;; the Epoch panel's DISPATCH step labels it "from machine spawn"
-        ;; rather than `:unknown` or `:fx-dispatch` (which would be the value
-        ;; if the spawn fx routed through `:dispatch`), and Xray's L2 timeline
-        ;; can prefix the row + per-source filter pills can discriminate
-        ;; actor-bootstrap cascades. `:source` is the single functional-origin
-        ;; discriminator (closed-enum per Spec-Schemas
-        ;; §`:rf/dispatch-envelope`).
-        ;;
-        ;; A spawn QUEUES A CHILD (Spec 002 §Run propagation), so
-        ;; the bootstrap dispatch goes through the reserved-dispatch seam
-        ;; `rf.fx/child-dispatch!`: the spawning envelope's inheritable keys
-        ;; (`:fx-overrides`, `:interceptor-overrides`, `:trace-id`,
-        ;; `:origin`, the per-call mint policy) ride into the newborn, so a
-        ;; per-call override reaches every fx the child fires. `:source` is
-        ;; re-stamped, never inherited. The spawn runs inside the spawning
-        ;; event, so the newborn's first event joins the frame's internal
-        ;; lane in FIFO order: it runs after the siblings its family queued
-        ;; earlier and before any external event (Spec 002
-        ;; §Run-to-completion). A nil envelope (a direct caller) falls back
-        ;; to `{:frame frame-id}`.
-        (let [start (:start args)]
-          (rf.fx/child-dispatch! frame-id
-                                 envelope
-                                 [spawned-id (if (some? start) start [:rf.machine.spawn/spawned])]
-                                 {:source :machine-spawn}))))))))
+      ;; that.
+      (let [installed (install-spawn! frame-id rt-install spawned-id initial-snap
+                                      {:machine-id  (:machine-id args)
+                                       :parent-id   parent-id
+                                       :invoke-id   invoke-id
+                                       :track?      track?
+                                       :owner-token owner-token})]
+        ;; Run the framework-owned tail — per-instance classification, the
+        ;; `:rf.machine.lifecycle/spawned` trace and the `:start` dispatch —
+        ;; ONLY when the install COMMITTED.
+        (when (= :committed installed)
+          ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
+          ;; `:data` declarations
+          ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
+          ;; each snapshot-relative `[:data …]` path to this instance's absolute
+          ;; snapshot path. The classification travels with the machine def and
+          ;; applies to every generated `<type>#n`, dropped on destroy
+          ;; (`teardown-live-actor!`). The egress READ path
+          ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is not
+          ;; involved — this writes the registry-entry source `:source :machine`, a peer of
+          ;; the general commit-plane `:source :effect` route. A spec declaring
+          ;; no classification is a no-op. Thread the `owner-token`
+          ;; so the per-instance classification lowering rides the EXACT elision
+          ;; write, as the install does.
+          (rf.machines.classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
+          ;; The REGISTRAR-substrate "instance appeared" observation, the
+          ;; symmetric partner of
+          ;; `:rf.machine.lifecycle/created` (handler registered) and
+          ;; `:rf.machine.lifecycle/destroyed` (handler/snapshot reaped).
+          ;; The fx-substrate emit above (`:rf.machine.spawn/spawned`) says
+          ;; "the spawn fx ran"; this emit says "a spawned actor's snapshot
+          ;; landed in runtime-db". Spec 009 §Two-axis machine
+          ;; observation: tools that just want "did an actor appear?"
+          ;; subscribe to the `:rf.machine.lifecycle/*` channel; causal-graph
+          ;; builders subscribe to both and disambiguate by the naming axis.
+          ;; The `:state` tag carries the actor's initial state so the Xray
+          ;; managed-fx invoke adapter can render it without re-reading
+          ;; runtime-db (`managed_fx_helpers/machine-invoke-adapter`).
+          (rf.trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
+                       {:frame      frame-id
+                        ;; `:machine-id` = spec-time registered TYPE;
+                        ;; `:spawned-id` = live instance address;
+                        ;; `:invoke-id` = declarative invocation path.
+                        :machine-id (:machine-id args)
+                        :spawned-id spawned-id
+                        :invoke-id  invoke-id
+                        :parent-id  parent-id
+                        :state      (:state initial-snap)})
+          ;; (6) Fire the :start event into the new actor. Spawns that don't
+          ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
+          ;; generic child machines can declare their first transition out of an
+          ;; :initial state at spec-write time.
+          ;; Stamp `:source :machine-spawn` on the actor-bootstrap dispatch so
+          ;; the Epoch panel's DISPATCH step labels it "from machine spawn"
+          ;; rather than `:unknown` or `:fx-dispatch` (which would be the value
+          ;; if the spawn fx routed through `:dispatch`), and Xray's L2 timeline
+          ;; can prefix the row + per-source filter pills can discriminate
+          ;; actor-bootstrap cascades. `:source` is the single functional-origin
+          ;; discriminator (closed-enum per Spec-Schemas
+          ;; §`:rf/dispatch-envelope`).
+          ;;
+          ;; A spawn QUEUES A CHILD (Spec 002 §Run propagation), so
+          ;; the bootstrap dispatch goes through the reserved-dispatch seam
+          ;; `rf.fx/child-dispatch!`: the spawning envelope's inheritable keys
+          ;; (`:fx-overrides`, `:interceptor-overrides`, `:trace-id`,
+          ;; `:origin`, the per-call mint policy) ride into the newborn, so a
+          ;; per-call override reaches every fx the child fires. `:source` is
+          ;; re-stamped, never inherited. The spawn runs inside the spawning
+          ;; event, so the newborn's first event joins the frame's internal
+          ;; lane in FIFO order: it runs after the siblings its family queued
+          ;; earlier and before any external event (Spec 002
+          ;; §Run-to-completion). A nil envelope (a direct caller) falls back
+          ;; to `{:frame frame-id}`.
+          (let [start (:start args)]
+            (rf.fx/child-dispatch! frame-id
+                                   envelope
+                                   [spawned-id (if (some? start) start [:rf.machine.spawn/spawned])]
+                                   {:source :machine-spawn})))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
@@ -1391,17 +1288,13 @@
   to no spec, so it can never also be a schema reject — so each offending child
   is reported under exactly one of them.
 
-  The validator is application code fenced to A's exact incarnation via
-  `continue?`; the invoke-level caller rechecks `(continue?)` after the whole
-  preflight before any durable write.
-
   `:spawned-id` is nil (nothing prepared) for a child with no pre-allocated id:
   its `:rf/self-id` stamp — and therefore its `:data` — is unknowable until an
   install allocates one, so there is nothing faithful to prepare. The transition
   reducer pre-allocates every declarative `:spawn-all` child; the runtime-db
   fallback allocator serves only hand-emitted `:rf.machine/spawn` fxs, which
   belong to no invoke."
-  [args join-state continue?]
+  [args join-state]
   (let [spawned-id (pre-allocated-actor-id args)
         ;; The framework stamp runs through the SAME `candidate-spawn-spec`
         ;; path the per-child install runs, so the two can never disagree
@@ -1418,7 +1311,7 @@
         snap       (when spec
                      (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
         schema-reject? (boolean (and snap (some? spawned-id)
-                                     (spawn-rejected? spec spawned-id snap continue?)))]
+                                     (spawn-rejected? spec spawned-id snap)))]
     {:args           args
      :spawned-id     spawned-id
      :spec           spec
@@ -1477,13 +1370,10 @@
   B's commit epoch), leaving B holding an IMPOSSIBLE join it never spawned.
 
   With an event owner, route the write through `swap-runtime-db-exact!`: it
-  binds the install to A's own container, so a same-id B can never redirect it,
-  and on mid-write owner loss (a synchronous container watch that destroys A
-  during the physical install) it returns nil WITHOUT bumping B's epoch — B
-  stays byte-identical. Without an owner (a conformance / pure-fn caller with no
-  router event owner), fall back to the bare-id write; that path has
-  no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
-  Returns the new runtime-db slice, or nil on owner loss.
+  binds the install to that incarnation's own container. Without an owner (a
+  conformance / pure-fn caller with no router event owner), fall back to the
+  bare-id write. Returns the new runtime-db slice, or nil when the write did
+  not land.
 
   `mirror` is set in the SAME swap at the parent's
   `[:data :rf/spawned <invoke-id>]` (`paths/spawned-mirror-path`): the
@@ -1532,18 +1422,15 @@
   The same write removes the parent's `:rf/spawned` children map for the
   invoke, which the transition reducer bound before this fx decided.
 
-  Fenced on `(continue?)` and bound to A's raw owner token: the
-  reject path fans callback-bearing records whose listeners can synchronously
-  destroy owner frame A and publish a same-id successor B, and no A-derived
-  sentinel may land on B. Returns nil — the fx's reject-path return value.
+  Bound to the event owner's raw token. Returns nil — the fx's reject-path
+  return value.
 
   Shared by BOTH reject branches: the structural alias reject, which
   short-circuits ahead of preparation, and the prepared-child reject for an
   unregistered TYPE / schema rejection."
-  [frame-id owner-token parent-id invoke-id continue?]
-  (when (continue?)
-    (write-spawned-slot! frame-id owner-token parent-id invoke-id
-                         spawn-all-reject-sentinel))
+  [frame-id owner-token parent-id invoke-id]
+  (write-spawned-slot! frame-id owner-token parent-id invoke-id
+                       spawn-all-reject-sentinel)
   nil)
 
 (defn spawn-all-init-fx
@@ -1631,18 +1518,10 @@
   guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
   finds nothing to tear down and clears the sentinel on parent exit.
 
-  EXACT-INCARNATION FENCE. The preflight's `[:schemas :data]`
-  validators are application code, and the reject path fans callback-bearing
-  always-on records + dev traces; either can synchronously destroy owner frame
-  A and publish a same-id successor B on its own stack. Both durable writes —
-  the live join AND the reject sentinel — therefore ride A's raw owner token
-  through `write-spawned-slot!` (`swap-runtime-db-exact!`): a same-id B can
-  never redirect the write, and a mid-write container watch that loses A no-ops
-  it (nil return) without bumping B's epoch, so B stays byte-identical. `continue?`
-  is rechecked after the preflight (before either write) and between reject
-  emissions, and the `:rf.machine.spawn-all/started` trace fires only when the
-  join actually committed into A. A validator / listener that swaps A for B thus
-  lands no A-derived join, sentinel, or started trace on B."
+  Both durable writes — the live join AND the reject sentinel — ride the
+  event owner's raw token through `write-spawned-slot!`
+  (`swap-runtime-db-exact!`), and the `:rf.machine.spawn-all/started` trace
+  fires only when the join actually committed."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame; a nil stamp is an invariant failure
@@ -1691,18 +1570,9 @@
         join-state (assoc (:join-state args)
                           :cancelled #{}
                           :rf/attempt (next-join-attempt-token))
-        continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; The RAW exact owner token (`continue?` closes over the
-        ;; same authority). The admission preflight below runs application
-        ;; `[:schemas :data]` validators (`prepare-spawn-all-child`), and the
-        ;; reject path fans callback-bearing always-on reject records + dev
-        ;; traces (`reject-unregistered-spawn!`): each is application / listener
-        ;; code that can synchronously destroy owner frame A and publish same-id
-        ;; successor B. Binding the durable join / reject-sentinel write to A's
-        ;; own token (`write-spawned-slot!` → `swap-runtime-db-exact!`) keeps B
-        ;; byte-identical even under a mid-write container watch; nil for a
-        ;; non-router caller falls back to the bare write, symmetric with
-        ;; `continue?`'s `(constantly true)`.
+        ;; The RAW event-owner token the durable join / reject-sentinel write
+        ;; rides (`write-spawned-slot!` → `swap-runtime-db-exact!`); nil for a
+        ;; non-router caller, which takes the bare write.
         owner-token (rf.frame/current-event-owner-token)
         ;; ---- The invoke-level admission preflight ------------------------
         ;; ONE authoritative preparation per child, then ONE decision — both
@@ -1735,21 +1605,16 @@
         ;; first would (a) run application `[:schemas :data]` callbacks — and emit
         ;; their `:rf.error/schema-validation-failure` traces — for a batch
         ;; ALREADY known structurally invalid, so the structural fault would not
-        ;; fail first, and (b) let one of those validators / its listeners destroy
-        ;; owner frame A mid-preflight and PRE-EMPT the collision reject through
-        ;; the `(continue?)` fence, losing the diagnostic entirely. Only a
-        ;; structurally unique batch earns registry resolution, snapshot building
-        ;; or schema validation.
+        ;; fail first. Only a structurally unique batch earns registry
+        ;; resolution, snapshot building or schema validation.
         collisions (spawn-all-address-collisions child-args)]
     (if (seq collisions)
       ;; Structural reject — nothing was prepared, so this is the ONLY
       ;; diagnostic the invoke fans. Atomic via the same childless sentinel
-      ;; every reject seeds; fenced on `(continue?)` because the trace's
-      ;; listeners are application code that can swap A for a same-id B.
-      (do (when (continue?)
-            (reject-address-collision! frame-id parent-id invoke-id collisions))
-          (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
-      (let [prepared       (mapv #(prepare-spawn-all-child % join-state continue?) child-args)
+      ;; every reject seeds.
+      (do (reject-address-collision! frame-id parent-id invoke-id collisions)
+          (seed-reject-sentinel! frame-id owner-token parent-id invoke-id))
+      (let [prepared       (mapv #(prepare-spawn-all-child % join-state) child-args)
             unregistered   (mapv :args (filterv :unregistered? prepared))
             schema-invalid (filterv :schema-reject? prepared)]
         (if (or (seq unregistered) (seq schema-invalid))
@@ -1782,22 +1647,9 @@
           ;; and already rejected upstream, before this branch's `prepared` was
           ;; ever computed. Reaching this branch therefore means the
           ;; batch's addresses are all distinct.
-          ;;
-          ;; Every reject record + dev trace `reject-unregistered-spawn!`
-          ;; fans is callback-bearing (an always-on `:errors` listener can destroy A
-          ;; / publish same-id B), and the preflight's schema validators above may
-          ;; ALREADY have lost A. Fence between emissions on `(continue?)` so a
-          ;; listener that replaces A with B terminates the remaining rejects rather
-          ;; than attributing stale diagnostics to a dead frame / successor B; then
-          ;; seed the childless sentinel ONLY while A still owns, bound to A's raw
-          ;; token so a same-id B stays byte-identical (no A-derived sentinel lands
-          ;; on B). Under a live owner with no destroyer this is simply one
-          ;; reject per unregistered child and one sentinel seeded.
-          (do (loop [remaining unregistered]
-                (when (and (seq remaining) (continue?))
-                  (reject-unregistered-spawn! frame-id (:machine-id (first remaining)))
-                  (recur (rest remaining))))
-              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
+          (do (doseq [child unregistered]
+                (reject-unregistered-spawn! frame-id (:machine-id child)))
+              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id))
           ;; The all-valid fast path. `join-state` already carries the opaque
           ;; per-attempt token minted above: one LIVE seed = one join
           ;; ATTEMPT, and the token rides both the join state and each child's
@@ -1807,16 +1659,10 @@
           ;;
           ;; Machine spawn-registry state is durable runtime-db state.
           ;;
-          ;; The preflight's `[:schemas :data]` validators are
-          ;; application code that may have destroyed A / published same-id B even
-          ;; when every child CONFORMED (a conforming validator returning true still
-          ;; ran on A's stack). Seed the live join ONLY while A still owns and bind
-          ;; it to A's raw token: `write-spawned-slot!` no-ops (returns nil) when A
-          ;; is already gone AND when a mid-write watch loses A, so A's join-state
-          ;; can never land on B. The `:rf.machine.spawn-all/started` trace is
-          ;; framework-owned tail — fire it ONLY when the join actually committed
-          ;; into A (a nil return means B, or a dead frame, and gets no started
-          ;; trace).
+          ;; Seed the live join bound to the event owner's raw token. The
+          ;; `:rf.machine.spawn-all/started` trace is framework-owned tail —
+          ;; fire it ONLY when the join actually committed (a nil return means
+          ;; the write did not land, and gets no started trace).
           ;;
           ;; Retain the AUTHORITATIVE prepared children on the seeded
           ;; join under `:rf/prepared` (`{<spawned-id> {:snap …}}`, one EDN
@@ -1827,22 +1673,21 @@
           ;; scratch never outlives the drain. Every `:spawned-id` here is
           ;; DISTINCT — the upstream structural alias guard rejects the
           ;; invoke outright otherwise — so this map can never silently overwrite.
-          (do (when (continue?)
-                (when (some? (write-spawned-slot!
-                               frame-id owner-token parent-id invoke-id
-                               (assoc join-state prepared-children-key
-                                      (into {}
-                                            (comp (filter :spawned-id)
-                                                  (map (juxt :spawned-id
-                                                             #(select-keys % [:snap]))))
-                                            prepared))
-                               children))
-                  (rf.trace/emit! :rf.machine :rf.machine.spawn-all/started
-                               {;; The parent's live actor INSTANCE address;
-                                ;; `:invoke-id` is the declarative invocation path.
-                                :actor-id   parent-id
-                                :invoke-id  invoke-id
-                                :child-ids  (set (keys children))
-                                :children   children
-                                :frame      frame-id})))
+          (do (when (some? (write-spawned-slot!
+                             frame-id owner-token parent-id invoke-id
+                             (assoc join-state prepared-children-key
+                                    (into {}
+                                          (comp (filter :spawned-id)
+                                                (map (juxt :spawned-id
+                                                           #(select-keys % [:snap]))))
+                                          prepared))
+                             children))
+                (rf.trace/emit! :rf.machine :rf.machine.spawn-all/started
+                             {;; The parent's live actor INSTANCE address;
+                              ;; `:invoke-id` is the declarative invocation path.
+                              :actor-id   parent-id
+                              :invoke-id  invoke-id
+                              :child-ids  (set (keys children))
+                              :children   children
+                              :frame      frame-id}))
               nil))))))

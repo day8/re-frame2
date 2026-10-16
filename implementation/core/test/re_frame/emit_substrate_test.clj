@@ -43,16 +43,3 @@
     (register :claims-after-throw (fn [_] true))
     (register :throws (fn [_] (throw (ex-info "boom" {}))))
     (is (true? (fan-out {})) "a sibling's throw does not undo another listener's claim")))
-
-(deftest fan-out-claims-over-the-delivered-snapshot-only
-  (let [{:keys [register fan-out]} (rf.emit-substrate/make-listener-registry {})
-        live? (atom true)
-        seen  (atom 0)]
-    (register :claims-then-stops (fn [_] (swap! seen inc) (reset! live? false) true))
-    (testing "a walk `continue?` stops before the first listener delivers nothing,
-              so nothing is claimed"
-      (is (false? (fan-out {} (constantly false))))
-      (is (zero? @seen)))
-    (testing "a claim made by a delivered listener stands when the walk then stops"
-      (is (true? (fan-out {} (fn [] @live?))))
-      (is (= 1 @seen)))))

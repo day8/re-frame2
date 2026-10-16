@@ -306,26 +306,13 @@
                         ;; shared via `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
                         (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!
                           machine-id frame-id (rf.machines.result/info exit-result)))]
-  (let [;; A's exact-frame-incarnation continuation predicate. The
-        ;; completion-output validator and the parent `:on-done` callback are
-        ;; APPLICATION code that can synchronously destroy the frame
-        ;; incarnation A that owns the in-flight event and publish a same-id
-        ;; successor B; so is a `:rf.machine/done` trace listener when finalize
-        ;; runs outside any drain (inside the event's drain, that trace's
-        ;; listeners run after the drain). Every subsequent framework-owned action —
-        ;; teardown, registrar unregister, HTTP/timer cancellation,
-        ;; the rf.machines.classification drop, the `:on-error` dispatch, and the
-        ;; runtime-db / fx publication — is A-derived tail; running it after A
-        ;; is lost erases or mutates B. `owner-continuation` yields
-        ;; `(constantly true)` for a non-router pure-fn / conformance caller
-        ;; (no event owner), so that path stays unaffected.
-        continue?  (rf.machines.data-validation/owner-continuation frame-id)
-        ;; The RAW exact owner token (`continue?` closes over it),
-        ;; threaded into the teardown classification drop so it rides the EXACT
-        ;; elision write: a container watch that destroys A / publishes same-id B
-        ;; DURING the drop cannot re-root the removal onto B's registry or bump
-        ;; B's commit epoch. nil for a non-router pure-fn / conformance caller
-        ;; (no event owner) — the drop falls back to the bare write.
+  (let [;; The RAW event-owner token, threaded into the teardown
+        ;; classification drop so it rides the EXACT elision write. nil for a
+        ;; non-router pure-fn / conformance caller (no event owner) — the drop
+        ;; takes the bare write. A destroy of the owning frame requested by the
+        ;; completion-output validator or the parent `:on-done` callback waits
+        ;; for the event boundary, so this whole tail runs against the
+        ;; incarnation it started in.
         owner-token (rf.frame/current-event-owner-token)
         child-data (:data next-snapshot)
         parallel?  (rf.machines.parallel/parallel? machine)
@@ -369,19 +356,7 @@
         ;; cascade, so the `[:schemas :output]` schema resolves off it without
         ;; a registrar / snapshot lookup. Production-elided
         ;; (`rf.interop/debug-enabled?`-gated inside the validator).
-        ;; The completion-output validator is APPLICATION code: a
-        ;; validator that destroys A / publishes same-id B returns
-        ;; `:rf/stale-incarnation` (NOT a schema verdict). Capture it —
-        ;; discarding the verdict would let the whole finalize
-        ;; tail run against B. A stale return terminally fences every
-        ;; subsequent framework-owned action below (the `owner-gone?` gate).
-        output-validation (rf.machines.data-validation/validate-completion-output! machine-id machine result)
-        stale-output?     (= :rf/stale-incarnation output-validation)
-        ;; Re-checked (live) after each callback-bearing completion trace /
-        ;; fanout and before every framework-owned action: true once the
-        ;; completion-output validator, a `:rf.machine/done` trace listener, or
-        ;; the parent `:on-done` callback has destroyed A / published same-id B.
-        owner-gone?       (fn [] (or stale-output? (not (continue?))))
+        _           (rf.machines.data-validation/validate-completion-output! machine-id machine result)
         ;; Per Spec 005 §Final states §`:on-error` (XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
         ;; designated ERROR terminal. When a `:spawn`-spawned child finishes
@@ -559,44 +534,39 @@
         done-summary (if stale-spawn?
                        (rf.machines.reply/stale-spawn-trace reply {:frame frame-id})
                        (rf.machines.reply/trace-reply reply {:frame frame-id}))
-        ;; The `:rf.machine/done` trace fan-out is callback-bearing:
-        ;; a listener can destroy A / publish same-id B. Skip it
-        ;; when A is already gone (a stale completion-output validator), and
-        ;; re-check liveness after it before any framework-owned action below.
-        _ (when-not (owner-gone?)
-            (rf.trace/emit! :rf.machine :rf.machine/done
-                       ;; `:actor-id` is the finishing actor's
-                       ;; live INSTANCE address (singleton: its registration
-                       ;; id; spawned: the `<type>#<n>` / fixed instance id).
-                       ;; `:machine-id` is reserved for the registered TYPE.
-                       (cond-> {:actor-id   machine-id
-                                :output     result
-                                :parent-id  parent-id
-                                :error?     error-leaf?
-                                :frame      frame-id
-                                ;; reply-envelope vocabulary (Managed-Effects §9)
-                                ;; The CANONICAL `:rf.reply/work-id` joins
-                                ;; this spawned-actor completion into Xray's
-                                ;; uniform work/reply rows + stale-race
-                                ;; grouping. `:rf.reply/work-kind` rides alongside as the
-                                ;; work-family tag (no reply-envelope twin).
-                                :rf.reply/work-kind            (:rf.reply/work-kind done-summary)
-                                :rf.reply/status      (:status done-summary)
-                                :rf.reply/work-id     (:rf.reply/work-id done-summary)
-                                :rf.reply/work-status (:rf.reply/work-status done-summary)}
-                         ;; the causal completion timestamp — the
-                         ;; router's `:rf.cofx` `:rf/time-ms` threaded
-                         ;; into the reply (Managed-Effects §155/§231: a
-                         ;; completion affecting durable state carries causal
-                         ;; completion metadata). Additive + present-only so
-                         ;; the unscripted (no-world-input) path stays clean.
-                         (some? (:completed-at done-summary))
-                         (assoc :rf.reply/completed-at (:completed-at done-summary))
-                         ;; stale-suppression vocabulary — carried
-                         ;; ADDITIVELY only for a stale late completion, joined
-                         ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
-                         stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
-                                             :rf.reply/correlation  (:correlation done-summary)))))
+        _ (rf.trace/emit! :rf.machine :rf.machine/done
+                     ;; `:actor-id` is the finishing actor's
+                     ;; live INSTANCE address (singleton: its registration
+                     ;; id; spawned: the `<type>#<n>` / fixed instance id).
+                     ;; `:machine-id` is reserved for the registered TYPE.
+                     (cond-> {:actor-id   machine-id
+                              :output     result
+                              :parent-id  parent-id
+                              :error?     error-leaf?
+                              :frame      frame-id
+                              ;; reply-envelope vocabulary (Managed-Effects §9)
+                              ;; The CANONICAL `:rf.reply/work-id` joins
+                              ;; this spawned-actor completion into Xray's
+                              ;; uniform work/reply rows + stale-race
+                              ;; grouping. `:rf.reply/work-kind` rides alongside as the
+                              ;; work-family tag (no reply-envelope twin).
+                              :rf.reply/work-kind            (:rf.reply/work-kind done-summary)
+                              :rf.reply/status      (:status done-summary)
+                              :rf.reply/work-id     (:rf.reply/work-id done-summary)
+                              :rf.reply/work-status (:rf.reply/work-status done-summary)}
+                       ;; the causal completion timestamp — the
+                       ;; router's `:rf.cofx` `:rf/time-ms` threaded
+                       ;; into the reply (Managed-Effects §155/§231: a
+                       ;; completion affecting durable state carries causal
+                       ;; completion metadata). Additive + present-only so
+                       ;; the unscripted (no-world-input) path stays clean.
+                       (some? (:completed-at done-summary))
+                       (assoc :rf.reply/completed-at (:completed-at done-summary))
+                       ;; stale-suppression vocabulary — carried
+                       ;; ADDITIVELY only for a stale late completion, joined
+                       ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
+                       stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
+                                           :rf.reply/correlation  (:correlation done-summary))))
         ;; (3) The completion carrier. `:on-done` is NOT applied here.
         ;; Completion is delivered to the parent as ONE reserved runtime-minted
         ;; event (Spec 005 §Child completion protocol) — the same carrier for
@@ -648,191 +618,127 @@
         ;; child's `:on-any-failed` payload on the floor: Spec 005
         ;; §Spawn-and-join says the resolution carries "the decisive child's
         ;; `:output-key` value — its error payload on `:on-any-failed`".
-        completion-value (if error-leaf? result (:value reply))]
-    ;; Terminal incarnation fence for the completion tail. If a
-    ;; completion-output validator, a `:rf.machine/done` trace listener, or the
-    ;; parent `:on-done` callback destroyed A / published same-id B, EVERY action
-    ;; below is A-derived framework-owned tail that would erase or mutate B: the
-    ;; teardown projection (dissoc B's snapshot / clear its slot), the
-    ;; `:rf.machine/destroyed` trace, the HTTP/timer cancellation, the
-    ;; classification drop, the registrar unregister, the
-    ;; `:on-error` dispatch, and the runtime-db / fx publication. Return the
-    ;; inert outcome — runtime-db untouched, no fx — before ANY of them.
-    ;; Already-delivered callbacks stand (no rollback); the router's own
-    ;; candidate fence drops the inert runtime-db rather than committing it onto
-    ;; B. (`stale-spawn?` — a child finishing after its PARENT was destroyed — is
-    ;; a DIFFERENT staleness and still tears down normally; `owner-gone?` fires
-    ;; only on A→B frame-incarnation loss.)
-    (if (owner-gone?)
-      {:rf.db/runtime runtime-db :fx []}
-      (let [;; (4) Apply the unified teardown projection: dissoc the child's
-            ;; snapshot and clear the parent's
-            ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot
-            ;; with the lazy-allocation prune.
-            db-after-destroy
-            (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db
-                                     {:actor-id  machine-id
-                                      :parent-id parent-id
-                                      :invoke-id invoke-id})]
-        ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
-        ;; (D6 enrichment) before registrar cleanup.
-        (rf.machines.lifecycle-fx.traces/emit-destroyed! {:frame     frame-id
-                                 :actor-id  machine-id
-                                 :parent-id parent-id
-                                 :invoke-id invoke-id
-                                 :reason    :rf.machine/finished})
-        ;; The teardown tail's callback-bearing hooks — the
-        ;; `:rf.machine/destroyed` trace above and the late-bound HTTP abort
-        ;; hook — can EACH destroy A /
-        ;; publish same-id B on their own stack. The top-level `owner-gone?`
-        ;; gate fences only the earlier completion callbacks (validator / done
-        ;; trace / `:on-done`); without a recheck between
-        ;; these LATER teardown callbacks and the framework-owned actions that
-        ;; follow, the HTTP/timer cancellation, classification
-        ;; drop, registrar unregister, and `:on-error` dispatch could all run
-        ;; against B (a bare frame-id / machine-id resolves to the CURRENT
-        ;; incarnation). Recheck `owner-gone?` before each next framework action;
-        ;; it is MONOTONIC (once A→B it stays gone), so a per-action guard
-        ;; short-circuits the whole tail. Already-delivered traces/hooks stand —
-        ;; the unwind posture, no rollback.
-        (when-not (owner-gone?)
-          ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
-          ;; Frame-exact: `frame-id` is this cascade's own frame, so
-          ;; a same-named actor in a sibling frame keeps its in-flight work.
-          (abort-actor-in-flight-http! frame-id machine-id))
-        (when-not (owner-gone?)
-          ;; Cancel armed `:after` timers (`:reason :on-destroy`).
-          ;; Each cancellation emits a callback-bearing `:rf.machine.timer/
-          ;; cancelled` trace; a listener can destroy A / publish same-id B on
-          ;; the FIRST cancellation's stack, after which the loop would cancel B's
-          ;; timer under a later snapshotted key. Thread `owner-gone?` so the
-          ;; cancellation loop short-circuits the instant A is lost (it is
-          ;; MONOTONIC), leaving B's re-armed timers untouched.
-          (rf.machines.timer/cancel-actor-timers! frame-id machine-id owner-gone?))
-        ;; RECHECK after the timer-cancellation callbacks before the
-        ;; classification work: without it a
-        ;; `:rf.machine.timer/cancelled` listener that published same-id B would let the
-        ;; A-derived classification drop resolve its
-        ;; bare frame/actor ids to the CURRENT incarnation B.
-        (when-not (owner-gone?)
-          ;; Drop this actor's per-instance classification declarations from the
-          ;; per-frame elision registry — the teardown half of
-          ;; `rf.machines.classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
-          ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
-          ;; that declared no classification is a clean no-op, so the registry
-          ;; entry added at spawn dies with the instance (no leak). Thread
-          ;; `owner-token` so the drop rides the EXACT elision write (a
-          ;; mid-write watch cannot re-root the removal onto same-id B).
-          (rf.machines.classification/drop-at-destroy! frame-id machine-id machine owner-token))
-        ;; `drop-at-destroy!` writes through the EXACT elision swap, a
-        ;; container-write boundary: a synchronous watch can destroy A / publish
-        ;; same-id B DURING the drop. Recheck ownership AFTER it, before the
-        ;; registrar unregister.
-        (when-not (owner-gone?)
-          ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
-          ;; `:rf.registry/handler-cleared` trace.
-          ;;
-          ;; EXCEPT when the address carries a machine DEFINITION.
-          ;; The D7 `:final?` singleton auto-destroy is reachable with NO
-          ;; teardown code written by the author (a root-level `:final?` leaf is
-          ;; enough), and the entry it would clear is the shared load-time TYPE
-          ;; every `[:rf.machine/spawn {:machine-id <id>}]` resolves through —
-          ;; not this instance's own. Finality ends the INSTANCE; the definition
-          ;; is the PROGRAM that made the address creatable and outlives it
-          ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
-          ;; remains the public spelling for permanent removal. The identical
-          ;; gate stands at `destroy/teardown-live-actor!` step (7); a
-          ;; non-machine entry squatting here still gets cleared.
-          (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
-            (rf.registrar/unregister! :event machine-id)))
-        ;; RECHECK after the registrar unregister before the
-        ;; completion dispatch: under one shared check a
-        ;; `:rf.registry/handler-cleared` listener that published same-id B
-        ;; would let the stale A-derived dispatch route into B. The unregister is an already-delivered callback (it stands); the
-        ;; dispatch it enables must be fenced.
-        (when-not (owner-gone?)
-          ;; (7) ROUTE THE COMPLETION TO THE PARENT. The child is fully torn
-          ;; down by now — finality means teardown (D4) — so what reaches the
-          ;; parent is a value, never a live child.
-          ;;
-          ;; Two carriers, chosen by how the child finished and which spawn
-          ;; form spawned it — never by which hooks the parent declared:
-          ;;
-          ;;   - Per Spec 005 §Final states §`:on-error`: an ERROR leaf under a
-          ;;     single `:spawn` routes to the reserved FAILURE event, which
-          ;;     resolves natively through the parent's macrostep
-          ;;     (`pick-spawn-error-transition`) — its declarative `:on-error`
-          ;;     transition (the XState `invoke onError` control flow), else an
-          ;;     explicit `:on {:rf.machine.spawn/error …}`, else nothing. That
-          ;;     carrier keeps its own id because an uncaught child ACTION
-          ;;     EXCEPTION produces it too, and an exception is not a
-          ;;     completion. The dispatched payload is the RAW error (`result`);
-          ;;     the parent transition reads it off `:event`.
-          ;;
-          ;;   - Otherwise the reserved COMPLETION event (Spec 005 §Child
-          ;;     completion protocol) — the one carrier both spawn forms share.
-          ;;     A `:spawn` child sends its `:invoke-id` and its SUCCESS result,
-          ;;     and the parent folds `:on-done` then advances on its ordinary
-          ;;     macrostep. A `:spawn-all` join child additionally sends the
-          ;;     exact-attempt coordinate off its `:rf/join-child` membership
-          ;;     record, and the parent folds it into the join. An ERROR leaf
-          ;;     under a `:spawn-all` parent rides this same carrier with
-          ;;     `:error? true` — failure control flow under a join is
-          ;;     `:on-any-failed`, not a per-child transition, and the join
-          ;;     skips that child's `:on-done` fold.
-          ;;
-          ;; A STALE completion (the parent died first) mints NEITHER: there is
-          ;; no live parent to receive it, and §Stale suppression says the app
-          ;; target must not run. A SINGLETON (no parent at all) mints neither
-          ;; either — its finality is its own.
-          ;;
-          ;; That "NEITHER" is enforced ONCE, around the whole
-          ;; choice, rather than on the completion arm alone: a failure arm
-          ;; outside the stale guard would re-create a dead parent from its
-          ;; initial snapshot to receive its child's failure. It takes both
-          ;; halves — the guard around both arms, and a classification that
-          ;; calls such a finish `:stale` rather than `:error`.
-          ;;
-          ;; A single-`:spawn` child also hands back its
-          ;; `:rf/invoke-attempt` on EITHER carrier, so the parent delivers it
-          ;; only while that spawn attempt is still current.
-          (when-not stale-spawn?
-            (cond
-              failure-carrier?
-              (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
-                frame-id parent-id invoke-id result (:rf/invoke-attempt child-data))
+        completion-value (if error-leaf? result (:value reply))
+        ;; (4) Apply the unified teardown projection: dissoc the child's
+        ;; snapshot and clear the parent's
+        ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot
+        ;; with the lazy-allocation prune.
+        db-after-destroy
+        (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db
+                                 {:actor-id  machine-id
+                                  :parent-id parent-id
+                                  :invoke-id invoke-id})]
+    ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
+    ;; (D6 enrichment) before registrar cleanup.
+    (rf.machines.lifecycle-fx.traces/emit-destroyed! {:frame     frame-id
+                             :actor-id  machine-id
+                             :parent-id parent-id
+                             :invoke-id invoke-id
+                             :reason    :rf.machine/finished})
+    ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
+    ;; Frame-exact: `frame-id` is this cascade's own frame, so
+    ;; a same-named actor in a sibling frame keeps its in-flight work.
+    (abort-actor-in-flight-http! frame-id machine-id)
+    ;; Cancel armed `:after` timers (`:reason :on-destroy`).
+    (rf.machines.timer/cancel-actor-timers! frame-id machine-id)
+    ;; Drop this actor's per-instance classification declarations from the
+    ;; per-frame elision registry — the teardown half of
+    ;; `rf.machines.classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
+    ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
+    ;; that declared no classification is a clean no-op, so the registry
+    ;; entry added at spawn dies with the instance (no leak). Thread
+    ;; `owner-token` so the drop rides the EXACT elision write.
+    (rf.machines.classification/drop-at-destroy! frame-id machine-id machine owner-token)
+    ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
+    ;; `:rf.registry/handler-cleared` trace.
+    ;;
+    ;; EXCEPT when the address carries a machine DEFINITION.
+    ;; The D7 `:final?` singleton auto-destroy is reachable with NO
+    ;; teardown code written by the author (a root-level `:final?` leaf is
+    ;; enough), and the entry it would clear is the shared load-time TYPE
+    ;; every `[:rf.machine/spawn {:machine-id <id>}]` resolves through —
+    ;; not this instance's own. Finality ends the INSTANCE; the definition
+    ;; is the PROGRAM that made the address creatable and outlives it
+    ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
+    ;; remains the public spelling for permanent removal. The identical
+    ;; gate stands at `destroy/teardown-live-actor!` step (7); a
+    ;; non-machine entry squatting here still gets cleared.
+    (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
+      (rf.registrar/unregister! :event machine-id))
+    ;; (7) ROUTE THE COMPLETION TO THE PARENT. The child is fully torn
+    ;; down by now — finality means teardown (D4) — so what reaches the
+    ;; parent is a value, never a live child.
+    ;;
+    ;; Two carriers, chosen by how the child finished and which spawn
+    ;; form spawned it — never by which hooks the parent declared:
+    ;;
+    ;;   - Per Spec 005 §Final states §`:on-error`: an ERROR leaf under a
+    ;;     single `:spawn` routes to the reserved FAILURE event, which
+    ;;     resolves natively through the parent's macrostep
+    ;;     (`pick-spawn-error-transition`) — its declarative `:on-error`
+    ;;     transition (the XState `invoke onError` control flow), else an
+    ;;     explicit `:on {:rf.machine.spawn/error …}`, else nothing. That
+    ;;     carrier keeps its own id because an uncaught child ACTION
+    ;;     EXCEPTION produces it too, and an exception is not a
+    ;;     completion. The dispatched payload is the RAW error (`result`);
+    ;;     the parent transition reads it off `:event`.
+    ;;
+    ;;   - Otherwise the reserved COMPLETION event (Spec 005 §Child
+    ;;     completion protocol) — the one carrier both spawn forms share.
+    ;;     A `:spawn` child sends its `:invoke-id` and its SUCCESS result,
+    ;;     and the parent folds `:on-done` then advances on its ordinary
+    ;;     macrostep. A `:spawn-all` join child additionally sends the
+    ;;     exact-attempt coordinate off its `:rf/join-child` membership
+    ;;     record, and the parent folds it into the join. An ERROR leaf
+    ;;     under a `:spawn-all` parent rides this same carrier with
+    ;;     `:error? true` — failure control flow under a join is
+    ;;     `:on-any-failed`, not a per-child transition, and the join
+    ;;     skips that child's `:on-done` fold.
+    ;;
+    ;; A STALE completion (the parent died first) mints NEITHER: there is
+    ;; no live parent to receive it, and §Stale suppression says the app
+    ;; target must not run. A SINGLETON (no parent at all) mints neither
+    ;; either — its finality is its own.
+    ;;
+    ;; That "NEITHER" is enforced ONCE, around the whole
+    ;; choice, rather than on the completion arm alone: a failure arm
+    ;; outside the stale guard would re-create a dead parent from its
+    ;; initial snapshot to receive its child's failure. It takes both
+    ;; halves — the guard around both arms, and a classification that
+    ;; calls such a finish `:stale` rather than `:error`.
+    ;;
+    ;; A single-`:spawn` child also hands back its
+    ;; `:rf/invoke-attempt` on EITHER carrier, so the parent delivers it
+    ;; only while that spawn attempt is still current.
+    (when-not stale-spawn?
+      (cond
+        failure-carrier?
+        (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
+          frame-id parent-id invoke-id result (:rf/invoke-attempt child-data))
 
-              parent-id
-              (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
-                (dispatch-spawn-done!
-                  frame-id parent-id target-invoke-id
-                  (cond-> {:result       completion-value
-                           :error?       error-leaf?
-                           :completed-at completed-at}
-                    join-child (merge (select-keys join-child
-                                                   [:parent-id :invoke-id :child-id
-                                                    :spawned-id :attempt
-                                                    :work-generation])))
-                  (:rf/invoke-attempt child-data))))))
-        ;; Publish the teardown runtime-db + fx ONLY if the exact owner survived
-        ;; the WHOLE tail. If any post-`emit-destroyed!` callback
-        ;; published same-id B, return the inert outcome — the A-derived
-        ;; `db-after-destroy` is DROPPED rather than committed onto B (the
-        ;; router's candidate fence would drop it too; returning inert is the
-        ;; explicit contract, matching the top-level `owner-gone?` branch).
-        ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
-        ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
-        ;; framework-authority partition effect), NOT `:db`. Append the
-        ;; destroy-time `:exit` cascade's fx, then the destroy of the root's
-        ;; own `:spawn` child — the one child no transition exits, so it ends
-        ;; here, after the root's `:exit` has read it live, whether or not
-        ;; that `:exit` threw — then the resource-owner release for this
-        ;; actor's `[:machine machine-id]` owner (nil + filtered out when
-        ;; resources is absent — see `rf.machines.lifecycle-fx.resource-release/release-fx-entry`).
-        (if (owner-gone?)
-          {:rf.db/runtime runtime-db :fx []}
-          {:rf.db/runtime db-after-destroy
-           :fx (vec (concat extra-fx exit-fx
-                            (rf.machines.transition/root-destroy-fx machine machine-id)
-                            (when-let [e (rf.machines.lifecycle-fx.resource-release/release-fx-entry machine-id)]
-                              [e])))}))))))
+        parent-id
+        (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
+          (dispatch-spawn-done!
+            frame-id parent-id target-invoke-id
+            (cond-> {:result       completion-value
+                     :error?       error-leaf?
+                     :completed-at completed-at}
+              join-child (merge (select-keys join-child
+                                             [:parent-id :invoke-id :child-id
+                                              :spawned-id :attempt
+                                              :work-generation])))
+            (:rf/invoke-attempt child-data)))))
+    ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
+    ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
+    ;; framework-authority partition effect), NOT `:db`. Append the
+    ;; destroy-time `:exit` cascade's fx, then the destroy of the root's
+    ;; own `:spawn` child — the one child no transition exits, so it ends
+    ;; here, after the root's `:exit` has read it live, whether or not
+    ;; that `:exit` threw — then the resource-owner release for this
+    ;; actor's `[:machine machine-id]` owner (nil + filtered out when
+    ;; resources is absent — see `rf.machines.lifecycle-fx.resource-release/release-fx-entry`).
+    {:rf.db/runtime db-after-destroy
+     :fx (vec (concat extra-fx exit-fx
+                      (rf.machines.transition/root-destroy-fx machine machine-id)
+                      (when-let [e (rf.machines.lifecycle-fx.resource-release/release-fx-entry machine-id)]
+                        [e])))})))

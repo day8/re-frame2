@@ -136,29 +136,16 @@
   under the late-bind key `:event-emit/dispatch-on-event` so the
   router does NOT statically `:require` this namespace."
   [event event-id frame time outcome elapsed-ms]
-  (when (and (rf.trace/continuation-live?) (seq @listeners))
-    (let [handler-meta (try
-                         (rf.registrar/lookup :event event-id)
-                         (catch #?(:clj Throwable :cljs :default) e
-                           (when (rf.trace/continuation-live?) (throw e))))]
-      ;; Handler resolution may execute a generation resolver.
-      (when (and (rf.trace/continuation-live?)
-                 (not (rf.trace/no-emit?-from-meta handler-meta)))
-        (let [elided-event (try
-                             (rf.projection/project-event-slot event {:frame frame})
-                             (catch #?(:clj Throwable :cljs :default) e
-                               (when (rf.trace/continuation-live?) (throw e))))]
-          ;; Elision/classification is callback-bearing. Listener sibling fanout
-          ;; is one already-linearized publication and remains failure-isolated.
-          (when (rf.trace/continuation-live?)
-            ((:fan-out registry)
-             {:event      elided-event
-              :event-id   event-id
-              :frame      frame
-              :time       time
-              :outcome    outcome
-              :elapsed-ms elapsed-ms}
-             rf.trace/continuation-live?))))))
+  (when (seq @listeners)
+    (let [handler-meta (rf.registrar/lookup :event event-id)]
+      (when-not (rf.trace/no-emit?-from-meta handler-meta)
+        ((:fan-out registry)
+         {:event      (rf.projection/project-event-slot event {:frame frame})
+          :event-id   event-id
+          :frame      frame
+          :time       time
+          :outcome    outcome
+          :elapsed-ms elapsed-ms}))))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------

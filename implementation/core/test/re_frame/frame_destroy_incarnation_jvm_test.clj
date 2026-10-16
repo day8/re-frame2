@@ -1222,9 +1222,9 @@
 
 (deftest listeners-keep-running-after-one-destroys-the-frame
   ;; A trace listener and an always-on event listener each destroy the frame
-  ;; they observe and throw. The always-on listener runs inside the drain, so
-  ;; its destroy is pending: every later listener still runs, and so does the
-  ;; frame-owned observation route.
+  ;; they observe and throw. Every later listener still runs, and so does the
+  ;; frame-owned observation route: a listener's destroy is a lifecycle
+  ;; request, not a cutoff of the event that is being observed.
   (let [trace-id       :destroy/trace-fanout
         event-id       :destroy/event-fanout
         trace-sibling  (atom 0)
@@ -1248,11 +1248,10 @@
           (swap! trace-sibling inc))))
     (try
       (rf/dispatch-sync [:destroy/trace-fanout-event] {:frame trace-id})
-      ;; trace delivery is dev-only, and runs after the drain, where a destroy
-      ;; is immediate; the post-drain fan-out still stops at listener #1
+      ;; trace delivery is dev-only
       (when rf.interop/debug-enabled?
-        (is (= [0 1 nil] [@trace-sibling @handler-runs (rf.frame/frame trace-id)])
-            "the post-drain trace fan-out stops after listener #1 destroys the frame"))
+        (is (= [1 1 nil] [@trace-sibling @handler-runs (rf.frame/frame trace-id)])
+            "the sibling trace listener ran, and the frame was destroyed"))
       (finally
         (rf/unregister-listener! :trace ::trace-destroyer)
         (rf/unregister-listener! :trace ::trace-sibling)))

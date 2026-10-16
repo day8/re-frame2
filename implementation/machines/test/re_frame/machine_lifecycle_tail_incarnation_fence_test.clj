@@ -1,21 +1,13 @@
 (ns re-frame.machine-lifecycle-tail-incarnation-fence-test
-  "The TIMER, REGISTRAR and SPAWN-WRITE callbacks in the machine lifecycle
-  tails each recheck exact-incarnation ownership, so a callback that destroys
-  A and publishes a same-id successor B gets no A-derived write, cancellation
-  or dispatch against B:
+  "The machine lifecycle tails' durable writes under an event owner:
 
-    - TIMER: each `:rf.machine.timer/cancelled` from `cancel-actor-timers!` is
-      callback-bearing; the loop short-circuits after the losing cancellation
-      and finalize rechecks before its classification / spawn-order work.
-    - REGISTRAR: `rf.registrar/unregister!` emits a synchronous
-      `:rf.registry/handler-cleared`; finalize rechecks before the `:on-error`
-      dispatch.
+    - TIMER: finalize cancels every armed `:after` timer of the finishing actor
+      and tears its snapshot down.
     - SPAWN-WRITE: a container watch can replace A DURING `install-spawn!`'s
       write; the install rides `rf.frame/swap-runtime-db-exact!`, which binds
       to A's own container and reports the loss without bumping B's epoch.
 
-  Each fixture drives the tail DIRECTLY under A's bound event owner with the
-  destroyer on the callback's own stack."
+  Each fixture drives the tail DIRECTLY under A's bound event owner."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -25,7 +17,6 @@
             [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
@@ -38,7 +29,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ===========================================================================
-;; TIMER seam — cancel-actor-timers! per-cancellation fence + finalize recheck
+;; TIMER seam — finalize cancels the finishing actor's timers
 ;; ===========================================================================
 
 (defn- finishing-machine
@@ -84,48 +75,8 @@
         (finishing-machine frame-a) machine-id frame-a rt
         (finishing-snapshot) [:some-completing-event] []))))
 
-(deftest timer-cancel-loss-fences-loop-and-tail
-  (testing "A has two armed timers. The FIRST cancellation's listener destroys A,
-            publishes same-id B and re-arms B's timer under the SECOND key.
-            B's timer survives, exactly one :on-destroy cancellation fires,
-            and finalize returns the inert outcome."
-    (reset! rf.machines.timer/after-timers {})
-    (let [frame-a    :rf2-4ipqe4/timer-loss-frame
-          machine-id :rf2-4ipqe4/timer-loss
-          k2         (timer-key machine-id 200)
-          fired?     (atom false)
-          cancelled  (atom [])]
-      (rf/reg-machine machine-id (finishing-machine frame-a))
-      (rf/make-frame {:id frame-a})
-      (seed-finishing-runtime-db! frame-a machine-id)
-      (seed-timer! frame-a machine-id 100 ::a-tok-1)
-      (seed-timer! frame-a machine-id 200 ::a-tok-2)
-      (rf.trace.tooling/register-listener!
-        ::timer-fence
-        (fn [ev]
-          (when (= :rf.machine.timer/cancelled (:operation ev))
-            (swap! cancelled conj ev)
-            (when (compare-and-set! fired? false true)
-              (rf.frame/destroy-frame! frame-a)
-              (rf/make-frame {:id frame-a})
-              (seed-timer! frame-a machine-id 200 ::b-tok-2)))))
-      (try
-        (let [rt-a (rf.machines.test-support/runtime-db frame-a)
-              ret  (finalize-under-owner frame-a machine-id rt-a)]
-          ;; destroy-frame! cancels A's other timer itself, with
-          ;; :reason :on-frame-destroy — the loop never reaches it.
-          (is (= {:b-k2-token  ::b-tok-2
-                  :on-destroy  1
-                  :ret         {:rf.db/runtime rt-a :fx []}}
-                 {:b-k2-token  (get-in @rf.machines.timer/after-timers [frame-a k2 :token])
-                  :on-destroy  (count (filter #(= :on-destroy (get-in % [:tags :reason])) @cancelled))
-                  :ret         ret})))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::timer-fence))))))
-
 (deftest timer-cancel-live-owner-cancels-all
-  (testing "control: with no loss, finalize cancels BOTH timers and tears the
-            actor's snapshot down — the fence is scoped to owner loss"
+  (testing "finalize cancels BOTH timers and tears the actor's snapshot down"
     (reset! rf.machines.timer/after-timers {})
     (let [frame-a    :rf2-4ipqe4/timer-live-frame
           machine-id :rf2-4ipqe4/timer-live
@@ -148,65 +99,6 @@
                   (get-in (:rf.db/runtime ret) [:rf.runtime/machines :snapshots machine-id])])))
         (finally
           (rf.trace.tooling/unregister-listener! ::timer-live))))))
-
-;; ===========================================================================
-;; REGISTRAR seam — recheck after handler-cleared before the :on-error dispatch
-;; ===========================================================================
-
-(deftest registrar-clear-loss-fences-on-error-dispatch
-  (testing "a :rf.registry/handler-cleared listener (fired by the erroring
-            child's unregister) destroys A and publishes same-id B: the stale
-            spawn-error (:on-error) dispatch never routes into B and finalize
-            returns the inert outcome"
-    (let [frame-a        :rf2-4ipqe4/registrar-loss-frame
-          parent-id      :rf2-4ipqe4/registrar-loss-parent
-          child-id       :rf2-4ipqe4/registrar-loss-child
-          invoke-id      [:waiting]
-          child-snapshot {:state :failed
-                          :data  {:err "boom" :rf/parent-id parent-id :rf/invoke-id invoke-id}}
-          fired?         (atom false)
-          dispatches     (atom [])
-          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-      (rf/reg-machine parent-id
-        {:initial :waiting
-         :states  {:waiting {:spawn {:machine-id :rf2-4ipqe4/some-child
-                                     :on-error   {:target :recover}}}
-                   :recover {}}})
-      ;; A PLAIN entry, not a reg-machine definition: finalize clears only a
-      ;; per-instance entry, and unregister! emits handler-cleared only when
-      ;; something was present.
-      (rf.registrar/register! :event child-id {:fn (fn [db _] db) :rf/provenance :A})
-      (rf/make-frame {:id frame-a})
-      ;; The parent needs a live INSTANCE, or the :on-error dispatch is
-      ;; stale-suppressed before the fence is consulted.
-      (rf.frame/swap-runtime-db!
-        frame-a (fn [rt] (-> rt
-                             (assoc-in [:rf.runtime/machines :snapshots child-id] child-snapshot)
-                             (assoc-in [:rf.runtime/machines :snapshots parent-id]
-                                       {:state :waiting :data {}}))))
-      (rf.trace.tooling/register-listener!
-        ::registrar-fence
-        (fn [ev] (when (and (= :rf.registry/handler-cleared (:operation ev))
-                            (compare-and-set! fired? false true))
-                   (rf.frame/destroy-frame! frame-a)
-                   (rf/make-frame {:id frame-a}))))
-      (try
-        (rf.late-bind/set-fn! :router/dispatch!
-                           (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-        (let [rt-a (rf.machines.test-support/runtime-db frame-a)
-              ret  (rf.frame/call-with-event-owner-token frame-a (rf.frame/frame-incarnation-token frame-a)
-                     (fn []
-                       (rf.machines.lifecycle-fx.finalize/finalize-machine
-                         {:initial  :failed
-                          :rf/frame :ignored
-                          :rf/cofx  {:rf/time-ms 0}
-                          :data     (:data child-snapshot)
-                          :states   {:failed {:final? true :error? true :output-key :err}}}
-                         child-id frame-a rt-a child-snapshot [:some-completing-event] [])))]
-          (is (= [[] {:rf.db/runtime rt-a :fx []}] [@dispatches ret])))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::registrar-fence)
-          (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
 
 ;; ===========================================================================
 ;; SPAWN-WRITE seam — install through swap-runtime-db-exact! (container watch)
