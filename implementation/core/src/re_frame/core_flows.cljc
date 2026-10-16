@@ -11,22 +11,16 @@
 (def ^:private flows-artefact (artefact-info :flows))
 
 (defwrapper clear-flow
-  "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and
-  vacate its output path. Late-bound via :flows/clear-flow.
+  "Per Spec 013 §Re-registration: remove the flow definition `id`; each frame
+  running it vacates its output on its next event. Late-bound via
+  :flows/clear-flow.
 
-  Not a public name of its own — the public door is `(rf/clear :flow id)` /
-  `(rf/clear :flow id {:frame f})`, which is why `:where` names it.
-
-  The 1-arity DELEGATES rather than recurring into the 2-arity with `{}`:
-  the owning `clear-flow`'s opts are EXACT, so `{}` is a
-  value the validator rejects, and `([id] [id {}])` would turn
-  every ambient clear into a throw. An omitted opts must reach the owning
-  fn's own AMBIENT arity, never be normalised into its 2-arity."
+  Not a public name of its own — the public door is `(rf/clear :flow id)`,
+  which is why `:where` names it."
   {:hook :flows/clear-flow :artefact flows-artefact :on-absent :throw
    :where 'rf/clear
    :ex-data {:flow-id id}}
-  ([id]      :delegate)
-  ([id opts] :delegate))
+  ([id] :delegate))
 
 (defwrapper reg-flow
   "Fn-form delegate that performs the late-bind lookup for `reg-flow`.
@@ -37,8 +31,8 @@
   Per the canonical Spec 001 3-slot grammar: `(reg-flow
   flow-id metadata derive-fn)` — the pure `:derive` fn is the THIRD slot,
   the middle slot is the reflection-config metadata map (`:inputs`,
-  `:output-path`, `:doc`, `:schema`, EP-0025 classification keys, and the
-  `:frame` mounting key). A single 3-slot arity only — `:inputs` /
+  `:output-path`, `:doc`, `:schema`, EP-0025 classification keys). A
+  single 3-slot arity only — `:inputs` /
   `:output-path` are mandatory, so (like `reg-route` / `reg-resource`)
   there is no 2-arity."
   {:hook :flows/reg-flow :artefact flows-artefact :on-absent :throw

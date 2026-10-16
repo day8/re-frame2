@@ -305,17 +305,14 @@
   §Registration."}
        reg-interceptor  rf.interceptor-registry/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
-  registration (no source-coord capture). FRAME-OWNED, not image-selected:
-  `reg-flow` writes only the flows artefact's own per-frame store — the
-  `:flow` registrar kind is RESERVED with an intentionally EMPTY slot,
-  so there is no source-store descriptor to select and
-  stamping `:ns` cannot move the registration into an explicit image. Its
-  target is the explicit/ambient frame (the `:frame` mounting key below).
-  Register a flow under `flow-id`:
-  `(reg-flow flow-id metadata derive-fn)` — the pure `:derive` fn is the
-  THIRD value slot, `metadata` carries `:inputs` /
+  registration (no source-coord capture, so no `:rf.provenance/ns` either —
+  stamp `:ns` in the metadata to keep the definition inside an explicit
+  image). Register the flow definition `flow-id` under the registrar's
+  `:flow` kind: `(reg-flow flow-id metadata derive-fn)` — the pure `:derive`
+  fn is the THIRD value slot, `metadata` carries `:inputs` /
   `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
-  EP-0025 classification keys and the `:frame` mounting key. Implementation
+  EP-0025 classification keys. A definition names no frame; each frame runs
+  the flows its `:flows` config names. Implementation
   ships in `day8/re-frame2-flows`; require `re-frame.flows` at boot. See
   `re-frame.core-flows/reg-flow` and spec/API.md §Registration."}
        reg-flow        rf.core-flows/reg-flow)
@@ -584,7 +581,8 @@
        grammar is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive`
        fn is the third VALUE slot, and `metadata` carries `:inputs` /
        `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
-       EP-0025 classification keys and the `:frame` mounting key. Captures
+       EP-0025 classification keys. The definition names no frame: each frame
+       runs the flows its `:flows` config names. Captures
        source-coords (Spec 001) at this call site. Implementation ships in
        `day8/re-frame2-flows`; apps must add the artefact and require
        `re-frame.flows` at boot. See `re-frame.core-flows/reg-flow` for the full
@@ -930,17 +928,13 @@
      REGISTRAR-BACKED kinds — `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`,
      `reg-interceptor`, `reg-head`, `reg-error-projector`, `reg-resource`,
      `reg-mutation`, `reg-resource-scope`, `reg-route`, `reg-app-schema` /
-     `reg-app-schemas`, `reg-http-interceptor` — record a source-store
+     `reg-app-schemas`, `reg-http-interceptor`, `reg-flow` — record a source-store
      descriptor, so stamping `:ns` (or the qualified `:rf.provenance/ns`) in
      the registration metadata restores selectability on every one of them. The
      store reads the explicit key before falling back to the macro's captured
      coords, so a stamp also OVERRIDES those coords. The MACRO form is the
      other spelling of the same remedy: its source-coord capture supplies the
-     provenance with no stamp needed. The FRAME-OWNED kind — `reg-flow` —
-     records no descriptor at all, so neither spelling can select it: a
-     macro supplies COORDINATES, not OWNERSHIP, and both spellings delegate
-     to the same per-frame writer. Its target is the explicit or ambient
-     frame, and an image is not a frame.
+     provenance with no stamp needed.
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam: `rf/image` is value-oriented, but a LITERAL inline
@@ -1128,12 +1122,6 @@
 ;; speaks that grammar, and so does its inverse: ONE door, `(clear kind id)`,
 ;; for every clearable kind, with no per-kind clear names.
 
-(def ^:private clear-frame-scoped-kinds
-  "The kinds whose tear-down is PER-FRAME, and so the only kinds whose
-  `{:frame f}` opts map is accepted. Every other kind clears a process-wide
-  registrar row, where a frame would be meaningless."
-  #{:flow})
-
 (def ^:private clear-kinds
   "The closed kind set of `clear` — the registrar's own kind set MINUS
   `:frame` (a frame is a live runtime object torn down by `destroy-frame!`,
@@ -1145,8 +1133,8 @@
 
 (defn- clear-bad-request!
   "Fail loud (`:rf.error/registrar-clear-bad-request`) for `clear`'s own
-  argument validation: an unknown kind, a malformed opts map, or opts on a
-  kind that is not frame-scoped. Never returns normally."
+  argument validation: an unknown kind, or a trailing opts map. Never returns
+  normally."
   [kind reason detail]
   (rf.error/throw-error!
     :rf.error/registrar-clear-bad-request
@@ -1157,30 +1145,6 @@
                 :reason      reason
                 :clear-kinds (vec (sort clear-kinds))}}))
 
-(defn- clear-frame-target
-  "Validate `clear`'s trailing opts for `kind` and return the frame target it
-  names. `opts` is EXACTLY `{:frame f}`, accepted only for the
-  frame-scoped kind. A tolerant destructure here would silently
-  mis-clear — `{:fram :session}` binding `frame` to
-  nil and clearing the AMBIENT frame instead — so validation happens BEFORE
-  any frame is resolved or any registry is touched."
-  [kind opts]
-  (when-not (contains? clear-frame-scoped-kinds kind)
-    (clear-bad-request!
-      kind :opts-on-a-non-frame-scoped-kind
-      (str ":kind " (pr-str kind) " is not frame-scoped, so it takes no opts. "
-           "Only " (pr-str (vec (sort clear-frame-scoped-kinds))) " clear "
-           "per-frame state; every other kind clears one process-wide "
-           "registrar row.")))
-  (when-not (rf.frame/frame-opts? opts)
-    (clear-bad-request!
-      kind :malformed-opts
-      (str "the opts map must be EXACTLY {:frame f}, where f is a frame-id "
-           "keyword or a live frame value. Received " (pr-str opts) ". A "
-           "tolerated near-miss here would resolve the AMBIENT frame and "
-           "clear the wrong frame's registration silently.")))
-  (:frame opts))
-
 (defn clear
   "Remove ONE registration, `(clear kind id)` — the inverse of the `reg-*`
   verbs, and the mirror of the `(kind, id)` grammar the read side already
@@ -1189,12 +1153,12 @@
 
     (rf/clear :sub  :cart/total)                    ;; => :cart/total
     (rf/clear :cofx :now)                           ;; every registrar kind
-    (rf/clear :flow :cart/total)                    ;; ambient frame
-    (rf/clear :flow :cart/total {:frame :session})  ;; explicit frame
+    (rf/clear :flow :cart/total)
 
   Each kind routes to its OWNING lifecycle fn, never short-cutting a kind that
-  owns runtime state straight to `rf.registrar/unregister!`: `:flow` vacates
-  the output path and settles dependents (Spec 013 §Sequencing),
+  owns runtime state straight to `rf.registrar/unregister!`: `:flow` emits
+  `:rf.flow/cleared`, and each frame running the flow vacates its output on
+  its next event (Spec 013 §Re-registration),
   `:http-interceptor` emits `:rf.http.interceptor/cleared`, `:route` emits
   `:rf.route/cleared`, and the resources trio disposes per-frame resource
   runtime state. The plain registrar kinds — `:event` `:sub` `:fx` `:cofx`
@@ -1203,15 +1167,11 @@
   live-frame projection dirty, and emits `:rf.registry/handler-cleared`) IS
   the owner.
 
-  OPTS. The trailing `{:frame f}` map is accepted for `:flow` ONLY — the
-  per-frame kind — and is EXACT: the sole
-  key is `:frame`, its value a frame-id keyword or a live frame value.
-  Anything else fails closed with `:rf.error/registrar-clear-bad-request`,
-  BEFORE any frame is resolved. `(rf/clear :flow id {:fram f})` therefore
-  THROWS where a tolerant destructure would have silently cleared the ambient
-  frame's flow (Principles §No silent swallow). Omitting opts
-  reaches the owning fn's own AMBIENT arity — it is never normalised to `{}`
-  and forwarded, which the validator would reject.
+  NO FRAME. Every registration is a program member read through each frame's
+  own view, so `clear` removes it for every frame at once. A trailing opts map
+  fails closed with `:rf.error/registrar-clear-bad-request` rather than being
+  ignored (Principles §No silent swallow). A frame stops running a flow or an
+  HTTP interceptor when it is re-made without naming it.
 
   An unknown kind fails closed too, with the message naming the closed set.
   Clearing a kind owned by an artefact that is not on the classpath raises
@@ -1238,11 +1198,13 @@
        (str ":kind " (pr-str kind) " is not a clearable registry kind. The "
             "closed set is " (pr-str (vec (sort clear-kinds))) ".")))
    id)
-  ([kind id opts]
-   (let [frame (clear-frame-target kind opts)]
-     (case kind
-       :flow (rf.core-flows/clear-flow id {:frame frame}))
-     id)))
+  ([kind _id opts]
+   (clear-bad-request!
+     kind :opts-on-a-non-frame-scoped-kind
+     (str ":kind " (pr-str kind) " takes no opts — received " (pr-str opts)
+          ". Every registration is a program member, so clear removes it for "
+          "every frame at once; to stop one frame running a flow or an HTTP "
+          "interceptor, re-make that frame without naming it."))))
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
@@ -1708,14 +1670,13 @@
 ;; `:rf.error/ambiguous-registration` from `handler-meta`, is omitted by
 ;; `registrations`, and is listed by `ambiguous-registrations`.
 ;;
-;; NOT-QUERYABLE KINDS. `:flow` and `:frame` are RESERVED-BUT-EMPTY registrar
-;; slots (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for
-;; them would hand the caller an apparently authoritative empty catalogue while
-;; the real store lives elsewhere. Both throw
+;; NOT-QUERYABLE KIND. `:frame` is a RESERVED-BUT-EMPTY registrar slot
+;; (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for it
+;; would hand the caller an apparently authoritative empty catalogue while the
+;; real store lives elsewhere, so it throws
 ;; `:rf.error/registrar-kind-not-queryable`, whose message NAMES THE REAL DOOR
-;; (`re-frame.flows/flows` / `flow-meta` / `flows-snapshot`; `rf/frame-ids` /
-;; `rf/frame-meta`). A kind outside the queryable set throws the registrar's
-;; own `:rf.error/unknown-registry-kind`.
+;; (`rf/frame-ids` / `rf/frame-meta`). A kind outside the queryable set throws
+;; the registrar's own `:rf.error/unknown-registry-kind`.
 ;;
 ;; THE DISTINCTION IS IMPLEMENTED HERE, AT THE PUBLIC INSPECTION BOUNDARY, and
 ;; NOT by changing `rf.registrar/registrations` / `lookup` / `ids` /
@@ -1858,7 +1819,7 @@
                 :reason        reason}}))
 
 ;; The kinds a public registrar query may address. The registrar's own closed
-;; kind set, MINUS the two reserved-but-empty slots (`:flow` / `:frame` — see
+;; kind set, MINUS the reserved-but-empty `:frame` slot (see
 ;; `not-queryable-kinds` below), PLUS the two DERIVED machine kinds, which are
 ;; not registrar kinds at all: `handler-meta` serves them from the enclosing
 ;; machine's `:event` registration spec (`rf.core-machines/machine-handler-meta`),
@@ -1872,11 +1833,10 @@
 ;; asking a real question at the wrong door, so the answer names the right door
 ;; rather than being a `{}` that reads as "there are none".
 (def ^:private not-queryable-kinds
-  {:flow  "re-frame.flows/flows {:frame f} (one frame's flows), re-frame.flows/flow-meta {:frame f :id id} (one flow), or re-frame.flows/flows-snapshot (the whole per-frame store)"
-   :frame "rf/frame-ids (the live frame ids) or rf/frame-meta (one frame's config)"})
+  {:frame "rf/frame-ids (the live frame ids) or rf/frame-meta (one frame's config)"})
 
 (defn- assert-queryable-kind!
-  "Validate the `:kind` of a registrar query. `:flow` / `:frame` throw
+  "Validate the `:kind` of a registrar query. `:frame` throws
   `:rf.error/registrar-kind-not-queryable` naming the real door; a kind outside
   `queryable-kinds` throws the registrar's own
   `:rf.error/unknown-registry-kind`, with `where` naming the QUERY fn rather
@@ -2039,8 +1999,8 @@
               (registrations {:source :store :kind :event}))
 
   Errors: both source selectors, neither, a non-map argument, or a `:source`
-  other than `:store` → `:rf.error/registrar-query-needs-source`. `:kind :flow`
-  or `:kind :frame` (reserved-but-empty slots) →
+  other than `:store` → `:rf.error/registrar-query-needs-source`. `:kind
+  :frame` (a reserved-but-empty slot) →
   `:rf.error/registrar-kind-not-queryable`, naming the real door. Any other
   non-registry kind → `:rf.error/unknown-registry-kind`."
   [arg]
@@ -2099,7 +2059,7 @@
   Errors: both source selectors, neither, a non-map argument (including a bare
   positional keyword, as in `(handler-meta :event id)`), or a
   `:source` other than `:store` → `:rf.error/registrar-query-needs-source`.
-  `:kind :flow` or `:kind :frame` → `:rf.error/registrar-kind-not-queryable`,
+  `:kind :frame` → `:rf.error/registrar-kind-not-queryable`,
   naming the real door. Any other non-registry kind →
   `:rf.error/unknown-registry-kind`."
   [arg]

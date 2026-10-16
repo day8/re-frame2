@@ -1,290 +1,103 @@
 (ns re-frame.flows.registry
-  "Frame-scoped flow registration and lifecycle state.
+  "Flow registration, activation checks and each frame's evaluation memo.
 
-  The authoritative registry is `{frame-id {flow-id flow-map}}`; the same id
-  may have a different definition in each frame. Dirty-check values and pending
-  output-path vacations also use per-frame containers so drain rollback cannot
-  interfere with a sibling frame. External consumers use the snapshot and
-  lifecycle functions rather than the private atoms."
+  A flow definition is an ordinary registration: `reg-flow` writes it under
+  the registrar's `:flow` kind and names no frame. A frame runs the flows its
+  `:flows` config names, resolved through its own view of the registrations.
+  The only per-frame state is the evaluation memo — one row per flow the frame
+  has evaluated, recording the definition the evaluation used and the inputs
+  and output it produced."
   (:require [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.frame :as rf.frame]
-            ;; `request-flow-settle!` only — see the in-drain branches of
-            ;; `clear-flow*` and `reg-flow`. Core never requires this artefact,
-            ;; so the edge is cycle-free.
-            [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.path :as rf.path]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.trace :as rf.trace]))
 
-;; ---- state ---------------------------------------------------------------
+(def kind
+  "The registrar kind flow definitions live under."
+  :flow)
+
+;; ---- the evaluation memo -------------------------------------------------
 ;;
+;; A ROW is `{:flow definition :inputs input-vec :output value}`: the definition
+;; the flow was last evaluated with, the inputs that evaluation read and the
+;; output it produced. The definition carries its `:output-path`, so a row also
+;; names the slot it wrote. Keeping all three together means every snapshot
+;; and restore of the row map — a flow throw, the router's commit rejection,
+;; epoch's reset after a tool write — moves them as one.
+;;
+;; The outer map changes only when a frame's memo is created or dropped; a
+;; drain swaps its frame's own inner atom, so frames draining on different
+;; threads never contend.
+
 (defonce
-  ^{:doc     "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
-              / clear semantics are unambiguous."
+  ^{:doc     "frame-id → (atom {flow-id row})."
     :private true}
-  flows-by-frame
+  frame-memo
   (atom {}))
 
-;; The outer registry changes only when a frame's cache is created or removed.
-;; Drains mutate the frame's stable inner atom and never contend with sibling
-;; frames on cache updates.
-;;
-;; A dirty-check ROW is `{:inputs input-vec :output value}`: the inputs a flow
-;; last evaluated against and the output that evaluation produced. The output
-;; lives in the row beside the inputs so every snapshot and restore of the row
-;; map — a flow throw, the router's commit rejection, epoch's reset — moves the
-;; two together.
-(defonce
-  ^{:doc     "frame-id → (atom {flow-id {:inputs input-vec :output value}})."
-    :private true}
-  frame-last-inputs
-  (atom {}))
-
-(defn- ^:no-doc ensure-frame-last-inputs-atom!
-  "Return a frame's cache atom, creating it atomically on first touch."
+(defn ^:no-doc frame-memo-atom
+  "Return `frame-id`'s memo atom, or nil when the frame has none yet."
   [frame-id]
-  (or (get @frame-last-inputs frame-id)
-      (get (swap! frame-last-inputs
+  (get @frame-memo frame-id))
+
+(defn ^:no-doc ensure-frame-memo-atom!
+  "Return `frame-id`'s memo atom, creating it atomically on first touch."
+  [frame-id]
+  (or (get @frame-memo frame-id)
+      (get (swap! frame-memo
                   (fn [m]
                     (if (contains? m frame-id)
                       m
                       (assoc m frame-id (atom {})))))
            frame-id)))
 
-;; ---- public read accessors -----------------------------------------------
-;;
-(defn flows-snapshot
-  "Return `{frame-id {flow-id flow-map}}`."
-  []
-  @flows-by-frame)
-
-;; ---- per-frame flow introspection ----------------------------------------
-;;
-;; ONE FRAME SPELLING. Both per-frame reads take a single opts
-;; MAP whose `:frame` is REQUIRED — the same accepted target shapes
-;; `rf/registrations` takes (a frame-id keyword or a frame value), resolved to
-;; the frame id that keys this side table. There is deliberately NO ambient
-;; default and no trailing frame-target sniffing: a live frame value is itself
-;; a map, so a type-sniffing trailing argument cannot be read locally (Spec
-;; Principles §Name over place). A frameless or non-map call raises the
-;; catalogued `:rf.error/no-frame-context`.
-
-(defn- read-frame-id
-  "Resolve the REQUIRED `:frame` target of a side-table read's opts map.
-
-  `where-sym` names the public fn in the diagnostic. No liveness or image
-  resolution happens here: the side tables are keyed by frame id, so a read
-  of a frame holding no flows answers `{}` / `nil` rather than throwing."
-  [opts where-sym]
-  (let [target (when (map? opts) (:frame opts))]
-    (if (some? target)
-      (rf.frame/frame-target->id target)
-      (let [payload (rf.frame/no-frame-context-payload
-                      :flow-introspection
-                      {:where    where-sym
-                       :reason   (str where-sym " requires an explicit frame: pass "
-                                      "{:frame <frame-id-or-frame-value>}. Side-table "
-                                      "reads never fall back to an ambient frame, and "
-                                      "the frame target is never a trailing positional "
-                                      "argument. Got " (pr-str opts) ".")
-                       :recovery :supply-frame})]
-        (rf.frame/emit-no-frame-context! payload)
-        (throw (rf.error/ex-info-from-data payload))))))
-
-(defn flows
-  "Return `{flow-id flow-map}` — every flow registered in the named frame, or
-  `{}` when that frame holds none.
-
-  `(flows {:frame f})`. `:frame` is required and accepts a frame-id keyword or
-  a frame value (`rf/make-frame`'s return token). The whole-registry read is
-  `flows-snapshot`."
-  [opts]
-  (get @flows-by-frame (read-frame-id opts 're-frame.flows/flows) {}))
-
-(defn flow-meta
-  "Return one flow's registration map in the named frame, or nil.
-
-  `(flow-meta {:frame f :id flow-id})`. Both keys are required; `:frame`
-  accepts a frame-id keyword or a frame value."
-  [{:keys [id] :as opts}]
-  (get-in @flows-by-frame [(read-frame-id opts 're-frame.flows/flow-meta) id]))
-
-(defn ^:no-doc frame-has-flows?
-  "True when `frame-id` holds at least one registered flow.
-
-  The `:flows/frame-has-flows?` late-bind hook: core's `:fx` walk asks it
-  before settling a frame whose state the walk changed, so a frame with no
-  flows pays no settle. Takes a resolved frame id — no
-  ambient fallback, no validation — because its one caller already holds it."
+(defn ^:no-doc frame-last-inputs-snapshot
+  "Return `frame-id`'s memo rows as `{flow-id row}`. The `:flows/snapshot-last-
+  inputs` hook: the router takes it before the flow pass so an event that does
+  not commit can put the rows back."
   [frame-id]
-  (boolean (seq (get @flows-by-frame frame-id))))
+  (if-let [a (frame-memo-atom frame-id)]
+    @a
+    {}))
+
+(defn ^:no-doc reset-frame-last-inputs-to!
+  "Replace `frame-id`'s memo rows with `prior`. The `:flows/restore-last-inputs!`
+  hook: the router restores a snapshot when an event does not commit, and
+  epoch passes `{}` after a tool write so the next event evaluates every flow
+  against the installed state."
+  [frame-id prior]
+  (when-let [a (frame-memo-atom frame-id)]
+    (reset! a prior))
+  nil)
 
 (defn ^:no-doc last-inputs-snapshot
-  "Return raw cached inputs as `{flow-id {frame-id inputs}}`.
+  "Return the cached inputs as `{flow-id {frame-id inputs}}`.
 
-  This internal/test accessor is not an egress boundary; use projected flow
-  traces when values leave the owning runtime."
+  A test accessor, not an egress boundary: values leaving the runtime go
+  through the elided flow traces."
   []
   (reduce-kv
-    (fn [acc frame-id inner-atom]
+    (fn [acc frame-id memo]
       (reduce-kv
         (fn [acc flow-id row]
           (assoc-in acc [flow-id frame-id] (:inputs row)))
         acc
-        @inner-atom))
+        @memo))
     {}
-    @frame-last-inputs))
+    @frame-memo))
 
-;; ---- intra-artefact-only mutation helpers --------------------------------
-;;
-(defn ^:no-doc frame-last-inputs-snapshot
-  "Return a frame's dirty-check rows as `{flow-id row}`."
-  ([frame-id]
-   (if-let [a (get @frame-last-inputs frame-id)]
-     @a
-     {}))
-  ([frame-id owner-token]
-   (when (rf.frame/event-continuation-live? frame-id owner-token)
-     (frame-last-inputs-snapshot frame-id))))
-
-(defn ^:no-doc get-frame-flow-last-inputs
-  "Return the cached inputs for a flow in a frame, or nil."
-  [frame-id flow-id]
-  (when-let [a (get @frame-last-inputs frame-id)]
-    (:inputs (get @a flow-id))))
-
-(defn ^:no-doc set-frame-flow-last-inputs!
-  "Seed a flow's frame-local row with `inputs` and no remembered output, which
-  an equal-input visit then has nothing to re-assert from."
-  [frame-id flow-id inputs]
-  (swap! (ensure-frame-last-inputs-atom! frame-id) assoc flow-id {:inputs inputs}))
-
-(defn ^:no-doc reset-frame-last-inputs-to!
-  "Restore one frame's dirty-check cache from a prior snapshot."
-  [frame-id owner-token prior]
-  (when (rf.frame/event-continuation-live? frame-id owner-token)
-    (when-let [a (get @frame-last-inputs frame-id)]
-      (reset! a prior))))
-
-;; ---- pending abandoned output paths --------------------------------------
-;;
-;; Moving or clearing a flow must vacate its old app-db path. Outside a drain we
-;; can write app-db directly. Inside a drain that write would be overwritten by
-;; the pending commit, so lifecycle operations queue the path here and
-;; `run-flows-on-db` removes it from the pending db instead.
-
-(defonce
-  ^{:doc     "frame-id → (atom #{output-path ...}) pending in-drain vacation."
-    :private true}
-  frame-abandoned-output-paths
-  (atom {}))
-
-(defn- ensure-frame-abandoned-paths-atom!
-  "Return a frame's pending-path atom, creating it atomically."
+(defn ^:no-doc frame-runs-flows?
+  "True when `frame-id`'s config names at least one flow. The
+  `:flows/frame-has-flows?` hook: core's `:fx` walk asks it before settling a
+  frame whose state the walk changed, so a frame running no flows pays no
+  settle."
   [frame-id]
-  (or (get @frame-abandoned-output-paths frame-id)
-      (get (swap! frame-abandoned-output-paths
-                  (fn [m]
-                    (if (contains? m frame-id)
-                      m
-                      (assoc m frame-id (atom #{})))))
-           frame-id)))
-
-(defn ^:no-doc record-abandoned-output-path!
-  "Queue an output path for removal from this frame's pending db."
-  [frame-id path]
-  (swap! (ensure-frame-abandoned-paths-atom! frame-id) conj path))
-
-(defn ^:no-doc abandoned-output-paths-snapshot
-  "Return a frame's pending output-path vacations as a set."
-  ([frame-id]
-   (if-let [a (get @frame-abandoned-output-paths frame-id)]
-     @a
-     #{}))
-  ([frame-id owner-token]
-   (when (rf.frame/event-continuation-live? frame-id owner-token)
-     (abandoned-output-paths-snapshot frame-id))))
-
-(defn ^:no-doc restore-abandoned-output-paths!
-  "Restore one frame's pending output-path vacations from a prior snapshot."
-  [frame-id owner-token prior]
-  (when (rf.frame/event-continuation-live? frame-id owner-token)
-    (when-let [a (get @frame-abandoned-output-paths frame-id)]
-      (reset! a (set prior)))))
-
-;; ---- exact-incarnation flow-pass ownership -------------------------------
-
-(defn ^:no-doc capture-flow-pass-state
-  "Capture the registry values and private cache cells owned by one flow pass.
-
-  The cells, not the bare frame id, are the mutation authority.  If a derive
-  callback destroys incarnation A, teardown dissociates these cells and a
-  same-id B creates fresh ones; the already-running A pass can therefore
-  neither advance nor restore B's dirty-check/vacation state.  Returns nil
-  when `owner-token` no longer names the live incarnation."
-  [frame-id owner-token]
-  (when (rf.frame/event-continuation-live? frame-id owner-token)
-    (let [state {:flow-map        (get @flows-by-frame frame-id)
-                 :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
-                 :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)}]
-      (when (rf.frame/event-continuation-live? frame-id owner-token)
-        state))))
-
-(defn ^:no-doc legacy-flow-pass-state
-  "Capture flow-pass state without an exact-owner fence (the tokenless/test arity)."
-  [frame-id]
-  {:flow-map        (get @flows-by-frame frame-id)
-   :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
-   :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)})
-
-(defn ^:no-doc pass-last-inputs-snapshot [pass]
-  @(get pass :last-inputs))
-
-(defn ^:no-doc pass-flow-row
-  "The flow's dirty-check row, `{:inputs … :output …}`, or nil before its first
-  evaluation."
-  [pass flow-id]
-  (get @(get pass :last-inputs) flow-id))
-
-(defn ^:no-doc pass-flow-evaluated?
-  "True when the pass holds a dirty-check row for `flow-id` — i.e. the flow
-  has evaluated since it was last registered. Row PRESENCE, never the row's
-  value: a registration or re-registration drops the row, and a failed pass
-  restores the prior row map, so an absent row means not yet established."
-  [pass flow-id]
-  (contains? @(get pass :last-inputs) flow-id))
-
-(defn ^:no-doc pass-set-flow-row! [pass flow-id inputs output]
-  (swap! (get pass :last-inputs) assoc flow-id {:inputs inputs :output output}))
-
-(defn ^:no-doc pass-reset-last-inputs! [pass prior]
-  (reset! (get pass :last-inputs) prior))
-
-(defn ^:no-doc pass-abandoned-paths-snapshot [pass]
-  @(get pass :abandoned-paths))
-
-(defn ^:no-doc pass-drain-abandoned-paths!
-  [pass]
-  (let [drained (volatile! #{})]
-    (swap! (get pass :abandoned-paths)
-           (fn [paths]
-             (vreset! drained paths)
-             #{}))
-    @drained))
-
-(defn ^:no-doc pass-restore-abandoned-paths! [pass prior]
-  (reset! (get pass :abandoned-paths) (set prior)))
-
-;; ---- last-inputs row maintenance -----------------------------------------
-;;
-(defn- drop-frame-flow-last-inputs!
-  "Drop a flow's frame-local dirty-check row, if present."
-  [frame-id flow-id]
-  (when-let [frame-cache (get @frame-last-inputs frame-id)]
-    (swap! frame-cache dissoc flow-id)))
+  (boolean (seq (:flows (rf.frame/frame-config frame-id)))))
 
 ;; ---- validation ----------------------------------------------------------
 ;;
@@ -431,10 +244,12 @@
 ;;   :sensitive  [paths]— per-output-path sensitive sub-slots ([[]] = whole)
 ;;   :large      [paths]— per-output-path large sub-slots ([[]] = whole)
 ;;
-;; Registration translates them to absolute app-db paths in the frame's elision
-;; registry. That one registry governs flow traces and observation of the
-;; materialized app-db slot. Source stamps let re-registration and clear remove
-;; only this flow's declarations.
+;; A frame claims a flow's output paths in its elision registry when it first
+;; evaluates the definition, before that evaluation emits anything, and drops
+;; the claims when the flow leaves the frame. The registry governs flow traces
+;; and observation of the materialized app-db slot. The owner identity names
+;; the flow, so replacing or dropping one flow's claims leaves every other
+;; claim on the same path standing.
 
 (defn- explicit-flow-output-mark-paths
   "Return `[sensitive-paths large-paths]` as absolute app-db paths."
@@ -450,6 +265,42 @@
         whole-output-large (when (true? (:large? flow)) [output-path])]
     [(vec sensitive-paths)
      (vec (concat whole-output-large large-paths))]))
+
+(defn ^:no-doc flow-declares-marks?
+  "True when the flow declares output classification."
+  [flow]
+  (or (contains? flow :sensitive)
+      (contains? flow :large)
+      (contains? flow :large?)))
+
+(defn- flow-owner
+  "The elision-registry owner identity a flow's output claims sit under."
+  [flow-id]
+  {:source :flow :flow-id flow-id})
+
+(defn ^:no-doc claim-output-marks!
+  "Replace `flow`'s claims in `frame-id`'s elision registry with the paths its
+  current definition declares."
+  [frame-id flow]
+  (let [owner (flow-owner (:id flow))
+        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)]
+    (rf.elision/swap-elision-slot!
+      frame-id
+      (fn [reg]
+        (-> (or reg {})
+            (rf.elision/replace-owner-claims :sensitive-declarations owner explicit-s)
+            (rf.elision/replace-owner-claims :declarations owner explicit-l))))))
+
+(defn ^:no-doc drop-output-marks!
+  "Remove every claim `flow-id` holds in `frame-id`'s elision registry."
+  [frame-id flow-id]
+  (let [owner (flow-owner flow-id)]
+    (rf.elision/swap-elision-slot!
+      frame-id
+      (fn [reg]
+        (-> (or reg {})
+            (rf.elision/remove-owner :sensitive-declarations owner)
+            (rf.elision/remove-owner :declarations owner))))))
 
 ;; ---- partition-qualified input primitives -------------------------------
 ;;
@@ -471,126 +322,52 @@
     (subvec (vec input-path) 1)
     (vec input-path)))
 
-(defn- flow-declares-marks?
-  "True when the flow declares output classification."
-  [flow]
-  (or (contains? flow :sensitive)
-      (contains? flow :large)
-      (contains? flow :large?)))
-
-(defn- flow-owner
-  "The multi-owner elision-registry owner identity a `reg-flow` output claims
-  under. The `:flow-id` is carried so re-registration / clear scope to THIS
-  flow (`replace-owner-claims` / `remove-owner`) without disturbing a sibling
-  flow's — or any other source's — claim on the same absolute path."
-  [flow-id]
-  {:source :flow :flow-id flow-id})
-
-(defn- fold-flow-declarations
-  "Reconcile one flow's output declarations in an elision registry value:
-  replace THIS flow's owner claims (both axes) with its current explicit
-  sensitive / large absolute output paths, delegating to the core multi-owner
-  op (`elision/replace-owner-claims`). A foreign owner (effect / route /
-  machine / resource) — or a sibling flow — on the same absolute path survives
-  untouched, and the flow's claim unions with theirs."
-  [reg flow]
-  (let [owner (flow-owner (:id flow))
-        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)]
-    (-> (or reg {})
-        (rf.elision/replace-owner-claims :sensitive-declarations owner explicit-s)
-        (rf.elision/replace-owner-claims :declarations owner explicit-l))))
-
-(defn- write-flow-output-marks!
-  "Install or refresh one flow's output declarations in its frame.
-
-  `owner-token` is threaded through the exact-incarnation
-  elision write so a synchronous container watch that destroys A mid-write
-  cannot bump same-id B's commit epoch or write B's runtime-db."
-  [frame-id owner-token flow]
-  (rf.elision/swap-elision-slot! frame-id owner-token
-                              (fn [reg] (fold-flow-declarations reg flow))))
-
-(defn- clear-flow-output-marks!
-  "Remove one flow's declarations while preserving every other declaration
-  owner (and any sibling flow's) via the core `elision/remove-owner` op per
-  axis.
-
-  Frame teardown needs no per-flow scrub because the elision registry belongs
-  to the frame-state container that destruction removes.
-
-  `owner-token` is threaded through the exact-incarnation
-  elision write so a synchronous container watch that destroys A mid-write
-  cannot bump same-id B's commit epoch or write B's runtime-db."
-  [frame-id owner-token flow-id]
-  (let [owner (flow-owner flow-id)]
-    (rf.elision/swap-elision-slot!
-      frame-id owner-token
-      (fn [reg]
-        (-> (or reg {})
-            (rf.elision/remove-owner :sensitive-declarations owner)
-            (rf.elision/remove-owner :declarations owner))))))
-
 ;; ---- registration --------------------------------------------------------
 
-;; Defined with the shared path-vacation helpers below.
-(declare vacate-output-path!)
+(defn- invalid-metadata!
+  [flow-id reason value]
+  (throw (rf.error/thrown-ex-info
+           :rf.error/invalid-flow-metadata
+           'rf/reg-flow
+           reason
+           {:recovery :fix-registration
+            :extra    {:id flow-id :value value}})))
 
 (defn- reconstruct-flow
-  "Build the stored flow map from `(reg-flow id metadata derive-fn)`.
-
-  Return `[flow frame-target]`; `:frame` controls mounting and is not stored as
-  flow metadata. Reject a misplaced `:derive` key before reconstruction."
+  "Build the stored definition from `(reg-flow id metadata derive-fn)`,
+  refusing a non-map metadata slot, a `:derive` left in the metadata map and a
+  `:frame` in it before any map operation runs."
   [flow-id metadata derive-fn]
-  ;; Validate before using map operations so callers receive a typed error.
   (when-not (map? metadata)
-    (throw (rf.error/thrown-ex-info
-             :rf.error/invalid-flow-metadata
-             'rf/reg-flow
-             (str "flow " flow-id "'s metadata (the MIDDLE slot) must be a map, "
-                  "got " (pr-str (type metadata)) ". The grammar "
-                  "is (reg-flow " flow-id " {…} derive-fn): the :inputs / "
-                  ":output-path / :doc / :schema reflection-config metadata map "
-                  "is the SECOND slot, the pure :derive fn is the THIRD.")
-             {:recovery :fix-registration
-              :extra    {:id flow-id :value metadata}})))
+    (invalid-metadata!
+      flow-id
+      (str "flow " flow-id "'s metadata (the MIDDLE slot) must be a map, "
+           "got " (pr-str (type metadata)) ". The grammar "
+           "is (reg-flow " flow-id " {…} derive-fn): the :inputs / "
+           ":output-path / :doc / :schema reflection-config metadata map "
+           "is the SECOND slot, the pure :derive fn is the THIRD.")
+      metadata))
   (when (contains? metadata :derive)
-    (throw (rf.error/thrown-ex-info
-             :rf.error/invalid-flow-metadata
-             'rf/reg-flow
-             (str "flow " flow-id " declares :derive inside its metadata map — "
-                  "the pure derivation is the THIRD slot: "
-                  "(reg-flow " flow-id " {…} derive-fn). Move the derive fn out "
-                  "of the metadata map into the value slot.")
-             {:recovery :fix-registration
-              :extra    {:id flow-id :value (:derive metadata)}})))
-  [(-> metadata (dissoc :frame) (assoc :id flow-id :derive derive-fn))
-   (:frame metadata)])
-
-(defn- flow-reload-shape
-  "The observable shape of a stored flow definition, for deciding whether a
-  re-registration is a genuine hot-reload edit or an idempotent replay.
-
-  Flow replacement evidence must be deduped from THIS frame's
-  authoritative slot — the prior/new stored flow values — NOT the generic
-  process-global `[:flow flow-id]` registrar dedup table, which is frame-blind.
-  Two live frames replacing the same flow-id are two independent definitions
-  (Spec 013 §Frame-scoping); a frame-blind key lets one frame's recorded shape
-  suppress another frame's genuine replacement, and lets a destroyed frame's
-  shape bleed into its same-id successor. Comparing the prior and new stored
-  values of the SAME frame slot dedups each frame independently.
-
-  Strips the source-coord keys (`:ns`/`:file`/`:line`/`:column`), which drift on
-  every re-eval and are not a user-visible change — mirroring the generic
-  registrar `handler-shape`. The remaining fields (`:derive` fn identity,
-  `:inputs`, `:output-path`, plus any documentation/classification metadata)
-  compare by value; a fresh `:derive` instance from a namespace re-eval, a
-  changed body, or moved inputs/path all differ and emit, while a same-object
-  identical replay is suppressed."
-  [flow]
-  (dissoc flow :ns :file :line :column))
+    (invalid-metadata!
+      flow-id
+      (str "flow " flow-id " declares :derive inside its metadata map — "
+           "the pure derivation is the THIRD slot: "
+           "(reg-flow " flow-id " {…} derive-fn). Move the derive fn out "
+           "of the metadata map into the value slot.")
+      (:derive metadata)))
+  (when (contains? metadata :frame)
+    (invalid-metadata!
+      flow-id
+      (str "flow " flow-id " declares :frame " (pr-str (:frame metadata))
+           ", but a flow definition names no frame. Register it at the top "
+           "level without :frame, and name it in the :flows config of each "
+           "frame that runs it, e.g. (rf/make-frame {:id :my/app :flows ["
+           flow-id "]}).")
+      (:frame metadata)))
+  (assoc metadata :id flow-id :derive derive-fn))
 
 (defn reg-flow
-  "Register a flow against a frame:
+  "Register the flow definition `flow-id`:
 
       (rf/reg-flow :rectangle/area
         {:inputs      [[:width] [:height]]
@@ -598,223 +375,70 @@
          :doc         \"Rectangle area from :width × :height.\"}
         (fn [w h] (* w h)))
 
-  The derive function is the third slot. Metadata contains the required
-  `:inputs` and `:output-path`, optional documentation/classification, and an
-  optional `:frame` target. Without a target, registration requires an ambient
-  frame. Returns `flow-id`."
-  ([flow-id metadata derive-fn]
-   (let [[flow frame] (reconstruct-flow flow-id metadata derive-fn)]
-   (validate-flow flow)
-   (let [;; Normalize frame values before liveness checks and registry access.
-         frame-id (or (some-> frame rf.frame/frame-target->id)
-                      (rf.frame/require-current-frame!
-                        :reg-flow
-                        {:where    'rf/reg-flow
-                         :event-id (:id flow)}))
-         flow-id  (:id flow)
-         ;; Store coordinates with the frame-scoped definition so tooling reads
-         ;; them from the same authoritative value.
-         flow     (rf.source-coords/merge-coords flow)]
-     ;; PIN the incarnation this call selected. The serialization helper below
-     ;; intentionally tolerates absent frames (so `clear-flow` stays idempotent
-     ;; and mid-drain effects run reentrantly), so a bare pre-serializer
-     ;; liveness check is a check-then-act: a concurrent `destroy-frame!` can
-     ;; complete in the window between that check and the winning registry
-     ;; mutation, leaving a GHOST flow row on a dead frame — or, if the id is
-     ;; re-registered to a NEW incarnation, the mutation could clobber it. So
-     ;; instead of trusting a bare nil-check, capture the live incarnation TOKEN
-     ;; here and REVALIDATE it INSIDE the serialized mutation (below), under the
-     ;; frame's `:drain-lock` — the SAME lock `destroy-frame!` flips liveness
-     ;; under (`frame/call-serialized-with-drain!`). Registration and
-     ;; destruction therefore linearize on one frame-owned gate: a destroy that
-     ;; wins makes the revalidation observe a nil / different token and refuse
-     ;; (no ghost row); a registration that wins publishes its row, which the
-     ;; destroy's flows-teardown hook then removes. See
-     ;; re-frame.frame/frame-incarnation-token.
-     (let [pinned-incarnation (rf.frame/frame-incarnation-token frame-id)]
-       (when (nil? pinned-incarnation)
-         (rf.error/throw-error!
-           :rf.error/flow-frame-not-live
-           'rf/reg-flow
-           (str "cannot register a flow against frame "
-                frame-id
-                " — the frame is not live (absent / never registered, "
-                "or torn down by destroy-frame!). Register the flow "
-                "against a live frame; a destroyed frame must not "
-                "acquire flow state (Spec 013 §destroy-frame!).")
-           {:recovery :fix-registration
-            :extra    {:frame frame-id
-                       :flow  flow}}))
-     ;; Capture the prior value inside the retrying swap so lifecycle decisions
-     ;; use the state observed by the winning CAS.
-     (let [prior-frame-flow (volatile! nil)]
-       ;; Publish, path vacation, mark replacement, and cache invalidation are
-       ;; serialized with the frame drain. The registry swap keeps topology
-       ;; validation inside the CAS retry, preventing concurrent registrations
-       ;; from jointly admitting a cycle or output overlap.
-       (rf.frame/call-serialized-with-drain!
-         frame-id
-         (fn []
-           ;; LINEARIZATION GATE. Admit this mutation ONLY while the pinned
-           ;; incarnation is still live. `destroy-frame!` flips liveness under
-           ;; the same `:drain-lock` this thunk runs under, so if it linearized
-           ;; first the current token is nil (destroyed / dissoc'd) or a
-           ;; DIFFERENT incarnation's (id re-registered). Refuse in either case:
-           ;; no ghost row survives the destroyed frame, and a newer
-           ;; re-registration is never clobbered. A bare second `frame/frame`
-           ;; nil-check is insufficient — it would still admit a write into a
-           ;; re-registered NEW incarnation's slot; identity of the pinned token
-           ;; is what rejects that.
-           (when-not (identical? pinned-incarnation
-                                 (rf.frame/frame-incarnation-token frame-id))
-             (rf.error/throw-error!
-               :rf.error/flow-frame-not-live
-               'rf/reg-flow
-               (str "cannot register a flow against frame "
-                    frame-id
-                    " — the frame was destroyed (or re-registered to a new "
-                    "incarnation) concurrently with this registration. "
-                    "Register the flow against a live frame; a destroyed frame "
-                    "must not acquire flow state (Spec 013 §destroy-frame!).")
-               {:recovery :fix-registration
-                :extra    {:frame frame-id
-                           :flow  flow}}))
-           (swap! flows-by-frame
-                  (fn [by-frame]
-                    (let [prior-frame-flows (get by-frame frame-id)]
-                      (vreset! prior-frame-flow (get prior-frame-flows flow-id))
-                      (let [prospective-frame-flows
-                            (assoc prior-frame-flows flow-id flow)]
-                        ;; Prefer the specific output-overlap diagnostic before
-                        ;; the dependency-cycle check.
-                        (rf.flows.topo/detect-output-path-overlap! prospective-frame-flows)
-                        (rf.flows.topo/topo-sort prospective-frame-flows)
-                        (assoc by-frame frame-id prospective-frame-flows)))))
-           ;; A moved output must vacate the old path. Queue the vacation during
-           ;; a drain so it is applied to the pending db; otherwise write now.
-           ;; The direct-path vacation is a callback-bearing
-           ;; app-db write — thread A's pinned incarnation so a watch that loses
-           ;; A cannot bump same-id B's commit epoch or write B's app-db.
-           ;;
-           ;; Called from an effect, the in-drain call runs
-           ;; AFTER the event's flow pass, so no pending pass remains to apply
-           ;; the queued vacation; ask the `:fx` walk to settle the frame when
-           ;; it ends. From a handler body the request is a no-op and the
-           ;; pending pass applies it.
-           (when-let [prior @prior-frame-flow]
-             (let [old-path (:output-path prior)]
-               (when (not= old-path (:output-path flow))
-                 (if (rf.frame/in-drain? frame-id)
-                   (do (record-abandoned-output-path! frame-id old-path)
-                       (rf.fx/request-flow-settle!))
-                   (vacate-output-path! frame-id pinned-incarnation old-path)))))
-           ;; The output-mark write below is itself exact-
-           ;; incarnation — it threads `pinned-incarnation` through
-           ;; `swap-elision-slot!` → `swap-runtime-db-exact!`, whose
-           ;; `identical? owner-token` guard makes it a TRUE no-op once A is
-           ;; lost (the transform is never called, no epoch bump). So no bare
-           ;; post-vacation liveness pre-check guards it: such a check would add
-           ;; NO call-boundary effect the exact-owner postcheck below does not
-           ;; already provide. The downstream exact fences are explicit: the
-           ;; mark write's internal owner-token guard, and the postcheck below.
-           (when (or (flow-declares-marks? flow)
-                     (some? @prior-frame-flow))
-             (write-flow-output-marks! frame-id pinned-incarnation flow))
-           ;; Exact-owner postcheck after the (callback-bearing) output-mark
-           ;; container write: if a synchronous container watch destroyed A and
-           ;; published a same-id B, abort before any bare-id dirty-cache drop,
-           ;; registry mutation, or dedup-and-trace pipeline reaches B.
-           (when (rf.frame/event-continuation-live? frame-id pinned-incarnation)
-             ;; A replacement invalidates the cache even when inputs are equal.
-             ;; Hot-reload trace dedup compares the prior and new stored flow
-             ;; shapes of THIS frame slot (`flow-reload-shape`).
-             (when (some? @prior-frame-flow)
-               (drop-frame-flow-last-inputs! frame-id flow-id)
-               ;; The replacement dedup consultation and the
-               ;; :rf.registry/handler-replaced emit form ONE synchronous,
-               ;; callback-bearing pipeline — dedup-by-shape projection, then,
-               ;; inside `emit!`, classification projection → epoch capture →
-               ;; ordered tooling listeners. The postcheck above only proves A is
-               ;; live at the instant the block STARTS; each trace-internal stage
-               ;; rechecks ownership ONLY while a continuation predicate is
-               ;; installed (`trace/continuation-live?` reads the always-true
-               ;; default otherwise). A DIRECT cold `reg-flow` replacement — unlike
-               ;; the reserved-effect `:rf.fx/reg-flow` route, which inherits the
-               ;; router's exact-owner predicate — installs none, so absent this
-               ;; wrap an epoch-capture callback or an already-entered listener
-               ;; could destroy A and publish same-id B, and later listeners would
-               ;; still receive A's incarnation-less :rf.registry/handler-replaced
-               ;; after B owns the id (and later policy/capture could observe B).
-               ;; Wrap the whole dedup+emit in the pinned incarnation's exact-owner
-               ;; continuation, mirroring the first-registration fence:
-               ;; already-entered delivery may stand once, every later framework-
-               ;; owned trace stage is fenced. AND-composes with any parent (router)
-               ;; predicate.
-               (when rf.interop/debug-enabled?
-                 (rf.trace/call-with-continuation-predicate
-                   #(rf.frame/event-continuation-live? frame-id pinned-incarnation)
-                   (fn []
-                     (let [prior              @prior-frame-flow
-                           derive-fn-changed? (not= (:derive prior) (:derive flow))
-                           ;; Decide replacement suppression from THIS
-                           ;; frame's authoritative slot — the prior/new stored
-                           ;; values — not the generic process-global
-                           ;; `[:flow flow-id]` dedup table. The generic table is
-                           ;; frame-blind: two live frames replacing the same
-                           ;; flow-id to the same shape would collide on one key,
-                           ;; so the second frame's genuine replacement would be
-                           ;; suppressed and left unattributable, and a same-id
-                           ;; frame reincarnation could inherit its predecessor's
-                           ;; recorded shape. A per-frame prior/new shape compare
-                           ;; suppresses only a true idempotent hot reload WITHIN
-                           ;; this frame, and lets each frame emit its own event
-                           ;; (Spec 013 §independent frame ownership). Generic
-                           ;; registrar dedup serves process-scoped kinds; there is
-                           ;; no parallel flow registry.
-                           shape-changed? (not= (flow-reload-shape prior)
-                                                (flow-reload-shape flow))]
-                        (when shape-changed?
-                          (rf.trace/emit! :rf.registry :rf.registry/handler-replaced
-                                      {:kind          :flow
-                                       :id            flow-id
-                                       :frame         frame-id
-                                       :different-fn? derive-fn-changed?})))))))
-             ;; First-registration evidence, kept INSIDE the exact-
-             ;; owner postcheck. Registration is first-time per frame; replacements
-             ;; use the hot-reload dedup trace above. A first-time flow with output
-             ;; marks reaches a callback-bearing runtime-db write
-             ;; (`write-flow-output-marks!` above); a synchronous container watch
-             ;; can destroy A there and publish a same-id B. Because the postcheck
-             ;; guarding this block then fails, A's :rf.flow/registered is never
-             ;; delivered against B and B's trace policy is never consulted for A.
-             ;; (`clear-flow` fences its :rf.flow/cleared the same way.)
-             ;;
-             ;; The postcheck above only proves A is live at the instant
-             ;; emission STARTS. `trace/emit!` is itself a synchronous, callback-
-             ;; bearing pipeline — classification projection, then epoch capture,
-             ;; then the ordered tooling listeners — and each stage rechecks
-             ;; ownership ONLY while a continuation predicate is installed. The event
-             ;; router installs its own exact-owner predicate for the reserved-effect
-             ;; `:rf.fx/reg-flow` route, but a DIRECT cold `reg-flow` does not — so
-             ;; absent this wrap, an epoch-capture callback or the first listener
-             ;; could destroy A and publish same-id B, and later listeners would
-             ;; still receive A's incarnation-less :rf.flow/registered after B owns
-             ;; the id. Wrap the emit in the pinned incarnation's exact-owner
-             ;; continuation so every trace-internal stage is fenced: already-entered
-             ;; delivery may stand once, but no later framework-owned trace stage
-             ;; starts after A's exact ownership is lost. AND-composes with any parent
-             ;; predicate, so the reserved-effect route's router predicate
-             ;; holds too.
-             (when (and rf.interop/debug-enabled? (nil? @prior-frame-flow))
-               (rf.trace/call-with-continuation-predicate
-                 #(rf.frame/event-continuation-live? frame-id pinned-incarnation)
-                 (fn []
-                   (rf.trace/emit! :flow :rf.flow/registered
-                                {:flow-id flow-id
-                                 :inputs  (:inputs flow)
-                                 :path    (:output-path flow)
-                                 :frame   frame-id})))))))))
-     flow-id))))
+  The derive function is the third slot. Metadata carries the required
+  `:inputs` and `:output-path` plus optional documentation and output
+  classification. The definition is a top-level registration under the
+  registrar's `:flow` kind: it reads no frame, and runs in each frame whose
+  `:flows` config names it. Re-registering an id replaces the definition, and
+  each frame running it recomputes on its next event. Returns `flow-id`."
+  [flow-id metadata derive-fn]
+  (let [flow (reconstruct-flow flow-id metadata derive-fn)]
+    (validate-flow flow)
+    (let [{:keys [was]} (rf.registrar/register! kind flow-id
+                                                (rf.source-coords/merge-coords flow))]
+      ;; A replacement rides the registrar's `:rf.registry/handler-replaced`.
+      (when (and rf.interop/debug-enabled? (nil? was))
+        (rf.trace/emit! :flow :rf.flow/registered
+                        {:flow-id flow-id
+                         :inputs  (:inputs flow)
+                         :path    (:output-path flow)}))
+      flow-id)))
+
+(defn clear-flow
+  "Remove the flow definition `id` — the `:flow` arm of `(rf/clear :flow id)`.
+  Each frame whose `:flows` names it vacates the output on its next event.
+  Emits `:rf.flow/cleared` when a definition existed. Returns nil."
+  [id]
+  (let [prior (get (rf.registrar/registrations kind) id)]
+    (rf.registrar/unregister! kind id)
+    (when (and rf.interop/debug-enabled? (some? prior))
+      (rf.trace/emit! :flow :rf.flow/cleared
+                      {:flow-id id
+                       :path    (:output-path prior)}))
+    nil))
+
+;; ---- activation ------------------------------------------------------------
+
+(defn- unregistered-flow!
+  [frame-id ids id]
+  (rf.error/throw-error!
+    :rf.error/unregistered-flow
+    'rf/make-frame
+    (str "frame " (pr-str frame-id) " names flow " (pr-str id) " in its :flows "
+         (pr-str ids) ", but no reg-flow defines it in the frame's view. "
+         "Register the flow, or remove the id from the frame's :flows.")
+    {:recovery :fix-registration
+     :extra    {:frame frame-id :flow-id id :flows ids}}))
+
+(defn ^:no-doc check-activation!
+  "Run the activation checks over a frame's `:flows` ids: each resolves through
+  the registration view the caller has bound, and the resolved set has no two
+  overlapping output paths and no dependency cycle. Throws
+  `:rf.error/unregistered-flow`, `:rf.error/flow-path-overlap` or
+  `:rf.error/flow-cycle`. The `:flows/check-activation!` hook `make-frame`
+  calls before any frame state is written."
+  [frame-id ids]
+  (let [active (reduce (fn [m id]
+                         (if-let [flow (rf.registrar/lookup kind id)]
+                           (assoc m id flow)
+                           (unregistered-flow! frame-id ids id)))
+                       {}
+                       ids)]
+    (rf.flows.topo/detect-output-path-overlap! active 'rf/make-frame)
+    (rf.flows.topo/topo-sort active 'rf/make-frame)
+    nil))
+
+;; ---- path vacation ---------------------------------------------------------
 
 (defn- dissoc-in-safe
   "Remove a nested leaf without creating nil parents. A MAP parent has the leaf
@@ -822,7 +446,7 @@
   vacated by `assoc`-ing `nil` at that index — the ONLY local vacation a vector
   admits (a `dissoc` would shift every later element and silently corrupt
   sibling outputs). Integer segments are valid path elements
-  (`re-frame.path/segment?`), and `evaluate-flow!` writes a vector-index output
+  (`re-frame.path/segment?`), and the evaluator writes a vector-index output
   via `assoc-in`, so vacation must be symmetric with that write — matching
   `re-frame.path/container-for`'s vector-index semantics. Returns
   `db` unchanged when the path is absent or the parent is a scalar / set / seq
@@ -839,7 +463,8 @@
       :else db)))
 
 (defn ^:no-doc vacate-path-in-db
-  "Pure leaf removal shared by immediate and in-drain path vacation.
+  "Remove the leaf at `path` from `db`. Leaf-only: empty ancestors remain,
+  because the flow does not own them.
 
   Single-element paths require direct `dissoc`; `update-in` at `[]` does not
   mean removal from the root."
@@ -848,243 +473,28 @@
     (dissoc db (first path))
     (dissoc-in-safe db path)))
 
-(defn- vacate-output-path!
-  "Remove an output path from a frame's app-db, skipping no-op writes.
-
-  `owner-token` is threaded through the exact-incarnation
-  app-db write so a synchronous container watch that destroys A mid-vacation
-  cannot bump same-id B's commit epoch or write B's app-db."
-  [frame-id owner-token path]
-  (when-let [db (rf.frame/frame-app-db-value frame-id)]
-    (let [new-db (vacate-path-in-db db path)]
-      (when-not (identical? new-db db)
-        (rf.frame/swap-frame-db-exact! frame-id owner-token (constantly new-db))))))
-
-;; ---- direct-clear settle seam --------------------------------------------
-;;
-;; Spec 013 §Sequencing requires that when a clear returns, no remaining flow
-;; still publishes a value derived from the slot the clear removed. In a drain
-;; the pending-`:db` flow pass establishes that. OUT of a drain there is no
-;; such pass, so `clear-flow` runs one itself before returning — through the
-;; ORDINARY engine, not a second implementation of it.
-;;
-;; That engine (`re-frame.flows/run-flows-on-db`) lives in the facade, which
-;; `:require`s THIS namespace, so the call cannot be a direct one. The facade
-;; installs it here at load, mirroring the shape core uses to reach
-;; this optional artefact through `re-frame.late-bind`. An uninstalled seam is
-;; inert: `clear-flow` skips the settle rather than failing.
-
-(defonce ^:private settle-frame-flows-fn (atom nil))
-
-(defn ^:no-doc set-settle-fn!
-  "Install the facade's exact-owner settle, `(fn [frame-id owner-token])`.
-  Called once by `re-frame.flows` at load."
-  [f]
-  (reset! settle-frame-flows-fn f)
-  nil)
-
-(defn- clear-flow*
-  "The shared body of both `clear-flow` arities. `frame` is an
-  already-validated frame TARGET (a frame-id keyword or a live frame value)
-  or nil; nil means the AMBIENT frame, which is then required.
-
-  Shared so the public 1-arity reaches the ambient path DIRECTLY:
-  delegating to `(clear-flow id {})` would make every ambient clear throw,
-  because the exact validator rejects `{}`."
-  [id frame]
-   (let [;; Normalize frame values before registry access.
-         frame-id (or (some-> frame rf.frame/frame-target->id)
-                      (rf.frame/require-current-frame!
-                        :clear-flow
-                        {:where    'rf/clear
-                         :event-id id}))]
-     ;; Read the path, deregister, and EMIT the :rf.flow/cleared evidence all
-     ;; INSIDE the drain lock: a concurrent replacement cannot make us vacate
-     ;; stale metadata while clearing the new row, and the clear
-     ;; trace is initiated while the pinned incarnation is still authoritative
-     ;; (not after the serialized section releases, where it would carry no
-     ;; token). A no-op clear (no flow / lost owner) emits nothing.
-     (rf.frame/call-serialized-with-drain!
-       frame-id
-       (fn []
-         (when-let [flow (get-in @flows-by-frame [frame-id id])]
-           ;; PIN A's incarnation so the callback-bearing
-           ;; output-mark / path-vacation writes below cannot let a stale A
-           ;; tail dissociate a same-id B's flow row, drop B's dirty-check
-           ;; cache, or bump B's commit epoch. A synchronous container watch
-           ;; may destroy A and publish B mid-write; only A's write that
-           ;; linearized before that loss stands, and every later registry /
-           ;; cache / trace action is fenced by the exact-owner postcheck /
-           ;; continuation below.
-           (let [pinned    (rf.frame/frame-incarnation-token frame-id)
-                 path      (:output-path flow)
-                 ;; ONE reading of the drain marker for BOTH the vacation
-                 ;; branch and the settle below, so the two halves of one
-                 ;; lifecycle boundary can never disagree about which pass owns
-                 ;; the repair. It is a thread marker for this frame and this
-                 ;; thread, so it cannot change across the serialized body.
-                 in-drain? (rf.frame/in-drain? frame-id)]
-             ;; In-drain vacation must modify the pending db, not the live
-             ;; app-db that the deferred commit will replace.
-             (if in-drain?
-               (record-abandoned-output-path! frame-id path)
-               (vacate-output-path! frame-id pinned path))
-             ;; The output-mark clear below is itself exact-
-             ;; incarnation (it threads `pinned` through `swap-elision-slot!` →
-             ;; `swap-runtime-db-exact!`, a TRUE no-op once A is lost — the
-             ;; transform is never called, no epoch bump). So no bare
-             ;; post-vacation liveness pre-check guards it: such a check would
-             ;; add no call-boundary effect the exact-owner postcheck below does
-             ;; not already provide. The downstream exact fences (the mark
-             ;; clear's internal owner-token guard, and the postcheck below) are
-             ;; explicit.
-             (clear-flow-output-marks! frame-id pinned id)
-             ;; Exact-owner postcheck after the (callback-bearing) output-mark
-             ;; container write: if the watch lost A, abort before the bare-id
-             ;; flow-row dissoc, dirty-cache drop, and clear-trace pipeline reach B.
-             (when (rf.frame/event-continuation-live? frame-id pinned)
-               ;; Prune an empty frame row rather than expose `{frame-id {}}`.
-               (swap! flows-by-frame (fn [m]
-                              (let [m' (update m frame-id dissoc id)]
-                                (cond-> m'
-                                  (empty? (get m' frame-id)) (dissoc frame-id)))))
-               (drop-frame-flow-last-inputs! frame-id id)
-               ;; Emit :rf.flow/cleared HERE — inside the exact-owner
-               ;; serialization, while `pinned` is authoritative. `trace/emit!` is
-               ;; a synchronous, callback-bearing pipeline (classification
-               ;; projection → epoch capture → ordered tooling listeners) whose
-               ;; stages recheck ownership ONLY while a continuation predicate is
-               ;; installed (`trace/continuation-live?` reads the always-true
-               ;; default otherwise). Absent the wrap, a mid-emit destroy of A +
-               ;; same-id B lets later listeners receive A's incarnation-less
-               ;; :rf.flow/cleared after B owns the id (and later policy/capture
-               ;; could observe B). Wrap the emit in the pinned incarnation's
-               ;; exact-owner continuation, mirroring the first-registration fence:
-               ;; already-entered delivery may stand once, every
-               ;; later framework-owned trace stage is fenced. AND-composes with
-               ;; any parent (router) predicate.
-               (when rf.interop/debug-enabled?
-                 (rf.trace/call-with-continuation-predicate
-                   #(rf.frame/event-continuation-live? frame-id pinned)
-                   (fn []
-                     (rf.trace/emit! :flow :rf.flow/cleared
-                                  {:flow-id id
-                                   :path    path
-                                   :frame   frame-id}))))
-               ;; SETTLE the frame's remaining flows before this synchronous
-               ;; call returns, so a dependent cannot outlive its input.
-               ;;
-               ;; Placement is load-bearing on three counts. It is INSIDE the
-               ;; `when-let` on the flow row, so an unknown id still settles
-               ;; nothing. It is INSIDE the exact-owner postcheck, so a stale
-               ;; A's settle tail cannot recompute a same-id successor B. And
-               ;; it is INSIDE the serialized region, which closes the window
-               ;; entirely rather than narrowing it: no drain can observe the
-               ;; frame between the row's removal and the dependents' repair.
-               ;;
-               ;; Holding the lock across the pass is safe by the same argument
-               ;; that makes the ordinary drain safe — a drainer runs this exact
-               ;; engine holding this exact lock, `call-serialized-with-drain!`
-               ;; runs `f` directly for a thread that already owns the region
-               ;; rather than re-taking the non-reentrant cell, and the cold
-               ;; region defers trace-listener delivery past the release, so no
-               ;; listener runs arbitrary code underneath it.
-               ;;
-               ;; IN-DRAIN does not settle here: that would write the live
-               ;; app-db the deferred commit is about to replace. The vacation
-               ;; is queued instead, and what applies it depends on WHERE in
-               ;; the drain the call ran. From a handler body, the event's own
-               ;; pending flow pass has not run yet and settles it. From ANY
-               ;; effect — the reserved `:rf.fx/clear-flow` or a user fx —
-               ;; that pass has ALREADY run, so the request below asks the
-               ;; `:fx` walk to enqueue its one settle when it ends,
-               ;; whichever effect made the call (were only the reserved body to
-               ;; ask, a user-fx clear would leave the row gone and its value
-               ;; present). The request is a no-op outside a walk, which leaves
-               ;; the handler-body case to the pending pass.
-               (if in-drain?
-                 (rf.fx/request-flow-settle!)
-                 (when-let [settle! @settle-frame-flows-fn]
-                   (settle! frame-id pinned))))))))
-     nil))
-
-(defn clear-flow
-  "Deregister a flow and remove its output leaf from the selected frame.
-
-  Without an explicit `:frame`, the ambient frame is required. Vacation is
-  leaf-only: empty ancestors remain because the flow does not own them.
-
-  Called OUTSIDE an event drain, this settles the frame's remaining flows
-  before returning, so a dependent cannot still publish a value derived from
-  the slot just removed (Spec 013 §Sequencing). The settle re-evaluates only
-  flows that have evaluated since they were (re-)registered: a flow registered
-  or re-registered since the last drain is left untouched for that drain to
-  evaluate, exactly as a direct `reg-flow` promises, and
-  anything established downstream of it keeps deriving from its current value
-  until then. A remaining flow whose
-  `:derive` throws during that settle propagates the ordinary
-  `:rf.error/flow-eval-exception` to this caller; the deregistration and
-  vacation — already committed, and what the caller asked for — stand, and the
-  settle's candidate db is discarded unwritten.
-
-  Called INSIDE a drain, the vacation is queued for the event's pending flow
-  pass; from an effect, which runs after that pass, the call also asks the
-  `:fx` walk to settle the frame when it ends.
-
-  NOT a public NAME: the public door is `(rf/clear :flow id)` /
-  `(rf/clear :flow id {:frame f})`. This fn is the `:flows/clear-flow`
-  late-bind hook target, which `rf/clear` and the `:rf.fx/clear-flow` effect
-  both reach.
-
-  THE OPTS MAP IS EXACT: `{:frame f}`, sole key, value a
-  frame-id keyword or a live frame value. A tolerant `{:keys [frame]}`
-  destructure would bind `frame` to nil for
-  `(clear-flow :cart/total {:fram :session})`, fall through to
-  `require-current-frame!`, and clear the AMBIENT frame's flow with no
-  signal. `rf.frame/frame-opts?` is the ONE shared
-  validator (`rf/clear` and the http arm use the same one), and it runs BEFORE
-  any frame is resolved. Per Principles §No silent swallow."
-  ([id] (clear-flow* id nil))
-  ([id opts]
-   (when-not (rf.frame/frame-opts? opts)
-     (rf.error/throw-error!
-       :rf.error/registrar-clear-bad-request
-       'rf/clear
-       (str "rf/clear :flow " (pr-str id) ": the opts map must be EXACTLY "
-            "{:frame f}, where f is a frame-id keyword or a live frame value. "
-            "Received " (pr-str opts) ". A tolerated near-miss here would "
-            "resolve the AMBIENT frame and clear the wrong frame's flow "
-            "silently.")
-       {:recovery :fix-the-clear-call
-        :extra    {:kind :flow :reason :malformed-opts :flow-id id}}))
-   (clear-flow* id (:frame opts))))
-
 ;; ---- frame-destroy teardown ---------------------------------------------
 
 (defn teardown-on-frame-destroy!
-  "Release registry, dirty-check, and pending-vacation state for a frame.
-
-  The frame owns its elision registry, so destroying the frame-state container
-  also removes flow declarations without a separate scrub. Idempotent."
+  "Drop the destroyed frame's evaluation memo. Definitions live in the
+  registrar and the frame's elision registry dies with its frame-state
+  container, so nothing else is frame-owned. Idempotent."
   [frame-id]
   (when frame-id
-    (swap! flows-by-frame dissoc frame-id)
-    (swap! frame-last-inputs dissoc frame-id)
-    (swap! frame-abandoned-output-paths dissoc frame-id))
+    (swap! frame-memo dissoc frame-id))
   nil)
 
 ;; ---- test-only resets ----------------------------------------------------
 
 (defn reset-last-inputs!
-  "Test-only: clear all dirty-check caches without clearing registrations."
+  "Test-only: drop every frame's evaluation memo. Registrations are the
+  registrar's, which a test fixture snapshots and restores."
   []
-  (reset! frame-last-inputs {})
+  (reset! frame-memo {})
   nil)
 
 (defn reset-flows!
-  "Test-only: clear registrations, dirty-check caches, and pending vacations."
+  "Test-only: drop every frame's evaluation memo — the `:flows/reset-flows!`
+  hook the runtime-reset fixture fires."
   []
-  (reset! flows-by-frame {})
-  (reset! frame-last-inputs {})
-  (reset! frame-abandoned-output-paths {})
-  nil)
+  (reset-last-inputs!))
