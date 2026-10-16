@@ -1456,7 +1456,7 @@ test('a row naming an unknown predicate stops the classifier (rf2-e9mwr)', () =>
   assert.notEqual(planted, real, 'the plant must have changed the fresco row');
   assert.throws(
     () => classifyViaGitDiscovery(seedOnly, null, planted),
-    (err) => /names `no_such_output`/.test(String(err.stderr)),
+    (err) => /names no_such_output,/.test(String(err.stderr)),
     'the classifier must refuse a row whose predicate it never emits',
   );
 });

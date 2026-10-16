@@ -38,7 +38,7 @@ jvm_lanes_rows() {
     case "$slow" in
       slow|-) ;;
       *)
-        printf '%s:%d: the slow field is `slow` or `-`, not `%s`\n' "$file" "$n" "$slow" >&2
+        printf '%s:%d: the slow field is "slow" or "-", not "%s"\n' "$file" "$n" "$slow" >&2
         return 2
         ;;
     esac
