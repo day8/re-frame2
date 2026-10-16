@@ -1,4 +1,4 @@
-;; Conformance fixture: data-classification/nested-large-over-sensitive-redacts
+;; Conformance fixture: data-classification/nested-large-over-sensitive-elides-after-redaction
 ;;
 ;; Per Spec 015 §No propagation + EP-0025 §Egress rules: a `:large`-marked
 ;; subtree that CONTAINS a `:sensitive` DESCENDANT elides behind the ordinary
@@ -25,7 +25,7 @@
 ;; `[:a :b]` :sensitive via two ordered ops. Capability
 ;; `:data-classification/classification-effects`.
 
-{:fixture/id           :data-classification/nested-large-over-sensitive-redacts
+{:fixture/id           :data-classification/nested-large-over-sensitive-elides-after-redaction
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
                          :data-classification/classification-effects}
