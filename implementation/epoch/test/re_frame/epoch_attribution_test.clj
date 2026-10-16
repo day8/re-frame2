@@ -1,4 +1,4 @@
-(ns re-frame.epoch-attribution-test
+(ns ^:requires-debug re-frame.epoch-attribution-test
   "Which epoch owns an emit that fires outside its cascade (Spec 009
   §Instrumentation, Tool-Pair §Time-travel).
 
@@ -8,7 +8,17 @@
   timing directly: settle a cascade, then `trace/emit!` with a `:frame` tag,
   no `*handler-scope*` and an empty capture buffer. `capture-event!` then
   back-fills the emit into the epoch that caused it. Cases use several
-  distinct cascades so a one-epoch attribution lag cannot pass."
+  distinct cascades so a one-epoch attribution lag cannot pass.
+
+  ## Production gate
+
+  Dev-only, so the `(ns ...)` form carries `^:requires-debug`: the
+  `:prod-gate` lane loads this namespace and runs none of it. Class: SUBJECT
+  ELIDED. What it asserts about — a recorded epoch, the ring, the
+  capture buffer, or a record read back out of them — is assembled only
+  while `interop/debug-enabled?` is on, so under `-Dre-frame.debug=false`
+  there is no subject. Epoch's production posture is that the
+  artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]

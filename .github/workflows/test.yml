@@ -2657,17 +2657,16 @@ jobs:
   # those things too, for the opposite reason, so a lost flag would not weaken
   # this job's greens, it would INVERT what they mean.
   #
-  # SCOPE — and this roster is lopsided for a structural reason, not as debt.
-  # Most of epoch's test namespaces are red under the real gate and one does
-  # not terminate. That is because epoch's production posture
-  # is that the artefact is OFF: a suite exercising epoch's recording, restore,
-  # projection or silencing behaviour has no behaviour to exercise here. Unlike
-  # the core and routing lanes, whose exclusion lists shrink as
-  # dev-instrumentation assertions get split out, this one is not expected to
-  # empty. The roster and the reasoning live in
-  # `scripts/test-epoch-prod-gate.sh`. The roster
-  # is an EXCLUSION list, so a new namespace joins this lane by default and has
-  # to be excluded deliberately.
+  # SCOPE. The whole epoch suite, run as `clojure -M:test:prod-gate` in
+  # `implementation/epoch`, the same command as on a laptop. The runner
+  # discovers every `.*-test$` namespace, so a new namespace joins this lane
+  # by default. Most of epoch's namespaces carry `^:requires-debug` on their
+  # `(ns ...)` form, which the alias skips: epoch's production posture is
+  # that the artefact is OFF, so a suite about its recording, restore, replay
+  # or a record read back out of the ring has nothing to exercise here, and
+  # each says so in its ns docstring. They still load here, so a load-time
+  # failure in one reddens this job. The runner prints the tests and
+  # assertions it executed.
   jvm-epoch-prod-gate:
     name: JVM epoch under the production gate (-Dre-frame.debug=false)
     # Same surface gate as jvm-epoch: it is the same artefact.
@@ -2675,6 +2674,9 @@ jobs:
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: implementation/epoch
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2701,11 +2703,11 @@ jobs:
             ${{ runner.os }}-clj-epoch-
             ${{ runner.os }}-clj-
 
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries the
-      # evidence of which posture it ran in.
+      # `re-frame.epoch-prod-gate-lane-pin-test` reds the run if the property
+      # did not arrive, so a green log is evidence of the posture it ran in;
+      # the runner prints the tests and assertions it executed.
       - name: Run the epoch suite under -Dre-frame.debug=false
-        run: bash scripts/test-epoch-prod-gate.sh
+        run: clojure -M:test:prod-gate
 
   jvm-resources:
     name: JVM resources (clojure -M:test)

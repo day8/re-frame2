@@ -8,7 +8,7 @@
   and `restore-epoch!`, `replay-epoch!` and `replace-frame-state!` refuse.
 
   The load-time posture is the epoch production-gate lane's job
-  (`scripts/test-epoch-prod-gate.sh`, the `:prod-gate` alias in
+  (`clojure -M:test:prod-gate`, the `:prod-gate` alias in
   `implementation/epoch/deps.edn`, pinned by
   `re-frame.epoch-prod-gate-lane-pin-test`), and that lane runs every deftest
   below again with the property genuinely on the JVM command line. A rebind
