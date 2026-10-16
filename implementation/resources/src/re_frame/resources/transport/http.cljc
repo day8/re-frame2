@@ -22,18 +22,14 @@
   reply envelope all use (EP-0007 one-attempt-one-spelling: one attempt has
   one work id, one name). It is NOT `:work-id`.
 
-  The managed-HTTP artefact (`day8/re-frame2-http`, `re-frame.http.managed`)
-  is reached LATE-BOUND — resources never statically `:require`s that artefact.
   This namespace contains only the resources-owned lowering and args-map
-  construction; the app must load the HTTP artefact to register the emitted
-  `:rf.http/managed` effect.
+  construction. The emitted `:rf.http/managed` effect is registered by
+  `re-frame.http.managed`, which the `re-frame.resources` facade requires.
 
   The lowering lives here: `lower` stamps the caller-supplied request-id and
   the work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
-  (:require [re-frame.error :as rf.error]
-            [re-frame.features :as rf.features]
-            [re-frame.late-bind :as rf.late-bind]))
+  (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -154,11 +150,7 @@
   `:rf.http/managed` args (`build-managed-args`) and returns the fx pair
   `[:rf.http/managed args]` the runtime threads into its `:fx` vector.
 
-  Per Spec 016 §Transport. The managed-HTTP artefact is reached
-  late-bound (a require-time check) so resources carries no static dep on
-  it; an app that omits `day8/re-frame2-http` while issuing an HTTP-backed
-  resource read gets a structured artefact-missing error rather than an
-  opaque no-handler.
+  Per Spec 016 §Transport.
 
   `ensure-ctx` is the live ensure-context the resource runtime assembles:
   `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
@@ -167,14 +159,4 @@
   built args carry the runtime-owned reply addressing; the app `:request`'s
   reserved reply keys are rejected (`build-managed-args`)."
   [ensure-ctx]
-  ;; Defense-in-depth: surface the managed-HTTP feature presence through
-  ;; the always-published feature probe (consult ≠ static require). This
-  ;; fails closed with a clear artefact-missing error when an HTTP-backed
-  ;; read is issued without the HTTP artefact on the classpath.
-  (when-not (rf.late-bind/get-fn :http/abort-on-actor-destroy)
-    (rf.error/throw-error!
-      :rf.error/http-artefact-missing 're-frame.resources.transport.http/lower
-      (let [{maven :maven require-ns :require} (:http rf.features/feature-registry)]
-        (str "an HTTP-backed resource read requires " maven " on the classpath; "
-             "add it to deps and require " require-ns " at app boot."))))
   [managed-http-fx (build-managed-args ensure-ctx)])

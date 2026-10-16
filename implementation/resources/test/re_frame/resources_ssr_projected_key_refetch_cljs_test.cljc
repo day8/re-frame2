@@ -37,8 +37,6 @@
    [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
-   ;; production HTTP fx surface (so the transport feature probe resolves).
-   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as substrate]]

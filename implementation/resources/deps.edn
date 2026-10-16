@@ -24,7 +24,8 @@
 ;; And require `re-frame.resources` in any namespace that calls
 ;; `rf/reg-resource` or relies on the `:rf.resource/*` subs / events —
 ;; loading the namespace registers its late-bind hooks, the `:resource`
-;; registrar kind, and the `:rf.resource/*` reg-event / reg-sub family.
+;; registrar kind, the `:rf.resource/*` reg-event / reg-sub family, and
+;; the `:rf.http/managed` transport.
 ;;
 ;; Per Spec 006 §Adapter shipping convention, this artefact depends on core; core
 ;; never depends on this artefact. The cross-references from core to
@@ -33,13 +34,18 @@
 ;; through `re-frame.late-bind` exactly as the schemas / machines /
 ;; routing / http hooks do.
 ;;
-;; The HTTP transport (`:rf.http/managed`, Spec 014) and the routing /
-;; SSR integrations are LATE-BOUND: resources reaches them through the
-;; same late-bind hook registry rather than a static `:require`, so an
-;; app that loads resources but not routing / ssr / http carries none
-;; of their code. They are therefore test-only deps here.
+;; It also depends on day8/re-frame2-http, because managed HTTP
+;; (`:rf.http/managed`, Spec 014) is its one read transport:
+;; `re-frame.resources` requires `re-frame.http.managed`, so the chain is
+;; resources -> http -> core, and an app reading resources needs neither
+;; the http coordinate nor its require. The routing / SSR integrations are
+;; LATE-BOUND: resources reaches them through the same late-bind hook
+;; registry rather than a static `:require`, so an app that loads
+;; resources but not routing / ssr carries none of their code. They are
+;; therefore test-only deps here.
 {:paths ["src"]
- :deps  {day8/re-frame2 {:local/root "../core"}}
+ :deps  {day8/re-frame2      {:local/root "../core"}
+         day8/re-frame2-http {:local/root "../http"}}
 
  :aliases
  {:test {:extra-paths ["test"]
@@ -47,14 +53,13 @@
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; Late-bound integration surfaces — pulled in as
                        ;; TEST-ONLY deps so the artefact's production
-                       ;; classpath stays routing/ssr/http/schemas-free
+                       ;; classpath stays routing/ssr/schemas-free
                        ;; (resources reaches them through late-bind, not
                        ;; a static :require). Mirrors the routing
                        ;; deps.edn test-extra-deps pattern.
                        day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
-                       day8/re-frame2-http       {:local/root "../http"}
                        ;; TEST-ONLY machines dep for the machine→resource
                        ;; owner-release integration test
                        ;; (`resources_machine_owner_release_cljs_test`): a
@@ -72,11 +77,12 @@
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;
-  ;; IMPORTANT: when this artefact is published, the `day8/re-frame2`
-  ;; core dep above is replaced by an :mvn/version coordinate — clein
-  ;; reads :deps and writes them into pom.xml, and a :local/root entry
-  ;; would resolve to nothing for downstream consumers. The release
-  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  ;; IMPORTANT: when this artefact is published, BOTH in-repo deps above
+  ;; (`day8/re-frame2` and `day8/re-frame2-http`) are replaced by
+  ;; :mvn/version coordinates — clein reads :deps and writes them into
+  ;; pom.xml, and a :local/root entry would be skipped, leaving the pom
+  ;; without that dependency. The release workflow swaps :local/root →
+  ;; :mvn/version for both before invoking clein.
   :clein {:extra-deps {io.github.noahtheduke/clein
                        {:git/url "https://github.com/day8/clein.git"
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}

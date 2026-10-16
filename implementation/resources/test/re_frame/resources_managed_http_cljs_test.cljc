@@ -26,9 +26,7 @@
    [re-frame.resources.transport.http :as rf.resources.transport.http]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
-   ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the teardown-abort tests seed and assert the REAL in-flight registry
-   [re-frame.http.managed]
    [re-frame.http.registry :as rf.http.registry]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
