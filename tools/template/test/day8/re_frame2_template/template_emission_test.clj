@@ -94,14 +94,13 @@
 (def ^:private framework-source-roots
   "Namespace family → the source root of the coordinate that publishes it,
   relative to the repo root, MOST SPECIFIC FIRST: the first family matching
-  on a namespace SEGMENT boundary wins, so `re-frame.adapter.reagent` cannot
-  swallow `re-frame.adapter.reagent-slim`. An explicit map, because the root
+  on a namespace SEGMENT boundary wins, so the catch-all `re-frame` family
+  comes last. An explicit map, because the root
   is not derivable from the name (`re-frame.fresco` ships from
   implementation/fresco, `re-frame.adapter.use-frame` from core), and complete
   for every family in `implementation/` whichever substrates the template
   emits. A family missing here is a hard failure in `audit-framework-symbol!`."
-  [["re-frame.adapter.reagent-slim" "implementation/adapters/reagent-slim/src"]
-   ["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
+  [["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
    ["re-frame.adapter.uix"          "implementation/adapters/uix/src"]
    ["re-frame.fresco"              "implementation/fresco/src"]
    ;; Story is a tools-tier artefact, and the one an emission names outside
@@ -117,7 +116,7 @@
   the `re-frame.*` families this audit knows. A family matches the
   namespace itself (`re-frame.fresco`) or anything under it
   (`re-frame.fresco.substrate`) — never a longer sibling SEGMENT, so
-  `re-frame.adapter.reagent` does not claim `…reagent-slim`. The bare
+  `re-frame.adapter.reagent` would not claim a `…reagent-x`. The bare
   `re-frame` ns matches nothing: `rel` below would have nothing to slice."
   [^String ns-name]
   (when (string/starts-with? ns-name "re-frame.")

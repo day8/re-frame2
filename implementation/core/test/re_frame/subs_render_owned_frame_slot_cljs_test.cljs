@@ -14,31 +14,20 @@
 
   `claim-render-owned-ref!` is `#?(:cljs ...)`-only and fires only under the
   `:adapter/reactive-owner` hook the ratom family publishes, so this runs on
-  both ratom adapters. A `make-reaction` started with `activate!`/`run` and
+  the Reagent adapter. A `make-reaction` started with `activate!`/`run` and
   re-run by `flush!` IS the owning render reaction, and each re-render is
   driven off a ratom the test owns, so a render is one hop from the test.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.ratom :as stock-ratom]
-            [reagent2.ratom :as slim-ratom]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
-;; reagent2 dropped stock Reagent's `IRunnable` and spells the first capture
-;; run `activate!`; everything else lines up name for name.
 (def ^:private configs
-  [{:label    "reagent-slim"
-    :adapter  rf.adapter.reagent-slim/adapter
-    :ratom    slim-ratom/atom
-    :reaction slim-ratom/make-reaction
-    :start!   slim-ratom/activate!
-    :flush!   slim-ratom/flush!
-    :release! slim-ratom/dispose!}
-   {:label    "reagent"
+  [{:label    "reagent"
     :adapter  rf.adapter.reagent/adapter
     :ratom    stock-ratom/atom
     :reaction stock-ratom/make-reaction

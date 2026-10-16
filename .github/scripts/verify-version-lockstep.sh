@@ -8,7 +8,7 @@
 # coordinates (which the release workflow rewrites to the matching
 # :mvn/version at deploy time).
 #
-# The adapters (reagent, reagent-slim, uix) live at
+# The adapters (reagent, uix) live at
 # implementation/adapters/<name>/ — one level deeper than core and the
 # per-feature artefacts, which sit at implementation/<name>/. The script
 # tracks the difference: adapters declare :version "../../../VERSION" and
@@ -92,7 +92,6 @@ declare -A ARTEFACT_PATHS=(
   [core]="core"
   [schemas]="schemas"
   [reagent]="adapters/reagent"
-  [reagent-slim]="adapters/reagent-slim"
   [uix]="adapters/uix"
   [machines]="machines"
   [routing]="routing"
@@ -117,15 +116,15 @@ declare -A ARTEFACT_PATHS=(
 # post-matrix stage in release.yml rather than from the fail-fast:false
 # deploy-leaf matrix; the second-coordinate assertion for it sits beside
 # ssr-ring's below.
-ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch fresco)
+ARTEFACTS=(core schemas reagent uix machines routing flows http ssr ssr-ring resources epoch fresco)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch fresco)
+NON_CORE=(schemas reagent uix machines routing flows http ssr ssr-ring resources epoch fresco)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
-ADAPTERS=(reagent reagent-slim uix)
+ADAPTERS=(reagent uix)
 
 is_adapter() {
   local needle="$1"

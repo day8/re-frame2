@@ -83,7 +83,6 @@ jobs:
       examples_compile: ${{ steps.detect.outputs.examples_compile }}
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
-      reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
@@ -1167,11 +1166,11 @@ jobs:
         run: python scripts/check_jvm_lane_rosters.py --verbose
 
       # Adapter disposition (source of record EP-0030 §Resolved Decisions):
-      # Reagent, reagent-slim, and UIx are first-class, actively-supported
-      # adapters. A "frozen compatibility adapters / reagent-slim removed /
-      # only taught view layer" shape in a planning, implementor,
-      # source-comment, or synthesis authority would lead anyone dispatching
-      # from it to remove or downgrade a supported surface. This guard scans a
+      # Reagent and UIx are first-class, actively-supported adapters. A
+      # "frozen compatibility adapters / only taught view layer" shape in a
+      # planning, implementor, source-comment, or synthesis authority would
+      # lead anyone dispatching from it to remove or downgrade a supported
+      # surface. This guard scans a
       # closed roster of ACTIVE authorities for that shape. Pure
       # Python stdlib — no extra deps.
       # The guard scans a fixed cross-repo roster, not the diff, so it runs
@@ -1849,50 +1848,6 @@ jobs:
       # means a REAL failure — a deps/classpath break or a future failing
       # JVM probe ns — and MUST fail the step, so we do not swallow it.
       - name: Run JVM tests (reagent artefact, classpath probe)
-        run: clojure -M:test
-
-  jvm-reagent-slim:
-    name: JVM reagent-slim (clojure -M:test)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: implementation/adapters/reagent-slim
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-reagent-slim-${{ hashFiles('implementation/adapters/reagent-slim/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-reagent-slim-
-            ${{ runner.os }}-clj-
-
-      # The reagent-slim artefact is a React-19 reimplementation of Reagent.
-      # It ships a JVM-runnable test namespace
-      # under test/ — reagent2.impl.component-test (the
-      # component-shape detection contract). The bulk of its suite is
-      # CLJS unit tests run via shadow-cljs's :node-test build (see cljs
-      # job), but the JVM surface is real, so the test-runner's non-zero
-      # exit MUST surface here — no `|| echo` fallback, or a regression
-      # in the component-shape contract would stay green.
-      - name: Run JVM tests (reagent-slim artefact)
         run: clojure -M:test
 
   jvm-uix:
@@ -4414,214 +4369,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  cljs-reagent-slim-bundle-isolation:
-    name: CLJS Reagent Slim bundle isolation + client-runtime smoke (adapter-owned, rf2-2ppcv + rf2-5v0dg7)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.reagent_slim_bundle == 'true'
-    runs-on: ubuntu-latest
-    # Job-level backstop to the step-level Playwright cap below.
-    # Without it the job inherits GitHub's 360-min default, so any wedged step
-    # (such as a `--with-deps` apt/dpkg-lock hang) would leave this job
-    # — and the required `all-required-passed` aggregator that `needs:` it —
-    # open-ended pending, blocking the merge. 20 min gives a cold-Maven-cache
-    # run generous headroom while making any genuine hang a fast, re-runnable
-    # FAILURE. Mirrors the mcp-conformance-re-frame2-pair job cap.
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-reagent-slim-bundle-isolation-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-reagent-slim-bundle-isolation-
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      # The S3-008 adapter-owned bundle-isolation contract for day8/reagent-slim.
-      # Builds `examples/counter` (stock-Reagent),
-      # `examples/counter-slim-and-fast` (slim Reagent) and
-      # `reagent-slim-ssr-isolation-fixture` (the gate-only SSR twin) under
-      # :advanced, then greps the slim bundles for stock-Reagent
-      # impl-namespace fingerprints AND for `react-dom/server` symbols.
-      # Both must be absent from the slim bundle. The same sentinels
-      # are required to be present in the stock bundle as a methodology
-      # sanity check — if a future stock-Reagent upgrade DCEs them out
-      # of the stock build too, the script catches the lost signal and
-      # the sentinel set is re-derived.
-      #
-      # Dual contract: stock-Reagent impl + react-dom/server isolation.
-      # The gate-owned entry (counter-slim-and-fast.bundle-isolation-entry)
-      # deliberately exercises reagent2.dom.server/render-to-static-markup
-      # so the react-dom/server-absence assertion is non-vacuous (the SSR
-      # path IS in that bundle, just pure-CLJS — per IMPL-SPEC §8 + S3-005).
-      # The teaching counter-slim-and-fast.core stays clean of the
-      # fixture, and so does the teaching BUILD: the entry has a
-      # non-runnable build of its own
-      # (:reagent-slim-ssr-isolation-fixture). So the runnable example bundle
-      # boots core/run and nothing else — Contract 7 greps it to prove that,
-      # and Contract 0 pins both :init-fns in shadow-cljs.edn.
-      - name: Verify Reagent Slim bundle isolates stock Reagent + react-dom/server
-        run: npm run test:reagent-slim:bundle-isolation
-
-      # The reagent-slim CLIENT-RUNTIME browser smoke in PR
-      # CI. The dedicated, adapter-owned slim smoke runner
-      # (serve-and-run-reagent-slim-smoke.cjs) compiles the slim testbed,
-      # serves it, and drives the mount/inject/click path in headless
-      # Chromium. `test:script-policy` only proves the npm script
-      # EXISTS, so without this step a regression in
-      # the adapter-owned mount/injection/click path, or in the smoke runner
-      # itself, could ship green. This step executes the gate for
-      # reagent_slim_bundle surface changes (which also fire on edits to
-      # the runner + its policy test — report-changed-surfaces.sh).
-
-      # Cache the Playwright browser binary (see cljs-browser), as every
-      # other PR Playwright job does ahead of the install; without it this
-      # job would re-download Chromium (~120 MB) on every run. Keyed on the locked
-      # Playwright version (package-lock.json); a bump busts it.
-      - name: Cache Playwright browser binary
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      # Cap the `--with-deps` Playwright install. `--with-deps`
-      # runs `sudo apt-get install` for Chromium's system libraries; on a GHA
-      # runner that occasionally blocks indefinitely on the dpkg/apt lock held
-      # by the background `unattended-upgrades` job. With NO step timeout a
-      # wedged lock would leave the slim job in_progress forever — never
-      # reporting a conclusion — and so leave the required
-      # `all-required-passed` aggregator (it `needs:` this job) perpetually
-      # pending, blocking the merge. A
-      # healthy install is ~20s; 5 min covers a slow apt + cold (cache-miss)
-      # download while turning the lock-wait into a re-runnable FAILURE
-      # instead of an open-ended block. Mirrors the identical step-level cap
-      # on the hermetic re-frame2-pair-mcp Playwright install.
-      #
-      # DO NOT RAISE THIS NUMBER, and do not thin the apt hop to
-      # make it fit. This is the canonical note; the other two capped sites
-      # (tenant-switcher-testbed-smoke, mcp-conformance-re-frame2-pair) point
-      # here. Every claim below is from a CI log or
-      # from `playwright-core` at the pinned version, not from taste:
-      #
-      #   * THE CAP IS CLEAR OF THIS SITE, BUT NOT BY A WIDE MARGIN. Over a
-      #     measured window of every `Install Playwright*` step (377
-      #     non-skipped samples, 370 successes, 7 non-successes), the
-      #     successes carry a long tail — p50 14s and p90 34s,
-      #     but p95 113s, p99 424s, MAX 621s, and four of the 370 finished
-      #     ABOVE 300s. Every one of those four sits at a job with no step
-      #     cap; across the three step-capped sites the worst success is 164s
-      #     over 80 samples, so this cap is 1.8x its own site's worst case.
-      #     That is clear, not comfortable, and the trend is
-      #     the thing to watch: re-derive before quoting, do not carry the
-      #     number forward.
-      #
-      #     Raising the cap
-      #     re-widens the open-ended window it exists to bound, in which a
-      #     wedged apt/dpkg lock holds a PR 15-75+ min and blocks the merge
-      #     queue. That trade is a regression, not a fix. But the 1.8x is
-      #     close enough that raising it is a judgement call rather than an
-      #     arithmetic certainty.
-      #
-      #   * THE APT HOP IS ALREADY MINIMAL. On ubuntu-24.04 the hop reports
-      #     `0 upgraded, 9 newly installed, 0 to remove` — invariant across
-      #     runner-image versions and
-      #     independent jobs. ZERO Chromium shared libraries are installed;
-      #     every one of the 21 entries in nativeDeps' `chromium:` list
-      #     reports "is already the newest version". The 9 are CJK/Thai/
-      #     Cyrillic fonts from the separate `tools:` list plus two
-      #     transitive xfonts packages. They cannot be dropped selectively:
-      #     `Registry.installDeps` does an unconditional `targets.add("tools")`
-      #     (registry/index.js) and `installDependenciesLinux` already passes
-      #     `--no-install-recommends` (registry/dependencies.js). The only
-      #     lever is dropping `--with-deps` wholesale, which trades a loud,
-      #     annotated apt failure for a silent dependency on a runner-image
-      #     property nobody here controls — a removed lib would surface as an
-      #     unlaunchable Chromium, which is strictly worse than a slow apt.
-      #
-      #   * SO A BLOW-OUT HERE IS THE MIRROR, NOT THIS WORKFLOW.
-      #     A run can spend the whole 5 min inside apt and
-      #     never reach the browser download. Those same 21.1 MB of fonts
-      #     fetch in 1s at 17-23 MB/s on a healthy run ("Fetched 21.1 MB in
-      #     1s (18.9 MB/s)"). In the observed failing
-      #     run they came down at a sustained ~52 kB/s — while `apt-get
-      #     update`'s own metadata had come off the SAME host seconds earlier
-      #     in the SAME step at 7831 kB/s, 150x faster. That is an
-      #     azure.archive.ubuntu.com edge degradation. No cap survives it:
-      #     21.1 MB at 52 kB/s needs ~405s of download alone.
-      #
-      #   * THE BROWSER CACHE IS ORTHOGONAL HERE. The cache step
-      #     above can score an exact-key hit and the step still blow the cap:
-      #     a hit skips the DOWNLOAD; this failure is in the apt hop,
-      #     which runs either way.
-      #
-      # THIS SITE IS ONE OF THE THREE THAT DELIBERATELY KEEP THE BARE FORM.
-      # A step the runner guillotines on `timeout-minutes` is
-      # killed rather than failing, so the `|| playwright-install-failed.sh`
-      # handler never runs. Install stalls do happen, so other sites
-      # run `timeout -k 10 720 npx playwright install … || <handler> $?`, and
-      # `scripts/check_fast_pr_gap.py`'s `^npx playwright install\b` setup
-      # pattern carries a narrow optional `timeout` group so that form fails
-      # nothing open.
-      #
-      # This site keeps the bare form because the gap is not open HERE, and
-      # that was measured rather than assumed. A step-cap guillotine
-      # posts `The action 'Install Playwright (Chromium + system deps)' has
-      # timed out after 5 minutes`, which
-      # names the step, so a reader sees provisioning without opening a log.
-      # It is the JOB-cap guillotine that says nothing usable: it carries
-      # only `The job has exceeded the
-      # maximum execution time of 15m0s` and `The operation was canceled.`,
-      # with every later step `skipped`. Adding a redundant in-command
-      # deadline here would thin the 1.8x margin above to restate an
-      # annotation the runner already gives. See the header of
-      # .github/scripts/playwright-install-failed.sh for the full derivation.
-      - name: Install Playwright (Chromium + system deps)
-        timeout-minutes: 5
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
-
-      - name: Run Reagent Slim client-runtime browser smoke
-        run: npm run test:reagent-slim:smoke
-
   tenant-switcher-testbed-smoke:
     name: Tenant-switcher testbed browser smoke (rf2-h5e3v7)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tenant_switcher_smoke == 'true'
     runs-on: ubuntu-latest
-    # Job-level backstop to the step-level Playwright cap below,
-    # mirroring the cljs-reagent-slim-bundle-isolation job. A wedged
+    # Job-level backstop to the step-level Playwright cap below. A wedged
     # `--with-deps` apt/dpkg-lock would otherwise leave this job — and the
     # required all-required-passed aggregator that `needs:` it — open-ended
     # pending and block the merge. 20 min gives a cold-Maven-cache testbed
     # compile generous headroom while making any genuine hang a fast,
-    # re-runnable FAILURE.
+    # re-runnable FAILURE. Mirrors the mcp-conformance-re-frame2-pair job
+    # cap.
     timeout-minutes: 20
     defaults:
       run:
@@ -4668,19 +4427,97 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      # Cap the `--with-deps` Playwright install (see the slim
-      # job for the dpkg/apt-lock-wedge rationale). A healthy install is
-      # ~20s; 5 min covers a slow apt + cold download while turning a lock
-      # wait into a re-runnable FAILURE instead of an open-ended block.
+      # Cap the `--with-deps` Playwright install. `--with-deps`
+      # runs `sudo apt-get install` for Chromium's system libraries; on a GHA
+      # runner that occasionally blocks indefinitely on the dpkg/apt lock held
+      # by the background `unattended-upgrades` job. With NO step timeout a
+      # wedged lock would leave this job in_progress forever — never
+      # reporting a conclusion — and so leave the required
+      # `all-required-passed` aggregator (it `needs:` this job) perpetually
+      # pending, blocking the merge. A
+      # healthy install is ~20s; 5 min covers a slow apt + cold (cache-miss)
+      # download while turning the lock-wait into a re-runnable FAILURE
+      # instead of an open-ended block. Mirrors the identical step-level cap
+      # on the hermetic re-frame2-pair-mcp Playwright install.
       #
-      # DO NOT RAISE THIS NUMBER. A run of this job that burns the whole 5 min
-      # inside the apt hop without reaching the browser download is an
-      # azure.archive.ubuntu.com throughput collapse (~52 kB/s against
-      # 17-23 MB/s on a healthy run), not a cap that is too tight. The
-      # measurement, the
-      # at-source reason the apt hop cannot be thinned, and why the browser
-      # cache does not help this path are all set out at the
-      # cljs-reagent-slim-bundle-isolation site above.
+      # DO NOT RAISE THIS NUMBER, and do not thin the apt hop to
+      # make it fit. This is the canonical note; the other capped site
+      # (mcp-conformance-re-frame2-pair) points here. Every claim below is from a CI log or
+      # from `playwright-core` at the pinned version, not from taste:
+      #
+      #   * THE CAP IS CLEAR OF THIS SITE, BUT NOT BY A WIDE MARGIN. Over a
+      #     measured window of every `Install Playwright*` step (377
+      #     non-skipped samples, 370 successes, 7 non-successes), the
+      #     successes carry a long tail — p50 14s and p90 34s,
+      #     but p95 113s, p99 424s, MAX 621s, and four of the 370 finished
+      #     ABOVE 300s. Every one of those four sits at a job with no step
+      #     cap; across the three step-capped sites of that window the worst
+      #     success is 164s over 80 samples, so this cap is 1.8x its own
+      #     site's worst case.
+      #     That is clear, not comfortable, and the trend is
+      #     the thing to watch: re-derive before quoting, do not carry the
+      #     number forward.
+      #
+      #     Raising the cap
+      #     re-widens the open-ended window it exists to bound, in which a
+      #     wedged apt/dpkg lock holds a PR 15-75+ min and blocks the merge
+      #     queue. That trade is a regression, not a fix. But the 1.8x is
+      #     close enough that raising it is a judgement call rather than an
+      #     arithmetic certainty.
+      #
+      #   * THE APT HOP IS ALREADY MINIMAL. On ubuntu-24.04 the hop reports
+      #     `0 upgraded, 9 newly installed, 0 to remove` — invariant across
+      #     runner-image versions and
+      #     independent jobs. ZERO Chromium shared libraries are installed;
+      #     every one of the 21 entries in nativeDeps' `chromium:` list
+      #     reports "is already the newest version". The 9 are CJK/Thai/
+      #     Cyrillic fonts from the separate `tools:` list plus two
+      #     transitive xfonts packages. They cannot be dropped selectively:
+      #     `Registry.installDeps` does an unconditional `targets.add("tools")`
+      #     (registry/index.js) and `installDependenciesLinux` already passes
+      #     `--no-install-recommends` (registry/dependencies.js). The only
+      #     lever is dropping `--with-deps` wholesale, which trades a loud,
+      #     annotated apt failure for a silent dependency on a runner-image
+      #     property nobody here controls — a removed lib would surface as an
+      #     unlaunchable Chromium, which is strictly worse than a slow apt.
+      #
+      #   * SO A BLOW-OUT HERE IS THE MIRROR, NOT THIS WORKFLOW.
+      #     A run can spend the whole 5 min inside apt and
+      #     never reach the browser download. Those same 21.1 MB of fonts
+      #     fetch in 1s at 17-23 MB/s on a healthy run ("Fetched 21.1 MB in
+      #     1s (18.9 MB/s)"). In the observed failing
+      #     run they came down at a sustained ~52 kB/s — while `apt-get
+      #     update`'s own metadata had come off the SAME host seconds earlier
+      #     in the SAME step at 7831 kB/s, 150x faster. That is an
+      #     azure.archive.ubuntu.com edge degradation. No cap survives it:
+      #     21.1 MB at 52 kB/s needs ~405s of download alone.
+      #
+      #   * THE BROWSER CACHE IS ORTHOGONAL HERE. The cache step
+      #     above can score an exact-key hit and the step still blow the cap:
+      #     a hit skips the DOWNLOAD; this failure is in the apt hop,
+      #     which runs either way.
+      #
+      # THIS SITE IS ONE OF THE TWO THAT DELIBERATELY KEEP THE BARE FORM.
+      # A step the runner guillotines on `timeout-minutes` is
+      # killed rather than failing, so the `|| playwright-install-failed.sh`
+      # handler never runs. Install stalls do happen, so other sites
+      # run `timeout -k 10 720 npx playwright install … || <handler> $?`, and
+      # `scripts/check_fast_pr_gap.py`'s `^npx playwright install\b` setup
+      # pattern carries a narrow optional `timeout` group so that form fails
+      # nothing open.
+      #
+      # This site keeps the bare form because the gap is not open HERE, and
+      # that was measured rather than assumed. A step-cap guillotine
+      # posts `The action 'Install Playwright (Chromium + system deps)' has
+      # timed out after 5 minutes`, which
+      # names the step, so a reader sees provisioning without opening a log.
+      # It is the JOB-cap guillotine that says nothing usable: it carries
+      # only `The job has exceeded the
+      # maximum execution time of 15m0s` and `The operation was canceled.`,
+      # with every later step `skipped`. Adding a redundant in-command
+      # deadline here would thin the 1.8x margin above to restate an
+      # annotation the runner already gives. See the header of
+      # .github/scripts/playwright-install-failed.sh for the full derivation.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -5876,7 +5713,7 @@ jobs:
       # The apt hop cannot be thinned either — it installs zero Chromium
       # libraries and only Playwright's unconditional `tools:` fonts. Full
       # measurement and the at-source citations are at the
-      # cljs-reagent-slim-bundle-isolation site above.
+      # tenant-switcher-testbed-smoke site above.
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
         timeout-minutes: 5
@@ -6383,7 +6220,7 @@ jobs:
   #     against a fresh build catches un-rebundled source edits / hand-edits.
   #   - the shadow-cljs SCI bundle (playground-rf2.js) is NOT committed.
   #     It is a Closure :advanced build that bakes in re-frame2
-  #     core + reagent-slim + machines + flows + react@19, so committing it
+  #     core + Reagent + machines + flows + react@19, so committing it
   #     would make EVERY PR touching any of those regenerate the same ~15 MB
   #     binary, and any two such PRs conflict on it. It is generated at each
   #     consumption boundary instead: here at PR time, and in docs.yml on
@@ -6405,7 +6242,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       # The re-frame2 SCI bundle (sci/) is a shadow-cljs :advanced build over
-      # the re-frame2 core + reagent-slim :local/root artefacts — it needs a
+      # the re-frame2 core + Reagent adapter :local/root artefacts — it needs a
       # JVM + the Clojure CLI, the same toolchain the other CLJS jobs use.
       - name: Set up JDK 21
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
@@ -6428,7 +6265,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
+          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-playground-
             ${{ runner.os }}-cljs-
@@ -6614,7 +6451,6 @@ jobs:
       # HMR contract one `if:` away from running nowhere.
       - cljs-fresco-hmr
       - jvm-reagent
-      - jvm-reagent-slim
       - jvm-uix
       # Required, not advisory. The suite is REAL JVM coverage of the adapter
       # lifecycle contract, and a job
@@ -6694,7 +6530,6 @@ jobs:
       - cljs-bundle-isolation
       - adapter-testbed-smokes
       - story-xray-browser
-      - cljs-reagent-slim-bundle-isolation
       - tenant-switcher-testbed-smoke
       - jvm-tools-xray
       - jvm-tools-story

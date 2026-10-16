@@ -63,8 +63,8 @@
        `goog.DEBUG=false` bundles), not decoupling from an artefact
        that could be missing. See the per-key notes on those rows.
 
-    3. ADAPTER-INJECTION — substrate adapters (Reagent / reagent-slim /
-       UIx / test-react) publish CLJS-side primitives the core
+    3. ADAPTER-INJECTION — substrate adapters (Reagent / UIx /
+       test-react) publish CLJS-side primitives the core
        runtime consumes (`:adapter/current-frame`, `:adapter/ratom`,
        `:adapter/after-render`, …) and React-shaped view machinery
        (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
@@ -726,8 +726,7 @@
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION
    ;;
-   ;; Substrate adapters (Reagent / reagent-slim / UIx / test-
-   ;; react) publish CLJS-side primitives the core runtime consumes
+   ;; Substrate adapters (Reagent / UIx / test-react) publish CLJS-side primitives the core runtime consumes
    ;; (`:adapter/current-frame`, `:adapter/ratom`, `:adapter/after-
    ;; render`, …) and React-shaped view machinery
    ;; (`:reagent/set-hiccup-emitter!`, `:views/*`). Routed via
@@ -739,7 +738,6 @@
    ;; ---- re-frame.adapter.reagent --------------------------------------------
    {:key         :reagent/set-hiccup-emitter!
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate
                    re-frame.adapter.test-react]
@@ -764,83 +762,65 @@
     :description "Chained reset of EVERY adapter/views defonce cache the standard make-reset-runtime-fixture must wipe between tests. Every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Member: re-frame.views's seen-render-keys (:mount? discriminator). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture."}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate
                    re-frame.adapter.test-react]
     :chained?    true
     :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}
    {:key         :adapter/current-component
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Resolve the in-flight Reagent component (routed via current-adapter)."}
-   {:key         :adapter/as-element
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
-    :chained?    true
-    :description "The INSTALLED ratom build's own hiccup → React element walk (routed via current-adapter). The exact twin of :adapter/current-component, published by the same two adapters and for the same reason. A caller that needs a React element for a hiccup island — a Fresco boundary handing a surviving reg-view island down as a child, which is what tools/xray does at nine sites — must obtain it from the renderer the runtime is actually using. Crossing with some OTHER ratom build's as-element does NOT fail loudly: React mounts the element and the :contextType the reg-view head carries is even honoured, so the frame VALUE reaches the class. What breaks is one level down — the foreign build renders the subtree with ITS in-flight-component binding set, while :adapter/current-component routes to the installed build and answers nil, so views/current-frame finds no component to read (.-context) off and returns nil. Every ambient subscribe/dispatch in that subtree then raises :rf.error/no-frame-context and React takes the subtree down: a blank surface, not a diagnostic. Measured under reagent-slim with Xray crossing via stock reagent.core/as-element. NOT published by UIx / Fresco / plain-atom / test-react: hiccup is not those substrates' authoring shape, and there is no substrate-neutral element, so the hook is routed with no chain-bottom fallback and an absent answer is the honest one."}
    {:key         :adapter/ratom
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Substrate-specific ratom constructor (re-frame.interop/ratom). Not published by UIx — that substrate ships no reactive-atom primitive and re-frame.interop's reactive surfaces have zero production call sites under them."}
    {:key         :adapter/ratom?
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Substrate-specific ratom predicate (re-frame.interop/ratom?). Not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/make-reaction
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Substrate-specific make-reaction (re-frame.interop/make-reaction). Not published by UIx; absent-hook returns nil."}
    {:key         :adapter/activate-derived-value!
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Put a make-derived-value result on the substrate's PUSH path (re-frame.interop/activate-derived-value!), so a source write actually notifies the derived container's watches — Spec 006 §make-derived-value's \"updates automatically when any source's value changes\" clause. Published by the ratom family ALONE, because they alone are demand-driven: a reagent.ratom/Reaction captures its sources only through deref-capture, and a deref taken outside *ratom-context* with no auto-run runs the body raw and leaves `watching` nil — watchable, watched, and silent. A caller invokes this before installing its own watch, so a non-Reagent observer (which supplies no capture context of its own) observes a live node — fresco's collector, the machines timer and Xray's settings effects all do. NOT published by the React-hook spine (UIx), whose make-derived-value wires one watch per source at CONSTRUCTION and is push-based from birth; the routed chain-bottom returns nil and the call is a no-op. Not published by plain-atom / test-react for the same reason."}
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
+    :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent dispatches both that protocol and its substrate's own IDisposable."}
    {:key         :adapter/dispose!
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :description "Substrate-specific dispose! (re-frame.interop/dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
+    :description "Substrate-specific dispose! (re-frame.interop/dispose!). UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent dispatches both that protocol and its substrate's own IDisposable."}
    {:key         :adapter/reactive?
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Not published by UIx; absent-hook fallback returns false."}
    {:key         :adapter/reactive-owner
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "The reaction currently capturing derefs — the substrate's *ratom-context* — or nil outside a reactive context. The IDENTITY behind :adapter/reactive?'s boolean, and published for a reason that predicate cannot serve: re-frame.subs holds ONE reference per (owning reaction, cache slot) and releases it on that owner's dispose, so it needs the owner itself. Without it a ratom view's @(subscribe q) would bump :ref-count on EVERY render with nothing ever pairing it, because on this family nothing calls unsubscribe — the substrate removes the slot when the render Reaction drops its last watch and the sub Reaction auto-disposes. :ref-count would then count renders rather than readers, and the 1 -> 0 edge Spec 006 §Reference counting and disposal describes would never be taken. Published by the ratom family ALONE: the React-hook spine (UIx) owns its reference through use-subscribe's own commit cleanup, and plain-atom / test-react have no reactive context at all, so the routed chain-bottom returns nil and the whole render-owned path is unreached on those substrates."}
    {:key         :adapter/read-container-untracked
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
     :description "Read a container exactly as read-container would, recording NO dependency on the reaction currently capturing derefs (re-frame.substrate.adapter/read-container-untracked, Spec 006 §make-derived-value). Trace classification reads the frame's elision registry out of the runtime-db projection while a sub computes or a view renders; a capturing read there would make the whole runtime-db projection an input of the computation being described, so an unrelated runtime-db write would wake a route read-sub or re-render a view. Published by the ratom family ALONE, because only their reads capture: inside a reactive context each rebinds *ratom-context* to a fresh throwaway object for the deref (the shape of reagent.ratom/check-derefs), never to nil, which would make a Reaction flush the whole reaction queue mid-compute; outside one it is a plain read. The routed chain-bottom returns the re-frame.substrate.adapter/untracked-read-no-opinion sentinel (a zero-argument fallback cannot see the container), and the core reader answers it with read-container — exact for the React-hook spine (UIx, Fresco), plain-atom and test-react, whose reads capture nothing, so they publish nothing."}
    {:key         :adapter/derived-container?
-    :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim]
+    :producer-ns '[re-frame.adapter.reagent]
     :chained?    true
-    :description "Container-class hook the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Tri-valued: truthy = DERIVED (reject), false = BASE (the installed adapter classifies it as one of ITS writable base containers — delegate, and the choke point skips its atom-marker heuristic so a custom non-atom base container is not misclassified), and the re-frame.substrate.adapter/container-class-unknown sentinel = NO opinion (the choke point falls back to the host atom-marker heuristic). Published by the ratom family (Reagent / reagent-slim): their Reaction reifies IAtom exactly like a base r/atom, so the atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not) and answers truthy/false exhaustively. Custom adapters whose base container is NOT atom-shaped publish their own routed hook the same way. Not published by plain-atom / test-react / UIx, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); the routed chain-bottom fallback returns the container-class-unknown sentinel."}
+    :description "Container-class hook the core's replace-container! choke point consults to reject writes to a make-derived-value result (Spec 006 §make-derived-value). Tri-valued: truthy = DERIVED (reject), false = BASE (the installed adapter classifies it as one of ITS writable base containers — delegate, and the choke point skips its atom-marker heuristic so a custom non-atom base container is not misclassified), and the re-frame.substrate.adapter/container-class-unknown sentinel = NO opinion (the choke point falls back to the host atom-marker heuristic). Published by the ratom family (Reagent): its Reaction reifies IAtom exactly like a base r/atom, so the atom-marker fall-back cannot tell them apart — the hook keys on the substrate disposal protocol (a Reaction is disposable, a base r/atom is not) and answers truthy/false exhaustively. Custom adapters whose base container is NOT atom-shaped publish their own routed hook the same way. Not published by plain-atom / test-react / UIx, whose derived values are NOT atom-shaped (the atom-marker fall-back classifies them correctly); the routed chain-bottom fallback returns the container-class-unknown sentinel."}
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true
-    :description "Substrate-specific after-render hook (re-frame.interop/after-render). The UIx adapter publishes a `React.useLayoutEffect`-backed impl via the spine's after-render machinery. Reagent + reagent-slim route through their substrate's native render scheduler."}
+    :description "Substrate-specific after-render hook (re-frame.interop/after-render). The UIx adapter publishes a `React.useLayoutEffect`-backed impl via the spine's after-render machinery. Reagent routes through its substrate's native render scheduler."}
    {:key         :adapter/wrap-view
     :producer-ns '[re-frame.adapter.uix
                    re-frame.fresco.substrate]
@@ -852,7 +832,6 @@
     :description "Turns the composed registration wrapper into the substrate's own mountable COMPONENT HEAD — the value `views/reg-view*` registers and `(rf/view id)` returns. `build-frame-aware-view` yields a JS function carrying `{:contextType frame-context}` as its Clojure metadata: Reagent's create-class machinery reads that meta and converts it, so Reagent does NOT publish this hook and its head stays unchanged; React has no such conversion and would mount the bare wrapper as an ordinary function component carrying no substrate component marker, so UIx publishes a marked shell. The spine (`make-componentize-view`) builds the substrate-agnostic forwarding shell and the adapter stamps its substrate's component marker on it — a seam split, so `$` routes props through UIx's lossless `argv` channel rather than the keyword-mangling JS-prop conversion. Absent-hook fallback in `apply-adapter-componentize-view` returns the wrapper unchanged. Consulted at REGISTRATION and again at LOOKUP: the hook is routed, so it declines while its adapter is not installed, and the canonical boot order registers views at ns-load BEFORE `rf/init!` — `views/view-head` therefore re-derives the head against the adapter installed at `(rf/view id)` time and memoizes it, keyed on the identity of the object registration stored in the `:view` slot and on the adapter spec. That re-derivation runs the WHOLE pipeline (`views/compose-view`), so `:adapter/wrap-view` is re-asked alongside it rather than being frozen at its reg-time answer."}
    {:key         :adapter/arm-hiccup-emitter-if-unarmed!
     :producer-ns '[re-frame.adapter.reagent
-                   re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.fresco.substrate]
     :chained?    true

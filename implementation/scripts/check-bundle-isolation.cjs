@@ -1012,12 +1012,6 @@ const DEDICATED_ISOLATION_GATES = {
     command: 'test:bundle-isolation',
     note: 'uix bundles must be reagent-free',
   },
-  'adapters/reagent-slim': {
-    checkers: ['check-reagent-slim-bundle-isolation.cjs'],
-    command: 'test:reagent-slim:bundle-isolation',
-    note: 'slim bundle free of stock reagent + react-dom/server; classic bundle ' +
-      'free of the reagent2.* rewrite',
-  },
 };
 
 // Package.json scripts map, read once. Used to prove a dedicated gate's declared

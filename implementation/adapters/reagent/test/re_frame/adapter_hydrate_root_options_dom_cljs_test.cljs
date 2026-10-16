@@ -8,8 +8,7 @@
   schedule. The views delegate (`[layout [page label]]`), because that is
   where the render-tree hash cannot see: it hashes every fn head to the same
   token, so a divergence below the root view reaches no re-frame channel
-  unless the root reports it. The slim twin is
-  `re-frame.adapter.reagent-slim-hydrate-root-options-dom-cljs-test`."
+  unless the root reports it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as react]
             ["react-dom" :as react-dom]

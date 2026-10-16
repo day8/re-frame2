@@ -14,7 +14,7 @@
   `day8/re-frame2-uix` or a Reagent one — purely to obtain the second half,
   and then never write a line of that substrate's notation.
 
-  This is an OPTION, not a replacement. Reagent, reagent-slim and UIx
+  This is an OPTION, not a replacement. Reagent and UIx
   are first-class, independently supported adapters, and installing one
   of them under a Fresco tree is supported — a Fresco subtree and a UIx
   subtree resolve the same frame, because every React-shaped adapter reads

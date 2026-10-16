@@ -56,15 +56,8 @@
 (def attr-string rf.ssr.html-helpers/attr-string)
 
 ;; Per HTML5 spec, these elements are void — they self-close and have no
-;; closing tag.
-;;
-;; Lockstep with `reagent2.impl.template/void-tags` (in the
-;; `day8/reagent-slim-and-fast` artefact). Bundle isolation forbids
-;; `:require` across artefacts (reagent-slim must not pull in
-;; `re-frame.ssr` — that's the whole point of the slim artefact), so
-;; the set is duplicated by intent. If HTML5 ever extends the void
-;; element list (extraordinarily unlikely), update both copies. Per
-;; reagent-slim IMPL-SPEC §14.3.
+;; closing tag. If HTML5 ever extends the void element list
+;; (extraordinarily unlikely), update this set.
 (def void-elements
   #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
     :track :wbr})
@@ -240,7 +233,7 @@
 ;; ---- the hydrating adapter's prop conversion ------------------------------
 ;;
 ;; The markup the hiccup body walker paints is hydrated by a Reagent-tier
-;; adapter (stock Reagent or reagent-slim), and what that client paints is
+;; adapter (stock Reagent), and what that client paints is
 ;; NOT the author's attribute map verbatim: the adapter converts each prop
 ;; first — a keyword name through Reagent's kebab → camel rule, a keyword
 ;; value through `name`, a class collection joined — and react-dom then writes
@@ -313,8 +306,7 @@
        (clojure.string/join " " parts)))))
 
 (defn- normalise-class-attrs
-  "Step 1 of the conversion, on the AUTHOR's attrs — reagent-slim's
-  `collapse-class-keys` plus `class-names`. A `:className` folds into
+  "Step 1 of the conversion, on the AUTHOR's attrs. A `:className` folds into
   `:class` (joined with it when both are present), and the `:class` value is
   normalised by `class-names`."
   [user-attrs]
@@ -343,7 +335,7 @@
 (defn- reagent-prop-name
   "The React prop name a Reagent-tier adapter hands React for the keyword
   name `name-str` — stock Reagent's `dash-to-prop-name` behind its seeded
-  cache, which reagent-slim copies: split on `-`; a `data` or `aria` first
+  cache: split on `-`; a `data` or `aria` first
   segment keeps the name verbatim; otherwise the first segment plus each later
   one capitalised (`read-only` → `readOnly`, `foo-bar` → `fooBar`)."
   [name-str]
@@ -578,7 +570,7 @@
   keeps on the client, renders here without this namespace requiring a
   substrate: `re-frame.adapter.reagent` makes it answer `:__html`. A value
   answering a nil `__html`, or none at all (a string, a vector), gives an
-  empty body, as it does in `reagent2.dom.server`."
+  empty body."
   [converted]
   (when-let [channel (get converted "dangerouslySetInnerHTML")]
     (let [html (get channel :__html)]
@@ -597,7 +589,7 @@
   :text <a textarea's text body, or nil> :select <a select's value for its
   options, or nil> :inner-html <the raw `:dangerouslySetInnerHTML` body, or
   nil>}`. A walker emits a non-nil `:inner-html` as the whole body of a
-  non-void element, ahead of its children, as `reagent2.dom.server` does."
+  non-void element, ahead of its children."
   [tag-name normalised-tag-name tag-attrs user-attrs root-attrs children]
   (let [merged     (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
         merged     (if root-attrs (merge-root-attrs merged root-attrs) merged)
@@ -1009,10 +1001,9 @@
          ;; element, so no attribute on one has a wire representation —
          ;; `:key` is reconciliation identity, which the client recomputes
          ;; from the same tree, and there is no tag to hang the rest on.
-         ;; Dropping is what every sibling emitter in this repo
-         ;; does (reagent-slim's static `emit-fragment` skips the whole
-         ;; slot; the React-side codec reads `:key` off it and ignores the
-         ;; remainder) and what React does at runtime — a stray prop on a
+         ;; Dropping is what the React-side codec does (it reads
+         ;; `:key` off the slot and ignores the remainder) and what React
+         ;; does at runtime — a stray prop on a
          ;; Fragment is a development warning, never an error. Refusing
          ;; here would make the SERVER stricter than the client for markup
          ;; that renders fine in a browser, i.e. a server-only failure on a

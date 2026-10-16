@@ -69,16 +69,9 @@
          reagent/reagent {:mvn/version "2.0.1"}
 
          ;; NO ADAPTER COORDINATE BELONGS ANYWHERE IN THIS FILE — not in
-         ;; this map and not in a test alias. `day8/reagent-slim` publishes
-         ;; ITS adapter at the same canonical `re-frame.adapter.reagent` ns
-         ;; (release.yml renames `reagent_slim.cljs` → `reagent.cljs` before
-         ;; clein packages, and says downstream apps depend on EXACTLY ONE of
-         ;; {day8/re-frame2-reagent, day8/reagent-slim}), so a coordinate here
-         ;; would put two implementations of one namespace on a slim app's
-         ;; classpath with load order picking the substrate — and in-tree the
-         ;; slim ns is `reagent_slim`, so the monorepo build cannot see
-         ;; the collision. Nothing in this artefact requires an adapter: the
-         ;; viewer page is off `src` and calls no `rf/init!`.
+         ;; this map and not in a test alias. The host app brings its own
+         ;; adapter, and nothing in this artefact requires one: the viewer
+         ;; page is off `src` and calls no `rf/init!`.
 
          ;; `adapters/uix.cljs` requires `uix.core` for `defui` / `$`.
          ;; Undeclared, that namespace dies at LOAD the same way.

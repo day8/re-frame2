@@ -99,11 +99,7 @@ boot is a rendering prerequisite.
 When rf2-k7l2o made the `src`/`page` split the page did still require
 `re-frame.adapter.reagent`, and that require was the sharper half of the
 argument: had it stayed in `src`, the jar would have had to declare
-`day8/re-frame2-reagent` to be loadable at all — and `day8/reagent-slim`
-publishes its adapter at the same canonical `re-frame.adapter.reagent`
-namespace, so a slim app taking machines-viz would have ended up with two
-implementations of that namespace on one classpath, load order picking
-the substrate. The require is gone now, so what keeps the split is the
+`day8/re-frame2-reagent` to be loadable at all. The require is gone now, so what keeps the split is the
 application-versus-library-surface line above.
 
 ## Building and hosting the viewer page

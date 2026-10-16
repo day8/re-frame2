@@ -13,7 +13,6 @@ printf 'gate root: %s\n' "$repo_root"
 artefacts=(
   implementation/core
   implementation/adapters/reagent
-  implementation/adapters/reagent-slim
   implementation/adapters/uix
   implementation/adapters/test-react
   implementation/schemas

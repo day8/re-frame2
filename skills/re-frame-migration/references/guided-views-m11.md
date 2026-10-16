@@ -2,7 +2,7 @@
 
 The **M-11 sweep** — converting plain `(defn …)` Reagent views that `subscribe` / `dispatch` in their render into frame-resolving components. This is typically the **largest single conversion** in a migration, so it is its own leaf: the decision table, the single-frame case, the `defn` ‒→ `reg-view` execution recipe (Form-1 / Form-2 / Form-3 and the `defmulti` shape), the `reg-view*` **capture-once** contract, and the async listener / timer / error-handler class.
 
-This is the **canonical migration recipe** for the Form-3 routes and the capture-once retarget invariance; the adopter-facing counterpart is [`FORM-3.md`](https://github.com/day8/re-frame2/blob/main/implementation/adapters/reagent-slim/FORM-3.md). The other Type B handler / state walkthroughs (M-3, M-5, M-10, M-12, M-13, M-14, M-15, M-15b, M-34, M-42) stay in the sibling leaf [`guided-handlers-state.md`](guided-handlers-state.md).
+This is the **canonical migration recipe** for the Form-3 routes and the capture-once retarget invariance. The other Type B handler / state walkthroughs (M-3, M-5, M-10, M-12, M-13, M-14, M-15, M-15b, M-34, M-42) stay in the sibling leaf [`guided-handlers-state.md`](guided-handlers-state.md).
 
 ---
 

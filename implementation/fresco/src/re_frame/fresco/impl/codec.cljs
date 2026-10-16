@@ -1,8 +1,7 @@
 (ns re-frame.fresco.impl.codec
-  "The hiccup codec: arbitrary hiccup in, React elements out, over
-  reagent-slim's measured tag/prop/child plumbing and nothing else of
-  reagent-slim's — no component protocol, no ratoms, no scheduler, and
-  no runtime require of it. The outward bridge at the end of the file
+  "The hiccup codec: arbitrary hiccup in, React elements out, through
+  tag, prop and child plumbing and nothing else — no component protocol,
+  no ratoms, no scheduler. The outward bridge at the end of the file
   (`as-component`) runs the other way: a React parent's props object
   into a hiccup body's props map.
 
@@ -98,7 +97,7 @@
 
 (def ^:private re-tag
   "`tag`, optional `#id`, optional `.class.class`; the `#id` precedes the
-  classes, as in reagent-slim and stock Reagent."
+  classes, as in Reagent."
   #"([^\s\.#]+)(?:#([^\s\.#]+))?(?:\.([^\s#]+))?")
 
 (deftype ParsedTag [tag id className])
@@ -375,7 +374,7 @@
   holds; a vector, map or fn at an event position (`event?` gated on
   `keyword?`, since a symbol is never an event position) and a marked
   callback anywhere go through `intent/lower-prop`; everything else goes
-  straight to `convert-prop-value`. A string key keeps reagent-slim's
+  straight to `convert-prop-value`. A string key takes the
   uncached path. A reserved emitted name is never written.
 
   The class slot composes rather than overwrites because two spellings of
@@ -434,9 +433,8 @@
   caller's attributes reach this map through an ordinary `merge`, owned
   keys last; the codec asks no provenance question of it.
 
-  One walk and one object per element per render, exactly as the
-  measured reagent-slim plumbing does (HD-004 refuses a props-object
-  memo). The prop pipeline is 67.5% of the interpreter walk, and a
+  One walk and one object per element per render (HD-004 refuses a
+  props-object memo). The prop pipeline is 67.5% of the interpreter walk, and a
   shorthand merge over the map rather than the emitted object would be
   most of that
   (docs/design/fresco/studio/the-interpreter-walk-profiled-and-cheapened.md)."
@@ -1361,7 +1359,7 @@
     a))
 
 (defn- make-element
-  "`createElement` with `reagent2.impl.template`'s three arms: no
+  "`createElement` in three arms: no
   children, one child,
   and the `.apply` path that builds an argument array for the rest. The
   loop is deliberate — a long keyed list is the hot case."
@@ -1421,8 +1419,7 @@
   HTML attribute wherever the component passes it on, so has no
   representation but a string; `data-*` and `aria-*` join them by prefix.
   Named as SLOTS, not keys, so `:class`, `:className` and `\"class\"` are
-  one position. The roster is reagent-slim's for this seam
-  (implementation/adapters/reagent-slim/IMPL-SPEC.md §7.2)."
+  one position."
   #{"className" "id" "role"})
 
 (defn- ^boolean html-attr-slot?

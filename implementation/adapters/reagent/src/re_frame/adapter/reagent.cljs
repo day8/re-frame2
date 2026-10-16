@@ -25,9 +25,8 @@
 ;; teardown), and a callback that defensively re-enters `dispose!` re-enters
 ;; the same callback array and can recurse to stack overflow.
 ;;
-;; The guard is adapter-owned and per-Reaction (the reagent-slim Reaction
-;; bakes the same snapshot-and-clear pattern into its own `dispose!`,
-;; which an external stock artefact cannot).
+;; The guard is adapter-owned and per-Reaction, because the stock Reaction is
+;; an external artefact's type and its own `dispose!` cannot be changed.
 ;; `install-dispose-guard!` registers a marker as the FIRST
 ;; `add-on-dispose!` callback AT CONSTRUCTION, before any cache/user
 ;; callback can register, so on the first disposal — whichever side
@@ -124,9 +123,9 @@
 
 ;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
-;; Reagent and reagent-slim share the ratom spine but inject different
-;; reactive implementations. The spine must not require either ratom namespace:
-;; that dependency direction keeps stock Reagent out of slim bundles.
+;; The ratom spine lives in core, which must not require a ratom namespace:
+;; that dependency direction keeps stock Reagent out of UIx and Fresco bundles,
+;; so this adapter injects its reactive implementation.
 
 (def ^:private spine-fns
   (rf.substrate.spine/make-ratom-spine
@@ -181,7 +180,7 @@
 ;; caller-owned raw Root or a create/hydrate branch, and the Root they manage
 ;; is tracked by the SAME active-root ownership as the one-shot substrate
 ;; `render` slot, so `rf/destroy-adapter!` releases it too. The trio lives in
-;; the shared ratom spine; reagent-slim re-exports the same three names.
+;; the shared ratom spine.
 
 (def client-root
   "Allocate an inert client-root handle. No DOM work — safe at namespace
@@ -240,9 +239,9 @@
       (rf/init! reagent-adapter/adapter)
 
   Adapter installation is explicit; there is no default-adapter registry.
-  `make-ratom-spine` and `make-ratom-adapter` own the logic shared with
-  reagent-slim. The Reagent-shaped frame-provider is injected from
-  `re-frame.views`, keeping the spine independent of that component layer."
+  `make-ratom-spine` and `make-ratom-adapter` own the ratom-family logic.
+  The Reagent-shaped frame-provider is injected from `re-frame.views`,
+  keeping the spine independent of that component layer."
   (rf.substrate.spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent
@@ -251,10 +250,6 @@
      ;; The spine handles re-frame-owned disposal before these substrate ops.
      :current-frame     rf.views/current-frame
      :current-component r/current-component
-     ;; Stock Reagent's own hiccup walk. Twin of the slim
-     ;; adapter's entry; see `:adapter/as-element` in the late-bind
-     ;; directory for why the crossing must come from the installed build.
-     :as-element        r/as-element
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      ;; Guarded ctor/disposer pair: the routed

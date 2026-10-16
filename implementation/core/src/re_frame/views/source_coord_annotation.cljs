@@ -70,42 +70,27 @@
 (def format-view-id       rf.adapter.context/format-view-id)
 
 (defn reagent-class?
-  "Dependency-free structural predicate for a Reagent-family Form-3 class
-  (a `create-class` result). Recognises BOTH supported Reagent
-  implementations — stock Reagent AND reagent-slim — without importing
-  either adapter into neutral core.
+  "Dependency-free structural predicate for a Reagent Form-3 class (a
+  `create-class` result), recognised without importing the adapter into
+  neutral core.
 
   `re-frame.views.source-coord-annotation` lives in the substrate-neutral core
-  artefact, whose classpath intentionally contains neither stock Reagent nor
-  reagent-slim. Requiring `reagent.impl.component` (or `reagent2.impl.component`)
-  here would make a core-only compile fail and would pull a Reagent
-  implementation into UIx release bundles. So each supported class shape
-  is matched by its own structural marker instead:
+  artefact, whose classpath intentionally contains no Reagent. Requiring
+  `reagent.impl.component` here would make a core-only compile fail and would
+  pull Reagent into UIx release bundles. So the class shape is matched by its
+  structural marker instead: Reagent 2.x marks a `create-class` constructor
+  with `prototype.reagentRender`.
 
-    - Stock Reagent 2.x marks a `create-class` constructor with
-      `prototype.reagentRender`.
-    - reagent-slim tags the constructor itself with `cljsReagentClass = true`
-      (slim's own `reagent2.impl.component/reagent-class?` keys off exactly
-      this) and installs `prototype.render` + a `cljsReagentRender` fn, never
-      `prototype.reagentRender`.
-
-  Matching both markers keeps core neutral without a second adapter hook.
   `re-frame.views` asks it on every render to tell a Form-3 class from a
-  Form-2 inner fn. reagent-slim is a first-class supported adapter, so a
-  slim Form-3 class MUST be recognised here: otherwise it is taken for a
-  Form-2 inner fn, wrapped, and later invoked as an ordinary function rather
-  than mounted as a class — losing its React lifecycle.
-  (`re-frame.test-helpers` carries its own slim-aware detection where the
-  test surface needs one.)"
+  Form-2 inner fn. A Form-3 class it missed would be taken for a Form-2 inner
+  fn, wrapped, and later invoked as an ordinary function rather than mounted
+  as a class — losing its React lifecycle. (`re-frame.test-helpers` carries
+  its own detection where the test surface needs one.)"
   [x]
   (and (fn? x)
-       (or
-         ;; Stock Reagent: `create-class` installs `prototype.reagentRender`.
-         (some? (some-> (gobj/get x "prototype")
-                        (gobj/get "reagentRender")))
-         ;; reagent-slim: `create-class*` tags the constructor
-         ;; `cljsReagentClass = true` (mirrors slim's own reagent-class?).
-         (true? (gobj/get x "cljsReagentClass")))))
+       ;; `create-class` installs `prototype.reagentRender`.
+       (some? (some-> (gobj/get x "prototype")
+                      (gobj/get "reagentRender")))))
 
 (defn- dom-tag?
   "True if `head` is a Hiccup DOM-tag keyword. Reagent's React-fragment
@@ -135,8 +120,8 @@
 
   `out` is a render's output, never a Form-2 inner fn: `re-frame.views`
   takes that for construction and walks the inner fn's output instead.
-  A Reagent-family `create-class` value (stock Reagent or reagent-slim)
-  is passed through so the substrate can mount the class."
+  A Reagent `create-class` value is passed through so the substrate can
+  mount the class."
   [id coord-attr out]
   (cond
     ;; create-class values satisfy fn?, but Reagent must see the class itself

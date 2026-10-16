@@ -14,15 +14,6 @@
   Static surface — and never calls `open!`. The public `open!` rows live
   with the other public-door rows in `acceptance.substrate-gap-dom-cljs-test`.
 
-  `acceptance.reagent-slim-dom-cljs-test` is this file with one `:require`
-  and one `:adapter` changed, so the six criteria run on reagent-slim
-  every PR as well. They pass there because
-  `day8.re-frame2-xray.substrate/as-element` reads the hiccup->React walk
-  off the INSTALLED adapter rather than naming stock Reagent's statically,
-  so a crossing keeps its frame under reagent-slim, and because
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` are Fresco
-  boundaries rather than Reagent islands.
-
   ## NODE LANE
 
   Every row short-circuits and reports the skip; see the UIx arm's

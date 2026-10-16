@@ -69,26 +69,15 @@
          day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 
          ;; NO SUBSTRATE ADAPTER COORDINATE. The host app brings its own
-         ;; adapter, and nothing in `src` requires one. An adapter here would
-         ;; be a second provider on the host's classpath: Reagent Slim
-         ;; publishes its adapter at `re-frame.adapter.reagent`, the very
-         ;; namespace `day8/re-frame2-reagent` ships, so a stock-Reagent host
-         ;; would get whichever of the two classpath order picked.
+         ;; adapter, and nothing in `src` requires one.
 
          ;; Xray declares stock Reagent itself; core is Reagent-free
          ;; (re-frame.views late-binds via `:adapter/current-component`), so
          ;; every artefact that requires reagent.* must declare it.
          ;;
          ;; `src` HAS EXACTLY ONE PRODUCTION REQUIRE, in
-         ;; `day8.re-frame2-xray.substrate`, and it is the FALLBACK arm of
-         ;; the hiccup->React-element crossing — taken only when no
-         ;; ratom-family adapter answers `:adapter/as-element`, which is a
-         ;; REAL case rather than a defensive flourish: Xray can own its own
-         ;; React root, and the acceptance harness mounts the Static surface
-         ;; through Fresco's root with UIx installed. A view source naming
-         ;; `reagent.core/as-element` statically would, under the
-         ;; reagent-slim adapter, render its islands with the wrong ratom
-         ;; build and bring Xray up BLANK.
+         ;; `day8.re-frame2-xray.substrate`: the hiccup->React-element
+         ;; crossing every Fresco boundary uses for its Reagent islands.
          ;;
          ;; REMOVING THAT ONE REQUIRE WOULD BUY NO BUNDLE BYTES.
          ;; `day8/re-frame2-machines-viz` above requires `reagent.core` in
@@ -96,9 +85,7 @@
          ;; the edge `preload -> registry -> panels.machine-inspector ->
          ;; panels.machine-canvas -> machines-viz.chart` is live, so stock
          ;; Reagent lands in every Xray-carrying build whether this door
-         ;; requires it or not. THAT is why a reagent-slim page carrying
-         ;; Xray ships both ratom runtimes, and the work to change it is in
-         ;; the machines-viz chart tree, not here.
+         ;; requires it or not.
          ;;
          ;; This is dev-only (Xray is a devtools panel excluded from
          ;; production bundles).

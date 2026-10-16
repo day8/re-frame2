@@ -20,7 +20,7 @@ Run these npm commands from `implementation/`, after the
 | `npm run test:examples-compile` | Compiles every declared `:examples/*` shadow-cljs build and fails on any error **or warning**. The build list is derived from `shadow-cljs.edn`, so a newly declared example is swept automatically. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 | `npm run test:cljs` | The shadow-cljs `:node-test` bundle, run on Node. `:ns-regexp` is `cljs-test$`, so it picks up every `*-cljs-test` wrapper — including the **example wrappers**, which require their example's `core` ns and drive its events, subs and fixtures headlessly (no DOM). This is where the example wrappers actually run. | [`implementation/package.json` `test:cljs`](../implementation/package.json) |
 | `npm run test:browser` | The shadow-cljs `:browser-test` bundle in one Chromium page. `:ns-regexp` is narrowed to `-dom-cljs-test$`, so it runs **only** the DOM-dependent wrappers (those that mount real React via `react-dom/client`). The example wrappers do **not** mount the DOM, so they keep the plain `-cljs-test` suffix and run under `test:cljs`, not here. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs) |
-| `npm run test:scripts` | JS harness tests for staging, build discovery, ports, Story runner verdicts and shared assertion timeouts, plus static scanners: `check-examples-assets.cjs` (shared assets + palette contrast / focus rings) and `check-reagent-slim-boundary.cjs` (the stock Reagent tree never requires `reagent2.*` / the slim adapter). | [`implementation/scripts/`](../implementation/scripts/) tests exercising [`examples/scripts/`](scripts/) |
+| `npm run test:scripts` | JS harness tests for staging, build discovery, ports, Story runner verdicts and shared assertion timeouts, plus a static scanner: `check-examples-assets.cjs` (shared assets + palette contrast / focus rings). | [`implementation/scripts/`](../implementation/scripts/) tests exercising [`examples/scripts/`](scripts/) |
 
 `test:examples-compile` and the `test:scripts` scanners add nothing under
 `examples/` — they keep the test-free policy intact.
@@ -88,17 +88,10 @@ them from colliding.
 
 Some sibling examples register the **same** ids on purpose, because the
 id-identity *is* the demonstration — byte-for-byte identical dataflow proving
-parity across a boundary. These are the two blessed parity exceptions; each
+parity across a boundary. This is the blessed parity exception; each
 example's own README links here for the canonical statement.
 
-#### Exception 1 — the stock/slim counter `:counter/*` id share
-
-[`core/counter`](core/counter/) and
-[`substrates/reagent_slim/counter`](substrates/reagent_slim/counter/) share
-the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
-dataflow.
-
-#### Exception 2 — the cross-view-layer Reagent/UIx/Fresco id share
+#### The cross-view-layer Reagent/UIx/Fresco id share
 
 The Reagent and UIx **counter** pair shares its event, sub, fx,
 machine, and schema ids, proving one dataflow across two reactive substrates.
@@ -118,10 +111,9 @@ merely *shared*, they're registered from *one source*; each `core.cljs` adds onl
 its view-layer-specific views + mount. That removes the drift risk of duplication
 outright — there is no second copy to diverge.
 
-Both are safe because each side is a **separate standalone build** that never
-shares a JS runtime, and the bundle-isolation gates
-(`npm run test:bundle-isolation`, `npm run test:reagent-slim:bundle-isolation`)
-keep those builds split. `test:bundle-isolation` scans all three login
+It is safe because each side is a **separate standalone build** that never
+shares a JS runtime, and the bundle-isolation gate
+(`npm run test:bundle-isolation`) keeps those builds split. `test:bundle-isolation` scans all three login
 builds too (`check-login-bundle-isolation.cjs`): each login `main.js` carries
 **only its own view runtime** and neither of the other two — the UIx login
 bundle has no Reagent or Fresco code —
@@ -157,8 +149,8 @@ to sweep it.
 
 ## Adapter smokes are not an example surface
 
-The three adapter browser smokes (Reagent and UIx at `testbed/spec.cjs`,
-reagent-slim at `testbed/smoke.cjs`) live with the adapters they test — see
+The two adapter browser smokes (Reagent and UIx at `testbed/spec.cjs`) live
+with the adapters they test — see
 [`../implementation/adapters/TESTING.md`](../implementation/adapters/TESTING.md).
 They reuse the shared Playwright assertion matchers in
 [`scripts/spec-helpers.cjs`](scripts/spec-helpers.cjs), which stay in this tree as

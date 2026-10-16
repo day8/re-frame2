@@ -5,10 +5,9 @@
 #   verify-version-lockstep ──► test ──► deploy-core
 #                                         │
 #                                         │   ── deploy-leaf: ONE matrix job,
-#                                         │      11 values, all in parallel ──
+#                                         │      10 values, all in parallel ──
 #                                         ├── deploy-schemas
 #                                         ├── deploy-reagent
-#                                         ├── deploy-reagent-slim
 #                                         ├── deploy-uix
 #                                         ├── deploy-machines
 #                                         ├── deploy-routing
@@ -37,7 +36,7 @@
 # DEPENDENT leaves ship in stages of their own after them.
 # The independent leaves are the per-feature artefacts (schemas,
 # machines, routing, flows, http, ssr, resources, epoch) plus the
-# substrate-adapter leaves (reagent, reagent-slim, uix). The per-feature
+# substrate-adapter leaves (reagent, uix). The per-feature
 # split set is closed; an addition requires a new Spec-ulation increment.
 #
 # # The inter-leaf edges: ssr-ring and fresco both depend on ssr
@@ -234,16 +233,6 @@ jobs:
         working-directory: implementation/adapters/reagent
         run: clojure -M:test
 
-      # The reagent-slim artefact ships a
-      # JVM-runnable test namespace — reagent2.impl.component-test (the
-      # component-shape detection contract). This is a REAL JVM surface,
-      # NOT a skip-on-empty classpath probe, so the test-runner's non-zero
-      # exit MUST stop the release — no `|| echo` fallback (mirrors the
-      # `jvm-reagent-slim` job in .github/workflows/test.yml).
-      - name: JVM tests (reagent-slim artefact)
-        working-directory: implementation/adapters/reagent-slim
-        run: clojure -M:test
-
       - name: JVM tests (uix artefact, classpath probe)
         working-directory: implementation/adapters/uix
         run: clojure -M:test
@@ -306,10 +295,6 @@ jobs:
       - name: CLJS per-feature bundle isolation
         working-directory: implementation
         run: npm run test:bundle-isolation
-
-      - name: CLJS Reagent Slim bundle isolation
-        working-directory: implementation
-        run: npm run test:reagent-slim:bundle-isolation
 
   # ─────────────────────────────────────────────────────────────────
   # 3. Deploy core. The lockstep root: every other deploy job depends
@@ -417,10 +402,6 @@ jobs:
             artefact: day8/re-frame2-reagent
             directory: implementation/adapters/reagent
             local-root: ../../core
-          - leaf: reagent-slim
-            artefact: day8/reagent-slim
-            directory: implementation/adapters/reagent-slim
-            local-root: ../../core
           - leaf: uix
             artefact: day8/re-frame2-uix
             directory: implementation/adapters/uix
@@ -508,10 +489,10 @@ jobs:
       #
       # It matches the coordinate in CODE, ignoring EDN comments. A RAW
       # substring count of 1 would be defeated by a prose comment quoting
-      # the same coordinate — day8/reagent-slim's header comment quotes
-      # `:local/root "../../core"`, so a raw count reads 2 and the step
-      # would abort. Counting only code keeps the invariant honest instead
-      # of dependent on how the comments happen to be worded.
+      # the same coordinate (`:local/root "../../core"`), so a raw count
+      # would read 2 and the step would abort. Counting only code keeps the
+      # invariant honest instead of dependent on how the comments happen to
+      # be worded.
       #
       # ONE call per value: every leaf in this matrix has exactly one
       # in-repo coordinate (core). The two leaves with a second one,
@@ -527,67 +508,6 @@ jobs:
           set -euo pipefail
           "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${LOCAL_ROOT}" "${VERSION}"
           grep "day8/re-frame2" deps.edn
-
-      # ─────────────────────────────────────────────────────────────
-      # reagent-slim publication-time ns rename.
-      #
-      # In-tree, the slim adapter ships at `re-frame.adapter.reagent-slim`
-      # because the monorepo shadow-cljs build puts BOTH adapter source
-      # trees on the same classpath — two namespaces with the same name
-      # would clash. At publication time, downstream apps depend on
-      # EXACTLY ONE of {day8/re-frame2-reagent, day8/reagent-slim} so the
-      # adapter ns is single-source per app. Per the slim IMPL-SPEC §1.8
-      # / §13.1, the slim Maven artefact ships its adapter at the canonical
-      # `re-frame.adapter.reagent` ns — so a downstream app's import line
-      # is `(:require [re-frame.adapter.reagent :as ra])` regardless of
-      # which adapter coord their deps.edn pins.
-      #
-      # The transform (mv reagent_slim.cljs → reagent.cljs + rewrite the
-      # `(ns …)` form) and its fail-loud invariants live in
-      # .github/scripts/transform-reagent-slim-ns.sh, unit-tested via
-      # implementation `npm run test:script-policy`
-      # (scripts/_transform-reagent-slim-ns.test.cjs). The script runs on
-      # the throwaway runner checkout before clein packages the jar; it
-      # aborts (non-zero) if the source is missing, the destination
-      # already exists, or the slim ns declaration is absent.
-      # ─────────────────────────────────────────────────────────────
-      - name: Rename adapter ns at publication (reagent-slim only)
-        if: matrix.leaf == 'reagent-slim'
-        working-directory: ${{ matrix.directory }}
-        run: "$GITHUB_WORKSPACE/.github/scripts/transform-reagent-slim-ns.sh"
-
-      # ─────────────────────────────────────────────────────────────
-      # Pre-deploy package preflight (reagent-slim only).
-      #
-      # The transform above is the ONE release step where the published
-      # artefact diverges from the tested tree — and nothing else verifies
-      # the OUTPUT (jar ns set, pom dep set, consumer compile) before the
-      # `clojure -M:clein deploy` below mutates Clojars, an irreversible
-      # path (Clojars has no yank; recovery is bump-and-supersede).
-      # test:reagent-slim:bundle-isolation runs off the monorepo classpath,
-      # not the generated jar/pom, so it does NOT catch a bad publication
-      # transform.
-      #
-      # This step builds the jar+pom from the renamed source via
-      # `clojure -M:clein jar` (build only — NOT deploy), then asserts:
-      #   - the jar CONTAINS re_frame/adapter/reagent.cljs (the canonical
-      #     ns re-frame.adapter.reagent);
-      #   - the jar does NOT contain reagent_slim (the slim ns is gone);
-      #   - the generated pom has NO DIRECT day8/re-frame2-reagent dep and
-      #     NO slim-owned DIRECT `reagent` dep. DIRECT-dep level ONLY: the
-      #     assertion reads this pom's own <dependencies>, not the
-      #     transitive closure.
-      #
-      # A consumer-compile assertion (resolve [re-frame.adapter.reagent] +
-      # [reagent2.core] from a temp project with day8/re-frame2-reagent
-      # ABSENT) is not made here — the temp-project npm/shadow wiring is
-      # gnarly on the runner — so this step asserts jar-content + pom-dep +
-      # ns-grep instead, which checks the OUTPUT rather than the input tree.
-      # ─────────────────────────────────────────────────────────────
-      - name: Preflight — verify reagent-slim published package (reagent-slim only)
-        if: matrix.leaf == 'reagent-slim'
-        working-directory: ${{ matrix.directory }}
-        run: "$GITHUB_WORKSPACE/.github/scripts/preflight-reagent-slim-package.sh"
 
       - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
         working-directory: ${{ matrix.directory }}
@@ -895,7 +815,6 @@ jobs:
             Artefacts published to Clojars:
             - `day8/re-frame2` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-reagent` ${{ needs.deploy-core.outputs.version }}
-            - `day8/reagent-slim` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-uix` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-schemas` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-machines` ${{ needs.deploy-core.outputs.version }}

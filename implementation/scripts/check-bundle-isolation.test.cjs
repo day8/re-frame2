@@ -189,7 +189,7 @@ for (const [gate, want, why] of [
   ['isolated by the vibes', false, 'a truthy prose string'],
   [{ checkers: ['check-does-not-exist.cjs'], command: 'test:bundle-isolation' }, false, 'a nonexistent checker'],
   [{ checkers: [LOGIN], command: 'test:no-such-script' }, false, 'a command that is not a package.json script'],
-  [{ checkers: [LOGIN], command: 'test:reagent-slim:bundle-isolation' }, false, 'a real command that does not run the checker'],
+  [{ checkers: [LOGIN], command: 'test:cljs' }, false, 'a real command that does not run the checker'],
   [{ checkers: [LOGIN], command: 'test:bundle-isolation' }, true, 'a real checker run by its real package command'],
 ]) {
   assert.strictEqual(validateDedicatedGate(gate).ok, want, why);

@@ -19,8 +19,8 @@
   containers; the spine-based UIx adapter routes `:adapter/add-on-dispose!`
   and `:adapter/dispose!` straight to the protocol fns and requires no
   `reagent.ratom`. The
-  Reagent and reagent-slim adapters keep their substrate's IDisposable
-  protocol on Reagent reactions but their adapter dispatchers route
+  Reagent adapter keeps its substrate's IDisposable
+  protocol on Reagent reactions but its adapter dispatcher routes
   via a fall-through that checks BOTH this protocol AND Reagent's —
   so a spine-produced derived value that finds its way into a Reagent
   bundle's `interop/add-on-dispose!` call site disposes cleanly.
@@ -37,8 +37,8 @@
   per-slot evict logic calls `re-frame.interop/add-on-dispose!` which
   dispatches via the adapter's hook; substrates without a reactive-atom
   primitive (UIx) satisfy this protocol on their derived-value
-  reifies. Substrates with their own IDisposable (Reagent,
-  reagent-slim) leave their reaction objects alone and route through
+  reifies. Substrates with their own IDisposable (Reagent) leave their
+  reaction objects alone and route through
   their own protocol — see each adapter's `:adapter/add-on-dispose!`
   routing."
   (-add-on-dispose [this on-dispose-fn]

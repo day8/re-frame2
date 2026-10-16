@@ -3015,7 +3015,7 @@
 
   ONE read, map-shaped. Branch code asks for the discriminator as a KEY:
   `(:kind (rf/current-adapter))` — `:rf.adapter/reagent`,
-  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/fresco`,
+  `:rf.adapter/uix`, `:rf.adapter/fresco`,
   `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `nil` for a custom
   adapter map that picked no canonical kind (nothing is synthesised for
   it). PRESENCE is a question about the MAP, never about `:kind`.

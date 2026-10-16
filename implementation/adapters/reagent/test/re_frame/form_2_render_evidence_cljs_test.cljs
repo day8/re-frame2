@@ -1,6 +1,6 @@
 (ns re-frame.form-2-render-evidence-cljs-test
   "A registered Form-2 view emits its render evidence on every render, not
-  only on the outer call that constructs it. Reagent and reagent-slim cache
+  only on the outer call that constructs it. Reagent caches
   the inner fn a Form-2 outer call returns and call it directly on every
   later render, so the per-render scope (`:rf.view/render`,
   `:rf.view/rendered`, the deref sink) has to ride the fn the outer call

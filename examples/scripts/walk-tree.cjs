@@ -4,10 +4,9 @@
  *
  * Why fail-closed
  * ---------------
- * Three examples-script enumerations share this walk:
+ * Two examples-script enumerations share this walk:
  *
  *   - check-examples-assets.cjs   listExampleIndexHtml
- *   - check-reagent-slim-boundary.cjs  listStockReagentSources
  *   - examples-staging.cjs        buildNsIndex
  *
  * A walk that caught a throwing `readdirSync` (EACCES / ENOENT / ENOTDIR / a

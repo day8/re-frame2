@@ -54,20 +54,6 @@
                 ;; testbed is example-free by design (examples/ is for
                 ;; humans, smoke lives with the adapter).
                 "adapters/reagent/testbed"
-                "adapters/reagent-slim/src"
-                "adapters/reagent-slim/test"
-                ;; Per-adapter CLIENT-RUNTIME smoke (reagent-slim).
-                ;; Standalone counter app under adapters/reagent-slim/testbed/
-                ;; that proves the day8/reagent-slim substrate wires up
-                ;; end-to-end in a browser (mount through reagent2.dom.client,
-                ;; frame-provider + injected dispatch/subscribe, click-driven
-                ;; updates). Source path here so the
-                ;; :adapters/reagent-slim-testbed build's init-fn resolves.
-                ;; Driven by the adapter-owned runner
-                ;; scripts/serve-and-run-reagent-slim-smoke.cjs (npm
-                ;; test:reagent-slim:smoke), NOT the shared examples
-                ;; adapter-smoke manifest.
-                "adapters/reagent-slim/testbed"
                 "adapters/uix/src"
                 "adapters/uix/test"
                 ;; Per-adapter testbed (UIx). See the Reagent
@@ -409,8 +395,7 @@
                 ;;   patterns/        -> boot.core, websocket.core, nine-states.core, ...
                 ;;   real-apps/       -> realworld-http.core, realworld-resources.core,
                 ;;                       realworld-shared.* (shared by both)
-                ;;   substrates/      -> uix.counter.core,
-                ;;                       reagent-slim.counter.core (path-prefixed, so the
+                ;;   substrates/      -> uix.counter.core (path-prefixed, so the
                 ;;                       substrate ports never collide with the canonical
                 ;;                       core/ namespaces in the shared test bundle)
                 ;; The example tree is test-free: headless
@@ -1244,8 +1229,7 @@
   ;; examples are TEST-FREE and
   ;; `git ls-files 'examples/**/*.spec.cjs'` returns nothing. Browser smoke
   ;; coverage is one adapter-level smoke per shipped adapter, at
-  ;; implementation/adapters/<name>/testbed/ (spec.cjs; smoke.cjs for
-  ;; reagent-slim); real regression
+  ;; implementation/adapters/<name>/testbed/ (spec.cjs); real regression
   ;; coverage lives in the substrate contract tests (`npm run test:cljs`),
   ;; the Xray feature-matrix gate, bundle-isolation, the perf-bundle gate
   ;; and mcp-conformance.
@@ -1286,62 +1270,6 @@
    ;; `compile` but NOT by `release` (per shadow-cljs's docs on the
    ;; :devtools key), so `release` builds are unaffected.
    :devtools   {:preloads [day8.re-frame2-xray.preload]}}
-
-  ;; Counter mounted on day8/reagent-slim,
-  ;; same six-domino logic as :examples/counter but every Reagent
-  ;; import points at reagent2.* and rf/init! receives the slim
-  ;; adapter Var. The Reagent Slim bundle-isolation contract from the
-  ;; reagent-slim IMPL-SPEC (§1.4, §1.8, §12.3, S3-008) binds here:
-  ;;
-  ;;   - The :advanced bundle for this build must contain NO
-  ;;     `reagent.impl.*` symbols (the bridge's stock-Reagent
-  ;;     internals must not leak in).
-  ;;   - The bundle must contain NO `react-dom/server` symbols
-  ;;     (slim's render-to-static-markup is pure-CLJS).
-  ;;
-  ;; The grep that enforces both invariants lives at
-  ;; scripts/check-reagent-slim-bundle-isolation.cjs; the corresponding
-  ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
-  ;;
-  ;; The `:init-fn` is the teaching entrypoint `reagent-slim.counter.core/run`
-  ;; and nothing else. This build is the RUNNABLE example — both
-  ;; `npm run dev:example -- examples/counter-slim-and-fast` and a bare
-  ;; `shadow-cljs watch` on it serve exactly this — and it is also the bundle
-  ;; the substrates catalogue invites a reader to weigh against
-  ;; `:examples/counter`. A comparison that holds the app constant is worth
-  ;; nothing if the two builds differ in a second place, so the gate's SSR
-  ;; fixture lives in its own build below rather than in this one's boot.
-  ;; Contract 7 of check-reagent-slim-bundle-isolation.cjs greps this output
-  ;; to prove the fixture stayed out; Contract 0 pins both `:init-fn`s here so
-  ;; the separation can't be undone by an edit to this file alone.
-  :examples/counter-slim-and-fast
-  {:target     :browser
-   :output-dir "out/examples/counter-slim-and-fast"
-   :asset-path "."
-   :compiler-options {:warnings-as-errors true}
-   :modules    {:main {:init-fn reagent-slim.counter.core/run}}}
-
-  ;; The slim counter's CI twin, and the ONLY build that compiles
-  ;; the bundle-isolation fixture. Not an `:examples/*` build on purpose: it
-  ;; is not staged, not served by examples/scripts/serve-example.cjs (which
-  ;; only resolves `examples/…` ids), not swept by check-examples-compile.cjs,
-  ;; and has no host page — there is nothing here to run. Its sole consumer is
-  ;; `npm run test:reagent-slim:bundle-isolation`, which releases it beside the
-  ;; two real bundles and greps this output for the pure-CLJS SSR path that
-  ;; makes the S3-005 react-dom/server-absence claim non-vacuous (Contract 4).
-  ;; The naming and the out/-sibling shape follow the local
-  ;; `:bundle-isolation-positive-control` convention above: a gate-only build
-  ;; whose job is to carry a signal the shipped bundles must not.
-  ;;
-  ;; The entry boots `reagent-slim.counter.core/run` first and adds the SSR
-  ;; exercise afterwards, so this bundle is the runnable one PLUS the fixture
-  ;; — which is what lets Contracts 2/3/5 hold over both and Contract 7 name
-  ;; the difference exactly.
-  :reagent-slim-ssr-isolation-fixture
-  {:target     :browser
-   :output-dir "out/reagent-slim-ssr-isolation-fixture"
-   :asset-path "."
-   :modules    {:main {:init-fn reagent-slim.counter.bundle-isolation-entry/run}}}
 
   ;; Performance-API instrumented variant of the counter example.
   ;; The SAME canonical source as `:examples/counter`
@@ -2342,7 +2270,7 @@
   ;; (Chromium) over N specs, and this surface's whole contract is the
   ;; SAME spec over three engines. It therefore carries its own
   ;; orchestrator, scripts/serve-and-run-fresco-controlled-testbed.cjs —
-  ;; as reagent-slim and tenant-switcher do — which compiles this
+  ;; as tenant-switcher does — which compiles this
   ;; build, serves it, and drives Chromium, Firefox and WebKit in turn.
   ;; No :dev-http entry: the gate serves from http-server on a resolved
   ;; port like every other browser gate, and nothing here is a
@@ -2373,27 +2301,6 @@
    :output-dir "out/fresco-hmr-testbed"
    :asset-path "."
    :modules    {:main {:init-fn fresco-hmr-testbed.core/init}}}
-
-  ;; Per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
-  ;; substrate. Same minimal-counter shape as the Reagent/UIx
-  ;; testbeds above, but every Reagent import points at reagent2.* and
-  ;; rf/init! receives the slim adapter Var (init value 5; inc + dec). It
-  ;; proves the slim mount/inject/click path end-to-end in a browser — a
-  ;; layer that a compile check and the release-bundle sentinel grep
-  ;; cannot reach.
-  ;;
-  ;; Deliberately NOT in the shared adapter-smoke manifest
-  ;; (implementation/adapters/scripts/adapter-smoke-filter.cjs): it is the slim adapter's OWN
-  ;; gate, driven by scripts/serve-and-run-reagent-slim-smoke.cjs (npm
-  ;; test:reagent-slim:smoke) — mirroring how the slim bundle-isolation
-  ;; contract ships its own check-reagent-slim-bundle-isolation.cjs rather
-  ;; than folding into the shared check-bundle-isolation.cjs.
-  :adapters/reagent-slim-testbed
-  {:target     :browser
-   :output-dir "out/examples/adapter-testbeds/reagent-slim"
-   :asset-path "."
-   :modules    {:main {:init-fn adapter-testbed-reagent-slim.core/init}}
-   :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; ============================================================================
   ;; Machines-Viz read-only viewer — the viewer entry as an emittable

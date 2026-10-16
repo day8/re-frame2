@@ -2,11 +2,10 @@
   "UIx 2.x adapter for the substrate contract in Spec 006.
 
   A first-class, actively-supported adapter: UIx is a permanent sibling of
-  the Reagent and reagent-slim adapters, not a transition path off any of
-  them.
+  the Reagent adapter, not a transition path off it.
 
   The React machinery lives in `re-frame.substrate.spine`, which the
-  Reagent and reagent-slim adapters build on too.
+  Reagent adapter builds on too.
   This namespace supplies UIx's hooks and native `defui` `frame-provider`
   (SCOPE) + `frame-root` (ENSURE) components; keeping them native preserves
   UIx's CLJS prop and trailing-child marshalling."

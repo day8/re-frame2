@@ -20,7 +20,6 @@
  :sites
  {
   "re-frame.router/build-envelope"           2
-  "reagent2.impl.component/->react-element"  1
   "rf-machines/reg-machine"                  1
   "rf-machines/reg-machine*"                 2
   "rf.http/classify-response-body"           1

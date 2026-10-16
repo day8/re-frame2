@@ -79,7 +79,6 @@ The shape is identical across adapters; only the lifecycle-hook surface differs.
 | Adapter | Inner lifecycle surface | Registration | Reference |
 |---|---|---|---|
 | **Reagent** | `reagent.core/create-class` Form-3 (`:reagent-render` + `:component-did-mount` + `:component-did-update` + `:component-will-unmount`) | `reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies) | [Reagent adapter README](../implementation/adapters/reagent/README.md) |
-| **Reagent-slim** | `reagent2.core/create-class` Form-3, **7-key cap** (the six lifecycle keys plus `:display-name`) | `reg-view*` | [Reagent-slim adapter README](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md) — the slim adapter's single source of truth for Form-3 |
 | **UIx** | `uix.core/use-effect` inside a `defui`, with a deps vector listing every prop the effect reads. Cleanup is the fn the effect body returns | ordinary `defui` (a plain fn) — read subs with `use-sub`, carry the frame with the `use-frame` hook; `reg-view*` is **optional**, only when the component must be addressable by id (registry addressing) | [UIx adapter README](../implementation/adapters/uix/README.md) |
 
 The three things that are identical across adapters:
@@ -193,4 +192,4 @@ The shapes that look tempting but compose badly with re-frame2's reactive flow, 
 - [§Regime C — Library-bridged animations](#regime-c--library-bridged-animations) — animation libraries as a special case of this pattern.
 - [Spec 002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body) — why `(rf/capture-frame)` must be captured at render-time, not inside the lifecycle callback.
 - [Pattern — Async Effect](Pattern-AsyncEffect.md) — the sibling pattern for "external work + dispatched reply" outside the view layer (HTTP, IndexedDB, WebSocket, RAF loops); composes with this pattern when the library exposes its own async callbacks (e.g. a tile-loaded event from a map library).
-- [Reagent adapter README §Imperative escape hatch](../implementation/adapters/reagent/README.md), [Reagent-slim adapter README §Imperative escape hatch](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md), [UIx adapter README §Imperative escape hatch](../implementation/adapters/uix/README.md) — the three per-adapter spellings.
+- [Reagent adapter README §Imperative escape hatch](../implementation/adapters/reagent/README.md) and [UIx adapter README §Imperative escape hatch](../implementation/adapters/uix/README.md) — the two per-adapter spellings.

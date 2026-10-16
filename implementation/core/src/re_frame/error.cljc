@@ -301,8 +301,8 @@
 ;;
 ;; It is intentionally tiny and self-contained (no `elide-wire-value` /
 ;; `project-egress` dependency) because the surfaces that need it include
-;; bundle-isolated artefacts (reagent-slim) that MUST NOT `:require`
-;; re-frame.* — those artefacts replicate this exact shape inline. The
+;; bundle-isolated `tools/` artefacts that MUST NOT `:require` re-frame.* —
+;; those artefacts replicate this exact shape inline. The
 ;; summary is the same shape on every surface so a tool consuming a thrown
 ;; ex-data reads one diagnostic vocabulary.
 

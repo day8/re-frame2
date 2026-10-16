@@ -157,15 +157,14 @@ adapter_diagnostic=false
 # population: a local-only CLJC test fixture with no Maven coordinate, no
 # production/example consumer and no browser testbed. It gets its OWN output
 # rather than riding `adapter_diagnostic`, because that output gates the OTHER
-# three adapter JVM jobs (reagent / reagent-slim / uix) as well, none of which
-# runs this artefact. The reverse edge works too: the core arm sets
+# two adapter JVM jobs (reagent / uix) as well, neither of which runs this
+# artefact. The reverse edge works too: the core arm sets
 # `adapter_diagnostic`, and `jvm-adapters-test-react` reads the disjunction.
 test_react_jvm=false
 cljs_browser=false
 examples_compile=false
 cljs_prod=false
 bundle_isolation=false
-reagent_slim_bundle=false
 adapter_testbed_smokes=false
 tools_jvm=false
 # Two artefacts with a wired `:test` alias and a slot on
@@ -243,7 +242,6 @@ mark_all() {
   examples_compile=true
   cljs_prod=true
   bundle_isolation=true
-  reagent_slim_bundle=true
   adapter_testbed_smokes=true
   tools_jvm=true
   tools_jvm_machines_viz=true
@@ -865,27 +863,6 @@ else
         # `_changed-surfaces.test.cjs` pins both directions.
         migration_v1_codemod=true
         ;;
-      implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
-        # The examples/ tree is test-free: the bundle-isolation contract
-        # at scripts/check-reagent-slim-bundle-isolation.cjs is the
-        # canonical gate for the slim counter, so adapter_testbed_smokes is
-        # not fired here.
-        implementation_jvm=true
-        cljs_node_test=true
-        adapter_diagnostic=true
-        cljs_browser=true
-        cljs_prod=true
-        reagent_slim_bundle=true
-        # Reagent-slim is the substrate baked into the docs/cljs SCI
-        # bundle (re-frame.adapter.reagent-slim + reagent2.*), so an adapter
-        # source change must prove the bundle still builds + renders. Scoped to
-        # the adapter source only: the examples/ counter and the bundle-isolation
-        # script above share this arm but are NOT baked in, and must not drag a
-        # heavy JVM+Playwright job onto their PRs.
-        case "$file" in
-          implementation/adapters/reagent-slim/*) playground=true ;;
-        esac
-        ;;
       implementation/adapters/scripts/*)
         # The adapter-smoke harness (orchestrator + runner + shared
         # manifest) lives with the adapters it drives. A harness-script
@@ -962,6 +939,13 @@ else
         template_expensive=true
         mcp_conformance=true
         mcp_live=true
+        # Stock Reagent is the substrate baked into the docs/cljs SCI bundle
+        # (re-frame.adapter.reagent + reagent.*), so its source and deps must
+        # prove the bundle still builds and renders. Its tests and testbed
+        # are not baked in.
+        case "$file" in
+          implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn) playground=true ;;
+        esac
         ;;
       examples/scripts/spec-helpers.cjs)
         # The shared Playwright assertion matchers.
@@ -1801,29 +1785,6 @@ else
         # A new narrower `spec/` arm goes ABOVE this one or it is dead code.
         implementation_jvm=true
         ;;
-      implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
-        # Mirrors the xray-feature-gate
-        # launcher case below. serve-and-run-reagent-slim-smoke.cjs IS the
-        # executable orchestration for `npm run test:reagent-slim:smoke`,
-        # the command the cljs-reagent-slim-bundle-isolation PR job runs
-        # (.github/workflows/test.yml). A break in this launcher (compile,
-        # staging, port resolution, ownership-token readiness, the browser
-        # drive) can break the slim client-runtime smoke gate — yet the
-        # generic implementation/scripts/* case below routes only to the
-        # always-on JS/CLJS surfaces and NEVER to reagent_slim_bundle, so a
-        # PR editing this launcher (or its policy test) could break the very
-        # gate it drives while avoiding it (a false-green hole). Fire
-        # reagent_slim_bundle so editing the launcher runs the gate it
-        # orchestrates. The remaining static-script surfaces this file shares
-        # with the generic case (cljs_node_test / cljs_browser / cljs_prod /
-        # bundle_isolation) stay armed too — this case widens coverage, it
-        # does not narrow it.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        ;;
       implementation/scripts/serve-and-run-xray-feature-gate.cjs)
         # Mirrors the examples/scripts launcher cases.
         # This launcher IS the executable
@@ -1839,18 +1800,17 @@ else
         # so editing the launcher runs the gate it orchestrates. The
         # remaining static-script surfaces this file shares with the
         # generic case (cljs_node_test / cljs_browser / cljs_prod /
-        # bundle_isolation / reagent_slim_bundle) stay armed too — this
-        # case widens coverage, it does not narrow it.
+        # bundle_isolation) stay armed too — this case widens coverage, it
+        # does not narrow it.
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         story_xray_browser=true
         ;;
       implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs)
-        # Mirrors the xray-feature-gate +
-        # reagent-slim-smoke launcher cases above. This launcher IS the
+        # Mirrors the xray-feature-gate
+        # launcher case above. This launcher IS the
         # executable orchestration for `npm run test:testbed-tenant-switcher`,
         # the command the tenant-switcher-testbed-smoke PR job runs
         # (.github/workflows/test.yml). It is the ONLY Playwright smoke that
@@ -1862,13 +1822,12 @@ else
         # tenant_switcher_smoke. Fire tenant_switcher_smoke so editing the
         # launcher runs the gate it orchestrates. The remaining static-script
         # surfaces this file shares with the generic case (cljs_node_test /
-        # cljs_browser / cljs_prod / bundle_isolation / reagent_slim_bundle)
-        # stay armed too — this case widens coverage, it does not narrow it.
+        # cljs_browser / cljs_prod / bundle_isolation) stay armed too — this
+        # case widens coverage, it does not narrow it.
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         tenant_switcher_smoke=true
         ;;
       implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs)
@@ -1888,7 +1847,6 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         fresco_controlled=true
         ;;
       implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs)
@@ -1912,7 +1870,6 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         fresco_hmr=true
         ;;
       implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
@@ -1922,8 +1879,8 @@ else
         # assertions, the first-visit-overlay suppression check, the
         # ownership-token verification and the non-vacuity floor all live in
         # that one file. The generic `implementation/scripts/*` case below
-        # arms cljs_node_test + cljs_browser + cljs_prod + bundle_isolation +
-        # reagent_slim_bundle, and NOT ONE of those schedules a job that runs
+        # arms cljs_node_test + cljs_browser + cljs_prod + bundle_isolation,
+        # and NOT ONE of those schedules a job that runs
         # the command the file defines — so a PR could soften an assertion or
         # drop a check in the static-export gate's own teeth and merge with
         # the gate unexercised.
@@ -1942,9 +1899,8 @@ else
         #
         # Deliberately NOT the shared harness helpers this gate requires
         # (lib/local-browser-harness.cjs, lib/browser-test-report.cjs). Each is
-        # required by run-browser-tests.cjs,
-        # serve-and-run-xray-feature-gate.cjs and serve-and-run-reagent-slim-
-        # smoke.cjs — all PR-time gates — and each carries its own dedicated
+        # required by run-browser-tests.cjs and
+        # serve-and-run-xray-feature-gate.cjs — both PR-time gates — and each carries its own dedicated
         # policy test in the fast spine. A break in one reds a job that
         # runs at PR time, so paying for the static gate on top buys no signal.
         #
@@ -1966,7 +1922,6 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         story_static_gate=true
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
@@ -1987,7 +1942,6 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        reagent_slim_bundle=true
         # Template npm-pin lockstep. The template's hooks.clj
         # pins :shadow-version + :react-version, and version_lockstep_test
         # asserts those emitted pins match implementation/package.json's
@@ -2227,12 +2181,12 @@ else
         # model the edge that exists, not to rely on a coincidence holding.
         #
         # Cost, measured rather than assumed (one run, all jobs live):
-        # the four adapter_diagnostic jobs are short probes — jvm-uix 21s,
-        # jvm-reagent 14s, jvm-reagent-slim 22s, jvm-adapters-test-react 20s —
-        # and they run in PARALLEL behind jvm-tools-template's 5m38s, which
-        # every template change pays for anyway. So this adds ~77s of runner
-        # time and no wall-clock at all. Three of those four probes cannot
-        # reach a template file, which by the tools_jvm reasoning above would
+        # the three adapter_diagnostic jobs are short probes — jvm-uix 21s,
+        # jvm-reagent 14s, jvm-adapters-test-react 20s — and they run in
+        # PARALLEL behind jvm-tools-template's 5m38s, which every template
+        # change pays for anyway. So this adds ~55s of runner time and no
+        # wall-clock at all. Two of those three probes cannot reach a
+        # template file, which by the tools_jvm reasoning above would
         # argue for a narrow per-job output instead (cf. test_react_jvm,
         # tools_jvm_machines_viz); at 20s a probe that precision is not worth
         # a new output plus a test.yml `if:` edit.
@@ -2819,7 +2773,6 @@ emit cljs_browser "$cljs_browser"
 emit examples_compile "$examples_compile"
 emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
-emit reagent_slim_bundle "$reagent_slim_bundle"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit tools_jvm "$tools_jvm"
 emit tools_jvm_machines_viz "$tools_jvm_machines_viz"

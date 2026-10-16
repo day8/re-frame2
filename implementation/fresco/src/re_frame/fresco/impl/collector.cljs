@@ -931,7 +931,7 @@
   (`re-frame.source-coords`, reached here through the
   `re-frame.adapter.context` re-export this namespace already requires),
   so a Fresco boundary's two attribute values are byte-identical to the
-  ones Reagent, reagent-slim, UIx and the JVM SSR registration boundary
+  ones Reagent, UIx and the JVM SSR registration boundary
   emit for the same id. That is the whole property a tool rests on: one
   reader over every substrate.
 

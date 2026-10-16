@@ -2,12 +2,12 @@
   "The reactive substrate adapter contract. Per Spec 006.
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
-  goes through these ten functions. The reference ships THREE first-class,
-  actively-supported browser adapters — the Reagent, reagent-slim and UIx
-  renderer adapters. None of the three is transitional, a fallback, or
-  scheduled for removal (EP-0036); they are permanent siblings. Alongside
-  them, the Fresco view layer ships its own adapter, and plain-atom and ssr
-  cover JVM / SSR / headless use — six shipped adapter kinds in all.
+  goes through these ten functions. The reference ships TWO first-class,
+  actively-supported browser adapters — the Reagent and UIx renderer
+  adapters. Neither is transitional, a fallback, or scheduled for removal
+  (EP-0036); they are permanent siblings. Alongside them, the Fresco view
+  layer ships its own adapter, and plain-atom and ssr cover JVM / SSR /
+  headless use — five shipped adapter kinds in all.
 
   Required functions (6):
     make-state-container, read-container, replace-container!,
@@ -21,19 +21,20 @@
 
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
-  `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
+  `:rf.adapter/*` namespace (`:rf.adapter/reagent`
   / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` /
   `:rf.adapter/ssr`);
   a user-supplied adapter that picks no canonical kind simply has no
   `:kind` — nothing is synthesised for it. Retired members —
-  `:rf.adapter/helix`, `:rf.adapter/ui`, `:rf.adapter/freehand` — stay
+  `:rf.adapter/helix`, `:rf.adapter/ui`, `:rf.adapter/freehand`,
+  `:rf.adapter/reagent-slim` — stay
   reserved and are never recycled, per the Conventions tombstone rule;
   nothing here can produce one. It is installed into the process via
   install-adapter! and introspected via current-adapter, which answers
   the full map; the discriminator is its `:kind` key.
 
   There is no default-adapter registry and no ns-load side-effect.
-  Each adapter ns (re-frame.adapter.reagent / .reagent-slim / .uix,
+  Each adapter ns (re-frame.adapter.reagent / .uix,
   re-frame.fresco.substrate, re-frame.substrate.plain-atom, re-frame.ssr)
   exports an `adapter`
   var (the spec map); consumers require the ns and pass the var
@@ -87,8 +88,8 @@
   generation — ROUTED to that generation ALONE and PRECEDENCE-SAFE.
   `re-frame.ssr.emit` retains the current emitter
   durably under `:ssr/current-hiccup-emitter` at ns-load; the React-shaped
-  adapter (UIx) and the ratom family (Reagent /
-  reagent-slim) clear their per-generation `emitter-cell` on
+  adapter (UIx) and the ratom family (Reagent) clear their
+  per-generation `emitter-cell` on
   `dispose-adapter!`, so a public destroy → re-init cycle — or an
   SSR-before-adapter load order — would otherwise leave `render-to-string`
   unarmed (`:rf.error/no-hiccup-emitter-bound`).
@@ -748,12 +749,12 @@
   production-grade contract surface, not a test helper.
 
   Optional contract fn — returns nil and is a no-op when the installed
-  adapter ships no `:flush-render!`. Four of the six shipped adapter kinds
-  install one — Reagent, reagent-slim, UIx and Fresco; the last two get it
+  adapter ships no `:flush-render!`. Three of the five shipped adapter kinds
+  install one — Reagent, UIx and Fresco; the last two get it
   from `spine/make-react-adapter`, which wires the React spine's slot
   unconditionally. The other two omit it for one shared reason: plain-atom
   and SSR render without a live React commit, so there is nothing to flush.
-  The test-react fixture is NOT one of the six shipped kinds (it has no
+  The test-react fixture is NOT one of the five shipped kinds (it has no
   `:kind` in the shipped set — Spec 006 §CLJS reference scope) and provides
   none either: it hands the render clock to the test through
   `trigger-update!`, by design. Calling it
@@ -807,7 +808,7 @@
 ;; silently fall through to the chain/fallback — boot would be green but UIx
 ;; would lose `:adapter/current-frame` React-context resolution, view
 ;; source/view-id wrapping, after-render, and derived-value disposal;
-;; Reagent/reagent-slim would lose the ratom-family hooks including the
+;; Reagent would lose the ratom-family hooks including the
 ;; `:adapter/derived-container?` guard; test-react `mount!` would throw even
 ;; though a test-react-shaped map is installed. Spec 006
 ;; §Frame-provider via React context requires the `:adapter/current-frame`

@@ -20,7 +20,7 @@
 ;; reg-view path) late-binds the in-flight Reagent component through the
 ;; `:adapter/current-component` hook (see views/provider.cljs) rather than
 ;; statically requiring reagent.core, so core stays substrate-neutral and
-;; day8/reagent-slim consumers get a Reagent-free core classpath. The stock
+;; UIx and Fresco consumers get a Reagent-free core classpath. The stock
 ;; Reagent dep lives in the Reagent adapter artefact
 ;; (implementation/adapters/reagent), the only artefact that requires it.
 ;;

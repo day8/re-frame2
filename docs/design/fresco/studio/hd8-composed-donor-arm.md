@@ -808,8 +808,7 @@ arrived. `app-db` followed **every** write in every bundle, so the failure was
 always on the view leg; and the positive control that reproduces it is a plain
 `reagent2` component reading a plain `reagent2.core/atom`, with no frame, no
 `subscribe` and no adapter hook, which puts **re-frame nowhere on the causal
-path**. Diagnosed under **`rf2-z3vlz`**
-([slim-non-reactive-arm-diagnosis.md](slim-non-reactive-arm-diagnosis.md)), and
+path**. Diagnosed under **`rf2-z3vlz`**, and
 neither the adapter nor the mixed bundle is implicated: four bundle
 compositions from 96 to 114 compiled sources return byte-identical verdicts.
 **No shipped code needs changing and no consumer is affected** — an application

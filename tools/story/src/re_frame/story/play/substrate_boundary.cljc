@@ -41,7 +41,7 @@
   `re-frame.core/current-adapter` — the introspection surface Spec
   006 documents for exactly this purpose (\"give me the adapter fns to
   call — tools\"). Story consequently settles correctly under Reagent,
-  reagent-slim, UIx and any other adapter, with no entry here per
+  UIx and any other adapter, with no entry here per
   substrate and no substrate on Story's classpath.
 
   ## What it declares

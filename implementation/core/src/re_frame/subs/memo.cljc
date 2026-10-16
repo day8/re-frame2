@@ -562,8 +562,8 @@
   frame's ONE physical container — a `cljs.core/Atom` under the React-hook
   spine, an `r/atom` under Reagent — whose fan-out is not movement-gated
   and which therefore cannot implement the protocol. With nil here the
-  guard expression below reduces to the plain `=` memo compare. Reagent /
-  reagent-slim `Reaction`s, the plain-atom derived value (JVM and CLJS) and
+  guard expression below reduces to the plain `=` memo compare. Reagent
+  `Reaction`s, the plain-atom derived value (JVM and CLJS) and
   test-react's derived value likewise answer nil, so those substrates get
   exactly that compare and pay only two extra pointer compares per
   recompute, zero allocation.

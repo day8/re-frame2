@@ -140,10 +140,7 @@
   Promise; settle-count 3 matches the proven machines-artefact idiom.
 
   PUBLIC so a sibling DOM test namespace can reuse this ONE proven teardown
-  idiom instead of minting a fourth private copy of it. Stock
-  Reagent test tree only — the reagent-slim tree cannot require this ns without
-  dragging stock `reagent.*` across its bundle-isolation boundary, so slim keeps
-  its own equivalent."
+  idiom instead of minting a fourth private copy of it."
   [root]
   (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
   (settle-macrotasks 3))

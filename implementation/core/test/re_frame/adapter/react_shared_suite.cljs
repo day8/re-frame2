@@ -1935,7 +1935,7 @@
 (defn assert-render-hydrate-branch-mounts-without-remount
   "Pins the spine `make-render` `:hydrate? true` branch
   (`react-dom/client/hydrateRoot`) once for every React-hook adapter;
-  Reagent/reagent-slim exercise their own hydrate path.
+  Reagent exercises its own hydrate path.
 
   The probe ELEMENT is pre-rendered to matching SSR markup with React's own
   `react-dom/server/renderToString` (a test-only require — the same element

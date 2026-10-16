@@ -44,8 +44,7 @@
 #
 # # Set-shaped, not presence-shaped
 #
-# This mirrors preflight-reagent-slim-package.sh, and for the same reason:
-# an absence-only check passes on an EMPTY `<dependencies/>`,
+# An absence-only check passes on an EMPTY `<dependencies/>`,
 # which is precisely the pom the unrewritten deps.edn produces. Bind to
 # the expected membership, not to the absence of known-bad names.
 #
@@ -57,8 +56,8 @@
 # ships on ubuntu-latest. The pom is parsed with ElementTree rather than
 # grepped: this is the last gate before an irreversible publish, and a
 # text parser that mis-reads a reformatted pom would produce exactly the
-# false PASS this script exists to prevent. No .ps1 sibling (same
-# rationale as preflight-reagent-slim-package.sh).
+# false PASS this script exists to prevent. No .ps1 sibling: nothing runs
+# it off a Linux runner.
 #
 # # Usage
 #

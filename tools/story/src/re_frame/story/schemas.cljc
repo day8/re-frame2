@@ -313,11 +313,7 @@
   an AUTHORING vocabulary check; it says nothing about whether the host
   actually registered a renderer, and a variant naming a substrate no
   one registered degrades loudly at render time rather than silently
-  painting Reagent.
-
-  `:reagent-slim` is reserved for addition at reagent-slim GA / first
-  published artefact — the same trigger that gates Story's own UI-shell
-  migration (see spec/Principles.md §Reagent for the v1 UI shell)."
+  painting Reagent."
   [:set [:enum :reagent :uix :fresco]])
 
 (def PlatformSet

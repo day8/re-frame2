@@ -10,28 +10,19 @@
   record per owner that ever read it.
 
   `claim-render-owned-ref!` is `#?(:cljs ...)`-only and fires only under the
-  `:adapter/reactive-owner` hook the ratom family publishes, so both ratom
-  adapters run the same scenarios, with a `make-reaction` as the owning render.
+  `:adapter/reactive-owner` hook the ratom family publishes, so the Reagent
+  adapter runs the scenarios, with a `make-reaction` as the owning render.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent.ratom :as stock-ratom]
-            [reagent2.ratom :as slim-ratom]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (def ^:private configs
-  [{:label    "reagent-slim"
-    :adapter  rf.adapter.reagent-slim/adapter
-    :ratom    slim-ratom/atom
-    :reaction slim-ratom/make-reaction
-    :start!   slim-ratom/activate!
-    :flush!   slim-ratom/flush!
-    :release! slim-ratom/dispose!}
-   {:label    "reagent"
+  [{:label    "reagent"
     :adapter  rf.adapter.reagent/adapter
     :ratom    stock-ratom/atom
     :reaction stock-ratom/make-reaction
