@@ -208,7 +208,7 @@
         q1      {:resource :lafas/page :scope :rf.scope/global :params {:acct acct :page 1}}
         q2      (assoc-in q1 [:params :page] 2)
         state-q [:rf/resource q2]]
-    (reg! {:sensitive [[:params :acct] [:data :ssn]]})
+    (reg! {:sensitive [[:data :ssn]]})
     (rf/dispatch-sync [:rf.resource/ensure (assoc q1 :owner [:app :page])])
     (reply! {:ssn ssn-1 :page 1})
     (let [read!  (hold [state-q])
@@ -226,18 +226,18 @@
       (when rf.interop/debug-enabled?
         (let [tags (last-run-tags state-q window)
               prev (:rf.sub/prev-value tags)]
-          (is (= [false {:ssn redacted :page 1} {:acct redacted :page 1} false false]
+          (is (= [false {:ssn redacted :page 1} {:acct acct :page 1} false]
                  [(get-in tags [:rf.sub/value :previous?]) (select-keys (:previous-data prev) [:ssn :page])
                   (select-keys (get-in prev [:previous-key 2]) [:acct :page])
-                  (carries? acct (prev-values window)) (carries? ssn-1 (prev-values window))])
-              "once the new key loads, the prior previous-projection keeps its data and key claims, siblings riding"))))))
+                  (carries? ssn-1 (prev-values window))])
+              "once the new key loads, the prior previous-projection keeps its data claims, siblings riding; the carried key's params are a plain owner's and ride"))))))
 
 (deftest control-an-unchanged-resources-prior-previous-projection-stays-redacted
   (assert-prior-previous-projection-redacted nil))
 
 (deftest a-re-registered-resources-prior-previous-projection-keeps-its-declaration
   (testing "the carried previous key's entry is in the prior inputs, so its
-            `:resource/key` claims are recovered with the entry's data claims"
+            data claims are recovered"
     (assert-prior-previous-projection-redacted {})))
 
 ;; ===========================================================================

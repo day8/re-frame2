@@ -510,18 +510,16 @@
     :request-id    [:w 7]}})
 
 (defn- install-zix-observed-frame! []
-  ;; Declare the three payload SLOTS `:sensitive` at the ABSOLUTE runtime-db
-  ;; paths the resources registry lowers per-instance declarations to
-  ;; — data at `[…entries <key-id> :data]`, scope at
-  ;; `[…entries <key-id> :resource/key 0]`, params at `[… :resource/key 2]`.
-  ;; The on-box egress re-roots each slot to exactly these coordinates.
+  ;; Declare the data SLOT `:sensitive` at the ABSOLUTE runtime-db path the
+  ;; resources registry lowers per-instance declarations to,
+  ;; `[…entries <key-id> :data]`. The on-box egress re-roots the slot to
+  ;; exactly that coordinate. A resource's scope and params are its identity,
+  ;; never a declared slot, so the local operator sees them.
   (rf/make-frame {:id zix-observed-frame})
   (rf.frame/swap-runtime-db! zix-observed-frame
     (fn [rt]
       (rf.elision/apply-classification-effects rt
-        {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]
-                     [:rf.runtime/resources :entries zix-key-id :resource/key 0]
-                     [:rf.runtime/resources :entries zix-key-id :resource/key 2]]}))))
+        {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]]}))))
 
 (defn- zix-instance-row []
   (let [data (:instances @(rf/subscribe [:rf.xray/resources-tab-data]))]
@@ -545,10 +543,12 @@
       (is (= zix-observed-frame @(rf/subscribe [:rf.xray/observed-frame]))
           "sanity: Xray is observing the classified frame")
       (let [row (zix-instance-row)]
-        (testing "each :sensitive payload slot renders [redacted], never the raw token"
-          (doseq [slot [:data :scope :params]]
-            (is (= "[redacted]" (:preview (get row slot)))
-                (str slot " redacts to [redacted] on the on-box render path"))))))))
+        (testing "the :sensitive data slot renders [redacted], never the raw token"
+          (is (= "[redacted]" (:preview (:data row)))))
+        (testing "the scope and params are identity, shown to the local operator"
+          (doseq [slot [:scope :params]]
+            (is (str/includes? (str (:preview (get row slot))) zix-secret)
+                (str slot " renders raw on the on-box render path"))))))))
 
 ;; ---- (4c) PRIVACY: the work-ledger row redacts a :sensitive? resource ----
 ;;

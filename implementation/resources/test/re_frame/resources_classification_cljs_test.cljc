@@ -5,7 +5,8 @@
   fine-grained surface is the projection-relative `:sensitive` / `:large`
   declarations, lowered per instance into the per-frame elision registry; the
   schema props validate only. The SSR egress reads that registry, unioned with
-  anything the frame itself classifies."
+  anything the frame itself classifies. A resource's params and scope are its
+  identity, so `reg-resource` refuses a declaration rooted at either."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -15,6 +16,7 @@
    [re-frame.frame :as rf.frame]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
+   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
@@ -75,8 +77,8 @@
 
 (defn- ssr-projected-key
   "The key the SSR projection PRODUCED for the single entry in `runtime-db`, read
-  from `projection-metadata` because an entry re-keyed by its own params
-  declaration is withheld from the wire."
+  from `projection-metadata` because a re-keyed entry is withheld from the
+  wire."
   [frame-id runtime-db]
   (let [lowered (lower-into-frame! frame-id runtime-db)]
     (rf/with-frame frame-id
@@ -116,6 +118,38 @@
            :sensitive     {:data [:ssn]}}   ;; a MAP, not a vector-of-paths
           (fn [_ _] {:request {:method :get :url "/x"}})))
       "a non-vector :sensitive axis is rejected at reg-resource"))
+
+(defn- registration-ex [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Throwable :cljs :default) e e)))
+
+(deftest reg-resource-rejects-a-params-or-scope-rooted-declaration
+  ;; params and scope are a resource's identity, not a classified slot, so the
+  ;; refusal names the coarse claim that does the job
+  (doseq [[axis path] [[:sensitive [:params :account-id]]
+                       [:large     [:params :blob]]
+                       [:sensitive [:scope :tenant-id]]
+                       [:large     [:scope]]]]
+    (let [id (keyword "rf.test" (str "identity-decl-" (name axis) "-" (name (first path))))
+          ex (registration-ex
+               #(rf/reg-resource id
+                                 {:scope         :rf.scope/global
+                                  :params-schema [:map [:account-id :string]]
+                                  axis           [[:data :ok] path]}
+                                 (fn [_ _] {:request {:method :get :url "/x"}})))]
+      (is (= [:rf.error/resource-bad-spec axis path true]
+             [(:rf.error/id (ex-data ex)) (:axis (ex-data ex)) (:path (ex-data ex))
+              (str/includes? (str (ex-message ex)) ":sensitive?")])
+          (str axis " " path " is refused, pointing at :sensitive?"))
+      (is (nil? (rf.resources.registry/resource-meta id)) "refused before storage")))
+  (testing "CONTROL — a :data-rooted declaration and a mutation's :params-rooted one still register"
+    (reg! :rf.test/data-decl {:sensitive [[:data :ssn]] :large [[:data :blob]]})
+    (rf/reg-mutation :rf.test/password-write
+      {:params-schema [:map [:password :string]]
+       :sensitive     [[:params :password] [:scope :tenant]]}
+      (fn [_ _] {:request {:method :post :url "/pw"}}))
+    (is (some? (rf.resources.registry/resource-meta :rf.test/data-decl)))
+    (is (some? (rf.resources.mutation-registry/mutation-meta :rf.test/password-write)))))
 
 ;; ===========================================================================
 ;; SSR projection end-to-end, registry-driven
@@ -157,26 +191,22 @@
                [(contains? (:blob projected) :rf.size/large-elided) (:name projected)
                 (str/includes? (pr-str projected) big)]))))))
 
-(deftest ssr-serialize-entry-redacts-owner-params-declaration-slot-in-key
-  ;; the params surface is co-equal with the data surface (Spec 016 clause 4)
-  (reg! :report/by-account {:sensitive [[:params :account-id]]
-                            :params-schema [:map [:account-id :string] [:slug :string]]})
+(deftest ssr-plain-owner-key-rides-the-hydration-wire-raw
+  ;; hydration ships to the principal's own browser, so a plain owner's scope
+  ;; and params ride its wire key verbatim and its row rides, addressable by
+  ;; the key the live client derives
+  (reg! :report/by-account {:params-schema [:map [:account-id :string] [:slug :string]]})
   (rf/make-frame {:id :rcfg/owner-params})
-  (let [k   (rf.resources.state/scoped-resource-key :rf.scope/global :report/by-account
-                                                    {:account-id "acct-secret-42" :slug "q3"})
-        rdb (runtime-db-with {k (entry {:resource-id :report/by-account :data {:total 99}})})
-        wk  (ssr-projected-key :rcfg/owner-params rdb)]
-    (is (= [:report/by-account {:account-id rf.privacy/redacted-sentinel :slug "q3"} false]
-           [(nth wk 1) (select-keys (nth wk 2) [:account-id :slug]) (str/includes? (pr-str wk) "acct-secret-42")])
-        "the owner-declared :account-id is redacted in the projected key; the sibling rides verbatim")
-    ;; redacting a params slot re-keys the entry, and the live client derives
-    ;; the RAW key, so the row would be unaddressable and is withheld; the
-    ;; end-to-end contract is `resources_ssr_projected_key_refetch_cljs_test`
-    (is (empty? (get-in (rf/with-frame :rcfg/owner-params
-                          (rf.resources.ssr/project-resources-runtime-db
-                            (lower-into-frame! :rcfg/owner-params rdb)))
-                        [rf.resources.state/resources-key :entries]))
-        "a re-keyed entry does not ride at all")))
+  (let [k   (rf.resources.state/scoped-resource-key [:rf.scope/session {:user-id "u-42"}]
+                                                    :report/by-account
+                                                    {:account-id "acct-42" :slug "q3"})
+        rdb (runtime-db-with {k (entry {:resource-id :report/by-account :data {:total 99}})})]
+    (is (= k (ssr-projected-key :rcfg/owner-params rdb)))
+    (is (= [(rf.resources.state/key-id k)]
+           (keys (get-in (rf/with-frame :rcfg/owner-params
+                           (rf.resources.ssr/project-resources-runtime-db
+                             (lower-into-frame! :rcfg/owner-params rdb)))
+                         [rf.resources.state/resources-key :entries]))))))
 
 ;; An infinite feed's :data is the page vector; the index-free lowered decl
 ;; `[… :data :field]` matches the indexed runtime path on every page.

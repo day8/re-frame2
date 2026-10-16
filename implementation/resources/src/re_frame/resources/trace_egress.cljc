@@ -45,8 +45,9 @@
   browser / MCP off-box egress matters most). This projector therefore lives in
   its own small production-reachable ns, mirroring where
   `project-scope-resolved-egress` lives (`scope_registry`, production-reachable),
-  and reuses the SAME owner classification + key projection the SSR / durable /
-  tooling-view paths use — never a tooling-private elider.
+  and reuses the SAME owner classification (`whole-entry-disposition`) and
+  token minting (`redact-value`) the SSR / durable / tooling-view paths use —
+  never a tooling-private elider.
 
   ## FAIL-CLOSED posture (Spec 015 §10)
 
@@ -55,7 +56,7 @@
   `re-frame.resources.classification/whole-entry-disposition` of a nil spec is
   `:serialize` (a no-coarse-claim ALGEBRA read), but a TRACE row whose owner we
   cannot read is not provably safe, so this projector REDACTS an
-  unregistered-owner key (and stamps `:sensitive? true`). The unregistered arm
+  unregistered-owner key's params (and stamps `:sensitive? true`). The unregistered arm
   fails closed independently of any frame. Structural attribution survives every
   case: the resource-id (position 1 of the projected key) and recognized
   structural scalar tags ride verbatim, so a tool can still attribute the row.
@@ -72,6 +73,25 @@
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour).
 
+  ## Scope and params: two rules, two owners
+
+  A scoped key `[scope resource-id params]` carries two kinds of identity, and
+  they are projected by different authorities.
+
+  The SCOPE is the framework's: every non-global scope tokenises content-free
+  on every carrier and for every owner (`project-scope`, the standing scope
+  rule), with no owner lookup. A resolved tenant / user / impersonation marker
+  is exactly what an off-box observer must not learn, and the carriers of one
+  scope — the free `:scope` tag, the scope inside `:resource/key`,
+  `:matched`, `:identities`, `:affected-keys`, `:previous-key`, and a reply's
+  `:correlation` — then agree by construction. The rule is not an owner claim,
+  so applying it never stamps a row `:sensitive?`.
+
+  The PARAMS are the owner's: they ride verbatim unless the owner makes the
+  coarse whole-entry `:sensitive?` / `:large?` claim, which tokenises them
+  (content-free for sensitive, a canonical digest for large). An app keeps its
+  params clean — pass identifiers, not secrets — or claims the read.
+
   ## The family's keys also ride FOREIGN rows
 
   Everything above is routed by the epoch tool-pair on the row's OPERATION
@@ -87,14 +107,10 @@
   of one scope agree the way the two carriers of one key do; the `:value` +
   `:params` a READ COMPLETION CONTINUATION reply
   carries beside its `:resource/key`, tokenized through that key's OWNER exactly
-  as the load-more cursor is through its row's; that same
-  reply's owner-DECLARED projection-relative slots, which the coarse owner read
-  is blind to, substituted through the same `redact-continuation-reply` the
-  mutation reply uses at its source; and that SAME
-  declaration's copy inside the scoped KEY beside it — the family's universal
-  carrier — substituted by `redact-key-declarations`, so a `:params` / `:scope`
-  declaration reaches every carrier of the value it names rather than only the
-  ones somebody has looked at."
+  as the load-more cursor is through its row's; and that same
+  reply's owner-DECLARED projection-relative data slots, which the coarse owner
+  read is blind to, substituted through the same `redact-continuation-reply`
+  the mutation reply uses at its source."
   (:require [re-frame.classification :as rf.classification]
             [re-frame.frame :as rf.frame]
             [re-frame.path :as rf.path]
@@ -128,191 +144,91 @@
                                               {:index-free? true})
          slot)))
 
-(def ^:private key-component-slot
-  "The slot each scoped-key component's declarations are rooted at."
-  {0 :scope 2 :params})
+(defn project-scope
+  "The framework's STANDING SCOPE RULE: a resolved `scope` projected for OFF-BOX
+  egress — trace, tool, MCP and observability. Every non-global scope becomes
+  the content-free sensitive token `rf.resources.ssr/redact-value` mints, for
+  every owner and on every carrier, with no owner lookup:
 
-(defn- key-slot-declarations
-  "Split a resource `spec`'s scoped-KEY projection-relative declarations into
-  the two components of `[scope resource-id params]`, each path re-rooted at
-  the component it names. Returns
+    - `:rf.scope/global` rides verbatim;
+    - a `[tier {identity}]` tuple keeps its TIER keyword (a tool still shows
+      \"session scope\") and its identity map tokenizes;
+    - any other non-global scope — a map, a string, any scalar or other EDN
+      scope validation admits — tokenizes whole.
 
-    {0 {:sensitive [paths] :large [paths]}    ; the SCOPE component
-     2 {:sensitive [paths] :large [paths]}}   ; the PARAMS component
+  The scope is identity rather than payload, and the one an off-box observer
+  must not learn: a tenant, a user, an impersonation marker. No owner speaks
+  for it, so no owner can declassify it, and because every carrier of a scope
+  takes this one rule, the free `:scope` tag and the scope inside each scoped
+  key on the same row agree by construction.
 
-  keyed by the component's INDEX in the key vector, with a component that
-  neither axis names dropped — so `nil` means the spec declares nothing the KEY
-  carries and the key must ride VERBATIM.
-
-  Built from the already-public `rf.resources.classification/spec-declaration-marks`, whose
-  `:params` bucket IS the scoped-key bucket: a `:params`-rooted declaration
-  arrives with its head stripped and names the params component, a
-  `:scope`-rooted one arrives WITH its `[:scope …]` head and names the scope
-  component. That is the same reading
-  `rf.resources.classification/instance-declaration-paths` lowers into the per-frame elision
-  registry (`[… :resource/key 2 …]` for params, `[… :resource/key 0 …]` for
-  scope), which is what makes this agree with the durable side by construction
-  rather than by coincidence. Pure / value-independent."
-  [spec]
-  (let [declaration-marks (:params (rf.resources.classification/spec-declaration-marks spec))
-        paths-by-component
-        (fn [classification-axis]
-          (reduce (fn [component-paths declaration-path]
-                    (let [normalized-path (vec declaration-path)]
-                      (if (= :scope (first normalized-path))
-                        (update component-paths 0 conj (subvec normalized-path 1))
-                        (update component-paths 2 conj normalized-path))))
-                  {0 [] 2 []}
-                  (keys (get declaration-marks classification-axis))))
-        sensitive-paths   (paths-by-component :sensitive)
-        large-paths       (paths-by-component :large)]
-    (not-empty
-      (into {}
-            (keep (fn [component-index]
-                    (when (or (seq (get sensitive-paths component-index))
-                              (seq (get large-paths component-index)))
-                      [component-index
-                       {:sensitive (get sensitive-paths component-index)
-                        :large     (get large-paths component-index)}])))
-            [0 2]))))
-
-(defn redact-key-declarations
-  "The SCOPED-KEY analogue of `redact-reply-declarations` below —
-  the owner's per-slot `:params` / `:scope` projection-relative declarations,
-  substituted inside the key `[scope resource-id params]` at the trace / tool
-  egress boundary. Takes the key ALREADY projected by
-  `rf.resources.ssr/disposition+project-key`, that call's `disposition`, and the owner
-  `spec` it resolved; returns the key.
-
-  ## Why the coarse projection is not the whole answer
-
-  `rf.resources.ssr/project-scoped-key` projects the key by the COARSE
-  `whole-entry-disposition` — the owner's root `:sensitive?` / `:large?` prop.
-  A spec that declares `{:sensitive [[:params :account-id]]}` and no coarse prop
-  classifies `:serialize`, so that read says nothing, and on it alone the
-  declared params would ride VERBATIM inside `:resource/key` on every family row,
-  inside every scoped-keys vector slot, inside every `[:rf.work/resource <key>
-  <gen>]` work-id, and inside every fx carrier the key reaches — while the SAME
-  bytes in the durable entry redact, because `reconcile-registry` lowers the
-  declaration to `[… :resource/key 2 …]` and the SSR wire key walks it
-  (`rf.resources.classification/project-entry-params`). One value, two carriers, one rule
-  applied — the two-carrier shape the sibling `redact-reply-declarations`
-  closes for the reply's copy of those same params, one slot over
-  on the same carrier.
-
-  ## Why HERE and not in `rf.resources.ssr/project-scoped-key`
-
-  `project-scoped-key`'s `:serialize` deferral is DELIBERATE:
-  the SSR durable path has a REGISTRY-driven counterpart with the entry's
-  `key-id` and the live frame, so it walks the params component through
-  `project-egress` seeded at the lowered registry offset. The trace / tool
-  boundary has neither, so it derives the same declaration from the SPEC — the
-  frameless derivation the family already uses beside this fn for the reply
-  (`rf.resources.classification/redact-continuation-reply` over `carrier-decl-paths`). The
-  two answers are byte-identical by construction, because both re-root the same
-  `spec-declaration-marks` bucket onto the same two key components and both walk
-  INDEX-FREE. SSR is not a caller that never asked for this — it is not a caller
-  of this at all.
-
-  ## Grain: DECLARATION-conditional, and `:serialize`-only
-
-  A `:redact` / `:omit` key has already had its WHOLE scope + params replaced by
-  classification-chosen tokens, which SUBSUMES the per-slot surface, so this
-  fires only under `:serialize`. Within `:serialize` it fires on the paths the
-  owner DECLARED and on nothing else: a spec declaring nothing the key carries
-  rides the key back IDENTICAL (`key-slot-declarations` returns nil), which is
-  what preserves the CEDN-1 byte identity a cache-key round-trip depends on —
-  the walker RECONSTRUCTS collections, so an unnecessary walk would collapse a
-  list-valued param to a vector. Under a declaration that walk DOES
-  happen and that collapse IS accepted — the SSR durable path accepts
-  exactly it under the same declaration-existence gate
-  (`registry-classifies-under?`), so this shares an accepted cost rather than
-  adding one.
-
-  IDEMPOTENT: re-projecting substitutes the same sentinel at the same path. A
-  non-`:serialize` disposition, a nil spec (the unregistered owner the caller
-  has already failed closed on), or a non-3-vector rides UNCHANGED. Pure /
-  value-independent."
-  [scoped-key disposition spec]
-  (if-not (and (= :serialize disposition)
-               (some? spec)
-               (vector? scoped-key)
-               (= 3 (count scoped-key)))
-    scoped-key
-    (if-let [declarations (key-slot-declarations spec)]
-      (reduce-kv (fn [projected-key component-index {:keys [sensitive large]}]
-                   (update projected-key component-index
-                           #(redact-anchored (key-component-slot component-index) % sensitive large)))
-                 scoped-key
-                 declarations)
-      scoped-key)))
-
-(defn- coarse-key-projection
-  "The COARSE arm of a trace-row scoped-key projection — the whole of
-  `project-trace-scoped-key` EXCEPT the owner's per-slot declarations. Takes a
-  `scoped-key` already known to be a 3-vector; returns
-  `[projected-key coarse-redacts? disposition spec]`.
-
-  `coarse-redacts?` answers ONE question and it is not the row's stamp: does
-  this owner's WHOLE-ENTRY claim cover its whole payload? True for a
-  `:sensitive?` / `:large?` root prop, for an UNREGISTERED owner (the
-  trace-egress fail-closed default — tooling / SSR egress treat an unregistered
-  owner as `:serialize`, the algebra read, but a TRACE row whose owner we cannot
-  read is not provably safe), and for an ALREADY-PROJECTED key (both components
-  opaque tokens — the coarse arm fired upstream; idempotent, never re-hashed).
-
-  It is a SEPARATE reading from the row's `:sensitive?` stamp, for this
-  reason. `row-owner-redacts?` gates the whole-slot tokenization of the free
-  load-more cursor and of a read reply's `:value` / `:params` — payload the
-  owner made no per-slot claim about — so it must ask the COARSE question. The
-  row STAMP asks the different question \"did anything on this row redact\", and
-  a per-slot declaration substituting inside the key answers yes to that while
-  answering no to this. Borrowing one flag for both would make a
-  declaration-only owner's whole reply body tokenize, destroying the undeclared
-  siblings the per-slot grain exists to keep readable."
-  [scoped-key frame-id]
+  Applying the rule is not an owner's claim, so it never stamps a row
+  `:sensitive?`. IDEMPOTENT: a token, a tuple whose identity is already a
+  token, and the `:rf/redacted` sentinel the `:rf.resource/scope-resolved`
+  projector substitutes all ride as they are; nil (a row with no scope) rides.
+  Pure."
+  [scope]
   (cond
-    (and (redacted-token? (nth scoped-key 0)) (redacted-token? (nth scoped-key 2)))
-    [scoped-key true nil nil]
+    (or (nil? scope)
+        (contains? rf.resources.state/reserved-concrete-scopes scope)
+        (= rf.privacy/redacted-sentinel scope)
+        (redacted-token? scope))
+    scope
 
-    (nil? (rf.resources.registry/resource-meta (second scoped-key)))
-    [(rf.resources.ssr/project-scoped-key scoped-key :redact nil) true :redact nil]
+    (and (vector? scope) (= 2 (count scope)) (keyword? (nth scope 0)) (map? (nth scope 1)))
+    (if (redacted-token? (nth scope 1))
+      scope
+      [(nth scope 0) (rf.resources.ssr/redact-value (nth scope 1))])
 
     :else
-    (let [[projected-key disposition spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
-      [projected-key (not= :serialize disposition) disposition spec])))
+    (rf.resources.ssr/redact-value scope)))
+
+(defn- key-params-disposition
+  "How the PARAMS of a trace-row scoped key project off-box. Params are the
+  OWNER'S business, read through its coarse whole-entry claim:
+
+    - `:redact` / `:omit` for a `:sensitive?` / `:large?` owner
+      (`whole-entry-disposition`), tokenizing the params through
+      `rf.resources.ssr/redact-value` — content-free for sensitive, a canonical
+      digest for large, exactly as the SSR wire key does;
+    - `:redact` for an UNREGISTERED owner — the trace-egress fail-closed
+      default: a trace row whose owner we cannot read is not provably safe;
+    - `::projected` for params that are ALREADY a token — the coarse arm fired
+      upstream, so they ride as-is (never re-digested) and still count as an
+      owner redaction;
+    - `:serialize` otherwise: a plain owner's params ride byte-identical.
+
+  Takes a `scoped-key` already known to be a 3-vector. Pure."
+  [scoped-key]
+  (if (redacted-token? (nth scoped-key 2))
+    ::projected
+    (if-let [spec (rf.resources.registry/resource-meta (nth scoped-key 1))]
+      (rf.resources.classification/whole-entry-disposition spec)
+      :redact)))
 
 (defn- project-trace-scoped-key
-  "Fail-closed projection of one trace-row `scoped-key`
-  `[scope resource-id params]` for OFF-BOX trace egress. Returns
-  `[projected-key sensitive?]`. For a REGISTERED owner the scope + params
-  tokenize per the owner's `whole-entry-disposition` classification (a
-  `:sensitive?` / `:large?` key redacts to classification-chosen
-  `{:rf/redacted …}` tokens; a plain key rides verbatim) and, when that
-  COARSE read says nothing, the owner's per-slot `:params` / `:scope`
-  DECLARATIONS substitute in place (`redact-key-declarations`) — the
-  two arms composing by grain exactly as the reply's do: coarse claim ⇒ the
-  whole scope + params tokenize; declaration only ⇒ the declared slots
-  substitute and their undeclared siblings ride; neither ⇒ the key is
-  byte-identical. A key whose
-  resource-id is UNREGISTERED (nil owner spec — the
-  trace names an owner we cannot read) is REDACTED rather than serialized raw
-  (the trace-egress fail-closed default). An already-projected key (both scope
-  and params are opaque tokens) rides as-is + stays marked sensitive
-  (idempotent — never re-hashed). A non-scoped-key value rides unchanged +
-  non-sensitive. Pure.
+  "Project one trace-row `scoped-key` `[scope resource-id params]` for OFF-BOX
+  egress. Returns `[projected-key owner-redacted?]`.
 
-  STAMP-PRECISE: a declaration that matched nothing in
-  THIS key leaves the row unstamped, so `sensitive?` keeps meaning \"something
-  on this row redacted\". `not=` is the right comparison and not `identical?` —
-  the walk reconstructs collections, and a bare `(1 2 3)` → `[1 2 3]` kind
-  collapse is not a redaction and must not stamp."
-  [scoped-key frame-id]
+  The SCOPE takes the standing scope rule (`project-scope`) whoever the owner
+  is; the PARAMS take the owner's coarse claim (`key-params-disposition`); the
+  resource-id always rides, so a tool can still attribute the key.
+  `owner-redacted?` answers \"did the OWNER's claim (or the unregistered
+  fail-closed default) redact this key?\" — the row's `:sensitive?` stamp — and
+  is false for a plain owner's key even when its scope tokenized, because the
+  scope rule is the framework's, not a claim. A non-scoped-key value rides
+  unchanged + non-sensitive. Idempotent. Pure."
+  [scoped-key _frame-id]
   (if-not (and (vector? scoped-key) (= 3 (count scoped-key)))
     [scoped-key false]
-    (let [[projected-key coarse? disposition spec] (coarse-key-projection scoped-key frame-id)
-          declared-key (redact-key-declarations projected-key disposition spec)]
-      [declared-key (or coarse? (not= declared-key projected-key))])))
+    (let [[scope resource-id params] scoped-key
+          disposition (key-params-disposition scoped-key)]
+      [[(project-scope scope)
+        resource-id
+        (if (contains? #{:serialize ::projected} disposition)
+          params
+          (rf.resources.ssr/redact-value params disposition))]
+       (not= :serialize disposition)])))
 
 (def ^:private scoped-key-slot
   "Tag slots on a resource / mutation trace row that carry a SINGLE scoped-key
@@ -383,34 +299,26 @@
   therefore PASS THROUGH this projector unchanged — it is already classified
   upstream.
 
-  `:scope` IS DELIBERATELY NOT IN THIS SET. The upstream premise
-  holds on exactly ONE row: the epoch tool-pair applies the sibling under
-  `(= :rf.resource/scope-resolved (:operation ev))`, while THIS projector runs on
-  every `:rf.resource/*` / `:rf.mutation/*` / `:rf.warning/resource-*` row
-  (`resource-family-op?` is operation-agnostic). This docstring is the ROSTER of
-  the other row types that stamp a resolved CONCRETE scope under a free `:scope`
-  tag — `:rf.resource/invalidated`, `:rf.resource/refetch-decision`,
+  `:scope` IS NOT IN THIS SET. The sibling runs on that ONE operation, while
+  this projector runs on every `:rf.resource/*` / `:rf.mutation/*` /
+  `:rf.warning/resource-*` row (`resource-family-op?` is operation-agnostic),
+  and the other row types stamp a resolved CONCRETE scope under a free
+  `:scope` tag too — `:rf.resource/invalidated`, `:rf.resource/refetch-decision`,
   `:rf.resource/removed`, `:rf.mutation/started` and
-  `:rf.mutation/optimistic-applied`. The sibling never
-  runs on any of them, so a pass-through here would mean `:scope` is classified
-  by NOBODY and the resolver's IDENTITY MAP (`[:rf.scope/session {:username …}]`)
-  egresses off-box raw — and `:rf.resource/refetch-decision`, which carries the
-  same scope TWICE, would redact it inside `:resource/key` and ship it raw under
-  `:scope`.
-
-  `:scope` falls to the SHAPE-driven default below, which is right per shape
-  without a row predicate: `:rf.scope/global` is a scalar and rides verbatim (no
-  over-redaction); a `[tier {identity}]` 2-vector is not scoped-key-shaped, so
-  the walk descends — the TIER KEYWORD rides verbatim (a tool still shows
-  \"session scope\") and the identity MAP tokenizes to a content-FREE token (a
-  free scope tag has no owner claim to permit a digest); and on `:rf.resource/scope-resolved`
-  itself the sibling has already substituted its `:rf/redacted` SENTINEL — a bare
-  keyword, hence a scalar — which the default rides verbatim, leaving that row
-  byte-identical (the sibling stamps `:sensitive?` on the row itself, so the
-  stamp is not carried by the slot). Do NOT add `:scope` here, and do NOT add
-  a row predicate to keep the two projectors in step: a maintained roster of rows
-  is exactly what rots."
+  `:rf.mutation/optimistic-applied`. A pass-through here would leave the
+  resolver's identity classified by nobody on all of them. The free `:scope`
+  takes the standing scope rule instead (`scope-slot`), on every row; on
+  `:rf.resource/scope-resolved` itself the sibling has already substituted its
+  `:rf/redacted` sentinel, which the rule rides as it is, leaving that row
+  byte-identical (the sibling stamps the row itself)."
   #{:input-values})
+
+(def ^:private scope-slot
+  "The FREE resolved-scope tag a family row stamps beside its keys. It takes the
+  standing scope rule (`project-scope`) — the rule the scope inside every
+  scoped key on the row takes — so the row's carriers of one scope agree, and
+  it stamps nothing."
+  :scope)
 
 (def ^:private cursor-slot
   "Tag slots that carry the load-more PAGINATION CURSOR as a FREE scalar tag
@@ -516,13 +424,13 @@
   ## Grain: MARKER-GATED, the FAMILY rule inside the marker
 
   Read under `family-reply?` — both work kinds — and never under an owner read.
-  The only entry it treats specially is `:scope`, which takes the same
-  `project-unknown-slot-value` the free `:scope` beside it takes, so the
+  The only entry it treats specially is `:scope`, which takes the standing
+  scope rule (`project-scope`) the free `:scope` beside it takes, so the
   reply's THREE copies of one resolved identity (top-level `:scope`, this one,
   and the scope embedded in `:rf.reply/work-id`) project under one rule. Two
-  principles meet here: the carriers of one scope must agree, and a free
-  `:scope` belongs to no owner whose declaration could exempt it, so no owner
-  read can speak for it.
+  principles meet here: the carriers of one scope must agree, and a scope
+  belongs to no owner whose claim could exempt it, so no owner read can speak
+  for it.
 
   ## Why the payload proof cannot reach it
 
@@ -556,29 +464,18 @@
 
 (defn- row-owner-redacts?
   "Whether the resource OWNER named by this trace row's `:resource/key`
-  classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
-  fail-closed) — i.e. whether the row's
-  owner-local identity-bearing FREE tags (the load-more cursor; and, inside an
-  fx carrier, a read continuation reply's `reply-payload-slot` entries) must
-  tokenize.
-  Reuses the SAME owner classification the scoped-key projection uses
-  (`coarse-key-projection` — `disposition+project-key` plus the trace-egress
-  fail-closed default for an unregistered / unreadable owner).
-  Returns false when the row carries no usable `:resource/key` (no owner to read
-  — the cursor then rides verbatim; structural attribution is unaffected).
-  Pure.
-
-  Reads the COARSE arm DIRECTLY, not `project-trace-scoped-key`'s `sensitive?`.
-  The two differ because a `:serialize` key honours
-  the owner's per-slot declarations: that substitution makes the KEY redact —
-  which the row stamp must report — while saying nothing about the free cursor
-  or the reply body, which no declaration names. Reading the stamp here would make a
-  declaration-only owner's whole `:value` / `:params` tokenize, which is exactly
-  the over-redaction the reply arm's grain argument forbids."
-  [tags frame-id]
+  claims the whole entry — classifies non-`:serialize` (sensitive / large, or
+  UNREGISTERED → fail-closed) — i.e. whether the row's owner-local
+  identity-bearing FREE tags (the load-more cursor; and, inside an fx carrier,
+  a read continuation reply's `reply-payload-slot` entries) must tokenize.
+  Reads the SAME `key-params-disposition` the key's params take, so the cursor
+  and the reply body tokenize exactly when the key's params do. Returns false
+  when the row carries no usable `:resource/key` (no owner to read — the cursor
+  then rides verbatim; structural attribution is unaffected). Pure."
+  [tags _frame-id]
   (let [sk (:resource/key tags)]
     (when (and (vector? sk) (= 3 (count sk)))
-      (second (coarse-key-projection sk frame-id)))))
+      (not= :serialize (key-params-disposition sk)))))
 
 (def ^:private disposition-rows-slot
   "Tag slots that carry a VECTOR of per-key DISPOSITION maps (each embedding a
@@ -680,8 +577,8 @@
     - a SCOPED-KEY-SHAPED vector projects through `project-trace-scoped-key` —
       the SAME owner classification the NAMED slots use, so an unnamed slot's
       keys and a named slot's keys cannot drift, per-key distinctness (and
-      therefore a tool's per-key joins) survives, and a PLAIN owner's key still
-      rides verbatim (no over-redaction);
+      therefore a tool's per-key joins) survives, and a PLAIN owner's params
+      still ride verbatim (no over-redaction);
     - a MAP is tokenized — the unambiguous app-payload shape;
     - any OTHER collection is walked MEMBER-WISE by this same rule, preserving
       the collection's KIND. Depth is what reaches a work-id's embedded key and
@@ -905,9 +802,9 @@
   own projection-relative declaration. The READ reply's carrier
   shape IS the mutation reply's carrier shape — `:value` beside `:params`
   beside `:scope` — so the counterpart is that same function over the read
-  owner's spec: a `:data`-rooted / bare decl redacts the reply's `:value`, a
-  `:params`-rooted decl its `:params`, a `:scope`-rooted decl its `:scope`.
-  Never a second classification language, and nothing new to keep in step.
+  owner's spec, whose `:data`-rooted / bare decls redact the reply's `:value`
+  (a resource declares no params or scope path). Never a second
+  classification language, and nothing new to keep in step.
 
   ## Grain: DECLARATION-conditional
 
@@ -944,17 +841,6 @@
   mode, which is the reading a projection-relative declaration has on the
   durable side. Opt-IN, so the walker's other callers — which declare concrete
   paths — keep the exact match.
-
-  ## The sibling copy
-
-  A `:params`-rooted declaration also names bytes that ride the SIBLING
-  `:resource/key`, one slot over on the same carrier, where a `:serialize`
-  owner's key would otherwise ride verbatim. That copy is closed by
-  `redact-key-declarations` above, which is this fn's shape re-rooted onto the
-  key's two components instead of the reply's sibling slots —
-  `rf.resources.ssr/project-scoped-key`'s documented `:serialize` deferral kept,
-  because the per-slot arm belongs at the boundary that has no registry to read
-  rather than inside the projection the SSR durable path shares.
 
   ## A feed's `:value` is not the page it declares against
 
@@ -1096,16 +982,15 @@
   shape again, inside a single map.
 
   A `:scope` entry OF A RUNTIME CONTINUATION PAYLOAD (`carrier-family-payload?`)
-  is therefore projected by the FAMILY rule (`project-unknown-slot-value`)
-  rather than by the carrier walk, which is what makes the two carriers of one
-  scope agree by construction: `:rf.scope/global` is a SCALAR and rides
-  verbatim, a `[tier {identity}]` tuple keeps its TIER keyword (a tool still
-  reads \"session scope\") while the identity map tokenizes to
-  a content-FREE `{:rf/redacted <shape>}` — a free scope tag carries no
-  owner claim that could permit a digest — and an unresolved `{:from-db …}`
-  reference tokenizes whole. Exactly the rule the same slot takes on the
-  family's OWN rows (`sibling-owned-slot`), reaching the carrier the family
-  projector never runs on.
+  is therefore projected by the standing scope rule (`project-scope`) rather
+  than by the carrier walk, which is what makes the two carriers of one scope
+  agree by construction: `:rf.scope/global` rides verbatim, a
+  `[tier {identity}]` tuple keeps its TIER keyword (a tool still reads
+  \"session scope\") while the identity map tokenizes to a content-FREE
+  `{:rf/redacted <shape>}`, and any other scope tokenizes whole. Exactly the
+  rule the same slot takes on the family's OWN rows (`scope-slot`), reaching
+  the carrier the family projector never runs on — and, like every
+  application of that rule, it stamps nothing.
 
   The PAYLOAD gate is load-bearing. A resolved
   scope is arbitrary EDN, so there is no shape to read and the arm has to key on
@@ -1304,9 +1189,7 @@
           (fn [map-key map-value]
                      (cond
                        (and runtime-payload? (= :scope map-key))
-                       (let [[projected-value sensitive?]
-                             (project-unknown-slot-value map-value frame-id)]
-                         (record-sensitive-projection! sensitive? projected-value))
+                       (project-scope map-value)
 
                        ;; That same resolved scope's SECOND
                        ;; spelling, inside the reply's `:correlation` facts.
@@ -1334,10 +1217,7 @@
                           (fn [projected-correlation correlation-key correlation-value]
                             (assoc projected-correlation correlation-key
                                    (if (= :scope correlation-key)
-                                     (let [[projected-value sensitive?]
-                                           (project-unknown-slot-value correlation-value frame-id)]
-                                       (record-sensitive-projection!
-                                         sensitive? projected-value))
+                                     (project-scope correlation-value)
                                      (project-value correlation-value
                                                     (family-named-key? correlation-key)))))
                           {}
@@ -1465,6 +1345,11 @@
                   (record-sensitive! sensitive?)
                   (assoc projected-tags tag-name projected-key))
 
+                ;; the free resolved scope: the standing scope rule, the one
+                ;; the scope inside every key on this row takes. Stamps nothing.
+                (= scope-slot tag-name)
+                (assoc projected-tags tag-name (project-scope tag-value))
+
                 (and (scoped-keys-slot tag-name) (sequential? tag-value))
                 (assoc projected-tags tag-name
                        (mapv (fn [scoped-key]
@@ -1529,12 +1414,8 @@
                 ;; projector already classified `:input-values` upstream on the
                 ;; row it owns (resolved-scope egress is unconditionally
                 ;; fail-closed, EP-0025), so re-tokenizing here is a no-op
-                ;; at best and double-work at worst. `:scope` is deliberately NOT
-                ;; here — the sibling runs on ONE operation and this
-                ;; projector runs on the whole family, so a pass-through would
-                ;; leave the resolved scope classified by nobody on every OTHER
-                ;; row type that stamps one. The `sibling-owned-slot` docstring rosters
-                ;; them.
+                ;; at best and double-work at worst. `:scope` is not here: it
+                ;; takes `scope-slot`'s arm above on every row.
                 (sibling-owned-slot tag-name)
                 (assoc projected-tags tag-name tag-value)
 
@@ -1584,15 +1465,13 @@
   resource OWNER classification (`whole-entry-disposition` +
   `rf.resources.ssr/project-scoped-key`).
 
-  A `:sensitive?` / `:large?` owner's scope + params
+  Every key's non-global scope tokenizes content-free by the standing scope
+  rule (`project-scope`). A `:sensitive?` / `:large?` owner's params
   tokenize to classification-chosen `{:rf/redacted …}` (a `:large?` owner's
   keep a canonical digest, so distinct values stay distinct and a tool's
-  per-key joins survive; a `:sensitive?` owner's are content-free); an owner
-  making no coarse claim has its per-slot `:params` / `:scope` DECLARATIONS
-  substituted inside the key (`redact-key-declarations`) so the declaration the
-  durable entry honours is honoured on the key too; a plain owner's key
-  rides verbatim; an UNREGISTERED owner FAILS CLOSED (redacted — the
-  trace-egress default). The resource-id (position 1 of every projected key) and
+  per-key joins survive; a `:sensitive?` owner's are content-free); a plain
+  owner's params ride verbatim; an UNREGISTERED owner's params FAIL CLOSED
+  (redacted — the trace-egress default). The resource-id (position 1 of every projected key) and
   recognized structural scalar tags (`:rf.frame/id`, `:cause`, `:decision`,
   `:generation`, `:owner`, `:delay-ms`, counts, …) ride verbatim. A tag the
   vocabulary does not NAME is projected by SHAPE
@@ -1604,7 +1483,8 @@
   `:work/id` / `:superseded` / `:aborted` work-id
   (`[:rf.work/resource <scoped-key> <generation>]`) — none of which the slot
   roster names. When ANY projected slot redacted a
-  sensitive / unregistered key, the row is stamped `:sensitive? true`.
+  sensitive / unregistered key, the row is stamped `:sensitive? true`; the
+  standing scope rule alone stamps nothing.
 
   The load-more PAGINATION CURSOR — `:page-param` (on `:rf.resource/load-more`)
   / `:next-page-param` (on `:rf.resource/page-appended`) — is a FREE owner-
@@ -1617,14 +1497,10 @@
   over-redaction).
 
   The free `:scope` tag — the RESOLVED CONCRETE scope the family stamps on the
-  row types `sibling-owned-slot`'s docstring rosters — also takes the shape
-  default. It is NOT sibling-owned: the `:rf.resource/scope-resolved`
-  projector the epoch tool-pair runs first is applied on that ONE operation, so
-  on every rostered row a pass-through would leave the resolver's identity map
-  classified by nobody. Under the shape default `:rf.scope/global` rides
-  verbatim, and a `[:rf.scope/session {…}]` tuple keeps its TIER keyword while
-  the identity map tokenizes — so `:rf.resource/refetch-decision`, which carries
-  one scope under BOTH `:resource/key` and `:scope`, redacts it in both places.
+  row types `sibling-owned-slot`'s docstring rosters — takes the standing scope
+  rule, the rule the scope inside every key on the row takes, so
+  `:rf.resource/refetch-decision`, which carries one scope under BOTH
+  `:resource/key` and `:scope`, projects it to one value in both places.
 
   Nested-map slots (`:patch-summary` / `:invalidation`) are projected
   RECURSIVELY through the same vocabulary so a row's nested scoped keys never
@@ -1746,13 +1622,13 @@
 ;; otherwise ship data loaded under that declaration raw. The registry in the
 ;; inputs the value was computed from — the frame's live runtime-db for a
 ;; current value, the prior inputs for a prior one — still holds what was
-;; lowered for it: the entry's or instance's `:data` claims, and each carried
-;; key's `:resource/key` claims. Those union with the spec's, the way a machine
+;; lowered for it: the entry's or instance's `:data` claims. Those union with
+;; the spec's, the way a machine
 ;; sub's prior snapshot keeps its claims (`re-frame.classification`). The
 ;; registry holds them until the owner family's next commit in the frame
 ;; reconciles it against the current registrations. What it never holds is
 ;; not recovered: a coarse `:sensitive?` / `:large?` root claim, which is never
-;; lowered, and a carried key whose entry is absent from those inputs.
+;; lowered.
 ;;
 ;; A resource sub names its owner in its payload (`:resource`). A mutation sub
 ;; names only its `:instance`, so the owner is read off the instance: in the
@@ -1779,11 +1655,13 @@
 ;;     (`project-merged-items`).
 ;;   - KEYS: `:rf/resource`'s `:previous-key` and `:rf/mutation`'s
 ;;     `:affected-keys` are scoped keys, projected by `project-trace-scoped-key`,
-;;     the owner classification the family's own rows give the same keys.
+;;     the rules the family's own rows give the same keys: the standing scope
+;;     rule, and the owner's coarse claim on the params.
 ;;
 ;; Nothing else is touched: statuses, booleans and error envelopes ride
-;; verbatim, a sub the owner declares nothing for rides reference-identical,
-;; and in-process `@(subscribe …)` stays raw — this runs at egress only.
+;; verbatim, a sub carrying no declared slot and no non-global scope rides
+;; reference-identical, and in-process `@(subscribe …)` stays raw — this runs
+;; at egress only.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private data-roots
@@ -1891,26 +1769,6 @@
                                     (= owner (second (:resource/key (get table (nth p n))))))
                            (subvec p (+ n 2))))))))
 
-(defn- recover-key
-  "`projected`, the carried `scoped-key` as its current owner projects it,
-  with the `:resource/key` claims the registry in the value's `runtime-db`
-  holds for that key's entry substituted as well — per key component and
-  index-free, the grain `redact-key-declarations` walks."
-  [projected scoped-key runtime-db]
-  (if-not (and (vector? scoped-key) (= 3 (count scoped-key)) (vector? projected))
-    projected
-    (let [[sens large] (registry-claims
-                         runtime-db
-                         (under (conj (rf.resources.state/entry-path scoped-key) :resource/key)))
-          component    (fn [i paths] (into [] (comp (filter #(= i (first %))) (map #(subvec % 1))) paths))]
-      (reduce (fn [k i]
-                (let [s (component i sens) l (component i large)]
-                  (if (or (redacted-token? (nth k i)) (and (empty? s) (empty? l)))
-                    k
-                    (update k i #(redact-anchored (key-component-slot i) % s l)))))
-              projected
-              [0 2]))))
-
 (defn- project-merged-items
   "Project a feed's MERGED item list `items` for egress under the owner
   `spec`'s data declaration. `pages` is a thunk of the raw page vector the list
@@ -1978,24 +1836,22 @@
 
 (defn- project-key-slot
   "Project the scoped key(s) under `slot` of `value` — one key, or a vector of
-  them when `many?` — keeping `value` identical when nothing changes. A prior
-  value's `inputs-db` adds the claims recovered for each key (`recover-key`)."
-  [value slot many? frame-id inputs-db]
+  them when `many?` — keeping `value` identical when nothing changes."
+  [value slot many? frame-id]
   (let [ks (get value slot)]
     (if (or (nil? ks) (and many? (empty? ks)))
       value
-      (let [project (fn [k] (cond-> (first (project-trace-scoped-key k frame-id))
-                              inputs-db (recover-key k inputs-db)))
+      (let [project (fn [k] (first (project-trace-scoped-key k frame-id)))
             ks'     (if many? (into (empty ks) (map project) ks) (project ks))]
         (if (= ks ks') value (assoc value slot ks'))))))
 
 (defn- project-keys
-  [sub-id value frame-id inputs-db]
+  [sub-id value frame-id]
   (if-not (map? value)
     value
     (case sub-id
-      :rf/resource (project-key-slot value :previous-key false frame-id inputs-db)
-      :rf/mutation (project-key-slot value :affected-keys true frame-id inputs-db)
+      :rf/resource (project-key-slot value :previous-key false frame-id)
+      :rf/mutation (project-key-slot value :affected-keys true frame-id)
       value)))
 
 (defn project-read-sub-egress
@@ -2034,4 +1890,4 @@
                                (rf.classification/redact-with-paths
                                  projected sens large {:index-free? true})))
                            value)]
-         (project-keys sub-id value frame inputs-db))))))
+         (project-keys sub-id value frame))))))
