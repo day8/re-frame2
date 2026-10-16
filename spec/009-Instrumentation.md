@@ -695,7 +695,7 @@ Alongside the raw `:trace` stream, the `:epoch` stream delivers a parallel **ass
 ;;                 re-publishes the same epoch (reconcile on [frame epoch-id];
 ;;                 see the invocation rules below). Signature: (fn [epoch-record] ...)
 ;;
-;; The record is the same shape the runtime appends to (rf/epoch-history frame-id):
+;; The record is the same shape the runtime appends to (re-frame.epoch/epoch-history frame-id):
 ;; assembled :event-id / :trigger-event / :db-before / :db-after, plus the structured
 ;; :sub-runs / :renders / :effects projections derived from the run's traces.
 
