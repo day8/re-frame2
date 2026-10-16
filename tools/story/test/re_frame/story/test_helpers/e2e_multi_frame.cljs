@@ -46,10 +46,10 @@
 
   The framework ships `re-frame.test-helpers` with a similar
   hiccup-walking surface, including `find-by-attr` for a `:data-test`
-  lookup — but its `expand-tree` recognises only a reagent-slim class
-  as class-3 and invokes any other fn-headed vector with no try/catch,
-  so it would call the Xray embed's `reagent.core/create-class`-built
-  `panel-host-component` as a plain fn. The walker here leaves a
+  lookup — but its `expand-tree` invokes every fn-headed vector, a
+  `reagent.core/create-class` class through its `:reagent-render`, with
+  no try/catch, so a render of the Xray embed's `panel-host-component`
+  outside any mount would fail the whole walk. The walker here leaves a
   class-3 vector unexpanded when invoking it throws or returns
   non-hiccup, which is what lets a positional test find the embed's
   mount slot.

@@ -23,16 +23,16 @@
   (is (= ["hi" 42 nil {:a 1}] (map rf.test-helpers/expand-tree ["hi" 42 nil {:a 1}]))
       "non-vector/non-seq inputs are returned unchanged"))
 
-;; A Form-3 reagent-slim class is expanded through its stashed :reagent-render
-;; slot, never called as a fn (that crashes without `new`). The fake stamps a
-;; plain fn with the tags reagent-slim's `create-class*` sets, so no reagent
-;; dependency is needed.
+;; A Form-3 Reagent class is expanded through the :reagent-render fn on its
+;; prototype, never called as a fn (that crashes without `new`). The fake
+;; stamps a plain fn's prototype the way `reagent.core/create-class` does, so
+;; no reagent dependency is needed; the adapter's own test tree pins a real
+;; `create-class` component.
 
 #?(:cljs
    (defn- fake-reagent-class [render-fn]
      (let [klass (fn [& _] (throw (ex-info "do not call" {})))]
-       (set! (.-cljsReagentClass ^js klass) true)
-       (set! (.-cljsReagentRender ^js klass) render-fn)
+       (set! (.-reagentRender ^clj (.-prototype klass)) render-fn)
        klass)))
 
 #?(:cljs

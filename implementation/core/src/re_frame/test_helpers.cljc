@@ -81,9 +81,9 @@
   sees the leaf hiccup the user sees. The expansion is recursive
   but terminating: a non-vector / non-fn leaf is a fixed point.
 
-  Form-3 components built via `r/create-class` are detected (the
-  reagent-slim class tag + the stashed `:reagent-render` slot) and
-  expanded by invoking the render fn directly with the hiccup args.
+  Form-3 components built via `r/create-class` with `:reagent-render`
+  are detected (the render fn `create-class` sets on the class
+  prototype) and expanded by invoking it directly with the hiccup args.
   The walker does NOT instantiate React or run lifecycle methods —
   if a Form-3 view's hiccup output depends on lifecycle state, the
   test sees the initial render only. JVM runs identically: class-3
@@ -183,22 +183,25 @@
 (declare expand-tree)
 
 (defn- reagent-class-render
-  "When `head` is a reagent-slim Form-3 class constructor (built by
-  `reagent2.impl.component/create-class*`), return its stashed
-  `:reagent-render` fn. Otherwise return nil.
+  "When `head` is a Reagent Form-3 class constructor built by
+  `reagent.core/create-class` with `:reagent-render`, return that render
+  fn. Otherwise return nil.
 
-  Detection is property-based — we look for the tag
-  `.-cljsReagentClass` (true) and pluck the render fn from
-  `.-cljsReagentRender`. No `:require` on reagent so this ns stays
-  classpath-clean for callers that don't pull reagent.
+  Detection is property-based, reading the class PROTOTYPE exactly as
+  Reagent's own `reagent.impl.component/reagent-class?` does:
+  `create-class` sets `reagentRender` there. It also sets it for the
+  legacy `:render` form, marking that one with `cljsLegacyRender`; a
+  legacy render takes the component instance `this` rather than the
+  hiccup args, so it is not expanded. No `:require` on reagent, so this
+  ns stays classpath-clean for callers that don't pull reagent.
 
   JVM: always nil — JVM has no JS classes and no `.-` property
   access on plain fns. The reader conditional below makes the
   body a no-op there."
   [head]
-  #?(:cljs (when (and (some? head)
-                      (true? (.-cljsReagentClass ^js head)))
-            (.-cljsReagentRender ^js head))
+  #?(:cljs (when-some [proto (.-prototype ^js head)]
+             (when-not (true? (.-cljsLegacyRender ^clj proto))
+               (.-reagentRender ^clj proto)))
      :clj  nil))
 
 (defn expand-tree
@@ -215,8 +218,9 @@
       the actual render), call the inner fn with the same args and
       use ITS result.
     - `[reagent-class & args]` — pluck the class's `:reagent-render`
-      slot (stashed at create-class time) and invoke with `args`. The
-      class is NOT instantiated and lifecycle methods do NOT run —
+      fn (set on the class prototype by `create-class`) and invoke it
+      with `args`. The class is NOT instantiated and lifecycle methods
+      do NOT run —
       this walker is for state/structure assertions, not behaviour
       that depends on `componentDidMount` etc.
 
