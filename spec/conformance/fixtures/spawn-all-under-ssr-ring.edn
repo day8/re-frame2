@@ -60,7 +60,7 @@
 
 {:fixture/id           :machine/spawn-all-under-ssr-ring
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :fsm/delayed-after
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after :fsm/final-states
                          :actor/spawn-destroy :actor/declarative-spawn
                          :actor/spawn-and-join
                          :core/event-handler :core/trace}

@@ -30,7 +30,7 @@
 
 {:fixture/id           :machine/reg-error-spawn-all-shape
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:actor/spawn-and-join :fsm/registration-validation}
+ :fixture/capabilities #{:actor/spawn-and-join :actor/declarative-spawn :fsm/final-states :fsm/registration-validation}
  :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a :join {:n N} / {:fn pred} mode, the :cancel-on-decision? key, or the retired :on-child-done / :on-child-error child-vocabulary keys throw :rf.error/machine-spawn-all-bad-shape; :on-error on a child spec throws :rf.error/machine-unknown-spawn-key; a non-fn child :on-done throws :rf.error/machine-bad-on-done-clause. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
 
  :fixture/registry {}

@@ -16,7 +16,7 @@
 
 {:fixture/id           :machine/reg-error-timeout
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/timeout :fsm/registration-validation}
+ :fixture/capabilities #{:fsm/timeout :fsm/delayed-after :actor/declarative-spawn :fsm/registration-validation}
  :fixture/doc          "The :timeout / :on-timeout registration-error taxonomy: a :timeout requires an :on-timeout (and vice-versa); the duration is integer-ms OR ISO-8601 only (the XState \"5s\"/\"10ms\" shorthand is rejected); a desugared-timeout ms colliding with an explicit :after delay-key is rejected. Controls: a valid integer / ISO / spawn-level timeout registers cleanly."
 
  :fixture/registry {}

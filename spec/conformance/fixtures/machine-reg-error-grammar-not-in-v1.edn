@@ -17,7 +17,7 @@
 
 {:fixture/id           :machine/reg-error-grammar-not-in-v1
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :fsm/history :fsm/registration-validation}
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical :fsm/history :fsm/registration-validation}
  :fixture/doc          "A :type :history pseudo-state with no owning compound (the machine root, or a flat top-level state) is rejected at registration with :rf.error/machine-history-misplaced. A well-placed history node (inside a compound's :states) and a history-free machine validate silently."
 
  :fixture/registry {}

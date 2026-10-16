@@ -306,6 +306,8 @@ Capability tag conventions (the closed list of tags a fixture may carry is the `
 
 A flat-FSM-only port declares `:capabilities #{:core/event-handler ... :fsm/flat :actor/own-state :actor/spawn-destroy ...}` in its harness manifest; the corpus runs every fixture whose capabilities are a subset and skips the rest. The aggregate score is `passed / claimed-applicable` — an accounting of what works for the claimed list.
 
+A machine fixture's tags cover every capability-gated key that any machine definition in it uses — in `:reg-machine` and `:machine-transition` rows and in `:fixture/registry :machine` entries, control rows and error rows alike — because a port that does not claim a capability rejects its keys at registration with `:rf.error/machine-grammar-not-in-v1` ([005 §How conformance is graded](../005-StateMachines.md#how-conformance-is-graded)), which fails the row on a port the tags admit. Capabilities do not imply one another: a fixture whose rows nest `:states` carries `:fsm/hierarchical` beside `:fsm/history`, and one that puts a `:timeout` on a `:spawn` carries `:actor/declarative-spawn` beside `:fsm/timeout`.
+
 A port's harness MUST distinguish two flavours of out-of-claim capability so silent rot can't mask coverage gaps:
 
 - Intentional out-of-claim — the port's `claimed-capabilities` excludes the capability (for example a flat-FSM-only port skipping `:fsm/hierarchical`). The harness MAINTAINS an explicit `known-skipped-capabilities` allowlist; capabilities in this set produce "skipped (out-of-claim)" reports without failing the suite.

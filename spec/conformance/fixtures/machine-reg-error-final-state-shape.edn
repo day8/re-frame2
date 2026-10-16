@@ -20,7 +20,7 @@
 
 {:fixture/id           :machine/reg-error-final-state-shape
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/final-states :fsm/registration-validation}
+ :fixture/capabilities #{:fsm/final-states :fsm/hierarchical :fsm/registration-validation}
  :fixture/doc          "A compound :final? state, a transition-bearing :final? state, and a non-final state declaring :output-key each throw their distinct registration-error category. The control cases — a well-formed :final? leaf with :output-key, and a :final? leaf with :entry/:exit — validate silently."
 
  :fixture/registry {}
