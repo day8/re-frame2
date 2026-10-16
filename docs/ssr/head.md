@@ -42,14 +42,16 @@ the `:articles` vector, whose entries here also carry a `:summary` and an `:imag
   (fn [{:keys [db]} [_ articles]]
     {:db (assoc db :articles articles)}))
 
+(rf/make-frame {:id :rf/default})
 (rf/dispatch-sync [:articles/seed [{:id      "1"
                                     :title   "Why <head> tags matter"
                                     :summary "Crawlers read the first response."
-                                    :image   "/img/head-tags.png"}]])
+                                    :image   "/img/head-tags.png"}]]
+                  {:frame :rf/default})
 
 [:pre {:style {:white-space "pre-wrap"}}
  (ssr/head-model->html
-   (ssr/head-model :rf/default            ;; the frame this page's cells share
+   (ssr/head-model :rf/default            ;; the frame seeded above
                    {:route {:route-id :articles/show :params {:id "1"}}}))]
 ```
 
