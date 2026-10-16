@@ -458,8 +458,8 @@
 
 (defn- project-navigation-event-arg
   "Per-event-id DYNAMIC projection for a routing navigation event vector —
-  `[:rf.route/handle-url-change url …]`, `[:rf.route/navigate {request}]` and
-  `[:rf.route/url-requested {request}]`. The first argument (the URL, or the
+  `[:rf.route/handle-url-change url …]` and `[:rf.route/navigate {request}]`.
+  The first argument (the URL, or the
   request's `:url` or `:to` route's `:params` / `:query` / `:fragment`) carries
   a route's path params and query values, whose classification lives on the
   ROUTE it names (its `:sensitive` declaration), not on the event registration,
@@ -489,9 +489,9 @@
      MUTATION spec named inside the args (the per-owner declaration
      surface), so the resources-published
      `:resources/project-execute-event-args` hook projects it
-     (`project-execute-event-payload`); `:rf.route/handle-url-change`,
-     `:rf.route/navigate` and `:rf.route/url-requested` — the URL's or
-     request's classification lives on the ROUTE it names, so the
+     (`project-execute-event-payload`); `:rf.route/handle-url-change`
+     and `:rf.route/navigate` — the URL's or request's classification lives
+     on the ROUTE it names, so the
      routing-published `:routing/project-url-change-event-args` hook projects
      it (`project-navigation-event-arg`). Unbound ⇒ pass-through.
 
@@ -516,8 +516,7 @@
     (case (when (vector? event') (first event'))
       :rf.mutation/execute (project-execute-event-payload event')
       (:rf.route/handle-url-change
-       :rf.route/navigate
-       :rf.route/url-requested) (project-navigation-event-arg event')
+       :rf.route/navigate) (project-navigation-event-arg event')
       event')))
 
 (defn- project-event-tags

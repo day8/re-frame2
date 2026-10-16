@@ -71,7 +71,7 @@
   "Per Spec 012 §Linking from views and API.md `route-link` row.
   Registered view at `:route/link` — renders an `<a href=...>` from a
   registered route id and intercepts plain primary-button clicks to
-  dispatch `:rf.route/url-requested`. Modifier-key clicks (cmd / ctrl / shift /
+  dispatch `[:rf.route/navigate {:url <href>}]`. Modifier-key clicks (cmd / ctrl / shift /
   alt) and middle-click defer to the browser. Late-bound via
   `:routing/route-link`.
 

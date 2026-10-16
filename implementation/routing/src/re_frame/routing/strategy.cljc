@@ -26,9 +26,9 @@
     address (`pathname + search + hash`) to its path-form (`#/active` →
     `/active`; itself for history). Pure and host-agnostic — it reads no
     `window`. The browser boundary reads `window.location` once
-    (`current-href`) and hands the address in; the `{:url …}` /
-    `:rf.route/url-requested` doors hand in the address of an origin-bearing
-    reference the same way, so one decode serves both.
+    (`current-href`) and hands the address in; a `{:url …}` request hands in
+    the address of an origin-bearing reference the same way, so one decode
+    serves both.
   - `:push!` / `:replace!` drive `window.history` with the ENCODED href
     — `:push!` adds a history entry, `:replace!` overwrites the current
     one. They are RAW window.history legs: `:encode` is the SINGLE
