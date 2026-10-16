@@ -3983,20 +3983,37 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; reserved fx-id (machine-internal, routed by the machine handler) takes a
 ;; bare event vector — same shape as :dispatch — and so does not need its own
 ;; args schema.
+;;
+;; A hand-emitted spawn carries what its author wrote. A declarative spawn's
+;; args are built by the transition reducer from the spec it lowers — a :spawn
+;; map, or a :spawn-all child spec minus its :id. Every key of that spec rides
+;; through as written, with three changes: :data is materialised (a :data fn is
+;; called), :timeout / :on-timeout are gone (they lowered onto the state's
+;; :after), and :id-prefix is always present (the spec's own, else its
+;; :machine-id). The runtime stamps below are then added.
 (def SpawnFxArgs
   [:map
    [:machine-id    :keyword]                                                ;; registered machine TYPE — REQUIRED; a :definition key, or no :machine-id, throws :rf.error/machine-spawn-bad-shape
-   [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
+   [:id-prefix     {:optional true} :keyword]                               ;; base for the generated actor id; defaults to :machine-id. Always present on a declarative spawn
    [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
    [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
-   ;; Runtime-stamped on declarative-:spawn spawns (not user-supplied).
-   ;; The pair addresses the runtime-owned spawn registry slot at
-   ;; [:rf.runtime/machines :spawned <parent-id> <invoke-id>]; absent on imperative from-action
-   ;; spawns (those user-owned destroys are hand-emitted with the actor id).
-   [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
-   [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; declarative spawn invocation path — absolute prefix-path of the :spawn-bearing state node
-   [:rf/spawned-id {:optional true} :keyword]                               ;; resolved gensym'd id, threaded through so spawn-fx registers under the id the reducer allocated
-   [:rf/invoke-attempt {:optional true} :int]])                             ;; declarative single :spawn only — the parent's spawn attempt token, stamped into the child's :data
+   [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor address in place of a generated one
+   ;; A declarative spec's callbacks ride through, and nothing reads them here:
+   ;; the parent resolves :on-done / :on-error from its own current definition.
+   [:on-done       {:optional true} :any]
+   [:on-error      {:optional true} :any]
+   ;; Runtime-stamped on every declarative spawn (not user-supplied); absent on
+   ;; hand-emitted spawns, whose destroys name the actor id directly.
+   [:rf/parent-id  {:optional true} :keyword]                               ;; the spawning actor's own address (:rf/transition-pure from pure machine-transition)
+   [:rf/spawned-id {:optional true} :keyword]                               ;; the id the reducer allocated (or the :fixed-actor-id), so spawn-fx installs the child there
+   ;; A :spawn's pair. :rf/invoke-id with :rf/parent-id addresses the runtime-owned
+   ;; registry slot at [:rf.runtime/machines :spawned <parent-id> <invoke-id>].
+   [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; absolute prefix-path of the :spawn-bearing state node (region-qualified inside a parallel region; [] for the machine root's :spawn)
+   [:rf/invoke-attempt {:optional true} :int]                               ;; the parent's spawn attempt token, stamped into the child's :data
+   ;; A :spawn-all child's pair, in place of the :spawn pair: the child is tracked
+   ;; by the join slot at [:rf.runtime/machines :spawned <parent-id> <spawn-all-id>].
+   [:rf/spawn-all-id       {:optional true} [:vector :keyword]]             ;; the :spawn-all-bearing state's prefix-path, the join slot key (region-qualified inside a parallel region)
+   [:rf/spawn-all-child-id {:optional true} :keyword]])                     ;; the child's :id in :children
 
 ;; The spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <gensym'd-id>] in the
 ;; active frame's runtime-db — runtime-managed; not part of the spawn-spec.
