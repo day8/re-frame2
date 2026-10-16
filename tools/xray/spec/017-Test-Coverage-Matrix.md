@@ -92,7 +92,7 @@ controls, DOM test ids, and page-evaluable diagnostics for:
 | Multi-frame | At least three frames with one cross-frame cascade, one dormant frame, and one destroyed-frame trace. Frame picker assertions must prove panels isolate and fan out correctly. |
 | Non-trivial app-db | A nested app-db with maps, vectors, sets, metadata-like keys, at least 50 leaves, and repeatable before/after snapshots. Diff views must include touched slices, pinned slices, unchanged siblings, and deep vector indices. |
 | Sensitive and large dispatchers | Separate `:sensitive? true` and `:large?` paths, plus a combined path. Redacted values are unrecoverable; large-elided values expose a fetch handle and digest. |
-| SSR/hydration mismatch | Server/client render hash mismatch, divergent render-tree row, missing payload, corrupt payload, and multi-frame hydration mismatch. |
+| SSR/hydration mismatch | A server/client text divergence React recovers from, missing payload, corrupt payload, and multi-frame hydration mismatch. |
 | Source coordinates | Event, view, sub, route, machine, flow, hydration row, and trace row source coords, including a missing-file case that hides the chip. |
 | Agent origin | A reproducible `:origin :re-frame2-pair-mcp` action stream with read-only calls, confirmed writes, one failed tool call, and one empty lifecycle event with no dispatch id (Xray-MCP is dropped; re-frame2-pair-mcp is the AI access path). |
 | Shell modes | Default true-inline host auto-mount, CSS-only close/open, pop-out, optional overlay debug chrome if present, settings corruption/reset, and production elision probes. |
