@@ -657,9 +657,10 @@
 
 (defn registrar-list
   "Enumerate registered ids under a kind. (rf/registrations {:source :store :kind kind}) returns
-   `{id meta}`; we return the sorted id vector."
+   `{id meta}`; we return the id vector sorted by `pure/compare-ids`, which
+   orders the app-db paths `:app-schema` ids are where `compare` would throw."
   [kind]
-  (-> (rf/registrations {:source :store :kind kind}) keys sort vec))
+  (-> (rf/registrations {:source :store :kind kind}) keys pure/sort-ids))
 
 ;; ---------------------------------------------------------------------------
 ;; Call-time id validation
@@ -974,10 +975,10 @@
    more than one namespace registers (NOT the process-global registrar).
    Routes through the PUBLIC facade
    read `(rf/registrations {:frame f :kind k})`, projecting its keys. Returns
-   the sorted id vector. FAILS LOUD up the eval boundary on an unresolvable
-   frame."
+   the id vector sorted by `pure/compare-ids`, as `registrar-list` does.
+   FAILS LOUD up the eval boundary on an unresolvable frame."
   [frame-id kind]
-  (-> (rf/registrations {:frame frame-id :kind kind}) keys sort vec))
+  (-> (rf/registrations {:frame frame-id :kind kind}) keys pure/sort-ids))
 
 (defn frame-registrar-registrations
   "The `{id meta}` map for `kind` as frame `frame-id` resolves it — its OWN
@@ -3793,7 +3794,8 @@
    `:mutation` / `:resource-scope`) so a resources-heavy
    app's orientation summary names its cached-read / write / scope-resolver
    counts (zero on an app that uses none — `registrar-count` is defensively
-   zero on an empty registrar). `:event` / `:sub` / `:fx` additionally
+   zero on an empty registrar), and `:app-schema` so it names how many app-db
+   schemas the app registers. `:event` / `:sub` / `:fx` additionally
    surface their full sorted id vectors (the most navigable surfaces for
    'what can I drive / read'); the rest contribute counts only so the
    summary stays compact and under the wire cap. Drill via `list-handlers

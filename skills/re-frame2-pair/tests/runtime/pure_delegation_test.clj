@@ -28,6 +28,8 @@
     ambiguous-frame-error        pure/ambiguous-frame-envelope
     nearest-ids                  pure/nearest-ids
     validate-registered          pure/validate-against-known
+    registrar-list               pure/sort-ids
+    frame-registrar-list         pure/sort-ids
     cascade-summary              pure/cascade-summary
     consequence-from-summary     pure/consequence-from-summary
     restore-cascade-summary      pure/restore-cascade-projection
