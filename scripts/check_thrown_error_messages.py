@@ -82,9 +82,9 @@ A CONFORMANT message (does not fire) is one of:
     derivation the builders use); or
   - a message that ALREADY embeds the `[:rf.<ns>/…]` token — a contiguous
     literal `"… [:rf.<ns>/…]"` OR the token ASSEMBLED across a `(str …)`
-    concatenation `(str "… [" :rf.<ns>/<id> "]")` — the SANCTIONED
-    bundle-isolated reagent-slim shape (it cannot `:require re-frame.error`,
-    so it hand-rolls the human sentence + token inline); or
+    concatenation `(str "… [" :rf.<ns>/<id> "]")` — the SANCTIONED shape
+    for code that does not `:require re-frame.error`, which hand-rolls the
+    human sentence + token inline; or
   - a bare LOCAL SYMBOL whose binding in the innermost enclosing `let` is
     itself conformant by the two rules above — the token lives on
     the bound form, one hop from the `ex-info` — AND ONLY when that `let` is
@@ -114,9 +114,7 @@ rule plus the stated ground for every excluded tree — including the
 `tools/` paths the rule DOES reach, which a text scan cannot identify. The
 default also excludes `test/` trees (a test that asserts the bare shape is absent, or
 constructs a `(ex-info ":rf.error/…")` to exercise a predicate, legitimately
-names it). The one framework artefact that CANNOT `:require` `re-frame.error`
-(the bundle-isolated `reagent-slim` adapter) hand-rolls a human sentence
-inline — so it too must clear the gate, and it is under `implementation/`.
+names it).
 
 THE WHERE-SYM RULE — the door the message names must EXIST
 
@@ -348,9 +346,9 @@ _PATTERNS = (
 #     derivation (the builders use this under the hood; a few shared-payload
 #     sites call it directly);
 #   - a STRING LITERAL that already contains the bracketed `[:rf.<ns>/…]`
-#     token — the SANCTIONED bundle-isolated reagent-slim shape, which cannot
+#     token — the SANCTIONED shape for code that does not
 #     `:require re-frame.error` and hand-rolls the human sentence + token
-#     inline (module docstring §SCAN SURFACE).
+#     inline (module docstring, the conformant-message list).
 #
 # Everything else with `:rf.error/id` in ex-data is a builder bypass:
 # a `(str …)` that is not the token form, a plain string literal WITHOUT the
@@ -376,9 +374,9 @@ _HUMAN_MESSAGE_MSG_RE = re.compile(r"^\(\s*(?:[\w.*+!?<>=-]+/)?human-message\b")
 # A conformant message: the message form ALREADY embeds the bracketed
 # `[:rf.<ns>/…]` greppability token (rule 4) — whether as a pure string literal
 # or inside a `(str … "[:rf.<ns>/…]")` concatenation. This is the SANCTIONED
-# bundle-isolated reagent-slim shape: it cannot `:require re-frame.error`, so it
-# hand-rolls the human sentence + the token inline. A message carrying the
-# literal token IS conformant to rule 4, so it does not fire.
+# shape for code that does not `:require re-frame.error`: it hand-rolls the
+# human sentence + the token inline. A message carrying the literal token IS
+# conformant to rule 4, so it does not fire.
 #
 # The same token may be ASSEMBLED across a `(str …)` concatenation — the
 # open/close brackets are string-literal pieces and the keyword sits between
@@ -908,7 +906,7 @@ def _scan_builder_bypass(path: Path, masked: str, raw_lines: list[str]) -> list[
             continue
         # Conformant messages do not fire: a central `human-message` derivation,
         # or a message already embedding the `[:rf.<ns>/…]` greppability token
-        # (the reagent-slim inline shape).
+        # (the hand-rolled inline shape).
         if _message_is_conformant(first_arg):
             continue
         # …or a bare local symbol whose `let` binding is conformant — the token
@@ -2300,8 +2298,8 @@ _FIX_HINT = (
     "    helper (flow-error / route-error / registration-error / …) should\n"
     "    DELEGATE its message to `error/thrown-ex-info` rather than\n"
     "    `(ex-info (str error-id) …)`.\n"
-    "  * the bundle-isolated reagent-slim adapter (cannot :require\n"
-    "    re-frame.error): hand-roll the same shape inline —\n"
+    "  * an artefact that cannot :require re-frame.error: hand-roll the\n"
+    "    same shape inline —\n"
     "      (ex-info (str \"<human sentence> [\" :rf.error/<id> \"]\") {:rf.error/id … :reason … …})\n"
     "  * a message DELIBERATELY pinned to bare prose downstream (conformance-DSL\n"
     "    :throw / :count) opts out with a `rf2:builder-bypass-ok` marker comment.\n"
@@ -3008,7 +3006,7 @@ def _run_where_sym_summary_self_tests(verbose: bool = False) -> int:
     # therefore uncheckable" while it is checked.
     cases = (
         ("re-frame.fixture", "checked"),
-        ("reagent2.template/as-element", "skipped"),
+        ("reagent.core/as-element", "skipped"),
     )
     baseline = WhereSymBaseline(0, {})
     for symbol, half in cases:

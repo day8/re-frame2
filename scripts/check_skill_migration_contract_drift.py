@@ -1391,7 +1391,7 @@ M1_FLAG_NSES = [
 # invert-filter removes them).
 M1_EXEMPT_NSES = [
     "re-frame.core",
-    "re-frame.adapter.reagent", "re-frame.adapter.reagent-slim", "re-frame.adapter.uix",
+    "re-frame.adapter.reagent", "re-frame.adapter.uix",
     "re-frame.spec", "re-frame.interop",
     "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
     "re-frame.http.managed", "re-frame.http.test-support",

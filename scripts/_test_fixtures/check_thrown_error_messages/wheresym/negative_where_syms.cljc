@@ -104,5 +104,5 @@
 (defn third-party-namespace-is-not-graded []
   (rf.error/throw-error!
     :rf.error/ok-twentynine
-    'reagent2.impl.component
+    'reagent.impl.component
     "outside the framework family; unknowable from this tree"))

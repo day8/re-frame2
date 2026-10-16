@@ -1,6 +1,6 @@
 (ns fixture.negative.str-concat-human-text
   "NEGATIVE fixture: a (str …) message that CONCATENATES the keyword token
-  with human text — the hand-rolled inline conformant shape (reagent-slim).
+  with human text — the hand-rolled inline conformant shape.
   This LEADS with a human sentence, so it is NOT a bare keyword. MUST stay
   green: the (str …) form opens with a string literal, not a bare keyword.")
 

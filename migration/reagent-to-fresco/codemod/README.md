@@ -169,11 +169,7 @@ Reagent adapter is the single most likely thing to be migrated to Fresco.
 There are two rosters now, and the rule for both is **identity, not spelling: a
 namespace is classified when this project can vouch for what it is.**
 
-- **Reagent's API** — stock Reagent's five namespaces, plus the `reagent2.*`
-  four that the reagent-slim adapter ships. That is the same API authored a
-  second time in this repository, under names the how-to guide teaches
-  consumers to call, so one roster classifies both. Omitting it was the same
-  defect one adopter later.
+- **Reagent's API** — stock Reagent's five public namespaces.
 - **re-frame2's own substrate adapters** — everything under
   `re-frame.adapter.`, matched as a **prefix rule anchored at the start of the
   namespace**, because the adapter set is open and a list of today's adapters
@@ -207,7 +203,7 @@ zero:
 - the CLI's last line leads with it, for the same reason, and marks a zero
   rather than printing it bare.
 
-### The zero came back through the widening itself
+### Widening recognition alone brings the zero back
 
 Recognition is decided per **file**, off the `ns` form. Entries are found per
 **name**, off the roster. Widening the namespace family without widening the
@@ -218,15 +214,14 @@ file is a strictly worse answer than an unrecognised one** — the unrecognised
 file is a bucket the caveat names out loud, and this one is a clean bill of
 health.
 
-That is not hypothetical. The change that added the `reagent2.*` four did not
-add `render-to-static-markup`, which is `reagent2.dom.server`'s only public
-function, and a one-line file calling it reported `files-recognised 1,
-files-clean 1, entries 0, :recognition :full` under the sentence *A zero below
-is a measurement*. Three things answer it, and they are different in kind:
+A namespace added to the family without the row for its only public function
+makes a one-line file calling that function report `files-recognised 1,
+files-clean 1, entries 0, :recognition :full`. Three things answer it, and they
+are different in kind:
 
-- the roster was reconciled against every recognised namespace's supported
-  public calls, which is where `render-to-string`, `unmount`, `flush-views!`,
-  `flush!`, `activate!`, `reactive?`, `dispose!` and the rest arrived from;
+- the roster is reconciled against every recognised namespace's supported
+  public calls, which is where `render-to-string`, `unmount`, `flush!`,
+  `reactive?`, `dispose!` and the rest come from;
 - the coupling is now a **law with a ratchet**. `reagent-namespaces` says a
   namespace joins it only together with the roster rows for the names it
   publishes, and `census_test` holds one known public call per recognised
