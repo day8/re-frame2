@@ -122,9 +122,10 @@
    :ssr/error-projection :ssr/head-contract :ssr/hydration :ssr/render-to-string
    :ssr/render-tree-hash :ssr/response-contract]
 
-  ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas` is
-  ;; not a registrar kind; it maps an app-db path to the schema the runner
-  ;; registers there with `reg-app-schema`.
+  ;; Registration metadata by kind: runtime input, kept raw. `:app-schemas`
+  ;; carries the registrar kind `:app-schema`, keyed by app-db path: each entry
+  ;; maps a path to the schema itself, which the runner registers there with
+  ;; `reg-app-schema`.
   :conformance/registry
   [:map {:closed true}
    [:event           {:optional true} [:map-of :keyword :map]]
