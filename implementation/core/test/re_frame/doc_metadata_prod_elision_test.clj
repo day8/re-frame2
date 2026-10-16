@@ -8,7 +8,7 @@
   ## Posture split
 
   The prod half runs in both `clojure -M:test` (gate modelled with
-  `with-redefs`) and `scripts/test-core-prod-gate.sh` (gate really off). The dev
+  `with-redefs`) and `clojure -M:test:prod-gate` (gate really off). The dev
   half — `:doc` retained — sits inside a `(when rf.interop/debug-enabled? …)`
   arm."
   (:require [clojure.test :refer [deftest is use-fixtures]]

@@ -3,16 +3,16 @@
 
   ## What this exists to prevent
 
-  `scripts/test-ssr-prod-gate.sh` runs a slice of the ssr suite with
-  `-Dre-frame.debug=false` genuinely on the JVM command line, via the
+  `clojure -M:test:prod-gate`, run in `implementation/ssr`, runs the whole ssr
+  suite with `-Dre-frame.debug=false` genuinely on the JVM command line, via the
   `:prod-gate` alias's `:jvm-opts` (implementation/ssr/deps.edn). Everything
   that lane claims rests on that property actually reaching the JVM the tests
   load in.
 
   If it ever stops reaching — an alias-merge change, a runner that drops
   `:jvm-opts`, a job that invokes `clojure -M:test` directly and forgets the
-  modifier — the lane does not go red. It goes GREEN, because its namespace
-  roster is by construction a subset of what already passes in dev posture. A
+  modifier — the lane does not go red. It goes GREEN, because every test it
+  runs already passes in dev posture. A
   lane that silently runs the wrong posture is worse than no lane: it reports
   coverage nobody has.
 
@@ -29,8 +29,8 @@
   a PRIVACY invariant, genuinely reaches
   `re-frame.ssr.payload-policy/project-routing-egress` there — the code that
   decides what leaves the server inside a hydration payload. Its always-on
-  witness (`re-frame.ssr-routing-egress-production-test`) is in this lane's
-  roster, and is worth exactly as much as this pin.
+  witness (`re-frame.ssr-routing-egress-production-test`) runs in this lane,
+  and is worth exactly as much as this pin.
 
   ## Why it is `^:prod-gate`-tagged rather than conditional
 
@@ -54,8 +54,8 @@
     (is (= "false" (System/getProperty "re-frame.debug"))
         (str "system property `re-frame.debug` reads "
              (pr-str (System/getProperty "re-frame.debug"))
-             ", expected \"false\" — run this lane via"
-             " `sh scripts/test-ssr-prod-gate.sh`"))))
+             ", expected \"false\" — run this lane as"
+             " `clojure -M:test:prod-gate` in implementation/ssr"))))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
   (testing "the load-time gate resolved to OFF. Red here with the

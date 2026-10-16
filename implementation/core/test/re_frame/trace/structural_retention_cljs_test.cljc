@@ -29,7 +29,7 @@
 (defn- ops [evs] (mapv :operation evs))
 
 ;; Every deftest is ^:requires-debug: emit! is a no-op under
-;; -Dre-frame.debug=false (see scripts/test-core-prod-gate.sh).
+;; -Dre-frame.debug=false (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug ordinary-emit-is-retained-structural-emit-is-not
   (testing "ring retention is gated ONLY by structural delivery; live delivery is not"

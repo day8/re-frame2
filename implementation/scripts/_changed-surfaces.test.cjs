@@ -2631,9 +2631,7 @@ test('every route-path census app-root arms implementation_jvm (rf2-w9ip)', () =
 // exclusions removes coverage unless that edit itself schedules the job. Every
 // `jvm-*-prod-gate` job is gated on implementation_jvm.
 const PROD_GATE_ROSTER_SCRIPTS = pinnedRoster('PROD_GATE_ROSTER_SCRIPTS', [
-  'scripts/test-core-prod-gate.sh',
   'scripts/test-routing-prod-gate.sh',
-  'scripts/test-ssr-prod-gate.sh',
   'scripts/test-epoch-prod-gate.sh',
 ]);
 

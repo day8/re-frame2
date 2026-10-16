@@ -17,7 +17,7 @@
   `:validate` is the deliberate opt-out, and both checks pass under it.
 
   Every deftest but the `^:prod-gate` ones is posture-independent, so this
-  namespace runs in `clojure -M:test` AND joins `scripts/test-core-prod-gate.sh`.
+  namespace runs in `clojure -M:test` AND joins `clojure -M:test:prod-gate`.
   The first `^:prod-gate` deftest is the discriminator: in the gate JVM an
   unguarded handler with the same `:schema` ACCEPTS a bad event, so \"the
   handler did not run\" cannot be step-1 doing the work. The second pins what

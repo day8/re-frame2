@@ -4,7 +4,7 @@
   the Var with `with-redefs` after the framework has loaded, so they pin only
   that the producers below consult it at CALL time — the dev-only companion
   trace does, the always-on record does not. The documented production posture
-  is exercised by `scripts/test-core-prod-gate.sh`, which runs the core suite
+  is exercised by `clojure -M:test:prod-gate`, which runs the core suite
   with `-Dre-frame.debug=false` on the JVM command line; never count this
   namespace as coverage of it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

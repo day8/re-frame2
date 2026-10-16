@@ -10,7 +10,7 @@
   bare dev `trace/emit-error!` with no always-on leg, so every row reading the
   event sits in a `(when rf.interop/debug-enabled? ...)` arm. Recovery, the
   cache miss, the released input ref and the acyclic diamond run under
-  `scripts/test-core-prod-gate.sh`. The diamond's empty-event rows sit in the
+  `clojure -M:test:prod-gate`. The diamond's empty-event rows sit in the
   arm, because under the gate the stream is empty for every graph."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])

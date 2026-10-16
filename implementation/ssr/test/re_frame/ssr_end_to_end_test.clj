@@ -8,7 +8,7 @@
   ## Posture split
 
   This namespace also runs under `-Dre-frame.debug=false`
-  (`scripts/test-ssr-prod-gate.sh`). The security gates (CR/LF/NUL in header
+  (`clojure -M:test:prod-gate`). The security gates (CR/LF/NUL in header
   values and cookie attributes, the cookie-attribute grammar, safe-redirect)
   reject in that lane, so their assertions read the always-on `:errors` axis
   rather than the dev trace. Only genuinely dev-only observations — the

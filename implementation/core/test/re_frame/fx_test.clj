@@ -5,7 +5,7 @@
   past a throwing or unknown fx, and effect-map / `:fx`-entry shape policing.
 
   Posture: execution facts and the ALWAYS-ON `:errors` records are asserted
-  unguarded, so they also run under `scripts/test-core-prod-gate.sh`
+  unguarded, so they also run under `clojure -M:test:prod-gate`
   (`-Dre-frame.debug=false`). The `:trace` stream is dev-only, so trace reads
   sit inside `(when rf.interop/debug-enabled? …)` arms — a negative over the
   empty ring would otherwise pass for free — or in `^:requires-debug` tests."

@@ -8,7 +8,7 @@
   (`:source :boundary`, `:where :event`) is the only thing a production
   server can project from; without it `:status` would stay 200. Every
   assertion here holds in both postures, so the namespace runs under
-  `scripts/test-ssr-prod-gate.sh` for real — a `with-redefs` of the
+  `clojure -M:test:prod-gate` for real — a `with-redefs` of the
   load-time gate would prove nothing."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

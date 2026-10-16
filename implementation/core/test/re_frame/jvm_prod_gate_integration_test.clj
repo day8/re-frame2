@@ -3,7 +3,7 @@
   rebinds `rf.interop/debug-enabled?` with `with-redefs`, after the framework
   has loaded, and so pins the REBINDABLE VAR: trace emission re-reads the gate
   at call time, so a rebind to `false` silences trace listeners. The load-time
-  gate is `scripts/test-core-prod-gate.sh` (pinned by
+  gate is `clojure -M:test:prod-gate` (pinned by
   `re-frame.prod-gate-lane-pin-test`) and `re-frame.prod-gate-dispatch-jvm-test`.
 
   The silent listener is an ABSENCE, which a dispatch that never ran would also

@@ -7,7 +7,7 @@
 
   Posture-independent: every record assertion reads the always-on `:errors`
   stream, so this namespace runs under `-Dre-frame.debug=false`
-  (`scripts/test-core-prod-gate.sh`) as the production witness, as well as in
+  (`clojure -M:test:prod-gate`) as the production witness, as well as in
   the ordinary JVM and `:node-test` suites. The one `:trace` read, the
   install-atomicity test's \"no `:rf.event/db-changed`\" check, receives
   nothing under the gate, where only its app-db check bites. An assertion that

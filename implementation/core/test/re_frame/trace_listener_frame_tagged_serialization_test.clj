@@ -27,7 +27,7 @@
       50))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug frame-tagged-public-emits-not-under-a-drain-serialize
   ;; Two `{:frame :rf/default}` emits from two ordinary threads, neither draining

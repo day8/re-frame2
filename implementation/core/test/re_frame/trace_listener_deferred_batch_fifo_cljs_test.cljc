@@ -54,7 +54,7 @@
              "already-captured run-end. Ops in delivery order: " (pr-str ops)))))
 
 ;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
-;; end (see scripts/test-core-prod-gate.sh).
+;; end (see the `:prod-gate` alias in deps.edn).
 
 (deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-at-top-level
   (let [seen (atom [])]

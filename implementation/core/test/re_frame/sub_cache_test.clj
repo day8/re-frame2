@@ -5,7 +5,7 @@
   inputs so layer-2+ disposal cascades.
 
   Assertions outside a `(when rf.interop/debug-enabled? …)` arm hold under the
-  production gate (`scripts/test-core-prod-gate.sh`) too; the arms observe the
+  production gate (`clojure -M:test:prod-gate`) too; the arms observe the
   dev `:trace` stream, which the gate elides by design."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]

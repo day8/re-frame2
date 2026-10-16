@@ -466,7 +466,7 @@
   so `:advanced` + `goog.DEBUG=false` (and `-Dre-frame.debug=false` on the
   JVM) carries neither the call nor the reason string's literals. The elision
   probe pins the reason's distinctive tail ABSENT from the release bundle;
-  `scripts/test-core-prod-gate.sh` pins zero records under the JVM gate.
+  `clojure -M:test:prod-gate` in core pins zero records under the JVM gate.
 
   ## The record is BUILT FROM structural inputs, never filtered from `tags`
 

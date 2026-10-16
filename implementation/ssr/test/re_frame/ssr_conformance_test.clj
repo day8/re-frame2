@@ -71,7 +71,7 @@
 
   This runner executes under BOTH `clojure -M:test` and the REAL
   production gate `-Dre-frame.debug=false`
-  (`scripts/test-ssr-prod-gate.sh`), and the two postures do not observe
+  (`clojure -M:test:prod-gate`), and the two postures do not observe
   the same channels.
 
     - `:trace-emissions` / `:trace-not-emitted` read `@traces`, the DEV

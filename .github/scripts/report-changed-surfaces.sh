@@ -768,14 +768,14 @@ else
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
-      scripts/test-core-prod-gate.sh|scripts/test-routing-prod-gate.sh|scripts/test-ssr-prod-gate.sh|scripts/test-epoch-prod-gate.sh)
+      scripts/test-routing-prod-gate.sh|scripts/test-epoch-prod-gate.sh)
         # Each of these scripts IS a production-gate
         # lane's roster: its `known_red` array decides which of that
         # artefact's namespaces the matching `jvm-*-prod-gate` job runs.
         # Editing one therefore changes what that job covers, and the one edit
         # that can silently REMOVE coverage (widening the exclusions) would
         # otherwise fire no job at all — the same shape of unwatched gate the
-        # lanes exist to close. One flag covers all four: `implementation_jvm`
+        # lanes exist to close. One flag covers both: `implementation_jvm`
         # is what gates every `jvm-*-prod-gate` job.
         implementation_jvm=true
         ;;
