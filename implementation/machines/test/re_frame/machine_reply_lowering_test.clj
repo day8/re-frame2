@@ -185,6 +185,39 @@
          (mapv #(:rf.reply/work-id (:tags %))
                (rf.machines.test-support/events-of :rf.machine/done)))))
 
+(deftest keyword-form-destroy-cancel-row-carries-its-spawn-work-id
+  ;; `[:rf.machine/destroy <id>]` names only the actor; a declarative child's
+  ;; own stamps name its spawn, so the cancel row closes the work id the
+  ;; attempt's done or error reply would carry.
+  (rf/reg-machine :rl/kchild
+    {:initial :running
+     :states  {:running {:on {:finish :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rl/kparent
+    {:initial :idle
+     :states  {:idle    {:on {:go :loading}}
+               :loading {:on    {:kill {:action (fn [{data :data}]
+                                                  {:fx [[:rf.machine/destroy
+                                                         (get-in data [:rf/spawned [:loading]])]]})}}
+                         :spawn {:machine-id :rl/kchild
+                                 :on-done    :idle}}}})
+  (rf/dispatch-sync [:rl/kparent [:go]])
+  (rf/dispatch-sync [:rl/kchild#1 [:finish]])
+  (rf/dispatch-sync [:rl/kparent [:go]])
+  (rf/dispatch-sync [:rl/kparent [:kill]])
+  (is (nil? (snapshot :rl/kchild#2)) "the keyword form destroyed the second attempt")
+  (is (= [[:rf.work/machine :rl/kchild#1 [:loading] 1]]
+         (mapv #(:rf.reply/work-id (:tags %))
+               (rf.machines.test-support/events-of :rf.machine/done)))
+      "the first attempt completed")
+  (is (= [{:parent-id        :rl/kparent
+           :invoke-id        [:loading]
+           :rf.reply/work-id [:rf.work/machine :rl/kchild#2 [:loading] 2]}]
+         (->> (rf.machines.test-support/events-of :rf.machine/destroyed)
+              (filter #(= :explicit (:reason (:tags %))))
+              (mapv #(select-keys (:tags %) [:parent-id :invoke-id :rf.reply/work-id]))))
+      "the cancel row carries the second attempt's spawn path and work id"))
+
 (deftest spawned-error-drives-on-error-transition
   (rf/reg-machine :rl/echild
     {:initial :running
