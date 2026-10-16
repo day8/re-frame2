@@ -62,7 +62,6 @@
             [re-frame.machines.lifecycle-fx.teardown :as rf.machines.lifecycle-fx.teardown]
             [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.registrar :as rf.registrar]))
 
