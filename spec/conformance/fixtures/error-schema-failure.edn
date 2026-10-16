@@ -17,9 +17,9 @@
  {:event {:counter/init       {:doc "Seed."}
           :counter/set-bad    {:doc "Sets :count to a non-integer (violates schema)."}}
   :sub   {:count {:doc "Current count."}}
-  ;; App-db schemas are NOT a registrar kind; the
-  ;; `:app-schemas` fixture key carries `path → schema` for the
-  ;; runner's `reg-app-schema` realisation step.
+  ;; App-db schemas are the registrar kind `:app-schema`, keyed by
+  ;; path; the `:app-schemas` fixture key carries `path → schema` for
+  ;; the runner's `reg-app-schema` realisation step.
   :app-schemas
   {[:count] [:int]}}                                 ;; the registered schema at path [:count]
 
