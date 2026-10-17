@@ -49,10 +49,8 @@
   asserts the window's existence — `generation` moves by exactly one —
   before it asserts what the window did.
 
-  The adapter is UIx's rather than `plain-atom`'s, and that is
-  load-bearing for the whole file: plain-atom has no reactivity layer, so
-  a subscription under it never notifies, `mark-dirty!` never fires, and
-  every row would pass vacuously by never firing at all.
+  The adapter is UIx's, for the reason `smoke-cljs-test` gives: its
+  derived value is the React-hook spine's, as Fresco's own adapter's is.
 
   ## What is deliberately not restated here
 

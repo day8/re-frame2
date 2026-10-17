@@ -150,11 +150,9 @@
 (rf/reg-event :red/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :red/bump (fn [{:keys [db]} _] {:db (update db :painted inc)}))
 
-;; The UIx adapter, for the reason the package smoke gives and the
-;; commit-owns suite repeats: plain-atom has no reactivity layer, so a
-;; subscription under it never notifies and every commit assertion would
-;; pass vacuously by never firing. `:ambient-frame nil` because this suite
-;; seats its own.
+;; The UIx adapter, for the reason the package smoke gives: its derived
+;; value is the React-hook spine's, as Fresco's own adapter's is.
+;; `:ambient-frame nil` because this suite seats its own.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter

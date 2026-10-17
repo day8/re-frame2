@@ -62,10 +62,11 @@ lists the other adapters and their coordinates.
     - Mounting a `frame-root`, or making any frame, before `rf/init!` throws
       `:rf.error/no-adapter-installed`; after `rf/destroy-adapter!` it throws
       `:rf.error/adapter-disposed` until `rf/init!` installs an adapter again.
-    - Its derived values notify watchers from the moment they are created, which a
-      live Fresco view needs. The headless `re-frame.substrate.plain-atom` adapter's
-      derived values register no watch, so a view under it paints once and never
-      updates: that adapter suits an SSR render, not a live view.
+    - Its derived values notify watchers from the moment they are created, and
+      recompute once per epoch however many watchers they have. The headless
+      `re-frame.substrate.plain-atom` adapter's derived values take a watch too, so
+      a Fresco view under it also re-renders, but they recompute for each observer
+      inside every write: that adapter is built for headless tests and SSR.
     - It adds no dependency: Fresco already requires `react`, and the rest of the
       adapter is in core.
 - **Example**:

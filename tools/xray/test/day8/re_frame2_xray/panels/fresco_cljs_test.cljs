@@ -65,9 +65,11 @@
 ;; The UIx adapter, not the Xray suite's plain-atom default — and RESTORED
 ;; at the end of the namespace.
 ;;
-;; A Fresco witness mounts a live boundary, and the headless plain-atom
-;; adapter has no live render path, only `render-to-string`, so this
-;; namespace takes a view adapter, as the package's own suites do.
+;; A Fresco witness mounts live boundaries, and this namespace mounts them
+;; on the substrate the Fresco package's own suites use: UIx's, whose
+;; derived value is the React-hook spine's, as Fresco's own adapter's is.
+;; The plain-atom default would drive them too
+;; (`re-frame.fresco.plain-atom-dom-cljs-test`).
 ;;
 ;; THE `:once` RESTORE IS LOAD-BEARING. `install-adapter!` is process-global
 ;; and the `:each` fixture never puts back what it found, so leaving UIx

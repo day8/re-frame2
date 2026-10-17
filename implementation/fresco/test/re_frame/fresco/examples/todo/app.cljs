@@ -25,11 +25,14 @@
 
   ## Why the adapter, and why UIx
 
-  Fresco ships no reactive adapter; a consumer picks one exactly as they
-  already do for Reagent or UIx views (Spec 006 §Adapter selection at
-  boot). It has to be a REACTIVE one: a keystroke moves `app-db` and the
-  boundary that read it must re-render, and the headless plain-atom
-  adapter has no live render path, only `render-to-string`."
+  Nothing installs an adapter for a consumer; they pick one exactly as
+  they already do for Reagent or UIx views (Spec 006 §Adapter selection at
+  boot). Fresco takes only the observation half from it, so Fresco's own
+  optional `re-frame.fresco.substrate`, UIx's, Reagent's and the headless
+  plain-atom adapter all re-render the boundary a keystroke's write moves
+  (`re-frame.fresco.plain-atom-dom-cljs-test` pins the last). This example
+  installs UIx's, whose derived value is the React-hook spine's, as
+  Fresco's own adapter's is."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]

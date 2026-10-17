@@ -81,10 +81,8 @@
 (rf/reg-event :kco/bump-left (fn [{:keys [db]} _] {:db (update db :left inc)}))
 (rf/reg-event :kco/raise     (fn [{:keys [db]} _] {:db (assoc db :flag true)}))
 
-;; The UIx adapter rather than plain-atom, for the reason the package smoke
-;; gives: plain-atom has no reactivity layer, so a subscription under it
-;; never notifies and every commit assertion would pass vacuously by never
-;; firing.
+;; The UIx adapter, for the reason the package smoke gives: its derived
+;; value is the React-hook spine's, as Fresco's own adapter's is.
 ;;
 ;; `:async? true` selects the MAP form. It is not a preference: the rows
 ;; that settle against `runtime/quiesced!` are `(async done …)` tests,

@@ -55,7 +55,7 @@
 (def ^:private frame-id ::parity)
 
 ;; The node lane's standard seating, as `test-kit-cljs-test` establishes
-;; it: the UIx adapter because plain-atom never notifies, no ambient
+;; it: the UIx adapter for the reason `smoke-cljs-test` gives, no ambient
 ;; frame because this suite seats its own, the collector emptied between
 ;; rows.
 (use-fixtures :each

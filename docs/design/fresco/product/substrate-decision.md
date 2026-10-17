@@ -87,6 +87,14 @@ page**: the package's own `deps.edn` records that plain-atom has no reactivity
 layer, so a subscription under it never notifies and every commit assertion would
 pass vacuously by never firing. It cannot carry a collector.
 
+> **Amended 2026-10-17 (rf2-trjyc) — plain-atom carries a collector now.** The
+> plain-atom derived value takes a watch on both hosts: it watches its sources
+> while an observer is attached and notifies when the value moves by `=`. A Fresco
+> boundary under the plain-atom adapter mounts and re-renders, a layer-1 and a
+> layer-2 read both (`re-frame.fresco.plain-atom-dom-cljs-test`), so the exclusion
+> above, and the `deps.edn` reason it quotes, no longer hold. The choice this page
+> makes between the two families is untouched.
+
 **[DERIVED] Fresco installs neither today.** `implementation/fresco/deps.edn`
 declares core alone and states in terms that shipping source names no adapter;
 `impl/mount.cljs` reads the shared `re-frame.adapter.context/frame-context` and

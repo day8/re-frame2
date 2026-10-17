@@ -142,8 +142,11 @@
   `:rf.error/no-adapter-installed` until a reactive adapter is installed
   (Spec 006 §Adapter selection at boot). This is an INTERACTIVE mount — a
   keystroke dispatches an event, app-db changes, and the boundary
-  re-renders — so it takes a view adapter, not the headless plain-atom
-  one, which has no live render path: it renders only to a string.
+  re-renders — and it takes UIx's adapter, whose derived value is the
+  React-hook spine's, as Fresco's own adapter's is. Fresco renders through
+  its own root and takes only an adapter's observation half, so the
+  headless plain-atom adapter would re-render it too
+  (`re-frame.fresco.plain-atom-dom-cljs-test`).
 
   Then the frame, seeded; then [[mount!]], which is where a container, a
   frame id and a hiccup tree meet. There is no root state to keep here:

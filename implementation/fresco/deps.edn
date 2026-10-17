@@ -110,12 +110,10 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; The Node lane's substrate. The package's
-                       ;; node-lane suites run on the UIx adapter and not on
-                       ;; plain-atom, because plain-atom has no reactivity
-                       ;; layer — a subscription under it never notifies, so
-                       ;; every commit assertion would pass vacuously by
-                       ;; never firing. Test-only: shipping source names no
-                       ;; adapter at all.
+                       ;; node-lane suites run on the UIx adapter, whose
+                       ;; derived value is the React-hook spine's, as
+                       ;; `re-frame.fresco.substrate`'s is. Test-only:
+                       ;; shipping source names no adapter at all.
                        day8/re-frame2-uix {:local/root "../adapters/uix"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 

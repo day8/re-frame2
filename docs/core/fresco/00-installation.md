@@ -377,9 +377,11 @@ frame of the root that renders it.
 Every React-based adapter provides the same frame context, so a page that also
 renders Reagent or UIx components can install that library's adapter in place
 of `substrate/adapter` and keep writing Fresco views; [Use
-UIx](../how-to/use-uix.md) has their coordinates. Do not use
-the headless plain-atom adapter in a browser: its subscriptions never notify,
-so views never re-render.
+UIx](../how-to/use-uix.md) has their coordinates. The headless plain-atom
+adapter re-renders Fresco views too, since Fresco takes only the observation
+half from an adapter, but it is built for headless tests and SSR: its derived
+values recompute for each observer inside every write instead of once per
+epoch.
 
 A shared frame does not let you mix notations in one tree. A Reagent view is
 not a legal Hiccup head, so `[reagent-footer]` inside a Fresco body raises

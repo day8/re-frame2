@@ -115,7 +115,7 @@ ARMS:
      names no UIx artefact.  This arm has a live subject rather than a
      theoretical one: the `:test` alias DOES declare
      `day8/re-frame2-uix`, legally and necessarily — the Node lane's
-     suites need a reactive substrate, and plain-atom has none — so the
+     suites run on UIx's adapter — so the
      property is not "the file never says uix" but "the PRODUCTION map
      never does".  A gate that grepped the file would be red, and
      promoting that test dependency into `:deps` is the realistic way
@@ -704,11 +704,10 @@ def scan_forbidden_coordinates(deps_text):
 
     Only the top-level `:deps` map. The `:test` alias's `:extra-deps` names
     `day8/re-frame2-uix` and MUST go on naming it — the Node lane's suites
-    need a reactive substrate and plain-atom has none, so a subscription
-    under it would never notify and every commit assertion would pass
-    vacuously. The self-test pins that as a present control, because a green
-    arm 2 over a file that had simply stopped mentioning UIx would read
-    identically to the one that matters.
+    run on UIx's adapter, whose derived value is the React-hook spine's, as
+    `re-frame.fresco.substrate`'s is. The self-test pins that as a present
+    control, because a green arm 2 over a file that had simply stopped
+    mentioning UIx would read identically to the one that matters.
     """
     production = top_level_value(deps_text, ":deps")
     if production is None:
