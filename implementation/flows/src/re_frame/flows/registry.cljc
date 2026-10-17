@@ -26,9 +26,9 @@
 ;; A ROW is `{:flow definition :inputs input-vec :output value}`: the definition
 ;; the flow was last evaluated with, the inputs that evaluation read and the
 ;; output it produced. The definition carries its `:output-path`, so a row also
-;; names the slot it wrote. Keeping all three together means every snapshot
-;; and restore of the row map — a flow throw, the router's commit rejection,
-;; epoch's reset after a tool write — moves them as one.
+;; names the slot it wrote. A row holding only `:flow` is one a rewind left
+;; untrusted (`reset-frame-last-inputs-to!`): its flow re-claims and recomputes
+;; on the next event, and the reconciler can still vacate the slot it names.
 ;;
 ;; The outer map changes only when a frame's memo is created or dropped; a
 ;; drain swaps its frame's own inner atom, so frames draining on different
@@ -91,15 +91,27 @@
     (claim-output-marks! frame-id restored)))
 
 (defn ^:no-doc reset-frame-last-inputs-to!
-  "Replace `frame-id`'s memo rows with `prior`. The `:flows/restore-last-inputs!`
-  hook: the router restores a snapshot when an event does not commit, and
-  epoch passes `{}` after a tool write so the next event evaluates every flow
-  against the installed state. The output claims of the rows the pass
-  advanced go back with them (`restore-output-claims!`)."
+  "Rewind `frame-id`'s memo to `prior`. The `:flows/restore-last-inputs!` hook:
+  the router restores the snapshot it took before the pass when an event does
+  not commit, and epoch passes `{}` after a tool write so the next event
+  evaluates every flow against the installed state.
+
+  A rewind changes which rows the memo trusts, not which output paths it
+  accounts for. Each `prior` row comes back whole. A row only the current memo
+  holds keeps its definition, which names the output path the frame may still
+  hold, and loses its inputs and output: its flow re-claims and recomputes on
+  the next event, and a departure or a moved `:output-path` still vacates the
+  path. The output claims of the rows the pass advanced go back with them
+  (`restore-output-claims!`)."
   [frame-id prior]
   (when-let [a (frame-memo-atom frame-id)]
     (let [current @a]
-      (reset! a prior)
+      (reset! a (reduce-kv (fn [rows id row]
+                             (if (contains? rows id)
+                               rows
+                               (assoc rows id (dissoc row :inputs :output))))
+                           prior
+                           current))
       (restore-output-claims!
         frame-id prior
         (reduce-kv (fn [flows id row] (assoc flows id (:flow row))) {} current))))
