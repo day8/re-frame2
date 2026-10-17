@@ -77,46 +77,6 @@
 ;; vocabulary).
 (def ^:private local-skip-phases #{:spawn})
 
-;; ---- exact-frame-incarnation continuation ---------------------------------
-;;
-;; A machine schema validator is APPLICATION code (the late-bound
-;; `:schemas/validate-with-registered-fn` adapter running an app-declared
-;; schema). Like any application callback it can
-;; synchronously destroy the frame incarnation (A) that owns the in-flight
-;; event and publish a same-id successor (B) before returning. Every machine
-;; lifecycle validator therefore threads the router's dequeue-time event-owner
-;; continuation predicate: it is checked AFTER each application callback and
-;; before any subsequent framework-owned write / diagnostic, so a callback
-;; resolved under A can never fire an install, bookkeeping mutation, or trace
-;; against successor B (or a dead frame).
-
-(defn owner-continuation
-  "Build the exact-frame-incarnation continuation predicate for `frame-id`
-  from the router's dequeue-time event-owner binding (`*event-owner*`). Returns
-  a 0-arity predicate: true while `frame-id`'s incarnation that owns the
-  in-flight event may still run framework-owned continuation, false once a
-  synchronous callback has destroyed A / published same-id B. When no event
-  owner is bound (a non-router internal call — e.g. a standalone validator
-  invoke), the predicate is `(constantly true)`, preserving the standalone
-  contract. Shared with `lifecycle-fx.spawn` so the spawn cascade and its
-  `validate-spawn-data!` callback fence against the SAME token."
-  [frame-id]
-  (if-let [owner-token (rf.frame/current-event-owner-token)]
-    #(rf.frame/event-continuation-live? frame-id owner-token)
-    (constantly true)))
-
-(defn- current-owner-continuation
-  "Like `owner-continuation` but derives the frame from the event-owner
-  binding itself — for validators (`validate-spawn-data!`'s 3-arity,
-  `validate-completion-output!`) that don't carry the frame-id explicitly:
-  they run inside the owning event's fx drain / finalize cascade, so the
-  dequeue-time event owner IS their frame."
-  []
-  (if-let [owner-token (rf.frame/current-event-owner-token)]
-    (let [owner-frame (rf.frame/current-event-owner-frame-id)]
-      #(rf.frame/event-continuation-live? owner-frame owner-token))
-    (constantly true)))
-
 (defn- emit-machine-data-rejection-record!
   "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
   the always-on `:errors` stream for a REJECTED candidate frame transition —
@@ -236,19 +196,12 @@
   registered (validation ran), and the schemas artefact owns the validator
   that ran it, so the hook is bound whenever a failure can fire; the
   `(or redact ...)` fallthrough is belt-and-braces."
-  ([machine-id frame-id where phase value schema explanation rollback? reason]
-   (emit-failure! machine-id frame-id where phase value schema explanation
-                  rollback? reason (constantly true)))
-  ([machine-id frame-id where phase value schema explanation rollback? reason continue?]
-   (let [explain-fn (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-         explanation (or explanation
-                         (when (and (continue?) explain-fn)
-                           (try
-                             (explain-fn schema value)
-                             (catch #?(:clj Throwable :cljs :default) e
-                               (if (continue?) (throw e) nil)))))
-         redact     (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
-         tags       {:where      where
+  [machine-id frame-id where phase value schema explanation rollback? reason]
+  (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+        explanation (or explanation
+                        (when explain-fn (explain-fn schema value)))
+        redact      (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
+        tags        {:where      where
                      :failing-id machine-id
                      :machine-id machine-id
                      :phase      phase
@@ -259,32 +212,21 @@
                      :rollback?  rollback?
                      :recovery   :no-recovery
                      :reason     reason}
-         tags       (if (and (continue?) redact)
-                      (try
-                        (redact schema tags)
-                        (catch #?(:clj Throwable :cljs :default) e
-                          (if (continue?) (throw e) nil)))
-                      tags)]
-     (when (continue?)
-       ;; The always-on `:errors` record FIRST, then the dev trace —
-       ;; mirroring `emit-error-both!`'s axis-1-then-axis-2 ordering
-       ;; (error_emit.cljc), so the JVM SSR error-listener's last-write-wins
-       ;; buffer keeps the RICHER trace as its final input. Both emits sit
-       ;; under THIS `(continue?)` guard, which is the one AFTER the explainer
-       ;; callback — application code that could have destroyed the owning
-       ;; frame incarnation. So a stale incarnation emits nothing on either
-       ;; axis and the two can never disagree about whether this rejection
-       ;; happened.
-       ;;
-       ;; The record is promoted for the `:rollback? true` MACHINE-DATA arms
-       ;; only (`:phase :macrostep` / `:bootstrap` — a whole discarded event
-       ;; transaction). Both conditions are named rather than just `rollback?`:
-       ;; `:machine-output` is `:rollback? false`, and keying on the
-       ;; boundary too is what stops a future promoted arm reaching the
-       ;; always-on axis by default.
-       (when (and rollback? (= :machine-data where))
-         (emit-machine-data-rejection-record! machine-id frame-id phase))
-       (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))))
+        tags        (if redact (redact schema tags) tags)]
+    ;; The always-on `:errors` record FIRST, then the dev trace —
+    ;; mirroring `emit-error-both!`'s axis-1-then-axis-2 ordering
+    ;; (error_emit.cljc), so the JVM SSR error-listener's last-write-wins
+    ;; buffer keeps the RICHER trace as its final input.
+    ;;
+    ;; The record is promoted for the `:rollback? true` MACHINE-DATA arms
+    ;; only (`:phase :macrostep` / `:bootstrap` — a whole discarded event
+    ;; transaction). Both conditions are named rather than just `rollback?`:
+    ;; `:machine-output` is `:rollback? false`, and keying on the
+    ;; boundary too is what stops a future promoted arm reaching the
+    ;; always-on axis by default.
+    (when (and rollback? (= :machine-data where))
+      (emit-machine-data-rejection-record! machine-id frame-id phase))
+    (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))
 
 (defn validate-snapshot-data!
   "Validate a single machine snapshot's `:data` against the registered
@@ -301,39 +243,30 @@
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false).
 
-  `frame-id` (the 6-arity) names the frame whose CANDIDATE transition carries
+  `frame-id` (the 5-arity) names the frame whose CANDIDATE transition carries
   this snapshot. It never rides the trace, and
   exists so the `:rollback? true` arms' always-on rejection record
   can route to that frame's `:observability :errors` sink. The candidate
   walker (`validate-machine-data!`) passes the frame the ROUTER handed it,
-  which is the authoritative one; the shorter arities derive it from the
+  which is the authoritative one; the 4-arity derives it from the
   router's dequeue-time event-owner binding, which is the same frame on the
   spawn fx path and nil for a direct call outside any event."
   ([machine-id snapshot schema phase]
-   (validate-snapshot-data! machine-id snapshot schema phase (constantly true)))
-  ([machine-id snapshot schema phase continue?]
-   (validate-snapshot-data! machine-id snapshot schema phase continue?
+   (validate-snapshot-data! machine-id snapshot schema phase
                             (rf.frame/current-event-owner-frame-id)))
-  ([machine-id snapshot schema phase continue? frame-id]
+  ([machine-id snapshot schema phase frame-id]
    (if-let [validate-fn (rf.late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]
-     (let [data   (:data snapshot)
-           result (try
-                    (validate-fn schema data)
-                    (catch #?(:clj Throwable :cljs :default) e
-                      (if (continue?) (throw e) nil)))]
-       (cond
-         (not (continue?)) :rf/stale-incarnation
-         result true
-         :else
+     (let [data (:data snapshot)]
+       (if (validate-fn schema data)
+         true
          (do
            (emit-failure! machine-id frame-id :machine-data phase data schema nil
                           (not (contains? local-skip-phases phase))
                           (str "Machine " machine-id
                                " :data failed schema at boundary :where "
-                               ":machine-data (phase " phase ").")
-                          continue?)
-           (if (continue?) false :rf/stale-incarnation))))
+                               ":machine-data (phase " phase ")."))
+           false)))
      true)))
 
 (defn- resolve-data-schema
@@ -354,27 +287,15 @@
   hooks (cannot happen on the live fx / router path — the validator is
   invoked FROM the loaded facade) the resolver short-circuits to nil = no
   validation."
-  ([machine-id snapshot]
-   (resolve-data-schema machine-id snapshot (constantly true)))
-  ([machine-id snapshot continue?]
-   (let [meta-entry
-         (when (continue?)
-           (some-> (when-let [meta-fn (rf.late-bind/get-fn-cached :machines/machine-meta)]
-                     (try
-                       (meta-fn machine-id)
-                       (catch #?(:clj Throwable :cljs :default) e
-                         (if (continue?) (throw e) nil))))
-                   (get :schemas)
-                   (find :data)))]
-     (or meta-entry
-         (when (continue?)
-           (some-> (when-let [spec-fn (rf.late-bind/get-fn-cached :machines/spec-from-snapshot)]
-                     (try
-                       (spec-fn snapshot)
-                       (catch #?(:clj Throwable :cljs :default) e
-                         (if (continue?) (throw e) nil))))
-                   (get :schemas)
-                   (find :data)))))))
+  [machine-id snapshot]
+  (or (some-> (when-let [meta-fn (rf.late-bind/get-fn-cached :machines/machine-meta)]
+                (meta-fn machine-id))
+              (get :schemas)
+              (find :data))
+      (some-> (when-let [spec-fn (rf.late-bind/get-fn-cached :machines/spec-from-snapshot)]
+                (spec-fn snapshot))
+              (get :schemas)
+              (find :data))))
 
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
@@ -402,10 +323,7 @@
   Per Spec 009 §Production builds the body lives inside a
   `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
-  ([runtime-db event-id frame-id]
-   (validate-machine-data! runtime-db event-id frame-id
-                           (owner-continuation frame-id)))
-  ([runtime-db _event-id frame-id continue?]
+  ([runtime-db _event-id frame-id]
   ;; `event-id` is accepted but unused at this boundary — the per-snapshot
   ;; emit names the MACHINE, which is the failing id here; the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
@@ -424,27 +342,24 @@
     ;; deterministically. A snapshot whose machine declares no `[:schemas
     ;; :data]` (or whose spec resolves to nil for both a singleton AND a
     ;; spawned actor) conforms vacuously.
-    (loop [entries (seq (get-in runtime-db (rf.machines.paths/snapshot-path)))
-           ok?     true]
-      (cond
-        (not (continue?)) :rf/stale-incarnation
-        (nil? entries) ok?
-        :else
-        (let [[machine-id snapshot] (first entries)
+    (reduce (fn [ok? [machine-id snapshot]]
               ;; A presence-carrying [:data schema] map entry, or nil for no
               ;; declaration — so a present nil / false schema
               ;; token is delegated to the validator rather than skipped.
-              schema-entry (resolve-data-schema machine-id snapshot continue?)
-              result (if (and (continue?) schema-entry)
+              (let [schema-entry (resolve-data-schema machine-id snapshot)]
+                (and (if schema-entry
                        (validate-snapshot-data!
-                         machine-id snapshot (val schema-entry) :macrostep
-                         continue? frame-id)
-                       true)]
-          (if (or (= :rf/stale-incarnation result)
-                  (not (continue?)))
-            :rf/stale-incarnation
-            (recur (next entries) (and result ok?))))))
-    true)))
+                         machine-id snapshot (val schema-entry) :macrostep frame-id)
+                       true)
+                     ok?)))
+            true
+            (get-in runtime-db (rf.machines.paths/snapshot-path)))
+    true))
+  ([runtime-db event-id frame-id _live?]
+   ;; The router invokes every candidate-partition validator with
+   ;; `validate-app-schema!`'s argument shape; this boundary does not read
+   ;; the trailing predicate.
+   (validate-machine-data! runtime-db event-id frame-id)))
 
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install
@@ -457,36 +372,21 @@
   there is nothing to roll back — `:phase :spawn` emits with
   `:rollback? false`.
 
-  The application schema validator is fenced to the exact frame incarnation
-  via `continue?`: a validator that destroys the owning frame
-  A and publishes same-id B returns `:rf/stale-incarnation` (via
-  `validate-snapshot-data!`) rather than a schema verdict, and suppresses the
-  failure trace — so the spawn caller (`lifecycle-fx.spawn`) skips the whole
-  install cascade rather than landing A-derived allocation on B. The 3-arity
-  derives the continuation from the router's event-owner binding
-  (`current-owner-continuation`); the spawn caller passes the SAME predicate it
-  fences its post-callback cascade with so both agree on the token.
-
   Per Spec 009 §Production builds the body lives inside a
   `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally — the install proceeds unvalidated
   under `:advanced` + `goog.DEBUG=false`."
-  ([spawned-id spec snapshot]
-   (validate-spawn-data! spawned-id spec snapshot (current-owner-continuation)))
-  ([spawned-id spec snapshot continue?]
-   (if rf.interop/debug-enabled?
-     ;; KEY-presence, not value truthiness: a present nil /
-     ;; false `[:schemas :data]` is a declaration whose exact token is
-     ;; delegated to the registered validator; only an ABSENT key means
-     ;; no declaration.
-     (if (contains? (get spec :schemas) :data)
-       ;; Returns true (conform) / false (schema violation, A still owns) /
-       ;; :rf/stale-incarnation (the validator callback lost A). The no-schema
-       ;; branch runs NO callback, so A cannot be lost here — `true`.
-       (validate-snapshot-data! spawned-id snapshot (get-in spec [:schemas :data])
-                                :spawn continue?)
-       true)
-     true)))
+  [spawned-id spec snapshot]
+  (if rf.interop/debug-enabled?
+    ;; KEY-presence, not value truthiness: a present nil /
+    ;; false `[:schemas :data]` is a declaration whose exact token is
+    ;; delegated to the registered validator; only an ABSENT key means
+    ;; no declaration.
+    (if (contains? (get spec :schemas) :data)
+      (validate-snapshot-data! spawned-id snapshot (get-in spec [:schemas :data])
+                               :spawn)
+      true)
+    true))
 
 (defn validate-completion-output!
   "Validate a finishing machine's COMPLETION-OUTPUT payload against its
@@ -517,14 +417,6 @@
   :machine-data` boundary uses), so an app with no schema adapter pays zero
   cost.
 
-  The application output validator is fenced to the exact frame incarnation:
-  if the validator callback destroys the owning frame A and
-  publishes same-id B, neither the `:machine-output` failure trace nor the
-  `:rf.error/malformed-schema` trace is emitted — the diagnostic would
-  otherwise be attributed to B, a frame that never ran this completion. The
-  completion still flows (best-effort); only the now-stale diagnostic is
-  suppressed.
-
   Per Spec 009 §Production builds the body lives inside a
   `(when rf.interop/debug-enabled? ...)` gate so production builds return `true`
   unconditionally — the completion proceeds unvalidated under `:advanced` +
@@ -552,38 +444,27 @@
           ;; `:rf.error/malformed-schema :where :machine-output` trace and
           ;; PROCEED (return true), so a schema typo surfaces loudly yet never
           ;; deadlocks a finishing machine.
-          (let [continue? (current-owner-continuation)]
-            (try
-              (let [conforms? (validate-fn schema result)]
-                (cond
-                  ;; The validator callback destroyed A / published same-id B —
-                  ;; suppress the (now-stale) diagnostic; do not attribute it to B.
-                  (not (continue?)) :rf/stale-incarnation
-                  conforms?         true
-                  :else
-                  (do (emit-failure! machine-id (rf.frame/current-event-owner-frame-id)
-                                     :machine-output :completion result
-                                     schema nil false
-                                     (str "Machine " machine-id
-                                          " completion output (the :output-key payload) "
-                                          "failed schema at boundary :where "
-                                          ":machine-output (phase :completion).")
-                                     continue?)
-                      false)))
-              (catch #?(:clj Throwable :cljs :default) e
-                ;; Owner still live → a genuine malformed-schema diagnostic.
-                ;; Owner lost (the callback threw AND destroyed A) → suppress it.
-                (if (continue?)
-                  (do (rf.trace/emit-error! :rf.error/malformed-schema
-                                         {:where    :machine-output
-                                          :reason   (str "Machine " machine-id
-                                                         "'s [:schemas :output] schema is malformed — "
-                                                         "the registered validator threw: "
-                                                         #?(:clj (.getMessage e) :cljs (ex-message e))
-                                                         ". The completion proceeds (best-effort).")
-                                          :schema   schema
-                                          :rollback? false})
-                      true)
-                  :rf/stale-incarnation))))
+          (try
+            (if (validate-fn schema result)
+              true
+              (do (emit-failure! machine-id (rf.frame/current-event-owner-frame-id)
+                                 :machine-output :completion result
+                                 schema nil false
+                                 (str "Machine " machine-id
+                                      " completion output (the :output-key payload) "
+                                      "failed schema at boundary :where "
+                                      ":machine-output (phase :completion)."))
+                  false))
+            (catch #?(:clj Throwable :cljs :default) e
+              (rf.trace/emit-error! :rf.error/malformed-schema
+                                    {:where    :machine-output
+                                     :reason   (str "Machine " machine-id
+                                                    "'s [:schemas :output] schema is malformed — "
+                                                    "the registered validator threw: "
+                                                    #?(:clj (.getMessage e) :cljs (ex-message e))
+                                                    ". The completion proceeds (best-effort).")
+                                     :schema   schema
+                                     :rollback? false})
+              true))
           true)))
     true))

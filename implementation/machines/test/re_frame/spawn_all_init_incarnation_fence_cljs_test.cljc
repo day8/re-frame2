@@ -62,7 +62,7 @@
 
 (defn- run-init
   "Make frame A and call `spawn-all-init-fx` directly under A's event owner.
-  `trigger` is `{:kind :validator :verdict <:true|:false|:throw>}` (the schema
+  `trigger` is `{:kind :validator :verdict <:true|:false>}` (the schema
   hook) or `{:kind :reject-listener}` (an `:errors` listener on the
   unregistered-type record); when `destroy?`, it first destroys A and publishes
   same-id B. Returns what the frame id holds afterwards."
@@ -89,10 +89,7 @@
           (fn [schema _data]
             (when (= schema child-schema)
               (destroy+B!)
-              (case (:verdict trigger)
-                :throw (throw (ex-info "validator boom" {}))
-                :false false
-                true)))))
+              (not= :false (:verdict trigger))))))
       (rf.frame/call-with-event-owner-token frame-a token-a
         #(rf.machines.lifecycle-fx.spawn/spawn-all-init-fx {:frame frame-a} (init-args children)))
       {:b-birth   @b-birth
@@ -109,7 +106,6 @@
   (doseq [[frame-a trigger children]
           [[:fence/conform {:kind :validator :verdict :true}  [strict-spawn]]
            [:fence/fail    {:kind :validator :verdict :false} [strict-spawn]]
-           [:fence/throw   {:kind :validator :verdict :throw} [strict-spawn]]
            [:fence/reject  {:kind :reject-listener}           ok+missing-spawns]]]
     (testing (str frame-a)
       (let [{:keys [b-birth b-runtime started]}

@@ -185,8 +185,7 @@
   the bare write."
   [frame-id actor-id teardown-args emit-destroyed!-fn owner-token]
   ;; (1) run the active configuration's `:exit` cascade.
-  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit!
-    frame-id actor-id {:owner-gone? (constantly false) :owner-token owner-token})
+  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id owner-token)
   ;; (1b) destroy the children this actor's `:spawn` / `:spawn-all` slots
   ;; track.
   (reap-tracked-children! frame-id actor-id owner-token)

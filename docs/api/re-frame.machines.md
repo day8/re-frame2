@@ -653,12 +653,12 @@ These run the registration-time checks and the `:data` schema checks. The three 
 - **Signature**:
   ```clojure
   (re-frame.machines/validate-machine-data! runtime-db event-id frame-id) → boolean
-  (re-frame.machines/validate-machine-data! runtime-db event-id frame-id continue?)
+  (re-frame.machines/validate-machine-data! runtime-db event-id frame-id live?)
   ```
 - **Description**: Validates the `:data` of every snapshot under `[:rf.runtime/machines :snapshots]` in `runtime-db` against its machine's `[:schemas :data]` schema. This is the `:where :machine-data` boundary: the router runs it with `validate-app-schema!` against the candidate `runtime-db`, before commit.
     - Returns `true` when every snapshot conforms or has no schema or validator, and `false` otherwise. It validates every snapshot without stopping at the first failure, so each failing machine emits its own trace. On `false` the router rejects the whole candidate, as it does for a `:where :app-db` failure.
     - It finds the schema for a registered machine through the `:rf/machine` registration, and for a spawned actor through the snapshot's `:rf/machine-type`.
-    - The 4-arity takes `continue?`, a predicate that is true while the owning frame is still current; the 3-arity builds it from the frame. If the owning frame is destroyed or replaced during validation, the function returns `:rf/stale-incarnation` instead of a boolean.
+    - The 4-arity is the shape the router calls every candidate validator with; this boundary ignores the trailing predicate.
 
 #### `re-frame.machines/validate-spawn-data!`
 
@@ -666,9 +666,8 @@ These run the registration-time checks and the `:data` schema checks. The three 
 - **Signature**:
   ```clojure
   (re-frame.machines/validate-spawn-data! spawned-id spec snapshot) → boolean
-  (re-frame.machines/validate-spawn-data! spawned-id spec snapshot continue?)
   ```
-- **Description**: Validates a new actor's initial snapshot `:data` against its machine's `[:schemas :data]` schema before `:rf.machine/spawn` installs it. Returns `true` on conform, no schema or no validator. Returns `false` on failure, and the spawn installs nothing. Nothing was committed, so the failure trace has `:phase :spawn` and `:rollback? false`. The 4-arity `continue?` and the `:rf/stale-incarnation` return work as for `validate-machine-data!`.
+- **Description**: Validates a new actor's initial snapshot `:data` against its machine's `[:schemas :data]` schema before `:rf.machine/spawn` installs it. Returns `true` on conform, no schema or no validator. Returns `false` on failure, and the spawn installs nothing. Nothing was committed, so the failure trace has `:phase :spawn` and `:rollback? false`.
 
 ### Runtime and lifecycle
 
