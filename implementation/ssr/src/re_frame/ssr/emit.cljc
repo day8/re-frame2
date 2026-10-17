@@ -516,13 +516,24 @@
   keeps on the client, renders here without this namespace requiring a
   substrate: `re-frame.adapter.reagent` makes it answer `:__html`. A value
   answering a nil `__html`, or none at all (a string, a vector), gives an
-  empty body."
-  [converted]
+  empty body.
+
+  A `<pre>` / `<listing>` body that is a string beginning with LF gets the
+  compensating LF react-dom/server writes ahead of it, because the HTML
+  parser drops the first LF after those start tags
+  (`html/leading-newline-compensation`). React compensates only a STRING
+  `__html`, and refuses the prop on a `<textarea>`, so neither a non-string
+  body nor a textarea's is compensated here."
+  [normalised-tag-name converted]
   (when-let [channel (get converted "dangerouslySetInnerHTML")]
     (let [html (get channel :__html)]
       (cond
         (nil? html)    ""
         (number? html) (rf.ssr.hash/canonical-number html)
+        (string? html) (str (when-not (= "textarea" normalised-tag-name)
+                              (rf.ssr.html-helpers/leading-newline-compensation
+                                normalised-tag-name html))
+                            html)
         :else          (str html)))))
 
 (defn dom-element-props
@@ -538,7 +549,7 @@
   [tag-name normalised-tag-name tag-attrs user-attrs children]
   (let [merged     (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
         converted  (convert-dom-attrs tag-name merged)
-        inner-html (inner-html-body converted)]
+        inner-html (inner-html-body normalised-tag-name converted)]
     (cond-> (if (clojure.string/includes? tag-name "-")
               {:attrs converted}
               (form-control-props normalised-tag-name converted children))
