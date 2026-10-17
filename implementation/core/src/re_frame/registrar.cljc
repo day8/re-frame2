@@ -145,9 +145,17 @@
   `:interceptors` chains carry REFERENCES (bare keyword / `[id arg]`) into
   this kind; the runtime resolves the refs to executable interceptor values
   at chain assembly (`re-frame.interceptor-registry`). Application ids are
-  application-owned; framework standard refs live under `:rf.interceptor/*`."
+  application-owned; framework standard refs live under `:rf.interceptor/*`.
+
+  `:http-interceptor` (Spec 014 §Middleware) is the managed-HTTP
+  interceptor kind — `reg-http-interceptor` stores a frame-agnostic
+  definition (`:before` / `:after`) under it. A frame activates definitions
+  by naming them, in order, in its `:http-interceptors` config vector; the
+  http artefact resolves those ids through the frame's own view when a
+  request is issued. Reserved whether or not the http artefact ships."
   #{:event :sub :fx :cofx :interceptor :view :frame :route :head
-    :error-projector :flow :resource :mutation :resource-scope :app-schema})
+    :error-projector :flow :resource :mutation :resource-scope :app-schema
+    :http-interceptor})
 
 (defn valid-kind? [k]
   (contains? kinds k))

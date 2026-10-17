@@ -13,7 +13,6 @@
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as rf.ssr.constants]
-            [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
@@ -64,8 +63,7 @@
 ;; The payload is the framework's, byte for byte
 
 (deftest the-payload-is-the-frameworks-own
-  ;; Spec 011's two always-present keys (an adoption-tier root carries no
-  ;; `:rf/render-hash`); no `:rf/frame-id`, because stamping the gensym would
+  ;; Spec 011's two always-present keys; no `:rf/frame-id`, because stamping the gensym would
   ;; be a hydration frame-id mismatch on every page; the allowlist; the
   ;; pinned script id; and an EDN round trip.
   (let [{:keys [payload payload-edn payload-script]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
@@ -100,31 +98,18 @@
           (set (keys (:rf/app-db (:payload (rf.bench.fresco.ssr.entry/render
                                              (assoc dogfood-request :payload :rf.ssr.payload/whole-app-db))))))])))
 
-(deftest the-interpreted-root-ships-no-render-hash
-  ;; Every row, not only the exclusion row's: an adoption-tier root carries
-  ;; no hash at either end. The app root carries the id the client mounts on.
+(deftest every-corpus-row-renders-a-whole-document
+  ;; Every row: markup, the doctype, the app root carrying the id the client
+  ;; mounts on, the payload script, and the document's close.
   (doseq [{:keys [id] :as row} rf.bench.fresco.ssr.fixtures/corpus]
-    (let [{:keys [html document payload]} (rf.bench.fresco.ssr.entry/render row)]
-      (is (= [true true true true true false false]
+    (let [{:keys [html document]} (rf.bench.fresco.ssr.entry/render row)]
+      (is (= [true true true true true]
              [(boolean (seq html))
               (str/starts-with? document "<!DOCTYPE html>")
               (str/includes? document "<div id=\"app\">")
               (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\""))
-              (str/ends-with? document "</body></html>")
-              (str/includes? document "data-rf-render-hash")
-              (contains? payload :rf/render-hash)])
+              (str/ends-with? document "</body></html>")])
           id))))
-
-(deftest the-hash-this-root-would-have-had-is-a-constant
-  ;; Kept live so the removal above cannot decay into folklore: the
-  ;; canonical EDN of every `[<fn> {}]` root is the same, so the dogfood
-  ;; screen and the Conduit feed take the published `83b865f8`, while a root
-  ;; whose hiccup IS markup hashes differently — so it is the interpreted
-  ;; root, not the hash function, that defeats it.
-  (let [hash-of #(rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row %)))
-        dogfood (rf.ssr.hash/render-tree-hash (:hiccup dogfood-request))]
-    (is (= ["83b865f8" "83b865f8" true]
-           [dogfood (hash-of "conduit-feed") (not= dogfood (hash-of "defhost-ssr-policy"))]))))
 
 (deftest the-server-render-ships-no-mounting-overrides
   ;; THE REGRESSION GUARD. Presence applies its `::h/mounting` overrides to a

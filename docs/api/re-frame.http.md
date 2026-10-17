@@ -254,7 +254,7 @@ A failure's `:kind` is one of seven values, all reserved under `:rf.http/*`. The
 
 ## Request interceptors
 
-Register an interceptor to change every request a frame issues: add an auth header, stamp a request id, log timings. Call it as `rf/reg-http-interceptor`, and remove one with `(rf/clear :http-interceptor id)`. The facade has no `clear-http-interceptor`; `re-frame.http.managed/clear-http-interceptor` below is the function behind it. [Interceptors: stamp every request once](../async/http-going-further.md#interceptors-stamp-every-request-once) walks through the common cases.
+Register an interceptor to change every request a frame issues: add an auth header, stamp a request id, log timings. Define it once at the top level with `rf/reg-http-interceptor`, then turn it on for a frame by naming its id in that frame's `:http-interceptors` config. Remove a definition with `(rf/clear :http-interceptor id)`. The facade has no `clear-http-interceptor`; `re-frame.http.managed/clear-http-interceptor` below is the function behind it. [Interceptors: stamp every request once](../async/http-going-further.md#interceptors-stamp-every-request-once) walks through the common cases.
 
 ### `reg-http-interceptor`
 
@@ -263,27 +263,27 @@ Register an interceptor to change every request a frame issues: add an auth head
   ```clojure
   (reg-http-interceptor id interceptor-map) → id
   ```
-- **Description**: Registers an interceptor on a frame's `:rf.http/managed` chain: its `:before` fn can rewrite each outgoing request, and its `:after` fn each reply.
-    - `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus an optional `:frame` and the standard `:rf/registration-metadata` keys.
+- **Description**: Registers an interceptor definition for `:rf.http/managed`: its `:before` fn can rewrite each outgoing request, and its `:after` fn each reply. The definition belongs to no frame; it runs only for a frame that names `id` in its `:http-interceptors` config.
+    - `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus the standard `:rf/registration-metadata` keys.
     - A `:before` fn receives a ctx `{:request … :args … :frame … :event … :sensitive? …}` and returns it, possibly changed. `:sensitive?` is `true` when the args marked the request sensitive, at the top level or under `:request`; the `:request` left at the end of the chain is what is sent. An `:after` fn receives that final ctx and the reply map, so it can match a response to its request, and returns the reply.
-    - `:before` fns run in registration order, before the request goes to the platform HTTP client. `:after` fns run in reverse registration order, after the reply is built and before it is dispatched. The reply then goes to `:on-success` when the final reply's `:status` is `:ok`, and to `:on-failure` otherwise.
+    - `:before` fns run in the order the frame's `:http-interceptors` vector names them, before the request goes to the platform HTTP client. `:after` fns run in reverse of that order, after the reply is built and before it is dispatched. The reply then goes to `:on-success` when the final reply's `:status` is `:ok`, and to `:on-failure` otherwise.
     - `:before` fns run once per request, not per retry attempt: every attempt sends the request the chain produced. `:after` fns run once, on the final reply, including a `:cancelled` one.
-    - A request uses the chain as it stood when the request was issued, for both halves and every retry. Registering, replacing or clearing an interceptor affects only requests issued afterwards.
+    - A request uses the chain as it stood when the request was issued, for both halves and every retry. Registering, replacing or clearing an interceptor, or re-making the frame with a different `:http-interceptors`, affects only requests issued afterwards.
     - A `:before` can mark a request sensitive by setting `[:request :sensitive?] true`.
-    - The target frame is the explicit `:frame` if given, else the frame in scope (`with-frame`, an `:initial-events` step); it never falls back to `:rf/default`.
-    - Re-registering an existing id replaces it in place, keeping its position in the chain. After a `clear-http-interceptor`, registering the same id appends it to the end.
+    - Registration reads no frame: call it at the top level, at namespace load, like any other `reg-*`. Load order configures nothing; a frame's `:http-interceptors` vector is the whole chain and its order. A frame that names no chain runs no interceptor, and a definition no frame names is unused.
+    - The frame's ids resolve through its own registrations when a request is issued, so a later image's definition of an id shadows the app's for frames built on that image. Frames diverge by naming different ids.
+    - Re-registering an existing id replaces its definition; every frame naming it runs the new one from its next request.
 - **Errors**:
-    - At registration:
-        - `:rf.error/http-bad-interceptor`: an invalid shape, such as a non-keyword id, neither `:before` nor `:after`, a non-fn slot or a non-keyword `:frame`.
-        - `:rf.error/no-frame-context`: no `:frame` and no frame in scope.
+    - At registration: `:rf.error/http-bad-interceptor`, for an invalid shape, such as a non-keyword id, neither `:before` nor `:after`, or a non-fn slot. A `:frame` key raises it too, with a message naming `:http-interceptors`, since a definition belongs to no frame.
+    - At `make-frame`: `:rf.error/http-bad-interceptor`, when `:http-interceptors` is not a vector of keywords.
+    - When a request is issued: `:rf.error/unregistered-interceptor`, when the frame names an id no `reg-http-interceptor` defines. It names the id, and the request is not sent.
     - When a request runs. A failing `:before` means the request is not sent, and a failing `:after` means the reply is not delivered:
         - `:rf.error/http-interceptor-failed`: a `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url` and `:cause`, plus `:phase :after` when an `:after` threw.
         - `:rf.error/http-interceptor-bad-return`: a `:before` or `:after` returned something other than a map. Carries `:id` and `:returned`.
 - **Example**:
   ```clojure
   (rf/reg-http-interceptor :auth/inject
-    {:frame  :rf/default
-     :before (fn [ctx]
+    {:before (fn [ctx]
                ;; read the token fresh on each request, so a rotated token is picked up
                (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                  (cond-> ctx
@@ -292,10 +292,12 @@ Register an interceptor to change every request a frame issues: add an auth head
 
   ;; Or with both sides — :before stamps a start mark, :after reads it.
   (rf/reg-http-interceptor :telemetry
-    {:frame  :rf/default
-     :before (fn [ctx] (assoc ctx ::started (js/Date.now)))
+    {:before (fn [ctx] (assoc ctx ::started (js/Date.now)))
      :after  (fn [ctx resp]
                (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
+
+  ;; The frame names its chain, in order.
+  (rf/make-frame {:id :rf/default :http-interceptors [:auth/inject :telemetry]})
   ```
 
 ### `re-frame.http.managed/clear-http-interceptor`
@@ -303,20 +305,16 @@ Register an interceptor to change every request a frame issues: add an auth head
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-http-interceptor id)                 → id
-  (clear-http-interceptor id {:frame target}) → id
+  (clear-http-interceptor id) → id
   ```
-- **Description**: Removes an interceptor by id. Application code calls it through the facade, as `(rf/clear :http-interceptor id)` or `(rf/clear :http-interceptor id {:frame target})`.
-    - `(clear-http-interceptor id)` uses the frame in scope; it never clears from `:rf/default`.
-    - `(clear-http-interceptor id {:frame target})` names the frame, like `reg-http-interceptor`'s `:frame`. `target` is a frame-id keyword or a live frame value, and the opts map must be exactly `{:frame target}`.
-    - These two forms are the whole public surface; there is no frame-first `(clear-http-interceptor frame id)` form.
+- **Description**: Removes the interceptor definition `id`. Application code calls it through the facade, as `(rf/clear :http-interceptor id)`.
+    - A definition belongs to no frame, so clearing it removes it for every frame at once. A frame that still names the id fails its next request at issue with `:rf.error/unregistered-interceptor`, as for an id never registered.
+    - To stop one frame running an interceptor, re-make that frame without the id in its `:http-interceptors`.
 - **Errors**:
-    - `:rf.error/no-frame-context`: `(clear-http-interceptor id)` with no frame in scope.
-    - `:rf.error/http-bad-interceptor`: the opts map is not exactly `{:frame target}` with a non-nil target: `{}`, `{:frame nil}`, a misspelled or extra key (`{:fram f}`), or a non-map second argument. Raised before any frame is resolved.
-    - `:rf.error/registrar-clear-bad-request`: through the facade, `(rf/clear :http-interceptor id opts)` checks the same `{:frame target}` shape itself, so a malformed opts map there raises this instead.
+    - `:rf.error/registrar-clear-bad-request`: through the facade, `(rf/clear :http-interceptor id opts)` with any opts map, since the clear takes no frame.
 - **Example**:
   ```clojure
-  (rf/clear :http-interceptor :auth/inject {:frame :rf/default})
+  (rf/clear :http-interceptor :auth/inject)
   ```
 
 ## Privacy and classification
@@ -513,8 +511,8 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 | `:rf.http/cljs-only-key-ignored-on-jvm` | `:warning` | JVM only, per occurrence: the request carried a key the JVM transport ignores (`:mode`, `:cache`, `:referrer`, `:integrity` or `:credentials` in `:request`, or `:abort-signal`). The request proceeds without it. Carries `:key`, `:url`. |
 | `:rf.http/binary-decode-degraded-on-jvm` | `:warning` | JVM only, per request with an explicit `:decode` of `:blob`, `:array-buffer` or `:form-data`: the body arrives as a `byte[]` rather than the browser object. Carries `:decode`, `:url`. |
 | `:rf.error/http-reply-tail-failed` | `:error` | In every build: delivering the reply threw after the transport completed (an `:after`, the reply target, or the completion cascade). There is no retry and no re-send; the reply is not delivered. |
-| `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:frame`, `:id`. |
-| `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing interceptor. Carries `:frame`, `:id`. |
+| `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:id`. |
+| `:rf.http.interceptor/cleared` | `:info` | `(rf/clear :http-interceptor id)` removed an existing definition. Carries `:id`. |
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor's `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause`, plus `:phase :after` when an `:after` threw. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
 | `:rf.error/http-interceptor-bad-return` | `:error` | An interceptor's `:before` or `:after` returned something other than a map. Carries `:id`, `:returned`. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
 
@@ -527,8 +525,8 @@ Not for application code. The framework's own tests reach these across a namespa
 - `re-frame.http.managed/actor-in-flight-snapshot` — the in-flight requests an actor issued, keyed by actor id.
 - `re-frame.http.managed/seed-in-flight-for-test!` — records a fabricated in-flight request in the one registry real requests are filed in, so every snapshot and abort path sees it.
 - `re-frame.http.managed/abort-on-actor-destroy` — aborts the requests an actor issued; the actor-destroy cascade calls it.
-- `re-frame.http.managed/clear-all-http-interceptors!` — empties every frame's interceptor chain.
-- `re-frame.http.managed/interceptors-snapshot` — a frame's interceptor chain, in order.
+- `re-frame.http.managed/clear-all-http-interceptors!` — removes every interceptor definition.
+- `re-frame.http.managed/interceptors-snapshot` — with no argument, every interceptor definition keyed by id; with a frame id, the chain a request from that frame would capture, in order.
 - `re-frame.http.test-support/run-request-chain` — runs a request's `:before` interceptors, as the canned effects do, and returns the resulting context.
 - `re-frame.http.test-support/capture-and-run-request-chain` — the same, also returning the chain it captured, for a caller that goes on to run the `:after` half.
 - `re-frame.http.test-support/emit-canned-success!` — delivers a canned success reply for a request whose `:before` half already ran.

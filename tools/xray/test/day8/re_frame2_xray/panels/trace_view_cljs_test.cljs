@@ -9,7 +9,7 @@
   `:rf.xray/sync-epoch-history`, and focused via `:rf.xray/focus-event`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as rf.ssr]
+            [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.registry :as registry]
@@ -449,15 +449,21 @@
                     (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled})])])
       (is (= #{2 3} (set (map :id (:rows @(rf/subscribe [:rf.xray/trace-feed])))))))))
 
-(deftest ungrouped-pin-lists-a-real-hydration-mismatch-and-its-hashes
-  (testing "`verify-hydration!` runs outside any event, so its mismatch
-            lands in the `:ungrouped` pseudo-bundle, which settles no
-            epoch. Selecting that row must still list the bundle's events
-            in the Trace tab, so the mismatch's hashes can be read there:
-            in the row's reason, and as tags in the expanded raw trace."
+(deftest ungrouped-pin-lists-a-real-hydration-mismatch-and-reacts-message
+  (testing "A hydrating root's adoption reporter fires from React's
+            `onRecoverableError`, outside any event, so its mismatch lands
+            in the `:ungrouped` pseudo-bundle, which settles no epoch.
+            Selecting that row must still list the bundle's events in the
+            Trace tab, so React's message can be read there, as tags in
+            the expanded raw trace."
     (setup-xray-frame!)
     (install/register-trace-collector!)
-    (rf.ssr/verify-hydration! :rf/default "cafef00d" {:server-hash "deadbeef"})
+    ;; The real reporter a hydrating root installs, called the way React
+    ;; calls it while the adoption window is open. The authored callback
+    ;; stands in for the host's, so React's default report stays quiet.
+    ((rf.substrate.spine/native-hydration-reporter #js {:adopting true} (fn [_ _]))
+     (js/Error. "Hydration failed because the server rendered text didn't match the client.")
+     #js {})
     (trace-collector/refresh-trace-rings!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update :general :show-ungrouped? true])
@@ -467,10 +473,8 @@
             mismatch  (some #(when (= :rf.ssr/hydration-mismatch (:operation %)) %)
                             (:rows feed))
             id        (:id mismatch)]
-        (let [target (find-by-testid (rendered-tree) (str "rf-xray-trace-row-" id "-target"))
-              text   (apply str (filter string? (hiccup-seq target)))]
-          (is (and (re-find #"deadbeef" text) (re-find #"cafef00d" text))
-              (str "the row's reason names both hashes. target: " (pr-str text))))
+        (is (some? (find-by-testid (rendered-tree) (str "rf-xray-trace-row-" id)))
+            "the mismatch renders as a row of the `:ungrouped` feed")
         (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand id])
         (let [inspector (some #(when (and (vector? %)
                                           (identical? ei/edn-inspector-view (first %))
@@ -478,10 +482,13 @@
                                              (:mount-id (second %))))
                                  %)
                               (hiccup-seq (inspector-heads-tree)))
-              tags      (:tags (:value (second inspector)))]
-          (is (= {:server-hash "deadbeef" :client-hash "cafef00d"}
-                 (select-keys tags [:server-hash :client-hash]))
-              "the expanded row's raw trace carries both hash tags"))))))
+              raw       (:value (second inspector))]
+          (is (= {:error "Hydration failed because the server rendered text didn't match the client."
+                  :where 're-frame.substrate.spine/make-render}
+                 (select-keys (:tags raw) [:error :where]))
+              "the expanded row's raw trace carries React's message and the hydrating door")
+          (is (= :warned-and-replaced (:recovery raw))
+              "the raw trace carries React's recovery"))))))
 
 ;; ---- (4b) focused-event-bundle layer-3 sub ------------------------------
 ;;

@@ -87,7 +87,6 @@
     (rf.ssr.payload-policy/build-payload
       nil
       (rf/app-db-value sfid)
-      "server-hash-1"
       {:runtime-db (rf.ssr.payload-policy/project-runtime-db
                      (rf.frame/frame-runtime-db-value sfid) sfid)})))
 

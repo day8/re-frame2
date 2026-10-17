@@ -11,7 +11,6 @@
   |---|---|---|
   | frame-id | a payload whose `:rf/frame-id` names another frame | preflight, before the ledger |
   | conflict | a payload id already held at a different digest | preflight, at the ledger |
-  | verify | a throwing `:render-tree-fn` | after the seed commits |
   | mount | a throwing `:mount-fn` | after the seed commits |
 
   Runs on the JVM and the node runner; the browser half is
@@ -50,7 +49,7 @@
     fid))
 
 (defn- payload-for [db]
-  (rf.ssr.payload-policy/build-payload nil db "server-hash-1" {}))
+  (rf.ssr.payload-policy/build-payload nil db {}))
 
 (defn- reg-bump! []
   (rf/reg-event ::bump (fn [{:keys [db]} _] {:db (update db :count inc)})))
@@ -83,9 +82,7 @@
 ;; A payload the server rendered for a different frame: the shipped builder
 ;; stamps its wire `:rf/frame-id`, and `hydrate!` refuses it before the ledger.
 (def ^:private frame-id-lever
-  {:payload (rf.ssr.payload-policy/build-payload :rf.isolation/elsewhere {:count 7}
-                                                 "server-hash-1" {})})
-(def ^:private verify-lever   {:render-tree-fn (boom! "render-tree-fn")})
+  {:payload (rf.ssr.payload-policy/build-payload :rf.isolation/elsewhere {:count 7} {})})
 (def ^:private mount-lever    {:mount-fn (boom! "mount")})
 
 (defn- poison-with-a-conflicting-payload!
@@ -123,9 +120,6 @@
 
 (deftest a-root-whose-payload-names-another-frame-fails-alone
   (run-arm! "frame-id" frame-id-lever))
-
-(deftest a-root-whose-render-tree-fn-throws-fails-alone
-  (run-arm! "verify" verify-lever))
 
 (deftest a-root-whose-mount-throws-fails-alone
   (run-arm! "mount" mount-lever))
@@ -177,17 +171,15 @@
   [["a non-map :rf/app-db"     {:rf/app-db []}]
    ["a non-map :rf/runtime-db" {:rf/app-db {:count 7} :rf/runtime-db []}]])
 
-(deftest a-refused-payload-leaves-no-claim-and-verifies-nothing
-  (testing "hydrate! answers as a client-only first load, verifies nothing,
-            and a corrected payload for the same frame then installs — a
-            stale claim would throw :rf.error/frame-payload-conflict"
+(deftest a-refused-payload-leaves-no-claim
+  (testing "hydrate! answers as a client-only first load, and a corrected
+            payload for the same frame then installs — a stale claim would
+            throw :rf.error/frame-payload-conflict"
     (doseq [[label refused] refused-payloads]
       (let [fid      (fresh-frame!)
-            verified (atom 0)
             returned (rf.ssr.boot/hydrate!
-                      {:frame fid :payload refused :root-id :page/bad
-                       :render-tree-fn (fn [] (swap! verified inc) [:div])})]
-        (is (= [nil 0] [returned @verified]) label)
+                      {:frame fid :payload refused :root-id :page/bad})]
+        (is (nil? returned) label)
         (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7}) :root-id :page/good})
         (is (hydrated? fid) label)))))
 

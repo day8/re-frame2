@@ -628,12 +628,11 @@ shapes.
 - **Deferred candidate — not an owed function.** `(re-frame.ssr/ui-tree-fingerprint tree)
   → digest` would hash the canonical-EDN serialisation of `N(tree)` (§Normalization),
   algorithm/encoding owned by 011. It is a **non-binding candidate**: no such function
-  exists and none is owed. It would be warranted only if Spec 011 adds the structural
-  fingerprint channel for the adoption tier — which
+  exists and none is owed. It would be warranted only if Spec 011 adds a structural
+  fingerprint channel —
   [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)
-  designs the adoption tier *without*, calling it "a
-  deliberately-deferred future leaf, not a defect" — **and** a named concrete consumer
-  needs it. The algorithm prose below (§Markup and fingerprint) is design-of-record for
+  reports hydration mismatches through React adoption alone — **and** a named concrete
+  consumer needs it. The algorithm prose below (§Markup and fingerprint) is design-of-record for
   that case.
 - **Version incompatibility:** the seam validates `:rf.ui/tree-version` **first,
   before any emission**. A missing field, a non-integer, or an unsupported version
@@ -667,10 +666,9 @@ The **fingerprint half is a deferred, non-binding candidate — not an owed func
 whether a structural fingerprint channel for the adoption tier exists,
 and it would exist only if 011 adds that channel **and** a named concrete
 consumer needs it. The channel is deliberately absent: [011 §Hydration-mismatch
-detection](011-SSR.md#hydration-mismatch-detection) states that the adoption tier
-"deliberately carries no such hash" (a React-element root has no hashable client
-render-tree), and records that reviving it is "a deliberately-deferred future leaf, not
-a defect." The hash algorithm and digest encoding this candidate would apply
+detection](011-SSR.md#hydration-mismatch-detection) reports hydration mismatches through
+React adoption alone, and a React-element root has no hashable client render-tree. The
+hash algorithm and digest encoding this candidate would apply
 are Spec 011's (see §Normalization) — kept
 below as design-of-record. A reader who greps *that* name and finds no function has found
 a deferred candidate, not a gap or an outstanding obligation.

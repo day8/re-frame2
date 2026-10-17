@@ -149,8 +149,7 @@
                                   {:auth/probe
                                    {:state :waiting
                                     :data  {:entries        1
-                                            :rf/after-epoch {[:waiting] 1}}}}}}
-                :rf/render-hash "h1"}]]
+                                            :rf/after-epoch {[:waiting] 1}}}}}}}]]
 
  ;; The controlled host clock. Runs after `:fixture/dispatches`, with the
  ;; Spec 005 §Clock-abstraction primitives (`schedule-after!` /

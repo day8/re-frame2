@@ -159,7 +159,7 @@
   resource write-path under test. Returns the scoped key."
   [frame-id resource-id scope params {:keys [status owner in-flight?]}]
   (let [scoped-key (rf.resources.state/scoped-resource-key scope resource-id params)
-        work-id    (when in-flight? (rf.resources.work-ledger/resource-work-id scoped-key 1))
+        work-id    (when in-flight? (rf.resources.work-ledger/resource-work-id resource-id 1))
         ;; The runtime stamps each entry's `:resource/key`; the
         ;; live algebra view reads it for the node `:id` / `:inputs` (the
         ;; `:entries` map is keyed on the opaque byte `key-id`).
@@ -215,7 +215,7 @@
                                           {:owner [:route :route/article 9] :in-flight? true})
           node       (get (rf.resources.tooling/resource-cache-algebra-view :rf/default)
                           (rf.resources.state/key-id scoped-key))
-          work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)]
+          work-id    (rf.resources.work-ledger/resource-work-id :article/by-slug 1)]
       (is (= [:fetching work-id {:resource/key scoped-key :transport :rf.http/managed :owners #{[:route :route/article 9]}}
               [[:rf.http/in-flight work-id]]]
              [(:status node) (get-in node [:work-ledger :work/id])
@@ -348,9 +348,9 @@
           "one node per entry, with distinct ids differing only by a collision ordinal, each keeping its own status and owners")
       (let [in-flight (first (filter :work-ledger nodes))
             wid       (get-in in-flight [:work-ledger :work/id])]
-        (is (= [(:id in-flight) (:id in-flight) [[:rf.http/in-flight wid]]]
-               [(get-in in-flight [:work-ledger :record :resource/key]) (nth wid 1) (:host-transient in-flight)])
-            "the in-flight node's work-ledger positions carry its own id"))
+        (is (= [(:id in-flight) [:rf.work/resource :app/profile 1] [[:rf.http/in-flight wid]]]
+               [(get-in in-flight [:work-ledger :record :resource/key]) wid (:host-transient in-flight)])
+            "the in-flight node's record carries its own id; its work id names only the resource and generation"))
       (let [graph   (rf.derivation.graph/live-derivation-graph :rf/default resources-contributor)
             shipped (rf.derivation.egress/project-graph graph :rf/default)]
         (is (= [false false 2 #{:loaded :fetching} 2 false false]

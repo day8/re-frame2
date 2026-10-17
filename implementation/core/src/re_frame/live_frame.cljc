@@ -1463,18 +1463,24 @@
   registry; the EP-0023 §Hot Reload contract — \"Hot reload must not be
   implemented by tearing down and recreating the frame\"). The generation lives
   on the ONE record, so an `:id`-bearing frame and any holder of its frame value
-  observe the swap through the same record. Returns nil.
+  observe the swap through the same record.
 
-  The swap is followed by the TARGETED subscription refresh — frame
+  The swap publishes only onto the incarnation `token` names — the one the
+  reprojection read — and returns whether it did. A frame destroyed and re-made
+  under the same id in between keeps its own generation; the stale one is
+  dropped, with no retry.
+
+  A published swap is followed by the TARGETED subscription refresh — frame
   memory continuing across a reload does not mean a cached reaction built
   against the OLD generation's descriptor continues with it. Read the old
   generation off the record here rather than trusting a caller's snapshot, so
   the diff is against what the swap actually displaced."
-  [id new-generation]
-  (let [old-generation (rf.frame/frame-generation id)]
-    (rf.frame/set-generation! id new-generation)
-    (invalidate-subs-for-generation-change! id old-generation new-generation))
-  nil)
+  [id token new-generation]
+  (let [old-generation (rf.frame/frame-generation id)
+        published?     (rf.frame/set-generation! id token new-generation)]
+    (when published?
+      (invalidate-subs-for-generation-change! id old-generation new-generation))
+    published?))
 
 ;; ===========================================================================
 ;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload)
@@ -1510,15 +1516,19 @@
   the frame moved, or nil when its composition re-resolved byte-for-byte (no
   swap — this is also the outcome for every explicit-pool frame, since a
   frozen pool value always re-resolves identically). A no-op for a frame-id
-  whose record carries no generation (not image-loaded)."
+  whose record carries no generation (not image-loaded). The incarnation is
+  captured before the read; if the frame was destroyed and re-made under the
+  same id before the publish, the new generation is dropped and this returns
+  nil."
   [frame-id]
-  (when-let [old-generation (rf.frame/frame-generation frame-id)]
-    (let [images         (vec (:rf.gen/images old-generation))
-          pool           (get @frame-generation-pool frame-id)
-          new-generation (resolve-generation! images pool)]
-      (when-not (= old-generation new-generation)
-        (swap-frame-generation! frame-id new-generation)
-        (generation-diff old-generation new-generation)))))
+  (let [token (rf.frame/frame-incarnation-token frame-id)]
+    (when-let [old-generation (when token (rf.frame/frame-generation frame-id))]
+      (let [images         (vec (:rf.gen/images old-generation))
+            pool           (get @frame-generation-pool frame-id)
+            new-generation (resolve-generation! images pool)]
+        (when (and (not= old-generation new-generation)
+                   (swap-frame-generation! frame-id token new-generation))
+          (generation-diff old-generation new-generation))))))
 
 (defn reproject-live-frames!
   "Reproject EVERY image-loaded frame against the CURRENT live source store (the

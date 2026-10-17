@@ -231,11 +231,11 @@ in its **identity**, a place that walk can never reach: the concrete scoped
 key `[cache-scope resource-id canonical-params]` is the node **key**
 (`[:resource <scoped-key>]`), the node `:id`, and is embedded in the
 `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`,
-the in-flight `:work-ledger :record :resource/key`, the resource work-id
-embedded in **both** `:work-ledger :work/id` and `:work-ledger :record
-:work/id` (a **third** identity position, independent of `:resource/key`),
-and the `:host-transient` in-flight handle address (which names that SAME
-work-id); a route-owned activation names it on a `:param` edge endpoint. So
+and the in-flight `:work-ledger :record :resource/key`; a route-owned
+activation names it on a `:param` edge endpoint. The resource work-id under
+`:work-ledger` and in the `:host-transient` in-flight handle address is
+`[:rf.work/resource <resource-id> <generation>]` — it names the attempt
+without its scope or params, so it carries nothing to project. So
 `redact-graph-for-egress` **also** projects each scoped key's secret-bearing
 **scope** and **params** into **stable opaque handles** — minted from the
 core CEDN-1 identity primitive (`identity/canonical-bytes`) then
@@ -245,19 +245,10 @@ survives) but the raw scope/params can never be read back off the wire
 non-sensitive registration `resource-id` is **preserved** so a tool still
 sees *which* resource the node is. The **same** projection is applied
 consistently to the `:nodes` keys, the identity positions inside node bodies
-(`:id` / `:output` / `:inputs` / `:work-ledger` / `:host-transient`), **and**
+(`:id` / `:output` / `:inputs` / the `:work-ledger` record's `:resource/key`), **and**
 every `:edges` endpoint that names a resource node — a redacted resource
 node is still a node, and the edges naming it still connect. Structure
 survives; the identity-embedded secret does not egress.
-
-This work-id / host-transient position is currently masked in production —
-`re-frame.resources.tooling/live-node-for` already projects the work-id
-(`project-work-id`, rf2-0t0l3w) before the composer or this redaction call
-site ever sees the node — but `redact-graph-for-egress` is the documented
-wire-boundary defense-in-depth layer, so it projects these positions
-independently rather than relying on that upstream pre-projection holding
-(rf2-qo1l8w; mirrors the fix the derivation-conformance egress mirror
-carried, rf2-tmyfkn/rf2-uh2clr).
 
 The projection is **idempotent** (rf2-g197ep): a value may egress more than
 once (re-egress on re-render / re-subscribe / a forwarder cascade that ships

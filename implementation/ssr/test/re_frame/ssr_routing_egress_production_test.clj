@@ -3,7 +3,8 @@
   payload, so this namespace runs the whole chain — a real `reg-route` and
   `:rf.route/handle-url-change` activation, the per-frame registry,
   `project-runtime-db`, `build-payload` — and holds in dev AND under
-  `-Dre-frame.debug=false` (the `jvm-ssr-prod-gate` job runs it there).
+  `-Dre-frame.debug=false` (the `JVM implementation/ssr (test:prod-gate)` leg
+  runs it there).
 
   `re-frame.ssr-route-slice-projection-test` pins the projector against a
   registry it installs by hand; this one also proves activation lowers the
@@ -36,7 +37,7 @@
                           "&payload=" blob-secret
                           "&return-to=/dashboard") {:rf.route/cause :link}])
   (let [payload (rf.ssr.payload-policy/build-payload
-                  :rf/default {:public/page :callback} "h1"
+                  :rf/default {:public/page :callback}
                   {:version    1
                    :runtime-db (rf.ssr.payload-policy/project-runtime-db
                                  (rf.frame/frame-runtime-db-value :rf/default) :rf/default)})]

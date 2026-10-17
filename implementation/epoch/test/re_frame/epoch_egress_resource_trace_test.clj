@@ -486,12 +486,11 @@
 
 (defn- managed-args
   "The `:rf.http/managed` args `transport.http/build-managed-args` builds for
-  one ensure."
-  [scoped-key scope]
-  (let [work-id [:rf.work/resource scoped-key 1]
+  one ensure: the payload names the attempt by work id and carries no scoped
+  key or scope."
+  [scoped-key]
+  (let [work-id [:rf.work/resource (second scoped-key) 1]
         payload {:work/id      work-id
-                 :resource/key scoped-key
-                 :scope        scope
                  :generation   1
                  :rf.frame/id  :test/rt}]
     {:request    {:method :get :url "/z"}
@@ -500,17 +499,21 @@
      :on-failure [:rf.resource.internal/failed payload]}))
 
 (deftest fx-carrier-keeps-plain-request-map-and-global-scope-verbatim
-  (testing "a PLAIN owner's managed-HTTP args — request map, scoped keys,
-            :rf.scope/global scope — ride both carriers byte-identical and stamp
-            nothing: the carrier projector is not a wholesale map tokenizer"
-    (let [args   (managed-args (sk :rf.scope/global :plain/article {:slug plain-slug})
-                               :rf.scope/global)
+  (testing "a PLAIN owner's managed-HTTP args and timer args — request map,
+            work id, scoped key under its :rf.scope/global scope — ride both
+            carriers byte-identical and stamp nothing: the carrier projector is
+            not a wholesale map tokenizer"
+    (let [k      (sk :rf.scope/global :plain/article {:slug plain-slug})
+          args   (managed-args k)
+          timers {:frame-id :test/rt :resource/key k :timers {:stale 1000 :gc nil :poll nil}}
           record (record-with
                    [(handled-row :rf.http/managed args)
+                    (handled-row :rf.resource/schedule-timers timers)
                     (event :rf.fx/do-fx
                            {:rf.frame/id :test/rt :frame :test/rt
                             :rf.event/fx [[:rf.resource/commit-generation {:value 1}]
-                                          [:rf.http/managed args]]})])]
+                                          [:rf.http/managed args]
+                                          [:rf.resource/schedule-timers timers]]})])]
       (is (= (:trace-events record) (:trace-events (project-carrier-egress record)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -541,7 +544,7 @@
   (let [[_ resource-id params] scoped-key]
     {:status               :ok
      :value                value
-     :rf.reply/work-id     [:rf.work/resource scoped-key 1]
+     :rf.reply/work-id     [:rf.work/resource resource-id 1]
      :rf.reply/work-kind   :resource
      :rf.reply/work-status :completed
      :rf.frame/id          :test/rt
@@ -796,8 +799,8 @@
   (let [ev (conj read-reply-target reply)]
     (record-with
       [(event :rf.resource/failed
-              {:rf.frame/id :test/rt :resource/key scoped-key
-               :work/id [:rf.work/resource scoped-key 1] :generation 1
+              {:rf.frame/id :test/rt :resource/id (second scoped-key)
+               :work/id [:rf.work/resource (second scoped-key) 1] :generation 1
                :error (:error reply)})
        (handled-row :dispatch ev)
        (event :rf.fx/do-fx

@@ -60,7 +60,7 @@
                 (rf.ssr.payload-policy/apply-policy
                   (rf.frame/frame-app-db-value fid) {:payload []})
                 fid)]
-    (is (= {} (:rf/app-db (rf.ssr.payload-policy/build-payload nil slice nil {}))))))
+    (is (= {} (:rf/app-db (rf.ssr.payload-policy/build-payload nil slice {}))))))
 
 (deftest an-absent-or-nil-payload-still-fails-closed
   (doseq [opts [{:initial-events [[:init]]}

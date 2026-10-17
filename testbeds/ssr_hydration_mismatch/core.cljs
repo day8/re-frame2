@@ -1,53 +1,53 @@
 (ns ssr-hydration-mismatch.core
-  "Shared framework-behavior testbed — deliberate hydration-mismatch.
+  "Shared framework-behavior testbed — a real hydration mismatch.
 
-  Per [spec/011-SSR.md §Hydration-mismatch detection]: after the first
-  client render, `verify-hydration!` recomputes the structural hash of
-  the resolved render-tree, reads the server hash stashed in runtime-db
-  at `[:rf.runtime/ssr :hydration :server-hash]`, and emits
-  `:rf.ssr/hydration-mismatch` (op-type `:error`, recovery
-  `:warned-and-replaced`) on disagreement.
+  Per [spec/011-SSR.md §Hydration-mismatch detection]: a hydrating root
+  reports each divergence React recovers from — text content, or a
+  missing / extra / wrong-type element — as `:rf.ssr/hydration-mismatch`,
+  through the `onRecoverableError` reporter the framework installs on every
+  hydrating root. The dev trace carries React's message (`:error`), the
+  door that hydrated (`:where`) and `:recovery :warned-and-replaced`: React
+  has already re-rendered the root on the client by the time it fires.
 
-  This surface forces disagreement: the payload bakes a known-wrong
-  `:rf/render-hash` string (`'deadbeef'`) that cannot match whatever
-  the client's render-tree hashes to under the seeded app-db. The
-  mismatch trace fires; the cljs trace listener captures the event
-  and exposes its `:server-hash`, `:client-hash`, `:failing-id`, and
-  `:recovery` payload onto `window.__rf_trace_events()`. A
-  `data-testid='mismatch-banner'` element renders the captured
-  payload visibly so dev-mode visibility is observable from the DOM
-  (dev posture: warn-and-replace; the client renders against the
-  seeded state and the page remains interactive).
+  This surface makes React recover. The server markup baked into
+  `index.html` says `rendered on the server` where the client's root view
+  renders `rendered on the client` — a text-only divergence standing in
+  for a view that reads something the two hosts disagree on (the clock, a
+  locale, `js/window`). `run` seeds the frame with `ssr/hydrate!`, then
+  hydrates the server markup with the Reagent adapter's `render!`,
+  `{:hydrate? true}` and an `:on-recoverable-error` that logs the recovery
+  as a console warning. React meets the divergent text, recovers by
+  re-rendering the root, and the reporter emits the trace; the trace
+  listener captures it onto `window.__rf_trace_events()` and into app-db,
+  so a `data-testid='mismatch-banner'` element renders it from the DOM
+  (dev posture: warn-and-replace; the page stays interactive).
 
   What a Playwright consumer observes:
 
-    - Hydration completes — `data-testid='hydrated'` marker is visible.
-    - `verify-hydration!` is called post-first-render; the trace
-      listener captures a `:rf.ssr/hydration-mismatch` event with
-      `:server-hash='deadbeef'`, a non-nil `:client-hash`, and
-      `:recovery=:warned-and-replaced`.
-    - The mismatch-banner div renders the captured payload — proves
+    - Hydration completes — `data-testid='hydrated'` marker is visible,
+      and `render-origin` reads the client's text.
+    - The trace listener captures a `:rf.ssr/hydration-mismatch` event
+      with React's message in `:error`, `:where`
+      `re-frame.substrate.spine/make-render` and
+      `:recovery :warned-and-replaced`.
+    - The mismatch-banner div renders the captured trace — proves
       dev-mode visibility of the structured trace surface.
-    - The page is still interactive — clicking `inc` works post-
-      mismatch; the runtime's default recovery is warn-and-replace,
-      not crash."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+    - The page is still interactive — clicking `inc` works after the
+      recovery; React's recovery is warn-and-replace, not crash."
+  (:require [re-frame.core :as rf]
             ;; SSR hydration metadata is durable runtime-db state, so the
             ;; :hydrated? discriminator is a runtime-db sub (reg-runtime-sub
             ;; lives on the re-frame.subs surface).
             [re-frame.subs :as rf.subs]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.ssr :as rf.ssr]
-            [cljs.reader])
+            [re-frame.ssr :as rf.ssr])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
 ;; Trace listener — mirrors :rf.ssr/* + :rf/hydrate traces onto the
-;; window AND keeps the most recent mismatch payload as a Reagent atom
-;; the view can subscribe to (so the dev-mode banner re-renders when
-;; the mismatch fires).
+;; window AND records the most recent mismatch in app-db so the dev-mode
+;; banner re-renders when the mismatch fires.
 ;; ----------------------------------------------------------------------------
 
 (defonce trace-events (atom []))
@@ -58,21 +58,20 @@
 
 (defn- normalise-event
   "Project a trace event into a plain edn map carrying just the slots
-  the spec assertions read against. `:recovery` is hoisted to the top
-  level of the trace envelope (per Spec 009 §Error event shape — see
+  the assertions read. `:recovery` is hoisted to the top level of the
+  trace envelope (per Spec 009 §Error event shape — see
   `re-frame.trace/build-event`'s recovery-hoist branch); the other
-  hydration-mismatch payload slots ride in `:tags`."
+  hydration-mismatch slots ride in `:tags`."
   [ev]
   (let [t (:tags ev)]
     (cond-> {:operation (str (:operation ev))
              :op-type   (some-> ev :op-type str)}
-      (:server-hash t)     (assoc :server-hash (:server-hash t))
-      (:client-hash t)     (assoc :client-hash (:client-hash t))
-      (:failing-id t)      (assoc :failing-id (str (:failing-id t)))
-      (:reason t)          (assoc :reason (:reason t))
-      (:first-diff-path t) (assoc :first-diff-path (pr-str (:first-diff-path t)))
+      (:error t)      (assoc :error (str (:error t)))
+      (:where t)      (assoc :where (str (:where t)))
+      (:failing-id t) (assoc :failing-id (str (:failing-id t)))
+      (:reason t)     (assoc :reason (:reason t))
       ;; `:recovery` is HOISTED — at top level, not under tags.
-      (:recovery ev)       (assoc :recovery (str (:recovery ev))))))
+      (:recovery ev)  (assoc :recovery (str (:recovery ev))))))
 
 (defn install-trace-listener! []
   (rf/register-listener! :trace ::ssr-hydration-mismatch-listener
@@ -82,11 +81,12 @@
                    (or (= "rf.ssr" (namespace op))
                        (= :rf/hydrate op)))
           (swap! trace-events conj ev)
-          ;; HOT PATH — when the mismatch fires, propagate the
-          ;; projected payload into app-db so the dev-mode banner
-          ;; view re-renders against the captured trace.
+          ;; HOT PATH — the mismatch fires from React's root-error
+          ;; callback, outside any frame scope, so the dispatch names the
+          ;; frame the banner reads.
           (when (= :rf.ssr/hydration-mismatch op)
-            (rf/dispatch [::record-mismatch (normalise-event ev)]))))))
+            (rf/dispatch [::record-mismatch (normalise-event ev)]
+                         {:frame :rf/default}))))))
 
   (set! (.-__rf_trace_events js/window)
         (fn []
@@ -103,7 +103,7 @@
 (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
 (rf/reg-sub :mismatch  (fn [db _] (:mismatch db)))
 ;; The SSR hydration metadata is durable runtime-db state — the `:rf/hydrate`
-;; handler stashes it at [:rf.runtime/ssr :hydration] in the runtime-db
+;; handler records it at [:rf.runtime/ssr :hydration] in the runtime-db
 ;; partition (NOT app-db). So :hydrated? is a runtime-db sub reading the
 ;; canonical source.
 (rf.subs/reg-runtime-sub :hydrated?
@@ -120,9 +120,8 @@
      (if hydrated? "hydrated" "not-hydrated")]))
 
 (reg-view mismatch-banner []
-  ;; Dev-mode visibility of the :rf.ssr/hydration-mismatch payload.
-  ;; Per spec/011 §Mismatch recovery and configuration the default
-  ;; posture is warn-and-replace; the user-visible banner makes the
+  ;; Dev-mode visibility of the :rf.ssr/hydration-mismatch trace. React has
+  ;; already recovered by re-rendering on the client; the banner makes the
   ;; structured trace inspectable without dev-tools.
   (let [m @(subscribe [:mismatch])]
     (if m
@@ -133,15 +132,13 @@
                      :background "#fee"
                      :font-family "monospace"}}
        [:h3 {:style {:margin-top 0}} ":rf.ssr/hydration-mismatch"]
-       [:p "server-hash="
-        [:span {:data-testid "mismatch-server-hash"} (:server-hash m)]]
-       [:p "client-hash="
-        [:span {:data-testid "mismatch-client-hash"} (str (:client-hash m))]]
-       [:p "failing-id="
-        [:span {:data-testid "mismatch-failing-id"} (:failing-id m)]]
+       [:p "where="
+        [:span {:data-testid "mismatch-where"} (:where m)]]
        [:p "recovery="
         [:span {:data-testid "mismatch-recovery"} (:recovery m)]]
-       [:p {:style {:color "#666"}} (:reason m)]]
+       [:p {:data-testid "mismatch-error"
+            :style {:color "#666"}}
+        (:error m)]]
       [:div {:data-testid "mismatch-banner-empty"
              :style {:color "#888"}}
        "(no mismatch yet)"])))
@@ -158,47 +155,45 @@
 (reg-view root []
   [:div {:data-testid "ssr-hydration-mismatch"
          :style {:font-family "sans-serif" :padding "1em"}}
+   ;; The divergent node. `index.html`'s server markup carries
+   ;; "rendered on the server" here, so React's hydration meets different
+   ;; text at this node and recovers by re-rendering the root.
+   [:p {:data-testid "render-origin"} "rendered on the client"]
    [:h1 "ssr-hydration-mismatch testbed"]
    [hydration-status]
    [mismatch-banner]
    [counter-panel]])
 
 ;; ----------------------------------------------------------------------------
-;; Mount + hydrate
+;; Seed + hydrate
 ;; ----------------------------------------------------------------------------
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce app-root (rf.adapter.reagent/client-root))
 
-(defn read-server-payload []
-  (when-let [el (.getElementById js/document "__rf_payload")]
-    (cljs.reader/read-string (.-textContent el))))
+(defn- log-recovery!
+  "The root's `:on-recoverable-error`. Without one, React's default report
+  goes through `reportError` as an uncaught page error, and the recovery
+  this surface makes on purpose is its expected outcome, not a crash."
+  [error _error-info]
+  (js/console.warn "React recovered during hydration:" (.-message error)))
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   (install-trace-listener!)
-  ;; Per EP-0002, the runtime never synthesises a frame from
-  ;; absence — register `:rf/default` as the client app frame and scope the
-  ;; hydrate dispatch + render to it (the carried invariant). `:rf/hydrate`
-  ;; lands on the carried frame; `verify-hydration!` names it explicitly.
+  ;; Per EP-0002, the runtime never synthesises a frame from absence —
+  ;; register `:rf/default` as the client app frame; `hydrate!` and the
+  ;; provider both name it.
   (rf/make-frame {:id :rf/default})
-  (let [payload (read-server-payload)]
-    (rf/with-frame :rf/default
-      (when payload
-        ;; HOT PATH — :rf/hydrate replaces app-db; the payload's
-        ;; :rf/render-hash 'deadbeef' is stashed in runtime-db at
-        ;; [:rf.runtime/ssr :hydration :server-hash] so verify-hydration!
-        ;; can compare against the client's computed hash.
-        (rf/dispatch-sync [:rf/hydrate payload])))
-    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
-
-    ;; HOT PATH — the trigger site for :rf.ssr/hydration-mismatch.
-    ;; The resolved tree hashes to a value that won't equal the
-    ;; payload's 'deadbeef'; verify-hydration! emits the mismatch
-    ;; trace which our listener routes to ::record-mismatch.
-    ;; Per EP-0002, invoking the reg-view'd root resolves its
-    ;; injected frame-bound bindings at call time, so do it under the
-    ;; client frame scope.
-    (rf/with-frame :rf/default
-      (let [tree ((rf/view :ssr-hydration-mismatch.core/root))]
-        (rf.ssr/verify-hydration! :rf/default tree)))))
+  ;; HOT PATH — seed: `hydrate!` reads the `__rf_payload` script and
+  ;; dispatches `:rf/hydrate`, so the frame holds the server's app-db before
+  ;; the first render.
+  (rf.ssr/hydrate! {:frame :rf/default})
+  ;; HOT PATH — the hydrating render. The adapter installs the adoption
+  ;; reporter on this root; React's recovery from the divergent text is
+  ;; what emits :rf.ssr/hydration-mismatch. The reporter composes with
+  ;; `:on-recoverable-error` rather than replacing it.
+  (rf.adapter.reagent/render! app-root
+    [rf/frame-provider {:frame :rf/default} [root]]
+    (js/document.getElementById "app")
+    {:hydrate? true
+     :on-recoverable-error log-recovery!}))

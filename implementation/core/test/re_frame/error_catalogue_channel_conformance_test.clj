@@ -27,8 +27,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
-            ;; A test-only dep of core, so the hiccup-tier emitter is callable here.
-            [re-frame.ssr.hydrate :as rf.ssr.hydrate]
             [re-frame.impl-source-corpus :as rf.impl-source-corpus]
             [re-frame.always-on-axis-conformance-cljs-test :as rf.always-on-axis-conformance-cljs-test]))
 
@@ -520,15 +518,14 @@
              "`build-event` hoists to the envelope on every branch — state it in "
              "the `Default :recovery` column instead: " (pr-str listed)))))
 
-;; --- the two-tier `:rf.ssr/hydration-mismatch` category -----------------------
+;; --- the `:rf.ssr/hydration-mismatch` category --------------------------------
 ;;
 ;; The keys-set arm never looks at an emitted event, so it cannot see a schema
-;; that models only one of a category's runtime shapes, or a cell naming a key
-;; no producer supplies. This witness drives the shipped emitters and checks
-;; the corpus against what comes out. The hiccup tier (`verify-hydration!`) is
-;; `.cljc` and is called for real; the two adoption emitters are `.cljs`, so
-;; their payload maps are read out of the source as data and driven through
-;; the real `rf.trace/emit!`.
+;; that models the wrong runtime shape, or a cell naming a key no producer
+;; supplies. This witness drives the shipped emitters and checks the corpus
+;; against what comes out. The two adoption emitters are `.cljs`, so their
+;; payload maps are read out of the source as data and driven through the real
+;; `rf.trace/emit!`.
 
 (def ^:private hydration-mismatch-adoption-sites
   "The two adoption-tier `(rf.trace/emit! :warning :rf.ssr/hydration-mismatch {…})`
@@ -566,12 +563,6 @@
   (->> (parse-catalogue-tag-rows)
        (some (fn [row] (when (= category (:category row)) (:tags-cell row))))))
 
-(def ^:private witness-frame-id
-  "Names no registered frame, so `verify-hydration!` takes the `:server-hash`
-  opt and the default `:ssr` knobs without this suite installing an adapter or
-  resetting the shared registrar."
-  :rf.frame/hydration-mismatch-witness)
-
 (defn- capture-trace-events
   "Every trace event emitted while `f` runs."
   [f]
@@ -588,22 +579,11 @@
        (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
        first))
 
-(deftest hydration-mismatch-schema-models-both-emitted-tiers
-  (testing "the arms are disjoint: each tier's payload matches its own arm only"
-    (let [[hiccup-arm adoption-arm] (rest (tags-schema-form "HydrationMismatchTags"))
-          hiccup   {:category    :rf.ssr/hydration-mismatch
-                    :rf.error/id :rf.ssr/hydration-mismatch
-                    :where       'rf/verify-hydration!
-                    :server-hash "A" :client-hash "B"
-                    :frame       :app
-                    :failing-id  :rf/hydrate
-                    :reason      "Hydration mismatch: server hash 'A' != client hash 'B'."}
-          adoption {:error "Hydration failed because the initial UI does not match."
-                    :where 're-frame.substrate.spine/make-render}]
-      (is (malli/validate hiccup-arm hiccup))
-      (is (malli/validate adoption-arm adoption))
-      (is (not (malli/validate adoption-arm hiccup)))
-      (is (not (malli/validate hiccup-arm adoption)))))
+(deftest hydration-mismatch-schema-models-the-adoption-emitters
+  (testing "the adoption payload validates against the shipped schema"
+    (is (malli/validate (tags-schema-form "HydrationMismatchTags")
+                        {:error "Hydration failed because the initial UI does not match."
+                         :where 're-frame.substrate.spine/make-render})))
 
   ;; Trace emits are no-ops in the `:prod-gate` lane, so only the corpus half
   ;; above runs there.
@@ -622,16 +602,7 @@
                        (is (empty? (set/difference (set (keys tags)) documented))
                            (str label ": emitted keys the catalogue cell does not list: "
                                 (pr-str (sort (set/difference (set (keys tags)) documented))))))]
-      (testing "hiccup tier, driven through the shipped emitter"
-        (described "hiccup"
-                   (:tags (emitted-hydration-mismatch
-                            #(rf.ssr.hydrate/verify-hydration!
-                               witness-frame-id
-                               "client-hash-B"
-                               {:server-hash     "server-hash-A"
-                                :first-diff-path [:main 0 :h1]})))))
-
-      (testing "adoption tier: each site's own payload, driven through `rf.trace/emit!`"
+      (testing "each adoption site's own payload, driven through `rf.trace/emit!`"
         (doseq [rel-path hydration-mismatch-adoption-sites]
           (let [form  (adoption-payload-form rel-path)
                 where (source-quoted-symbol (:where form))
@@ -655,7 +626,7 @@
             (is (malli/validate schema (assoc tags :error nil))
                 "an error with no `.message` emits a nil `:error`, which validates"))))
 
-      (testing "no `:head-id`: `verify-hydration!` merges no such opt into the payload"
+      (testing "no `:head-id`: no emitter carries one"
         (is (not (contains? declared :head-id)))
         (is (not (contains? documented :head-id))
             "the cell may state the negative in a multi-token span, never list the key")))))

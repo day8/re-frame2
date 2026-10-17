@@ -14,42 +14,31 @@
 <body>
   <div class="rf2-testbed-shell">
   <!--
-    Server-rendered HTML — a placeholder shape. The pre-rendered
-    `not-hydrated` marker is intentional: the post-hydrate render
-    replaces this subtree with the live view (which then transitions
-    to `hydrated`). Per Spec 011, the test is about the *hash*
-    comparison — the visible HTML doesn't need to mismatch byte-for-
-    byte to drive the trace.
+    Server-rendered markup in the shape `render-to-string` writes for the
+    root view: no whitespace between elements, because a hydrating root
+    reads every text node, and an indentation text node would be a
+    divergence of its own.
+
+    It diverges from the client in TEXT, at the first child of the root:
+    the server painted "rendered on the server" where the client's root
+    view renders "rendered on the client". React's hydration meets that
+    text, recovers by re-rendering the root on the client, and calls the
+    root's onRecoverableError — the adoption reporter, which emits
+    :rf.ssr/hydration-mismatch (Spec 011 §Hydration-mismatch detection).
+    The rest of the markup is what the server would paint before any
+    hydration: `not-hydrated`, no mismatch yet, count 0.
   -->
-  <div id="app">
-    <div data-testid="ssr-hydration-mismatch"
-         style="font-family: sans-serif; padding: 1em">
-      <h1>ssr-hydration-mismatch testbed</h1>
-      <div data-testid="not-hydrated" style="padding: 0.25em; color: #700">
-        not-hydrated
-      </div>
-    </div>
-  </div>
+  <div id="app"><div data-testid="ssr-hydration-mismatch" style="font-family:sans-serif;padding:1em"><p data-testid="render-origin">rendered on the server</p><h1>ssr-hydration-mismatch testbed</h1><div data-testid="not-hydrated" style="padding:0.25em;color:#700">not-hydrated</div><div data-testid="mismatch-banner-empty" style="color:#888">(no mismatch yet)</div><div data-testid="counter-panel" style="border:1px solid #aaa;padding:0.5em;margin:0.25em 0"><p>count=<span data-testid="count">0</span></p><button data-testid="inc">Inc</button></div></div></div>
     <aside data-rf-xray-host></aside>
   </div>
   <!--
-    The payload bakes a deliberately-wrong :rf/render-hash. The
-    8-char-lowercase-hex shape matches the spec's FNV-1a output (per
-    Spec 011 §Hydration-mismatch detection: "lowercase hex of the raw
-    hash bytes; no prefix"); 'deadbeef' will not equal the
-    client's computed hash for the seeded {:count 0} tree.
-
-    On first render verify-hydration! reads this hash, computes the
-    client tree's hash, and emits :rf.ssr/hydration-mismatch with
-    :recovery :warned-and-replaced. The trace listener captures the
-    event onto window.__rf_trace_events() AND dispatches
-    ::record-mismatch so the dev-mode banner renders the payload
-    inline (data-testid='mismatch-banner').
+    The hydration payload. `ssr/hydrate!` reads it from this script and
+    seeds the frame before the hydrating render; the mismatch comes from
+    the markup above, not from anything here.
   -->
   <script id="__rf_payload" type="application/edn">
 {:rf/version     1
  :rf/frame-id    :rf/default
- :rf/render-hash "deadbeef"
  :rf/app-db      {:count 0}}
   </script>
   <script src="main.js"></script>

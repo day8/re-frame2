@@ -606,23 +606,27 @@
          (map rf.epoch.assembly/outcome->consumer-facing
               [:ok :halted-depth :halted-destroy :halted-handler-exception]))))
 
-(deftest committed-at-on-halted-destroy-is-destroying-token-time
-  (testing "a handler that destroys its own frame commits a :halted-destroy
-            record whose :committed-at is the destroying event's token time, not
-            the host clock, and emits :rf.epoch/outcome :blocked. The ring goes
-            with the frame, so the record is read from a listener."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :self-destruct (fn [_ _] (rf/destroy-frame! :test/short-lived) {}))
+(deftest committed-at-on-halted-destroy-is-the-dropped-events-token-time
+  (testing "a handler that destroys its own frame and queues a child commits a
+            :halted-destroy record for the dropped child whose :committed-at is
+            that child's token time, not the host clock, and emits
+            :rf.epoch/outcome :blocked. The ring goes with the frame, so the
+            record is read from a listener."
     (let [token-time 1781078400123
           clock-time 7777777777777
           halted     (atom [])
           recorded   (record-trace!)]
+      (rf/make-frame {:id :test/short-lived})
+      (rf/reg-event :dropped-child (fn [_ _] {}))
+      (rf/reg-fx :queue-timed-child
+        (fn [_ _] (rf/dispatch [:dropped-child] {:rf.cofx {:rf/time-ms token-time}})))
+      (rf/reg-event :self-destruct
+        (fn [_ _] (rf/destroy-frame! :test/short-lived) {:fx [[:queue-timed-child nil]]}))
       (rf/register-listener! :epoch ::watch-committed-at
                              (fn [r] (when (= :halted-destroy (:outcome r)) (swap! halted conj r))))
       (with-redefs [rf.interop/now-ms (constantly clock-time)]
-        (rf/dispatch-sync [:self-destruct] {:frame   :test/short-lived
-                                            :rf.cofx {:rf/time-ms token-time}}))
-      (is (= [token-time] (mapv :committed-at @halted)))
+        (rf/dispatch-sync [:self-destruct] {:frame :test/short-lived}))
+      (is (= [[:dropped-child token-time]] (mapv (juxt :event-id :committed-at) @halted)))
       (is (some #(and (= :rf.epoch/outcome (:operation %)) (= :blocked (-> % :tags :outcome)))
                 @recorded)))))
 
@@ -1150,34 +1154,41 @@
       (is (= [] (filterv #(= :halted-destroy (:outcome %)) @records))
           "no fabricated record"))))
 
-;; ---- live :halted-destroy partial record -----------------------------------
+;; ---- live :halted-destroy record -------------------------------------------
 ;;
-;; Spec-Schemas §:rf/epoch-record §Outcomes: a :halted-destroy record carries
-;; the destroying event's pre-run snapshot as :db-before and the destroy-time
-;; state as :db-after, and reaches listeners only (a destroyed frame's history
-;; reads empty).
+;; Spec-Schemas §:rf/epoch-record §Outcomes: a destroy requested during the
+;; frame's drain lets the destroying event settle :ok, and the work its
+;; boundary drops yields one :halted-destroy record — its trigger the event the
+;; drain would have dequeued next, both db slots the committed db — delivered to
+;; listeners only (a destroyed frame's history reads empty).
 
-(deftest live-halted-destroy-fires-partial-record-with-real-snapshots
+(deftest live-halted-destroy-names-the-dropped-work
   (testing "a child event that writes and then destroys its frame from an fx
-            delivers exactly one :halted-destroy record to listeners: its event
-            id, the halt reason, the parent's committed write as :db-before and
-            its own write as :db-after; nothing reaches the ring"
+            settles :ok; its queued sibling is dropped at the boundary, and
+            listeners receive one :halted-destroy record naming that sibling,
+            the halt reason, and the child's committed write in both db
+            slots; nothing reaches the ring"
     (rf/make-frame {:id :test/main})
     (let [records (atom [])]
       (rf/register-listener! :epoch ::watch #(swap! records conj %))
       (rf/reg-fx :destroy-main (fn [_ _] (rf.frame/destroy-frame! :test/main)))
       (rf/reg-event :child-destroy
         (fn [{:keys [db]} _] {:db (assoc db :phase :child-wrote) :fx [[:destroy-main]]}))
+      (rf/reg-event :sibling (fn [_ _] {:db {:forbidden true}}))
       (rf/reg-event :parent-write-then-spawn
-        (fn [_ _] {:db {:phase :parent-done :marker 42} :fx [[:dispatch [:child-destroy]]]}))
+        (fn [_ _] {:db {:phase :parent-done :marker 42}
+                   :fx [[:dispatch [:child-destroy]] [:dispatch [:sibling]]]}))
       (rf/dispatch-sync [:parent-write-then-spawn] {:frame :test/main})
-      (is (= [{:event-id    :child-destroy
-               :halt-reason {:operation :rf.frame/destroyed-mid-drain}
-               :db-before   {:phase :parent-done :marker 42}
+      (is (= [[:parent-write-then-spawn :ok] [:child-destroy :ok] [:sibling :halted-destroy]]
+             (mapv (juxt :event-id :outcome) @records)))
+      (is (= [{:halt-reason {:operation     :rf.frame/drain-interrupted
+                             :dropped-count 1
+                             :last-event-id :child-destroy}
+               :db-before   {:phase :child-wrote :marker 42}
                :db-after    {:phase :child-wrote :marker 42}}]
              (->> @records
                   (filter #(= :halted-destroy (:outcome %)))
-                  (mapv #(select-keys % [:event-id :halt-reason :db-before :db-after])))))
+                  (mapv #(select-keys % [:halt-reason :db-before :db-after])))))
       (is (= [] (rf.epoch/epoch-history :test/main))))))
 
 ;; ---- configure! validates at the boundary -------------------------------

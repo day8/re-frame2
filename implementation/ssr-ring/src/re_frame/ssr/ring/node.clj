@@ -24,10 +24,7 @@
        (the app-db partition), `runtime` (the runtime-db partition),
        `buildId`, `timeoutMs`, `requestId` (the request frame's id, echoed
        back as `x-rf-ssr-request`);
-    4. returns the sidecar's body bytes as `:body-html`, verbatim, with
-       `:render-hash nil` — a native root carries no structural hash, so
-       the page ships no `data-rf-render-hash` marker and no payload
-       `:rf/render-hash` (the unresolved-root behaviour).
+    4. returns the sidecar's body bytes as `:body-html`, verbatim.
 
   The JVM keeps everything else: the request frame, the drain, the head,
   `__rf_payload` (built from the JVM's own app-db under the SEPARATE
@@ -102,9 +99,8 @@
                                     `:build-id` this renderer was built with
                                     — INCLUDING an absent header, since an
                                     answer that names no build is not a
-                                    verifiable match and `:render-hash` is
-                                    nil here, so nothing downstream would
-                                    catch it. The sidecar already refuses a
+                                    verifiable match, and nothing downstream
+                                    checks the bytes. The sidecar already refuses a
                                     mismatched REQUEST; this is the defensive
                                     check on the ANSWER. ex-data
                                     `:expected`, `:serving` (nil when the
@@ -432,12 +428,12 @@
         ;; An EQUALITY, not a mismatch test: absence is not a verifiable
         ;; match. A 200 that names no build reads the same whether a proxy
         ;; stripped the header, the service is malformed, or something that
-        ;; is not the sidecar answered — and `:render-hash` is nil for a
-        ;; native root, so nothing downstream can catch it either. The bytes
-        ;; are refused rather than wrapped in the JVM-owned document.
+        ;; is not the sidecar answered, and nothing downstream checks the
+        ;; bytes. They are refused rather than wrapped in the JVM-owned
+        ;; document.
         (when-not (= serving build-id)
           (throw-build-skew! opts serving))
-        {:body-html (str body) :render-hash nil})
+        {:body-html (str body)})
       (let [error-payload (try
                             (json/read-str (str body))
                             (catch Exception _ nil))
@@ -454,8 +450,7 @@
 
 (defn renderer
   "Construct the JVM->Node renderer — the fn `ssr-handler`'s `:renderer`
-  opt takes (`(fn [{:keys [frame-id request opts]}] -> {:body-html
-  :render-hash})`). Validates `opts` at construction (`validate-opts!`),
+  opt takes (`(fn [{:keys [frame-id request opts]}] -> {:body-html …})`). Validates `opts` at construction (`validate-opts!`),
   builds the ONE `HttpClient` the renderer reuses, and returns the fn.
 
       (ssr-ring/ssr-handler

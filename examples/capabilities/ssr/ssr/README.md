@@ -105,12 +105,11 @@ client picking it up:
   snapshots, route). The server is authoritative for the initial client
   state, so "replace" is the honest semantics — a defaulting merge
   would bury "which side won?" bugs at every key.
-- `data-rf-render-hash` turns the classic SSR bug into a located
-  one. Given `:render-hash`, `render-to-string` stamps that structural
-  hash of the render-tree on the root element. After first render the client
-  recomputes it. On disagreement the runtime emits
-  `:rf.ssr/hydration-mismatch` — telling you not just that the renders
-  diverged but where.
+- The classic SSR bug is reported, not silent. When the client's first
+  render disagrees with the server's markup and React has to re-render
+  part of it, the hydrating root emits `:rf.ssr/hydration-mismatch`
+  carrying React's message. An attribute-only difference is not
+  reported; React's development console warning is its only signal.
 - Hydration leaves the page reactive. The "Hide bodies" button
   dispatches `:articles/toggle-bodies` against a slice that has no
   server correspondent. That proves the client is fully live after the
@@ -152,15 +151,15 @@ exercising the load-bearing subtleties, not just the happy path:
   explicit client `:frame` stands, and the dynamic server output agrees
   with the static `index.html` next to this file (neither carries a
   frame-id). That `index.html` is an illustrative stand-in, not a
-  byte-exact capture — it omits the `:rf/render-hash` and carries a
-  sample routing slice this article-only render never populates.
+  byte-exact capture — it carries a sample routing slice this
+  article-only render never populates.
 
 In runnable form: the hand-written `index.html` ships with pre-rendered
 HTML inside `<div id='app'>` and a pre-baked `<script
 id='__rf_payload'>` — standing in for what `handle-request` would serve
 if a real Clojure server sat in front. The browser-side `run` calls
-`ssr/hydrate!` (read the payload → dispatch `:rf/hydrate` → verify the
-render-hash) and renders against the now-seeded state through the
+`ssr/hydrate!` (read the payload → dispatch `:rf/hydrate`) and renders
+against the now-seeded state through the
 carried frame's `frame-provider`, handing that render-tree to
 `mount.cljs`'s `mount!` — state first, DOM second.
 

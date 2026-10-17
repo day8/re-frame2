@@ -267,7 +267,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 (render render-tree mount-point opts)                   ;; → unmount-fn
 ;; render-tree: a serialisable nested data structure (per Spec 000 §The pattern)
 ;; mount-point: implementation-specific (DOM element passed to react-dom/client.createRoot)
-;; opts: open map; standard keys: :on-mismatch (per Spec 011), :hydrate? (boolean)
+;; opts: open map; standard keys: :hydrate? (boolean)
 ;; unmount-fn signature: (fn [] nil) — idempotent; releases all resources
 ```
 
@@ -1026,7 +1026,7 @@ subscribe-once(frame-id, query-v):
 The **explicit teardown** of a `subscribe` call: `r` is the reaction `subscribe` returned. `unsubscribe` returns one counted share of `r` to the cache; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, and tools that subscribed imperatively are the call sites that need it. (Machine callbacks do NOT subscribe imperatively — a `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once`; they take host facts as recorded coeffects, so there is no imperative subscription for them to release. See the callback note under [`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value).)
 
 ```clojure
-(let [r (subscribe [:items] {:frame :app/main})]
+(let [r (subscribe [:items] {:frame :rf/default})]
   …
   (unsubscribe r))                                     ;; → nil
 ```

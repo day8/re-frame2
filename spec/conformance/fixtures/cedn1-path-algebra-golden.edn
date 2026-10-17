@@ -22,6 +22,8 @@
 ;;
 ;; Call ops (see the conformance runner's run-call):
 ;;   :canonical-bytes      {:value V :expect "<token-string>"}
+;;                         {:value V :expect-error :rf.error/...}
+;;                         {:ident [KIND NS NAME] :expect "<token-string>"}
 ;;   :canonical-value      {:value V :expect NORMALIZED}  ;; the `canonical` value
 ;;   :canonical-identical  {:a A :b B}            ;; A and B share ONE identity
 ;;   :canonical-distinct   {:a A :b B}            ;; A and B are DISTINCT facts
@@ -69,6 +71,28 @@
   {:call :canonical-bytes :value "a\tb" :expect "s:\"a\\tb\""}
   {:call :canonical-bytes :value "\r\b\f" :expect "s:\"\\r\\b\\f\""}
   {:call :canonical-bytes :value "\u0001\u001F\u007F" :expect "s:\"\u0001\u001F\u007F\""}
+  ;; An unpaired surrogate has no UTF-8 form, so text holding one is outside
+  ;; the domain and fails closed. The reader turns the \uD800 escape into the
+  ;; lone code unit, so this file itself stays valid UTF-8.
+  {:call :canonical-bytes :value "a\uD800b" :expect-error :rf.error/non-edn-identity}
+
+  ;; --- keyword and symbol tokens: plain, or quoted ---------------------
+  ;; A keyword or symbol whose namespace and name are plain (Conventions
+  ;; §Canonical byte encoding) is written as its EDN token; any other is
+  ;; quoted, namespace and name each as a string literal. No EDN literal can
+  ;; spell such a name, so :ident builds it at run time from [kind namespace
+  ;; name]. Written raw, (keyword "a b:1") would be k::a b:1, and a vector of
+  ;; it would share the bytes of [:a true], pinned beside it.
+  {:call :canonical-bytes :ident [:keyword nil "a b:1"] :expect "k:\"a b:1\""}
+  {:call :canonical-bytes :value [:a true] :expect "v[k::a b:1]"}
+  {:call :canonical-bytes :ident [:keyword "a" "b c"] :expect "k:\"a\"/\"b c\""}
+  {:call :canonical-bytes :ident [:keyword nil "a/b"] :expect "k:\"a/b\""}
+  {:call :canonical-bytes :value :a/b :expect "k::a/b"}
+  {:call :canonical-bytes :ident [:symbol nil "a k::b"] :expect "y:\"a k::b\""}
+  {:call :canonical-bytes :ident [:symbol nil "nil"] :expect "y:\"nil\""}
+  {:call :canonical-bytes :ident [:keyword nil "42"] :expect "k:\"42\""}
+  {:call :canonical-bytes :ident [:keyword nil "caf\u00e9"] :expect "k:\"caf\u00e9\""}
+  {:call :canonical-bytes :value [:a.b/c-d? -> +a] :expect "v[k::a.b/c-d? y:-> y:+a]"}
 
   ;; --- the reserved tagged-instant canonical form -----------------------
   ;; `canonical` normalizes an instant to the reserved tagged tuple

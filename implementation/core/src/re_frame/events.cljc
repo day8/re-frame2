@@ -37,7 +37,6 @@
   validator fail-louds in prod as well as dev. The direct require is cycle-free.
   The dev-gated PROJECTION hook stays late-bound. No imperative stash."
   (:require [re-frame.interop :as rf.interop]
-            [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.interceptor :as rf.interceptor]
@@ -550,10 +549,7 @@
   commit (scoping `:db` to app-db, installing the runtime-db / full-frame
   write as one atomic frame-state transition) happens downstream."
   [ctx event effects]
-  (let [frame-id (:rf.frame/id (:coeffects ctx))
-        live?    #(or (nil? (rf.frame/current-event-owner-token))
-                      (rf.frame/event-owner-live? frame-id))]
-    (cond
+  (cond
       (nil? effects) ctx
       (not (map? effects))
       (do
@@ -564,15 +560,12 @@
                             :returned-type (type effects)
                             :reason        "reg-event handler returned a non-map; expected {:db ... :fx [...]}."
                             :recovery      :no-recovery})
-        (if (live?) ctx (assoc ctx :rf/stale-incarnation? true)))
+        ctx)
       :else
       (do
-        (when (live?)
-          (police-runtime-effect-authority! ctx event effects))
-        (if-not (live?)
-          (assoc ctx :rf/stale-incarnation? true)
-          (cond-> ctx
-            (seq effects) (update :effects merge effects)))))))
+        (police-runtime-effect-authority! ctx event effects)
+        (cond-> ctx
+          (seq effects) (update :effects merge effects)))))
 
 (def event-handler-interceptor-id
   "The single `:id` the framework stamps on the handler-wrapping interceptor
@@ -606,37 +599,15 @@
     (fn [ctx]
       (if (:rf/skip-handler? ctx)
         ctx
-        (let [event       (rf.interceptor/get-coeffect ctx :event)
-              effects     (handler-fn (rf.interceptor/get-coeffect ctx) event)
-              frame-id    (:rf.frame/id (:coeffects ctx))
-              ;; Authority is bound outside the authored context.  An
-              ;; interceptor may rebuild or tamper with `ctx`, but cannot forge
-              ;; ownership of a fresh same-id incarnation.
-              owner-token (rf.frame/current-event-owner-token)]
-          ;; Terminal-incarnation law: the authored handler has
-          ;; already entered, so it is allowed to return.  But if it destroyed
-          ;; A (and perhaps installed a fresh same-id B), its returned value is
-          ;; inert.  In particular, do not run handler-return shape policing or
-          ;; legacy-root diagnostics against a value which can no longer have a
-          ;; commit target.  `execute-chain` still unwinds every already-entered
-          ;; authored `:after`; the framework-owned outer flows interceptor
-          ;; observes this marker and fences the remaining tail.
-          (if-not (rf.frame/event-continuation-live? frame-id owner-token)
-            (assoc ctx :rf/stale-incarnation? true)
-            (let [new-ctx (commit-fx-effects ctx event effects)]
-              ;; A rf.trace/error listener reached by handler-return policing can
-              ;; itself synchronously destroy A.  Recheck before the final
-              ;; legacy-root diagnostic; loss makes the partially-produced
-              ;; context inert just like direct loss in the handler body.
-              (if-not (rf.frame/event-continuation-live? frame-id owner-token)
-                (assoc ctx :rf/stale-incarnation? true)
-                (do
-                  ;; EP-0001: a `:db` effect carrying the reserved
-                  ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
-                  ;; the single post-commit chokepoint. No-op when absent.
-                  (reject-legacy-runtime-root!
-                    (rf.interceptor/get-effect new-ctx :db) event)
-                  new-ctx)))))))))
+        (let [event   (rf.interceptor/get-coeffect ctx :event)
+              effects (handler-fn (rf.interceptor/get-coeffect ctx) event)
+              new-ctx (commit-fx-effects ctx event effects)]
+          ;; EP-0001: a `:db` effect carrying the reserved
+          ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
+          ;; the single post-commit chokepoint. No-op when absent.
+          (reject-legacy-runtime-root!
+            (rf.interceptor/get-effect new-ctx :db) event)
+          new-ctx)))))
 
 (defn event-handler-meta
   "Build the registrar-shaped handler-meta map for an event handler from a

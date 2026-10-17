@@ -44,13 +44,10 @@
        §The :rf/hydrate event.
     6. Runs any `:fixture/calls` (e.g. `:render-to-string`) as pure
        function assertions.
-    7. Simulates a post-hydrate client render hash via
-       `re-frame.ssr/verify-hydration!` when the fixture declares
-       `:fixture/render-after-hydrate`.
-    8. Drains any buffered error traces through the active projector
+    7. Drains any buffered error traces through the active projector
        (`apply-error-projection!`) so the response accumulator's
        `:status` reflects the projector's verdict.
-    9. Asserts each of:
+    8. Asserts each of:
        - `:final-app-db` (submap match — partial expectations on
          nested slices work the same way),
        - `:sub-values`,
@@ -112,15 +109,11 @@
   always-on event record carries no `:source`). It is asserted
   verbatim in the dev arm.
 
-  `:rf.ssr/hydration-mismatch` is NOT a second such claim. It is not
-  emitted solely through `trace/emit-error!`: `verify-hydration!` also
-  fans a structural-only always-on record, so the CATEGORY has a
-  production counterpart. What is dev-only is this corpus's CLAIM SHAPE
-  rather than the category —
-  `spec/conformance/fixtures/ssr-hydration-mismatch.edn` asserts a
-  `:trace-emissions` row, and the trace bus is DCE'd under
-  `goog.DEBUG=false`, so the claim is asserted in the dev arm alone. Do not read this paragraph as saying the mismatch is invisible in
-  production; it says the conformance corpus watches the dev channel.
+  `:rf.ssr/hydration-mismatch` comes only from a hydrating React root's
+  adoption reporter, which this data harness has no root to drive;
+  `spec/conformance/fixtures/ssr-hydration-mismatch.edn` pins that the
+  `:rf/hydrate` dispatch itself emits none, through `:trace-not-emitted`,
+  in the dev arm.
 
   ## Capability claim
 
@@ -261,8 +254,6 @@
     :core/fx
     :core/error
     :ssr/render-to-string
-    ;; The render-tree canonical-traversal hash pin (011:386).
-    :ssr/render-tree-hash
     :ssr/hydration
     :ssr/hydration-payload
     :ssr/response-contract
@@ -624,23 +615,6 @@
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
 
-    ;; The render-tree canonical-traversal pin Spec 011:386
-    ;; promises. `render-tree-hash` is the FNV-1a 32-bit hash over the
-    ;; canonical-EDN traversal (depth-first shape; sorted attribute keys;
-    ;; nil pruned). The fixture pins the reference hash VALUE for a small
-    ;; corpus plus same-hash LAW pairs; the value branch is per-host, the
-    ;; law pairs are pattern-level.
-    :render-tree-hash
-    (let [out  (try (rf.ssr/render-tree-hash (:input call))
-                    (catch Throwable e (str "<error: " (.getMessage e) ">")))
-          want (:expect call)]
-      {:passed? (= want out)
-       :detail  (when (not= want out)
-                  (str "render-tree-hash\n"
-                       "    input:    " (pr-str (:input call)) "\n"
-                       "    expected: " (pr-str want) "\n"
-                       "    actual:   " (pr-str out)))})
-
     {:passed? false
      :detail  (str "unknown :call form for ssr runner: " (:call call))})))
 
@@ -750,28 +724,6 @@
 
           :else
           (rf/dispatch-sync ev))))
-      ;; ---- :fixture/render-after-hydrate -------------------------------
-      ;; SSR hydration fixtures simulate the client-side first render
-      ;; by feeding the runtime's `verify-hydration!` a synthetic
-      ;; render hash. The runtime owns the comparison + the
-      ;; `:rf.ssr/hydration-mismatch` trace; we just pass the client
-      ;; hash through.
-      (when-let [render-spec (:fixture/render-after-hydrate fixture)]
-        (let [client-hash     (:simulated-client-render-hash render-spec)
-              first-diff-path (:first-diff-path render-spec)
-              hydrate-ev      (some (fn [e]
-                                      (when (and (vector? e)
-                                                 (= :rf/hydrate (first e)))
-                                        e))
-                                    dispatches)
-              payload         (when hydrate-ev (second hydrate-ev))
-              server-hash     (:rf/render-hash payload)
-              frame-id        (:rf/frame-id payload :rf/default)]
-          (when (and client-hash server-hash)
-            (rf.ssr/verify-hydration!
-              frame-id client-hash
-              {:first-diff-path first-diff-path
-               :server-hash     server-hash}))))
       ;; ---- :fixture/calls ----------------------------------------------
       (let [calls       (or (:fixture/calls fixture) [])
             call-results (mapv run-call calls)

@@ -146,7 +146,7 @@
 ;; ---- ssr: the server flow ------------------------------------------------------
 ;;
 ;; per-request frame → :app/server-init → managed HTTP via the canned stub →
-;; render to string → render hash. JVM-only: the server render runs under
+;; render to string → payload. JVM-only: the server render runs under
 ;; Clojure.
 
 ;; Spec 011 §Per-request frame teardown contract: the example's
@@ -207,26 +207,23 @@
 ;; framework-registered `:rf/hydrate`. JVM-driven with an explicit :payload on a
 ;; :client frame (no DOM to read).
 
-(deftest ^:requires-debug ssr-example-client-hydration-verifies-the-render-hash
-  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES
-            the payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch,
-            and a DIVERGENT one emits it (the verify step the example's `run`
-            wires via :render-tree-fn)"
+(deftest ^:requires-debug ssr-example-client-hydration-seeds-the-frame
+  (testing "examples/capabilities/ssr/ssr — the example's client boot, `hydrate!`
+            with only `:frame`, installs the payload and records its version,
+            and reports no :rf.ssr/hydration-mismatch itself: that report
+            belongs to the root that adopts the DOM"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (let [client-tree [:div.page [:h1 "Recent articles"]]
-          mismatch?   (fn [render-hash]
-                        (let [frame (rf.frame/make-anon-frame-record! {:doc      "ssr-example verify frame"
-                                                                       :platform :client
-                                                                       :ssr      {:detect-mismatch? true}})]
-                          (boolean
-                            (some #(= :rf.ssr/hydration-mismatch (:operation %))
-                                  (capture-traces!
-                                    #(rf.ssr/hydrate! {:frame          frame
-                                                       :payload        {:rf/version 1 :rf/render-hash render-hash
-                                                                        :rf/app-db {:articles []} :rf/runtime-db {}}
-                                                       :render-tree-fn (fn [] client-tree)}))))))]
-      (is (= [false true] [(mismatch? (rf.ssr/render-tree-hash client-tree)) (mismatch? "server00")])))))
+    (let [frame   (rf.frame/make-anon-frame-record! {:doc      "ssr-example hydrate frame"
+                                                     :platform :client})
+          payload {:rf/version 1 :rf/app-db {:articles two-articles} :rf/runtime-db {}}
+          traces  (capture-traces! #(rf.ssr/hydrate! {:frame frame :payload payload}))]
+      ;; the hydrate dispatch traced, so the absent mismatch is not an empty capture
+      (is (= [two-articles {:version 1} true false]
+             [(:articles (rf/app-db-value frame))
+              (get-in (:rf.db/runtime (rf/frame-state-value frame)) [:rf.runtime/ssr :hydration])
+              (boolean (some #(= :rf/hydrate (get-in % [:tags :rf.trace/event-id])) traces))
+              (boolean (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces))])))))
 
 ;; ---- the dynamic payload, server → client ----------------------------------------
 ;;
@@ -241,25 +238,23 @@
 
 (deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/ssr — the dynamic handle-request payload omits
-            :rf/frame-id, carries the lowercase-hex render hash, and hydrates the
-            example's :rf/default client frame with the server's articles,
-            stashing that hash for the verify step"
+            :rf/frame-id and carries only the version and the app-db slice, and
+            it hydrates the example's :rf/default client frame with the server's
+            articles, recording its version"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
     (let [resp         (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")
           payload      (extract-payload-edn (:body resp))
           client-frame @(resolve 'ssr.core/app-frame)]
-      (is (= [200 false true]
-             [(:status resp)
-              (contains? payload :rf/frame-id)
-              (some? (re-matches #"[0-9a-f]{8}" (str (:rf/render-hash payload))))]))
+      (is (= [200 #{:rf/version :rf/app-db}]
+             [(:status resp) (set (keys payload))]))
       (rf/make-frame {:id client-frame :doc "ssr-example client frame" :platform :client})
-      (is (= [payload two-articles (:rf/render-hash payload)]
+      (is (= [payload two-articles {:version (:rf/version payload)}]
              [(rf.ssr/hydrate! {:frame client-frame :payload payload})
               (:articles (rf/app-db-value client-frame))
               (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
-                      [:rf.runtime/ssr :hydration :server-hash])])))))
+                      [:rf.runtime/ssr :hydration])])))))
 
 (deftest ssr-example-payload-script-escapes-script-breakout
   (testing "examples/capabilities/ssr/ssr — a server string carrying `</script>` is
@@ -394,10 +389,8 @@
           payload  (extract-payload-edn body)
           app-open (clojure.string/index-of body "<div id='app'>")
           entries  (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])]
-      (is (= [200 true false] [(:status resp) (some? payload) (contains? payload :rf/frame-id)]))
-      ;; the hash covers the page the root renders: the ambient :rf/default
-      ;; frame holds no preloaded entry, so its render hashes differently
-      (is (not= (:rf/render-hash payload) (rf.ssr/render-tree-hash ((rf/view :app/root)))))
+      (is (= [200 #{:rf/version :rf/app-db :rf/runtime-db}]
+             [(:status resp) (some-> payload keys set)]))
       ;; handle-request owns the ONE document shell and the app renders as a
       ;; FRAGMENT into #app: a nested doctype would be malformed HTML surviving
       ;; only through browser parser recovery
@@ -406,10 +399,10 @@
               (clojure.string/starts-with? (clojure.string/lower-case body) "<!doctype html>")
               (some? app-open)
               (clojure.string/includes? (clojure.string/lower-case (subs body app-open)) "<!doctype")]))
-      ;; #app's first child is the page root carrying the render hash, and the
-      ;; envelope's head, payload script and boot script survive
-      (is (= [true true true true true]
-             (includes-all body ["<div id='app'><div class=\"page\"" "data-rf-render-hash="
+      ;; #app's first child is the page root, and the envelope's head, payload
+      ;; script and boot script survive
+      (is (= [true true true true]
+             (includes-all body ["<div id='app'><div class=\"page\""
                                  "<title>Resources SSR demo</title>" "id='__rf_payload'"
                                  "<script src='/main.js'></script>"])))
       ;; the runtime-db projection carries the loaded entry (`:entries`, not the indexes)

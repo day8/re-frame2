@@ -411,13 +411,14 @@ the runtime looks up later. An app's behaviour is the set of registrations it ma
 | `reg-interceptor` | an [interceptor](#interceptor) |
 | `reg-view` / `reg-view*` | a [view](#view) |
 
-`reg-flow` and `reg-http-interceptor` are different: each registers into one
-frame (the one in scope, or `:frame` in its metadata), not the registrar. Other
-artefacts add their own registrations: `reg-app-schema` (an app-db
-[schema](#schema), keyed by its path), `reg-machine`
-([machines](../machines/concepts.md)), `reg-route` (routing), `reg-resource` and
-`reg-mutation` ([resources](../api/re-frame.resources.md)), and `reg-head` and
-`reg-error-projector` (SSR). A frame is not a registration; you
+`reg-flow` is different: it registers into one frame (the one in scope, or
+`:frame` in its metadata), not the registrar. Other artefacts add their own
+registrations: `reg-app-schema` (an app-db [schema](#schema), keyed by its
+path), `reg-machine` ([machines](../machines/concepts.md)), `reg-route`
+(routing), `reg-resource` and `reg-mutation`
+([resources](../api/re-frame.resources.md)), `reg-http-interceptor` (managed
+HTTP, run by each frame that names it in `:http-interceptors`), and `reg-head`
+and `reg-error-projector` (SSR). A frame is not a registration; you
 create one with `make-frame` or `frame-root`.
 
 ### **runtime-db**

@@ -4,9 +4,8 @@
   HTML5: void elements self-close bare, doctype prefix on demand, full
   attr/text escaping, `:tag#id.cls` keyword parsing, callable-head
   (fn / Var) component resolution. `render-to-string` returns ONE
-  shape: an HTML STRING — the structural hash and HTTP response triple
-  live in sibling namespaces (`re-frame.ssr.hash` /
-  `re-frame.ssr.response`).
+  shape: an HTML STRING — the HTTP response triple lives in a sibling
+  namespace (`re-frame.ssr.response`).
 
   ## One head grammar
 
@@ -168,25 +167,6 @@
 (defn- emit-children [children]
   (clojure.string/join (mapv emit-element children)))
 
-(defn- emit-children-threading-root-attrs
-  "Emit `children`, threading `root-attrs` onto the FIRST
-  child only (nil to the rest), so the render-hash / source-coord lands
-  exactly once on the first DOM-tag element reachable through a fragment
-  root. A fragment whose first child is itself a fragment / fn-head /
-  view-ref recurses — `emit-element` keeps threading the same root-attrs
-  down its own root path until a DOM tag consumes it. When `root-attrs`
-  is nil this is identical to `emit-children`. A plain `emit-children`
-  would drop root-attrs, so a fragment-rooted SSR tree would lose the
-  `data-rf-render-hash` marker the emitter docstring promises."
-  [children root-attrs]
-  (if (nil? root-attrs)
-    (emit-children children)
-    (let [child-vector (vec children)]
-      (clojure.string/join
-        (map-indexed (fn [child-index child]
-                       (emit-element child (when (zero? child-index) root-attrs)))
-                     child-vector)))))
-
 ;; ---- source-coord annotation: NOT the emitter's job ----------------------
 ;;
 ;; The two dev-mode view annotations — `data-rf2-source-coord` and
@@ -205,31 +185,6 @@
 ;; pages actually contain. The emitter is a pure hiccup → HTML
 ;; function with no annotation logic.
 
-;; ---- root-attrs injection ------------------------------------------------
-;;
-;; The render-hash (data-rf-render-hash) is stamped on the first DOM-tag
-;; element of the rendered tree, by a structural injection on the hiccup
-;; root before stringification rather than a regex replace over the output
-;; string. The injection threads an optional `root-attrs` map down through
-;; `emit-element` and consumes it on the first DOM-tag emission — past any
-;; fragments (`:<>`), Reagent-native heads (`:>`), or fn-headed /
-;; view-ref components on the root path. Non-DOM-rooted trees silently
-;; no-op on the injection (the same exemption the registration-boundary
-;; source-coord annotation takes for a non-DOM root).
-
-(defn merge-root-attrs
-  "Merge root-level injected attrs into the attrs map of
-  a DOM tag. Existing attribute values win — the injected attr is only
-  added when the key isn't already present, so a caller-supplied
-  `data-rf-render-hash` on the root never gets overwritten."
-  [attrs root-attrs]
-  (reduce-kv (fn [merged-attrs attr-name attr-value]
-               (if (contains? merged-attrs attr-name)
-                 merged-attrs
-                 (assoc merged-attrs attr-name attr-value)))
-             attrs
-             root-attrs))
-
 ;; ---- the hydrating adapter's prop conversion ------------------------------
 ;;
 ;; The markup the hiccup body walker paints is hydrated by a Reagent-tier
@@ -243,18 +198,16 @@
 ;; `type=":button"` for `[:button {:type :button}]` (an invalid type, which
 ;; the browser reads as SUBMIT) and a class vector's EDN print.
 ;; React neither patches nor reports an attribute-only divergence at
-;; hydration, and the render-tree hash is taken over the tree, not the HTML,
-;; so nothing would catch any of it (Spec 011 §The render-tree → HTML emitter).
+;; hydration, so nothing would catch any of it (Spec 011 §The render-tree →
+;; HTML emitter).
 ;;
 ;; So the walker converts the way the client does, through ONE function
 ;; (`dom-element-props`):
 ;;
 ;;   1. CLASS, on the author's attrs: a `:className` folds into `:class`, and
 ;;      the class value is joined the Reagent way (`class-names`).
-;;   2. The tag shorthand class joins first (`merge-class-attrs`), then the
-;;      root attrs (`merge-root-attrs`) — both on KEYWORD keys, before names
-;;      are converted, so the root-attrs `contains?` precedence still compares
-;;      like with like.
+;;   2. The tag shorthand class joins first (`merge-class-attrs`), on
+;;      KEYWORD keys, before names are converted.
 ;;   3. NAMES and VALUES (`convert-dom-attrs`): on an ordinary element a
 ;;      keyword or symbol name takes Reagent's rule and then react-dom's alias
 ;;      table (`re-frame.ssr.ui-tree/dom-attr-aliases`); a string name takes
@@ -582,17 +535,15 @@
 (defn dom-element-props
   "Everything the hiccup body walker needs to open a DOM element, computed
   in one place. Joins the
-  class (the author's, normalised, after the tag shorthand's), merges
-  `root-attrs`, converts names and values the
-  way the hydrating client does, then applies the form-control special forms
+  class (the author's, normalised, after the tag shorthand's), converts
+  names and values the way the hydrating client does, then applies the form-control special forms
   on an ordinary element. -> `{:attrs <string-keyed map for attr-string>
   :text <a textarea's text body, or nil> :select <a select's value for its
   options, or nil> :inner-html <the raw `:dangerouslySetInnerHTML` body, or
   nil>}`. A walker emits a non-nil `:inner-html` as the whole body of a
   non-void element, ahead of its children."
-  [tag-name normalised-tag-name tag-attrs user-attrs root-attrs children]
+  [tag-name normalised-tag-name tag-attrs user-attrs children]
   (let [merged     (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
-        merged     (if root-attrs (merge-root-attrs merged root-attrs) merged)
         converted  (convert-dom-attrs tag-name merged)
         inner-html (inner-html-body converted)]
     (cond-> (if (clojure.string/includes? tag-name "-")
@@ -874,18 +825,14 @@
 
 (defn resolve-component-head
   "Resolve a callable-head hiccup component (`[component & args]`, where
-  `component` is a fn or a Var — the idiomatic Reagent/UIx SSR shape,
-  the same shape the render-tree hash walker supports) to renderable hiccup.
+  `component` is a fn or a Var — the idiomatic Reagent/UIx SSR shape) to
+  renderable hiccup.
 
   A Form-1 component returns hiccup directly. A Form-2 component returns an
   INNER render fn; per Reagent/UIx Form-2 semantics it is invoked once
   more with the SAME args (at the arity its declared arms select, and
   tolerating EXCESS args only — see `invoke-form-2-render-fn` for the
-  supported contract) to obtain the hiccup. Resolving Form-2 here
-  does NOT perturb the structural hash — the hash walks the RAW tree
-  (`[component …]`, a raw fn head serialising to one fixed token, hash.cljc),
-  identical on server and client, so the resolved output cannot fire a
-  spurious hydration mismatch.
+  supported contract) to obtain the hiccup.
 
   A bare `(apply head args)` would leave a Form-2 result (a fn) to fall
   through to `escape-html`, which would stringify the fn's `.toString`
@@ -915,326 +862,272 @@
       resolved)))
 
 (defn emit-element
-  "Emit a hiccup node as an HTML string. The optional `root-attrs` map
-  carries attributes destined for the first DOM-tag
-  element on the root path — view-refs, fragments, Reagent-native heads,
-  and fn-headed components pass it through; the first DOM-tag emission
-  merges and consumes it. Recursive calls into children always pass
-  `nil` so the injection lands on the root only."
-  ([el] (emit-element el nil))
-  ([el root-attrs]
-   (cond
-     (nil? el)         ""
-     (string? el)      (rf.ssr.html-helpers/escape-html el)
-     ;; Canonicalise the numeric print form so the emitted HTML matches the
-     ;; render-tree hash byte-for-byte across runtimes: a
-     ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
-     ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
-     ;; for numbers (no quoting), so ordinary integers/decimals are
-     ;; unchanged.
-     (number? el)      (rf.ssr.hash/canonical-number el)
-     (boolean? el)     ""
-     ;; A keyword or symbol CHILD is spelled by its `name` — no leading
-     ;; colon, namespace dropped.
-     ;;
-     ;; Falling through to `escape-html`, whose `(str s)` keeps a
-     ;; keyword's colon and a symbol's namespace, would emit
-     ;; `<card>:revenue</card>` and `<div>a/b</div>` on the JVM where every
-     ;; client substrate paints `<card>revenue</card>` and `<div>b</div>`.
-     ;; On both hosts Reagent routes a `named?` child through
-     ;; `(name x)` before handing it to React, which is why the namespace
-     ;; disappears — `:a/b` and `'a/b` both paint `b`.
-     ;;
-     ;; The CHILD spelling of a keyword follows its HEAD meaning onto every
-     ;; host. A text-node mismatch is not cosmetic,
-     ;; because React hydration reconciles text nodes as well as element
-     ;; structure, so a server ":revenue" could not hydrate cleanly
-     ;; against the client's "revenue". Same rule, same reason: one
-     ;; render tree means one thing on every host.
-     ;;
-     ;; `(or (keyword? el) (symbol? el))` rather than `named?` — the
-     ;; latter is CLJS-only, and this is a `.cljc` emitter.
-     (or (keyword? el) (symbol? el))
-     (rf.ssr.html-helpers/escape-html (name el))
-     (vector? el)
-     (let [head (first el)]
-       (cond
-         ;; Fragment `:<>` — emits its rendered children with no wrapper.
-         ;; Per Spec 011: source-coord annotation skips this head (the
-         ;; fragment itself is not a DOM element), and the tag-name
-         ;; validator does not apply. Handled ahead of the
-         ;; general keyword branch so it never reaches `parse-tag-name`.
-         ;;
-         ;; Root-attrs (the render-hash
-         ;; / `:render-hash` marker) MUST thread through a fragment root
-         ;; onto the first DOM-tag child, exactly once. A plain
-         ;; `emit-children` would drop them, so `[:<> [:div "x"]]` with
-         ;; a supplied `:render-hash` would lose its `data-rf-render-hash`
-         ;; even though the docstring promises threading "past … fragments".
-         ;; Thread onto the first child only; nested fragments / fn-heads /
-         ;; view-refs keep threading down their own root path.
-         ;;
-         ;; A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, and it
-         ;; is NOT a child. `[:<> {:key i} …]` inside a `for` is the
-         ;; canonical fragment idiom, so this is ordinary application
-         ;; markup, not a corner. A plain `(rest el)` would hand that
-         ;; map to `emit-element` as the FIRST child, which would fall
-         ;; through to `escape-html` and put the map's EDN in the response
-         ;; bytes (`[:<> {:key "k"} [:div "x"]]` → `{:key &quot;k&quot;}<div>x
-         ;; </div>`) — garbage text, and a guaranteed hydration mismatch
-         ;; against a client render that emits none of it. It would ALSO
-         ;; eat the root-attrs above: with the map as the first child, the
-         ;; `data-rf-render-hash` marker would be threaded onto a value that
-         ;; cannot carry an attribute and vanish, silently, on exactly
-         ;; the keyed fragments applications write. Skipping the slot
-         ;; avoids both. It is the failure the `:>` arm below states it
-         ;; refuses to commit ("dump the props map as raw EDN into the
-         ;; markup").
-         ;;
-         ;; The slot test is `(map? (second el))` — the same spelling the
-         ;; DOM-tag branch below uses, and the same rule as the
-         ;; React-side codec's `props-map?` (a map is props; a seq, string
-         ;; or hiccup vector there is a child).
-         ;;
-         ;; WHAT HAPPENS TO THE ATTRIBUTES: they are DROPPED, silently and
-         ;; whatever they are, `:key` included. A fragment is not an
-         ;; element, so no attribute on one has a wire representation —
-         ;; `:key` is reconciliation identity, which the client recomputes
-         ;; from the same tree, and there is no tag to hang the rest on.
-         ;; Dropping is what the React-side codec does (it reads
-         ;; `:key` off the slot and ignores the remainder) and what React
-         ;; does at runtime — a stray prop on a
-         ;; Fragment is a development warning, never an error. Refusing
-         ;; here would make the SERVER stricter than the client for markup
-         ;; that renders fine in a browser, i.e. a server-only failure on a
-         ;; shared `.cljc` view — the one divergence direction this
-         ;; artefact takes deliberately and narrowly elsewhere
-         ;; (`invoke-form-2-render-fn` §THE SUPPORTED CONTRACT), and there
-         ;; it buys a caught mistake. Here it would buy nothing: the arm
-         ;; emits exactly what the client paints. The loud arms in
-         ;; this emitter (`:>`, reserved `:rf/*`,
-         ;; a malformed head) all guard shapes with NO safe wire meaning,
-         ;; where the alternative is a phantom element or unescaped EDN.
-         ;; A fragment attribute's safe wire meaning is nothing, and
-         ;; nothing is what this emits.
-         (= :<> head)
-         (emit-children-threading-root-attrs
-           (if (map? (second el)) (drop 2 el) (rest el))
-           root-attrs)
+  "Emit a hiccup node as an HTML string."
+  [el]
+  (cond
+    (nil? el)         ""
+    (string? el)      (rf.ssr.html-helpers/escape-html el)
+    ;; Canonicalise the numeric print form so the emitted HTML is
+    ;; byte-identical across runtimes: a
+    ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
+    ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
+    ;; for numbers (no quoting), so ordinary integers/decimals are
+    ;; unchanged.
+    (number? el)      (rf.ssr.hash/canonical-number el)
+    (boolean? el)     ""
+    ;; A keyword or symbol CHILD is spelled by its `name` — no leading
+    ;; colon, namespace dropped.
+    ;;
+    ;; Falling through to `escape-html`, whose `(str s)` keeps a
+    ;; keyword's colon and a symbol's namespace, would emit
+    ;; `<card>:revenue</card>` and `<div>a/b</div>` on the JVM where every
+    ;; client substrate paints `<card>revenue</card>` and `<div>b</div>`.
+    ;; On both hosts Reagent routes a `named?` child through
+    ;; `(name x)` before handing it to React, which is why the namespace
+    ;; disappears — `:a/b` and `'a/b` both paint `b`.
+    ;;
+    ;; The CHILD spelling of a keyword follows its HEAD meaning onto every
+    ;; host. A text-node mismatch is not cosmetic,
+    ;; because React hydration reconciles text nodes as well as element
+    ;; structure, so a server ":revenue" could not hydrate cleanly
+    ;; against the client's "revenue". Same rule, same reason: one
+    ;; render tree means one thing on every host.
+    ;;
+    ;; `(or (keyword? el) (symbol? el))` rather than `named?` — the
+    ;; latter is CLJS-only, and this is a `.cljc` emitter.
+    (or (keyword? el) (symbol? el))
+    (rf.ssr.html-helpers/escape-html (name el))
+    (vector? el)
+    (let [head (first el)]
+      (cond
+        ;; Fragment `:<>` — emits its rendered children with no wrapper.
+        ;; Per Spec 011: source-coord annotation skips this head (the
+        ;; fragment itself is not a DOM element), and the tag-name
+        ;; validator does not apply. Handled ahead of the
+        ;; general keyword branch so it never reaches `parse-tag-name`.
+        ;;
+        ;; A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, and it
+        ;; is NOT a child. `[:<> {:key i} …]` inside a `for` is the
+        ;; canonical fragment idiom, so this is ordinary application
+        ;; markup, not a corner. A plain `(rest el)` would hand that
+        ;; map to `emit-element` as the FIRST child, which would fall
+        ;; through to `escape-html` and put the map's EDN in the response
+        ;; bytes (`[:<> {:key "k"} [:div "x"]]` → `{:key &quot;k&quot;}<div>x
+        ;; </div>`) — garbage text, and a guaranteed hydration mismatch
+        ;; against a client render that emits none of it. Skipping the
+        ;; slot avoids it. It is the failure the `:>` arm below states it
+        ;; refuses to commit ("dump the props map as raw EDN into the
+        ;; markup").
+        ;;
+        ;; The slot test is `(map? (second el))` — the same spelling the
+        ;; DOM-tag branch below uses, and the same rule as the
+        ;; React-side codec's `props-map?` (a map is props; a seq, string
+        ;; or hiccup vector there is a child).
+        ;;
+        ;; WHAT HAPPENS TO THE ATTRIBUTES: they are DROPPED, silently and
+        ;; whatever they are, `:key` included. A fragment is not an
+        ;; element, so no attribute on one has a wire representation —
+        ;; `:key` is reconciliation identity, which the client recomputes
+        ;; from the same tree, and there is no tag to hang the rest on.
+        ;; Dropping is what the React-side codec does (it reads
+        ;; `:key` off the slot and ignores the remainder) and what React
+        ;; does at runtime — a stray prop on a
+        ;; Fragment is a development warning, never an error. Refusing
+        ;; here would make the SERVER stricter than the client for markup
+        ;; that renders fine in a browser, i.e. a server-only failure on a
+        ;; shared `.cljc` view — the one divergence direction this
+        ;; artefact takes deliberately and narrowly elsewhere
+        ;; (`invoke-form-2-render-fn` §THE SUPPORTED CONTRACT), and there
+        ;; it buys a caught mistake. Here it would buy nothing: the arm
+        ;; emits exactly what the client paints. The loud arms in
+        ;; this emitter (`:>`, reserved `:rf/*`,
+        ;; a malformed head) all guard shapes with NO safe wire meaning,
+        ;; where the alternative is a phantom element or unescaped EDN.
+        ;; A fragment attribute's safe wire meaning is nothing, and
+        ;; nothing is what this emits.
+        (= :<> head)
+        (emit-children (if (map? (second el)) (drop 2 el) (rest el)))
 
-         ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
-         ;; passes its children through to a React COMPONENT, not a DOM
-         ;; tag. There is no React on the JVM, so `:>` cannot be statically
-         ;; rendered server-side. Fail loud rather than
-         ;; splice `(rest el)` through `emit-children`, which would stringify
-         ;; the component ref and dump the props map as raw EDN into the
-         ;; markup (garbage output, not a rendered component). The author
-         ;; wraps the React component in a `reg-view` and references THAT
-         ;; by its callable head — the Var `reg-view` defs, or
-         ;; `(rf/view :id)`. The emitter is a pure hiccup → HTML function
-         ;; with no registry lookup, so nothing resolves an id here; the
-         ;; CALLABLE head is what the emitter invokes, which is why the
-         ;; spelling has to be in the message.
-         ;;
-         ;; `el` crosses `error/safe-form` before it is
-         ;; printed OR put in ex-data. This arm is the one where a foreign
-         ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
-         ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
-         ;; cyclic object graph.
-         (= :> head)
-         (let [el (rf.error/safe-form el)]
-           (rf.error/throw-error!
-             :rf.error/ssr-reagent-native-head
-             're-frame.ssr.emit
-             (str "Reagent-native interop head `:>` "
-                  "(element " (pr-str el) ") cannot be "
-                  "rendered server-side — it targets a "
-                  "React component and there is no React "
-                  "on the JVM. Wrap the component in a "
-                  "reg-view and reference that view by its "
-                  "CALLABLE head — the Var reg-view defs "
-                  "(`[my-view …]`) or `[(rf/view :my/id) …]` "
-                  "— or render it client-only. A bare "
-                  "keyword head is an HTML element, not a "
-                  "view reference.")
-             {:recovery :wrap-in-reg-view-or-render-client-only
-              :extra    {:element el}}))
+        ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
+        ;; passes its children through to a React COMPONENT, not a DOM
+        ;; tag. There is no React on the JVM, so `:>` cannot be statically
+        ;; rendered server-side. Fail loud rather than
+        ;; splice `(rest el)` through `emit-children`, which would stringify
+        ;; the component ref and dump the props map as raw EDN into the
+        ;; markup (garbage output, not a rendered component). The author
+        ;; wraps the React component in a `reg-view` and references THAT
+        ;; by its callable head — the Var `reg-view` defs, or
+        ;; `(rf/view :id)`. The emitter is a pure hiccup → HTML function
+        ;; with no registry lookup, so nothing resolves an id here; the
+        ;; CALLABLE head is what the emitter invokes, which is why the
+        ;; spelling has to be in the message.
+        ;;
+        ;; `el` crosses `error/safe-form` before it is
+        ;; printed OR put in ex-data. This arm is the one where a foreign
+        ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
+        ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
+        ;; cyclic object graph.
+        (= :> head)
+        (let [el (rf.error/safe-form el)]
+          (rf.error/throw-error!
+            :rf.error/ssr-reagent-native-head
+            're-frame.ssr.emit
+            (str "Reagent-native interop head `:>` "
+                 "(element " (pr-str el) ") cannot be "
+                 "rendered server-side — it targets a "
+                 "React component and there is no React "
+                 "on the JVM. Wrap the component in a "
+                 "reg-view and reference that view by its "
+                 "CALLABLE head — the Var reg-view defs "
+                 "(`[my-view …]`) or `[(rf/view :my/id) …]` "
+                 "— or render it client-only. A bare "
+                 "keyword head is an HTML element, not a "
+                 "view reference.")
+            {:recovery :wrap-in-reg-view-or-render-client-only
+             :extra    {:element el}}))
 
-         ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
-         ;; The recognised reserved heads (`:<>`, `:>`) are consumed above;
-         ;; no head under the reserved root has a meaning here, and its
-         ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar — so
-         ;; falling through to the element branch would paint a phantom
-         ;; `<suspense-boundry>` / `<hydrate>` and say nothing. Per
-         ;; Conventions §Reserved namespaces the `:rf/*` root is framework-
-         ;; owned, so no author element can legitimately live there; fail
-         ;; loud. Reuses `:rf.error/invalid-hiccup-head` —
-         ;; the head genuinely has no HTML interpretation, which is exactly
-         ;; what that id names — rather than minting a near-duplicate id.
-         (reserved-rf-head? head)
-         (reject-reserved-rf-hiccup-head! el head)
+        ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
+        ;; The recognised reserved heads (`:<>`, `:>`) are consumed above;
+        ;; no head under the reserved root has a meaning here, and its
+        ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar — so
+        ;; falling through to the element branch would paint a phantom
+        ;; `<suspense-boundry>` / `<hydrate>` and say nothing. Per
+        ;; Conventions §Reserved namespaces the `:rf/*` root is framework-
+        ;; owned, so no author element can legitimately live there; fail
+        ;; loud. Reuses `:rf.error/invalid-hiccup-head` —
+        ;; the head genuinely has no HTML interpretation, which is exactly
+        ;; what that id names — rather than minting a near-duplicate id.
+        (reserved-rf-head? head)
+        (reject-reserved-rf-hiccup-head! el head)
 
-         (keyword? head)
-         ;; ONE render-tree head grammar, corpus-wide: a
-         ;; keyword head is a DOM / custom element on EVERY host. Probing
-         ;; `(registrar/lookup :view head)` first and resolving a
-         ;; registered view would make `[:dashboard/card 7]`
-         ;; mean "registered view" here and "an HTML `<card>` element" on
-         ;; every client substrate (Reagent's `parse-tag` runs `(name
-         ;; tag)`; UIx are not hiccup at all). A `.cljc` app sharing
-         ;; views across both — the whole point of the SSR story — could
-         ;; not write a keyword head that meant one thing, and with the
-         ;; server rendering it CORRECTLY while the client painted a
-         ;; phantom, the mistake would survive every server-side test.
-         ;;
-         ;; Conventions §Render-tree shape vs runtime lookup owns the head
-         ;; grammar: "keyword tags stay plain substrate-owned HTML
-         ;; elements". Views are referenced by callable binding:
-         ;; the Var `reg-view` defs, or `(rf/view :id)`.
-         (let [[tag-name tag-attrs] (parse-tag-name head)
-               [user-attrs children]
-               (if (map? (second el))
-                 [(second el) (drop 2 el)]
-                 [{} (rest el)])
-               ;; Void + raw-text classification
-               ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
-               ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
-               ;; `void-elements` / `raw-text-tags` are keyed lower-case,
-               ;; so a raw lookup would emit a `[:BR]` as a non-void
-               ;; open+close pair and classify a `[:SCRIPT "a<b"]` wrongly.
-               ;; Normalise for classification while preserving the
-               ;; author's emitted case.
-               normalised-tag-name (clojure.string/lower-case tag-name)
-               ;; Class join, root attrs, the
-               ;; client's name/value conversion and the form-control special
-               ;; forms.
-               {attrs :attrs text :text select-value :select inner-html :inner-html}
-               (dom-element-props tag-name normalised-tag-name tag-attrs
-                                  user-attrs root-attrs children)
-               void?        (contains? void-elements (keyword normalised-tag-name))
-               raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
-           (cond
-             void?     (str "<" tag-name (attr-string attrs) ">")
-             ;; `:dangerouslySetInnerHTML` is the element's whole body, raw,
-             ;; and wins over any children — see `inner-html-body`.
-             (some? inner-html)
-             (str "<" tag-name (attr-string attrs) ">" inner-html "</" tag-name ">")
-             ;; An ordinary inline <script>/<style> with STRING
-             ;; content is author content: emit it VERBATIM with only the
-             ;; shared closing-sequence rewrite (`html/escape-raw-text`),
-             ;; byte-identical to the S5 serialiser.
-             ;; The `every? string?` gate mirrors the compiled path — an
-             ;; all-string body is the real inline-script/style shape; any
-             ;; structural child takes the ordinary per-child walk
-             ;; (element children pass through inert; the hiccup emitter has
-             ;; no compiled child-shape grammar).
-             (and raw-text? (seq children) (every? string? children))
-             (str "<" tag-name (attr-string attrs) ">"
-                  (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
-                                        (clojure.string/join children))
-                  "</" tag-name ">")
-             ;; A `<textarea>`'s `:value` (else `:default-value`)
-             ;; is its text body, as react-dom/server writes it, with the same
-             ;; leading-LF compensation a string child gets.
-             (some? text)
-             (str "<" tag-name (attr-string attrs) ">"
-                  (rf.ssr.html-helpers/leading-newline-compensation
-                    normalised-tag-name text)
-                  (rf.ssr.html-helpers/escape-html text)
-                  "</" tag-name ">")
-             ;; A `<pre>`/`<listing>`/`<textarea>` whose body is a
-             ;; SINGLE string beginning with LF gets the one compensating LF
-             ;; react-dom/server 19.2 emits, because the HTML parser eats the
-             ;; first LF after those start tags. Without it `[:pre "\ncode"]`
-             ;; would reach the DOM as "code" — one authored character lost, and a
-             ;; text hydration mismatch against the client's rendering of the
-             ;; same `.cljc` view. The roster and the rule are shared with the
-             ;; S5 serialiser (`html/leading-newline-compensation`); `""` for every other
-             ;; tag and body shape, so this is inert on the common path.
-             :else
-             (str "<" tag-name (attr-string attrs) ">"
-                  (rf.ssr.html-helpers/leading-newline-compensation
-                    normalised-tag-name
-                    (rf.ssr.html-helpers/sole-string-child children))
-                  (with-select-value normalised-tag-name select-value
-                    #(emit-children children))
-                  "</" tag-name ">")))
+        (keyword? head)
+        ;; ONE render-tree head grammar, corpus-wide: a
+        ;; keyword head is a DOM / custom element on EVERY host. Probing
+        ;; `(registrar/lookup :view head)` first and resolving a
+        ;; registered view would make `[:dashboard/card 7]`
+        ;; mean "registered view" here and "an HTML `<card>` element" on
+        ;; every client substrate (Reagent's `parse-tag` runs `(name
+        ;; tag)`; UIx are not hiccup at all). A `.cljc` app sharing
+        ;; views across both — the whole point of the SSR story — could
+        ;; not write a keyword head that meant one thing, and with the
+        ;; server rendering it CORRECTLY while the client painted a
+        ;; phantom, the mistake would survive every server-side test.
+        ;;
+        ;; Conventions §Render-tree shape vs runtime lookup owns the head
+        ;; grammar: "keyword tags stay plain substrate-owned HTML
+        ;; elements". Views are referenced by callable binding:
+        ;; the Var `reg-view` defs, or `(rf/view :id)`.
+        (let [[tag-name tag-attrs] (parse-tag-name head)
+              [user-attrs children]
+              (if (map? (second el))
+                [(second el) (drop 2 el)]
+                [{} (rest el)])
+              ;; Void + raw-text classification
+              ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
+              ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
+              ;; `void-elements` / `raw-text-tags` are keyed lower-case,
+              ;; so a raw lookup would emit a `[:BR]` as a non-void
+              ;; open+close pair and classify a `[:SCRIPT "a<b"]` wrongly.
+              ;; Normalise for classification while preserving the
+              ;; author's emitted case.
+              normalised-tag-name (clojure.string/lower-case tag-name)
+              ;; Class join, the client's name/value conversion and the
+              ;; form-control special forms.
+              {attrs :attrs text :text select-value :select inner-html :inner-html}
+              (dom-element-props tag-name normalised-tag-name tag-attrs
+                                 user-attrs children)
+              void?        (contains? void-elements (keyword normalised-tag-name))
+              raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
+          (cond
+            void?     (str "<" tag-name (attr-string attrs) ">")
+            ;; `:dangerouslySetInnerHTML` is the element's whole body, raw,
+            ;; and wins over any children — see `inner-html-body`.
+            (some? inner-html)
+            (str "<" tag-name (attr-string attrs) ">" inner-html "</" tag-name ">")
+            ;; An ordinary inline <script>/<style> with STRING
+            ;; content is author content: emit it VERBATIM with only the
+            ;; shared closing-sequence rewrite (`html/escape-raw-text`),
+            ;; byte-identical to the S5 serialiser.
+            ;; The `every? string?` gate mirrors the compiled path — an
+            ;; all-string body is the real inline-script/style shape; any
+            ;; structural child takes the ordinary per-child walk
+            ;; (element children pass through inert; the hiccup emitter has
+            ;; no compiled child-shape grammar).
+            (and raw-text? (seq children) (every? string? children))
+            (str "<" tag-name (attr-string attrs) ">"
+                 (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
+                                       (clojure.string/join children))
+                 "</" tag-name ">")
+            ;; A `<textarea>`'s `:value` (else `:default-value`)
+            ;; is its text body, as react-dom/server writes it, with the same
+            ;; leading-LF compensation a string child gets.
+            (some? text)
+            (str "<" tag-name (attr-string attrs) ">"
+                 (rf.ssr.html-helpers/leading-newline-compensation
+                   normalised-tag-name text)
+                 (rf.ssr.html-helpers/escape-html text)
+                 "</" tag-name ">")
+            ;; A `<pre>`/`<listing>`/`<textarea>` whose body is a
+            ;; SINGLE string beginning with LF gets the one compensating LF
+            ;; react-dom/server 19.2 emits, because the HTML parser eats the
+            ;; first LF after those start tags. Without it `[:pre "\ncode"]`
+            ;; would reach the DOM as "code" — one authored character lost, and a
+            ;; text hydration mismatch against the client's rendering of the
+            ;; same `.cljc` view. The roster and the rule are shared with the
+            ;; S5 serialiser (`html/leading-newline-compensation`); `""` for every other
+            ;; tag and body shape, so this is inert on the common path.
+            :else
+            (str "<" tag-name (attr-string attrs) ">"
+                 (rf.ssr.html-helpers/leading-newline-compensation
+                   normalised-tag-name
+                   (rf.ssr.html-helpers/sole-string-child children))
+                 (with-select-value normalised-tag-name select-value
+                   #(emit-children children))
+                 "</" tag-name ">")))
 
-         ;; Callable component head — a plain fn OR a Var reference
-         ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT
-         ;; `fn?`, so a bare `(fn? head)` test would send a Var-headed
-         ;; component to the malformed-head `:else` arm instead of
-         ;; resolving it. `ifn?` covers both — keywords, `:<>` and `:>`
-         ;; are all consumed by the branches above,
-         ;; so the only callables reaching here are fns and Var references.
-         ;; Pass root-attrs through this indirection too — structurally the
-         ;; same kind of wrapping as a registered-view ref, so the root
-         ;; hash / source-coord thread through the Var head onto the
-         ;; resolved DOM root.
-         ;;
-         ;; `resolve-component-head` handles a Form-2 component
-         ;; (an outer fn returning an inner render fn): the inner fn is
-         ;; invoked once with the same args rather than left to fall through
-         ;; to `escape-html`, which would stringify the fn's `.toString` as
-         ;; visible page text.
-         ;;
-         ;; `callable-head?` rather than a bare `ifn?`: a vector, map or set
-         ;; is `ifn?` too, and calling one as a component would emit the
-         ;; result of a collection lookup.
-         (callable-head? head)
-         (emit-element (resolve-component-head head (rest el)) root-attrs)
+        ;; Callable component head — a plain fn OR a Var reference
+        ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT
+        ;; `fn?`, so a bare `(fn? head)` test would send a Var-headed
+        ;; component to the malformed-head `:else` arm instead of
+        ;; resolving it. `ifn?` covers both — keywords, `:<>` and `:>`
+        ;; are all consumed by the branches above,
+        ;; so the only callables reaching here are fns and Var references.
+        ;;
+        ;; `resolve-component-head` handles a Form-2 component
+        ;; (an outer fn returning an inner render fn): the inner fn is
+        ;; invoked once with the same args rather than left to fall through
+        ;; to `escape-html`, which would stringify the fn's `.toString` as
+        ;; visible page text.
+        ;;
+        ;; `callable-head?` rather than a bare `ifn?`: a vector, map or set
+        ;; is `ifn?` too, and calling one as a component would emit the
+        ;; result of a collection lookup.
+        (callable-head? head)
+        (emit-element (resolve-component-head head (rest el)))
 
-         ;; A vector whose head is not a keyword and not a
-         ;; callable (string / nil / number / boolean / collection head) is
-         ;; malformed. `(str el)` would ship its EDN form RAW and
-         ;; UNESCAPED (XSS-class escape bypass); fail loud instead.
-         :else (reject-invalid-hiccup-head! el)))
+        ;; A vector whose head is not a keyword and not a
+        ;; callable (string / nil / number / boolean / collection head) is
+        ;; malformed. `(str el)` would ship its EDN form RAW and
+        ;; UNESCAPED (XSS-class escape bypass); fail loud instead.
+        :else (reject-invalid-hiccup-head! el)))
 
-     ;; A non-vector sequential ROOT (a lazy-seq / list — e.g. the result of
-     ;; `(map …)` or `(for …)` at the root). Per Spec 011 §Source-coord
-     ;; annotation / §Hydration-mismatch detection a lazy-seq root is
-     ;; "passed through the injection — the attribute lands on the eventual
-     ;; DOM root." A plain `emit-children` would DROP
-     ;; `root-attrs`, so a lazy-seq-rooted tree would silently lose its
-     ;; `data-rf-render-hash` marker; thread it onto the first DOM child,
-     ;; exactly like the `:<>` fragment root.
-     (sequential? el) (emit-children-threading-root-attrs el root-attrs)
-     :else (rf.ssr.html-helpers/escape-html el))))
+    ;; A non-vector sequential (a lazy-seq / list — e.g. the result of
+    ;; `(map …)` or `(for …)`) emits its children with no wrapper, like
+    ;; the `:<>` fragment.
+    (sequential? el) (emit-children el)
+    :else (rf.ssr.html-helpers/escape-html el)))
 
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML
-  emitter. Returns a STRING. The structural hash (`render-tree-hash`)
-  and the HTTP response accumulator (`re-frame.ssr/get-response`, backed
-  by the framework-private `response-slots` side-channel atom —
-  Spec 011 §Response storage substrate) are separate surfaces.
+  emitter. Returns a STRING. The HTTP response accumulator
+  (`re-frame.ssr/get-response`, backed by the framework-private
+  `response-slots` side-channel atom — Spec 011 §Response storage
+  substrate) is a separate surface.
 
   Implements HTML5 void elements, :tag#id.cls parsing, boolean attrs,
   text/attr escaping, callable-head (fn / Var) component
-  resolution, :doctype? prefix, and :render-hash root-element hash
-  injection for client-side mismatch detection.
-
-  When `:render-hash` is supplied, `data-rf-render-hash`
-  is threaded as `root-attrs` through `emit-element` and merged onto the
-  first DOM-tag element of the rendered tree — past view-refs, fragments,
-  Reagent-native heads, and fn-headed components on the root path. The
-  injection is structural rather than a post-emit regex over the string,
-  so it composes with the source-coord annotation and silently no-ops for
-  non-DOM-rooted trees (matching the source-coord exemption).
-
-  `:render-hash` is the ONE marker spelling.
-  A caller that wants the marker computes the structural hash itself and
-  passes it in — that single hash then drives BOTH the root-element
-  `data-rf-render-hash` injection AND the caller's own payload slot
-  (e.g. the ssr-ring pipeline's `:rf/render-hash`), so the tree is
-  walked once rather than twice:
-
-      (let [h (ssr/render-tree-hash tree)]
-        {:html (ssr/render-to-string tree {:render-hash h})
-         :rf/render-hash h})
-
-  `:render-hash` is a pure pass-through to the root-attrs stamper, so
-  Spec 011's hash/emit separation is preserved (no combined walker).
-  The 1-arity is `(render-to-string tree {})` — no doctype, no marker.
+  resolution, and the :doctype? prefix. The 1-arity is
+  `(render-to-string tree {})` — no doctype.
 
   Unknown opts are ignored; the emitter does not validate its opts map."
   ([render-tree] (render-to-string render-tree nil))
@@ -1244,10 +1137,7 @@
    ;; once per emission. Cache lives only for the duration of this
    ;; render call.
    (binding [*tag-name-cache* (volatile! {})]
-     (let [supplied-hash (:render-hash opts)
-           root-attrs    (when supplied-hash
-                           {:data-rf-render-hash supplied-hash})
-           body          (emit-element render-tree root-attrs)]
+     (let [body (emit-element render-tree)]
        (if (:doctype? opts)
          (str "<!DOCTYPE html>" body)
          body)))))

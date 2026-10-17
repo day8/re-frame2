@@ -117,4 +117,48 @@
    :snapshot     {:state {:s0 :idle :s1 [:s1park]} :data {}}
    :event        [:enter]
    :expect-next-snapshot {:state {:s0 :idle :s1 [:group :s11]} :data {}}
+   :expect-effects       []}
+
+  ;; (5) A CHAIN OF HISTORY INITIALS, nothing recorded: :sh's :default-target
+  ;; :inner names its own history :sh2 as its :initial. Each pseudo-state
+  ;; resolves in turn, so the entry lands on :sh2's :default-target :s21 —
+  ;; never on [:group :inner :sh2].
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :states  {:sh    {:type :history :default-target :inner}
+                                                :inner {:initial :sh2
+                                                        :states  {:sh2 {:type :history :default-target :s21}
+                                                                  :s21 {}
+                                                                  :s22 {}}}}}
+                             :s1park {:on {:enter [:group]}}}}}}
+   :snapshot     {:state {:s0 :idle :s1 [:s1park]} :data {}}
+   :event        [:enter]
+   :expect-next-snapshot {:state {:s0 :idle :s1 [:group :inner :s21]} :data {}}
+   :expect-effects       []}
+
+  ;; (6) The same chain with both levels recorded: each pseudo-state restores
+  ;; its own region-qualified recording, landing on :s22.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :regions {:s0 {:initial :idle :states {:idle {} :busy {}}}
+              :s1 {:initial :group
+                   :states  {:group  {:initial :sh
+                                      :states  {:sh    {:type :history :default-target :inner}
+                                                :inner {:initial :sh2
+                                                        :states  {:sh2 {:type :history :default-target :s21}
+                                                                  :s21 {}
+                                                                  :s22 {}}}}}
+                             :s1park {:on {:enter [:group]}}}}}}
+   :snapshot     {:state      {:s0 :idle :s1 [:s1park]}
+                  :data       {}
+                  :rf/history {[:s1 :group] :inner [:s1 :group :inner] :s22}}
+   :event        [:enter]
+   :expect-next-snapshot {:state      {:s0 :idle :s1 [:group :inner :s22]}
+                          :data       {}
+                          :rf/history {[:s1 :group] :inner [:s1 :group :inner] :s22}}
    :expect-effects       []}]}

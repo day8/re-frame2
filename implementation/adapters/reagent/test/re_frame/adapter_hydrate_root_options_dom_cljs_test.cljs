@@ -5,10 +5,8 @@
   `:identifier-prefix` as React's `identifierPrefix`.
 
   Real DOM, with act OFF, so React reports adoption errors on its own
-  schedule. The views delegate (`[layout [page label]]`), because that is
-  where the render-tree hash cannot see: it hashes every fn head to the same
-  token, so a divergence below the root view reaches no re-frame channel
-  unless the root reports it."
+  schedule. The views delegate (`[layout [page label]]`), so each
+  divergence sits below the root view."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as react]
             ["react-dom" :as react-dom]

@@ -71,6 +71,37 @@
   (is (empty? (timers-for-frame test-frame))
       "destroy-frame! cancelled and dropped the frame's pending timer"))
 
+(deftest a-self-destroying-event-arms-its-timer-and-the-boundary-cancels-it
+  ;; The destroying event's :fx run like any event's, so its :dispatch-later
+  ;; is armed; the teardown at the event boundary then cancels that handle.
+  (let [armed      (atom [])
+        cleared    (atom [])
+        target-ran (atom 0)]
+    (rf/make-frame {:id test-frame})
+    (rf/reg-event :destroy/target
+      (fn [_ _] (swap! target-ran inc) {}))
+    (rf/reg-event :destroy/arm-then-destroy
+      (fn [_ _]
+        (rf/destroy-frame! test-frame)
+        {:fx [[:dispatch-later {:ms 600000 :event [:destroy/target]}]]}))
+    (with-redefs [rf.interop/set-timeout!   (fn [_f ms]
+                                              (let [h [::handle ms]]
+                                                (swap! armed conj h)
+                                                h))
+                  rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+      (rf/dispatch-sync [:destroy/arm-then-destroy] {:frame test-frame}))
+    (is (= {:armed     [[::handle 600000]]
+            :cancelled [[::handle 600000]]
+            :retained  []
+            :frame     nil
+            :ran       0}
+           {:armed     @armed
+            :cancelled (filterv #(= [::handle 600000] %) @cleared)
+            :retained  (vec (timers-for-frame test-frame))
+            :frame     (rf.frame/frame test-frame)
+            :ran       @target-ran})
+        "the timer was armed by the event and cancelled by the boundary teardown")))
+
 (deftest dispatch-later-still-fires-for-a-live-frame
   (let [target-ran (atom 0)]
     (rf/make-frame {:id test-frame})

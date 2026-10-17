@@ -3,8 +3,8 @@
   LF after `<pre>` / `<listing>` / `<textarea>`, so react-dom/server 19.2
   prefixes one compensating LF when such an element's body is a SINGLE STRING
   beginning with LF. Without it `[:pre \"\\ncode\"]` parses to `code`: one
-  authored character lost, and a text hydration mismatch the render-tree hash
-  (computed over the authored data) cannot see.
+  authored character lost, and a text divergence the client's hydration has
+  to recover from.
 
   The expected bytes are react-dom/server's own, measured; and
   `server-parse-matches-authored-and-client-text` parses react-dom's bytes with

@@ -370,9 +370,12 @@ JVM: the same fix, roughly four times the payoff on the target runtime.
 **`require-current-frame!` — 264.1 B/read, 15.6%, the second-largest term.**
 
 On the JVM `frame/resolve-current-frame` is a plain `*current-frame*` var read. On
-CLJS it consults the `:adapter/current-frame` late-bind hook so the React-context
-tier is live — a hook lookup plus a routed-hook chain bottoming out in
-`frame/current-frame`. The paired arms price it:
+CLJS it reads the `:adapter/current-frame` late-bind slot so the React-context
+tier is live — one cached slot lookup, then the `:current-frame` reader the
+installed adapter's map publishes, with `frame/current-frame` the fallback when
+no adapter publishes one. The paired arms price it, measured while that lookup
+still walked a per-call routing chain, so re-run `S0-SCOPE` before quoting the
+figure for the cached slot read:
 
 | arm | B/read |
 |---|---:|
@@ -383,7 +386,7 @@ tier is live — a hook lookup plus a routed-hook chain bottoming out in
 **Every ambient `subscribe` pays 264 B/read for the React-context tier, and the
 JVM decomposition is structurally incapable of showing it** — the `:clj` branch
 does none of this. Filed as **`rf2-f70iq`** (P2), measurement only; where inside
-the hook route the bytes go is not yet attributed and no change is proposed until
+the React-context tier the bytes go is not yet attributed and no change is proposed until
 it is.
 
 **`(frame/frame id)` + `(get @cache k)` — JVM 0–8 B/call, CLJS 96.7 B/read.**

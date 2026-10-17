@@ -15,11 +15,12 @@
 ;; fixture feeds it directly, the way route-stale-nav-token-suppression.edn
 ;; drives its continuation). Timer scheduling stays OUT (advisory, host-clock).
 ;;
-;; The internal reply's verification triple is pure EDN and deterministic here:
-;; `:resource/key` is the scoped-key vector `[scope resource-id params]`;
-;; `:work/id` is `[:rf.work/resource <scoped-key> <generation>]`; the
+;; The internal reply's verification payload is pure EDN and deterministic here:
+;; `:work/id` is `[:rf.work/resource <resource-id> <generation>]` and the
 ;; process-wide monotone generation is 1 (this is the FIRST load since the
-;; runner reset the resource host-caches before the fixture).
+;; runner reset the resource host-caches before the fixture). The payload
+;; carries no scoped key: the handler resolves it from the frame's work-ledger
+;; row for that work id.
 ;;
 ;; The entry is read through the PUBLIC passive subscription
 ;; `[:rf/resource {:resource :scope :params}]` (Spec 016 §Subscriptions —
@@ -56,8 +57,7 @@
   ;; Step 2: the transport reply arrives (fed directly). Verified against the
   ;; live entry by work-id + generation, it settles :loaded with the data.
   [:rf.resource.internal/succeeded
-   {:resource/key [:rf.scope/global :res/article {:slug "w"}]
-    :work/id      [:rf.work/resource [:rf.scope/global :res/article {:slug "w"}] 1]
+   {:work/id      [:rf.work/resource :res/article 1]
     :generation   1
     :data         {:title "Welcome"}}]
 

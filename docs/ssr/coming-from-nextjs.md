@@ -31,7 +31,7 @@ the effect with `:platforms`.
 | The `Metadata` API / `generateMetadata` | [`reg-head`](head.md): a head model derived from app-db, a pure function of `(db, route)`. |
 | The root `layout.js` / `_document.js` document | The [page shell](glossary.md#page-shell): `default-html-shell`, adjusted with `:head`, `:body-end`, `:script-src` and `:app-element-id`, or replaced with `:html-shell`. |
 | `<Suspense fallback>` + `loading.js` (streaming) | A route resource with `:blocking? false`: the server renders its loading state and the client fetches it after hydration ([A slow region](concepts.md#a-slow-region)). re-frame2 does not stream regions. |
-| Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) trace, from a structural hash comparison, plus a strict mode that throws in CI. That covers views that return hiccup; UIx and Fresco roots rely on React's own hydration check. |
+| Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) trace for each recovery React makes while a root hydrates, plus an always-on error record. CI fails a build from the root's `:on-recoverable-error` callback. |
 | `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource): loaded on the server, shipped in the payload, and rendered on the client without a second fetch. |
 | `next/server` runtime, route handlers, middleware | The Ring adapter, `day8/re-frame2-ssr-ring`: `ssr-handler` returns a Ring handler, and `ssr-middleware` mounts it inside an existing Ring app. See [Ring handler](glossary.md#ring-handler). |
 | Rendering in Node | The JVM renders by default. A native view layer such as Fresco renders its body on a Node sidecar through the [Node renderer](glossary.md#node-renderer), while the JVM keeps the request, the payload and the response. |
@@ -48,8 +48,8 @@ blocking resources, and then renders.
 **The client receives the server's state as well as its HTML.** `hydrate!` installs
 the server's [app-db](../core/glossary.md#app-db) and the serialisable
 [runtime-db](../core/glossary.md#runtime-db) slice before the first render, so the
-client does not fetch again to catch up. For views that return hiccup, the client
-also checks its first render against a hash of the server's; see
+client does not fetch again to catch up. A mismatch React recovers from while the
+root hydrates is reported as a trace; see
 [When the renders disagree](concepts.md#when-the-renders-disagree).
 
 **What reaches the client is an allowlist.** Next.js serialises whatever props your
@@ -61,9 +61,8 @@ without `:payload` throws at boot.
 **The head is not updated on client navigation.** `generateMetadata` re-runs on an
 App Router navigation and Next.js updates the live document head. re-frame2 ships
 no DOM-head reconciler, so refreshing `<title>` and `<meta>` after a client-side
-route change is the app's job, reading the same head model. The head's
-`:rf/head-hash` is written but not compared on hydration; only the body's
-`:rf/render-hash` is. [Head metadata](head.md) covers both.
+route change is the app's job, reading the same head model. Hydration reports
+mismatches inside the body's root only. [Head metadata](head.md) covers both.
 
 **Response control is data.** Status, headers, cookies and redirects are
 server-only `:rf.server/*` [effects](../core/glossary.md#effect) returned from

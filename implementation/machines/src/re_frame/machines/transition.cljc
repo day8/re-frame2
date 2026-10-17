@@ -1908,46 +1908,65 @@
      compound's `:initial` cascade, exactly as a first-ever entry would.
      Additionally carries `:fallback` — `:default-target` when the
      pseudo-state declared one, else `:initial` (the spec/009 `:fallback`
-     tag)."
-  [machine snapshot hist-path hist-node]
-  (let [compound-path (vec (drop-last hist-path))
-        hkey          (history-key machine compound-path)
-        recorded      (get-in snapshot [:rf/history hkey])
-        deep?         (true? (:deep? hist-node))
-        ;; Which fallback resolves the leaf on the `:default` path:
-        ;; `:default-target` when the pseudo-state declared one (keyword or
-        ;; vector form), else the owning compound's `:initial`.
-        fallback      (if (some? (:default-target hist-node)) :default-target :initial)
-        default-leaf  (fn []
-                        (let [dt (:default-target hist-node)]
-                          (cond
-                            ;; `:default-target` keyword names a DIRECT CHILD
-                            ;; of the owning compound (not a sibling — unlike
-                            ;; a transition `:target`); build the absolute
-                            ;; child path then descend any `:initial` chain.
-                            (keyword? dt) (initial-cascade machine (conj compound-path dt))
-                            ;; Vector form is an absolute path.
-                            (vector? dt)  (initial-cascade machine dt)
-                            ;; Absent => the owning compound's own `:initial`
-                            ;; cascade (cascade from the compound itself).
-                            :else         (initial-cascade machine compound-path))))]
-    (cond
-      ;; Deep — recorded value is the full absolute leaf path.
-      (and recorded deep? (vector? recorded) (valid-leaf-path? machine recorded))
-      {:leaf recorded :source :recorded :restored-config recorded}
+     tag).
 
-      ;; Shallow — recorded value is the direct-child KEYWORD; rebuild the
-      ;; absolute child path and cascade its `:initial` chain.
-      (and recorded (not deep?) (keyword? recorded)
-           (let [child-path (conj compound-path recorded)]
-             (valid-leaf-path? machine child-path)))
-      {:leaf (initial-cascade machine (conj compound-path recorded))
-       :source :recorded :restored-config recorded}
+  Every returned `:leaf` is a real state. A cascade that lands on another
+  history pseudo-state — a compound whose `:initial` names its own history
+  — resolves that one in turn, against the same `snapshot`, so a chain of
+  history initials restores each level's recording, else its
+  `:default-target`. `seen` holds the pseudo-states already on the chain,
+  so a `:default-target` leading back to one ends the descent there
+  instead of looping."
+  ([machine snapshot hist-path hist-node]
+   (resolve-history-target machine snapshot hist-path hist-node #{hist-path}))
+  ([machine snapshot hist-path hist-node seen]
+   (let [compound-path (vec (drop-last hist-path))
+         hkey          (history-key machine compound-path)
+         recorded      (get-in snapshot [:rf/history hkey])
+         deep?         (true? (:deep? hist-node))
+         ;; Which fallback resolves the leaf on the `:default` path:
+         ;; `:default-target` when the pseudo-state declared one (keyword or
+         ;; vector form), else the owning compound's `:initial`.
+         fallback      (if (some? (:default-target hist-node)) :default-target :initial)
+         ;; `initial-cascade` from `path`, resolving a history pseudo-state
+         ;; the cascade stops on, since none is ever occupied.
+         descend       (fn [path]
+                         (let [leaf (initial-cascade machine path)
+                               node (node-at machine leaf)]
+                           (if (and (history-node? node) (not (contains? seen leaf)))
+                             (:leaf (resolve-history-target machine snapshot leaf node
+                                                            (conj seen leaf)))
+                             leaf)))
+         default-leaf  (fn []
+                         (let [dt (:default-target hist-node)]
+                           (cond
+                             ;; `:default-target` keyword names a DIRECT CHILD
+                             ;; of the owning compound (not a sibling — unlike
+                             ;; a transition `:target`); build the absolute
+                             ;; child path then descend any `:initial` chain.
+                             (keyword? dt) (descend (conj compound-path dt))
+                             ;; Vector form is an absolute path.
+                             (vector? dt)  (descend dt)
+                             ;; Absent => the owning compound's own `:initial`
+                             ;; cascade (cascade from the compound itself).
+                             :else         (descend compound-path))))]
+     (cond
+       ;; Deep — recorded value is the full absolute leaf path.
+       (and recorded deep? (vector? recorded) (valid-leaf-path? machine recorded))
+       {:leaf (descend recorded) :source :recorded :restored-config recorded}
 
-      ;; No recording, or a DANGLING recorded path (hot-reload removed the
-      ;; substate) — graceful fallback to default-target / :initial.
-      :else
-      {:leaf (default-leaf) :source :default :fallback fallback})))
+       ;; Shallow — recorded value is the direct-child KEYWORD; rebuild the
+       ;; absolute child path and cascade its `:initial` chain.
+       (and recorded (not deep?) (keyword? recorded)
+            (let [child-path (conj compound-path recorded)]
+              (valid-leaf-path? machine child-path)))
+       {:leaf (descend (conj compound-path recorded))
+        :source :recorded :restored-config recorded}
+
+       ;; No recording, or a DANGLING recorded path (hot-reload removed the
+       ;; substate) — graceful fallback to default-target / :initial.
+       :else
+       {:leaf (default-leaf) :source :default :fallback fallback}))))
 
 (defn- record-history-config
   "Per Spec 005 §Recording — on compound-state exit. Given a compound at

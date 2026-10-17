@@ -151,6 +151,24 @@ assert "K --with-docs on code diff → docs forced on" "PLAN docs=true jvm=true 
 assert "L --no-docs on docs diff → docs forced off" "PLAN docs=false jvm=false node=false" \
   "$(plan PLAN "$docs_repo" --no-docs)"
 
+# ---- NODE: the node tier is narrowed by the diff's own files.  Clojure source
+# or EDN keeps the CLJS check; a script or manifest keeps the JS harness; the
+# isolation gate and the Fresco modules compile need --all or a fallback. ----
+assert "NODE-a Clojure source → the CLJS check alone" "PLAN-NODE cljs" "$(plan PLAN-NODE "$code_repo")"
+r="$tmp_root/node-script"; mkrepo "$r"
+mkdir -p "$r/implementation/scripts"; printf 'x\n' > "$r/implementation/scripts/foo.cjs"
+git -C "$r" add -A; git -C "$r" commit -q -m script
+assert "NODE-b a launcher script → the JS harness alone" "PLAN-NODE scripts" "$(plan PLAN-NODE "$r")"
+r="$tmp_root/node-manifest"; mkrepo "$r"
+mkdir -p "$r/implementation"; printf '{}\n' > "$r/implementation/package.json"
+git -C "$r" add -A; git -C "$r" commit -q -m manifest
+assert "NODE-c the implementation manifest → both" "PLAN-NODE scripts cljs" "$(plan PLAN-NODE "$r")"
+assert "NODE-d --all → every node lane" "PLAN-NODE scripts cljs isolation fresco-compile" \
+  "$(plan PLAN-NODE "$docs_repo" --all)"
+assert "NODE-e no origin/main → every node lane" "PLAN-NODE scripts cljs isolation fresco-compile" \
+  "$(plan PLAN-NODE "$nobase_repo")"
+assert "NODE-f docs-only → no node lane" "PLAN-NODE <none>" "$(plan PLAN-NODE "$docs_repo")"
+
 # ---- M, N: the doc validators' main() exits 1 on a bundled broken fixture ----
 python "$repo_root/scripts/check_doc_slugs.py" \
   --repo-root "$repo_root/scripts/_test_fixtures/check_doc_slugs/broken_anchor" >/dev/null 2>&1

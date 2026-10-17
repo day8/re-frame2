@@ -53,6 +53,7 @@
             post-chain request, not the raw args"
     (rf/reg-http-interceptor :base-url
       {:before (fn [ctx] (assoc-in ctx [:request :url] "http://localhost/from-interceptor"))})
+    (rf/make-frame {:id :rf/default :http-interceptors [:base-url]})
     (let [ex (call-managed! {:method :get})]
       (is (not (and (some? ex)
                     (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))))
@@ -63,6 +64,7 @@
             one is caught: the final request, not the raw args, is checked"
     (rf/reg-http-interceptor :url-eraser
       {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
+    (rf/make-frame {:id :rf/default :http-interceptors [:url-eraser]})
     (is (bad-request-throw?
           (call-managed! {:method :get :url "http://localhost/x"})
           nil))))

@@ -1,10 +1,11 @@
 (ns re-frame.resources-request-decoration-cljs-test
   "Request decoration for resource reads and mutations (Spec 016 §Request
   decoration belongs to the managed-HTTP seam). Both lower through the one
-  `:rf.http/managed` fx, so a frame-registered `reg-http-interceptor`
-  decorates every request the frame issues with no per-resource or
-  per-mutation opt-in. The interceptor reads the carried frame's app-db, and
-  the decorated header value never reaches a trace row (Spec 016 §Security).
+  `:rf.http/managed` fx, so a `reg-http-interceptor` the frame names in its
+  `:http-interceptors` decorates every request the frame issues with no
+  per-resource or per-mutation opt-in. The interceptor reads the carried
+  frame's app-db, and the decorated header value never reaches a trace row
+  (Spec 016 §Security).
 
   The `:rf.http/managed` stub replaces only the wire: it walks the real
   per-frame request-side chain (`rf.http.test-support/run-request-chain`),
@@ -72,12 +73,12 @@
 ;; ambient db, and returns ctx unchanged when no token is present.
 (defn- reg-auth-interceptor! []
   (rf/reg-http-interceptor :test/auth
-    {:frame  :rf/default
-     :before (fn [ctx]
+    {:before (fn [ctx]
                (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
                  (cond-> ctx
                    token (assoc-in [:request :headers "Authorization"]
-                                   (str "Token " token)))))}))
+                                   (str "Token " token)))))})
+  (rf/make-frame {:id :rf/default :http-interceptors [:test/auth]}))
 
 (defn- auth-header [] (get-in @last-decorated [:request :headers "Authorization"]))
 

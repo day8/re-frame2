@@ -605,21 +605,20 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
 > **Owner:** [014-HTTPRequests §Middleware](014-HTTPRequests.md#middleware)
 > **Status:** v1 (optional capability)
 
-The metadata stored in the per-frame interceptor slot for a registration made via `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per shape iii, the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus optional `:frame` and any `:rf/registration-metadata` keys. Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
+The metadata of one `:http-interceptor` registrar row, written by `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per shape iii, the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus any `:rf/registration-metadata` keys. The row is a frame-agnostic definition and carries no `:frame`: a frame runs it only by naming its id in the frame's `:http-interceptors` config ([014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)), and a `:frame` in the interceptor map is `:rf.error/http-bad-interceptor`.
 
 ```clojure
 (def HttpInterceptorMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:id              :keyword]                                            ;; required, addressable for clear
+    [:id              :keyword]                                            ;; required; the id a frame's :http-interceptors names and (rf/clear :http-interceptor id) removes
     [:before  {:optional true} fn?]                                        ;; optional, request-side transform: (fn [ctx] ctx')
     [:after   {:optional true} fn?]                                        ;; optional, response-side transform: (fn [ctx response] response')
-    [:frame                    :keyword]                                   ;; runtime-stamped from user-supplied :frame or the established scope (no :rf/default fallback — EP-0002)
     ]])
 ```
 
-At least one of `:before` / `:after` MUST be present — a no-op slot is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` for the request-side chain) and `run-after-chain!` (which pulls `:id` / `:after` for the REVERSE-order response-side chain); it is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
+At least one of `:before` / `:after` MUST be present — a no-op definition is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). When a request is issued, `capture-chain` resolves the frame's `:http-interceptors` ids to these rows, in that order; `run-interceptor-chain!` pulls `:id` / `:before` from that captured vector for the request-side chain and `run-after-chain!` pulls `:id` / `:after` for the REVERSE-order response-side chain. The row is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
 
 #### `:rf/http-managed-meta`
 
@@ -1690,8 +1689,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 (def ResourceReservedRequestKeyTags
   ;; a resource's :request (the Spec 014 managed-HTTP args map) supplied one
   ;; of the runtime-owned reply-addressing keys (:request-id / :on-success /
-  ;; :on-failure). The runtime OWNS reply addressing (from the scoped key +
-  ;; generation) so the internal reply verifies frame + work-id + generation;
+  ;; :on-failure). The runtime OWNS reply addressing (from the work id —
+  ;; resource id + generation — and the frame) so the internal reply verifies
+  ;; frame + work-id + generation;
   ;; an app-supplied reply target would bypass stale suppression. Rejected at
   ;; the managed-HTTP lower seam; the request is NOT lowered.
   [:map
@@ -2074,68 +2074,20 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
-;; There is no head-mismatch `*Tags` schema and no `:rf.warning/head-mismatch`
-;; category. A head mismatch rides `:rf.ssr/hydration-mismatch`, discriminated
-;; by `:failing-id` `:rf.ssr/head-mismatch` — a VALUE on that row, not a
-;; category of its own.
-;;
-;; A head mismatch reaches the trace through `verify-hydration!` —
-;; host-attributed, with runtime attribution a post-v1 follow-on, per
-;; [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) — so its
-;; `:tags` are the hiccup arm of `HydrationMismatchTags` below, and no `:head-id`
-;; reaches either path: `verify-hydration!` accepts only
-;; `:first-diff-path` / `:failing-id` / `:server-hash`. The head's own shipped
-;; channel, `:rf/head-hash` (plus the `data-rf-head-hash` wire attribute), is a
-;; HYDRATION-PAYLOAD channel, not a trace one — it never rides `:tags`, so it
-;; needs no `*Tags` schema at all.
-
 (def HydrationMismatchTags
-  ;; TWO DISJOINT ARMS UNDER ONE CATEGORY. `:rf.ssr/hydration-mismatch` is the
-  ;; one row in the catalogue whose two-tier split runs INSIDE the category
-  ;; rather than between rows (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue),
-  ;; the `:op-type` note), and the two tiers share no payload key but `:where`.
-  ;; A single `[:map …]` cannot model that: declaring the hashes required makes
-  ;; every real adoption-tier event invalid, and declaring them optional would
-  ;; admit a tagless map that neither tier ever emits. So the schema is a
-  ;; two-arm `:or`, and no emitted event satisfies both arms.
-  ;;
-  ;; HICCUP TIER — `re-frame.ssr.hydrate/verify-hydration!` emits through
-  ;; `trace/emit-error!`, so the envelope's own `:op-type` is `:error` and
-  ;; `build-event` merges `{:category :rf.ssr/hydration-mismatch}` into `:tags`.
-  ;; That emit reuses ONE payload with the `:on-mismatch :hard-error` throw,
-  ;; which is why the thrown-shape slot `:rf.error/id` rides `:tags` here too
-  ;; (the same standalone reading `AppSchemaRuntimePathTags` records). The head
-  ;; sub-arm is the SAME shape: it is discriminated by `:failing-id`
-  ;; `:rf.ssr/head-mismatch` and nothing else — `verify-hydration!` accepts only
-  ;; `:first-diff-path` / `:failing-id` / `:server-hash` opts, so no `:head-id`
-  ;; can reach this category's tags (the note directly above).
-  ;;
-  ;; ADOPTION TIER — `re-frame.substrate.spine/native-hydration-reporter` and
+  ;; ONE ARM: the hydrating root's adoption reporter.
+  ;; `re-frame.substrate.spine/native-hydration-reporter` and
   ;; `re-frame.fresco.impl.mount/hydration-reporter` emit through plain
-  ;; `trace/emit!` with a `:warning` envelope. There is therefore NO
-  ;; `[:tags :category]` at all (the category rides the top-level `:operation`),
-  ;; no hash — a React-element root has no structural render-tree to hash — and
-  ;; no `:root-id`, because a React-element root has none. `:error` carries the
-  ;; recoverable error's `.message`, which is `nil` when the error carries none.
-  ;;
-  ;; `:recovery` is stripped and hoisted to the envelope top level on BOTH arms,
-  ;; so neither declares it.
-  [:or
-   ;; hiccup tier — the `:error` envelope
-   [:map
-    [:category        [:= :rf.ssr/hydration-mismatch]]
-    [:rf.error/id     [:= :rf.ssr/hydration-mismatch]]
-    [:where           :symbol]
-    [:server-hash     :any]
-    [:client-hash     :any]
-    [:frame           :keyword]
-    [:failing-id      :keyword]
-    [:reason          :string]
-    [:first-diff-path {:optional true} [:vector :any]]]
-   ;; adoption tier — the `:warning` envelope
-   [:map
-    [:error           [:maybe :string]]
-    [:where           :symbol]]])
+  ;; `trace/emit!` with a `:warning` envelope, so there is NO
+  ;; `[:tags :category]` (the category rides the top-level `:operation`), no
+  ;; hash, and no `:root-id` — a React-element root has none. `:error` carries
+  ;; the recoverable error's `.message`, which is `nil` when the error carries
+  ;; none. `:recovery` is stripped and hoisted to the envelope top level, so
+  ;; the schema does not declare it. There is no head-mismatch category and no
+  ;; head `*Tags` schema: the hydrating root covers the body only.
+  [:map
+   [:error [:maybe :string]]
+   [:where :symbol]])
 
 (def InterceptorsInMetadataMapTags
   [:map
@@ -2254,16 +2206,14 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:failure         :any]              ;; one of the :rf.http/* failure-map shapes
    [:next-backoff-ms {:optional true} [:maybe :int]]])
 
-;; --- info: per-frame HTTP interceptor lifecycle ---
+;; --- info: HTTP interceptor definition lifecycle ---
 
 (def HttpInterceptorRegisteredTags
   [:map
-   [:frame    :keyword]
    [:id       :keyword]])
 
 (def HttpInterceptorClearedTags
   [:map
-   [:frame    :keyword]
    [:id       :keyword]])
 
 ;; --- error: a request-interceptor :before threw ---
@@ -2276,13 +2226,13 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:url            {:optional true} [:maybe :string]]
    [:cause          {:optional true} [:maybe :string]]])
 
-;; --- value schemas for the per-frame request-side interceptor ---
+;; --- value schemas for the HTTP interceptor definition and its ctx ---
 
 (def HttpInterceptor
   [:map
-   [:frame  {:optional true} :keyword]   ;; the explicit override; absent → resolved from the established scope (no :rf/default fallback — EP-0002)
-   [:id     :keyword]                    ;; addressable for clear-http-interceptor
-   [:before [:=> [:cat :map] :map]]])    ;; (fn [ctx] ctx')
+   [:id     :keyword]                                         ;; the id a frame's :http-interceptors names
+   [:before {:optional true} [:=> [:cat :map] :map]]          ;; (fn [ctx] ctx')
+   [:after  {:optional true} [:=> [:cat :map :map] :map]]])   ;; (fn [ctx response] response'); at least one of :before / :after
 
 (def HttpInterceptorContext
   [:map
@@ -2874,13 +2824,11 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
 
 (def HydrationMetadata
-  ;; Server-supplied hydration metadata stashed by the :rf/hydrate handler.
-  ;; :server-hash is the carrier `verify-hydration!` reads after first client
-  ;; render to drive :rf.ssr/hydration-mismatch; :version is the runtime version
-  ;; consumed by the :rf.ssr/check-version fx.
+  ;; Server-supplied hydration metadata recorded by the :rf/hydrate handler.
+  ;; :version is the payload's pattern-protocol version, consumed by the
+  ;; :rf.ssr/check-version fx.
   [:map
-   [:server-hash {:optional true} :string]
-   [:version     {:optional true} :int]])
+   [:version {:optional true} :int]])
 
 (def Ssr
   ;; The SSR runtime's hydration metadata sub-container. Allocated lazily —
@@ -2914,7 +2862,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 - **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here); the durable oldest-to-newest creation order over the frame's live spawned actors lives at `[:rf.runtime/machines :spawn-order]` — the sole authority for reverse-creation disposal on frame destroy, since the per-id-prefix `#<n>` suffix cannot order actors of different machine types and is absent on a `:fixed-actor-id`. The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:route-id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token ([012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the blocking route resources keeping the transition `:loading` per nav-token — keyed on the CEDN-1 byte `key-id` the resource cache is keyed on, so two `=`-equal but byte-distinct identities are two wait points, with **no** promised order) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan and pruned by that artefact's readiness projection as each requirement settles. Routing has **no** settle handler and consults **no** blocking predicate: per [012 §Route readiness is a resource projection](012-Routing.md#route-readiness-is-a-resource-projection) it seeds `:transition` / `:error` at commit and the Resources artefact reconciles them thereafter. The slot is absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). Its sibling `[:rf.runtime/routing :resource-plan]` (`{<nav-token> {<key-id> <scoped-resource-key>}}`, the **full** set of scoped resource identities the plan for that nav-token owns — blocking and non-blocking alike, byte-keyed and unordered exactly as the blocking slot is) is written by the same plan and read on the *next* full activation to compute the kept/added/removed plan diff for attach-before-release owner handoff (EP-0037 R2, [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans)); a superseded nav-token's slot is cleared when its route owner is released, exactly like the blocking slot. The saved scroll-position LRU is **not** here — it is a host-side transient cache ([012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced (EP-0025) from the **four commit-plane data-classification effects** (durable app-db, `:source :effect`), **subsystem projection-relative declarations** (`reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, lowered per instance), and **flow outputs** (`:source :flow`) — the sources union at egress lookup. They are **not** sourced from a frame `:sensitive {:app-db …}` annotation, an imperative `add-marks` / `set-marks` API, or app-db schema slot props (EP-0025: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
-- **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
+- **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:version`, consumed by `:rf.ssr/check-version`).
 
 **Per-frame isolation** is automatic — each frame owns its own runtime-db; the same machine id, route id, or elision path can exist in multiple frames without collision.
 
@@ -2992,8 +2940,8 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
 
 ```clojure
 (def ScopedResourceKey
-  ;; The cache key, the request-correlation token payload, and the unit Xray
-  ;; and SSR enumerate. `[cache-scope resource-id canonical-params]` — scope
+  ;; The cache key and the unit Xray and SSR enumerate; an attempt is named
+  ;; by ResourceWorkId instead. `[cache-scope resource-id canonical-params]` — scope
   ;; first (the tenant/user/locale/impersonation leak boundary), then the
   ;; resource id, then the canonicalized params. Scope + params are
   ;; canonicalized under the SAME rule (key order irrelevant). All three
@@ -3005,13 +2953,16 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    :any])      ;; canonical-params (a canonicalized EDN map)
 
 (def ResourceWorkId
-  ;; The work-ledger record key + the entry's :current-work pointer + (for
-  ;; managed HTTP) the transport request-id. EMBEDS the generation, so stale
-  ;; suppression keys on it — ONE identity per attempt; there is no separate
-  ;; :stale-key synonym (per [016 §Ledger row retention and identity]).
+  ;; A read attempt's identity: the work record's :work/id, the entry's
+  ;; :current-work pointer, the internal reply payload's :work/id and (inside
+  ;; [:rf.req frame-id work-id]) the managed-HTTP transport request-id.
+  ;; EMBEDS the generation, so stale suppression keys on it — ONE identity per
+  ;; attempt; there is no separate :stale-key synonym. Names the resource id,
+  ;; never the scope or params: the attempt's scoped key is the work record's
+  ;; :resource/key (per [016 §Ledger row retention and identity]).
   [:tuple
    [:= :rf.work/resource]
-   ScopedResourceKey
+   :keyword    ;; resource-id
    :int])      ;; generation
 
 (def ResourceEntry
@@ -3078,13 +3029,40 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    [:owner-index    {:optional true} [:map-of :any [:set ScopedResourceKey]]]
    [:last-gc-window {:optional true} :int]])
 
+(def MutationWorkId
+  ;; A mutation attempt's identity: the instance row's :current-work, the
+  ;; ledger record's :work/id and the internal reply payload's :work/id. It
+  ;; reuses the resource head with the [:rf.mutation <instance-id>] subject
+  ;; (work_ledger/resource-work-id); the instance id is the caller's own value
+  ;; or a generated one, so it is any CEDN-1 identity.
+  [:tuple
+   [:= :rf.work/resource]
+   [:tuple [:= :rf.mutation] :any]   ;; [:rf.mutation instance-id]
+   :int])                            ;; generation
+
+(def MutationWorkRecord
+  ;; A mutation attempt's ledger record: the resource record's shape with
+  ;; :work/kind :mutation, a MutationWorkId, and :resource/key holding the
+  ;; [:rf.mutation <instance-id>] subject, the per-key bucket the terminal
+  ;; prune and :rf.mutation/clear drop the instance's rows by.
+  [:merge
+   ResourceWorkRecord
+   [:map
+    [:work/id      MutationWorkId]
+    [:work/kind    [:= :mutation]]
+    [:resource/key [:tuple [:= :rf.mutation] :any]]]])
+
 (def WorkLedger
-  ;; The frame work-ledger runtime-db child — serializable work records keyed
-  ;; by :work/id. Named neutrally; resources + mutations are its v1 writers
-  ;; (work-kind :resource / :mutation). Bounded: non-terminal rows ride the
+  ;; The frame work-ledger runtime-db child. Named neutrally; resources +
+  ;; mutations are its v1 writers (work-kind :resource / :mutation). Keyed by
+  ;; the CEDN-1 canonical-bytes string of each record's work id
+  ;; (work_ledger/work-id-id), not the work-id vector: a mutation work id
+  ;; embeds a caller-supplied instance id, and two instance ids that are `=`
+  ;; across a list/vector spelling have distinct CEDN-1 identities. The vector
+  ;; rides on the record as :work/id. Bounded: non-terminal rows ride the
   ;; wire, terminal rows are pruned to a small per-key tail (Xray history), so
   ;; it never grows unboundedly across SSR / epoch snapshots. Allocated lazily.
-  [:map-of ResourceWorkId ResourceWorkRecord])
+  [:map-of :string [:or ResourceWorkRecord MutationWorkRecord]])
 
 (def MutationInstance
   ;; A durable mutation INSTANCE row under [:rf.runtime/mutations <instance-id>].
@@ -3108,7 +3086,7 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
    [:params        {:optional true} :any]
    [:cause         {:optional true} :any]
    [:generation    :int]
-   [:current-work  {:optional true} [:maybe ResourceWorkId]]
+   [:current-work  {:optional true} [:maybe MutationWorkId]]
    [:started-at    {:optional true} [:maybe :int]]
    [:settled-at    {:optional true} [:maybe :int]]
    [:affected-keys {:optional true} [:maybe [:vector :any]]]
@@ -3776,8 +3754,6 @@ Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canon
    [:rf/app-db        :any]                                                ;; serialised app-db PARTITION (authoritative)
    [:rf/runtime-db    {:optional true} :rf/runtime-db]                     ;; serialised SERIALIZABLE runtime-db projection — machine snapshots, route slice, SSR metadata (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event)); the per-frame elision-declaration registry is omitted, and the client rebuilds its own. Carries ONLY durable facts; transient side channels (request/response accumulators, head snapshots, host handles) are excluded. Together with :rf/app-db the two slices install a coherent FRAME-STATE. Absent on a frame that hydrates no framework runtime state.
    [:rf/ssr-rendered-at {:optional true} :int]                             ;; ms-since-epoch the server completed render
-   [:rf/render-hash   {:optional true} :string]                            ;; structural hash of the server-rendered BODY render-tree (body-only), for mismatch detection. The `:rf/hydrate` handler stashes it at `[:rf.runtime/ssr :hydration :server-hash]` for `verify-hydration!` (per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)). Head divergence rides the SEPARATE `:rf/head-hash` channel below.
-   [:rf/head-hash     {:optional true} :string]                            ;; structural hash of the server-rendered CANONICAL HEAD MODEL (the EDN `head-model` returns, NOT emitted `<head>` HTML) — a SEPARATE channel from `:rf/render-hash`. Client-reconstructible via `head-model` against the hydrated state (per [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head)). OMITTED for explicit-`:head`-STRING requests (no reconstructible model — graceful degrade). A host attributes a head-only mismatch as `:rf.ssr/head-mismatch` through the `:failing-id` seam; runtime-side attribution is a post-v1 follow-on.
    [:rf/schema-digest {:optional true} :string]                            ;; hash of the server's registered app-schema set (per [010-Schemas.md](010-Schemas.md))
    ])
 ```
@@ -4219,6 +4195,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]       ;; the InterceptorOverrides map (per §:rf/interceptor-ref)
     [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
     [:flows        {:optional true} [:vector :keyword]]                    ;; flow ids the frame runs (none by default), resolved through its own view; per [013 §Activation](013-Flows.md#activation)
+    [:http-interceptors {:optional true} [:vector :keyword]]               ;; HTTP interceptor ids the frame runs, in order (none by default), resolved at request issue; per [014 §Activation](014-HTTPRequests.md#activation--the-frames-http-interceptors)
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     ;; Focus/reconnect revalidation is a FRAME PROPERTY, not a call: the frame

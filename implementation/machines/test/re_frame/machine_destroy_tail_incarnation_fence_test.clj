@@ -1,15 +1,13 @@
 (ns re-frame.machine-destroy-tail-incarnation-fence-test
-  "The ordinary `:rf.machine/destroy` teardown tail is fenced to the frame
-  incarnation A that entered it: a callback that destroys A and publishes a
-  same-id B must leave B untouched."
+  "Teardown writes that outlive the frame incarnation A that started them leave
+  a same-id successor B untouched: an `:after` timer release cancels only its
+  own handle, and the classification drop rides the exact elision write."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.classification :as rf.machines.classification]
-            [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -35,50 +33,6 @@
                :done    {:final? true}}})
 
 (defn- elision-slot [frame-id] (get-in (rf/frame-state-value frame-id) [:rf.db/runtime :rf.runtime/elision]))
-
-(defn- seed-live-actor!
-  "Seed `actor-id` into `frame-id` as a live spawned actor of `actor-type`:
-  snapshot, durable spawn-order entry and lowered classification."
-  [frame-id]
-  (rf.frame/swap-runtime-db!
-    frame-id
-    #(-> %
-         (assoc-in [:rf.runtime/machines :snapshots actor-id]
-                   {:state           :running
-                    :data            {:rf/self-id actor-id :token "secret"}
-                    :rf/machine-type actor-type})
-         (rf.machines.spawn-order/record-in-runtime-db actor-id)))
-  (rf.machines.classification/lower-at-spawn! frame-id actor-id classified-spec))
-
-(deftest destroyed-trace-loss-fences-destroy-tail
-  ;; The effect is called directly, so its `:rf.machine/destroyed` listener runs
-  ;; on the destroying stack. It destroys A and re-seeds the same actor in a
-  ;; same-id B; ownership is rechecked after the trace, so the rest of A's
-  ;; tail never reaches B.
-  (let [frame-a :rf2-i4aj9c/destroyed-frame
-        fired?  (atom false)
-        b-birth (atom nil)]
-    (rf/make-frame {:id frame-a})
-    (rf/reg-machine actor-type classified-spec)
-    (seed-live-actor! frame-a)
-    (rf.trace.tooling/register-listener!
-      ::destroy-tail-fence
-      (fn [ev]
-        (when (and (= :rf.machine/destroyed (:operation ev))
-                   (compare-and-set! fired? false true))
-          (rf.frame/destroy-frame! frame-a)
-          (rf/make-frame {:id frame-a})
-          (seed-live-actor! frame-a)
-          (reset! b-birth (rf.machines.test-support/runtime-db frame-a)))))
-    (try
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf.frame/call-with-event-owner-token frame-a token-a
-          #(rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id)))
-      (is (= [@b-birth [actor-id]]
-             [(rf.machines.test-support/runtime-db frame-a)
-              (rf.machines.spawn-order/durable-order (rf.machines.test-support/runtime-db frame-a))]))
-      (finally
-        (rf.trace.tooling/unregister-listener! ::destroy-tail-fence)))))
 
 ;; Releasing an `:after` timer cancels the entry's own host handle. Once a
 ;; cancelled-trace listener has destroyed A and a same-id B has armed the same
@@ -108,10 +62,7 @@
             (swap! rf.machines.timer/after-timers assoc-in [frame-a k] b-entry))))
       (try
         (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
-          (let [token-a     (rf.frame/frame-incarnation-token frame-a)
-                owner-gone? #(not (rf.frame/event-continuation-live? frame-a token-a))]
-            (rf.frame/call-with-event-owner-token frame-a token-a
-              #(rf.machines.timer/cancel-actor-timers! frame-a actor-id owner-gone?))))
+          (rf.machines.timer/cancel-actor-timers! frame-a actor-id))
         (is (= [(when lose-a? b-entry) [a-handle]]
                [(get-in @rf.machines.timer/after-timers [frame-a k]) @cancelled])
             (if lose-a?

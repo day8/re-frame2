@@ -8,9 +8,9 @@ shape the JVM-side `render-to-string` + payload builder would emit per
 1. Reads the EDN payload from `<script id="__rf_payload">`.
 2. Dispatches `[:rf/hydrate payload]` (replace-app-db policy, locked).
 3. Renders the registered root view against the now-seeded app-db.
-4. Calls `re-frame.ssr/verify-hydration!` with the resolved render tree
-   so the runtime can compare hashes and emit
-   `:rf.ssr/hydration-mismatch` on disagreement.
+
+The static markup is hand-written and indented for reading, so step 3
+renders over it with a fresh client root rather than hydrating it.
 
 | `data-testid` | What it carries / proves |
 |---|---|
@@ -30,22 +30,21 @@ cljs vars.
 | Spec section | Behaviour exercised |
 |---|---|
 | §Hydration is a defined protocol | Payload arrives, `:rf/hydrate` replaces app-db, client renders. |
-| §Payload scope (canonical boundary) | The four required keys plus optional `:rf/response`; nothing else on the wire. |
-| §The `:rf/hydrate` event | `:replace-app-db` policy carries the server's slice verbatim; hydration metadata stashed in runtime-db at `[:rf.runtime/ssr :hydration]`. |
-| §Hydration-mismatch detection | `verify-hydration!` invoked post first-render; no mismatch when server-hash is nil (baseline). |
+| §Payload scope (canonical boundary) | `:rf/version`, `:rf/frame-id` and `:rf/app-db`, plus optional `:rf/response`; nothing else on the wire. |
+| §The `:rf/hydrate` event | `:replace-app-db` policy carries the server's slice verbatim; hydration metadata recorded in runtime-db at `[:rf.runtime/ssr :hydration]`. |
 | §`:rf.ssr/check-version` (rf2-69ad2) | Fx dispatched as part of `:rf/hydrate`'s `:fx`; trace event surfaces via the listener. |
 | §Response storage substrate | The payload-carried `:rf/response` shape exercises the canonical `{:status :headers :cookies :redirect}` accumulator. |
 | §Frames are per-request | `:rf/frame-id` in the payload demonstrates the frame-id round-trip — server's frame becomes the addressing target on hydrate. |
 
 ## What this surface deliberately omits
 
-- the mismatch path. The payload's `:rf/render-hash` is `nil`, so
-  `verify-hydration!` no-ops cleanly. Mismatch detection is exercised
-  by [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
+- the hydrating render and the mismatch path. A hydrating root reports
+  the divergences React recovers from; that is exercised by
+  [`testbeds/ssr_hydration_mismatch/`](../ssr_hydration_mismatch/)
 - multi-frame hydration. Exercised by [`testbeds/ssr_multi_frame/`](../ssr_multi_frame/)
-- the JVM-side render. Spec 011's hiccup → HTML emitter and FNV-1a
-  hash are pinned by `implementation/ssr/test/re_frame/` (the JVM
-  conformance corpus and end-to-end tests)
+- the JVM-side render. Spec 011's hiccup → HTML emitter is pinned by
+  `implementation/ssr/test/re_frame/` (the JVM conformance corpus and
+  end-to-end tests)
 
 ## Running
 
@@ -81,7 +80,7 @@ npx http-server out/examples/testbed-ssr-basic -p 8080
 ## Cross-references
 
 - [`spec/011-SSR.md` §Hydration is a defined protocol](../../spec/011-SSR.md) — the round-trip contract.
-- [`spec/011-SSR.md` §Payload scope](../../spec/011-SSR.md) — the canonical four payload keys.
+- [`spec/011-SSR.md` §Payload scope](../../spec/011-SSR.md) — the canonical payload keys.
 - [`spec/011-SSR.md` §Response storage substrate](../../spec/011-SSR.md) — the per-request side-channel substrate the `:rf/response` slot serialises.
 - [`examples/capabilities/ssr/ssr/core.cljc`](../../examples/capabilities/ssr/ssr/core.cljc) — the JVM-side `handle-request` reference; the static index.html is the byte-shape this function would emit.
 - [`implementation/ssr/test/re_frame/ssr_end_to_end_test.clj`](../../implementation/ssr/test/re_frame/ssr_end_to_end_test.clj) — the JVM-side end-to-end coverage; this testbed pairs with it on the browser side.

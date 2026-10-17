@@ -5,6 +5,6 @@
 (defn ^:export run []
   (aset js/globalThis "__rf2BundleIsolationSsr"
         #js [rf.ssr.hydrate/hydrate-event-handler
-             rf.ssr.hydrate/verify-hydration!
+             rf.ssr.hydrate/check-version-fx
              rf.ssr.response/default-response
              rf.ssr.response/set-status-fx]))

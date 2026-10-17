@@ -201,6 +201,19 @@
          (reject! x :invalid-instant)
          (millis->utc-text x millis)))))
 
+(defn portable-instant?
+  "True iff host instant `x` (java.util.Date / java.time.Instant / js/Date)
+  denotes a real moment in the portable range — exactly the host instants
+  `canonical-bytes` encodes rather than rejects. `re-frame.path/segment?` keys
+  off it, so a path segment is never an instant canonical identity refuses."
+  [x]
+  (let [millis #?(:clj  (let [^Instant inst (if (instance? Instant x) x (.toInstant ^Date x))]
+                          (try (.toEpochMilli inst)
+                               (catch ArithmeticException _ nil)))
+                  :cljs (let [m (.getTime ^js x)]
+                          (when-not (js/isNaN m) m)))]
+    (boolean (and millis (portable-instant-millis? millis)))))
+
 (defn- canonical-instant-text?
   "True iff `s` is EXACTLY the canonical millisecond-UTC spelling of a real
   instant in the portable range — the fixed-shape regex PLUS a host round-trip
@@ -256,27 +269,118 @@
      (or (not (cljs.core/integer? x))
          (not (js/isFinite x)))))
 
+;; ---- well-formed text ----------------------------------------------------
+;;
+;; CEDN-1 is a UTF-8 token stream, and a UTF-16 surrogate that is not half of
+;; a pair has no UTF-8 form: a host encoder substitutes it (`?` on the JVM,
+;; U+FFFD in JavaScript), so a digest over the bytes would equal an ordinary
+;; string's and differ across hosts. Text holding one is outside the domain
+;; (Conventions §Canonical byte encoding).
+
+(defn- code-unit-at [s i]
+  #?(:clj  (int (.charAt ^String s (int i)))
+     :cljs (.charCodeAt s i)))
+
+(defn- unpaired-surrogate?
+  "True iff `s` holds a high surrogate (U+D800-U+DBFF) not followed by a low
+  one (U+DC00-U+DFFF), or a low surrogate not preceded by a high one."
+  [s]
+  (let [n #?(:clj (.length ^String s) :cljs (.-length s))]
+    (loop [i 0]
+      (if (< i n)
+        (let [c (code-unit-at s i)]
+          (cond
+            (< c 0xD800) (recur (inc i))
+            (< c 0xDC00) (if (and (< (inc i) n)
+                                  (<= 0xDC00 (code-unit-at s (inc i)) 0xDFFF))
+                           (recur (+ i 2))
+                           true)
+            (< c 0xE000) true
+            :else        (recur (inc i))))
+        false))))
+
+(defn well-formed-text?
+  "True iff `x` (a string, keyword or symbol) holds no unpaired surrogate —
+  for a keyword or symbol, in neither its namespace nor its name. This is the
+  SHARED text predicate the CEDN-1 encoder and the `:rf/path` concrete-segment
+  domain both key off, so `re-frame.path/segment?` never admits text
+  `canonical-bytes` rejects."
+  [x]
+  (if (string? x)
+    (not (unpaired-surrogate? x))
+    (not (or (unpaired-surrogate? (name x))
+             (some-> (namespace x) unpaired-surrogate?)))))
+
+(defn- well-formed-text
+  "Return `x` (a string, keyword or symbol), or fail closed with
+  `:unpaired-surrogate` when it is not `well-formed-text?`."
+  [x]
+  (if (well-formed-text? x)
+    x
+    (reject! x :unpaired-surrogate)))
+
 ;; ---- canonical token encoding (CEDN-1) -----------------------------------
 ;;
-;; Encode into a UTF-8 token string. Strings/keywords/symbols use the EDN
-;; literal via `pr-str` (portable across CLJ/CLJS readers); the type tag
-;; preceding each value keeps distinct EDN kinds distinct.
+;; Encode into a UTF-8 token string. A string is its EDN literal via `pr-str`;
+;; a keyword or symbol is its EDN token when plain and a quoted form otherwise
+;; (below); the type tag preceding each value keeps distinct EDN kinds
+;; distinct.
 
 (declare encode)
 
 (defn- encode-string [s]
-  ;; `pr-str` produces a canonical EDN string literal over Unicode scalar
-  ;; values, identical across CLJ/CLJS.
-  (str "s:" (pr-str s)))
+  ;; `pr-str` writes the canonical EDN string literal identically on CLJ and
+  ;; CLJS: seven characters escaped, every other character raw (Conventions
+  ;; §Canonical byte encoding).
+  (str "s:" (pr-str (well-formed-text s))))
+
+;; A keyword or symbol token has no closing delimiter, and the element
+;; separator is a space, so a name printed raw must never hold a character a
+;; reader ends a token on: `(keyword "a b:1")` raw is `k::a b:1`, and a vector
+;; of it would share its bytes with `[:a true]`. A PLAIN keyword or symbol is
+;; written as its EDN token, which reads back as the same value on both hosts;
+;; any other is QUOTED, its namespace and name each as a string literal, so
+;; every keyword and symbol has one token and no two share one. The plain
+;; grammar is ASCII because the two hosts' readers disagree about which
+;; non-ASCII characters end a token (Conventions §Canonical byte encoding).
+
+(def ^:private plain-part-re
+  "One plain namespace or name: ASCII letters, digits and
+  `* ! _ ? $ % & = < > + - . #`, beginning with neither a digit nor `#`, nor
+  with `+`, `-` or `.` followed by a digit."
+  #"(?:[A-Za-z*!_?$%&=<>]|[-+.](?![0-9]))[A-Za-z0-9*!_?$%&=<>+.#-]*")
+
+(defn- plain-part? [s]
+  (some? (re-matches plain-part-re s)))
+
+(defn- plain-ident?
+  "True iff keyword or symbol `x` is plain: its namespace, if any, and its name
+  are plain parts, and it is not a bare symbol a reader takes for a literal
+  (`nil`, `true`, `false`)."
+  [x]
+  (let [ns (namespace x)
+        n  (name x)]
+    (and (plain-part? n)
+         (or (nil? ns) (plain-part? ns))
+         (not (and (nil? ns) (symbol? x) (contains? #{"nil" "true" "false"} n))))))
+
+(defn- ident-token
+  "The token of keyword or symbol `x` after its type tag. Plain: the EDN token,
+  which `pr-str` prints for a keyword in its single-colon fully-qualified
+  form, never `::` shorthand. Otherwise quoted: the namespace's string literal
+  and `/`, when there is a namespace, then the name's string literal."
+  [x]
+  (if (plain-ident? x)
+    (pr-str x)
+    (let [x (well-formed-text x)]
+      (str (when-let [ns (namespace x)] (str (pr-str ns) "/"))
+           (pr-str (name x))))))
 
 (defn- encode-keyword [k]
-  ;; The canonical EDN keyword token, never auto-resolved `::` shorthand.
-  ;; `pr-str` on a keyword always prints the single-colon fully-qualified
-  ;; form.
-  (str "k:" (pr-str k)))
+  (str "k:" (ident-token k)))
 
 (defn- encode-symbol [y]
-  (str "y:" (pr-str y)))
+  (str "y:" (ident-token y)))
 
 (defn- encode-elements
   "Encode a sequence of already-canonical-ordered elements, space-joined.
@@ -391,7 +495,8 @@
   iff their `canonical-bytes` are `=`. Throws `:rf.error/non-edn-identity`
   for any value outside the CEDN-1 domain (functions, atoms, promises,
   DOM nodes, host objects, floats / ratios / NaN / infinities, integers
-  outside the safe range)."
+  outside the safe range, and a string, keyword or symbol holding an
+  unpaired surrogate)."
   [value]
   (encode value))
 
@@ -451,8 +556,8 @@
   (cond
     (nil? value)       nil
     (boolean? value)   value
-    (string? value)    value
-    (keyword? value)   value
+    (string? value)    (well-formed-text value)
+    (keyword? value)   (well-formed-text value)
     ;; A UUID is `=` across both surfaces already (UUID equality is over the
     ;; canonical 4122 form), so it has no two-surface divergence — preserve it.
     (uuid-value? value) value
@@ -466,7 +571,7 @@
     ;; — never reinterpreted as a generic vector. Checked BEFORE the vector
     ;; branch so a malformed tuple fails closed.
     (tagged-instant-head? value) [instant-marker (tagged-instant-text value)]
-    (symbol? value)    value
+    (symbol? value)    (well-formed-text value)
     (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
                          value
                          (reject! value :integer-out-of-safe-range))

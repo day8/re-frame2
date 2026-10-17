@@ -1,7 +1,7 @@
 (ns re-frame.http-source-coords-test
   "`rf/reg-http-interceptor` is a `defreg-macro` form, so the call site's
   source coords (`:ns` / `:line` / `:column` / `:file`) land on the stored
-  interceptor slot beside the user's registration metadata, per Spec 001
+  definition beside the user's registration metadata, per Spec 001
   §Source-coordinate capture and the `:rf/http-interceptor-meta` schema
   (`[:merge RegistrationMetadata ...]`). The other reg-* surfaces have the
   same coverage in `core/test/re_frame/source_coords_test.clj`."
@@ -11,27 +11,23 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; reg-http-interceptor needs a frame context; the fixture's default ambient
-;; frame is :rf/default.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- slot-for
-  "The stored slot for `id` on `frame-id`."
-  [frame-id id]
-  (->> (rf.http.managed/interceptors-snapshot frame-id)
-       (filter #(= id (:id %)))
-       first))
+  "The stored definition for `id`."
+  [id]
+  (get (rf.http.managed/interceptors-snapshot) id))
 
 (deftest reg-http-interceptor-stamps-auto-captured-source-coords-rf2-may3f
   (testing "the call site's :ns / :line / :column / :file land on the stored
-            slot beside the user's :doc / :tags / :sensitive?"
+            definition beside the user's :doc / :tags / :sensitive?"
     (rf/reg-http-interceptor :rf2-may3f/auth
       {:doc        "auth header attacher"
        :tags       #{:auth :security}
        :sensitive? true
        :before     identity})
-    (let [slot (slot-for :rf/default :rf2-may3f/auth)]
+    (let [slot (slot-for :rf2-may3f/auth)]
       (is (= {:ns         're-frame.http-source-coords-test
               :doc        "auth header attacher"
               :tags       #{:auth :security}
@@ -53,4 +49,4 @@
             :line   42
             :column 7
             :file   "src/app/wrappers/http.clj"}
-           (select-keys (slot-for :rf/default :rf2-may3f/forwarded) [:ns :line :column :file])))))
+           (select-keys (slot-for :rf2-may3f/forwarded) [:ns :line :column :file])))))

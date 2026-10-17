@@ -180,8 +180,7 @@
   "The bytes an SSR route would deliver for the dogfood screen, from
   `ssr/entry/render` — `react-dom/server` over the real request path.
 
-  Answers `{:html … :body-runs …}`. There is no `:render-hash` — an
-  adoption-tier root carries none, and nothing here reads it. `:body-runs` is the
+  Answers `{:html … :body-runs …}`. `:body-runs` is the
   server's OWN boundary-body count, read before the runtime is reset:
   `renderToString` runs every body exactly once too, so a row that
   asserts it is a row that would notice the server rendering a different

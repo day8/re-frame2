@@ -42,10 +42,9 @@
   a `useId` React derives from tree position agrees on both sides of the
   wire (`docs/design/fresco/product/dispositions.md`, HS-11 obstruction
   2); and the adoption window is open around the render, so
-  presence-managed children render `:present` on both halves. This is an
-  adoption-tier root and ships no `:rf/render-hash`, by Spec 011's tiering
-  (`docs/design/fresco/studio/ssr-spike-witness.md`). It is not a
-  production HTTP host: the response contract is `re-frame.ssr.ring`'s."
+  presence-managed children render `:present` on both halves. Its
+  hydrating client root reports the recoveries React makes (Spec 011
+  §Hydration-mismatch detection). It is not a production HTTP host: the response contract is `re-frame.ssr.ring`'s."
   (:require [re-frame.core :as rf]
             [re-frame.error :as rf.error]
             [re-frame.error-emit :as rf.error-emit]
@@ -108,9 +107,7 @@
 (defn document
   "One page: the app root's inner `html`, then the payload script, then
   the bootstrap `<script src>` last — the order `ssr-ring`'s
-  non-streaming shell writes. No `data-rf-render-hash` on the app root:
-  that marker is the hiccup tier's (see the namespace docstring). A
-  `<title>` only when `:title` is given: the module does not know the
+  non-streaming shell writes. A `<title>` only when `:title` is given: the module does not know the
   application's title, so it invents none."
   [{:keys  [html app-element-id script-src title]
     script :payload-script}]
@@ -437,9 +434,6 @@
                               ;; frame, so a permitted value must reach the
                               ;; payload raw too, or the two halves disagree.
                               payload-include-sensitive)
-                            ;; NO RENDER HASH — nil, and `build-payload`
-                            ;; omits the key.
-                            nil
                             policy-opts)
               payload-edn (pr-str payload-map)
               script      (payload-script payload-edn)]

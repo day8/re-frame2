@@ -130,11 +130,10 @@
       (rf/dispatch-sync [:rf/hydrate {:rf/version     1
                                       :rf/frame-id    :rf/default
                                       :rf/app-db      {:greeting "hello from server"}
-                                      :rf/runtime-db  {:rf.runtime/machines {:snapshots {}}}
-                                      :rf/render-hash "deadbeef"}])
-      (is (= ["hello from server" "deadbeef"]
+                                      :rf/runtime-db  {:rf.runtime/machines {:snapshots {}}}}])
+      (is (= ["hello from server" 1]
              [(:greeting (rf/app-db-value :rf/default))
-              (runtime-at [:rf.runtime/ssr :hydration :server-hash])]))
+              (runtime-at [:rf.runtime/ssr :hydration :version])]))
       (assert-no-diagnostic! diags))))
 
 (deftest ordinary-app-handler-returning-runtime-db-still-warns

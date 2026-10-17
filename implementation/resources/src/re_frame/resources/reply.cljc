@@ -23,8 +23,9 @@
   the internal reply event (Spec 014 §Reply addressing). This namespace
   re-lifts that transport reply — reading `:value` on success and `:error`
   on failure — plus the runtime-owned verification payload (`:work/id` /
-  `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`) the resource
-  lowering stamped, into the resource / mutation canonical reply map (which
+  `:generation` / `:rf.frame/id`) the resource lowering stamped, with the
+  attempt's `:resource/key` / `:scope` the read handler resolved from its
+  work-ledger row, into the resource / mutation canonical reply map (which
   restamps the resource-family `:rf.reply/work-id` / `:rf.reply/work-kind` / `:correlation`
   onto the same `:status` / `:value` / `:error` shape). The two families
   share the SAME core substrate (`re-frame.reply`): one closed `:status`
@@ -199,9 +200,10 @@
   nil sentinels (Managed-Effects §The reply map).
 
   `verification-payload` is the runtime-owned verification payload the lowering stamped
-  (`:work/id` / `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`
-  for a resource; `:work/id` / `:instance-id` / `:mutation-id` / `:scope`
-  / `:generation` / `:rf.frame/id` for a mutation). The options map carries the
+  (`:work/id` / `:generation` / `:rf.frame/id` for a resource, with the
+  `:resource/key` / `:scope` its handler resolved from the attempt's ledger
+  row; `:work/id` / `:instance-id` / `:mutation-id` / `:scope` /
+  `:generation` / `:rf.frame/id` for a mutation). The options map carries the
   family `:work/kind` and the host `:completed-at`."
   [verification-payload {:keys [work-kind completed-at]}]
   (let [work-id (:work/id verification-payload)

@@ -1,15 +1,13 @@
 ;; Conformance fixture: ssr/head-hydration
-;; The hydration payload carries a BODY-ONLY :rf/render-hash AND a SEPARATE
-;; :rf/head-hash over the canonical head model. The
-;; client recomputes both hashes (body via :render-tree-fn; head via
-;; head-model against the hydrated state) and they match — no
-;; :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted.
-;; Per [011 §Mismatch detection — head].
+;; The head is data: after :rf/hydrate installs both partitions, the client's
+;; head-model resolves the same head the server rendered, from the hydrated
+;; app-db and the route slice the payload's :rf/runtime-db carries. No
+;; :rf.ssr/hydration-mismatch is emitted.
 
 {:fixture/id           :ssr/head-hydration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
- :fixture/doc          "Hydration payload carries a BODY-ONLY :rf/render-hash and a SEPARATE :rf/head-hash over the canonical head model; the client recomputes both and they match; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted. The head channel is omitted for explicit-:head-STRING requests."
+ :fixture/doc          "After :rf/hydrate installs both partitions, head-model resolves the route's head against the hydrated state — the head the server rendered. No :rf.ssr/hydration-mismatch is emitted."
 
  :fixture/registry
  {:event {:rf/hydrate {:doc "Standard hydration handler."}}
@@ -41,19 +39,7 @@
                 :rf/frame-id   :rf/default
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
                                                   :summary "How re-frame2 ships SSR"}}}
-                :rf/runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
-                ;; BODY-ONLY :rf/render-hash + a SEPARATE
-                ;; :rf/head-hash over the canonical head model.
-                :rf/render-hash "render-hash-server-A"
-                :rf/head-hash   "head-hash-server-A"}]]
-
- :fixture/render-after-hydrate
- ;; Harness simulates the client recomputing the BODY render-tree hash (via
- ;; :render-tree-fn), which matches :rf/render-hash. No mismatch trace. Per
- ;; Spec 011 §Mismatch detection — head: body and head ride SEPARATE
- ;; channels, the bundled client never reads :rf/head-hash, and a host that
- ;; checks the head attributes a head-only mismatch via :failing-id.
- {:simulated-client-render-hash "render-hash-server-A"}
+                :rf/runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}}]]
 
  :fixture/expect
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"
@@ -66,13 +52,10 @@
    :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
    :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
 
-  ;; Importantly: NO :rf.ssr/hydration-mismatch trace with the
-  ;; head discriminator (:failing-id :rf.ssr/head-mismatch).
   ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
   ;; not a key inside :tags.
   :trace-emissions
   [{:operation :rf.event/run-start :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}]
 
   :trace-not-emitted
-  [{:operation :rf.ssr/hydration-mismatch
-    :tags      {:failing-id :rf.ssr/head-mismatch}}]}}
+  [{:operation :rf.ssr/hydration-mismatch}]}}

@@ -2099,31 +2099,53 @@ async function runLargeDispatcher(page, state) {
 }
 
 async function runHydration(page) {
-  // ---- (1) verify-hydration! emitted the structured trace ------------
+  // ---- (1) the adoption reporter emitted the structured trace --------
   //
   // Hydration mismatches surface as `:rf.ssr/*` rows (category-prefix
   // "rf.ssr") via the L2 event-row signal + the always-on issues ribbon
   // (auto-open-on-error).
   //
-  // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
-  // OUTSIDE any event-handler context (see testbed `core.cljs:188`).
-  // The framework's epoch capture (`re-frame.epoch.capture/capture-
-  // event!`) drops out-of-cascade orphan emits — an error with no
-  // in-flight cascade AND no `:dispatch-id` — so the mismatch trace
-  // never lands in any `:rf/epoch-record`'s `:trace-events`. Surfacing
-  // orphaned out-of-cascade errors is a deliberately separate concern
-  // (the L2 timeline's per-row signal, not a per-epoch panel).
+  // The testbed's server markup diverges from the client's render in
+  // text, so React recovers by re-rendering the root and calls the
+  // root's `onRecoverableError` — the adoption reporter, which emits
+  // `:rf.ssr/hydration-mismatch` from that React callback, OUTSIDE any
+  // event-handler context. The framework's epoch capture
+  // (`re-frame.epoch.capture/capture-event!`) drops out-of-cascade
+  // orphan emits — no in-flight cascade AND no `:dispatch-id` — so the
+  // mismatch trace never lands in any `:rf/epoch-record`'s
+  // `:trace-events`. Surfacing orphaned out-of-cascade traces is a
+  // deliberately separate concern (the L2 timeline's per-row signal,
+  // not a per-epoch panel).
   //
   // What this scenario verifies end-to-end:
   //
-  //   - the trace fired (testbed banner renders the projected
-  //     payload — proves `verify-hydration!` reached `emit-error!`)
+  //   - the trace fired with the adoption shape (the testbed banner
+  //     renders React's message, the hydrating door as `:where`, and
+  //     `:recovery :warned-and-replaced`), and React's recovery left the
+  //     client's text in place of the server's
   //   - the Xray shell opens cleanly under cascade (focused-epoch)
   //     scope without crashing — proving the focused-epoch projection
   //     + head-fallback resolve to a real epoch record.
   const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
   await expectVisible(mismatchBanner, 10000);
-  await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
+  await expectTextEquals(
+    page.locator('[data-testid="mismatch-where"]'),
+    're-frame.substrate.spine/make-render',
+  );
+  await expectTextEquals(
+    page.locator('[data-testid="mismatch-recovery"]'),
+    ':warned-and-replaced',
+  );
+  const mismatchError = ((await page.locator('[data-testid="mismatch-error"]').textContent()) || '').trim();
+  if (!mismatchError.startsWith('Hydration failed because the server rendered text')) {
+    failWithDetails('Hydration-mismatch trace did not carry React\'s text-recovery message', {
+      mismatchError: mismatchError.slice(0, 400),
+    });
+  }
+  await expectTextEquals(
+    page.locator('[data-testid="render-origin"]'),
+    'rendered on the client',
+  );
 
   // ---- (2) Xray shell opens cleanly under cascade scope --------------
   // Verify the shell mounts cleanly and the default Epoch panel renders

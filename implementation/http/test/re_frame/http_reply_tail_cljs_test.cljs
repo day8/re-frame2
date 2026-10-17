@@ -42,9 +42,9 @@
       (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
       (set! (.-fetch js/globalThis)
             (fn [_url _init] (swap! fetch-count inc) (js/Promise.resolve resp)))
-      (rf/with-frame :rf/default
-        (rf/reg-http-interceptor :boom-after
-          {:after (fn [_ctx _resp] (throw (ex-info "reply-tail kaboom" {})))}))
+      (rf/reg-http-interceptor :boom-after
+        {:after (fn [_ctx _resp] (throw (ex-info "reply-tail kaboom" {})))})
+      (rf/make-frame {:id :rf/default :http-interceptors [:boom-after]})
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       (rf/reg-event :issue

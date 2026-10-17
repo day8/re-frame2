@@ -3,9 +3,15 @@
   incarnation A never leaks into, mutates, or lends authority to a same-id
   successor B.
 
-  The incarnation fence (which token is live, whose db write commits, whose
-  child dispatch runs, which corpus-wide `:errors` record ships) is production
-  behaviour and asserted always-on. The epoch subsystem is fed by the dev trace,
+  A destroy requested while A's drain is on the stack is PENDING (Spec 002
+  §Destroy): A's event finishes as an ordinary event, and the teardown runs at
+  its boundary while A still holds its id's reservation, so no same-id B can be
+  constructed until A's teardown has dissociated A. These barriers pause A after
+  that dissoc and seat B there.
+
+  Which token is live, whose db write commits, whose child dispatch runs and
+  which corpus-wide `:errors` record ships are production behaviour and
+  asserted always-on. The epoch subsystem is fed by the dev trace,
   so under `-Dre-frame.debug=false` no capture buffer, epoch record, ring or
   `:rf.epoch*` fact exists: every read of those stores sits in a
   `(when rf.interop/debug-enabled? ...)` arm together with the precondition
@@ -23,7 +29,6 @@
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.router :as rf.router]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -163,16 +168,17 @@
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original-machines)))))
 
-(deftest destroyed-incarnation-cannot-commit-its-returned-tail-into-replacement
-  ;; A handler destroys its own incarnation and pauses after the registry
-  ;; dissoc. Install same-id B while that handler is still on the stack, then
-  ;; let A return a db effect and a child dispatch. Every part of that returned
-  ;; tail belongs to A and must be discarded rather than redirected into B.
+(deftest destroyed-incarnation-commits-its-tail-in-itself-never-in-the-successor
+  ;; A handler destroys its own incarnation and returns a db effect and a child
+  ;; dispatch. Both land in A: the db commits (A's :on-destroy reads it) and the
+  ;; child joins A's queue, where the boundary drops it. A then pauses after its
+  ;; registry dissoc while same-id B is installed; nothing of A's tail reaches B.
   (let [id             :destroy/event-tail-overlap
         a-after-dissoc (CountDownLatch. 1)
         release-a      (CountDownLatch. 1)
         first-epoch?   (atom true)
         child-runs     (atom 0)
+        cleanup-saw    (atom nil)
         traces         (atom [])
         original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/reg-event :destroy/event-tail-child
@@ -184,10 +190,12 @@
         (rf.frame/destroy-frame! id)
         {:db {:owner :a-tail}
          :fx [[:dispatch [:destroy/event-tail-child]]]}))
+    (rf/reg-event :destroy/event-tail-cleanup
+      (fn [{:keys [db]} _] (reset! cleanup-saw db) {}))
     (rf/reg-event :destroy/event-tail-b
       (fn [_ _]
         {:db {:owner :b}}))
-    (rf/make-frame {:id id})
+    (rf/make-frame {:id id :on-destroy [:destroy/event-tail-cleanup]})
     (rf/register-listener! :trace ::event-tail-overlap
       (fn [ev]
         (when (and (= id (get-in ev [:tags :frame]))
@@ -210,30 +218,33 @@
                          (rf/dispatch-sync [:destroy/event-tail-a]
                                            {:frame id}))]
         (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
-            "A is paused post-dissoc before its handler returns")
+            "A's event settled, and its boundary teardown is paused post-dissoc")
         ;; B deliberately suppresses ordinary frame-tagged traces. A's stale
         ;; structural drain-interrupted fact must bypass B's policy without
         ;; entering B's epoch capture buffer.
         (rf/make-frame {:id id :rf.trace/frame-no-emit? true})
-        (let [token-b   (rf.frame/frame-incarnation-token id)
-              history-b (rf.epoch/epoch-history id)]
+        (let [token-b (rf.frame/frame-incarnation-token id)]
           (.countDown release-a)
           (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
-              "A's already-dequeued handler is allowed to return")
+              "A's teardown completes")
           (executor-barrier!)
-          (is (= [true {} 0]
+          (is (= [true {} {:owner :a-tail} 0]
                  [(identical? token-b (rf.frame/frame-incarnation-token id))
                   (rf.frame/frame-app-db-value id)
+                  @cleanup-saw
                   @child-runs])
-              "B stays current; A's returned db effect and child dispatch are discarded")
+              "A's db committed in A and its child was dropped in A; B saw neither")
           (when rf.interop/debug-enabled?
-            ;; A's structural facts bypass B's no-emit policy and B's capture
+            ;; A's own event settled :ok; its boundary drop is one structural
+            ;; report and one :halted-destroy record, neither entering B
             (let [by-op    (group-by :operation @traces)
                   outcomes #(mapv (fn [ev] (get-in ev [:tags :outcome])) (get by-op %))]
-              (is (= [history-b true 1 [:halted-destroy] [:blocked]]
-                     [(rf.epoch/epoch-history id)
+              (is (= [[] true [1]
+                      [:ok :ok :halted-destroy] [:ok :ok :blocked]]
+                     [(vec (rf.epoch/epoch-history id))
                       (empty? (rf.epoch.state/buffer-for id))
-                      (count (get by-op :rf.frame/drain-interrupted))
+                      (mapv #(get-in % [:tags :dropped-count])
+                            (get by-op :rf.frame/drain-interrupted))
                       (outcomes :rf.epoch/snapshotted)
                       (outcomes :rf.epoch/outcome)]))))
           (rf/dispatch-sync [:destroy/event-tail-b] {:frame id})
@@ -262,7 +273,9 @@
     (rf/reg-event :destroy/halted-a
       (fn [_ _]
         (rf.frame/destroy-frame! id)
-        {:db {:owner :a-tail}}))
+        {:db {:owner :a-tail}
+         :fx [[:dispatch [:destroy/halted-a-child]]]}))
+    (rf/reg-event :destroy/halted-a-child (fn [_ _] {}))
     (rf/reg-event :destroy/halted-b-settle
       (fn [{:keys [db]} _]
         {:db (assoc db :owner :b)}))
@@ -313,7 +326,7 @@
                  [(identical? token-b (rf.frame/frame-incarnation-token id))
                   b-db
                   (rf.frame/frame-app-db-value id)])
-              "B stays current and A's inert returned tail never became B's state")
+              "B stays current and A's committed tail never became B's state")
           (when rf.interop/debug-enabled?
             ;; A's terminal evidence publishes although B owns the stores (B's
             ;; own trailers are :ok, A's :halted-destroy / :blocked), and A's
@@ -322,7 +335,7 @@
                   n-outcome (fn [op outcome]
                               (count (filter #(= outcome (get-in % [:tags :outcome]))
                                              (get by-op op))))]
-              (is (= [[:destroy/halted-a] 1 1 b-history b-buffer b-last-epoch]
+              (is (= [[:destroy/halted-a-child] 1 1 b-history b-buffer b-last-epoch]
                      [(mapv :event-id @a-records)
                       (n-outcome :rf.epoch/snapshotted :halted-destroy)
                       (n-outcome :rf.epoch/outcome :blocked)
@@ -360,7 +373,10 @@
         trace-key      (keyword "rf2-152" (str "lx-trace-" (name id)))
         original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/reg-event :rf2-152/lx-destroy-self
-      (fn [_ _] (rf.frame/destroy-frame! id) {}))
+      (fn [_ _]
+        (rf.frame/destroy-frame! id)
+        {:fx [[:dispatch [:rf2-152/lx-dropped]]]}))
+    (rf/reg-event :rf2-152/lx-dropped (fn [_ _] {}))
     (rf/make-frame {:id id})
     ;; Terminal listener that throws while receiving A's halted record.
     (rf/register-listener! :epoch thrower
@@ -518,7 +534,10 @@
         global-facts   (atom [])
         original-epoch (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (rf/reg-event :destroy/ring-a
-      (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
+      (fn [_ _]
+        (rf.frame/destroy-frame! id)
+        {:db {:owner :a-tail} :fx [[:dispatch [:destroy/ring-a-dropped]]]}))
+    (rf/reg-event :destroy/ring-a-dropped (fn [_ _] {}))
     (rf/reg-event :destroy/ring-b-settle
       (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
     (rf/make-frame {:id id})
@@ -605,7 +624,7 @@
                    (= id (:frame r)))
           (swap! reports conj r))))
     (try
-      ;; Fail the pre-dissoc snapshot hook for this mid-run destroy.
+      ;; Fail the pre-dissoc snapshot hook for this pending destroy.
       (rf.late-bind/set-fn! :epoch/snapshot-frame-destroyed
         (fn [& args]
           (if (= id (first args))
@@ -694,10 +713,10 @@
 ;; receives A's terminal record.
 
 (deftest predecessor-halted-record-reaches-only-the-pre-dissoc-listener
-  ;; cb observes A, A self-destroys mid-drain and pauses post-dissoc; during the
-  ;; pause cb is REPLACED and same-id B settles. A's halted record goes to the
-  ;; callback registered when A was destroyed; the replacement sees only B's
-  ;; settle.
+  ;; cb observes A; A's event destroys A and queues a child, and A's boundary
+  ;; teardown pauses post-dissoc; during the pause cb is REPLACED and same-id B
+  ;; settles. A's halted record goes to the callback registered when A was
+  ;; destroyed; the replacement sees only B's settle.
   (let [id             :vxgfnd245/regen
         cb             ::vxgfnd245-regen-cb
         a-after-dissoc (CountDownLatch. 1)
@@ -709,7 +728,10 @@
     (rf/reg-event :vxgfnd245/regen-a-settle
       (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :vxgfnd245/regen-a-destroy
-      (fn [_ _] (rf.frame/destroy-frame! id) {:db {:owner :a-tail}}))
+      (fn [_ _]
+        (rf.frame/destroy-frame! id)
+        {:db {:owner :a-tail} :fx [[:dispatch [:vxgfnd245/regen-a-dropped]]]}))
+    (rf/reg-event :vxgfnd245/regen-a-dropped (fn [_ _] {}))
     (rf/reg-event :vxgfnd245/regen-b-settle
       (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
     (rf/make-frame {:id id})
@@ -736,11 +758,11 @@
             "A's terminal recipe completes")
         (executor-barrier!)
         (is (= {:owner :b} (rf.frame/frame-app-db-value id))
-            "A's inert tail never mutated B's state across the gap re-register")
+            "A's tail never mutated B's state across the gap re-register")
         (when rf.interop/debug-enabled?
-          ;; the replaced callback got A's settle and A's halted record; the
-          ;; replacement saw only B's settle
-          (is (= [1 2] [@new-received @old-received])
+          ;; the replaced callback got A's two settles and A's halted record;
+          ;; the replacement saw only B's settle
+          (is (= [1 3] [@new-received @old-received])
               "A's halted record reaches the callback registered when A was destroyed")))
       (finally
         (.countDown release-a)
@@ -849,52 +871,62 @@
         (when (rf.frame/frame a-id) (rf.frame/destroy-frame! a-id))
         (when (rf.frame/frame d-id) (rf.frame/destroy-frame! d-id))))))
 
-(deftest owner-loss-unwinds-only-entered-authored-afters
-  ;; Mutation tooth: removing execute-chain's continuation predicate would run
-  ;; :never/before and the handler after :killer/before destroys A. Removing
-  ;; the entered-stack unwind would lose the two cleanup assertions.
+(deftest a-destroy-from-an-interceptor-lets-the-whole-chain-run
+  ;; An interceptor's :before requests its own frame's destroy. The destroy is
+  ;; pending, so the rest of the chain — the next :before, the handler, every
+  ;; :after — runs, the handler's db commits, and the frame is torn down at the
+  ;; event's boundary, where :on-destroy sees that db.
   (let [id           :destroy/authored-unwind
         outer-before (atom 0)
         outer-after  (atom 0)
         killer-after (atom 0)
-        never-before (atom 0)
-        handler-runs (atom 0)]
-    (rf/make-frame {:id id})
+        later-before (atom 0)
+        handler-runs (atom 0)
+        cleanup-saw  (atom nil)]
     (rf/reg-interceptor :destroy/outer
       {:before #(do (swap! outer-before inc) %)
        :after  #(do (swap! outer-after inc) %)})
     (rf/reg-interceptor :destroy/killer
       {:before #(do (rf.frame/destroy-frame! id) %)
        :after  #(do (swap! killer-after inc) %)})
-    (rf/reg-interceptor :destroy/never
-      {:before #(do (swap! never-before inc) %)})
+    (rf/reg-interceptor :destroy/later
+      {:before #(do (swap! later-before inc) %)})
     (rf/reg-event :destroy/unwind
-      {:interceptors [:destroy/outer :destroy/killer :destroy/never]}
-      (fn [_ _] (swap! handler-runs inc) {:db {:forbidden true}}))
+      {:interceptors [:destroy/outer :destroy/killer :destroy/later]}
+      (fn [_ _] (swap! handler-runs inc) {:db {:committed true}}))
+    (rf/reg-event :destroy/unwind-cleanup
+      (fn [{:keys [db]} _] (reset! cleanup-saw db) {}))
+    (rf/make-frame {:id id :on-destroy [:destroy/unwind-cleanup]})
     (rf/dispatch-sync [:destroy/unwind] {:frame id})
-    ;; [outer-before killer-after outer-after never-before handler]
-    (is (= [1 1 1 0 0]
-           [@outer-before @killer-after @outer-after @never-before @handler-runs])
-        "entered afters unwind; no later before or handler enters after owner loss")))
+    ;; [outer-before killer-after outer-after later-before handler]
+    (is (= [[1 1 1 1 1] {:committed true} nil]
+           [[@outer-before @killer-after @outer-after @later-before @handler-runs]
+            @cleanup-saw
+            (rf.frame/frame id)])
+        "the chain ran to its end, its db committed, and teardown followed")))
 
-(deftest destroy-then-throw-is-inert-and-skips-normal-settlement
-  ;; Mutation tooth: reordering interceptor-error ahead of exact-owner loss
-  ;; leaks the authored throw; removing the settle fence invokes the normal
-  ;; epoch hook after the terminal destroy hook already owned A's snapshot.
+(deftest destroy-then-throw-from-an-interceptor-settles-and-tears-down
+  ;; A :before requests the destroy and throws. The throw is captured and
+  ;; reported as an interceptor exception, the entered :after still unwinds,
+  ;; the handler is skipped, the event settles once through the normal epoch
+  ;; hook, and the frame is torn down at the boundary.
   (let [id              :destroy/throw-before
         after-runs      (atom 0)
         handler-runs    (atom 0)
         normal-settles  (atom 0)
+        errors          (atom [])
         original-settle (rf.late-bind/get-fn :epoch/settle!)]
     (rf/make-frame {:id id})
     (rf/reg-interceptor :destroy/throwing
       {:before (fn [_]
                  (rf.frame/destroy-frame! id)
-                 (throw (ex-info "obsolete A failure" {})))
+                 (throw (ex-info "interceptor failed after asking for its destroy" {})))
        :after  #(do (swap! after-runs inc) %)})
     (rf/reg-event :destroy/throwing-event
       {:interceptors [:destroy/throwing]}
       (fn [_ _] (swap! handler-runs inc) {}))
+    (rf.error-emit/register-error-listener! ::throw-before
+      (fn [record] (when (= id (:frame record)) (swap! errors conj (:error record)))))
     (try
       (rf.late-bind/set-fn!
         :epoch/settle!
@@ -902,18 +934,19 @@
           (swap! normal-settles inc)
           (when original-settle (apply original-settle args))))
       (is (nil? (rf/dispatch-sync [:destroy/throwing-event] {:frame id}))
-          "destroy+throw does not escape the obsolete continuation")
+          "the throw is captured inside the event")
       (finally
+        (rf.error-emit/unregister-error-listener! ::throw-before)
         (rf.late-bind/set-fn! :epoch/settle! original-settle)))
-    (is (= [1 0 0] [@after-runs @handler-runs @normal-settles])
-        "the entered after unwound; no handler and no normal settlement followed")))
+    (is (= [1 0 1 [:rf.error/interceptor-exception] nil]
+           [@after-runs @handler-runs @normal-settles @errors (rf.frame/frame id)])
+        "the after unwound, the event settled and reported, and the frame is gone")))
 
-(deftest first-fx-owner-loss-fences-later-fx-and-resolution-throws
-  ;; Mutation teeth: removing the per-entry do-fx owner check runs :second;
-  ;; removing the registrar callback wrapper lets the second dispatch escape.
+(deftest an-effect-that-destroys-its-frame-lets-the-later-effects-run
+  ;; The first :fx entry requests the destroy; the walk carries on, so the
+  ;; second entry runs, and the frame is torn down at the event's boundary.
   (let [id          :destroy/fx-tail
-        second-runs (atom 0)
-        original    rf.registrar/lookup]
+        second-runs (atom 0)]
     (rf/make-frame {:id id})
     (rf/reg-fx :destroy/first
       (fn [_ _] (rf.frame/destroy-frame! id)))
@@ -922,24 +955,13 @@
     (rf/reg-event :destroy/fx-event
       (fn [_ _] {:fx [[:destroy/first nil] [:destroy/second nil]]}))
     (rf/dispatch-sync [:destroy/fx-event] {:frame id})
-    (is (zero? @second-runs) "later fx entries are framework-owned stale tail")
+    (is (= [1 nil] [@second-runs (rf.frame/frame id)]))))
 
-    (rf/make-frame {:id id})
-    (rf/reg-event :destroy/fx-resolver-event
-      (fn [_ _] {:fx [[:destroy/second nil]]}))
-    (with-redefs [rf.registrar/lookup
-                  (fn [kind key]
-                    (if (and (= kind :fx) (= key :destroy/second))
-                      (do (rf.frame/destroy-frame! id)
-                          (throw (ex-info "resolver lost A" {})))
-                      (original kind key)))]
-      (is (= [nil 0]
-             [(rf/dispatch-sync [:destroy/fx-resolver-event] {:frame id}) @second-runs])
-          "fx resolver destroy+throw is inert and never invokes the fx body"))))
-
-(deftest adapter-read-destroy-throw-stops-before-handler
-  ;; Mutation tooth: removing the run-one-pass callback fence leaks this throw
-  ;; and/or invokes the handler after the pre-event snapshot read lost A.
+(deftest a-throw-that-escapes-the-drain-still-runs-the-pending-teardown
+  ;; The pre-event frame-state read is outside the event's own error capture,
+  ;; so a throw there escapes the drain to the dispatch-sync caller. It ends
+  ;; the event too, and a destroy requested before it is torn down as the
+  ;; drain unwinds: the frame is gone and its reservation released.
   (let [id           :destroy/adapter-read
         armed?       (atom true)
         handler-runs (atom 0)
@@ -951,168 +973,72 @@
                   (fn [container]
                     (if (compare-and-set! armed? true false)
                       (do (rf.frame/destroy-frame! id)
-                          (throw (ex-info "read lost A" {})))
+                          (throw (ex-info "read failed" {})))
                       (original container)))]
-      (is (= [nil 0]
-             [(rf/dispatch-sync [:destroy/adapter-read-event] {:frame id}) @handler-runs])
-          "adapter read destroy+throw is inert and no handler starts"))))
-
-(deftest adapter-replace-watch-loss-keeps-only-the-linearized-a-write
-  ;; Mutation teeth: the adapter callback performs the physical A install and
-  ;; synchronously destroys A. The exact post-callback check must suppress the
-  ;; id-keyed commit epoch, change trailers, fx, and normal epoch settlement;
-  ;; none may be redirected into B while the obsolete callback is paused.
-  (let [id              :destroy/adapter-replace-watch
-        replaced-a      (CountDownLatch. 1)
-        release-a       (CountDownLatch. 1)
-        armed?          (atom true)
-        physical-a      (atom nil)
-        fx-runs         (atom 0)
-        normal-settles  (atom 0)
-        traces          (atom [])
-        base-read       (:read-container rf.substrate.plain-atom/adapter)
-        base-replace    (:replace-container! rf.substrate.plain-atom/adapter)
-        original-settle (rf.late-bind/get-fn :epoch/settle!)
-        watching-adapter
-        (assoc rf.substrate.plain-atom/adapter
-               :kind :custom
-               :replace-container!
-               (fn [container value]
-                 (base-replace container value)
-                 (when (compare-and-set! armed? true false)
-                   (reset! physical-a (base-read container))
-                   (rf.frame/destroy-frame! id)
-                   (.countDown replaced-a)
-                   (.await release-a 10 TimeUnit/SECONDS))))]
-    (rf.substrate.adapter/dispose-adapter!)
-    (reset! rf.frame/frames {})
-    (rf.substrate.adapter/install-adapter! watching-adapter)
+      (is (= "read failed"
+             (try (rf/dispatch-sync [:destroy/adapter-read-event] {:frame id})
+                  nil
+                  (catch Throwable t (ex-message t))))
+          "the escaping throw reaches the caller"))
+    (is (= [0 nil] [@handler-runs (rf.frame/frame id)])
+        "no handler ran, and the pending destroy still tore the frame down")
     (rf/make-frame {:id id})
-    (rf/reg-fx :destroy/adapter-tail-fx (fn [_ _] (swap! fx-runs inc)))
-    (rf/reg-event :destroy/adapter-replace-event
-      (fn [_ _]
-        {:db {:owner :a-physical}
-         :fx [[:destroy/adapter-tail-fx nil]]}))
-    (rf/register-listener! :trace ::adapter-replace-watch
-      (fn [ev]
-        (when (and (= id (get-in ev [:tags :frame]))
-                   (contains? #{:rf.event/db-changed
-                                :rf.event/frame-state-changed
-                                :rf.event/run-end}
-                              (:operation ev)))
-          (swap! traces conj ev))))
-    (try
-      (rf.late-bind/set-fn!
-        :epoch/settle!
-        (fn [& args]
-          (swap! normal-settles inc)
-          (when original-settle (apply original-settle args))))
-      (let [dispatch-a (future
-                         (rf/dispatch-sync [:destroy/adapter-replace-event]
-                                           {:frame id}))]
-        (is (.await replaced-a 10 TimeUnit/SECONDS)
-            "the adapter installed A's value and its synchronous watch destroyed A")
-        (rf/make-frame {:id id})
-        (let [token-b (rf.frame/frame-incarnation-token id)]
-          (.countDown release-a)
-          ;; A's physical install stands; B's token, app-db and commit epoch,
-          ;; the fx tail, normal settlement and the trailers are all untouched
-          (is (= [true {:rf.db/app {:owner :a-physical} :rf.db/runtime {}} true {} 0 0 0 []]
-                 [(not= ::timeout (deref dispatch-a 5000 ::timeout))
-                  @physical-a
-                  (identical? token-b (rf.frame/frame-incarnation-token id))
-                  (rf.frame/frame-app-db-value id)
-                  (rf.frame/frame-commit-epoch id)
-                  @fx-runs
-                  @normal-settles
-                  @traces]))))
-      (finally
-        (.countDown release-a)
-        (rf.late-bind/set-fn! :epoch/settle! original-settle)
-        (rf/unregister-listener! :trace ::adapter-replace-watch)
-        (when (rf.frame/frame id) (rf.frame/destroy-frame! id))
-        (reset! rf.frame/frames {})
-        (rf.substrate.adapter/dispose-adapter!)
-        (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)))))
+    (is (some? (rf.frame/frame id)) "the reservation was released")))
 
-(deftest cofx-supplier-loss-stops-diagnostics-later-resolution-and-handler
-  ;; Mutation teeth: the first supplier destroys A and throws. The throw is
-  ;; inert, no coeffect-exception diagnostic is emitted against absence/B, the
-  ;; second supplier is never resolved, and the handler never starts.
+(deftest a-same-id-make-frame-while-a-destroy-is-pending-fails-fast
+  ;; A's handler requests A's destroy and then waits. While it waits, another
+  ;; thread tries to construct the same id: the pending destroy already holds
+  ;; the id's reservation, so construction fails fast with the in-progress
+  ;; error. Once A's event settles and its teardown finishes, the id is free.
+  (let [id         :destroy/pending-reservation
+        requested  (CountDownLatch. 1)
+        release-a  (CountDownLatch. 1)]
+    (rf/reg-event :destroy/pending-wait
+      (fn [_ _]
+        (rf.frame/destroy-frame! id)
+        (.countDown requested)
+        (.await release-a 10 TimeUnit/SECONDS)
+        {:db {:a :committed}}))
+    (rf/make-frame {:id id})
+    (let [dispatch-a (future (rf/dispatch-sync [:destroy/pending-wait] {:frame id}))]
+      (try
+        (is (.await requested 10 TimeUnit/SECONDS) "A's destroy is pending")
+        (is (= :rf.error/frame-construction-in-progress
+               (try (rf/make-frame {:id id}) nil
+                    (catch Throwable t (:rf.error/id (ex-data t)))))
+            "a same-id construction meets the pending destroy's reservation")
+        (is (= {:a nil} {:a (:a (rf.frame/frame-app-db-value id))})
+            "A is still live and its event has not committed yet")
+        (finally
+          (.countDown release-a)))
+      (is (not= ::timeout (deref dispatch-a 5000 ::timeout)))
+      (is (nil? (rf.frame/frame id)) "A was torn down at its event's boundary")
+      (rf/make-frame {:id id})
+      (is (some? (rf.frame/frame id)) "the id is free once the teardown finished"))))
+
+(deftest a-cofx-supplier-that-destroys-its-frame-and-throws
+  ;; The first supplier requests the destroy and throws. The failure is
+  ;; reported as a coeffect exception, the handler is skipped, and the frame
+  ;; is torn down at the event's boundary.
   (let [id           :destroy/cofx-tail
-        later-runs   (atom 0)
         handler-runs (atom 0)
-        diagnostics  (atom [])]
+        errors       (atom [])]
     (rf/make-frame {:id id})
     (rf/reg-cofx :destroy/cofx-killer
       (fn []
         (rf.frame/destroy-frame! id)
-        (throw (ex-info "cofx supplier lost A" {}))))
-    (rf/reg-cofx :destroy/cofx-later (fn [] (swap! later-runs inc)))
+        (throw (ex-info "cofx supplier failed after asking for its destroy" {}))))
     (rf/reg-event :destroy/cofx-event
-      {:rf.cofx/requires [:destroy/cofx-killer :destroy/cofx-later]}
+      {:rf.cofx/requires [:destroy/cofx-killer]}
       (fn [_ _] (swap! handler-runs inc) {:db {:forbidden true}}))
-    (rf/register-listener! :trace ::cofx-loss
-      (fn [ev]
-        (when (= :rf.error/coeffect-exception (:operation ev))
-          (swap! diagnostics conj ev))))
+    (rf.error-emit/register-error-listener! ::cofx-loss
+      (fn [record] (when (= id (:frame record)) (swap! errors conj (:error record)))))
     (try
-      (is (= [nil 0 0 []]
+      (is (= [nil 0 [:rf.error/coeffect-exception] nil]
              [(rf/dispatch-sync [:destroy/cofx-event] {:frame id})
-              @later-runs @handler-runs @diagnostics]))
+              @handler-runs @errors (rf.frame/frame id)]))
       (finally
-        (rf/unregister-listener! :trace ::cofx-loss)))))
-
-(deftest epoch-digest-owner-loss-cannot-publish-into-successor
-  ;; Mutation teeth: the normal settle digest callback destroys A, pauses after
-  ;; A's private teardown completes, then throws after B is installed. No
-  ;; normal record, last-settled anchor, or B-era listener notification may
-  ;; follow.
-  (let [id               :destroy/epoch-digest
-        digest-lost-a    (CountDownLatch. 1)
-        release-digest   (CountDownLatch. 1)
-        b-listener-runs  (atom 0)
-        original-digest  (rf.late-bind/get-fn :schemas/app-schemas-digest)]
-    (rf/make-frame {:id id})
-    (rf/reg-event :destroy/epoch-digest-event
-      (fn [_ _] {:db {:owner :a-committed}}))
-    (try
-      (rf.late-bind/set-fn!
-        :schemas/app-schemas-digest
-        ;; The hook takes ONE opts map with a REQUIRED :frame.
-        (fn [{:keys [frame] :as opts}]
-          (if (= id frame)
-            (do
-              (rf.frame/destroy-frame! id)
-              (.countDown digest-lost-a)
-              (.await release-digest 10 TimeUnit/SECONDS)
-              (throw (ex-info "digest lost A" {})))
-            (when original-digest (original-digest opts)))))
-      ;; dev-only end to end: the digest hook is reached only from
-      ;; epoch/settle!, which the gate's empty capture buffer never calls
-      (when rf.interop/debug-enabled?
-        (let [dispatch-a (future
-                           (rf/dispatch-sync [:destroy/epoch-digest-event]
-                                             {:frame id}))]
-          (is (.await digest-lost-a 10 TimeUnit/SECONDS)
-              "the digest callback destroyed A before normal publication")
-          (rf/make-frame {:id id})
-          (rf/register-listener! :epoch ::epoch-digest-b
-            (fn [_] (swap! b-listener-runs inc)))
-          (let [token-b (rf.frame/frame-incarnation-token id)]
-            (.countDown release-digest)
-            (is (= [true true {} [] nil 0]
-                   [(not= ::timeout (deref dispatch-a 5000 ::timeout))
-                    (identical? token-b (rf.frame/frame-incarnation-token id))
-                    (rf.frame/frame-app-db-value id)
-                    (vec (rf.epoch/epoch-history id))
-                    (rf.epoch.state/last-settled-epoch-id id)
-                    @b-listener-runs])
-                "the digest throw is inert: no A record, anchor or listener reaches B"))))
-      (finally
-        (.countDown release-digest)
-        (rf/unregister-listener! :epoch ::epoch-digest-b)
-        (rf.late-bind/set-fn! :schemas/app-schemas-digest original-digest)))))
+        (rf.error-emit/unregister-error-listener! ::cofx-loss)))))
 
 (deftest stale-teardown-report-is-corpus-only-after-successor-install
   ;; Mutation tooth: the bounded report flushes after A's registry dissoc. Its
@@ -1135,7 +1061,8 @@
     (rf/reg-event :destroy/teardown-overlap-a
       (fn [_ _]
         (rf.frame/destroy-frame! id)
-        {}))
+        {:fx [[:dispatch [:destroy/teardown-overlap-dropped]]]}))
+    (rf/reg-event :destroy/teardown-overlap-dropped (fn [_ _] {}))
     (rf.error-emit/register-error-listener! ::teardown-overlap-corpus
       (fn [record]
         (when (= :rf.error/frame-teardown-failed (:error record))
@@ -1201,7 +1128,7 @@
             ;; B's claim revokes neither of A's terminal facts, and neither enters B
             (let [by-op    (group-by :operation @traces)
                   outcomes #(mapv (fn [ev] (get-in ev [:tags :outcome])) (get by-op %))]
-              (is (= [[:halted-destroy] [:blocked] true true]
+              (is (= [[:ok :halted-destroy] [:ok :blocked] true true]
                      [(outcomes :rf.epoch/snapshotted)
                       (outcomes :rf.epoch/outcome)
                       (empty? (rf.epoch/epoch-history id))
@@ -1221,10 +1148,9 @@
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (rf.late-bind/set-fn! :observability/route-error-record original-route)))))
 
-(deftest ambient-frame-scope-cannot-replace-the-dequeued-event-owner
-  ;; Mutation tooth: dispatch origin authority is the exact dequeue owner A,
-  ;; not the ambient `with-frame` target. The same B dispatch is accepted while
-  ;; A is live and becomes inert after A destroys itself.
+(deftest a-dispatch-to-another-frame-after-the-destroy-request-lands
+  ;; A's handler dispatches into live frame B before and after requesting A's
+  ;; destroy. A's event runs to its end, so both dispatches reach B.
   (let [a-id :destroy/ambient-owner-a
         b-id :destroy/ambient-owner-b]
     (rf/make-frame {:id a-id})
@@ -1235,15 +1161,15 @@
     (rf/reg-event :destroy/ambient-a-event
       (fn [_ _]
         (rf/with-frame b-id
-          (rf/dispatch [:destroy/ambient-b-event :before-loss]))
+          (rf/dispatch [:destroy/ambient-b-event :before-request]))
         (rf.frame/destroy-frame! a-id)
         (rf/with-frame b-id
-          (rf/dispatch [:destroy/ambient-b-event :after-loss]))
+          (rf/dispatch [:destroy/ambient-b-event :after-request]))
         {}))
     (rf/dispatch-sync [:destroy/ambient-a-event] {:frame a-id})
     (executor-barrier!)
-    (is (= {:seen [:before-loss]} (rf.frame/frame-app-db-value b-id))
-        "ambient B accepts the pre-loss dispatch but cannot revive A's post-loss tail")))
+    (is (= [{:seen [:before-request :after-request]} nil]
+           [(rf.frame/frame-app-db-value b-id) (rf.frame/frame a-id)]))))
 
 (deftest async-and-sync-drains-never-retarget-same-id-successor
   ;; Mutation teeth: making drain-try!/drain-block! resolve a bare frame id
@@ -1294,10 +1220,11 @@
               (rf.frame/frame-app-db-value id)])
           "the stale synchronous drain returned without executing in B"))))
 
-(deftest owner-loss-stops-later-trace-and-always-on-listeners
-  ;; Mutation teeth: replacing the per-listener continuation loops with doseq
-  ;; invokes listener #2; removing the trailer callback fence invokes the
-  ;; frame-owned observation route after corpus listener #1 destroyed A.
+(deftest listeners-keep-running-after-one-destroys-the-frame
+  ;; A trace listener and an always-on event listener each destroy the frame
+  ;; they observe and throw. Every later listener still runs, and so does the
+  ;; frame-owned observation route: a listener's destroy is a lifecycle
+  ;; request, not a cutoff of the event that is being observed.
   (let [trace-id       :destroy/trace-fanout
         event-id       :destroy/event-fanout
         trace-sibling  (atom 0)
@@ -1313,25 +1240,28 @@
         (when (and (= :rf.event/run-start (:operation ev))
                    (= trace-id (get-in ev [:tags :frame])))
           (rf.frame/destroy-frame! trace-id)
-          (throw (ex-info "trace listener lost A" {})))))
+          (throw (ex-info "trace listener failed" {})))))
     (rf/register-listener! :trace ::trace-sibling
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= trace-id (get-in ev [:tags :frame])))
           (swap! trace-sibling inc))))
-    (rf/dispatch-sync [:destroy/trace-fanout-event] {:frame trace-id})
-    ;; A drain-owned trace fan-out is deferred to the post-drain boundary (no
-    ;; listener code runs under a frame's :drain-lock), so the handler has
-    ;; already run; within the fan-out, listener #1 losing A stops the rest.
-    (is (= [0 1] [@trace-sibling @handler-runs])
-        "later trace listeners stop after listener #1 loses A")
+    (try
+      (rf/dispatch-sync [:destroy/trace-fanout-event] {:frame trace-id})
+      ;; trace delivery is dev-only
+      (when rf.interop/debug-enabled?
+        (is (= [1 1 nil] [@trace-sibling @handler-runs (rf.frame/frame trace-id)])
+            "the sibling trace listener ran, and the frame was destroyed"))
+      (finally
+        (rf/unregister-listener! :trace ::trace-destroyer)
+        (rf/unregister-listener! :trace ::trace-sibling)))
 
     (rf/make-frame {:id event-id})
     (rf/reg-event :destroy/event-fanout-event (fn [_ _] {}))
     (rf.event-emit/register-event-listener! ::event-destroyer
       (fn [_]
         (rf.frame/destroy-frame! event-id)
-        (throw (ex-info "event listener lost A" {}))))
+        (throw (ex-info "event listener failed" {}))))
     (rf.event-emit/register-event-listener! ::event-sibling
       (fn [_] (swap! event-sibling inc)))
     (try
@@ -1339,24 +1269,27 @@
         (fn [& _] (swap! routed inc)))
       (rf/dispatch-sync [:destroy/event-fanout-event] {:frame event-id})
       (finally
+        (rf.event-emit/unregister-event-listener! ::event-destroyer)
+        (rf.event-emit/unregister-event-listener! ::event-sibling)
         (rf.late-bind/set-fn! :observability/route-handled-event original-route)))
-    (is (= [0 0] [@event-sibling @routed])
-        "later corpus listeners and the frame-owned observation route stay inert")))
+    (is (= [1 1 nil] [@event-sibling @routed (rf.frame/frame event-id)])
+        "the later corpus listener and the frame-owned route both ran")))
 
-(deftest union-error-fanout-loss-skips-siblings-and-frame-route
-  ;; Mutation tooth: an unconditional route-error-record! after corpus fanout
-  ;; routes A's union record against a replacement/absent frame.
+(deftest a-union-error-listener-that-destroys-the-frame-leaves-the-fanout-whole
   (let [id             :destroy/union-error-fanout
         sibling-runs   (atom 0)
         route-runs     (atom 0)
         original-route (rf.late-bind/get-fn :observability/route-error-record)]
     (rf/make-frame {:id id})
     (rf.error-emit/register-error-listener! ::union-destroyer
-      (fn [_]
-        (rf.frame/destroy-frame! id)
-        (throw (ex-info "union listener lost A" {}))))
+      (fn [record]
+        (when (= :rf.error/test-union (:error record))
+          (rf.frame/destroy-frame! id)
+          (throw (ex-info "union listener failed" {})))))
     (rf.error-emit/register-error-listener! ::union-sibling
-      (fn [_] (swap! sibling-runs inc)))
+      (fn [record]
+        (when (= :rf.error/test-union (:error record))
+          (swap! sibling-runs inc))))
     (rf/reg-event :destroy/union-error-event
       (fn [_ _]
         (rf.error-emit/dispatch-error-record!
@@ -1364,25 +1297,26 @@
         {}))
     (try
       (rf.late-bind/set-fn! :observability/route-error-record
-        (fn [& _] (swap! route-runs inc)))
+        (fn [record & _]
+          (when (= :rf.error/test-union (:error record))
+            (swap! route-runs inc))))
       (rf/dispatch-sync [:destroy/union-error-event] {:frame id})
       (finally
+        (rf.error-emit/unregister-error-listener! ::union-destroyer)
+        (rf.error-emit/unregister-error-listener! ::union-sibling)
         (rf.late-bind/set-fn! :observability/route-error-record original-route)))
-    (is (= [0 0] [@sibling-runs @route-runs])
-        "later union listeners and the frame-owned union route stay inert")))
+    (is (= [1 1 nil] [@sibling-runs @route-runs (rf.frame/frame id)])
+        "the later union listener and the frame-owned union route both ran")))
 
-(deftest depth-halt-fanout-and-commit-fenced-when-first-listener-loses-a
+(deftest a-depth-error-listener-that-destroys-the-frame-lets-the-halt-finish
   ;; The depth halt fans its always-on record to the corpus and the frame
-  ;; route, then commits A's :halted-depth epoch record. It runs outside the
-  ;; event pipeline, so it binds A's exact-owner continuation predicate and
-  ;; threads A's token into the commit: once the first listener destroys A and
-  ;; seats same-id B, no later sibling, frame route or halt commit touches B.
+  ;; route. The first listener requests A's destroy; the halt finishes — the
+  ;; sibling listener and the frame route both see the record — and A is torn
+  ;; down before the drain dequeues anything else.
   (let [id             :drain.incarnation/depth-loss
         depth-records  (atom [])
         sibling-runs   (atom 0)
         frame-routes   (atom 0)
-        b-token        (atom nil)
-        b-sentinel     {:operation :drain.incarnation/b-buffer :tags {:frame id}}
         original-route (rf.late-bind/get-fn :observability/route-error-record)]
     (rf.error-emit/clear-error-listeners!)
     (rf/reg-event :drain.incarnation/loop
@@ -1399,28 +1333,19 @@
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! depth-records conj record)
-            (rf.frame/destroy-frame! id)
-            (rf/make-frame {:id id})
-            (reset! b-token (rf.frame/frame-incarnation-token id))
-            (rf.epoch.state/buffer-event! id b-sentinel))))
+            (rf.frame/destroy-frame! id))))
       (rf.error-emit/register-error-listener! ::depth-sibling
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
             (swap! sibling-runs inc))))
       (rf/dispatch-sync [:drain.incarnation/loop] {:frame id})
       (executor-barrier!)
-      ;; [records B-seated siblings routes B-current B-db history anchor buffer]
-      (is (= [1 true 0 0 true {} true nil [b-sentinel]]
-             [(count @depth-records)
-              (some? @b-token)
+      (is (= [[id] 1 1 nil]
+             [(mapv :frame @depth-records)
               @sibling-runs
               @frame-routes
-              (identical? @b-token (rf.frame/frame-incarnation-token id))
-              (rf.frame/frame-app-db-value id)
-              (empty? (rf.epoch/epoch-history id))
-              (rf.epoch.state/last-settled-epoch-id id)
-              (rf.epoch.state/buffer-for id)])
-          "the first listener's record stands once, and nothing after it touches B")
+              (rf.frame/frame id)])
+          "every listener and the frame route saw the halt, then A was torn down")
       (finally
         (rf.error-emit/unregister-error-listener! ::depth-destroyer)
         (rf.error-emit/unregister-error-listener! ::depth-sibling)

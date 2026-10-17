@@ -148,11 +148,11 @@
   (let [real  @#'rf.router/ensure-drain-scheduled!
         fired (atom false)]
     (with-redefs [rf.router/ensure-drain-scheduled!
-                  (fn [fid frame-record router envelope continue?]
+                  (fn [fid frame-record router envelope]
                     (when (compare-and-set! fired false true)
                       (rf/destroy-frame! frame-id)
                       (rf/make-frame {:id frame-id}))
-                    (real fid frame-record router envelope continue?))]
+                    (real fid frame-record router envelope))]
       (op))))
 
 (defn- run-supersede-at-drain-block
@@ -185,52 +185,6 @@
           (rf.error-emit/unregister-error-listener! ::post-token)
           (is (nil? (:marked-by (rf/app-db-value fid))))
           (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) @errs)))))))))
-
-;; ---- only the originating event OWNER dies ----------------------------------
-;;
-;; The enqueue / drain guard fuses owner liveness with target liveness, so it
-;; also comes back falsey when only the ORIGINATING event owner died (a callback
-;; still running after destroying its own frame) while the captured target is
-;; live. Emitting frame-destroyed there would name a live frame. This helper
-;; destroys only the owner on the first entry to `emit-dispatched-trace!`, the
-;; first step of the captured op past the token comparison.
-
-(defn- run-owner-death-at-dispatch
-  [owner-id op]
-  (let [real  @#'rf.router/emit-dispatched-trace!
-        fired (atom false)]
-    (with-redefs [rf.router/emit-dispatched-trace!
-                  (fn
-                    ([envelope sync?]
-                     (real envelope sync?))
-                    ([envelope sync? continue?]
-                     (when (compare-and-set! fired false true)
-                       (rf/destroy-frame! owner-id))
-                     (real envelope sync? continue?)))]
-      (op))))
-
-(deftest live-target-not-reported-destroyed-when-only-owner-dies
-  (testing "a captured dispatch whose originating event owner dies during the
-            dispatch seam, while the captured target stays live, is dropped and
-            emits no :rf.error/frame-destroyed"
-    (rf/reg-event :audit/touch (fn [{:keys [db]} _] {:db (assoc db :marked-by :owner-death)}))
-    (doseq [op [:dispatch :dispatch-sync]]
-      (testing (name op)
-        (let [owner       (keyword "audit.owner" (name op))
-              target      (keyword "audit.target" (name op))
-              _           (rf/make-frame {:id owner})
-              _           (rf/make-frame {:id target})
-              owner-token (rf.frame/frame-incarnation-token owner)
-              op-fn       (op (rf/capture-frame target))
-              errs        (atom [])]
-          (rf.error-emit/register-error-listener! ::owner-death (fn [rec] (swap! errs conj rec)))
-          (rf.frame/call-with-event-owner-token owner owner-token
-            (fn [] (run-owner-death-at-dispatch owner #(op-fn [:audit/touch]))))
-          (rf.error-emit/unregister-error-listener! ::owner-death)
-          (is (nil? (rf.frame/frame owner)) "precondition: the interposition destroyed the owner")
-          (is (nil? (:marked-by (rf/app-db-value target))) "the op is dropped; the live target is untouched")
-          (is (not-any? #(= :rf.error/frame-destroyed (:error %)) @errs)
-              "a live target is never reported destroyed for an owner cutoff"))))))
 
 ;; ---- no scope ---------------------------------------------------------------
 

@@ -77,7 +77,7 @@
   "The published, substrate-agnostic per-test reset
   (`re-frame.test-support/make-reset-runtime-fixture`) configured for the
   ssr-ring JVM suite: it installs the SSR substrate adapter (which also
-  ensures the ordinary `:rf/default` app frame and binds it as the body's
+  ensures the conventional `:rf/default` app frame and binds it as the body's
   ambient scope) and resets the registrar / frames / flows / schemas /
   machines / routing around each test. `:init-fn` layers the SSR-specific
   side-channel resets on top, fired after adapter install and before the

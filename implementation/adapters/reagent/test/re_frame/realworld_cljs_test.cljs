@@ -349,8 +349,7 @@
                                      :transient {:popup true}}
                      :rf.db/runtime {:rf.runtime/routing  {:current {:route-id :realworld/home}}
                                      :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}
-                                     :rf.runtime/http     {:in-flight {}}}}
-                    [:div "hello"])]
+                                     :rf.runtime/http     {:in-flight {}}}})]
       (is (= {:rf/app-db     {:auth     {:user {:username "alice"}}
                               :articles {:status :loaded :data []}}
               :rf/runtime-db {:rf.runtime/routing  {:current {:route-id :realworld/home}}

@@ -283,3 +283,24 @@
           (error-id #(rf.path/normalize-concrete [:a 9007199254740992 :b]))]))
   (is (= :rf.error/non-edn-identity (error-id #(rf.identity/canonical-bytes 9007199254740992)))
       "canonical-bytes rejects the same out-of-range integer: one domain, not two"))
+
+;; ---- segment? shares CEDN-1's text and instant rules ---------------------
+
+(deftest segment-text-and-instant-share-cedn1-domain
+  (let [high     (str (char 0xD800))
+        low      (str (char 0xDC00))
+        too-late #?(:clj (java.util.Date. 253402300800000) :cljs (js/Date. 253402300800000))]
+    (is (= [false false false false true true]
+           (map rf.path/segment? [(str "a" high) (keyword (str "k" low)) (symbol (str "s" high))
+                                  too-late
+                                  (str high low) #inst "9999-12-31T23:59:59.999-00:00"]))
+        "text holding an unpaired surrogate and an instant past 9999 are not
+         segments; a well-formed pair and the last portable instant are")
+    (is (= [:rf.error/bad-path :rf.error/non-edn-identity :rf.error/bad-path :rf.error/non-edn-identity]
+           [(error-id #(rf.path/normalize-concrete [:a (str "a" high)]))
+            (error-id #(rf.identity/canonical-bytes (str "a" high)))
+            (error-id #(rf.path/normalize-concrete [:a too-late]))
+            (error-id #(rf.identity/canonical-bytes too-late))])
+        "normalize-concrete rejects what canonical-bytes rejects: one domain, not two")
+    #?(:cljs (is (false? (rf.path/segment? (js/Date. "not-a-date")))
+                 "an invalid js/Date is not a segment"))))

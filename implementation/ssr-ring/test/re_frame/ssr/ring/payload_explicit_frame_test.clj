@@ -32,7 +32,7 @@
                             :params   {:payload "huge-callback-blob-value"}}})))))
 
 (defn- build-a [app-db runtime-db]
-  (rf.ssr.ring.payload/build-payload server-frame app-db runtime-db "hash"
+  (rf.ssr.ring.payload/build-payload server-frame app-db runtime-db
                                      {:payload :rf.ssr.payload/whole-app-db}))
 
 (deftest build-payload-explicit-frame-wins-over-ambient

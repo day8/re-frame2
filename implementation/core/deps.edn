@@ -156,11 +156,11 @@
   ;; arriving.
   ;;
   ;; THE ALIAS IS THE LANE. `clojure -M:test:prod-gate`, run in this
-  ;; directory, is the whole production-gate lane, in CI (the
-  ;; `jvm-core-prod-gate` job) and on a laptop alike. The runner discovers
-  ;; every `.*-test$` namespace, so a NEW namespace joins the lane by default,
-  ;; and the deftests that assert dev instrumentation are excluded by the tag
-  ;; below rather than by any list of namespaces.
+  ;; directory, is the whole production-gate lane, in CI (test.yml's
+  ;; `JVM implementation/core (test:prod-gate)` leg) and on a laptop alike.
+  ;; The runner discovers every `.*-test$` namespace, so a NEW namespace joins
+  ;; the lane by default, and the deftests that assert dev instrumentation are
+  ;; excluded by the tag below rather than by any list of namespaces.
   ;;
   ;; `-e :requires-debug` — THE DEV-ONLY DECLARATION. A namespace that mixes
   ;; instrumentation and semantics is SPLIT: the instrumentation assertions

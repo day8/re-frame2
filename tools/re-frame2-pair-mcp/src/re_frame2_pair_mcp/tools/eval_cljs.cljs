@@ -99,9 +99,10 @@
   stamp, so a frame-scoped op inside it (`rf/subscribe` / `rf/dispatch` /
   `rf/current-frame-id`) raises the always-on `:rf.error/no-frame-context`
   rather than silently targeting a synthesised `:rf/default` (`:rf/default`
-  is an ordinary id, never an absence-repair fallback — Spec 002 §Frame
-  target resolution). Supply `:frame` to name the target explicitly. The
-  agent-facing rule: a frame-scoped `eval-cljs` form MUST carry `:frame`.
+  is the conventional app-frame id, never an absence-repair fallback —
+  Spec 002 §Frame target resolution). Supply `:frame` to name the target
+  explicitly. The agent-facing rule: a frame-scoped `eval-cljs` form MUST
+  carry `:frame`.
 
   When `:frame :rf/xray` is supplied, the form is wrapped server-side
   in `(re-frame.core/with-frame :rf/xray <user-form>)` before being

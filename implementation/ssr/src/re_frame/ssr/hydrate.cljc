@@ -1,11 +1,11 @@
 (ns re-frame.ssr.hydrate
-  "The `:rf/hydrate` event + hydration-mismatch detection. Per Spec 011
-  §The :rf/hydrate event and §Hydration-mismatch detection.
+  "The `:rf/hydrate` event. Per Spec 011 §The :rf/hydrate event.
 
-  The server's payload carries `:rf/render-hash`; the handler replaces
-  app-db with `:rf/app-db` AND stashes the server hash under
-  `[:rf.runtime/ssr :hydration :server-hash]` so `verify-hydration!`
-  can read it after the client's first render.
+  The handler replaces app-db with the payload's `:rf/app-db`, installs
+  its `:rf/runtime-db` slice, and records the payload's `:rf/version`
+  under `[:rf.runtime/ssr :hydration]`. Hydration mismatches are not
+  detected here: the hydrating root reports the recoveries React makes
+  (Spec 011 §Hydration-mismatch detection).
 
   Also defines the two `:rf.ssr/check-*` compatibility-check fxs the
   hydrate handler dispatches — best-effort version and
@@ -17,12 +17,10 @@
   `(registrar/clear-all!)` re-installs them. This namespace exports
   the handler fns only."
   (:require [clojure.string :as str]
-            [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
-            [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.trace :as rf.trace]))
 
@@ -117,11 +115,10 @@
   payload metadata + frame-isolation evidence, NOT a no-opts target
   resolver. The boot helper `re-frame.ssr.boot/hydrate!` validates it
   against the explicit `:frame` target BEFORE dispatching (and THROWS on a
-  conflict — its documented pre-dispatch contract). But `hydrate!`'s own
-  docstring recommends direct `dispatch-sync [:rf/hydrate payload] {:frame
-  target}` as the split path for hosts that verify the mounted DOM
-  themselves, so the boundary is not purely private: a direct dispatch
-  would bypass the boot check and silently install the payload into `target`
+  conflict — its documented pre-dispatch contract). But a direct
+  `dispatch-sync [:rf/hydrate payload] {:frame target}` is a public path
+  too — a custom host's own boot — so the boundary is not purely private:
+  a direct dispatch would bypass the boot check and silently install the payload into `target`
   even when `:rf/frame-id` named a different frame. The check is
   therefore enforced HERE, at the handler boundary BOTH paths cross, so a
   manual boot / custom host cannot hydrate the wrong frame.
@@ -232,7 +229,7 @@
 
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
-  `(:rf/app-db payload)`, stashes server-hash + version under
+  `(:rf/app-db payload)`, records the payload's version under
   `[:rf.runtime/ssr :hydration]`, and dispatches the two
   `:rf.ssr/check-*` fxs when the resolved platform is `:client`; server-side
   hydration skips them to avoid
@@ -251,9 +248,8 @@
   target (`:rf.frame/id`), the server's slice was rendered for a DIFFERENT
   frame, so installing it here would defeat the frame-isolation evidence the
   payload carries. The boot helper `hydrate!` validates + THROWS pre-dispatch,
-  but its docstring recommends direct `dispatch-sync [:rf/hydrate payload]`
-  as the split path for hosts that verify the mounted DOM themselves — so the
-  guard is enforced HERE, at the boundary both paths cross. app-db AND
+  but a host may also seed with a direct `dispatch-sync [:rf/hydrate payload]`
+  — so the guard is enforced HERE, at the boundary both paths cross. app-db AND
   runtime-db are left unchanged and `:rf.error/hydration-frame-id-mismatch`
   is emitted (carrying `:target-frame` / `:payload-frame-id`)."
   [{:keys [db] frame :rf.frame/id rt :rf.db/runtime} [_ payload]]
@@ -329,8 +325,7 @@
         ;; nil-pruned: a new key lands here as one more kv pair.
         metadata      (into {}
                             (filter (comp some? val))
-                            {:server-hash (:rf/render-hash payload)
-                             :version     version})
+                            {:version version})
         ;; Gate compatibility checks at the handler rather than effect dispatch
         ;; so server-
         ;; side `:rf/hydrate` runs (test harness, isomorphic loopback)
@@ -353,8 +348,7 @@
     ;;
     ;; SSR hydration metadata is durable,
     ;; serializable framework runtime state (it must survive epoch-restore /
-    ;; reconstitution so `verify-hydration!` can compare against it after the
-    ;; first client render), so it lives in the frame's RUNTIME-DB partition
+    ;; reconstitution), so it lives in the frame's RUNTIME-DB partition
     ;; at `[:rf.runtime/ssr :hydration]` (Conventions §Reserved runtime-db
     ;; keys) — NOT in app-db. The handler installs both partitions coherently:
     ;; `:db` (the server's app-db slice) AND `:rf.db/runtime` (the hydration
@@ -420,8 +414,8 @@
                    (conj [:rf.resource/hydrate-rearm {}]))}
       ;; Install the runtime-db partition when EITHER a server-settled
       ;; runtime-db slice rode the payload OR hydration metadata was produced.
-      ;; The metadata merges on top of the payload slice (server-hash/version
-      ;; sit alongside the hydrated machine snapshots / route slice).
+      ;; The metadata merges on top of the payload slice (the version sits
+      ;; alongside the hydrated machine snapshots / route slice).
       (or payload-runtime-db (seq metadata))
       (assoc :rf.db/runtime
              (let [hydration-runtime-db (if (seq metadata)
@@ -574,147 +568,3 @@
                     :recovery :warned-and-applied})
 
       :else nil)))                                     ;; match → silent
-
-(defn- detect-mismatch?
-  "Per Spec 011 §Mismatch recovery and configuration item 4. Read the
-  frame's `:ssr {:detect-mismatch? …}` knob — default `true` (detection
-  on in all builds). When a production build sets it `false`, the
-  hash-comparison work is skipped entirely for a small first-render perf
-  win, at the cost of silent mismatches. Absence of the key (the common
-  case) leaves detection ON."
-  [frame-id]
-  (let [configured-value (get-in (rf.frame/frame-meta frame-id)
-                                 [:ssr :detect-mismatch?])]
-    (if (some? configured-value) (boolean configured-value) true)))
-
-(defn- mismatch-policy
-  "Per Spec 011 §Mismatch recovery and configuration item 2. Read the
-  frame's `:ssr {:on-mismatch …}` knob — default `:warn` (the
-  `:warned-and-replaced` recovery). `:hard-error` escalates a mismatch to
-  a thrown structured exception (dev/CI fail-fast). Any other value falls
-  back to `:warn`."
-  [frame-id]
-  (let [configured-value (get-in (rf.frame/frame-meta frame-id) [:ssr :on-mismatch])]
-    (if (= :hard-error configured-value) :hard-error :warn)))
-
-(defn verify-hydration!
-  "Per Spec 011 §Hydration-mismatch detection + §Mismatch recovery and
-  configuration. Called by client code after the first render. Compares
-  the post-render hash to the server hash stashed during :rf/hydrate; on
-  disagreement emits :rf.ssr/hydration-mismatch with :recovery
-  :warned-and-replaced.
-
-  The second arg may be EITHER a render tree (we hash it) OR a
-  pre-computed hash string (used by test harnesses that simulate the
-  client render).
-
-    (verify-hydration! frame render-tree)
-    (verify-hydration! frame render-tree opts)
-
-  `frame` is the frame's id, or the frame value `rf/make-frame` returns.
-
-  opts may carry :first-diff-path, :failing-id, AND :server-hash.
-  The :server-hash opt overrides the
-  [:rf.runtime/ssr :hydration :server-hash] slot in runtime-db — useful
-  when the user's :rf/hydrate handler doesn't populate that slot
-  (e.g. fixture-overridden handlers).
-
-  Two per-frame `:ssr` config knobs govern detection + recovery
-  (Spec 011 §Mismatch recovery and configuration):
-
-    - `:ssr {:detect-mismatch? false}` — skip the hash comparison
-      entirely (production perf win; silent mismatches). Default: detect.
-    - `:ssr {:on-mismatch :hard-error}` — escalate a detected mismatch to
-      a thrown `:rf.ssr/hydration-mismatch` structured exception (dev/CI
-      fail-fast) carrying the same `:server-hash` / `:client-hash` /
-      `:failing-id` payload as the trace. Default: `:warn`
-      (`:warned-and-replaced`)."
-  ([frame tree-or-hash] (verify-hydration! frame tree-or-hash {}))
-  ([frame tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
-   ;; The config and the stored server hash are read by id; a frame value
-   ;; would match no record and skip the comparison.
-   (let [frame-id (rf.frame/frame-target->id frame)]
-     (when (detect-mismatch? frame-id)
-       ;; SSR hydration metadata is durable runtime-db
-       ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
-       ;; partition.
-       (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
-             server-hash (or server-hash
-                             (get-in runtime-db
-                                     [:rf.runtime/ssr :hydration :server-hash]))
-             client-hash (cond
-                           (string? tree-or-hash) tree-or-hash
-                           tree-or-hash           (rf.ssr.hash/render-tree-hash tree-or-hash))]
-         (when (and server-hash client-hash (not= server-hash client-hash))
-           (let [hard-error? (= :hard-error (mismatch-policy frame-id))
-                 recovery (if hard-error? :hard-error :warned-and-replaced)
-                 ;; ONE shared payload reused by both the dev-trace emit AND the
-                 ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
-                 ;; idiom error/ex-info-from-data was purpose-built for). It carries
-                 ;; the canonical thrown-error slots — :rf.error/id, :reason,
-                 ;; :recovery, and :where.
-                 mismatch-data (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
-                                        :where       'rf/verify-hydration!
-                                        :server-hash server-hash
-                                        :client-hash client-hash
-                                        :frame       frame-id
-                                        :failing-id  (or failing-id :rf/hydrate)
-                                        :reason      (str "Hydration mismatch: server hash '"
-                                                          server-hash
-                                                          "' != client hash '"
-                                                          client-hash
-                                                          "'. "
-                                                          (if hard-error?
-                                                            "Strict mode — throwing."
-                                                            "Re-rendering client-side."))
-                                        :recovery    recovery}
-                                 first-diff-path
-                                 (assoc :first-diff-path first-diff-path))
-                 emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
-             ;; Axis 1 — ALWAYS-ON. A mismatch is a PRODUCTION
-             ;; event: detection is on by default in every build (Spec 011
-             ;; §Mismatch recovery and configuration row 4), so the client
-             ;; pays for the hash comparison in an `:advanced` +
-             ;; `goog.DEBUG=false` build and the monitoring integration that
-             ;; row 3 promises must see the result. The dev trace below is
-             ;; DCE'd there — `trace/emit-error!`'s whole body sits inside
-             ;; `rf.interop/debug-enabled?` — so without this record a
-             ;; production mismatch would be detected and reported to NOBODY.
-             ;;
-             ;; STRUCTURAL SLOTS ONLY, and that is the contract rather than an
-             ;; oversight: this record fans out to corpus listeners (Sentry /
-             ;; Datadog) and to the frame's `:observability :errors` sinks RAW
-             ;; — it is NOT privacy-gated like the dev trace. The two hashes
-             ;; are digests, `:failing-id` discriminates body from head, and
-             ;; `:recovery` says what the runtime did. The `:reason` prose and
-             ;; `:first-diff-path` (a path INTO the render tree) stay on the
-             ;; DCE'd dev trace and on the strict-mode throw, which are local.
-             ;; No render tree, no markup, no app-db slice — ever.
-             (when-let [dispatch-error-record!
-                        (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
-               (dispatch-error-record!
-                 {:error       :rf.ssr/hydration-mismatch
-                  :where       'rf/verify-hydration!
-                  :frame       frame-id
-                  :failing-id  (or failing-id :rf/hydrate)
-                  :server-hash server-hash
-                  :client-hash client-hash
-                  :recovery    recovery
-                  :time        (rf.interop/now-ms)}))
-             ;; Axis 2 — the dev-only trace:
-             ;; it carries the rich `:reason` + `:first-diff-path` for the
-             ;; local debugger. Emitted after the always-on record per the
-             ;; axis-1-then-axis-2 ordering, so a last-write-wins
-             ;; listener buffer keeps the richer trace as its final input.
-             ;; THEN escalate in strict mode. The thrown ex-info carries the
-             ;; same structured payload so a CI run sees the full diff.
-             (when emit-error!
-               (emit-error! :rf.ssr/hydration-mismatch mismatch-data))
-             (when hard-error?
-               ;; Route the shared-payload throw through error/ex-info-from-data;
-               ;; it derives the human
-               ;; message from the payload's own :rf.error/id + :reason (LEADING
-               ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
-               ;; in ONE call, instead of re-deriving error/human-message inline.
-               ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
-               (throw (rf.error/ex-info-from-data mismatch-data))))))))))

@@ -80,7 +80,12 @@
   "Run `f` with an internal exact-owner predicate guarding the distinct
   callback stages of trace projection, epoch capture, and tooling delivery.
   A nil `continue?` adds no constraint, and outside any predicate every
-  stage continues."
+  stage continues.
+
+  The flows lifecycle ops that run outside any drain (a direct `reg-flow`,
+  `clear-flow`, and the settle a direct clear runs) bind it to their pinned
+  frame incarnation: there a listener's `destroy-frame!` runs at once, so the
+  remaining stages of that op's trace must stop."
   [continue? f]
   (let [parent *continuation-predicate*
         combined #(and (or (nil? parent) (parent))
@@ -88,25 +93,9 @@
     (binding [*continuation-predicate* combined]
       (f))))
 
-(defn ^:no-doc call-with-terminal-continuation-predicate
-  "Run the exact-token private teardown recipe under its own authority.
-
-  Unlike ordinary nesting, this intentionally replaces a now-false authored
-  event predicate: the destroy recipe is the sole approved closing-incarnation
-  exemption and cannot inherit the abandoned event tail's terminal fence."
-  [continue? f]
-  (binding [*continuation-predicate* continue?]
-    (f)))
-
 (defn- continuing? []
   (or (nil? *continuation-predicate*)
       (*continuation-predicate*)))
-
-(defn ^:no-doc continuation-live?
-  "Internal shared reading for composite always-on emitters participating in
-  the current exact-owner event pipeline. Ordinary callers read true."
-  []
-  (continuing?))
 
 (defn- snapshot-continuation
   "Capture the CURRENT continuation predicate as a standalone thunk that
@@ -140,10 +129,8 @@
   `deliver!` gets this for free because an inline fan-out runs inside its
   `binding`. A DEFERRED fan-out runs later, at the post-drain
   boundary, long after `deliver!` returned — so without re-establishing the
-  scope here a listener body would inherit whatever authority the DRAIN was
-  running under, and a listener whose nested authored work (dispatch /
-  destroy / create) consults a fence belonging to the drain's own event tail
-  would be silently dropped.
+  scope here a listener body would inherit whatever scope the flush's caller
+  was running under, an exact-owner predicate among them.
 
   Cross-platform: CLJS defers drain-owned delivery too, so its flush
   runs after `deliver!` returned and needs the same scope re-established. The
@@ -741,10 +728,8 @@
   (`call-with-continuation-predicate`), but that fence exists to suppress
   A's own remaining framework-owned trace stages after A is lost — it must NOT
   leak into a public listener's nested authored work. Otherwise a listener
-  that destroys A and creates same-id B with `:initial-events` would have B's
-  seed `dispatch-sync!` consult `continuation-live?`, inherit A's now-false
-  predicate, and be silently dropped at `build-envelope` — leaving B live with
-  `{}` and no recovery (make-frame's reuse/no-reseed law). The neutral rebinding frees the
+  that destroys A and creates same-id B would have B's own trace stages read
+  A's now-false predicate and vanish. The neutral rebinding frees the
   listener body; the `outer-continue?` snapshot below preserves the loop's exact
   before/after suppression of A's remaining fan-out."
   [event]

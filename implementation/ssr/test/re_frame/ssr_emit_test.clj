@@ -54,14 +54,6 @@
       (is (= expected (rf.ssr.emit/render-to-string tree {}))
           (str "render-to-string — " label)))))
 
-(deftest render-to-string-strips-props-when-root-attrs-injected
-  (testing "The injected `data-rf-render-hash` lands while the user's handler
-            on the same root element is dropped"
-    (is (= "<div id=\"root\" data-rf-render-hash=\"deadbeef\"><p>x</p></div>"
-           (rf.ssr.emit/render-to-string
-             [:div {:onClick "alert(1)" :id "root"} [:p "x"]]
-             {:render-hash "deadbeef"})))))
-
 ;; ===========================================================================
 ;; Inline <script>/<style> STRING content is author content: emitted verbatim
 ;; with only React's closing-sequence rewrite, no entity escaping, and one
@@ -110,8 +102,7 @@
     (is (= :rf.error/ssr-reagent-native-head (:rf.error/id (ex-data thrown))))))
 
 ;; ===========================================================================
-;; Root-attrs (the `data-rf-render-hash` marker) thread past fragment and seq
-;; roots onto the first DOM-tag element, exactly once.
+;; Fragment and seq roots emit their children with no wrapper.
 ;; ===========================================================================
 
 (deftest fragment-props-map-is-not-a-child
@@ -125,23 +116,22 @@
       (is (= expected (rf.ssr.emit/render-to-string tree {}))
           (pr-str tree)))))
 
-(deftest render-hash-threads-through-a-fragment-that-has-props
-  (testing "The marker threads onto the first DOM child of a fragment, once,
-            skipping a props slot and descending into a nested fragment"
-    (is (= "<div data-rf-render-hash=\"deadbeef\">a</div><div>b</div>"
-           (rf.ssr.emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})))
-    (is (= "<div data-rf-render-hash=\"deadbeef\">a</div><div>b</div>"
+(deftest fragment-roots-emit-their-children
+  (testing "A fragment root emits its children, skipping a props slot and
+            descending into a nested fragment"
+    (is (= "<div>a</div><div>b</div>"
+           (rf.ssr.emit/render-to-string [:<> [:div "a"] [:div "b"]] {})))
+    (is (= "<div>a</div><div>b</div>"
            (rf.ssr.emit/render-to-string
-             [:<> {:key "k"} [:div "a"] [:div "b"]] {:render-hash "deadbeef"})))
-    (is (= "<div data-rf-render-hash=\"deadbeef\">y</div>"
+             [:<> {:key "k"} [:div "a"] [:div "b"]] {})))
+    (is (= "<div>y</div>"
            (rf.ssr.emit/render-to-string
-             [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]
-             {:render-hash "deadbeef"})))))
+             [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]] {})))))
 
-(deftest render-hash-threads-through-lazy-seq-root
-  (is (= "<p data-rf-render-hash=\"deadbeef\">1</p><p>2</p>"
-         (rf.ssr.emit/render-to-string (for [i [1 2]] [:p i]) {:render-hash "deadbeef"}))
-      "the marker lands on the first DOM child of a seq root, once"))
+(deftest lazy-seq-root-emits-its-children
+  (is (= "<p>1</p><p>2</p>"
+         (rf.ssr.emit/render-to-string (for [i [1 2]] [:p i]) {}))
+      "a seq root emits each child, with no wrapper"))
 
 ;; ===========================================================================
 ;; Scalar children and the escape asymmetry.
@@ -170,9 +160,9 @@
 (defn var-component [label] [:span label])
 
 (deftest render-to-string-var-headed-component
-  (is (= "<span data-rf-render-hash=\"deadbeef\">ok</span>"
-         (rf.ssr.emit/render-to-string [#'var-component "ok"] {:render-hash "deadbeef"}))
-      "the root marker threads through the Var head onto its resolved root"))
+  (is (= "<span>ok</span>"
+         (rf.ssr.emit/render-to-string [#'var-component "ok"] {}))
+      "the Var head resolves to its component's markup"))
 
 ;; ===========================================================================
 ;; A malformed head fails loud; stringifying the vector would ship its

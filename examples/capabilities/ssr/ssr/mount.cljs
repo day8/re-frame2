@@ -4,7 +4,7 @@
   `ssr.core/run` ships — not a hand-kept copy of it.
 
   `mount!` is the payload-vs-client-only decision, and this is the one place it
-  lives. `ssr.core/run` calls it after it has READ+HYDRATE+VERIFIED state via
+  lives. `ssr.core/run` calls it after it has READ and HYDRATED state via
   `re-frame.ssr/hydrate!`; the browser DOM-adoption regression
   (`re-frame.ssr.ssr-startup-recipe-dom-cljs-test`) calls the SAME helper, so a
   regression here — dropping the `:hydrate?` option, say — turns that proof red.

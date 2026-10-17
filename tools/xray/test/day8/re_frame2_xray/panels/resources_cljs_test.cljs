@@ -115,8 +115,8 @@
              - 120000))
 
 (def live-ledger
-  {[:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-   {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+  {[:rf.work/resource :article/by-slug 4]
+   {:work/id [:rf.work/resource :article/by-slug 4]
     :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
     :generation 4 :status :running :cancellable? true :deadline-at 5100}})
 
@@ -233,7 +233,7 @@
 ;; app (no live work, no suppression) renders neither section.
 
 (def ep0011-live-work-id
-  [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4])
+  [:rf.work/resource :article/by-slug 4])
 
 (def ep0011-buffer
   [;; the live resource work's latest reply-envelope trace phase (issued) —
@@ -562,7 +562,7 @@
 
 (defn- failed-work-record [rid]
   (let [k [[:rf.scope/session {:token work-secret}] rid {:slug "welcome"}]]
-    {:work/id      [:rf.work/resource k 2]
+    {:work/id      [:rf.work/resource rid 2]
      :work/kind    :resource
      :resource/key k
      :generation   2
@@ -600,40 +600,41 @@
       (testing "CONTROL — the sibling's outcome keeps its preview"
         (is (str/includes? (node-text ok) work-secret))))))
 
-;; ---- (4d) PRIVACY: a work id's text redacts a :sensitive? resource -------
+;; ---- (4d) an attempt's rows join its scoped key through the work id -------
 ;;
-;; A resource work id embeds its scoped key, so a row printing the id prints
-;; the scope and params. Driven through the production composite with a
-;; running ledger record and a stale-suppressed arc per resource, and read off
-;; the rendered text: the resource declared `:sensitive?` never shows its
-;; scope/params sentinel anywhere in the panel, while the sibling's identity
-;; prints in full.
+;; An attempt's `:rf.resource/work-started` row states its scoped key; its
+;; later rows name it by `:work/id` and `:resource/id` only. Driven through
+;; the production composite with a running ledger record and a
+;; stale-suppressed arc per resource, and read off the rendered text: the
+;; work id carries no scope or params and prints as-is, the timeline's
+;; stale-suppressed row shows the params its work-started row named, and the
+;; resource declared `:sensitive?` never shows its scope or params anywhere.
 
 (def ^:private id-secret "tok-identity-secret-4e8")
 (def ^:private id-visible "ctl-identity-visible-4e8")
 
-(defn- identity-work-id [rid token]
-  [:rf.work/resource [[:rf.scope/session {:token token}] rid {:slug token}] 5])
+(defn- identity-key [rid token]
+  [[:rf.scope/session {:token token}] rid {:slug token}])
 
-(def ^:private sensitive-work-id (identity-work-id :article/by-slug id-secret))
-(def ^:private plain-work-id (identity-work-id :comments/list id-visible))
+(def ^:private sensitive-work-id [:rf.work/resource :article/by-slug 5])
+(def ^:private plain-work-id [:rf.work/resource :comments/list 6])
 
-(defn- running-record [work-id]
-  {:work/id work-id :work/kind :resource :resource/key (second work-id)
-   :generation 5 :status :running})
+(defn- running-record [work-id scoped-key]
+  {:work/id work-id :work/kind :resource :resource/key scoped-key
+   :generation (nth work-id 2) :status :running})
 
-(defn- identity-trace
-  "A work-started row and a stale-suppressed row for `work-id`, each naming
-  its scoped key, so the lifecycle timeline renders them too."
-  [work-id id0]
-  (let [tags {:resource/key (second work-id) :resource-id (get-in work-id [1 1])}]
-    [{:id id0 :op-type :rf.resource :operation :rf.resource/work-started
-      :tags (assoc tags :work/id work-id :work/kind :resource)}
-     {:id (inc id0) :op-type :rf.resource :operation :rf.resource/stale-suppressed
-      :tags (assoc tags :rf.reply/work-id work-id :rf.reply/status :stale
-                        :rf.reply/work-status :suppressed)}]))
+(defn- attempt-trace
+  "The work-started row naming `work-id`'s scoped key, then a
+  stale-suppressed row naming the attempt by work id and resource id only."
+  [work-id scoped-key id0]
+  [{:id id0 :op-type :rf.resource :operation :rf.resource/work-started
+    :tags {:resource/key scoped-key :work/id work-id :work/kind :resource
+           :generation (nth work-id 2) :status :running}}
+   {:id (inc id0) :op-type :rf.resource :operation :rf.resource/stale-suppressed
+    :tags {:resource/id (second work-id) :rf.reply/work-id work-id
+           :rf.reply/status :stale :rf.reply/work-status :suppressed}}])
 
-(deftest work-id-text-redacts-a-sensitive-resource
+(deftest attempt-rows-join-their-key-through-the-work-id
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test
@@ -642,33 +643,34 @@
     (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test {}]
                       {:frame :rf/xray})
     (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test
-                       {"w-sensitive" (running-record sensitive-work-id)
-                        "w-plain"     (running-record plain-work-id)}]
+                       {"w-sensitive" (running-record sensitive-work-id
+                                                      (identity-key :article/by-slug id-secret))
+                        "w-plain"     (running-record plain-work-id
+                                                      (identity-key :comments/list id-visible))}]
                       {:frame :rf/xray})
     (rf/dispatch-sync [:rf.xray/sync-trace-buffer
-                       (into (identity-trace sensitive-work-id 90)
-                             (identity-trace plain-work-id 92))]
+                       (into (attempt-trace sensitive-work-id
+                                            (identity-key :article/by-slug id-secret) 90)
+                             (attempt-trace plain-work-id
+                                            (identity-key :comments/list id-visible) 92))]
                       {:frame :rf/xray})
     (let [tree   (panel-tree)
           row    (fn [prefix work-id] (find-by-testid tree (str prefix (hash work-id))))
-          live-s (row "rf-xray-resources-live-work-row-" sensitive-work-id)
-          live-p (row "rf-xray-resources-live-work-row-" plain-work-id)
-          race-s (row "rf-xray-resources-stale-race-row-" sensitive-work-id)
-          race-p (row "rf-xray-resources-stale-race-row-" plain-work-id)]
-      (testing "the sensitive resource's rows print its identity with the
-                scope and params redacted"
-        (doseq [n [live-s race-s]]
-          (is (str/includes? (node-text n) ":article/by-slug"))
-          (is (str/includes? (node-text n) ":rf/redacted"))))
-      (testing "the sensitive scope/params sentinel appears nowhere in the
-                panel's text — live work, stale races and the timeline included"
-        (is (some? (find-by-testid tree "rf-xray-resources-timeline-body"))
-            "the timeline rendered the trace rows")
+          params (fn [id] (node-text (find-by-testid
+                                       tree (str "rf-xray-resources-timeline-row-" id "-params"))))]
+      (testing "the live-work and stale-race rows print the work id as-is"
+        (doseq [[prefix work-id] [["rf-xray-resources-live-work-row-" sensitive-work-id]
+                                  ["rf-xray-resources-stale-race-row-" sensitive-work-id]
+                                  ["rf-xray-resources-live-work-row-" plain-work-id]
+                                  ["rf-xray-resources-stale-race-row-" plain-work-id]]]
+          (is (str/includes? (node-text (row prefix work-id)) (str work-id)))))
+      (testing "the stale-suppressed row shows the params its work-started row named"
+        (is (str/includes? (params 93) id-visible))
+        (is (= "[redacted]" (params 91))
+            "and a :sensitive? resource's params read [redacted] there too"))
+      (testing "the sensitive resource's scope and params appear nowhere in the panel"
         (is (not (str/includes? (node-text tree) id-secret))))
-      (testing "CONTROL — the sibling's identity prints its scope and params"
-        (doseq [n [live-p race-p]]
-          (is (str/includes? (node-text n) id-visible))))
-      (testing "the composite keeps the raw work id for keys and joins"
+      (testing "the composite keys and joins on the raw work id"
         (let [data @(rf/subscribe [:rf.xray/resources-tab-data])]
           (is (some #(= sensitive-work-id (:work-id %)) (:live-work data)))
           (is (contains? (:stale-races data) sensitive-work-id)))))))

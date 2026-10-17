@@ -212,7 +212,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 ### `testbeds/ssr_hydration_mismatch/spec.cjs` (Spec 011 hydration-mismatch trace) — MIGRATED (Wave 3, rf2-pxb7t)
 
-**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_hydration_mismatch_test.clj`** — JVM tests covering the `verify-hydration!` mismatch path (`:rf.ssr/hydration-mismatch` trace tag payload, `:op-type :error` categorisation, `:recovery :warned-and-replaced` envelope hoist, `:client-hash` 8-char lowercase-hex shape, page-stays-interactive contract). The visual mismatch-banner is a DOM-render concern; its underlying trace-tag contract is now locked in pure CLJS, and the banner-render probes retire per the §Drop-or-keep recommendation (substrate-mount + chrome covered elsewhere).
+**Status: spec.cjs DELETED.** The `:rf.ssr/hydration-mismatch` trace is reported by the hydrating root's adoption reporter, so its coverage lives in the browser lane: `implementation/adapters/reagent/test/re_frame/adapter_hydrate_root_options_dom_cljs_test.cljs` (one trace per divergence React recovers from) and `implementation/adapters/reagent/test/re_frame/adapter_hydration_mismatch_record_dom_cljs_test.cljs` (the always-on record). The testbed's server markup diverges in text so React's recovery fires the trace, and the Xray feature-matrix scenario "hydration mismatch debugger" reads the banner that renders it. The rows below are the assertions as the spec.cjs carried them, against a render-hash channel the runtime no longer has, so their JVM targets no longer exist.
 
 | # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|
@@ -231,7 +231,7 @@ Same shape as helix. All 3 assertions = (B). KEEP IN PLACE.
 
 ### `testbeds/ssr_multi_frame/spec.cjs` (Spec 011 per-frame hydration isolation) — MIGRATED (Wave 3, rf2-pxb7t)
 
-**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`** — JVM tests using `rf/subscribe-once frame-id query-v` (the 2-arg form at `implementation/core/src/re_frame/subs.cljc:365`) to lock the per-frame hydration isolation contract: three frames, three `:rf/hydrate` dispatches, three independent app-dbs, three distinct `:server-hash` slots, cross-frame `subscribe-once` calls resolving against the named frame's signal-graph cache, post-hydrate dispatch fan-out staying frame-isolated. The three-panel mount probe (#1) retires alongside per the audit's §Drop-or-keep recommendation.
+**Status: spec.cjs DELETED. Migrated to `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`** — JVM tests using `rf/subscribe-once frame-id query-v` (the 2-arg form at `implementation/core/src/re_frame/subs.cljc:365`) to lock the per-frame hydration isolation contract: three frames, three `:rf/hydrate` dispatches, three independent app-dbs, three hydration-metadata records, cross-frame `subscribe-once` calls resolving against the named frame's signal-graph cache, post-hydrate dispatch fan-out staying frame-isolated. The three-panel mount probe (#1) retires alongside per the audit's §Drop-or-keep recommendation.
 
 | # | Assertion | Class | Migrated to |
 |---:|---|:---:|---|

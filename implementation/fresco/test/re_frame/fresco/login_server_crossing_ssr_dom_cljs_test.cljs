@@ -157,7 +157,6 @@
       nil
       (rf.ssr.payload-policy/project-app-db-egress
         (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) opts) frame-id)
-      nil
       opts)))
 
 ;; ---------------------------------------------------------------------------

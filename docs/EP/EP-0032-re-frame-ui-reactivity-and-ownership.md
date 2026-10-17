@@ -73,8 +73,8 @@ retroactive labels); committed push economics with host-checkpoint render
 batching and a test flush; frames at host preflight; and a fixture-pinned HMR
 contract. It does not own the view programming model — `defview`, templates,
 handlers, `local`, effects are EP-0031's surface; the adapter
-decision (which view layers exist and are retained) is EP-0030's; the closed
-public adapter API contract (the 11-key spec map) and public
+decision (which view layers exist and are retained) is EP-0030's; the
+public adapter API contract ([Spec 006](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract)) and public
 `subscribe`/`subscribe-once` semantics are unchanged; resource freshness under
 Activity reveal belongs to Spec 016, not the observation handle. Where
 graduated, the spec is the authority.
@@ -249,7 +249,7 @@ shared nodes through their zero-owner edge.
 ## Backwards Compatibility
 
 Pre-alpha; no shims. The public adapter contract is untouched — the port lives
-outside the closed 11-key map, existing adapters implement none of it, and no
+outside the adapter map ([Spec 006](../../spec/006-ReactiveSubstrate.md#the-adapter-api-contract)), existing adapters implement none of it, and no
 feature predicate is added. Public `subscribe`/`subscribe-once` semantics are
 unchanged. The seam may change shape between lockstep releases; skew is a boot
 error by the ABI guard.

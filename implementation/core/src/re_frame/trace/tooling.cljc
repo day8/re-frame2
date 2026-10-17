@@ -1114,17 +1114,15 @@
   delivery guarantees — the whole fan-out runs inside `deliver!`, inside the
   drain.
 
-  A deferred fan-out runs after the drain has unwound, and these predicates are
-  not pure functions of registry state: the dispatch-path fence
-  (`re-frame.router/dispatch!`'s `target-live?`) reaches
-  `frame/event-owner-live?`, which reads the DYNAMIC `frame/*event-owner*`. Once
-  the drain returns that var is unbound, so the fence reads false for every
-  cascaded dispatch — no destroy, no suppression, just an unwound stack. Under a
-  bare live re-read the driver would take that as suppression and abandon
-  listeners 2..N, silently dropping the `:rf.event/dispatched` envelope of every
-  cascaded event for every app with more than one listener. Level-testing a
-  context-dependent predicate outside its context is the defect; the reading has
-  to be made relative to the context the fan-out actually runs in.
+  A deferred fan-out runs after the drain has unwound, and by then the
+  predicate can read false with no listener involved: a destroy requested
+  during the drain runs at the event boundary, before the post-drain flush, so
+  an `:rf.flow/registered` that a mid-drain `:rf.fx/reg-flow` emitted under its
+  pinned incarnation reaches the flush with that incarnation already gone. Under
+  a bare live re-read the driver would take that as suppression and abandon
+  listeners 2..N of an event that was authorised when it was emitted.
+  Level-testing the predicate at the flush is the defect; the reading has to be
+  made relative to the moment the fan-out actually starts.
 
   THE DISTINCTION. Detect a TRANSITION, not a level. The first call — taken in
   the flush, immediately before listener 1 — records the BASELINE and always
@@ -1135,28 +1133,24 @@
 
     - baseline TRUE  -> consult the live predicate. A later false is a genuine
       mid-fan-out suppression and stops the remainder, exactly as per-event
-      authority requires. This is the case for every context-free fence — notably
-      `process-event!`'s `#(frame/event-continuation-live? frame-id owner-token)`,
-      which reads only the frame registry — so a listener that destroys the
-      outer incarnation still fences that incarnation's remaining fan-out.
+      authority requires, so a listener that destroys the outer incarnation
+      still fences that incarnation's remaining fan-out.
     - baseline FALSE -> the predicate was ALREADY false when the fan-out began,
-      before any listener could act. That is ordinary post-drain state (the
-      unwound owner binding above), never evidence of suppression, so it cannot
-      abandon the remaining listeners. The event was authorised at emission and
-      is delivered in full — just later.
+      before any listener could act. That is the boundary teardown above,
+      never evidence of suppression, so it cannot abandon the remaining
+      listeners. The event was authorised at emission and is delivered in
+      full — just later.
 
   Deferral therefore changes delivery TIMING only, never the recipient set.
   A nested emit queued behind the event being delivered is read through this
   too: it is delivered after the listener body that emitted it has returned,
-  which unwinds that body's context in exactly the same way.
-  Cross-platform: CLJS defers drain-owned emits too, and the same
-  context-dependent-fence unwinding applies there, so this reasoning is not
-  JVM-specific. The `unread` sentinel is a dedicated object, NOT a keyword: CLJS
-  keyword literals are not guaranteed `identical?` across evaluation sites, so a
-  keyword baseline sentinel would make the first-check branch unreachable there —
-  every check would level-test the live predicate, and a context-dependent
-  post-drain fence (a cascaded `:rf.event/dispatched` envelope's `target-live?`,
-  unbound once the drain unwinds) would read false and DROP the event."
+  which can likewise have lost its incarnation before its own fan-out starts.
+  Cross-platform: CLJS defers drain-owned emits too, and runs the same boundary
+  teardown before its flush, so this reasoning is not JVM-specific. The
+  `unread` sentinel is a dedicated object, NOT a keyword: CLJS keyword literals
+  are not guaranteed `identical?` across evaluation sites, so a keyword
+  baseline sentinel would make the first-check branch unreachable there —
+  every check would level-test the live predicate and DROP such an event."
   [continue?]
   (let [baseline (volatile! unread)]
     (fn []
