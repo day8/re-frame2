@@ -91,9 +91,7 @@
     (doseq [[arity call] [[1 #(rf.schemas/validate-app-schema! %)]
                           [2 #(rf.schemas/validate-app-schema! % :e)]
                           [3 #(rf.schemas/validate-app-schema! % :e :rf/default)]
-                          [4 #(rf.schemas/validate-app-schema! % :e :rf/default (constantly true))]
-                          [5 #(rf.schemas/validate-app-schema! % :e :rf/default (constantly true)
-                                                               {:k 1})]]]
+                          [4 #(rf.schemas/validate-app-schema! % :e :rf/default {:k 1})]]]
       (is (= [true false] [(call {:other 1}) (call {:k nil})])
           (str arity "-arity")))))
 

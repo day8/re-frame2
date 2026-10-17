@@ -148,7 +148,7 @@
   ;; A rejected candidate app-db installs nothing, though the handler did not throw.
   (let [validated? (atom false)]
     (rf.late-bind/set-fn! :schemas/validate-app-schema!
-                          (fn [_db-after _event-id _frame _continue? _db-before]
+                          (fn [_db-after _event-id _frame _db-before]
                             (reset! validated? true)
                             false))
     (let [seen (record-events!)]
