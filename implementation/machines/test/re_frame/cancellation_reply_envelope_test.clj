@@ -38,7 +38,7 @@
             :rf.reply/cancelled?    true
             :rf.reply/cancel-reason :on-exit
             :rf.reply/work-kind     :timer
-            :rf.reply/work-id       [:rf.work/timer [:sfunt8/timer :loading] (:epoch tags)]}
+            :rf.reply/work-id       [:rf.work/timer [:sfunt8/timer :loading 5000] (:epoch tags)]}
            (select-keys tags (cons :reason reply-keys))))))
 
 ;; A region `:after` is scheduled under a region-PREFIXED invoke-id. Its
@@ -64,7 +64,7 @@
                      (filter #(true? (:fired? (:tags %))))
                      first)
           cancelled-wid (:rf.reply/work-id (first-tags :rf.machine.timer/cancelled))]
-      (is (= [:rf.work/timer [:cttpk4-tw/timer :loader :working] epoch] cancelled-wid))
+      (is (= [:rf.work/timer [:cttpk4-tw/timer :loader :working 30000] epoch] cancelled-wid))
       (is (= (:rf.reply/work-id (:tags fired)) cancelled-wid)))))
 
 ;; A parallel-ROOT `:after` has decl-path `[]`; its :scheduled and :cancelled

@@ -255,9 +255,11 @@
         ;; The `:region` recorded at schedule time names the region whose
         ;; head the timer-table `:spawn` carries. The row names the node by
         ;; its region-relative path with `:region` beside it, and the reply's
-        ;; `:rf.reply/work-id` puts the region back at the path's head, as the
-        ;; fired / stale rows do, so all the rows of one `:after` share one
-        ;; work-id and no other region's timer shares it.
+        ;; `:rf.reply/work-id` puts the region back at the path's head and
+        ;; ends with the `:after` key, as the fired / stale rows do, so all
+        ;; the rows of one `:after` entry share one work-id and no other
+        ;; timer — another region's, or a sibling entry on the same node —
+        ;; shares it.
         region       (:region entry)
         decl-path    (region-relative-path region (:spawn k))
         ;; Close the timer work attempt the reply-envelope way: a cancelled
@@ -273,6 +275,7 @@
                        {:actor-id  (:parent k)
                         :state     (:state entry)
                         :delay     (:resolved-ms entry)
+                        :delay-key (:delay k)
                         :decl-path decl-path
                         :region    region
                         :epoch     (:epoch entry)

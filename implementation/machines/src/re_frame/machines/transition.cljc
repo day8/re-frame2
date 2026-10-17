@@ -1137,7 +1137,8 @@
                :state             (last prefix)
                ;; Carry the declaring path so `after-fired-reply`
                ;; (via `timer-work-id`) yields the canonical
-               ;; `[:rf.work/timer [<actor> <decl-path>] epoch]` work-id. The
+               ;; `[:rf.work/timer [<actor> <decl-path>… <delay-key>] epoch]`
+               ;; work-id. The
                ;; live (`resolve-hit`) and stale branches both set `:decl-path`;
                ;; without it here the guard-suppressed `:rf.machine.timer/fired`
                ;; `:fired? false` reply degrades to `[:rf.work/timer <actor>
@@ -2537,7 +2538,7 @@
                ;; The parallel-ROOT timer's declaring path is the
                ;; empty path `[]` (the root `:after` lives on the machine map,
                ;; decl-path `[]`). Carry it so `after-fired-reply` builds the
-               ;; canonical work-id `[:rf.work/timer [<actor>] epoch]` and the
+               ;; canonical work-id `[:rf.work/timer [<actor> <delay-key>] epoch]` and the
                ;; guard-suppressed root reply correlates with its scheduled/
                ;; cancelled/stale counterparts (the stale branch below already
                ;; sets `:decl-path []`). Per Spec 005 §Async completions share the
@@ -4116,6 +4117,7 @@
                           {:actor-id        (:actor-id match)
                            :state           (:state match)
                            :delay           (:delay match)
+                           :delay-key       (:delay-key match)
                            :decl-path       (:decl-path match)
                            :region          (:region match)
                            :scheduled-epoch (:scheduled-epoch match)
@@ -4172,6 +4174,7 @@
                           {:actor-id          (:actor-id match)
                            :state             (:state match)
                            :delay             (:delay match)
+                           :delay-key         (:delay-key match)
                            :decl-path         (:decl-path match)
                            :region            (:region match)
                            :epoch             (:epoch match)
@@ -4216,6 +4219,7 @@
                           {:actor-id     (:actor-id match)
                            :state        fired-state
                            :delay        (:delay match)
+                           :delay-key    (:delay-key match)
                            :decl-path    (:decl-path match)
                            :region       (:region match)
                            :epoch        (:epoch match)

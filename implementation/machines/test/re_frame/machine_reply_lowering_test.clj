@@ -41,7 +41,7 @@
               :rf.reply/work-status  :suppressed
               :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
               :rf.reply/work-kind    :timer
-              :rf.reply/work-id      [:rf.work/timer [:rl/after :loading] epoch]}
+              :rf.reply/work-id      [:rf.work/timer [:rl/after :loading 30000] epoch]}
              (select-keys tags [:delay :scheduled-epoch :rf.reply/status :rf.reply/work-status
                                 :rf.reply/stale-reason :rf.reply/work-kind :rf.reply/work-id])))
       (is (= {:path [:loading] :rf/after-epoch epoch} (:carried corr))
