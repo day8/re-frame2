@@ -169,10 +169,10 @@
   boundaries) redact with no change. Returns nil.
 
   The 4-arity threads A's exact-incarnation `owner-token` through
-  `swap-elision-slot!`'s EXACT arity (the same exact-write the flow lifecycle
-  ops issue): a synchronous container watch that destroys A and
-  publishes same-id B DURING this durable-registry write neither redirects the
-  write into B nor bumps B's commit epoch — on mid-write loss it writes nothing.
+  `swap-elision-slot!`'s EXACT arity: a synchronous container watch that
+  destroys A and publishes same-id B DURING this durable-registry write
+  neither redirects the write into B nor bumps B's commit epoch — on
+  mid-write loss it writes nothing.
   The 3-arity is the bare-id write (no event owner — conformance /
   pure-fn callers)."
   ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))

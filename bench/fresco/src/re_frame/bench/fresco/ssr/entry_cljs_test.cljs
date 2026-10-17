@@ -16,9 +16,11 @@
             [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
-;; UIx, the substrate with a real reactivity layer. The render entry does
-;; not install one — a substrate is a process-level decision a host makes
-;; at boot, so it belongs to the driver and to this fixture.
+;; UIx, the substrate `re-frame.bench.fresco.ssr.node/boot!` installs for
+;; the bake and the live demo, so these renders run under the same one.
+;; The render entry does not install one — a substrate is a process-level
+;; decision a host makes at boot, so it belongs to the driver and to this
+;; fixture.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
