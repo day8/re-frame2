@@ -478,6 +478,14 @@
 ;; buffer into presentation-ready ring-specs and drives the rAF tick
 ;; clock; the machines-viz overlay owns DOM measurement + paint.
 
+(defn- ring-node-id
+  "The chart node-id a ring sits on. A timer record names its declaring
+  node as a state keyword or path, or as `{<region> <in-region-path>}` for
+  a timer declared inside a parallel region — forms `highlight-ids`
+  resolves, region-scoped exactly as the chart mints a region's node ids."
+  [node]
+  (first (chart-layout/highlight-ids node)))
+
 (defn- timer-hovered!
   "Wire a ring's hover into the Xray timer-hover slot. The overlay
   passes the bearing node-id back; we re-resolve the timer identity
@@ -557,8 +565,7 @@
         ;; so a crossed ring that is still on screen still gets a clock.
         _          (when (rings-h/needs-ticking? timers scrub now)
                      (kick-tick! frame))
-        specs      (rings-h/timers->ring-specs
-                     timers chart-layout/highlight-id now)]
+        specs      (rings-h/timers->ring-specs timers ring-node-id now)]
     (when (seq specs)
       [:div {:data-rf-xray-after-rings-host ""
              ;; The React ref that clears `:mounted?` on unmount
