@@ -125,9 +125,16 @@
     (is (re-find #"frame-ids" (str (read-for :frame))))))
 
 (deftest flow-definitions-answer-the-ordinary-query
-  (is (= [{} nil]
-         [(rf/registrations {:source :store :kind :flow})
-          (rf/handler-meta {:source :store :kind :flow :id :anything})])))
+  ;; :flow is an ordinary registrar kind: the store form lists and returns
+  ;; what was registered under it, and an id nothing registered reads nil
+  (rf.registrar/register! :flow :query.flow/total
+                          {:inputs [[:a]] :output-path [:total]})
+  (is (= [[:total] [:total] nil]
+         [(:output-path (get (rf/registrations {:source :store :kind :flow})
+                             :query.flow/total))
+          (:output-path (rf/handler-meta {:source :store :kind :flow
+                                          :id     :query.flow/total}))
+          (rf/handler-meta {:source :store :kind :flow :id :query.flow/absent})])))
 
 (deftest unknown-kinds-fail-loud
   (is (= :rf.error/unknown-registry-kind

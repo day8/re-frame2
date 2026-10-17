@@ -81,10 +81,14 @@
     (rf/dispatch-sync [:cart/inc-qty "RF2-MUG"] {:frame :rf/default})
     (let [new-total-runs (atom 0)]
       ;; The reloaded namespace's `:cart/total` form, with a distinguishable
-      ;; edited derive (+41) that counts its invocations.
+      ;; edited derive (+41) that counts its invocations. It carries
+      ;; `flows.core`'s provenance because a rebuild reloads that namespace;
+      ;; registered as this test namespace it would be a second owner of the
+      ;; id, which a frame resolving the live store refuses as ambiguous.
       (rf/reg-flow :cart/total
         {:inputs [[:cart :subtotal] [:cart :discount-rate]]
-         :output-path [:cart :total]}
+         :output-path [:cart :total]
+         :rf.provenance/ns "flows.core"}
         (fn [subtotal discount-rate]
           (swap! new-total-runs inc)
           (+ 41 (Math/round (* subtotal (- 1 (or discount-rate 0)))))))
