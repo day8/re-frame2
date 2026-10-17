@@ -398,42 +398,49 @@
   re-registration that completes a cycle or an output overlap aborts the event.
 
   The memo advances only when the whole pass succeeds. A throw leaves it as it
-  was and propagates; the router discards the pending db, so the event commits
-  in full or not at all."
+  was, hands the output claims the pass rewrote back to the outputs the frame
+  still holds, and propagates; the router discards the pending db, so the
+  event commits in full or not at all."
   [frame-id db runtime-db]
-  (let [ids  (:flows (rf.frame/frame-config frame-id))
-        rows (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
-    (if (and (empty? ids) (empty? rows))
+  (let [ids   (:flows (rf.frame/frame-config frame-id))
+        prior (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
+    (if (and (empty? ids) (empty? prior))
       db
-      (let [active       (active-flows ids)
-            [db rows]    (reconcile-departures frame-id ids active db rows)
-            _            (rf.flows.topo/detect-output-path-overlap!
-                           active 're-frame.flows/run-flows-on-db)
-            order        (rf.flows.topo/topo-sort
-                           active 're-frame.flows/run-flows-on-db)
-            [db rows]    (reduce
-                           (fn [[db rows] id]
-                             (let [flow       (get active id)
-                                   row        (get rows id)
-                                   new-inputs (read-inputs db runtime-db flow)]
-                               (if (and (identical? flow (:flow row))
-                                        (= new-inputs (:inputs row)))
-                                 [(reassert-output frame-id db flow new-inputs row) rows]
-                                 (do
-                                   ;; A definition the frame has not evaluated
-                                   ;; claims its output paths before it emits.
-                                   (when (and (not (identical? flow (:flow row)))
-                                              (or (rf.flows.registry/flow-declares-marks? flow)
-                                                  (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))
-                                     (rf.flows.registry/claim-output-marks! frame-id flow))
-                                   (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
-                                     [db (assoc rows id {:flow   flow
-                                                         :inputs new-inputs
-                                                         :output output})])))))
-                           [db rows]
-                           order)]
-        (reset! (rf.flows.registry/ensure-frame-memo-atom! frame-id) rows)
-        db))))
+      (let [active (active-flows ids)]
+        (try
+          (let [[db rows] (reconcile-departures frame-id ids active db prior)
+                _         (rf.flows.topo/detect-output-path-overlap!
+                            active 're-frame.flows/run-flows-on-db)
+                order     (rf.flows.topo/topo-sort
+                            active 're-frame.flows/run-flows-on-db)
+                [db rows] (reduce
+                            (fn [[db rows] id]
+                              (let [flow       (get active id)
+                                    row        (get rows id)
+                                    new-inputs (read-inputs db runtime-db flow)]
+                                (if (and (identical? flow (:flow row))
+                                         (= new-inputs (:inputs row)))
+                                  [(reassert-output frame-id db flow new-inputs row) rows]
+                                  (do
+                                    ;; A definition the frame has not evaluated
+                                    ;; claims its output paths before it emits.
+                                    (when (and (not (identical? flow (:flow row)))
+                                               (or (rf.flows.registry/flow-declares-marks? flow)
+                                                   (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))
+                                      (rf.flows.registry/claim-output-marks! frame-id flow))
+                                    (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
+                                      [db (assoc rows id {:flow   flow
+                                                          :inputs new-inputs
+                                                          :output output})])))))
+                            [db rows]
+                            order)]
+            (reset! (rf.flows.registry/ensure-frame-memo-atom! frame-id) rows)
+            db)
+          (catch #?(:clj Throwable :cljs :default) e
+            ;; The claims went into the live registry ahead of the commit, and
+            ;; the committed outputs are still `prior`'s.
+            (rf.flows.registry/restore-output-claims! frame-id prior active)
+            (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
