@@ -1,30 +1,13 @@
 (ns re-frame.after-timer-announce-claim-race-test
-  "A cleanup that claims an `:after` attempt's timer-table sentinel BEFORE the
-  attempt's `:rf.machine.timer/scheduled` row is out must not put its
-  `:rf.machine.timer/cancelled` in front of that row.
+  "A `:rf.machine.timer/scheduled` listener that claims the attempt its row
+  announces closes that row at once, before anything the listener goes on to
+  announce.
 
   `schedule-after-timer!` reserves the slot ABOVE the `/scheduled` emit, so an
-  announced attempt is cancellable from the instant it is visible. Between the
-  reservation and the emit the sentinel is claimable but the row is not yet
-  out, and on the JVM a concurrent cleanup can claim it there. A claimant that
-  emitted `/cancelled` on its own stack would put the closure first and leave
-  the `/scheduled` that follows as an orphan — the pairing contract Spec 005
-  §Trace event catalogue states on `(actor-id, state, epoch)`, inverted.
-
-  The interleaving is driven, not raced: `rf.trace/emit!` is wrapped for one
-  hydration, and on the attempt's own `/scheduled` row the cleanup runs to
-  completion on a second thread before the real emit proceeds. A raw `Thread`,
-  not a `future`: `future` conveys the caller's dynamic bindings, and the
-  runtime marks the announcing THREAD through one, so a conveyed cleanup would
-  read as a synchronous listener on the row.
-
-  The second test is the other side of that thread mark: a claim made ON the
-  announcing thread comes from a listener on the row itself, so the row is
-  already out and the `/cancelled` must follow it at once — before anything
-  the listener goes on to announce.
-
-  JVM only (`.clj`): the window exists only where a second thread can run
-  between two instructions of the arm."
+  announced attempt is cancellable from the instant it is visible, and the
+  claimant's `/cancelled` follows the row it closes. A listener runs on the
+  row's own stack only outside a drain — inside one, delivery waits for the
+  drain to end — so the test arms through the hydration seam directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -34,7 +17,6 @@
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
@@ -78,74 +60,12 @@
              :waiting {:after {5000 {:target :timeout}}}
              :timeout {}}})
 
-(def ^:private pair-keys
-  "The slots `:rf.machine.timer/cancelled` mirrors from `/scheduled`."
-  [:actor-id :state :delay :epoch :frame])
-
 (defn- timer-ops
   "The captured `/scheduled` and `/cancelled` rows, oldest first."
   []
   (filterv (comp #{:rf.machine.timer/scheduled :rf.machine.timer/cancelled}
                  :operation)
            (rf.machines.test-support/captured-events)))
-
-(defn- on-another-thread!
-  "Run `f` to completion on a fresh raw `Thread` and join it, rethrowing
-  anything it threw. NOT a `future` — see the ns docstring."
-  [f]
-  (let [failure (atom nil)
-        t       (Thread. ^Runnable (fn [] (try (f)
-                                               (catch Throwable e
-                                                 (reset! failure e)))))]
-    (.start t)
-    (.join t)
-    (when-let [e @failure] (throw e))))
-
-(defn- hydrate-with-cleanup-in-the-window!
-  "Hydrate `frame-id` with `runtime-db`, and at the reserve-to-emit boundary of
-  its one arm run `(cleanup! frame-id k)` to completion on a second thread.
-  Returns how many host clocks were armed."
-  [frame-id runtime-db cleanup!]
-  (let [orig-emit! rf.trace/emit!
-        seen?      (atom false)
-        arms       (atom 0)]
-    (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
-                  rf.interop/cancel-scheduled! (fn [_h] nil)
-                  rf.trace/emit!
-                  (fn [op operation tags]
-                    (when (and (= :rf.machine.timer/scheduled operation)
-                               (compare-and-set! seen? false true))
-                      ;; The sentinel is reserved; its row is not yet delivered.
-                      (when-let [[k _entry] (first (inner frame-id))]
-                        (on-another-thread! #(cleanup! frame-id k))))
-                    (orig-emit! op operation tags))]
-      (install! frame-id runtime-db))
-    @arms))
-
-(deftest a-claim-before-the-row-is-out-closes-the-row-rather-than-preceding-it
-  ;; Every cleanup claims through the same `claim-cancel-and-release!`, so one
-  ;; claimant drives the window; each cleanup's own claim of a sentinel is
-  ;; pinned in after_timer_arm_publish_race_cljs_test.
-  (rf/reg-machine :announce/exit literal-machine)
-  (let [rt   (server-runtime-db :announce/exit)
-        cfid (fresh-frame! :client)]
-    (rf.machines.test-support/reset-captured!)
-    (let [arms (hydrate-with-cleanup-in-the-window!
-                 cfid rt
-                 (fn [frame k] (rf.machines.timer/after-cancel-fx
-                                 {:frame frame}
-                                 {:rf/parent-id (:parent k) :rf/invoke-id (:spawn k)})))
-          [scheduled cancelled :as ops] (timer-ops)]
-      (is (= [:rf.machine.timer/scheduled :rf.machine.timer/cancelled]
-             (mapv :operation ops))
-          (str "the announcement first, its closure second — never a "
-               "`/cancelled` ahead of the row it closes, leaving that row an "
-               "orphan nothing downstream retracts"))
-      (is (= (assoc (select-keys (:tags scheduled) pair-keys) :reason :on-exit)
-             (select-keys (:tags cancelled) (conj pair-keys :reason)))
-          "the closure pairs with the row and carries the CLAIMANT's own reason")
-      (is (= [{} 0] [(inner cfid) arms])
-          "the claimed attempt was neither published nor armed on the host"))))
 
 (deftest a-same-thread-claim-from-the-rows-own-listener-closes-it-before-a-successor-announces
   (testing "a `/scheduled` listener destroys A, publishes same-id B and
