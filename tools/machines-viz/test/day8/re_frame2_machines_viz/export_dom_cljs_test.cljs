@@ -246,20 +246,21 @@
 (deftest svg-export-redacts-sensitive-live-context
   (testing "chart-as-svg of a chart fed a LIVE :context-band with a slot
             classified sensitive carries the :rf/redacted sentinel, never the
-            raw secret"
+            raw secret, while a non-sensitive slot still renders"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (let [secret "card-4111-1111-1111-1111"]
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done
            :current-state :loading
-           :context-band {:card secret}
+           :context-band {:card secret :count 7}
            :context-band-inferred? false
            :context-band-sensitive #{:card}}
           (fn [node]
             (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
               (is (not (str/includes? svg secret)))
-              (is (str/includes? svg ":rf/redacted")))))))))
+              (is (str/includes? svg ":rf/redacted"))
+              (is (str/includes? svg "7")))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
   (testing ":context-band-raw? true is the explicit trusted-local opt-in: the
