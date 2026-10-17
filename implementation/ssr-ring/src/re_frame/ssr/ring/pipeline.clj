@@ -297,9 +297,10 @@
   across requests. The failed incarnation itself is NOT reaped here:
   core construction is its exact-token owner — `make-frame` tears the
   partial frame down with its exact installed token before rethrowing
-  (frame.cljc). A bare-id reap in the catch would be address-
-  directed and could destroy a same-id successor B seated in the window
-  after A's exact rollback released the per-id transaction."
+  (frame.cljc), and releases the id's reservation in its own `finally`
+  before the throw reaches this catch. A bare-id reap here would be
+  address-directed and could destroy a same-id successor B seated after that
+  release."
   [{:keys [initial-events fx-overrides ssr on-error] :as opts} request]
   ;; The alphabetic prefix keeps the payload frame id valid for strict EDN
   ;; readers; keyword construction itself does not validate local names.
@@ -335,10 +336,10 @@
         ;; already tore incarnation A down with its exact installed token before
         ;; rethrowing (frame.cljc — the setup-runner + WON-install catch both
         ;; destroy `installed-token`). A redundant bare-id
-        ;; `destroy-frame-quietly! frame-id` here would be ADDRESS-directed: once
-        ;; A's exact rollback releases the per-id transaction, a same-id
-        ;; successor B can be seated before this catch continues, and the keyword
-        ;; target would then pin and destroy B. So we do NOT reap by
+        ;; `destroy-frame-quietly! frame-id` here would be ADDRESS-directed:
+        ;; `make-frame` releases the id's reservation in its `finally` after the
+        ;; rollback, so a same-id successor B can be seated before this catch
+        ;; runs, and the keyword target would then pin and destroy B. So we do NOT reap by
         ;; bare id — construction rollback owns exactly one incarnation, and the
         ;; request slot is the only per-request state this catch owns.
         (rf.ssr/clear-request! frame-id)

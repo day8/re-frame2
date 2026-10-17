@@ -23,9 +23,8 @@
        destroy dropped at its boundary), if any, to listeners rather than the
        ring, and drops the frame's id-keyed stores.
 
-       Publication is independent of the compare-owned store drop, so a
-       same-id successor claiming the stores cannot lose predecessor A's
-       terminal record.
+       Publication does not depend on the store drop: the record was bound
+       before dissoc, so it is delivered whatever the drop finds.
 
   The listener registry lives in `re-frame.epoch.state`."
   (:require [re-frame.epoch.assembly :as rf.epoch.assembly]
@@ -37,12 +36,13 @@
 (defn- deliver-listener-snapshot!
   "Deliver `record` to an already-snapshotted `{cb-id → callback}` map.
 
-  `terminal?` marks the destroy fan-out of predecessor A's `:halted-destroy`
-  record. A's registry slot may already belong to a same-id successor B by the
-  time a listener throws (a terminal listener can itself install B), so A's
-  `:rf.epoch.cb/listener-exception` diagnostic is delivered STRUCTURALLY —
-  bypassing B's `:rf.trace/frame-no-emit?` policy and B's epoch capture — rather
-  than resolved through B's bare-id policy. Ordinary
+  `terminal?` marks the destroy fan-out of a destroyed incarnation's
+  `:halted-destroy` record. That fan-out runs after teardown released the
+  frame's trace ring and no-emit flag (Spec 002 §Destroy step 8), so a failing
+  listener's `:rf.epoch.cb/listener-exception` diagnostic is delivered
+  STRUCTURALLY — no ring retention, epoch capture or bare-id policy — because
+  an ordinary emit would recreate a ring under an id whose frame is gone (Spec
+  009 §Retention boundary). Ordinary
   (non-terminal) fan-out honours the live frame's no-emit policy."
   ([record listener-snapshot]
    (deliver-listener-snapshot! record listener-snapshot (constantly true) true))
@@ -67,9 +67,8 @@
                ;; never emit its failure diagnostic against same-id B.
                (when (continue?)
                  (if terminal?
-                   ;; A's terminal callback fault is A's own diagnostic. A same-id
-                   ;; B that a listener just installed (possibly no-emit) must not
-                   ;; suppress or capture it.
+                   ;; A terminal fault arrives after the frame's ring was
+                   ;; released, so it must not be retained under the dead id.
                     (rf.trace/call-with-structural-delivery
                       #(emit-listener-exception! callback-id listener-error))
                     (emit-listener-exception! callback-id listener-error)))))
@@ -285,9 +284,9 @@
   is STILL the sole owner of its id-keyed epoch stores.
 
   `re-frame.frame/destroy-frame!` calls this (via `:epoch/snapshot-frame-
-  destroyed`) BEFORE `dissoc-frame!`. A same-id successor B can only be
-  constructed after that dissoc, so it can never claim — and thereby drop — the
-  capture buffer out from under this snapshot.
+  destroyed`) BEFORE `dissoc-frame!`, while the frame still resolves under its
+  id. The destroy holds the id's reservation until step 10 has finished, so no
+  same-id incarnation exists between this snapshot and its publication.
 
   `halt` is the drain's evidence from the destroying event's boundary, nil for
   an immediate destroy: `{:frame-state :committed-at :trigger-event
@@ -305,7 +304,7 @@
   when there is no record.
 
   Schema digesting is intentionally omitted: A's schemas are already torn down
-  and a bare-id digest could only resolve absent state or a same-id B."
+  and a bare-id digest could only resolve absent state."
   [frame-id halt]
   (when rf.interop/debug-enabled?
     (let [{:keys [frame-state committed-at trigger-event dropped-count
@@ -328,29 +327,33 @@
   stores.
 
   `terminal-evidence` is the bundle `snapshot-terminal-destroy-evidence!`
-  captured BEFORE dissoc; publishing that snapshot (rather than re-reading the
-  now-shared id-keyed stores) is what keeps predecessor A's evidence intact
-  after a same-id successor B has claimed those stores.
+  captured BEFORE dissoc. This step publishes that snapshot rather than
+  rebuilding the record, because after dissoc the id no longer resolves to the
+  frame.
 
   If the snapshot bound a `:halted-destroy` record — the work a pending
   destroy dropped at its boundary — listeners receive it raw. The record is not
   stored: destroyed frames have empty history, so listener delivery is the only
   channel for this terminal record.
 
-  The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
-  runs only while `owner-token` still owns the stores, so stale A can never
-  erase a fresh same-id B. That drop runs UNCONDITIONALLY of terminal-evidence —
-  cleanup authority is the frame-id + owner-token, not the snapshot bundle — so a
-  throwing pre-dissoc snapshot hook (nil terminal-evidence) still frees
-  A's history / buffer / last-settled-epoch / mount attribution and
-  no same-id successor inherits them. PUBLICATION of A's already-
-  snapshotted terminal record and its structural trailers is INDEPENDENT of
-  winning that comparison AND conditional on a non-nil bundle — the evidence was
-  bound to A's exact incarnation before dissoc and is A's to deliver whether or
-  not A still owns the stores; a nil bundle bound nothing and publishes nothing.
-  All terminal emits use structural delivery so a same-id B's frame-no-emit
-  policy can neither suppress nor capture them. Repeated destroys are idempotent
-  (a re-destroyed frame has no boundary record, so nothing is owed)."
+  The id-keyed store DROP goes through the exact-owner compare
+  (`state/cleanup-frame-owner!`), which here finds this incarnation's token or
+  no claim at all: the destroy holds the id's reservation until this step has
+  finished, so no same-id incarnation can have claimed the stores. That drop
+  runs UNCONDITIONALLY of terminal-evidence — cleanup authority is the
+  frame-id + owner-token, not the snapshot bundle — so a throwing pre-dissoc
+  snapshot hook (nil terminal-evidence) still frees A's history / buffer /
+  last-settled-epoch / mount attribution, which nothing else would free under
+  an id that is never reused. PUBLICATION of A's already-snapshotted terminal
+  record and its structural trailers is INDEPENDENT of the drop AND
+  conditional on a non-nil bundle — the evidence was bound to A's exact
+  incarnation before dissoc and is A's to deliver whatever the drop finds; a
+  nil bundle bound nothing and publishes nothing. All terminal emits use
+  structural delivery: they arrive after step 8 released the frame's ring and
+  no-emit flag, and an ordinary emit would recreate a ring under an id whose
+  frame is gone (Spec 009 §Retention boundary). Repeated destroys are
+  idempotent (a re-destroyed frame has no boundary record, so nothing is
+  owed)."
   [frame-id owner-token terminal-evidence]
   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
@@ -363,12 +366,12 @@
     ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
     ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
     ;; terminal-evidence (frame.cljc converts the throw to nil), but the
-    ;; destroyed incarnation's id-keyed stores must STILL be dropped or a same-id
-    ;; successor B inherits A's history / buffer / last-settled-epoch / mount
-    ;; attribution. The drop is compare-owned (`cleanup-frame-owner!`): A erases
-    ;; ONLY its own stores while `owner-token` still owns them, so a stale A that
-    ;; lost the comparison to a claimed same-id B no-ops and leaves B untouched
-    ;; (fail-closed, no cross-incarnation wipe).
+    ;; destroyed incarnation's id-keyed stores must STILL be dropped, or A's
+    ;; history / buffer / last-settled-epoch / mount attribution outlive the
+    ;; frame under its id. The drop is compare-owned (`cleanup-frame-owner!`):
+    ;; it erases only stores this incarnation owns or nobody claimed, and while
+    ;; this destroy holds the id's reservation no other incarnation can own
+    ;; them.
     (rf.epoch.state/cleanup-frame-owner!
       frame-id owner-token
       (fn []
@@ -381,14 +384,14 @@
         true))
     ;; (2) TERMINAL-RECORD PUBLICATION — conditional on a bundle that bound a
     ;; record, and regardless of the cleanup comparison: the evidence was
-    ;; snapshotted before dissoc and belongs to A's incarnation. A late
-    ;; predecessor terminal record may arrive after a newer same-id epoch; it is
-    ;; HISTORICAL and consumers must not treat it as the successor's current
-    ;; ring/focus (Tool-Pair late-record consumer rule).
+    ;; snapshotted before dissoc and belongs to A's incarnation. It is
+    ;; delivered before the destroy releases the id, so it never overlaps a
+    ;; same-id incarnation; consumers treat it as HISTORICAL for A (Tool-Pair
+    ;; late-record consumer rule).
     (when-let [record (:record terminal-evidence)]
       ;; Same detailed/coarse trailer pair as normal commits, delivered
-      ;; structurally: excluded from capture ownership and immune to a same-id
-      ;; B's frame-no-emit policy.
+      ;; structurally: it arrives after A's ring was released, so no ring or
+      ;; capture buffer may retain it under the dead id.
       (rf.trace/call-with-structural-delivery
         #(rf.epoch.assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                      (:event-id record) :halted-destroy))
