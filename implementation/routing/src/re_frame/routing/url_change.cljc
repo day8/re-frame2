@@ -1,5 +1,5 @@
 (ns re-frame.routing.url-change
-  "The ONE navigation pipeline, `navigate*`, and the two URL-bearing doors.
+  "The ONE navigation pipeline, `navigate*`, and the URL-driven door.
 
   Per Spec 012 §The one planning pipeline, every navigation door runs stages
   1-7 through `navigate*`: validate, resolve, classify, decide leave, decide
@@ -7,9 +7,8 @@
   its inputs as data —
 
     - `:rf.route/navigate` (`re-frame.routing.navigate`) — the caller's
-      request, cause `:navigate`;
-    - `:rf.route/url-requested` (the link door, below) — the link's URL plus
-      its policy keys, cause `:link`;
+      request, a `route-link` click's `{:url <href>}` among them, cause
+      `:navigate`;
     - `:rf.route/handle-url-change` (below) — a URL the address bar has
       ALREADY moved to, standing for four causes (`:link` from a host that
       pushed before dispatching, `:popstate`, `:initial`, `:ssr`), resolved
@@ -579,26 +578,3 @@
                       :cause          cause
                       :url-driven?    true
                       :default-scroll (if (= :link cause) :top :restore)))))
-
-(defn url-requested-handler
-  "`:rf.route/url-requested` event handler — the LINK door. Registered by the
-  façade so a `:reload` re-wires it on a fresh registrar.
-
-  It supplies `navigate*` the link's `:url` as a raw-URL request with the
-  link's policy keys (`:replace?`, `:scroll`, `:bypass-leave?`), cause
-  `:link`, and `url-driven? false`: an external URL emits
-  `:rf.route/external-url-requested` and does nothing else (the browser
-  follows the link); a rejected click never moves the address bar; an
-  allowed one commits the slice and then pushes (or replaces) the URL.
-  Committing in THIS event, rather than a second queued one, keeps the route
-  and the address bar in agreement when a navigation is queued behind the
-  click: it finds the link's route already current. A raw URL IS the
-  address, so any other key in the payload is ignored."
-  [cofx [_ request]]
-  (navigate* (assoc (door-inputs cofx :rf.route/url-requested
-                                 'rf.route/url-requested-handler)
-                    :request        (merge {:url (:url request)}
-                                           (select-keys request rf.routing.address/policy-keys))
-                    :cause          :link
-                    :url-driven?    false
-                    :default-scroll :top)))

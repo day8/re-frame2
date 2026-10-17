@@ -64,21 +64,21 @@
 ;; Denial through EVERY door — terminal, no pending, EXACTLY ONE event
 ;; ===========================================================================
 
-(deftest entry-denied-through-link-door-fires-exactly-once
-  (testing "the LINK door (:rf.route/url-requested) is a TWO-HOP path
-            (url-requested → handle-url-change). A denial must fire the event
-            exactly ONCE, not once per hop and not zero times."
+(deftest entry-denied-through-a-link-click-fires-exactly-once
+  (testing "a route-link click ([:rf.route/navigate {:url …}]) is denied
+            BEFORE the address bar moves, and the denial fires the event
+            exactly ONCE, never zero times."
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [seen   (capture-denials!)
           pushed (atom [])]
       (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/account"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/account"}])
       (is (= 1 (count @seen))
-          ":rf.route/entry-denied dispatched EXACTLY once across both hops")
+          ":rf.route/entry-denied dispatched EXACTLY once")
       (is (empty? @pushed)
-          "the link door decided BEFORE pushing — no history entry was added")
+          "the click decided BEFORE pushing — no history entry was added")
       (is (= :home (current-id)) "no transition"))))
 
 (deftest entry-denied-through-popstate-door
@@ -266,7 +266,7 @@
       (reset! leave 0) (reset! enter 0)
       ;; every door, same URL / same target
       (rf/dispatch-sync [:rf.route/navigate {:to :page}])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/page"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/page"}])
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
       (rf/dispatch-sync [:rf.route/handle-url-change "/page" {:rf.route/cause :link}])
       (is (= [0 0] [@leave @enter]) "neither :can-leave nor :can-enter was evaluated"))))
@@ -294,15 +294,15 @@
       (is (= [1 1] [@leave @enter]))
       (is (= "errors" (get-in (rdb) [:rf.runtime/routing :current :fragment]))))))
 
-(deftest link-door-decides-exactly-once
-  (testing "the link door decides ONCE — it decides and commits in one event,
-            so an ALLOWED link click does not re-run the guards"
+(deftest a-link-click-decides-exactly-once
+  (testing "a link click decides ONCE — navigate decides and commits in one
+            event, so an ALLOWED click does not re-run the guards"
     (let [leave (atom 0) enter (atom 0)]
       (counting-guards! leave enter)
       (rf/reg-route :other {} "/other")
       (rf/dispatch-sync [:rf.route/handle-url-change "/other"])
       (reset! leave 0) (reset! enter 0)
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/page"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/page"}])
       (is (= :page (current-id)) "the link click completed")
       (is (= 1 @enter) ":can-enter evaluated exactly once"))))
 

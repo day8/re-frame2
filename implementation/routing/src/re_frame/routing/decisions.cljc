@@ -228,7 +228,7 @@
       :else                             (or (current-slice->url current-route) "/"))))
 
 (defn request-app-url
-  "Reduce a `{:url …}` / `:rf.route/url-requested` reference to the app URL the
+  "Reduce a `{:url …}` reference to the app URL the
   cascade matches — `rf.routing.url/request-url->app-url`,
   given the two things it needs from the frame: the navigating frame's current
   app URL (from `rdb`, that frame's runtime-db), which an app reference

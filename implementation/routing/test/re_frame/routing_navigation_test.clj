@@ -68,7 +68,7 @@
     (doseq [[fx-id op] [[:rf.nav/push-url :push] [:rf.nav/replace-url :replace]]]
       (rf.fx/reg-fx fx-id {:platforms #{:server :client}} (fn [_ url] (swap! history conj [op url]))))
     (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (rf/dispatch-sync [:test/queue [:rf.route/url-requested {:url "/a"}] [:rf.route/navigate {:to :r/b}]])
+    (rf/dispatch-sync [:test/queue [:rf.route/navigate {:url "/a"}] [:rf.route/navigate {:to :r/b}]])
     (is (= [:r/b [[:push "/a"] [:push "/b"]] nil]
            [(:route-id (nav-slice))
             @history
@@ -302,7 +302,7 @@
 (deftest a-raw-url-failing-its-route-schema-renders-not-found-at-every-door
   ;; Spec 012 §Validation-error surfacing: a raw URL is user input whichever
   ;; event carries it. One that MATCHES a route but fails its schema commits
-  ;; `:rf.route/not-found` with `:reason :validation`; the forward doors push
+  ;; `:rf.route/not-found` with `:reason :validation`; the forward door pushes
   ;; the requested URL, and the URL-driven door, whose address bar already
   ;; moved, pushes nothing.
   (let [restore (rf.routing-test-support/with-stub-validator)
@@ -314,7 +314,6 @@
       (rf/reg-route :rf.route/not-found {} "/404")
       (doseq [[event url pushes]
               [[[:rf.route/navigate {:url "/articles/zoo"}]      "/articles/zoo"    ["/articles/zoo"]]
-               [[:rf.route/url-requested {:url "/articles/yak"}] "/articles/yak"    ["/articles/yak"]]
                [[:rf.route/handle-url-change "/articles/xenops"] "/articles/xenops" []]]]
         (reset! pushed [])
         (rf/dispatch-sync event)
@@ -338,7 +337,6 @@
     (rf/register-listener! :trace ::route-miss (fn [ev] (swap! traces conj ev)))
     (try
       (doseq [[event url] [[[:rf.route/navigate {:url "/miss-a"}]      "/miss-a"]
-                           [[:rf.route/url-requested {:url "/miss-b"}] "/miss-b"]
                            [[:rf.route/handle-url-change "/miss-c"]    "/miss-c"]]]
         (reset! records [])
         (reset! traces [])
@@ -361,9 +359,11 @@
 ;; ---- the fail-closed open-redirect matrices --------------------------------
 ;;
 ;; With no browser origin, `external-url?` classes every ambiguous or absolute
-;; URL external: no push, no slice rewrite. Both URL-taking sinks gate on it.
+;; URL external: no push, no slice rewrite. Every `{:url …}` request gates on
+;; it — the first matrix hands it the hrefs a host anchor interceptor could
+;; read, from the home route.
 
-(deftest url-requested-fails-closed-on-ambiguous-urls-jvm
+(deftest anchor-href-navigate-fails-closed-on-ambiguous-urls-jvm
   (rf/reg-route :route/home {} "/")
   (let [pushed (record-pushes!)]
     (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
@@ -377,11 +377,11 @@
                      "cart"                         ;; bare relative segment (not rooted)
                      ""]]
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/url-requested {:url hostile}])
+      (rf/dispatch-sync [:rf.route/navigate {:url hostile}])
       (is (= [[] :route/home] [@pushed (:route-id (nav-slice))]) (pr-str hostile)))
     (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/url-requested {:url safe}])
+      (rf/dispatch-sync [:rf.route/navigate {:url safe}])
       (is (= [safe] @pushed) (pr-str safe)))))
 
 (deftest navigate-url-target-fails-closed-on-ambiguous-urls-jvm

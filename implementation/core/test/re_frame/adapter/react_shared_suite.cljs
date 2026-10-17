@@ -1385,7 +1385,7 @@
   (let [tenant-a (mint-kw substrate-kw "dfc-tenant-a")
         tenant-b (mint-kw substrate-kw "dfc-tenant-b")
         seed     (mint-kw substrate-kw "dfc-seed")]
-    ;; `:rf/default` is an ordinary frame (EP-0002) — `init!` does not
+    ;; `:rf/default` is the conventional app-frame id (EP-0002) — `init!` does not
     ;; create it. Register it explicitly so the `:rf/default`
     ;; seed below lands and the "neither frame leaked" assertions across
     ;; the dfc family compare against a real (empty) frame rather than a

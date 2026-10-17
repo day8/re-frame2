@@ -64,7 +64,7 @@
             schemas seam unbound"
     (without-schemas-artefact
       #(do (block-fixture!)
-           (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])))
+           (rf/dispatch-sync [:rf.route/navigate {:url "/home"}])))
     (is (= ["nav-1" "pn-1"] [(nav-token) (pending-id)]))))
 
 (deftest failure-1-fixed-recorded-allocation-replays-same-pending-nav-id
@@ -72,8 +72,8 @@
             counter has moved on (a re-mint would give pn-2)"
     (block-fixture!)
     (rf.routing.nav-counters/commit-counter! :pending-nav-counter 1)
-    ;; The link door can block or commit, so its record carries both allocations.
-    (replay! [:rf.route/url-requested {:url "/home"}]
+    ;; A navigate can block or commit, so its record carries both allocations.
+    (replay! [:rf.route/navigate {:url "/home"}]
              {:rf.route/nav-allocation         {:token "nav-2" :counter 2}
               :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}})
     (is (= "pn-1" (pending-id)))))
@@ -103,7 +103,7 @@
   (testing "a present-but-malformed recorded pending-nav allocation fails its
             shape check before the block folds a corrupt id into runtime-db"
     (block-fixture!)
-    (let [data (replay-refusal [:rf.route/url-requested {:url "/home"}]
+    (let [data (replay-refusal [:rf.route/navigate {:url "/home"}]
                                {:rf.route/nav-allocation         {:token "nav-2" :counter 2}
                                 :rf.route/pending-nav-allocation {:id nil :counter "bad"}})]
       (is (= [:rf.error/cofx-value-invalid :rf.route/pending-nav-allocation nil]

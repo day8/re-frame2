@@ -3,8 +3,8 @@
   handlers, which only run in a JS environment:
 
   - a plain left-click (button 0, no modifiers) calls preventDefault and
-    dispatches `:rf.route/url-requested` with the synthesised URL and the
-    link's navigation policy;
+    dispatches `[:rf.route/navigate {:url …}]` with the synthesised URL and
+    the link's navigation policy;
   - modifier-key and middle-button clicks, and anchors with native-handling
     attributes (`target=_blank`, `download`), defer to the browser;
   - a caller `:on-click` runs first, and pre-empts the framework only by
@@ -54,7 +54,7 @@
 
 (defn- click!
   "Render route-link with `props`, invoke its on-click handler against
-  `event`, and return `{:dispatched <the :rf.route/url-requested event or nil>
+  `event`, and return `{:dispatched <the :rf.route/navigate event or nil>
   :source <its trace :source> :prevented? <boolean>}`. The dispatch is read
   off the `:rf.event/dispatched` trace, which fires at enqueue, so the result
   does not depend on the queue's drain timing."
@@ -67,7 +67,7 @@
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
-                   (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
+                   (= :rf.route/navigate (-> ev :tags :rf.event/v first)))
           (reset! dispatched (-> ev :tags :rf.event/v))
           (reset! source     (:source ev)))))
     (try
@@ -83,14 +83,14 @@
 ;; ---- plain left-click → preventDefault + dispatch ----------------------
 
 (deftest plain-left-click-intercepts
-  (testing "button 0 + no modifiers → preventDefault + :rf.route/url-requested
+  (testing "button 0 + no modifiers → preventDefault + :rf.route/navigate
             stamped :source :router, carrying the link's navigation policy and
             no address key beside :url"
     (rf/reg-route :route/cart {} "/cart")
     (doseq [[props payload] [[{:to :route/cart} {:url "/cart"}]
                              [{:to :route/cart :replace? true :scroll :preserve :bypass-leave? true}
                               {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]]]
-      (is (= {:dispatched [:rf.route/url-requested payload] :source :router :prevented? true}
+      (is (= {:dispatched [:rf.route/navigate payload] :source :router :prevented? true}
              (click! props (mk-event {})))
           (pr-str props)))))
 
@@ -125,7 +125,7 @@
                            [{:download nil}          false]]]
     (let [{:keys [dispatched prevented?]}
           (click! (merge {:to :route/cart} props) (mk-event {}))]
-      (is (= (if native? [false nil] [true :rf.route/url-requested])
+      (is (= (if native? [false nil] [true :rf.route/navigate])
              [prevented? (first dispatched)])
           (pr-str props)))))
 
@@ -221,7 +221,7 @@
         (let [v (-> ev :tags :rf.event/v)]
           (when (and (= :rf.event/dispatched (:operation ev))
                      (vector? v)
-                     (#{:rf.route/url-requested :rf.route/prefetch} (first v)))
+                     (#{:rf.route/navigate :rf.route/prefetch} (first v)))
             (swap! dispatched conj [(first v) (-> ev :tags :frame)])))))
     (rf.error-emit/register-error-listener!
       error-key
@@ -249,10 +249,10 @@
           retained (render)]
       (rf/destroy-frame! :route/owner)
       (rf/make-frame {:id :route/owner})
-      (is (= {:dispatched [] :refused [:rf.route/url-requested :rf.route/prefetch]}
+      (is (= {:dispatched [] :refused [:rf.route/navigate :rf.route/prefetch]}
              (observed #(fire! retained))))
       (testing "while a link rendered under the successor navigates and warms it"
-        (is (= {:dispatched [[:rf.route/url-requested :route/owner]
+        (is (= {:dispatched [[:rf.route/navigate :route/owner]
                              [:rf.route/prefetch :route/owner]]
                 :refused    []}
                (observed #(fire! (render)))))))))

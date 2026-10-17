@@ -1,8 +1,7 @@
 (ns re-frame.routing.plan
   "Pure navigation-planning seam of the one navigation pipeline
-  (`re-frame.routing.url-change/navigate*`), which every door —
-  `:rf.route/navigate`, `:rf.route/url-requested` and
-  `:rf.route/handle-url-change` — runs.
+  (`re-frame.routing.url-change/navigate*`), which both doors —
+  `:rf.route/navigate` and `:rf.route/handle-url-change` — run.
 
   The pre-commit policy lives here: fragment normalisation,
   the `:rf.route/not-found` fallback shape + `:reason` vocabulary, the

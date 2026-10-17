@@ -406,19 +406,18 @@
     (case door
       :navigate (rf/dispatch-sync [:rf.route/navigate addr] {:frame f})
       :raw-url  (rf/dispatch-sync [:rf.route/navigate {:url url}] {:frame f})
-      :link     (rf/dispatch-sync [:rf.route/url-requested (assoc addr :url url)] {:frame f})
       :url      (rf/dispatch-sync [:rf.route/handle-url-change url] {:frame f}))
     (plan-footprint f)))
 
 (defn- door-footprints
-  "The four client doors' footprints plus the SSR server door's, each on its own
+  "The three client doors' footprints plus the SSR server door's, each on its own
   fresh frame, namespaced by `label`."
   [label destination]
   (let [client (into {} (map (fn [door]
                                [door (door-footprint
                                        (keyword "conduit" (str label "-" (name door)))
                                        door destination)]))
-                     [:navigate :raw-url :link :url])
+                     [:navigate :raw-url :url])
         server (let [srv (seal-frame! {:frame-id (keyword "conduit" (str label "-ssr"))
                                        :platform :server})]
                  (rf/dispatch-sync [:rf.route/handle-url-change (:url destination)]
@@ -427,7 +426,7 @@
     (assoc client :ssr server)))
 
 (deftest every-door-plans-the-same-branch-and-the-same-reads
-  ;; Five doors agree on the target, its URL, the branch and the effective
+  ;; Four doors agree on the target, its URL, the branch and the effective
   ;; reads. The `:query-defaults` route is the hard case: `match-url` fills the
   ;; default for the URL-bearing doors and the named-address door goes nowhere
   ;; near it, so the ONE ResolvedTarget seam must fill it there — else one

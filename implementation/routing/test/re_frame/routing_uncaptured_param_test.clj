@@ -8,7 +8,7 @@
 
       [:rf.route/navigate {:to :route/probe :params {:id \"7\" :extra \"x\"}}]
         would commit  :params {:id \"7\" :extra \"x\"}
-      a route-link CLICK -> [:rf.route/url-requested {:url \"/probe/7\" …}]
+      a route-link CLICK -> [:rf.route/navigate {:url \"/probe/7\" …}]
         would commit  :params {:id \"7\"}        (it resolves through the URL)
       [:rf.route/prefetch …] would warm {:id \"7\" :extra \"x\"}
 

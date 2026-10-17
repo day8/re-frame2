@@ -413,8 +413,8 @@
 ;; ---- open-redirect classifier ---------------------------------------------
 ;; The shared lexical/origin gate that classifies a URL-string nav target
 ;; as same-origin in-app vs external. Every URL-string navigation sink
-;; (`:rf.route/url-requested` and `:rf.route/navigate {:url ...}`) fails closed
-;; through ONE classifier rather than each entry point re-deciding.
+;; (`:rf.route/navigate {:url ...}`, a `route-link` click among its callers)
+;; fails closed through ONE classifier rather than each caller re-deciding.
 ;; Per Spec 012 §Target form — URL-string:
 ;; the `{:url ...}` escape hatch is precisely for untrusted input
 ;; (deep-link handlers, server-redirect targets), the same class
@@ -503,7 +503,7 @@
      "http://app.invalid"))
 
 (defn request-url->app-url
-  "Reduce an accepted `{:url …}` / `:rf.route/url-requested` reference to the
+  "Reduce an accepted `{:url …}` reference to the
   APP-RELATIVE path-form URL the rest of the cascade speaks.
   Callers must already have confirmed the reference is in-app via
   `external-url?` — this only canonicalises, it does NOT gate.

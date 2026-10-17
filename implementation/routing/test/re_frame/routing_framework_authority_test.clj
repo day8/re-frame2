@@ -3,8 +3,8 @@
 
   Routing is one of the legitimate runtime-db writers Spec 002 §Write
   authority names: its event handlers (`:rf.route/navigate`,
-  `:rf.route/handle-url-change`, `:rf.route/url-requested` /
-  `:rf.route/continue` / `:rf.route/cancel`) read AND return the reserved
+  `:rf.route/handle-url-change`, `:rf.route/continue` / `:rf.route/cancel`)
+  read AND return the reserved
   `:rf.db/runtime` route slice. Their registrations carry the general
   `:rf/framework-authority? true` meta key, so a real navigation emits no
   `:rf.warning/app-handler-runtime-effect`, which would otherwise fire on every
@@ -67,7 +67,7 @@
         (is (empty? @warns))))))
 
 (deftest can-leave-continue-and-cancel-mint-framework-authority
-  (testing "the pending-nav protocol (url-requested / cancel / continue) stays silent"
+  (testing "the pending-nav protocol (navigate / cancel / continue) stays silent"
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave :editor/can-leave?} "/editor/articles/:id")
@@ -79,11 +79,11 @@
     (let [warns (record-runtime-warnings! ::can-leave)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
       (is (some? (routing :pending-navigation)) "the blocked request filled the slot")
       (rf/dispatch-sync [:rf.route/cancel "pn-1"])
       (is (nil? (routing :pending-navigation)) "cancel cleared it")
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
       (is (= :route/cart (:route-id (routing :current))) "continue completed the navigation")
       (when rf.interop/debug-enabled?

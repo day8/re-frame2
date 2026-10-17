@@ -52,13 +52,13 @@
   ;; Step 1: land on home, signed out.
   [:rf.route/handle-url-change "/"]
 
-  ;; Step 2: link click into the guarded route. DENIED — the runtime never
-  ;; pushes (the link door decides BEFORE the address bar moves), the slice is
-  ;; unchanged, no pending value is created, and :rf.route/entry-denied fires
-  ;; exactly once across both hops of the link door.
-  [:rf.route/url-requested {:url "/account"}]
+  ;; Step 2: link click into the guarded route — a route-link click dispatches
+  ;; its href as `{:url …}`. DENIED — the runtime never pushes (navigate decides
+  ;; BEFORE the address bar moves), the slice is unchanged, no pending value is
+  ;; created, and :rf.route/entry-denied fires exactly once.
+  [:rf.route/navigate {:url "/account"}]
 
-  ;; Step 3: programmatic navigate — the SAME outcome (fail-closed per door).
+  ;; Step 3: named navigate — the SAME outcome (fail-closed per door).
   [:rf.route/navigate {:to :account/settings}]
 
   ;; Step 4: popstate (Back/Forward) — the same outcome, PLUS an address-bar
@@ -94,14 +94,14 @@
 
   :trace-emissions
   [;; Steps 2, 3, 4 and 7 each emit exactly ONE denial trace — one per denied
-   ;; attempt, never two for one attempt (the link door's two hops decide
-   ;; once) and never zero (the framework default handler always resolves).
+   ;; attempt, never two for one attempt and never zero (the framework
+   ;; default handler always resolves).
    {:operation :rf.route/entry-denied
     :tags      {:requested-url   "/account"
                 :rejecting-route :account/settings
                 :rejecting-guard :auth/signed-in?
                 :phase           :can-enter
-                :cause           :link}}
+                :cause           :navigate}}
    {:operation :rf.route/entry-denied
     :tags      {:requested-url   "/account"
                 :rejecting-route :account/settings

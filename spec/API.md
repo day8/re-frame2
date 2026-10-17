@@ -302,7 +302,7 @@ A `:url-bound? true` frame's browser URL-change listener is installed / removed 
 
 `reg-route`'s **routing-owned** metadata reserved keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`, `:on-match`, `:can-leave`, `:can-enter`, `:scroll`, `:sensitive`, `:large`. Two **cross-feature** bare keys are accepted beside them: `:head`, owned by SSR ([011](011-SSR.md)) and always accepted; and `:resources`, owned by the Resources artefact ([016](016-Resources.md)) and accepted only when that artefact publishes its `:routing/extra-route-keys` hook. The URL `:path` pattern is the third VALUE slot, not a metadata key. Canonical detail in [012-Routing.md §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys); shape in [Spec-Schemas §`:rf/route-metadata`](Spec-Schemas.md#rfroute-metadata).
 
-`route-link` click rules: a plain primary-button click (no modifier keys, no `defaultPrevented`) calls `.preventDefault` and dispatches `[:rf.route/url-requested {:url <synthesised>}]` — one key, because a raw URL IS the address ([§The request grammar](012-Routing.md#the-request-grammar--address-policy-and-edit-keys)) and the handler re-derives the route from it. Modifier-key clicks (cmd / ctrl / shift / alt) and auxiliary-button clicks (middle-click) defer to the browser so the native `href` opens in a new tab. A caller-supplied `:on-click` runs first; if it calls `.preventDefault` (or otherwise leaves `defaultPrevented` true) the framework's interception is skipped. Keys other than `:to` / `:params` / `:query` / `:fragment` / `:prefetch` / `:on-click` pass through to the underlying `<a>` element. Detailed semantics in [012-Routing.md §Linking from views](012-Routing.md#linking-from-views--plain-anchor-semantics).
+`route-link` click rules: a plain primary-button click (no modifier keys, no `defaultPrevented`) calls `.preventDefault` and dispatches `[:rf.route/navigate {:url <synthesised>}]`, plus any of the link's `:replace?` / `:scroll` / `:bypass-leave?` — no address key, because a raw URL IS the address ([§The request grammar](012-Routing.md#the-request-grammar--address-policy-and-edit-keys)) and the handler re-derives the route from it, so route ranking resolves a click exactly as it resolves a reload of the href. Modifier-key clicks (cmd / ctrl / shift / alt) and auxiliary-button clicks (middle-click) defer to the browser so the native `href` opens in a new tab. A caller-supplied `:on-click` runs first; if it calls `.preventDefault` (or otherwise leaves `defaultPrevented` true) the framework's interception is skipped. Keys other than `:to` / `:params` / `:query` / `:fragment` / `:prefetch` / `:on-click` pass through to the underlying `<a>` element. Detailed semantics in [012-Routing.md §Linking from views](012-Routing.md#linking-from-views--plain-anchor-semantics).
 
 Standard route-related events:
 
@@ -310,7 +310,6 @@ Standard route-related events:
 |---|---|---|
 | `:rf.route/navigate` | Navigate to a registered route. | 012 |
 | `:rf.route/handle-url-change` | URL-change handler for link / popstate / initial load / SSR; the cause rides `:rf.route/cause` (`:link`, `:popstate`, `:initial`, `:ssr` are the framework's own feeds); default scroll `:top` for `:link`, else `:restore`. | 012 |
-| `:rf.route/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
 | `:rf.route/entry-denied` | A `:can-enter` guard rejected navigation *into* a route. TERMINAL — nothing commits and no pending value is created; dispatched exactly once per attempt, carrying `{:destination :target :cause :requested-url :guard}`. A framework no-op default handler ships, so denial is safe with no application handler. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |
@@ -804,6 +803,10 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx.nav/capture-scroll-args` | Args of `:rf.nav/capture-scroll` fx | 012 |
 | `:rf.fx/with-nav-token-args` | Args of `:rf.route/with-nav-token` fx wrapper | 012 |
 | `:rf.fx/spawn-args` | Args of `:rf.machine/spawn` fx (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx`) | 005 |
+| `:rf.fx/destroy-machine-args` | Args of `:rf.machine/destroy` fx (the canonical actor-destroy fx-id; a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) | 005 |
+| `:rf.fx/spawn-all-init-args` | Args of `:rf.machine/spawn-all-init` fx (machine-internal: seeds a `:spawn-all` join) | 005 |
+| `:rf.fx/after-schedule-args` | Args of `:rf.machine/after-schedule` fx (machine-internal: arms one `:after` timer) | 005 |
+| `:rf.fx/after-cancel-args` | Args of `:rf.machine/after-cancel` fx (machine-internal: releases an exited state's `:after` timers) | 005 |
 | `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |
 | `:rf.fx/managed-abort-args` | Args of `:rf.http/managed-abort` fx (request-id) | 014 |
 | `:rf.http/reply` | Canonical reply envelope `{:status :ok :value v …}` / `{:status :error :error {:kind <:rf.http/*> …} …}` / `{:status :cancelled :error {:kind :rf.http/aborted …} …}` appended to the reply target (`:reply-to` unified, or `:on-success`/`:on-failure` split sugar) | 014 |

@@ -211,9 +211,9 @@
      "UTF-8 encode the string `text` to a JS array of byte values, byte-identical to
      the JVM's `(.getBytes text \"UTF-8\")`. A JS string is a sequence of UTF-16
      CODE UNITS, so this is not a per-character walk: a surrogate PAIR is one
-     code point and encodes as four bytes, and an UNPAIRED surrogate encodes as
-     `?` (0x3f) — which is what `String.getBytes` does with a malformed input.
-     Pure."
+     code point and encodes as four bytes. `text` is CEDN-1 canonical bytes,
+     which hold no unpaired surrogate (`canonical-bytes` rejects one), so every
+     high surrogate is followed by a low one. Pure."
      [text]
      (let [output-bytes    #js []
            code-unit-count (.-length text)]
@@ -222,30 +222,17 @@
            output-bytes
            (let [code-unit (.charCodeAt text code-unit-index)]
              (cond
-               ;; a HIGH surrogate: one code point if a low surrogate follows.
+               ;; a HIGH surrogate and the low surrogate after it: one code point.
                (and (>= code-unit 0xd800) (<= code-unit 0xdbff))
-               (let [next-code-unit
-                     (when (< (inc code-unit-index) code-unit-count)
-                       (.charCodeAt text (inc code-unit-index)))]
-                 (if (and next-code-unit
-                          (>= next-code-unit 0xdc00)
-                          (<= next-code-unit 0xdfff))
-                   (let [code-point (+ 0x10000
-                                       (bit-shift-left (- code-unit 0xd800) 10)
-                                       (- next-code-unit 0xdc00))]
-                     (doto output-bytes
-                       (.push (bit-or 0xf0 (bit-shift-right code-point 18)))
-                       (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 12) 0x3f)))
-                       (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 6) 0x3f)))
-                       (.push (bit-or 0x80 (bit-and code-point 0x3f))))
-                     (recur (+ code-unit-index 2)))
-                   (do (.push output-bytes 0x3f)
-                       (recur (inc code-unit-index)))))
-
-               ;; an unpaired LOW surrogate.
-               (and (>= code-unit 0xdc00) (<= code-unit 0xdfff))
-               (do (.push output-bytes 0x3f)
-                   (recur (inc code-unit-index)))
+               (let [code-point (+ 0x10000
+                                   (bit-shift-left (- code-unit 0xd800) 10)
+                                   (- (.charCodeAt text (inc code-unit-index)) 0xdc00))]
+                 (doto output-bytes
+                   (.push (bit-or 0xf0 (bit-shift-right code-point 18)))
+                   (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 12) 0x3f)))
+                   (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 6) 0x3f)))
+                   (.push (bit-or 0x80 (bit-and code-point 0x3f))))
+                 (recur (+ code-unit-index 2)))
 
                (< code-unit 0x80)
                (do (.push output-bytes code-unit)
@@ -286,8 +273,9 @@
       roughly half of all inputs would render as a NEGATIVE 9-character hex
       with a leading `-`, which is not the shape this function documents.
 
-  The two branches are pinned equal by a shared fixture (ASCII, non-ASCII, a
-  surrogate pair, and an unpaired surrogate) in `resources-ssr-cljs-test`. Pure."
+  The two branches are pinned equal by a shared fixture (ASCII, a 2-byte code
+  point, and a surrogate pair) in `resources-ssr-cljs-test`. `text` is CEDN-1
+  canonical bytes, so it holds no unpaired surrogate. Pure."
   [^String text]
   (let [bytes      #?(:clj (.getBytes text "UTF-8") :cljs (utf8-bytes text))
         byte-count #?(:clj (alength ^bytes bytes) :cljs (.-length bytes))]

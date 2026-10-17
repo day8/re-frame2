@@ -405,23 +405,20 @@
     (quiet-nav-fx!)
     [calls seen]))
 
-(deftest link-door-decides-the-same-target-the-commit-hop-would-commit
-  (testing "a dead LINK resolves through the shared seam, so the reserved
+(deftest a-dead-url-decides-the-same-target-the-commit-would-commit
+  (testing "a dead URL resolves through the shared seam, so the reserved
             :rf.route/not-found route's :can-enter is consulted exactly once —
-            a link door deciding against a target with a nil :route-id would
-            find no guard and let the second hop commit the denied route — and
-            the denial is TERMINAL; the equivalent PROGRAMMATIC door agrees"
-    (doseq [dispatch [[:rf.route/url-requested {:url "/missing-link"}]
-                      [:rf.route/navigate {:url "/missing-programmatic"}]]]
-      (let [[calls seen] (register-denying-not-found!)]
-        (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-        (reset! calls 0) (reset! seen [])
-        (rf/dispatch-sync dispatch)
-        (is (= [1 1 :home] [@calls (count @seen) (current-id)]) (pr-str dispatch))))))
+            deciding against a target with a nil :route-id would find no guard
+            and commit the denied route — and the denial is TERMINAL"
+    (let [[calls seen] (register-denying-not-found!)]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
+      (reset! calls 0) (reset! seen [])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/missing-link"}])
+      (is (= [1 1 :home] [@calls (count @seen) (current-id)])))))
 
 (deftest same-unmatched-link-is-an-exact-no-op
   (testing "clicking the link for the ALREADY-ACTIVE not-found URL is an exact
-            no-op (Spec 012 §Per-route data loading rule 3): the link door sees
+            no-op (Spec 012 §Per-route data loading rule 3): the request sees
             the no-op only because it resolves the same canonical target the
             slice carries, so no history entry is pushed"
     (rf/reg-route :home {} "/home")
@@ -431,7 +428,7 @@
       (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/same-miss"])
       (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/same-miss"}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "/same-miss"}])
       (is (empty? @pushed)
           "no :rf.nav/push-url — the exact no-op terminated before history moved")
       (is (= :rf.route/not-found (current-id))))))

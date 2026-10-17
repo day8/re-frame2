@@ -53,16 +53,16 @@
 ;; The open-redirect gate on the live-window path
 ;; =========================================================================
 
-(deftest url-requested-non-string-url-fails-closed-cljs-rf2-w3qgc
+(deftest navigate-non-string-url-fails-closed-cljs-rf2-w3qgc
   (testing "with a live window, a non-string :url classes EXTERNAL and is
             never pushed: js/URL would stringify it (`new URL(null, base)` is
             `/null`) and class it same-origin"
     (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (is (= :hist/cart (route-id :rf/default)) "precondition: the slice is on /cart")
     (let [entries (:entries @*history-state*)]
       (doseq [bad [nil (js-obj "toString" (fn [] "/checkout"))]]
-        (rf/dispatch-sync [:rf.route/url-requested {:url bad}])
+        (rf/dispatch-sync [:rf.route/navigate {:url bad}])
         (is (= [true bad entries :hist/cart]
                [(rf.routing.url/external-url? bad)
                 (rf.routing.url/request-url->app-url bad "/" identity)
@@ -82,8 +82,8 @@
           "a protocol-relative off-origin URL: clause B catches it"))))
 
 ;; `:rf.route/navigate {:url …}` reduces an accepted raw reference to the
-;; location the browser will reach BEFORE matching (the same
-;; `request-url->app-url` the link door runs), so the committed route, its
+;; location the browser will reach BEFORE matching
+;; (`request-url->app-url`), so the committed route, its
 ;; params and the pushed entry describe one location.
 (deftest navigate-raw-url-normalizes-before-matching-cljs-rf2-fzbj-12
   (register-routes!)
@@ -114,9 +114,9 @@
   (testing "leaving a route captures the browser scroll position under that
             route's URL, in the frame's host cache"
     (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/checkout"}])
     (is (= [12 345]
            (rf.routing/lookup-scroll-position
              (rf.routing/frame-scroll-cache :rf/default)
@@ -136,8 +136,8 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout}] {:frame :aaa-early})
     (is (= ["/"] (:entries @*history-state*))
         "the duplicate's navigation pushed nothing")
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/checkout"}])
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= [:hist/cart :hist/checkout] [(route-id :rf/default) (route-id :aaa-early)])
@@ -314,8 +314,8 @@
     (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/editor/articles/X"}])
     (rf/dispatch-sync [:hist/dirty true])
     (.back (.-history js/globalThis.window))
     (rf/dispatch-sync [:rf.route/handle-url-change (current-url *history-state*)])
@@ -381,7 +381,7 @@
     ;; The failed push still commits the slice on /cart (state first), so the
     ;; :replace? navigation after it routes through :rf.nav/replace-url.
     (doseq [[method message event expected]
-            [["pushState" "boom-push" [:rf.route/url-requested {:url "/cart"}]
+            [["pushState" "boom-push" [:rf.route/navigate {:url "/cart"}]
               [:rf.fx/push-url-failed :rf.nav/push-url "/cart" "boom-push"]]
              ["replaceState" "boom-replace" [:rf.route/navigate {:to :hist/checkout :replace? true}]
               [:rf.fx/replace-url-failed :rf.nav/replace-url "/checkout" "boom-replace"]]]]

@@ -757,7 +757,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations {:source :store :kind :route})` enumerates registered routes.
 
-Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate` and `:rf.route/handle-url-change` as standard events; user code typically only calls `:rf.route/navigate`, which is also what a `route-link` click dispatches.
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
@@ -837,7 +837,7 @@ The handler reads the route slice — which lives in **runtime-db** at `[:rf.run
 [rf/route-link {:to :route/search :query {:q "clojure" :page 2}} "Search"]
 ```
 
-`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and, for a matched route, commits the route in that same event and then pushes the URL (or replaces it, with `:replace?`) — it dispatches neither `:rf.route/navigate` nor `:rf.route/handle-url-change` (012 §URL changes are events).
+`route-link` dispatches `[:rf.route/navigate {:url <href>}]` on click; the navigate handler classifies internal vs external and, for an in-app URL, commits the route in that same event and then pushes the URL (or replaces it, with `:replace?`) — it never dispatches `:rf.route/handle-url-change` (012 §URL changes are events). The click navigates by its URL, so route ranking resolves it exactly as a reload of the href.
 
 **Template — wiring (declare URL ownership on the frame; there is no install step):**
 
@@ -855,7 +855,7 @@ A frame owns the browser URL by carrying `:url-bound? true`, and that declaratio
 
 Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — there are no such exports (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
 
-Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by a host that pushes a URL before dispatching; a `route-link` click commits through `:rf.route/url-requested` instead. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
+Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by a host that pushes a URL before dispatching; a `route-link` click commits through `:rf.route/navigate` instead. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
 
 **Pattern-level discipline:**
 
@@ -1400,7 +1400,7 @@ The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../examples/core/login/core.cljs) — full transition table with guards, actions, terminal states |
 | CP-6 (feature scaffold) | [Login](../examples/core/login/core.cljs) is a full feature: events + subs + views + machine + event and machine-data schemas. It has no tests (`examples/` is test-free) and no `app-db` slice schema (its machine snapshots live in runtime-db) — for the slice schema, see CP-8's 7GUIs sub-apps |
-| CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `reg-route`, `route-link` anchors that dispatch `:rf.route/url-requested`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership (the declaration that wires the runtime's `:rf.route/handle-url-change` door); programmatic `:rf.route/navigate` in [RealWorld](../examples/real-apps/realworld_http/article_editor.cljs) |
+| CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `reg-route`, `route-link` anchors that dispatch `:rf.route/navigate`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership (the declaration that wires the runtime's `:rf.route/handle-url-change` door); programmatic `:rf.route/navigate` in [RealWorld](../examples/real-apps/realworld_http/article_editor.cljs) |
 | CP-8 (schema) | The six [7GUIs](../examples/core/seven_guis/README.md) sub-apps register `app-db` slice schemas (`reg-app-schema`) — nothing else under `examples/core/` does — and [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) also attaches event schemas; [Login](../examples/core/login/core.cljs) attaches event schemas and a machine `[:schemas :data]` schema, with no `app-db` slice schema |
 | CP-9 (SSR setup) | [SSR example](../examples/capabilities/ssr/ssr/core.cljc) — one shared `.cljc` application (events, subs, views, plus both entry points: server `handle-request` returning HTML+payload, and client `run` doing `:rf/hydrate` seeding), beside a small registration-free [`mount.cljs`](../examples/capabilities/ssr/ssr/mount.cljs) holding the client's adopt-vs-fresh React-root decision so the browser DOM-adoption regression drives the same branch the example ships; JVM-runnable smoke test |
 | CP-10 (story) | The [Story CLJS-unit tutorial](../tools/story/spec/Tutorial-CLJS-Unit.md) walks a `reg-story` + `reg-variant` + `run-variant`-driven deftest end to end; the [Xray panel-gallery testbeds](../tools/xray/testbeds/panel_gallery/) register real `story/reg-story` / `reg-variant` artefacts across the panel surface (Story lives in `tools/story/`, not `examples/`) |

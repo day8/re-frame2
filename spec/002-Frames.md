@@ -558,7 +558,7 @@ A subsystem whose runtime-db writes ride through an **event handler** (one retur
 
 Which registrars mint authority:
 
-- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event` it registers (`:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, …) — every one reads and returns the reserved route slice.
+- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event` it registers (`:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/continue` / `:rf.route/cancel`, …) — every one reads and returns the reserved route slice.
 - **SSR** — the SSR façade stamps it on `:rf/hydrate`, which installs the hydration metadata into the runtime-db partition.
 - **core** — core stamps it on the framework-standard `:rf/install-frame-state`, which installs an application's persisted frame-state (per [§Installing a persisted frame-state](#installing-a-persisted-frame-state)).
 - **machines** — machine handlers carry the framework-owned `:rf/machine? true` stamp (minted by the machine registrar). The runtime folds that stamp into the authority check, so a machine implies framework-write authority **without** a separate `:rf/framework-authority?` key.
@@ -633,7 +633,7 @@ An application persists a frame by reading it and restores it by dispatching one
 
 A fact lives in **runtime-db iff it must survive epoch-restore and SSR-hydration** — i.e. it is a serializable durable fact. Everything else is **transient**: frame-scoped, torn down on destroy, never serialized.
 
-- **Durable (runtime-db):** machine snapshots + spawn registry + spawn-counter; the route slice + pending-nav; elision declarations; SSR hydration metadata (e.g. a server render hash).
+- **Durable (runtime-db):** machine snapshots + spawn registry + spawn-counter; the route slice + pending-nav; elision declarations; SSR hydration metadata (the hydration payload's `:rf/version`).
 - **Transient (NOT runtime-db):** host handles (timers, AbortControllers, listeners, promises); in-flight HTTP registries; the saved scroll-position cache + nav-token / pending-nav counters (host-derived, meaningless after a restore — held outside the frame value so an epoch restore cannot rewind + recycle a token; cleared by `:routing/on-frame-destroyed!`); SSR request/response accumulators, head snapshots, pending-error buffers; trace rings; epoch capture buffers; sub-cache entries; flow evaluation memos (the dirty-check rows).
 
 Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destroy](#destroy)) but full-frame serialization, hydration, restore, and time-travel MUST NOT pull it in.

@@ -1594,7 +1594,8 @@
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
-  `:rf.route/url-requested`. Modifier-key / middle-clicks defer to the browser.
+  `[:rf.route/navigate {:url <href>}]`. Modifier-key / middle-clicks defer to
+  the browser.
   Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf.core-routing/route-link)

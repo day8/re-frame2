@@ -282,7 +282,8 @@ back at its default and `route-url` leaves it out.
 
 `route-link` renders a real `<a href>`, so hover, copy-link and cmd- or middle-click
 work. It intercepts only a plain left click: it calls `.preventDefault` and
-dispatches `:rf.route/url-requested`, the event the router listens for. Links with
+dispatches `[:rf.route/navigate {:url <href>}]`, so the click lands exactly where a
+reload of the href would. Links with
 `:target "_blank"` or `:download` are left to the browser. An `:on-click` of your own
 runs first, and calling `.preventDefault` in it cancels the navigation.
 

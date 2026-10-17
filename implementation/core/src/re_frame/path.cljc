@@ -117,7 +117,8 @@
 ;;
 ;; The shared upper bound for a CONCRETE path segment: a portable EDN
 ;; identity value usable as an associative key or vector index — a keyword,
-;; string, symbol, integer, boolean, UUID, instant, or nil. Functions,
+;; string, symbol, integer, boolean, UUID, instant, or nil, inside the CEDN-1
+;; domain. Functions,
 ;; atoms, promises, DOM nodes, AbortControllers, opaque host objects, and
 ;; other host handles are NOT valid segments. A spec MAY narrow this domain
 ;; for its surface, but never widen it (Conventions §Segment domain).
@@ -140,26 +141,27 @@
   stays the single definition and no consumer re-enumerates the host-type
   discrimination.
 
-  An INTEGER segment must be inside the CEDN-1 safe-integer
-  range — the shared path vocabulary MUST NOT be wider than canonical EDN
-  identity, or a consumer keying off `segment?` could admit an integer
-  (`9007199254740992`) that cannot be portably compared, printed, routed,
-  or digested under EP-0012. The range predicate is the SAME
-  `re-frame.identity/safe-segment-integer?` the CEDN-1 encoder enforces, so
-  `segment?` and `canonical-bytes` agree on \"portable integer\" rather than
-  each re-defining it (an out-of-range integer is rejected by BOTH)."
+  The shared path vocabulary MUST NOT be wider than canonical EDN identity,
+  or a consumer keying off `segment?` could admit a value that cannot be
+  portably compared, printed, routed, or digested under EP-0012. So the
+  value-level CEDN-1 rules apply here through the SAME `re-frame.identity`
+  predicates the encoder's domain is defined by: an INTEGER must be in the
+  safe range (`safe-segment-integer?` — `9007199254740992` is not a
+  segment), TEXT must hold no unpaired surrogate (`well-formed-text?`), and
+  an INSTANT must be in the portable range (`portable-instant?`). Every
+  segment therefore has CEDN-1 bytes, and `segment?` and `canonical-bytes`
+  agree on each rule rather than each re-defining it."
   [seg]
   (or (nil? seg)
-      (keyword? seg)
-      (string? seg)
-      (symbol? seg)
       (boolean? seg)
+      (and (or (keyword? seg) (string? seg) (symbol? seg))
+           (rf.identity/well-formed-text? seg))
       (rf.identity/safe-segment-integer? seg)
-      #?(:clj  (or (instance? UUID seg)
-                   (instance? Instant seg)
-                   (instance? Date seg))
-         :cljs (or (uuid? seg)
-                   (instance? js/Date seg)))))
+      #?(:clj  (instance? UUID seg)
+         :cljs (uuid? seg))
+      (and #?(:clj  (or (instance? Instant seg) (instance? Date seg))
+              :cljs (instance? js/Date seg))
+           (rf.identity/portable-instant? seg))))
 
 (defn normalize-concrete
   "Normalize a path to the canonical vector form AND validate that every

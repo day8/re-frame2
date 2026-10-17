@@ -532,11 +532,22 @@
    [:canonical-bytes
     [:map {:closed true}
      [:call [:= :canonical-bytes]]
-     [:value :any]
+     ;; The value is :value, or, for a keyword or symbol no EDN literal can
+     ;; spell (a name holding a space), :ident — [kind namespace name], the
+     ;; namespace nil for none — which the runner builds at run time. A record
+     ;; carries exactly one of the two.
+     [:value {:optional true} :any]
+     [:ident {:optional true} [:tuple [:enum :keyword :symbol] [:maybe :string] :string]]
      [:expect
-      {:observe "the CEDN-1 canonical byte token of :value"
-       :law     :equal}
-      :string]]]
+      {:optional true
+       :observe  "the CEDN-1 canonical byte token of the value"
+       :law      :equal}
+      :string]
+     [:expect-error
+      {:optional true
+       :observe  "the error canonical-bytes throws for the value"
+       :law      :thrown-error-id}
+      :keyword]]]
 
    [:canonical-value
     [:map {:closed true}

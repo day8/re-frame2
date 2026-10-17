@@ -33,7 +33,7 @@
   - `re-frame.routing.decisions`      — the leave/entry decisions and the leave-only pending protocol
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
   - `re-frame.routing.navigate`       — :rf.route/navigate event
-  - `re-frame.routing.url-change`     — :rf.route/handle-url-change (link / popstate / initial / SSR) + the :rf.route/url-requested link door
+  - `re-frame.routing.url-change`     — the one navigation pipeline (`navigate*`) + :rf.route/handle-url-change (link / popstate / initial / SSR)
   - `re-frame.routing.nav-fx`         — :rf.nav/push-url + :rf.nav/replace-url + url-owner-frame-id
   - `re-frame.routing.url-bound`      — :url-bound? exclusivity + claim-order maintenance
   - `re-frame.routing.history`        — strategy listener lifecycle + current-url
@@ -212,22 +212,16 @@
 ;; committed to its host high-water mark. Gaps are harmless because allocator
 ;; ids are monotone and never recycled.
 (def ^:private nav-commit-meta
-  ;; navigate / url-requested / handle-url-change can BLOCK (pending-nav id)
+  ;; navigate / handle-url-change can BLOCK (pending-nav id)
   ;; OR COMMIT (nav-token) — declare both recordable allocations.
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.route/nav-allocation
                             :rf.route/pending-nav-allocation]))
 
-;; :rf.route/url-requested + :rf.route/continue + :rf.route/cancel +
-;; :rf.route/navigation-blocked + :rf.route/entry-denied — Spec 012
-;; §Navigation blocking. `:rf.route/url-requested` is the link door: it
-;; decides and commits in one event, so it declares both recordable
-;; allocation cofx; `:rf.route/continue` / `:rf.route/cancel` /
-;; `:rf.route/navigation-blocked` / `:rf.route/entry-denied` never allocate,
-;; so they don't — a terminal entry denial creates no pending value at all.
-(rf.events/reg-event :rf.route/url-requested
-                     nav-commit-meta
-                     rf.routing.url-change/url-requested-handler)
+;; :rf.route/continue + :rf.route/cancel + :rf.route/navigation-blocked +
+;; :rf.route/entry-denied — Spec 012 §Navigation blocking. None of them
+;; allocates, so none declares the recordable allocation cofx — a terminal
+;; entry denial creates no pending value at all.
 ;; The leave-pending value and the entry-denial payload both carry the
 ;; requested URL plus the replayable `:destination` / `:target` (which embed
 ;; query values and path params). Mark those argument paths sensitive so
@@ -508,9 +502,8 @@
 ;; A navigation event carries the route's params and query values in its first
 ;; argument — as URL text, or in a request map — which no slice path reaches.
 ;; Core's event-vector chokepoint projects the URL argument of
-;; `:rf.route/handle-url-change` and the request of `:rf.route/navigate` /
-;; `:rf.route/url-requested` through this hook, by the declaration of the route
-;; they name.
+;; `:rf.route/handle-url-change` and the request of `:rf.route/navigate`
+;; through this hook, by the declaration of the route they name.
 (rf.late-bind/set-fn! :routing/project-url-change-event-args rf.routing.resolve/project-nav-event-arg)
 
 ;; Frame teardown reaches all routing-owned host-side state through one

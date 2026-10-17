@@ -39,7 +39,7 @@
 (deftest link-model-selects-the-address-through-the-shared-extractor
   (rf.routing/reg-route :route/article {} "/articles/:slug")
   (is (= {:href    "/articles/x"
-          :payload [:rf.route/url-requested {:url "/articles/x"}]
+          :payload [:rf.route/navigate {:url "/articles/x"}]
           :native? true}
          (select-keys (rf.routing.link/link-model {:to       :route/article
                                                    :params   {:slug "x"}

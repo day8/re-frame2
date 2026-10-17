@@ -1306,7 +1306,7 @@ A state machine is registered with one call and is itself an event handler; its 
 
 ### Routing → [re-frame.routing.md](re-frame.routing.md)
 
-Routes are data. The current route lives in `runtime-db` and is read with the `:rf/route` sub. The routing events (`:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/url-requested`), fx (`[:rf.nav/push-url …]`, `[:rf.nav/replace-url …]`, `[:rf.nav/scroll …]`) and the `:rf/route` sub family are on the routing page. The browser URL listener comes with the frame's `:url-bound?` lifecycle, installed at creation and removed at destroy.
+Routes are data. The current route lives in `runtime-db` and is read with the `:rf/route` sub. The routing events (`:rf.route/navigate`, `:rf.route/handle-url-change`), fx (`[:rf.nav/push-url …]`, `[:rf.nav/replace-url …]`, `[:rf.nav/scroll …]`) and the `:rf/route` sub family are on the routing page. The browser URL listener comes with the frame's `:url-bound?` lifecycle, installed at creation and removed at destroy.
 
 #### `reg-route`
 
@@ -1318,7 +1318,7 @@ Routes are data. The current route lives in `runtime-db` and is read with the `:
 
 - **Kind**: component
 - **Signature**: `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]`
-- **Description**: Renders an `<a href=...>` for a route id and dispatches `:rf.route/url-requested` on a plain primary-button click. Modifier-key and middle clicks, and `:target` / `:download` anchors, are left to the browser. It is registered as the view `:route/link`. See [`route-link`](re-frame.routing.md#route-link).
+- **Description**: Renders an `<a href=...>` for a route id and dispatches `[:rf.route/navigate {:url <href>}]` on a plain primary-button click. Modifier-key and middle clicks, and `:target` / `:download` anchors, are left to the browser. It is registered as the view `:route/link`. See [`route-link`](re-frame.routing.md#route-link).
 
 ### Flows → [re-frame.flows.md](re-frame.flows.md)
 

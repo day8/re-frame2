@@ -188,6 +188,21 @@
     ":session/user"
     (teb/ev :rf.cofx :rf.cofx/run {:rf.cofx/id :session/user})
 
+    ;; a hydration-mismatch adoption row is a :warning envelope carrying
+    ;; React's message under :error ...
+    "Hydration failed because the server rendered text didn't match the client."
+    {:op-type :warning :operation :rf.ssr/hydration-mismatch
+     :tags {:error    "Hydration failed because the server rendered text didn't match the client."
+            :where    're-frame.substrate.spine/make-render
+            :recovery :warned-and-replaced}}
+
+    ;; ... or nil when React supplied none
+    nil
+    {:op-type :warning :operation :rf.ssr/hydration-mismatch
+     :tags {:error    nil
+            :where    're-frame.fresco.impl.mount/hydrate-root!
+            :recovery :warned-and-replaced}}
+
     ;; no recognised subject → nil (the view renders an em-dash)
     nil
     {:op-type :rf.event :operation :rf.event/run-end :tags {}}))

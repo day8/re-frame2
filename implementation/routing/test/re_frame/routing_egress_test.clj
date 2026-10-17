@@ -126,7 +126,7 @@
   (block-fixture!)
   (let [traces (atom [])]
     (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
+    (rf/dispatch-sync [:rf.route/navigate {:url "/cart?coupon=SECRET100&ref=x"}])
     (rf/unregister-listener! :trace ::blocked)
     ;; Dev-instrumentation arm (see ns docstring).
     (when rf.interop/debug-enabled?
@@ -139,7 +139,7 @@
 
 (deftest navigation-blocked-pending-nav-slot-keeps-raw-in-process
   (block-fixture!)
-  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
+  (rf/dispatch-sync [:rf.route/navigate {:url "/cart?coupon=SECRET100"}])
   (is (= {:requested-url "/cart?coupon=SECRET100"
           :destination   {:to :route/cart :query {"coupon" "SECRET100"}}}
          (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -212,10 +212,10 @@
            (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked}))))
     (let [payload (traced-event-payload
                     :rf.route/navigation-blocked
-                    #(rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}]))]
+                    #(rf/dispatch-sync [:rf.route/navigate {:url "/cart?coupon=SECRET100"}]))]
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
-        (is (= {:requested-url sentinel :destination sentinel :target sentinel :cause :link}
+        (is (= {:requested-url sentinel :destination sentinel :target sentinel :cause :navigate}
                (select-keys payload [:requested-url :destination :target :cause])))))
     (is (= ["/cart?coupon=SECRET100"] (mapv :requested-url @seen))
         "the app handler runs once, on the raw requested URL")))

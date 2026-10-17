@@ -154,9 +154,8 @@
               {:branch (vec acc')})))))))
 
 ;; Per Spec 012 §The one planning pipeline: a successful navigation commit is
-;; identical at every door (`:rf.route/navigate`, `:rf.route/url-requested`,
-;; `:rf.route/handle-url-change`) once the target slice fields have been
-;; resolved. It:
+;; identical at every door (`:rf.route/navigate`, `:rf.route/handle-url-change`)
+;; once the target slice fields have been resolved. It:
 ;;   1. allocate a fresh nav-token (the cascade-begin marker)
 ;;      from the injected host-side counter snapshot — PURE: read the
 ;;      next id, publish it, and emit the high-water bump as an fx;
