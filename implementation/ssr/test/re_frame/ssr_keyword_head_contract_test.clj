@@ -61,7 +61,7 @@
       (is (= {:rf.error/id :rf.error/invalid-hiccup-head
               :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
               :head        :rf/suspense-boundary
-              :element     [:rf/suspense-boundary {:id :x} [:p "hi"]]}
+              :element     {:type :vector :count 3}}
              (select-keys data [:rf.error/id :recovery :head :element]))
           "the reserved-head arm reuses the malformed-head id and is told apart
            by its :recovery, as the Spec 009 row promises")))

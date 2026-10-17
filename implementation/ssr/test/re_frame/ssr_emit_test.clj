@@ -180,6 +180,38 @@
         (pr-str el))))
 
 ;; ===========================================================================
+;; A head error names the head and counts the element; it never copies the
+;; element's children, which hold whatever the view rendered — app-db values,
+;; `:sensitive` ones included — into a message and ex-data that reach server
+;; logs and error sinks unprojected (Spec 015).
+;; ===========================================================================
+
+(deftest head-errors-describe-the-element-without-its-contents
+  (let [sentinel "rf2-sentinel-app-value"]
+    (doseq [[label el id head]
+            [["an unrecognised :rf/* head"
+              [:rf/suspense-boundry {:id :x} [:p sentinel]]
+              :rf.error/invalid-hiccup-head :rf/suspense-boundry]
+             ["a malformed head"
+              [nil {:id :x} [:p sentinel]]
+              :rf.error/invalid-hiccup-head nil]
+             ["a Reagent-native :> head"
+              [:> (fn [_] [:div]) {:value sentinel} [:span sentinel]]
+              :rf.error/ssr-reagent-native-head :>]]]
+      (let [e    (try (rf.ssr.emit/render-to-string el {}) nil
+                      (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data e)]
+        (is (= id (:rf.error/id data)) label)
+        (is (not (.contains (str (ex-message e)) sentinel))
+            (str label ": the message carries no child content — " (ex-message e)))
+        (is (not (.contains (pr-str data) sentinel))
+            (str label ": the ex-data carries no child content — " (pr-str data)))
+        (is (.contains (str (ex-message e)) (pr-str head))
+            (str label ": the message still names the head"))
+        (is (= {:type :vector :count (count el)} (:element data))
+            (str label ": :element is the element's shape, never the element"))))))
+
+;; ===========================================================================
 ;; `:dangerouslySetInnerHTML` renders as the element's raw body: a void
 ;; element ignores it, otherwise it wins over any children.
 ;; ===========================================================================

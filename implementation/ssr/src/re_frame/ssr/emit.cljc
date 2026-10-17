@@ -576,6 +576,26 @@
     (or (= "rf" ns*)
         (clojure.string/starts-with? ns* "rf."))))
 
+(defn- element-shape
+  "What a head error says about the hiccup `element` it rejects: its
+  `re-frame.error/diag-value-summary`, `{:type :vector :count n}`, never
+  the element itself. The element's children are whatever the view
+  rendered — app-db values, `:sensitive` ones included, and a subtree of
+  any size — and a thrown diagnostic reaches server logs and error sinks
+  before egress projection can classify anything (Spec 015, the
+  exception-path residual). The head is the structural identifier and
+  travels in its own `:head` slot.
+
+  Content-free, so the element needs no `error/safe-form` crossing: a
+  cyclic foreign value among its children is counted, never printed."
+  [element]
+  (rf.error/diag-value-summary element))
+
+(defn- in-element
+  "The message's stand-in for the element: its size, not its contents."
+  [element]
+  (str "(in a hiccup vector of " (count element) " forms)"))
+
 (defn reject-reserved-rf-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for an UNRECOGNISED head in the
   framework-reserved `:rf/*` scheme.
@@ -595,27 +615,25 @@
   precisely what that id names. The message and `:recovery` distinguish
   the arm.
 
-  `el` crosses `error/safe-form` FIRST — see
-  `re-frame.error` §cycle-safe diagnostic printing. `head` needs no such
-  crossing: this arm is
-  reached only for a keyword in the reserved `:rf/*` namespace."
+  The error names the head and describes the element by its shape
+  (`element-shape`), never by its contents. The head is a keyword in the
+  reserved `:rf/*` namespace, so it prints as itself."
   [element head]
-  (let [safe-element (rf.error/safe-form element)]
-    (rf.error/throw-error!
-      :rf.error/invalid-hiccup-head
-      're-frame.ssr.emit
-      (str "hiccup vector head " (pr-str head)
-           " (in element " (pr-str safe-element) ") is in the framework-reserved"
-           " :rf/* namespace but is not a hiccup head this emitter"
-           " recognises. The recognised reserved heads are :<> (fragment)"
-           " and :> (Reagent-native interop). The :rf/* scheme is framework-"
-           "owned (Conventions §Reserved namespaces), so this cannot be an"
-           " author DOM element — emitting it would paint a phantom <"
-           (name head) "> element silently. Check the spelling, or use an"
-           " unreserved keyword if you meant a custom element.")
-      {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
-       :extra    {:head    head
-                  :element safe-element}})))
+  (rf.error/throw-error!
+    :rf.error/invalid-hiccup-head
+    're-frame.ssr.emit
+    (str "hiccup vector head " (pr-str head)
+         " " (in-element element) " is in the framework-reserved"
+         " :rf/* namespace but is not a hiccup head this emitter"
+         " recognises. The recognised reserved heads are :<> (fragment)"
+         " and :> (Reagent-native interop). The :rf/* scheme is framework-"
+         "owned (Conventions §Reserved namespaces), so this cannot be an"
+         " author DOM element — emitting it would paint a phantom <"
+         (name head) "> element silently. Check the spelling, or use an"
+         " unreserved keyword if you meant a custom element.")
+    {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
+     :extra    {:head    head
+                :element (element-shape element)}}))
 
 (defn reject-invalid-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
@@ -636,24 +654,24 @@
   neither `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and
   `pr-str` of a self-referential JS object would blow the stack —
   `RangeError` instead of the message this function exists to produce.
-  `element` crosses
-  `error/safe-form` first; `(first element)` is read from the crossed value,
-  so the head is covered by the same one crossing."
+  So the head crosses `error/safe-form` before it is printed or put in
+  ex-data. The element is described by its shape (`element-shape`), so
+  the head is the only value printed."
   [element]
-  (let [safe-element (rf.error/safe-form element)]
+  (let [head (rf.error/safe-form (first element))]
     (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
       're-frame.ssr.emit
-      (str "hiccup vector head " (pr-str (first safe-element))
-           " (in element " (pr-str safe-element) ") is not a valid hiccup head — a head"
+      (str "hiccup vector head " (pr-str head)
+           " " (in-element element) " is not a valid hiccup head — a head"
            " must be a keyword (DOM tag / :<> / :>) or a callable"
            " component (fn / Var). A"
            " string / nil / number / boolean / collection head has no HTML"
            " interpretation; emitting its EDN form raw would bypass output"
            " escaping (XSS). Produce a valid hiccup head.")
       {:recovery :use-a-keyword-or-callable-hiccup-head
-       :extra    {:head    (first safe-element)
-                  :element safe-element}})))
+       :extra    {:head    head
+                  :element (element-shape element)}})))
 
 (defn callable-head?
   "True when a hiccup vector's `head` is a callable component: a fn or a
@@ -962,29 +980,28 @@
         ;; CALLABLE head is what the emitter invokes, which is why the
         ;; spelling has to be in the message.
         ;;
-        ;; `el` crosses `error/safe-form` before it is
-        ;; printed OR put in ex-data. This arm is the one where a foreign
-        ;; JS value is not merely possible but EXPECTED: `[:> ctx.Provider
-        ;; …]` is what `:>` interop is FOR, and a React 19 provider is a
-        ;; cyclic object graph.
+        ;; The element is described by its shape (`element-shape`),
+        ;; never printed: its props and children are app values bound for
+        ;; a React component, and a provider in component position —
+        ;; `[:> ctx.Provider …]`, what `:>` interop is FOR — is a cyclic
+        ;; object graph no printer survives.
         (= :> head)
-        (let [el (rf.error/safe-form el)]
-          (rf.error/throw-error!
-            :rf.error/ssr-reagent-native-head
-            're-frame.ssr.emit
-            (str "Reagent-native interop head `:>` "
-                 "(element " (pr-str el) ") cannot be "
-                 "rendered server-side — it targets a "
-                 "React component and there is no React "
-                 "on the JVM. Wrap the component in a "
-                 "reg-view and reference that view by its "
-                 "CALLABLE head — the Var reg-view defs "
-                 "(`[my-view …]`) or `[(rf/view :my/id) …]` "
-                 "— or render it client-only. A bare "
-                 "keyword head is an HTML element, not a "
-                 "view reference.")
-            {:recovery :wrap-in-reg-view-or-render-client-only
-             :extra    {:element el}}))
+        (rf.error/throw-error!
+          :rf.error/ssr-reagent-native-head
+          're-frame.ssr.emit
+          (str "Reagent-native interop head `:>` "
+               (in-element el) " cannot be "
+               "rendered server-side — it targets a "
+               "React component and there is no React "
+               "on the JVM. Wrap the component in a "
+               "reg-view and reference that view by its "
+               "CALLABLE head — the Var reg-view defs "
+               "(`[my-view …]`) or `[(rf/view :my/id) …]` "
+               "— or render it client-only. A bare "
+               "keyword head is an HTML element, not a "
+               "view reference.")
+          {:recovery :wrap-in-reg-view-or-render-client-only
+           :extra    {:element (element-shape el)}})
 
         ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
         ;; The recognised reserved heads (`:<>`, `:>`) are consumed above;
