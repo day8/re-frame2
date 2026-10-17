@@ -302,7 +302,8 @@ start_conflicted_merge() {
 }
 
 # (m1): the merge took main's export, as a worker merge should -> passes, and
-# the PR diff (main...HEAD) then carries no tracker change at all.
+# the PR diff (main...HEAD) then carries no tracker change at all. (It does
+# carry (g)'s .beads/config.yaml, which is allow-listed.)
 scenario_m1() {
   start_conflicted_merge || return 97
   git commit -q --no-edit
@@ -311,7 +312,7 @@ rc=$(scenario_rc scenario_m1)
 if [ "$rc" = "0" ] \
    && [ "$(git -C "$WORKER" rev-list --parents -n 1 HEAD | wc -w | tr -d ' ')" = "3" ] \
    && [ "$(git -C "$WORKER" rev-parse HEAD:.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ] \
-   && [ -z "$(git -C "$WORKER" diff --name-only main...HEAD -- .beads)" ]; then
+   && [ -z "$(git -C "$WORKER" diff --name-only main...HEAD -- .beads/issues.jsonl)" ]; then
   pass "(m1) worker concludes a conflicted merge of main, tracker as main has it -> passed"
 else
   fail "(m1) conflicted merge taking main's tracker was NOT committed cleanly (exit $rc)"
