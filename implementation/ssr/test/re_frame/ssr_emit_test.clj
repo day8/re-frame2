@@ -170,10 +170,11 @@
         (pr-str el))))
 
 ;; ===========================================================================
-;; A head error names the head and counts the element; it never copies the
-;; element's children, which hold whatever the view rendered — app-db values,
-;; `:sensitive` ones included — into a message and ex-data that reach server
-;; logs and error sinks unprojected (Spec 015).
+;; A head error counts the element; it never copies the element's children,
+;; which hold whatever the view rendered — app-db values, `:sensitive` ones
+;; included — into a message and ex-data that reach server logs and error
+;; sinks unprojected (Spec 015). A reserved `:rf/*` head is named; a malformed
+;; head is summarised (below).
 ;; ===========================================================================
 
 (deftest head-errors-describe-the-element-without-its-contents
@@ -184,7 +185,7 @@
               :rf.error/invalid-hiccup-head :rf/suspense-boundry]
              ["a malformed head"
               [nil {:id :x} [:p sentinel]]
-              :rf.error/invalid-hiccup-head nil]
+              :rf.error/invalid-hiccup-head {:type :nil}]
              ["a Reagent-native :> head"
               [:> (fn [_] [:div]) {:value sentinel} [:span sentinel]]
               :rf.error/ssr-reagent-native-head :>]]]
@@ -197,9 +198,39 @@
         (is (not (.contains (pr-str data) sentinel))
             (str label ": the ex-data carries no child content — " (pr-str data)))
         (is (.contains (str (ex-message e)) (pr-str head))
-            (str label ": the message still names the head"))
+            (str label ": the message names the head, or its shape"))
         (is (= {:type :vector :count (count el)} (:element data))
             (str label ": :element is the element's shape, never the element"))))))
+
+;; ===========================================================================
+;; A malformed head IS the offending value, not a structural identifier: a
+;; string, map or vector in head position is whatever the view rendered. The
+;; error carries its content-free shape summary in the message and in `:head`,
+;; never the value (Spec 015 §Author guidance for the exception-path residual).
+;; ===========================================================================
+
+(deftest malformed-head-is-summarised-not-copied
+  (let [sentinel "rf2-sentinel-head-value"]
+    (doseq [[label el head-shape]
+            [["a string head"  [sentinel [:p "child"]]          {:type :string :count (count sentinel)}]
+             ["a map head"     [{:token sentinel} [:p "child"]] {:type :map :count 1}]
+             ["a vector head"  [[:b sentinel] [:p "child"]]     {:type :vector :count 2}]]]
+      (let [e    (try (rf.ssr.emit/render-to-string el {}) nil
+                      (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data e)
+            msg  (str (ex-message e))]
+        (is (= :rf.error/invalid-hiccup-head (:rf.error/id data)) label)
+        (is (= :use-a-keyword-or-callable-hiccup-head (:recovery data)) label)
+        (is (not (.contains msg sentinel))
+            (str label ": the message carries no head content — " msg))
+        (is (not (.contains (pr-str data) sentinel))
+            (str label ": the ex-data carries no head content — " (pr-str data)))
+        (is (= head-shape (:head data))
+            (str label ": :head is the head's shape summary"))
+        (is (.contains msg (pr-str head-shape))
+            (str label ": the message describes the head by its shape — " msg))
+        (is (= {:type :vector :count 2} (:element data))
+            (str label ": :element keeps the element's shape"))))))
 
 ;; ===========================================================================
 ;; `:dangerouslySetInnerHTML` renders as the element's raw body: a void
