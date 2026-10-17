@@ -31,10 +31,8 @@
 (rf/reg-event :acs/bump  (fn [{:keys [db]} [_ k]] {:db (update db k inc)}))
 (rf/reg-event :acs/mark  (fn [{:keys [db]} [_ tag]] {:db (assoc db :marked tag)}))
 
-;; The UIx adapter rather than plain-atom, for the reason the package smoke
-;; gives: plain-atom has no reactivity layer, so a subscription under it
-;; never notifies and every commit assertion would pass vacuously by never
-;; firing.
+;; The UIx adapter, for the reason the package smoke gives: its derived
+;; value is the React-hook spine's, as Fresco's own adapter's is.
 ;;
 ;; `:async? true` selects the MAP form, which the rows settling against
 ;; `runtime/quiesced!` require — `cljs.test` hard-errors on a fn-form

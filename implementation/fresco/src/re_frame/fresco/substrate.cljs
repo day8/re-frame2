@@ -10,9 +10,10 @@
   in, and a derived value that says when it moved. The two halves are
   independent, and owning both is what lets a Fresco application depend on
   core plus Fresco and nothing else: without this namespace an interactive
-  one would have to add a SECOND dependency coordinate —
-  `day8/re-frame2-uix` or a Reagent one — purely to obtain the second half,
-  and then never write a line of that substrate's notation.
+  one would either install core's headless plain-atom adapter or add a
+  SECOND dependency coordinate — `day8/re-frame2-uix` or a Reagent one —
+  purely to obtain the second half, and then never write a line of that
+  substrate's notation.
 
   This is an OPTION, not a replacement. Reagent and UIx
   are first-class, independently supported adapters, and installing one
@@ -29,16 +30,17 @@
   coalesces through a per-adapter epoch scheduler, so a derived value is live
   the moment it exists.
 
-  That push-from-birth property is the one the collector needs and the one
-  `re-frame.substrate.plain-atom` cannot give it. Plain-atom's derived value
-  reifies `IDeref` and disposal and nothing else — no watch, recomputed on
-  every deref, which is right for a headless SSR render and wrong under a live
-  view. `re-frame.fresco.impl.collector/wire-cell!` installs a watch on the
-  reaction it subscribes and marks its cell dirty when the value moves; under
-  plain-atom that watch fires never, so the runtime paints once and is deaf
-  thereafter.
+  `re-frame.fresco.impl.collector/wire-cell!` installs a watch on the
+  reaction it subscribes and marks its cell dirty when the value moves, so
+  what the collector needs from an adapter is a derived value whose watch
+  fires. `re-frame.substrate.plain-atom`'s fires too — it watches its sources
+  while an observer is attached — so a Fresco tree runs under plain-atom as
+  well, and `re-frame.fresco.plain-atom-dom-cljs-test` mounts one and
+  re-renders it. The two differ in when they compute: plain-atom's value
+  recomputes for each observer, inside the write that moved a source; the
+  spine's recomputes once per epoch and fans the result out to every watcher.
 
-  Watchability alone would not settle it either. A `reagent.ratom/Reaction` is
+  Taking a watch is not the whole requirement. A `reagent.ratom/Reaction` is
   `IWatchable` and still notifies nobody until `deref-capture` teaches it its
   sources, which is why the collector ACTIVATES a subscription
   (`re-frame.interop/activate-derived-value!`) before watching it. On this

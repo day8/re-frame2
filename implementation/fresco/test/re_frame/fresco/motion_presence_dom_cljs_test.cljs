@@ -98,9 +98,8 @@
 (rf/reg-event ::seed (fn [_ [_ ts]] {:db {:toasts ts}}))
 (rf/reg-event ::set (fn [{:keys [db]} [_ ts]] {:db (assoc db :toasts ts)}))
 
-;; The UIx adapter, for the reason the package smoke gives: plain-atom has
-;; no reactivity layer, so a subscription under it never notifies and the
-;; DOM row's "the tray re-rendered" premise would pass by never firing.
+;; The UIx adapter, for the reason the package smoke gives: its derived
+;; value is the React-hook spine's, as Fresco's own adapter's is.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter

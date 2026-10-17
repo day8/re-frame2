@@ -88,6 +88,15 @@ handful of times per request) and exactly wrong under a live view. That is why
 the Fresco witnesses and the editor example both open with
 `(rf/init! uix-adapter/adapter)`.
 
+> **Amended 2026-10-17 (rf2-trjyc) — the crux no longer holds.** The plain-atom
+> `make-derived-value` now reifies `IWatchable` on CLJS and `IRef` on the JVM: it
+> watches its sources while an observer is attached and notifies when the value
+> moves by `=`, still recomputing on every deref. Row 4 above is satisfied in
+> behaviour as well as shape, and a Fresco boundary under plain-atom mounts and
+> re-renders (`re-frame.fresco.plain-atom-dom-cljs-test`). The
+> [Verdict](#verdict)'s "non-reactive derived value" sentence is superseded the
+> same way; the verdict, which rested on the spine, stands.
+
 The bead frames the question as *what would an `IWatchable` plain reactive
 container cost?* — and that framing, taken literally, points at the expensive
 path: writing a reactive graph with dependency tracking, watch registration,

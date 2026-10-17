@@ -74,9 +74,10 @@
 
   `rf/init!` first: `make-frame` raises `:rf.error/no-adapter-installed`
   until a reactive adapter is installed (Spec 006 §Adapter selection at
-  boot), and this is an interactive mount, so the headless plain-atom
-  adapter will not do — it has no live render path, only
-  `render-to-string`."
+  boot). This interactive mount takes UIx's, whose derived value is the
+  React-hook spine's, as Fresco's own adapter's is; the headless
+  plain-atom adapter would re-render a Fresco tree too
+  (`re-frame.fresco.plain-atom-dom-cljs-test`)."
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events initial-events})

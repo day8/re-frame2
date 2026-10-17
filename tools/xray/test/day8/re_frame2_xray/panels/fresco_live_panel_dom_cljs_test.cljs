@@ -113,8 +113,9 @@
 
   ## Substrate
 
-  The Reagent adapter, because a real React commit is the whole point, and
-  the headless plain-atom adapter has no live render path.
+  The Reagent adapter, because a real React commit is the whole point and
+  the panel mounts here as the shell mounts it: into a `reagent.dom.client`
+  root, under `rf/frame-provider`.
 
   `:ambient-frame nil` is load-bearing: the panel's `rf.fresco/sub` calls
   must resolve `:rf/xray` through the React-context tier the

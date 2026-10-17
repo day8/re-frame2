@@ -46,10 +46,10 @@
 (rf/reg-event :tk/toggle (fn [{:keys [db]} [_ id]]
                            {:db (update-in db [:todos id :done] not)}))
 
-;; The node lane, plain-atom's reactivity gap and the `act` environment are
-;; all as `smoke-cljs-test` and `read-extent-cljs-test` establish them: the
-;; UIx adapter because plain-atom never notifies, no ambient frame because
-;; this suite seats its own, and the collector emptied between rows.
+;; The node lane, the adapter and the `act` environment are all as
+;; `smoke-cljs-test` and `read-extent-cljs-test` establish them: the UIx
+;; adapter for the reason the smoke gives, no ambient frame because this
+;; suite seats its own, and the collector emptied between rows.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
