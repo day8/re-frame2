@@ -2011,15 +2011,16 @@
   `swap-runtime-db-exact!`, used by the writes an event issues under its
   owner token (machine spawn and destroy). It resolves the write through
   `owner-token`'s own frame record and writes nothing unless that token names
-  the live incarnation. The token is the router-bound owner of whichever event
-  is on the stack, which need not be `id`'s: a destroy of frame A run inside
-  frame B's event runs A's machine `:exit` effects under B's token, and those
-  writes are refused. Once the token matches, the write runs in one of A's own
-  events, so nothing can take the incarnation away mid-install: a destroy that
-  a synchronous container watch requests there cannot flip A's liveness before
-  the event ends, and the id's reservation makes a same-id `make-frame` fail
-  fast. Returns the new slice, or nil when `owner-token` does not name the live
-  record (the caller treats a nil as a no-op)."
+  the live incarnation. The token is the router-bound owner of the event on the
+  stack. A frame's teardown runs under no owner (`run-destroy-recipe!`), so when
+  frame B's event destroys frame A, A's machine `:exit` effects take the bare
+  write and never reach here with B's token. Once the token matches, the write
+  runs in one of `id`'s own events, so nothing can take the incarnation away
+  mid-install: a destroy that a synchronous container watch requests there
+  cannot flip its liveness before the event ends, and the id's reservation
+  makes a same-id `make-frame` fail fast. Returns the new slice, or nil when
+  `owner-token` does not name the live record (the caller treats a nil as a
+  no-op)."
   ([id pk f args] (swap-partition! id pk f args nil false))
   ([id pk f args owner-token exact-owner?]
    (if-not exact-owner?
@@ -4521,8 +4522,19 @@
             ;; gathered so far (the entries are already in the atom when the
             ;; `finally` runs).
             hook-failures     (atom [])]
+       ;; A teardown is no event's work, so it runs under no event owner, even
+       ;; when another frame's event is on the stack: an immediate destroy called
+       ;; from frame B's event, or a pending one whose boundary B reached by
+       ;; `dispatch-sync`ing into this frame. Under B's token the exact writes
+       ;; this frame's machine `:exit` effects issue are refused, so a sibling
+       ;; actor an `:exit` destroys stays in runtime-db and the walker runs its
+       ;; `:exit` again. With no owner they take the bare write, which lands in
+       ;; this frame's container: the destroy holds the id's reservation and the
+       ;; record stays registered until step 9. The `:on-destroy` cascade binds
+       ;; this frame's own owner.
        (binding [*destroying-frame-id*    id
-                 *teardown-hook-failures* hook-failures]
+                 *teardown-hook-failures* hook-failures
+                 *event-owner*            nil]
          (try
         (fire-on-destroy-event! id expected-incarnation-token f)
         ;; Step 3 rides the SAME best-effort boundary as the later
