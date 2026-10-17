@@ -90,25 +90,19 @@
             (rf.frame/frame id)
             (some? (rf/make-frame {:id id :tags #{:clean-retry}}))]))))
 
-(deftest set-claim-is-atomic-and-its-engine-handoff-is-one-shot
-  (let [a     :construction-handoff/a
-        b     :construction-handoff/b
-        free  :construction-handoff/free
-        owner (rf.frame/claim-frame-construction! #{a b} :plan-preflight)]
+(deftest a-construction-handoff-permits-exactly-one-engine-entry
+  (let [id    :construction-handoff/a
+        owner (rf.frame/claim-frame-construction! id :plan-preflight)]
     (try
-      (is (= [:rf.error/frame-construction-in-progress true]
-             [(err-id #(rf.frame/claim-frame-construction! #{b free} :competing-plan))
-              (some? (rf/make-frame {:id free :tags #{:disjoint}}))])
-          "an overlapping set claim loses as a unit, reserving none of its free ids")
       (is (= [[true :rf.error/frame-construction-in-progress] #{:handed-off}]
              [(rf.frame/call-with-frame-construction-handoff!
-                owner a
+                owner id
                 (fn []
-                  [(some? (rf/make-frame {:id a :tags #{:handed-off}}))
-                   (err-id #(rf/make-frame {:id a :tags #{:second-entry}}))]))
-              (get-in (rf.frame/frame a) [:config :tags])])
+                  [(some? (rf/make-frame {:id id :tags #{:handed-off}}))
+                   (err-id #(rf/make-frame {:id id :tags #{:second-entry}}))]))
+              (get-in (rf.frame/frame id) [:config :tags])])
           "one handoff permits exactly one engine entry")
       (finally
         (rf.frame/release-frame-construction! owner)))
-    (is (some? (rf/make-frame {:id a :tags #{:after-release}}))
-        "the set owner's release frees the id for ordinary construction")))
+    (is (some? (rf/make-frame {:id id :tags #{:after-release}}))
+        "the owner's release frees the id for ordinary construction")))

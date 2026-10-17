@@ -215,10 +215,9 @@
 ;; ---- per-id frame construction transaction -------------------------------
 ;;
 ;; One process-owned CAS registry is the admission point for construction and
-;; the pre-dissoc portion of destruction. Values are opaque owner maps compared
-;; ONLY by identity; their data fields are diagnostics, never authority. A claim
-;; always names a SET of ids and installs all of them in one CAS, which is the
-;; primitive a multi-id plan preflight consumes.
+;; destruction: each holds its one id's reservation from its claim until it has
+;; finished. Values are opaque owner maps compared ONLY by identity; their data
+;; fields are diagnostics, never authority.
 ;;
 ;; There is deliberately no queue or generation counter. A conflicting claim
 ;; fails promptly on both hosts, avoiding callback-waits-for-contender deadlocks
@@ -263,70 +262,53 @@
                  :reason     reason
                  :owner-kind owner-kind}})))
 
+(defn- new-frame-transaction-owner [id kind]
+  {:kind kind :frame-id id :holder (current-host-holder)})
+
 (defn- try-claim-frame-transaction!
-  "Try the same all-or-nothing set CAS as `claim-frame-construction!`.
+  "Try the same CAS as `claim-frame-construction!`.
 
   Returns an owner token, or nil on contention. Destruction uses this
   non-throwing form only after it has revalidated an exact live incarnation:
   duplicate/concurrent destroy is a prompt nil no-op, while
   public construction uses the typed throwing form below."
-  [frame-ids kind]
-  (let [owner {:kind      kind
-               :frame-ids frame-ids
-               :holder    (current-host-holder)}]
+  [id kind]
+  (let [owner (new-frame-transaction-owner id kind)]
     (loop []
       (let [registry @frame-construction-reservations]
-        (if (some #(contains? registry %) frame-ids)
-          nil
-          (let [claimed (reduce #(assoc %1 %2 owner) registry frame-ids)]
-            (if (compare-and-set! frame-construction-reservations
-                                  registry claimed)
-              owner
-              (recur))))))))
+        (when-not (contains? registry id)
+          (if (compare-and-set! frame-construction-reservations
+                                registry (assoc registry id owner))
+            owner
+            (recur)))))))
 
 (defn ^:no-doc claim-frame-construction!
-  "Atomically reserve every id in non-empty SET `frame-ids` for one exact owner.
+  "Atomically reserve frame `id` for one exact owner.
 
-  Returns the opaque identity-compared owner token. If any id is already owned,
-  throws `:rf.error/frame-construction-in-progress` and claims NONE. The set
-  shape and all-or-nothing CAS are the narrow core seam reserved for a
-  multi-id plan preflight; ordinary core construction claims a
-  singleton. INTERNAL — not part of the public frame API."
-  ([frame-ids]
-   (claim-frame-construction! frame-ids :preflight))
-  ([frame-ids kind]
-   (when-not (and (set? frame-ids) (seq frame-ids))
-     (throw (ex-info "frame construction claim requires a non-empty set of ids"
-                     {:frame-ids frame-ids})))
-   (let [owner {:kind      kind
-                :frame-ids frame-ids
-                :holder    (current-host-holder)}]
-     (loop []
-       (let [registry @frame-construction-reservations
-             conflict (some (fn [id]
-                              (when-let [held (get registry id)]
-                                [id held]))
-                            (sort-by pr-str frame-ids))]
-         (if-let [[id held] conflict]
-           (throw-frame-construction-in-progress! id held)
-           (let [claimed (reduce #(assoc %1 %2 owner) registry frame-ids)]
-             (if (compare-and-set! frame-construction-reservations
-                                   registry claimed)
-               owner
-               (recur)))))))))
+  Returns the opaque identity-compared owner token. If `id` is already owned,
+  throws `:rf.error/frame-construction-in-progress`. INTERNAL — not part of the
+  public frame API."
+  [id kind]
+  (let [owner (new-frame-transaction-owner id kind)]
+    (loop []
+      (let [registry @frame-construction-reservations]
+        (if-let [held (get registry id)]
+          (throw-frame-construction-in-progress! id held)
+          (if (compare-and-set! frame-construction-reservations
+                                registry (assoc registry id owner))
+            owner
+            (recur)))))))
 
 (defn ^:no-doc release-frame-construction!
-  "Compare-release every reservation still owned by exact `owner`.
-
-  A stale release cannot erase a successor's claim. INTERNAL companion to
-  `claim-frame-construction!`."
+  "Release `owner`'s reservation if it still holds it, so a repeated release is
+  a no-op. INTERNAL companion to `claim-frame-construction!`."
   [owner]
-  (swap! frame-construction-reservations
-         (fn [registry]
-           (reduce-kv (fn [m id held]
-                        (if (identical? owner held) (dissoc m id) m))
-                      registry
-                      registry)))
+  (let [id (:frame-id owner)]
+    (swap! frame-construction-reservations
+           (fn [registry]
+             (if (identical? owner (get registry id))
+               (dissoc registry id)
+               registry))))
   nil)
 
 (defn ^:no-doc call-with-frame-construction-handoff!
@@ -393,7 +375,7 @@
   [id kind f]
   (if (unspent-frame-construction-handoff? id)
     (f)
-    (let [owner (claim-frame-construction! #{id} kind)]
+    (let [owner (claim-frame-construction! id kind)]
       (try
         (call-with-frame-construction-handoff! owner id f)
         (finally
@@ -409,7 +391,7 @@
                        *frame-transaction-owner*))]
     (binding [*frame-transaction-owner* owner]
       (f owner))
-    (let [owner (claim-frame-construction! #{id} kind)]
+    (let [owner (claim-frame-construction! id kind)]
       (binding [*frame-transaction-owner* owner]
         (try
           (f owner)
@@ -4156,7 +4138,7 @@
                          (or (when (owner-holds-frame-id?
                                      *frame-transaction-owner* id)
                                *frame-transaction-owner*)
-                             (try-claim-frame-transaction! #{id} :destruction))]
+                             (try-claim-frame-transaction! id :destruction))]
                 (let [router   (:router current)
                       ;; This incarnation's drain is on the current stack — its
                       ;; own event, or another frame's handler reached through a

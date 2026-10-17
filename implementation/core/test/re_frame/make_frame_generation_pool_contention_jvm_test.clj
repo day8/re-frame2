@@ -67,7 +67,7 @@
   trying to claim it, and releasing at once if the claim succeeds."
   [id]
   (let [owner (try
-                (rf.frame/claim-frame-construction! #{id} ::reservation-probe)
+                (rf.frame/claim-frame-construction! id ::reservation-probe)
                 (catch clojure.lang.ExceptionInfo e
                   (if (= :rf.error/frame-construction-in-progress
                          (:rf.error/id (ex-data e)))
@@ -178,7 +178,7 @@
   ;; without touching the table
   (let [id    :pool-race/adopted
         log   (atom [])
-        owner (rf.frame/claim-frame-construction! #{id} :plan-preflight)]
+        owner (rf.frame/claim-frame-construction! id :plan-preflight)]
     (watch-row! id log nil)
     (try
       (is (= [true :rf.error/frame-construction-in-progress]
