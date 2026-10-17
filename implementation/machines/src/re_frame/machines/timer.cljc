@@ -253,10 +253,11 @@
   [frame-id k entry reason]
   (let [delay-source (:delay-source entry)
         ;; The `:region` recorded at schedule time names the region whose
-        ;; head the timer-table `:spawn` carries; the row and the reply both
-        ;; name the node by its region-relative path, as the fired / stale
-        ;; rows do, so all the rows of one `:after` share one
-        ;; `:rf.reply/work-id`.
+        ;; head the timer-table `:spawn` carries. The row names the node by
+        ;; its region-relative path with `:region` beside it, and the reply's
+        ;; `:rf.reply/work-id` puts the region back at the path's head, as the
+        ;; fired / stale rows do, so all the rows of one `:after` share one
+        ;; work-id and no other region's timer shares it.
         region       (:region entry)
         decl-path    (region-relative-path region (:spawn k))
         ;; Close the timer work attempt the reply-envelope way: a cancelled
@@ -273,6 +274,7 @@
                         :state     (:state entry)
                         :delay     (:resolved-ms entry)
                         :decl-path decl-path
+                        :region    region
                         :epoch     (:epoch entry)
                         :frame     frame-id
                         :reason    reason})
@@ -537,11 +539,12 @@
         owner-gone?  (or owner-gone? (successor-published?-fn frame-id))
         ;; A region `:after`'s `invoke-id` is region-PREFIXED
         ;; (`prefix-region-invoke-id` prepends the region name). Record that
-        ;; region name in the entry so `emit-cancelled!` can strip it before
-        ;; building the reply's `:rf.reply/work-id` — matching the fired / stale
-        ;; rows (whose `carried-decl-path` is region-stripped by
-        ;; `pick-after-transition`) so all four rows of ONE logical `:after`
-        ;; share one work-id in the work/reply ledger. Parallel machines carry
+        ;; region name in the entry so every row names the node by its
+        ;; region-relative `:decl-path` with `:region` beside it — matching
+        ;; the fired / stale rows (whose `carried-decl-path` is region-stripped
+        ;; by `pick-after-transition`, which tags the match with `:region`) —
+        ;; and `emit-cancelled!` builds the same region-qualified
+        ;; `:rf.reply/work-id` the fired / stale replies do. Parallel machines carry
         ;; a region-name → state MAP as `:state`;
         ;; a flat / compound machine's `:state` is a keyword / vector path (no
         ;; region head), and the parallel-ROOT timer's `invoke-id` is empty
