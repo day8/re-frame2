@@ -390,9 +390,10 @@
   own registration view bound — so the ids resolve live for a frame made
   without `:images`, and through its sealed generation for one made with them.
 
-  The memo decides what runs. A flow with no row, or a row computed with a
-  different definition, recomputes; otherwise `=`-equal inputs skip `:derive`
-  and re-assert the remembered output. A row whose flow left the frame, or
+  The memo decides what runs. A flow with no row, a row computed with a
+  different definition, or a row a rewind left without inputs, claims its
+  output paths and recomputes; otherwise `=`-equal inputs skip `:derive` and
+  re-assert the remembered output. A row whose flow left the frame, or
   moved its `:output-path`, has the old path vacated in this same pending db.
   The activation checks run over the active set on every pass, so a
   re-registration that completes a cycle or an output overlap aborts the event.
@@ -417,14 +418,17 @@
                             (fn [[db rows] id]
                               (let [flow       (get active id)
                                     row        (get rows id)
+                                    ;; A row a rewind left without inputs no
+                                    ;; longer vouches for its evaluation.
+                                    evaluated? (and (identical? flow (:flow row))
+                                                    (contains? row :inputs))
                                     new-inputs (read-inputs db runtime-db flow)]
-                                (if (and (identical? flow (:flow row))
-                                         (= new-inputs (:inputs row)))
+                                (if (and evaluated? (= new-inputs (:inputs row)))
                                   [(reassert-output frame-id db flow new-inputs row) rows]
                                   (do
-                                    ;; A definition the frame has not evaluated
+                                    ;; A definition the memo does not vouch for
                                     ;; claims its output paths before it emits.
-                                    (when (and (not (identical? flow (:flow row)))
+                                    (when (and (not evaluated?)
                                                (or (rf.flows.registry/flow-declares-marks? flow)
                                                    (some-> (:flow row) rf.flows.registry/flow-declares-marks?)))
                                       (rf.flows.registry/claim-output-marks! frame-id flow))
