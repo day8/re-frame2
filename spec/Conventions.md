@@ -1363,7 +1363,7 @@ The caller hands a fn to a global hook the framework will invoke from arbitrary 
 
 ### 3. Adapter / platform installation — **bang**
 
-Process-level state mutation outside the registrar — installing or tearing down the runtime's substrate adapter, swapping in a different schema validator, dropping the subscription cache. These surfaces touch implementation-defined slots that have nothing to do with the per-frame registries.
+Process-level state mutation outside the registrar — installing or tearing down the runtime's substrate adapter, swapping in a different schema validator, dropping the subscription cache. These surfaces touch implementation-defined slots, never the registrar's process-global source store that frames resolve their handlers from ([002 §What lives in a frame](002-Frames.md#what-lives-in-a-frame)).
 
 - `re-frame.substrate.adapter/install-adapter!`, `rf/destroy-adapter!`
 - `set-schema-fns!`
