@@ -1775,7 +1775,7 @@
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, flow, machine. NOT frame — a reserved-but-EMPTY registrar slot; read frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "machine"]}
+                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "flow" "machine"]}
                               :id   {:type "string"
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
@@ -1848,7 +1848,7 @@
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, flow, machine. NOT frame — a reserved-but-EMPTY registrar slot; read frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "machine"]}
+                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "flow" "machine"]}
                               :frame {:type "string"
                                       :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
                                                         "The EP-0023 forward direction: "
