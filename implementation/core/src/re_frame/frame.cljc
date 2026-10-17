@@ -2010,14 +2010,16 @@
   The 6-arity is the EXACT-INCARNATION variant behind
   `swap-runtime-db-exact!`, used by the writes an event issues under its
   owner token (machine spawn and destroy). It resolves the write through
-  `owner-token`'s own frame record (a same-id successor can never redirect it),
-  and — `replace-container!` is a host-adapter callback boundary whose
-  synchronous watch may destroy A and publish same-id B mid-install — rechecks
-  ownership after the callback. A's write that physically linearized in A's
-  captured container before the loss stands (it may legitimately appear in A's
-  halted-destroy snapshot), but the id-keyed commit-epoch bump is FENCED so it
-  never lands on B. Returns the new slice, or nil on owner loss (the caller
-  treats a nil as a no-op and rechecks liveness before its own later actions)."
+  `owner-token`'s own frame record, writes nothing unless that token names the
+  live incarnation, and checks continuation liveness around each host-adapter
+  callback (`read-container`, `replace-container!`): an install that lost its
+  owner stands in A's captured container but bumps no commit epoch. Those
+  writes run in one of A's events, with A's drain on the stack, so no same-id
+  successor can be seated mid-install: a destroy that a synchronous container
+  watch requests there takes the id's reservation at once but cannot begin A's
+  teardown before the event ends, so a same-id `make-frame` fails fast.
+  Returns the new slice, or nil on owner loss (the caller treats a nil as a
+  no-op and rechecks liveness before its own later actions)."
   ([id pk f args] (swap-partition! id pk f args nil false))
   ([id pk f args owner-token exact-owner?]
    (if-not exact-owner?
@@ -2030,7 +2032,7 @@
          (bump-commit-epoch! id)
          new-slice))
      ;; Exact-incarnation write. Resolve the record so the
-     ;; write binds to A's own container; a same-id B cannot redirect it.
+     ;; write binds to A's own container.
      (when-let [frame-record (frame id)]
        (when (identical? owner-token (:drain-lock frame-record))
          (let [container   (:frame-state frame-record)
@@ -2040,17 +2042,15 @@
            (when-not (= stale-exact-callback read-result)
              (let [current   (second read-result)
                    new-slice (apply f (get current pk) args)]
-               ;; A synchronous watch inside `read-container` may already have
-               ;; lost A; recheck before the physical install.
+               ;; Recheck after the read callback, before the physical install.
                (when (event-continuation-live? id owner-token)
                  (let [replace-result
                        (call-exact-frame-callback
                          id owner-token true
                          #(rf.substrate.adapter/replace-container!
                             container (assoc current pk new-slice)))]
-                   ;; The install callback's own watch may destroy A. A's write
-                   ;; linearized in A's captured container, but the id-keyed
-                   ;; commit-epoch bump must not attribute to same-id B.
+                   ;; An install that lost its owner stands in A's captured
+                   ;; container but bumps no id-keyed commit epoch.
                    (when-not (= stale-exact-callback replace-result)
                      (bump-commit-epoch! id)
                      new-slice)))))))))))

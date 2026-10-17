@@ -1363,11 +1363,12 @@
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, bound to A's RAW
   owner token. `spawn-all-init-fx` reaches this write only AFTER
   its admission preflight has run application `[:schemas :data]` validators and
-  (on the reject path) fanned callback-bearing reject records — either of which
-  can synchronously destroy owner frame A and publish a same-id successor B on
-  its own stack. A bare-id `rf.frame/swap-runtime-db!` resolves to the CURRENT
-  incarnation, so it would land A's join-state / reject sentinel on B (and bump
-  B's commit epoch), leaving B holding an IMPOSSIBLE join it never spawned.
+  (on the reject path) fanned callback-bearing reject records. Either can
+  request a destroy of owner frame A, but neither can seat a same-id successor
+  B before this write: with an event owner the fx runs in one of A's events,
+  with A's drain on the stack, so that destroy takes the id's reservation at
+  once but cannot begin A's teardown before the event ends, and a same-id
+  `make-frame` fails fast.
 
   With an event owner, route the write through `swap-runtime-db-exact!`: it
   binds the install to that incarnation's own container. Without an owner (a
