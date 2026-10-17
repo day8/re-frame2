@@ -590,8 +590,8 @@
   exception-path residual). The head travels in its own `:head` slot: a
   reserved `:rf/*` head as itself, a malformed head as its own summary.
 
-  Content-free, so the element needs no `error/safe-form` crossing: a
-  cyclic foreign value among its children is counted, never printed."
+  Content-free, so a cyclic foreign value among its children is counted,
+  never printed."
   [element]
   (rf.error/diag-value-summary element))
 
