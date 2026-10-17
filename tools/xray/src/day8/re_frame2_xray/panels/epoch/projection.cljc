@@ -3519,40 +3519,30 @@
 
 ;; ---- HALTED-DESTROY record ----------------------------------------------
 ;;
-;; A `:halted-destroy` record marks the event during which its own frame was
-;; destroyed. That is a deliberate lifecycle stop, not an error — the
-;; framework's consumer-facing mapping sends it to `:blocked`
-;; (`re-frame.epoch.assembly/outcome->consumer-facing`) — so it gets NO card.
-;; The trace is exact about everything else: `:rf.event/run-start` fired, so
-;; the handler RAN, and any effect that ran before the destroy emitted its
-;; own trace and already projects as a SIDE EFFECTS row, so nothing is
-;; assumed skipped. Two stamps: DISPATCH carries `:halted :halted-destroy`,
-;; which `epoch-outcome` reads as `:blocked`, and HANDLER carries
-;; `:result-discarded? true` when none of its result reached the commit (no
-;; `:db` write, no SIDE EFFECTS step), so the view stops saying it "returned
-;; no :db".
-
-(defn- destroy-discarded-result?
-  "True iff no part of the handler's result reached the commit in `steps`:
-  the HANDLER wrote no `:db` and no SIDE EFFECTS step projected."
-  [steps]
-  (not-any? (fn [step]
-              (case (:step step)
-                :handler      (:db-write? step)
-                :side-effects true
-                false))
-            steps))
+;; A destroy requested during a frame's drain runs at the destroying event's
+;; boundary: that event commits as an ordinary `:ok` epoch, and a
+;; `:halted-destroy` record marks the queued work the boundary DROPPED (Spec-
+;; Schemas §`:rf/epoch-record` §Outcomes). The record is built from the
+;; boundary's evidence alone — no trace, and a `:trigger-event` naming the
+;; event the drain would have run next — so `project` builds that event's
+;; DISPATCH from `:trigger-event`, and this pass stamps HANDLER + SIDE EFFECTS
+;; `:skipped` with `:skip-reason :halted-destroy`, parallel to a depth halt.
+;; DISPATCH carries `:halted :halted-destroy` and the record's `:halt-reason`
+;; (`:dropped-count`, `:last-event-id`) for the view to word, but NO card: a
+;; destroy is a deliberate lifecycle stop, not an error. The framework's
+;; consumer-facing mapping (`re-frame.epoch.assembly/outcome->consumer-facing`)
+;; sends it to `:blocked`, and `epoch-outcome` reads the stamp the same way.
 
 (defn mark-halted
   "When `epoch-record` is a `:halted-depth` record (`halt-row`), attach its
   halt card to the DISPATCH step (`:status :error`) and stamp the HANDLER +
   SIDE EFFECTS steps `:status :skipped` with `:skip-reason :halted-depth`.
 
-  When it is a `:halted-destroy` record, stamp DISPATCH
-  `:halted :halted-destroy` (the `:blocked` outcome, no card) and, when
-  nothing of the handler's result was committed, HANDLER
-  `:result-discarded? true`. SIDE EFFECTS is left exactly as the trace
-  projected it. Any other record returns `steps` unchanged."
+  When it is a `:halted-destroy` record, stamp DISPATCH `:halted
+  :halted-destroy` plus the record's `:halt-reason` (the `:blocked` outcome,
+  no card), and HANDLER + SIDE EFFECTS `:status :skipped` with `:skip-reason
+  :halted-destroy`: the dropped event never ran. Any other record returns
+  `steps` unchanged."
   [steps epoch-record]
   (if-let [row (halt-row epoch-record)]
     (mapv (fn [step]
@@ -3568,11 +3558,16 @@
               step))
           steps)
     (if (= :halted-destroy (:outcome epoch-record))
-      (let [discarded? (destroy-discarded-result? steps)]
+      (let [halt-reason (:halt-reason epoch-record)]
         (mapv (fn [step]
                 (case (:step step)
-                  :dispatch (assoc step :halted :halted-destroy)
-                  :handler  (cond-> step discarded? (assoc :result-discarded? true))
+                  :dispatch
+                  (cond-> (assoc step :halted :halted-destroy)
+                    (some? halt-reason) (assoc :halt-reason halt-reason))
+
+                  (:handler :side-effects)
+                  (assoc step :status :skipped :skip-reason :halted-destroy)
+
                   step))
               steps))
       steps)))
@@ -4135,7 +4130,8 @@
 
   Reads only `:trace-events`, `:event-id` (falling back to `:event`) and
   `:db-before` off the record, plus `:outcome` / `:halt-reason` for a `:halted-depth` or
-  `:halted-destroy` record (`mark-halted`); no DOM, no substrate runtime, JVM-testable. The optional opts
+  `:halted-destroy` record (`mark-halted`), and a `:halted-destroy` record's
+  `:trigger-event`, which names the dropped event in place of a trace; no DOM, no substrate runtime, JVM-testable. The optional opts
   map's resolvers (`:resolve-event-interceptors`,
   `:resolve-event-recordables`) are the ONLY runtime-fed inputs — fns,
   not data — and are themselves injectable for pure tests."
@@ -4161,7 +4157,12 @@
         fallback  (or (when-let [ev (find-op events :rf.event/dispatched)]
                         (or (common/tag-of ev :rf.event/v)
                             (common/tag-of ev :event)))
-                      (:event epoch-record))]
+                      (:event epoch-record)
+                      ;; A `:halted-destroy` record carries no trace: the
+                      ;; dropped event it names is its only evidence. Any
+                      ;; other traceless record stays the empty epoch.
+                      (when (= :halted-destroy (:outcome epoch-record))
+                        (:trigger-event epoch-record)))]
     (if (and (empty? events) (nil? fallback))
       ;; Truly empty epoch: no dispatched trace, no fallback event,
       ;; no other trace events. The cascade has nothing to render —
@@ -4376,9 +4377,9 @@
             ;; :skipped` so the view renders them as SKIPPED rather than
             ;; 'ran, returned no :db'.
             skipped    (mark-skipped-handler with-errs events)
-            ;; A `:halted-depth` record's event never ran; only the
-            ;; record's `:outcome` / `:halt-reason` say so. A
-            ;; `:halted-destroy` record reads `:blocked`.
+            ;; A halted record's event never ran; only the record's
+            ;; `:outcome` / `:halt-reason` say so. A `:halted-depth`
+            ;; record reads `:error`, a `:halted-destroy` one `:blocked`.
             skipped    (mark-halted skipped epoch-record)
             steps      (mark-rolled-back-downstream skipped violations)]
         steps)))))

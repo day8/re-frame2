@@ -3780,24 +3780,28 @@ pre-rf2-wnvid code fell back to the record's full post-cascade
 ENTIRE app-db tree under the HANDLER step as if the handler had returned
 it (the phantom `:db`, most visible where the handler mutated nothing).
 
-**A `:halted-destroy` record's HANDLER ran (rf2-v6ftp).** When the frame
-was destroyed before any of the handler's result was committed (no `:db`
-write, no SIDE EFFECTS step), `projection/mark-halted` stamps HANDLER
-`:result-discarded? true` and the placeholder reads
-`— no :db (the handler ran; its result was discarded because the frame was destroyed)`:
-the trace carries `:rf.event/run-start`, so the handler is never shown as
-skipped, and "returned no :db" would be false. SIDE EFFECTS is left as the
-trace projected it, so it lists exactly the effects that ran before the
-destroy.
+**A `:halted-destroy` record is work a destroy dropped.** A destroy
+requested during the drain runs at the destroying event's boundary, so the
+destroying event commits and renders as an ordinary `:ok` epoch, its `:db`
+write and every effect shown. The `:halted-destroy` record marks the queued
+work that boundary dropped: it carries no trace, only the dropped event's
+`:trigger-event` and a `:halt-reason` (`:dropped-count`, `:last-event-id`).
+`projection/project` builds that event's DISPATCH from `:trigger-event`, and
+`projection/mark-halted` stamps it `:halted :halted-destroy` with the
+`:halt-reason`, and HANDLER + SIDE EFFECTS `:skipped` with `:skip-reason
+:halted-destroy`, parallel to a depth halt but with no card. DISPATCH reads
+`Dropped — the frame was destroyed at the event boundary after <id> settled,
+so this queued event never ran; N queued event(s) dropped.` and the HANDLER
+body is the SKIPPED placeholder worded for the destroy.
 
 ### §9.1.10.5 Epoch outcome — tool-side, NOT the framework slot (rf2-ahhgn)
 
 The `:rf.xray/epoch-pipeline` composite sub carries an `:outcome`
 (`:ok` / `:blocked` / `:error`) from `projection/epoch-outcome` — `:error` when
 ANY projected step reads `step-status :error`, else `:blocked` for a
-`:halted-destroy` record (rf2-v6ftp: a destroy is a deliberate lifecycle
-stop, which the framework's consumer-facing mapping also sends to
-`:blocked`, so it carries no card), else `:ok`. The Panel stamps
+`:halted-destroy` record (a destroy is a deliberate lifecycle stop, which
+the framework's consumer-facing mapping also sends to `:blocked`, so it
+carries no card), else `:ok`. The Panel stamps
 `data-rf-xray-outcome` on the panel root (tools / e2e read the
 tool-side outcome there). The failure surfaces **inline**: the inline
 "Exception Thrown" card (or the schema-violation card) sits right under

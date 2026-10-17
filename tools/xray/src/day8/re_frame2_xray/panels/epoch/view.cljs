@@ -1705,9 +1705,11 @@
 
   `skip-reason` `:halted-depth` (stamped by
   `projection/mark-halted`) words it for a drain-depth halt instead: nothing
-  threw, the drain refused the event. `:event-schema` (stamped by
-  `projection/mark-skipped-handler`) words it for an event its handler's
-  `:schema` rejected: the router refused the event before the handler ran."
+  threw, the drain refused the event. `:halted-destroy` (also `mark-halted`)
+  words it for queued work a destroy dropped at the event boundary.
+  `:event-schema` (stamped by `projection/mark-skipped-handler`) words it
+  for an event its handler's `:schema` rejected: the router refused the
+  event before the handler ran."
   ([testid what] (skipped-body testid what nil))
   ([testid what skip-reason]
    [:div {:data-testid (str testid "-skipped")
@@ -1717,6 +1719,8 @@
          (case skip-reason
            :halted-depth
            " did not run — the drain hit its depth limit before this event could execute."
+           :halted-destroy
+           " did not run — the frame was destroyed at the event boundary, which dropped this queued event."
            :event-schema
            " did not run — the event failed its handler's :schema, so the router never called the handler."
            " did not run — an upstream step threw before this step could execute."))]))
@@ -2358,6 +2362,21 @@
     :always            (dispatch-always-label step)
     (dispatch-source-label source coord)))
 
+(defn- dropped-at-destroy-note
+  "The DISPATCH line for a `:halted-destroy` record: a destroy ran at the
+  event boundary and dropped this queued event, so it never ran. Worded from
+  the record's `:halt-reason` (`:last-event-id` names the destroying event,
+  `:dropped-count` everything the boundary dropped). Muted like a skipped
+  step, not a card — a destroy is a deliberate lifecycle stop."
+  [{:keys [last-event-id dropped-count]}]
+  [:div {:data-testid "rf-xray-epoch-dispatch-dropped"
+         :style skipped-body-style}
+   (str "Dropped — the frame was destroyed at the event boundary"
+        (when (some? last-event-id) (str " after " last-event-id " settled"))
+        ", so this queued event never ran"
+        (when (some? dropped-count) (str "; " dropped-count " queued event(s) dropped"))
+        ".")])
+
 (defn render-dispatch-step
   "Render the DISPATCH step (always present). Header summarises `from
   <source>` with the call-site chip when a coord was captured;
@@ -2395,7 +2414,8 @@
   the §per-mount inspector identity commentary above [[dispatch-body]]."
   ([step] (render-dispatch-step step nil nil))
   ([step dispatch-id->epoch-id] (render-dispatch-step step dispatch-id->epoch-id nil))
-  ([{:keys [source coord duration-ms step-number violations errors] :as step}
+  ([{:keys [source coord duration-ms step-number violations errors
+            halted halt-reason] :as step}
     dispatch-id->epoch-id instance]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
           :data-step-kw "dispatch"
@@ -2421,6 +2441,10 @@
        :duration-ms duration-ms}
       nil)
     (dispatch-body step instance)
+    ;; A `:halted-destroy` record's event was dropped, not refused: a
+    ;; muted line, never a card.
+    (when (= :halted-destroy halted)
+      (dropped-at-destroy-note halt-reason))
     ;; A `:halted-depth` record's halt card
     ;; (`projection/mark-halted`): the drain refused this event.
     (error-blocks :dispatch errors instance)
@@ -4124,13 +4148,8 @@
   `:rf.xray/epoch-pipeline` sub and threaded down `ctx`; that comment
   carries the reasoning and the one residual. A DIRECT caller (a test,
   a gallery fixture) gets exactly the values it passes: this block
-  applies no policy of its own and cannot, having no frame to apply.
-
-  `result-discarded?` (a `:halted-destroy` record whose
-  handler result never reached the commit, `projection/mark-halted`) words
-  the no-write line for the destroy: the handler RAN, and its result was
-  discarded. 'Returned no :db' would be false there."
-  [db-post-handler db-write? record instance result-discarded?]
+  applies no policy of its own and cannot, having no frame to apply."
+  [db-post-handler db-write? record instance]
   (let [db-before (:db-before record)
         ;; t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
@@ -4149,12 +4168,6 @@
            :data-rf-xray-db-write (str (boolean db-write?))}
      (sub-header ":db" nil)
      (cond
-       ;; The frame was destroyed before the result committed.
-       (and (not db-write?) result-discarded?)
-       [:span {:data-testid "rf-xray-epoch-handler-db-discarded"
-               :style handler-db-all-missing-style}
-        "— no :db (the handler ran; its result was discarded because the frame was destroyed)"]
-
        ;; The handler wrote no `:db` → no phantom app-db.
        ;; The threw case is omitted upstream (`handler-body`),
        ;; so this placeholder is only ever the clean 'returned no :db'.
@@ -4194,9 +4207,8 @@
   non-machine handler that did not throw (design doc §Section 1 +
   §Section 2): [[handler-db-diff-block]] renders the full post-handler
   `:db` with inline diff annotations, so an unchanged `:db` is the full
-  tree with nothing marked, and a handler that wrote no `:db` (or whose
-  result was discarded) gets a placeholder line rather than a collapsed
-  slot. For
+  tree with nothing marked, and a handler that wrote no `:db` gets a
+  placeholder line rather than a collapsed slot. For
   machine handlers the standalone `:db diff` is suppressed (the machine
   cascade carries the db change, per design §Section 3).
 
@@ -4222,7 +4234,7 @@
   means no `:db-before`, which renders as an absent pre-image."
   ([row] (handler-body row {}))
   ([{:keys [flavour event-id db-post-handler db-write? fx-vec
-            machine errors result-discarded?] :as _row}
+            machine errors] :as _row}
     ctx]
   (let [machine? (= :reg-machine flavour)
         ;; The handler threw iff a `:rf.error/handler-exception`
@@ -4247,8 +4259,7 @@
      (when (and (not machine?) (not threw?))
        (handler-db-diff-block db-post-handler db-write?
                               (:selected-epoch-record ctx)
-                              (:instance ctx)
-                              result-discarded?))
+                              (:instance ctx)))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; The sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
