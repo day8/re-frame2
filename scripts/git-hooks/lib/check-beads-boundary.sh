@@ -12,7 +12,9 @@
 # from one place:
 #
 #   1. scripts/git-hooks/pre-commit — refuses a commit staging beads
-#      DATABASE paths from any NON-PRIMARY (worker) worktree.
+#      DATABASE paths from any NON-PRIMARY (worker) worktree. A commit
+#      concluding a merge may carry the merged-in branch's own copy of
+#      them; see "Concluding a merge" below.
 #   2. scripts/check-beads-pr-boundary.sh — the CI arm; refuses a pull
 #      request whose diff carries the same paths.
 #
@@ -159,6 +161,37 @@ rf2_beads_in_primary_worktree() {
 }
 
 # ---------------------------------------------------------------------------
+# Concluding a merge.
+#
+# pre-commit lists staged paths against HEAD, the branch's FIRST parent. A
+# merge of main that stops on a conflict is concluded by `git commit`, so the
+# tracker export the merge took from main arrives looking staged although the
+# branch never touched it. Taking main's export is exactly what a worker merge
+# should do: the pull request's diff, graded from the merge base, then carries
+# no tracker change at all. So while MERGE_HEAD exists, a database path whose
+# staged blob IS MERGE_HEAD's passes, and one equal to neither parent — an
+# export of the worker's own — is still refused.
+#
+# A conflict-free merge never reaches this: git runs pre-merge-commit there,
+# not pre-commit.
+# ---------------------------------------------------------------------------
+
+# rf2_beads_merging — returns 0 while a merge is being concluded.
+rf2_beads_merging() {
+  git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1
+}
+
+# rf2_beads_index_matches_merge_head PATH
+#
+# Returns 0 when the index carries exactly MERGE_HEAD's version of PATH: the
+# same blob, or absent from both (a staged deletion main also made).
+rf2_beads_index_matches_merge_head() {
+  _rf2b_ours=$(git rev-parse -q --verify ":$1" 2>/dev/null) || _rf2b_ours=""
+  _rf2b_theirs=$(git rev-parse -q --verify "MERGE_HEAD:$1" 2>/dev/null) || _rf2b_theirs=""
+  [ "$_rf2b_ours" = "$_rf2b_theirs" ]
+}
+
+# ---------------------------------------------------------------------------
 # The check.
 # ---------------------------------------------------------------------------
 
@@ -168,11 +201,20 @@ rf2_beads_in_primary_worktree() {
 # to stderr naming every refused path; returns 1 if any were refused, 0
 # otherwise. CONTEXT is `commit` (default) or `ci` and selects the remedy
 # stanza — the diagnosis is identical, the fix differs by where you are.
+#
+# In `commit` context a commit concluding a merge passes a database path
+# whose staged blob is MERGE_HEAD's, and the remedy for the rest takes
+# MERGE_HEAD's copy rather than HEAD's (see "Concluding a merge" above).
 check_beads_boundary() {
   _rf2b_context="${1:-commit}"
   _rf2b_paths=$(cat)
   if [ -z "$_rf2b_paths" ]; then
     return 0
+  fi
+
+  _rf2b_merge=0
+  if [ "$_rf2b_context" = "commit" ] && rf2_beads_merging; then
+    _rf2b_merge=1
   fi
 
   # Collect refused paths in a tmpfile: a POSIX-sh `while read` loop runs in
@@ -182,9 +224,11 @@ check_beads_boundary() {
 
   printf '%s\n' "$_rf2b_paths" | while IFS= read -r p; do
     [ -z "$p" ] && continue
-    if ! rf2_beads_is_permitted_path "$p"; then
-      printf '%s\n' "$p" >> "$_rf2b_refused"
+    rf2_beads_is_permitted_path "$p" && continue
+    if [ "$_rf2b_merge" = "1" ] && rf2_beads_index_matches_merge_head "$p"; then
+      continue
     fi
+    printf '%s\n' "$p" >> "$_rf2b_refused"
   done
 
   if [ ! -s "$_rf2b_refused" ]; then
@@ -198,6 +242,8 @@ check_beads_boundary() {
   printf '\n' >&2
   if [ "$_rf2b_context" = "ci" ]; then
     printf '  Beads-database paths in this PR diff:\n' >&2
+  elif [ "$_rf2b_merge" = "1" ]; then
+    printf '  Staged beads-database paths matching neither side of this merge:\n' >&2
   else
     printf '  Staged beads-database paths:\n' >&2
   fi
@@ -215,6 +261,14 @@ check_beads_boundary() {
     printf '  Fix — take the beads paths out of this branch, then force-push:\n' >&2
     printf '    git rebase -i <base>        # drop or edit the offending commit\n' >&2
     printf '    git checkout origin/main -- .beads && git commit --amend\n' >&2
+  elif [ "$_rf2b_merge" = "1" ]; then
+    printf '  Fix — this commit concludes a MERGE: take the merged-in branch'\''s copy\n' >&2
+    printf '  (MERGE_HEAD, normally origin/main), then commit again:\n' >&2
+    while IFS= read -r p; do
+      [ -n "$p" ] && printf '    git restore --source=MERGE_HEAD --staged --worktree -- %s\n' "$p" >&2
+    done < "$_rf2b_refused"
+    printf '  Not HEAD'\''s copy: that is this branch'\''s stale snapshot, and keeping it\n' >&2
+    printf '  makes the PR diff revert the tracker changes the merge brings in.\n' >&2
   else
     printf '  Fix — drop the stale snapshot, then commit again:\n' >&2
     printf '    git restore --staged .beads\n' >&2
@@ -231,7 +285,13 @@ check_beads_boundary() {
   printf '    .beads/README.md  .beads/config.yaml  .beads/.gitignore\n' >&2
   printf '    .beads/PRIME.md   .beads/hooks/**\n' >&2
   printf '\n' >&2
-  printf '  Merge-side rule: never resolve a .beads conflict with --theirs/--ours.\n' >&2
+  if [ "$_rf2b_merge" = "1" ]; then
+    printf '  A worker branch records no tracker state of its own, so taking the\n' >&2
+    printf '  merged-in copy loses nothing. The rule against --theirs/--ours on\n' >&2
+    printf '  .beads is for merges where both exports carry beads: the mayor'\''s.\n' >&2
+  else
+    printf '  Merge-side rule: never resolve a .beads conflict with --theirs/--ours.\n' >&2
+  fi
   printf '  See CLAUDE.md > Beads durability.\n' >&2
   printf '\n' >&2
 
