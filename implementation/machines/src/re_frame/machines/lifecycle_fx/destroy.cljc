@@ -615,10 +615,10 @@
   already dead for this incarnation (its own destroy ran the full pipeline
   once) or a live replacement this slot does not own.
 
-  Routed through the EXACT durable write when an event owns the
-  frame (`owner-token` non-nil), so a container watch that destroys A / publishes
-  same-id B mid-write cannot vacate B's slot or bump B's commit epoch. A nil
-  token (eventless caller) falls back to the bare write."
+  Routed through the EXACT durable write when an event owns the frame
+  (`owner-token` non-nil), which writes only while that token names the frame's
+  live incarnation. A nil token (eventless caller) falls back to the bare
+  write."
   [frame-id parent-id invoke-id owner-token]
   (let [prune-fn (fn [runtime-db]
                    (rf.machines.lifecycle-fx.teardown/teardown-actor

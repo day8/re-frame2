@@ -424,12 +424,11 @@
 
   Used by `schedule-after-timer!`'s leading `:on-supersede` single-cancel,
   which DELIBERATELY cancels whatever attempt currently holds the key before
-  installing over it. BATCH cancellations (`after-cancel-fx`, actor / frame destroy, restore)
-  must NOT re-read the current occupant — outside a frame destroy, a same-id
-  successor B could have re-armed the key on a prior cancellation's callback
-  stack, and re-reading would claim B — so they use `cancel-snapshotted-entry!`
-  instead, binding the claim to the incarnation's OWN attempt token captured at
-  batch entry.
+  installing over it. BATCH cancellations (`after-cancel-fx`, actor / frame
+  destroy, restore, the hydration reconcile) use `cancel-snapshotted-entry!`
+  instead, binding each claim to the incarnation's OWN attempt token captured
+  at batch entry rather than re-reading the current occupant. Its docstring says
+  which batches can meet a same-id successor.
 
   `emit-cancelled!` is CALLBACK-BEARING; the release that follows it cancels
   only the claimed entry's own handle, so a listener that replaced A with
@@ -443,18 +442,21 @@
   attempt token the batch OBSERVED — not the slot's current occupant.
 
   A batch (`after-cancel-fx`, `cancel-actor-timers!`, `cancel-all-timers!`,
-  `cancel-frame-timers-on-restore!`) snapshots the incarnation A's entries, then
-  cancels them one by one. Each cancellation's `:rf.machine.timer/cancelled` trace
-  is CALLBACK-BEARING: outside a frame destroy, a listener can destroy A and
-  publish same-id B, re-arming a reused `{:parent :spawn :delay}` key under a
-  FRESH token, on that trace's own stack (deterministic) — or a JVM thread can do
-  the same between snapshot and claim. Re-reading the current occupant to source
-  the claim token (as `cancel-after-timer-entry!` does) would then claim/remove
-  B. Sourcing the token from the SNAPSHOT `entry` instead makes the claim
-  incarnation-exact: B's fresh-token entry fails the atomic CAS and survives
-  untouched. `cancel-all-timers!` runs inside a frame destroy, which holds the id's
-  reservation until step 10 has finished, so no B can be seated under it; it
-  shares the batch shape all the same."
+  `cancel-frame-timers-on-restore!`, `cancel-timers-absent-from!`) snapshots the
+  incarnation A's entries, then cancels them one by one. Each cancellation's
+  `:rf.machine.timer/cancelled` trace is CALLBACK-BEARING. Where a batch runs
+  outside any drain — an epoch restore, or a direct `rearm-after-timers!` — a
+  listener can destroy A and publish same-id B, re-arming a reused
+  `{:parent :spawn :delay}` key under a FRESH token, on that trace's own stack
+  (deterministic), or a JVM thread can do the same between snapshot and claim.
+  Re-reading the current occupant to source the claim token (as
+  `cancel-after-timer-entry!` does) would then claim/remove B. Sourcing the token
+  from the SNAPSHOT `entry` instead makes the claim incarnation-exact: B's
+  fresh-token entry fails the atomic CAS and survives untouched. The other
+  batches cannot meet B and share the batch shape all the same:
+  `after-cancel-fx` and `cancel-actor-timers!` run in one of A's events or inside
+  a frame destroy, `cancel-all-timers!` runs inside a frame destroy, and a frame
+  destroy holds the id's reservation until step 10 has finished."
   [frame-id k entry reason]
   (claim-cancel-and-release! frame-id k reason (:token entry)))
 
@@ -972,15 +974,12 @@
   so the Xray Handler section can attribute the cancel to the actor's
   destroy event.
 
-  Each `:rf.machine.timer/cancelled` emit is
-  CALLBACK-BEARING when this runs outside any drain (inside one, its listeners
-  run after the drain): a listener can synchronously destroy the finishing actor's
-  owning frame incarnation A and publish a same-id successor B ON THE FIRST
-  CANCELLATION's own stack, re-arming a reused key under a fresh token. The loop
-  SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its snapshotted
-  attempt token (`cancel-snapshotted-entry!`), so a re-read can never claim B's
-  fresh-token entry. Inside a drain a destroy of the frame waits for the event
-  boundary, so the incarnation cannot change under the loop there."
+  The loop SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its
+  snapshotted attempt token (`cancel-snapshotted-entry!`). The machine-destroy
+  paths run it in one of A's events or inside a frame destroy, so the
+  incarnation cannot change under the loop: in an event a destroy of the frame
+  waits for the event boundary, and a frame destroy holds the id's reservation
+  until step 10 has finished."
   [frame-id parent-id]
   (when (and frame-id parent-id)
     (doseq [[k entry] (into []

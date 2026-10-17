@@ -168,13 +168,10 @@
   time and the existing readers (`frame-snapshot-classification`, the SSR / trace
   boundaries) redact with no change. Returns nil.
 
-  The 4-arity threads A's exact-incarnation `owner-token` through
-  `swap-elision-slot!`'s EXACT arity: a synchronous container watch that
-  destroys A and publishes same-id B DURING this durable-registry write
-  neither redirects the write into B nor bumps B's commit epoch — on
-  mid-write loss it writes nothing.
-  The 3-arity is the bare-id write (no event owner — conformance /
-  pure-fn callers)."
+  The 4-arity threads the event's exact-incarnation `owner-token` through
+  `swap-elision-slot!`'s EXACT arity, which writes only while that token names
+  the frame's live incarnation. The 3-arity is the bare-id write (no event
+  owner — conformance / pure-fn callers)."
   ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
    (when actor-id
@@ -196,10 +193,10 @@
   sub-tree (no leak). A no-op when the spec declared no classification or
   `actor-id` is nil. Returns nil.
 
-  The 4-arity threads A's exact-incarnation `owner-token` through
-  `swap-elision-slot!`'s EXACT arity so a container watch that destroys A and
-  publishes same-id B mid-write cannot re-root the drop onto B's registry or
-  bump B's commit epoch. The 3-arity is the bare-id write (no event owner)."
+  The 4-arity threads the event's exact-incarnation `owner-token` through
+  `swap-elision-slot!`'s EXACT arity, which writes only while that token names
+  the frame's live incarnation. The 3-arity is the bare-id write (no event
+  owner)."
   ([frame-id actor-id spec] (drop-at-destroy! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
    (when actor-id

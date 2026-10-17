@@ -1130,11 +1130,14 @@
 
 ;; ---- frame-incarnation ownership -----------------------------------------
 ;;
-;; Epoch stores are addressed publicly by frame id, but teardown may overlap a
-;; fresh same-id incarnation: destroy(A) dissocs A before its final epoch hook,
-;; allowing B to publish epoch state before A reaches that hook. This private
-;; token ledger serialises owner replacement against final cleanup so A can
-;; never delete B's id-keyed history/buffer/attribution.
+;; Epoch stores are addressed publicly by frame id, so every incarnation of an
+;; id shares their keys. This private token ledger records which incarnation
+;; owns them, and claim, commit and final cleanup share one serialization: a
+;; fresh token's claim first clears a predecessor's leftovers, and a commit
+;; lands only for the owning token. A destroy holds the id's reservation
+;; through its final epoch hook, so that cleanup never meets a successor. Work
+;; outside any drain, such as a Tool-Pair replace, can see a successor seated
+;; part-way through, and its commit is refused.
 
 (defonce ^:private frame-owner-tokens (atom {}))
 
@@ -1216,14 +1219,17 @@
 
 (defn cleanup-frame-owner!
   "Run `cleanup-fn` only when `owner-token` still owns `frame-id`'s epoch
-  stores (or no epoch state was ever claimed for the dying incarnation).
+  stores (or no epoch state was ever claimed for the dying incarnation), then
+  drop the ownership entry.
 
   Owner comparison and the complete cleanup run share one serialization with
-  `claim-frame-owner!`. Thus either stale A cleanup wins before B publishes any
-  state, or B claims first and A becomes a no-op; A can never erase B after the
-  comparison. Returns `cleanup-fn`'s value when cleanup ran, nil for a stale
-  owner. Cleanup functions therefore return a non-nil result when the caller
-  needs to distinguish a successful empty cleanup from a stale owner."
+  `claim-frame-owner!`. The one caller is destroy step 10
+  (`listeners/on-frame-destroyed!`), which runs while the destroy still holds
+  the id's reservation, so no same-id incarnation can have claimed the stores
+  and the comparison finds `owner-token` or no claim. Returns `cleanup-fn`'s
+  value when cleanup ran, nil when another token owns the stores. Cleanup
+  functions therefore return a non-nil result when the caller needs to
+  distinguish a successful empty cleanup from a skipped one."
   [frame-id owner-token cleanup-fn]
   (with-frame-owner-lock
     (fn []

@@ -2086,13 +2086,12 @@
   (swap-partition! id runtime-partition-key f args))
 
 (defn ^:no-doc swap-runtime-db-exact!
-  "Exact-incarnation `swap-runtime-db!`: threads `owner-token` so a
-  synchronous container watch that destroys A and publishes a same-id B during
-  the physical install neither redirects the write into B nor bumps B's commit
-  epoch. A's write that linearized before the loss stands in A's captured
-  container. Used by the machine lifecycle writes and the exact-aware
-  elision-registry writes they issue. Returns the new runtime-db slice, or nil
-  on owner loss."
+  "Exact-incarnation `swap-runtime-db!`: writes through `owner-token`'s own
+  frame record, and only while that token names `id`'s live incarnation (see
+  `swap-partition!`). Used by the machine lifecycle writes and the exact-aware
+  elision-registry writes they issue, with the router-bound event owner token.
+  Returns the new runtime-db slice, or nil when `owner-token` does not name the
+  live record."
   [id owner-token f & args]
   (swap-partition! id runtime-partition-key f args owner-token true))
 
