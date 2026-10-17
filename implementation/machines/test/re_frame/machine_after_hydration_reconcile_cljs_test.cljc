@@ -137,6 +137,34 @@
         (is (= [{} [::handle]] [(inner cfid) @released])
             "the dropped entry is gone and its host handle was released")))))
 
+(def ^:private two-delay-machine
+  "One active node bearing TWO `:after` declarations, so the arm phase has a
+  second iteration."
+  {:initial :idle
+   :data    {}
+   :states  {:idle      {:on {:go :waiting}}
+             :waiting   {:after {5000 {:target :timeout}
+                                 7000 {:target :elsewhere}}}
+             :timeout   {}
+             :elsewhere {}}})
+
+(deftest an-identical-re-hydration-supersedes-every-live-declaration-in-place
+  ;; Repeating a hydration leaves one handle per declaration, not two: each
+  ;; arm supersedes its own key, and the cancel phase sweeps nothing live.
+  (rf/reg-machine :hydrec/again two-delay-machine)
+  (let [rt   (server-runtime-db :hydrec/again [[:go]])
+        cfid (fresh-frame! :client)]
+    (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                  rf.interop/cancel-scheduled! (fn [_h] nil)]
+      (install! cfid rt)
+      (rf.machines.test-support/reset-captured!)
+      (install! cfid rt))
+    (is (= {:timers 2 :scheduled 2 :cancelled [:on-supersede :on-supersede]}
+           {:timers    (count (inner cfid))
+            :scheduled (count (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
+            :cancelled (mapv (comp :reason :tags)
+                             (rf.machines.test-support/events-of :rf.machine.timer/cancelled))}))))
+
 (deftest the-reconcile-is-frame-scoped
   (rf/reg-machine :hydrec/sib toggling-machine)
   (let [rt-waiting (server-runtime-db :hydrec/sib [[:go]])

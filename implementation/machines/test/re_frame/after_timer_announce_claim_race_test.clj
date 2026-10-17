@@ -178,4 +178,4 @@
                "sweep claimed A on the row's own stack, where the row is "
                "already out, so it emits at once"))
       (is (= 1 (count (inner cfid)))
-          "B's own timer is armed and survives A's token-exact abort"))))
+          "B's own timer is armed and survives A's late publish, which finds B's token in the slot"))))

@@ -304,38 +304,6 @@
                    (some? region)       (assoc :region region)
                    (some? delay-source) (assoc :delay-source delay-source)))))
 
-(defn successor-published?-fn
-  "Build the same-id-successor detection predicate for `frame-id`, captured at
-  the cancellation entry BEFORE the callback-bearing `:rf.machine.timer/cancelled`
-  trace. Returns a 0-arity predicate true once a `destroy-frame!` +
-  same-id reconstruction — a cancellation listener publishing successor B —
-  has replaced the captured incarnation. When the frame is absent at capture (nil token) the predicate is
-  `(constantly false)`, so an ordinary cancellation with no successor runs to
-  completion.
-
-  PUBLIC because one batch spans two namespaces. Every other
-  multi-step timer operation both captures and consumes its owner inside this
-  file, but the SSR hydration reconcile's two phases are driven from
-  `re-frame.machines.hydrate/rearm-after-timers!` — cancel here, arm here, one
-  enumeration there. That caller captures ONCE with this fn and threads the
-  result into `cancel-timers-absent-from!` and every
-  `rearm-hydrated-after-timer!`, so the whole reconcile is bound to the
-  incarnation that owned the frame when it began rather than to a fresh capture
-  per phase and per iteration.
-
-  Precise BY CONSTRUCTION: `frame-incarnation-token` mints a DISTINCT token per
-  construction, so the predicate flips only on a genuine A→B incarnation swap,
-  never on a mere frame-close — no ordinary state-exit / supersede /
-  frame-destroy / restore cancellation is cut short. It reads no bound
-  event owner, so it fences the non-destroy reasons uniformly, INCLUDING the
-  eventless frame-destroy / restore paths, and a frame torn down under an
-  unrelated event owner is not skipped."
-  [frame-id]
-  (let [captured-incarnation (rf.frame/frame-incarnation-token frame-id)]
-    (if (some? captured-incarnation)
-      (fn [] (not (rf.frame/frame-incarnation-live? frame-id captured-incarnation)))
-      (constantly false))))
-
 (def ^:dynamic ^:private *announcing-attempt-tokens*
   "The attempt tokens whose `:rf.machine.timer/scheduled` row is being
   delivered on THIS thread. `schedule-after-timer!` binds it around its own
@@ -380,13 +348,13 @@
   "The ONE durable cancel step: claim the `[frame-id k]` slot by EXACTLY `token`,
   and only if that claim wins, emit the single owed `:rf.machine.timer/cancelled`
   trace and release the claimed entry's resources. Shared by the current-occupant
-  cancel (`cancel-after-timer-entry!`) and the incarnation-exact batch cancel
+  cancel (`cancel-after-timer-entry!`) and the snapshot-exact batch cancel
   (`cancel-snapshotted-entry!`).
 
   Because the claim is scoped to the exact attempt `token` (an atomic
-  token-guarded CAS, `claim-entry!`), a same-id successor B that re-armed key `k`
-  under a FRESH globally-unique token is never claimed — the CAS fails and B's
-  entry + host handle survive byte-identical, and the release
+  token-guarded CAS, `claim-entry!`), an attempt that re-armed key `k` under a
+  FRESH globally-unique token is never claimed — the CAS fails and that
+  attempt's entry + host handle survive byte-identical, and the release
   (`release-entry-resources!`) cancels only the claimed entry's own handle.
 
   The one owed trace is not always emitted HERE. When the claimed
@@ -426,13 +394,8 @@
   which DELIBERATELY cancels whatever attempt currently holds the key before
   installing over it. BATCH cancellations (`after-cancel-fx`, actor / frame
   destroy, restore, the hydration reconcile) use `cancel-snapshotted-entry!`
-  instead, binding each claim to the incarnation's OWN attempt token captured
-  at batch entry rather than re-reading the current occupant. Its docstring says
-  which batches can meet a same-id successor.
-
-  `emit-cancelled!` is CALLBACK-BEARING; the release that follows it cancels
-  only the claimed entry's own handle, so a listener that replaced A with
-  same-id B costs B nothing."
+  instead, binding each claim to the attempt token the batch snapshotted rather
+  than re-reading the current occupant."
   [frame-id k reason]
   (when-let [entry (get-in @after-timers [frame-id k])]
     (claim-cancel-and-release! frame-id k reason (:token entry))))
@@ -443,20 +406,24 @@
 
   A batch (`after-cancel-fx`, `cancel-actor-timers!`, `cancel-all-timers!`,
   `cancel-frame-timers-on-restore!`, `cancel-timers-absent-from!`) snapshots the
-  incarnation A's entries, then cancels them one by one. Each cancellation's
-  `:rf.machine.timer/cancelled` trace is CALLBACK-BEARING. Where a batch runs
-  outside any drain — an epoch restore, or a direct `rearm-after-timers!` — a
-  listener can destroy A and publish same-id B, re-arming a reused
-  `{:parent :spawn :delay}` key under a FRESH token, on that trace's own stack
-  (deterministic), or a JVM thread can do the same between snapshot and claim.
-  Re-reading the current occupant to source the claim token (as
-  `cancel-after-timer-entry!` does) would then claim/remove B. Sourcing the token
-  from the SNAPSHOT `entry` instead makes the claim incarnation-exact: B's
-  fresh-token entry fails the atomic CAS and survives untouched. The other
-  batches cannot meet B and share the batch shape all the same:
-  `after-cancel-fx` and `cancel-actor-timers!` run in one of A's events or inside
-  a frame destroy, `cancel-all-timers!` runs inside a frame destroy, and a frame
-  destroy holds the id's reservation until step 10 has finished."
+  frame's entries, then cancels them one by one. Sourcing each claim token from
+  the SNAPSHOT `entry` makes the claim exact to the attempt the batch observed:
+  an entry re-armed at a reused `{:parent :spawn :delay}` key under a FRESH token
+  after the snapshot fails the atomic CAS and survives untouched, where
+  re-reading the current occupant (as `cancel-after-timer-entry!` does) would
+  claim it.
+
+  No batch can meet a same-id successor B, because each runs where the frame
+  cannot be destroyed and reseated under it. `after-cancel-fx`,
+  `cancel-actor-timers!` and the hydration reconcile's
+  `cancel-timers-absent-from!` (from the `:rf.machine/hydrate-rearm` fx) run
+  inside an event, where a destroy of the frame cannot finish before the event
+  ends and the id's reservation makes a same-id `make-frame` fail fast.
+  `cancel-all-timers!` and `cancel-actor-timers!` run inside a frame destroy,
+  which holds that reservation until step 10 has finished.
+  `cancel-frame-timers-on-restore!` runs inside `perform-restore!`'s serialized
+  section, where a cross-thread `destroy-frame!` waits on the `:drain-lock` and
+  each `/cancelled` reaches listeners only once the section ends."
   [frame-id k entry reason]
   (claim-cancel-and-release! frame-id k reason (:token entry)))
 
@@ -473,49 +440,22 @@
   live prior entry holds the key (a re-arm over it, such as a second
   hydration); an initial schedule against an empty slot is a no-op cancel.
 
-  Which path a caller takes decides when this fn's trace rows reach
-  listeners. Called from an fx inside a drain (the ordinary `:after` arm, the
-  `:rf.machine/hydrate-rearm` fx), every row is delivered after the drain. Called
-  outside any drain — a direct `rearm-after-timers!` — each row fans out
-  synchronously on this stack. The callback boundaries below are that direct
-  path's.
+  Both callers run inside an event: the ordinary `:after` arm from its fx,
+  and the SSR hydration re-arm from the `:rf.machine/hydrate-rearm` fx. A
+  destroy of the frame requested there cannot finish before the event ends,
+  and the id's reservation makes a same-id `make-frame` fail fast, so the
+  frame that owns the arm at its leading supersede still owns it at the
+  publish, and the arm rechecks no owner.
 
-  The leading `:on-supersede` cancel is CALLBACK-BEARING when it
-  supersedes a LIVE prior entry: on the direct path its
-  `:rf.machine.timer/cancelled` listener can destroy owning incarnation A and
-  publish same-id B on this stack. The incarnation captured at entry
-  (`owner-gone?`) is rechecked AFTER that cancel and BEFORE any delay
-  resolution / slot reservation / host arm, so a superseding arm installs
-  NO A-derived host work into successor B. An INITIAL
-  schedule supersedes an empty slot (no trace, no callback), so the recheck is a
-  no-op pass-through and the arm proceeds normally.
-
-  An `:owner-gone?` option lets a MULTI-ARM caller supply the
-  incarnation it captured at batch entry instead of this fn capturing a fresh
-  one. A fresh capture is right for a standalone arm, but wrong inside a batch:
-  if an earlier step's cancellation already destroyed A and published same-id B,
-  a re-capture names B as the owner and the A-derived arm proceeds into it. The
-  SSR hydration reconcile is the one such caller.
-
-  The supersede is not this fn's only callback boundary. It emits
-  `:rf.machine.timer/scheduled` ITSELF, synchronously,
-  AFTER the post-supersede recheck — so a listener on that row has the same
-  reach as one on `/cancelled`, and on a frame holding no prior timer it is the
-  FIRST callback of the whole operation. The same predicate is therefore
-  rechecked once more, immediately after that emit, and the host arm and
-  publish sit behind it.
-
-  The ORDER of the reservation against that emit is itself the
-  contract. The attempt's timer-table slot is reserved BEFORE the fan-out, so
+  The ORDER of the reservation against the `/scheduled` emit is itself the
+  contract. The attempt's timer-table slot is reserved BEFORE the emit, so
   the announced attempt is a CANCELLABLE one from the instant it becomes
-  visible, and the mirrored `/cancelled` closes it — emitted by the destroying
-  frame's own `cancel-all-timers!` sweep where that reached the sentinel first,
-  and by the recheck's own token-exact abort otherwise. Either way no
-  `/scheduled` row is left that can never be followed by `/fired` or
-  `/cancelled` (Spec 005 §Trace event catalogue pairs the two by
-  `(actor-id, state, epoch)`). The host clock is still armed AFTER the emit, so
-  `/scheduled` still precedes even a synchronously-firing host callback. The
-  abort releases nothing further: the sentinel holds no host handle yet.
+  visible, and whichever cleanup claims the sentinel closes the row with the
+  mirrored `/cancelled`. No `/scheduled` row is left that can never be
+  followed by `/fired` or `/cancelled` (Spec 005 §Trace event catalogue pairs
+  the two by `(actor-id, state, epoch)`). The host clock is still armed AFTER
+  the emit, so `/scheduled` still precedes even a synchronously-firing host
+  callback.
 
   Reserving first opens the REVERSE window, and the cell on the
   reservation closes it. Between the reservation and the emit the sentinel is
@@ -537,15 +477,9 @@
   remains cancellable from the instant it is visible, the host clock is still
   armed after the row, and no new trace vocabulary or `:reason` value is
   involved: the deferred row carries the claimant's own reason."
-  [frame-id parent-id invoke-id state delay-key epoch server? snapshot
-   {:keys [owner-gone?]}]
+  [frame-id parent-id invoke-id state delay-key epoch server? snapshot]
   (let [delay-source (rf.machines.transition/classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)
-        ;; The owning incarnation, captured BEFORE the callback-bearing
-        ;; `:on-supersede` cancel and rechecked before the durable arm below.
-        ;; A batch caller's own capture wins, so every arm in one
-        ;; batch is fenced by the incarnation that owned the frame at batch entry.
-        owner-gone?  (or owner-gone? (successor-published?-fn frame-id))
         ;; A region `:after`'s `invoke-id` is region-PREFIXED
         ;; (`prefix-region-invoke-id` prepends the region name). Record that
         ;; region name in the entry so every row names the node by its
@@ -564,13 +498,7 @@
                        (first invoke-id))
         decl-path    (region-relative-path region invoke-id)]
     (cancel-after-timer-entry! frame-id k :on-supersede)
-    ;; A superseding cancellation's listener may have replaced A with
-    ;; same-id B on the stack above; gate every durable step (delay resolution,
-    ;; slot reservation, host arm, publish) on the captured
-    ;; incarnation so no A-derived timer work lands on B. Initial schedules keep
-    ;; the live owner (empty-slot supersede fires no callback), so this passes.
-    (when-not (owner-gone?)
-     (cond
+    (cond
       server?
       ;; Pure-side already emitted :skipped-on-server; no-op here.
       nil
@@ -578,16 +506,6 @@
       :else
       (let [resolved-ms (resolve-delay-ms frame-id parent-id delay-key snapshot)]
         (cond
-          ;; Delay resolution is itself callback-bearing: a
-          ;; fn-form delay reading a sub through `compute-sub` emits a
-          ;; synchronous `:rf.sub/run`. A listener there can destroy A and
-          ;; publish same-id B, which may arm its own timer at this very key.
-          ;; Recheck the SAME predicate captured above (a fresh capture would
-          ;; name B) before touching the table. On loss, stop: no reservation
-          ;; over B's slot, and nothing to release.
-          (owner-gone?)
-          nil
-
           (or (not (number? resolved-ms))
               (not (pos? resolved-ms)))
           ;; Bad delay resolution — report it and skip. A dynamic delay
@@ -644,11 +562,10 @@
             ;; precisely so consumers can pair them by `(actor-id, state,
             ;; epoch)`. Reserving first makes the attempt a claimable one from
             ;; the instant it is announced, so the pair below is closed by the
-            ;; entry's OWN `/cancelled` — whether the claim comes from the
-            ;; destroying frame's `cancel-all-timers!` sweep (which sees the
-            ;; sentinel) or from the abort's token-exact reclaim. The host
-            ;; clock is still armed after the emit, so a host that fires
-            ;; synchronously cannot beat `/scheduled` to the stream.
+            ;; entry's OWN `/cancelled`, from whichever cleanup claims the
+            ;; sentinel. The host clock is still armed after the emit, so a
+            ;; host that fires synchronously cannot beat `/scheduled` to the
+            ;; stream.
             (swap! after-timers assoc-in [frame-id k] reservation)
             ;; Mark THIS thread as the row's announcer for the
             ;; duration of the fan-out, so a listener on the row that claims
@@ -669,19 +586,6 @@
                                     :epoch        epoch
                                     :frame        frame-id}
                              (some? region) (assoc :region region))))
-            ;; That `/scheduled` emit is the LAST callback-bearing
-            ;; step before the durable arm. Outside a drain `rf.trace/emit!`
-            ;; invokes listeners SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
-            ;; `destroy-frame!` the owning incarnation A and publish a same-id
-            ;; successor B right here — after the post-supersede recheck above.
-            ;; The slot is keyed by the BARE frame id, which then denotes B, so
-            ;; an unfenced arm would leave an A-derived entry and host handle
-            ;; in a frame that enumerated none of them. Recheck
-            ;; the SAME predicate — the batch caller's when it supplied one —
-            ;; rather than capturing a fresh owner, which would name B and pass.
-            ;;
-            ;; The abort releases NOTHING BEYOND THE RESERVATION ITSELF: the
-            ;; sentinel's `:handle` is still nil, so no host work exists yet.
             (let [deferred (finish-announcement! reservation)]
              (cond
               deferred
@@ -693,24 +597,7 @@
               ;; `/cancelled`, immediately after its `/scheduled`, and arms
               ;; NOTHING: the attempt is already closed, so a host arm could
               ;; only be cancelled again by the publish CAS's failure.
-              ;; `owner-gone?` is not consulted — the claimant already
-              ;; released the entry's resources.
               (emit-cancelled! frame-id k reservation deferred)
-
-              (owner-gone?)
-              ;; ABORT — reclaim the reservation by its OWN attempt token, which
-              ;; both keeps the A-derived sentinel out of B's table and closes the
-              ;; `/scheduled` row just emitted with the mirrored `/cancelled`.
-              ;; `:on-frame-destroy` is the accurate member of the closed
-              ;; `:reason` set: `owner-gone?` can flip only through
-              ;; `destroy-frame!` + same-id reconstruction, so the bearing frame
-              ;; incarnation WAS destroyed (Spec 005 §Trace event catalogue). No
-              ;; new vocabulary, and idempotent — the destroy's own
-              ;; `cancel-all-timers!` sweep may already have claimed this sentinel
-              ;; on the listener's own stack, in which case this CAS fails,
-              ;; nothing is emitted twice, and the pair is already closed.
-              (cancel-snapshotted-entry! frame-id k reservation
-                                         :on-frame-destroy)
 
               :else
               (let [handle
@@ -774,7 +661,7 @@
                   ;; released the entry and emitted the single owed `:cancelled`
                   ;; trace (or, for a self-fire, dispatched silently).
                   (do (rf.managed-timer/cancel! handle)
-                      nil))))))))))))
+                      nil)))))))))))
 
 (defn after-schedule-fx
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
@@ -814,7 +701,7 @@
         snapshot   (get-in (rf.frame/frame-runtime-db-value frame-id)
                            (rf.machines.paths/snapshot-path parent-id))]
     (schedule-after-timer! frame-id parent-id invoke-id state
-                            delay-key epoch server? snapshot {})
+                            delay-key epoch server? snapshot)
     nil))
 
 (defn rearm-hydrated-after-timer!
@@ -842,18 +729,10 @@
   (Spec 011 §`:after` is no-op under SSR), and the caller has already
   refused a `:server` frame, so `server?` is passed `false`. Idempotent
   through the ordinary timer-table key — a second hydration supersedes
-  the first arm rather than duplicating it.
-
-  `owner-gone?` is the reconcile's ONE captured incarnation,
-  threaded down instead of re-captured here. Each arm's leading
-  `:on-supersede` cancel is callback-bearing, so arm N can be the step that
-  destroys A and publishes same-id B; a re-capture at arm N+1 would name B the
-  owner and install an A-derived timer into it. The caller rechecks the same
-  predicate between iterations, so a lost incarnation stops the whole arm phase
-  rather than only the arm that lost it."
-  [frame-id parent-id invoke-id state delay-key epoch snapshot owner-gone?]
+  the first arm rather than duplicating it."
+  [frame-id parent-id invoke-id state delay-key epoch snapshot]
   (schedule-after-timer! frame-id parent-id invoke-id state delay-key epoch
-                         false snapshot {:owner-gone? owner-gone?})
+                         false snapshot)
   nil)
 
 (defn cancel-timers-absent-from!
@@ -889,32 +768,20 @@
   declaration is left in place for the arm phase to retain / supersede.
 
   A BATCH like `cancel-frame-timers-on-restore!`: it snapshots
-  the `[k entry]` pairs, cancels each by its snapshotted attempt token
-  (`cancel-snapshotted-entry!`, never re-reading the current occupant), and
-  short-circuits once a callback-published same-id successor B has replaced
-  the incarnation captured at entry.
-
-  That incarnation is the CALLER'S, passed in rather than captured
-  here, because this batch is only the first half of one operation. Capturing
-  locally would leave the fence's scope equal to this loop, and the caller's
-  arm phase would then run unfenced against whatever incarnation the last
-  cancellation had left behind. `owner-gone?` is the same predicate the arm
-  phase rechecks, so cancel and arm are bound to one incarnation."
-  [frame-id live-decls present-actors owner-gone?]
+  the `[k entry]` pairs and cancels each by its snapshotted attempt token
+  (`cancel-snapshotted-entry!`, never re-reading the current occupant)."
+  [frame-id live-decls present-actors]
   (let [live (into #{}
                    (map (fn [[parent-id invoke-id delay-key]]
                           (after-timer-key parent-id invoke-id delay-key)))
                    live-decls)]
-    (loop [pairs (into []
-                       (remove (fn [[k _]] (contains? live k)))
-                       (get @after-timers frame-id))]
-      (when (and (seq pairs) (not (owner-gone?)))
-        (let [[k entry] (first pairs)]
-          (cancel-snapshotted-entry! frame-id k entry
-                                     (if (contains? present-actors (:parent k))
-                                       :on-exit
-                                       :on-destroy)))
-        (recur (subvec pairs 1)))))
+    (doseq [[k entry] (into []
+                            (remove (fn [[k _]] (contains? live k)))
+                            (get @after-timers frame-id))]
+      (cancel-snapshotted-entry! frame-id k entry
+                                 (if (contains? present-actors (:parent k))
+                                   :on-exit
+                                   :on-destroy))))
   nil)
 
 (defn after-cancel-fx
@@ -1006,26 +873,20 @@
   frames' state.
 
   The 1-arity is a BATCH with the others' shape: it snapshots the `[k entry]`
-  pairs, cancels each by its snapshotted attempt token
-  (`cancel-snapshotted-entry!`, never re-reading), and short-circuits once the
-  captured incarnation is lost. Each `:rf.machine.timer/cancelled` trace is
-  callback-bearing, but no same-id successor can re-arm a key under it: the
-  destroy runs it at step 6 and holds the id's reservation until step 10 has
-  finished. The frame is already lifecycle-dead there, so the capture reads nil
-  and the short-circuit never fires. The 0-arity fixture-reset stays a SILENT
-  bulk release (no traces, no successor semantics — test-isolation cleanup)."
+  pairs and cancels each by its snapshotted attempt token
+  (`cancel-snapshotted-entry!`, never re-reading). No same-id successor can
+  re-arm a key under it: the destroy runs it at step 6 and holds the id's
+  reservation until step 10 has finished. The 0-arity fixture-reset stays a
+  SILENT bulk release (no traces, no successor semantics — test-isolation
+  cleanup)."
   ([]
    (doseq [inner (vals @after-timers)
            entry (vals inner)]
      (release-entry-resources! entry))
    (reset! after-timers {}))
   ([frame-id]
-   (let [owner-gone? (successor-published?-fn frame-id)]
-     (loop [pairs (vec (get @after-timers frame-id))]
-       (when (and (seq pairs) (not (owner-gone?)))
-         (let [[k entry] (first pairs)]
-           (cancel-snapshotted-entry! frame-id k entry :on-frame-destroy))
-         (recur (subvec pairs 1)))))))
+   (doseq [[k entry] (vec (get @after-timers frame-id))]
+     (cancel-snapshotted-entry! frame-id k entry :on-frame-destroy))))
 
 (defn cancel-frame-timers-on-restore!
   "Cancel every in-flight `:after` timer the given `frame-id` currently holds,
@@ -1049,16 +910,13 @@
   frame stays LIVE across a restore — it is a wholesale runtime-db swap, not a
   destroy). No-op when the frame holds no in-flight timers.
 
-  A BATCH like `cancel-all-timers!`: it snapshots the `[k entry]`
-  pairs, cancels each by its snapshotted attempt token (`cancel-snapshotted-entry!`,
-  never re-reading), and short-circuits once a callback-published same-id
-  successor B has replaced the incarnation captured at entry — so no `:on-restore`
-  cancel lands on B."
+  A BATCH like `cancel-all-timers!`: it snapshots the `[k entry]` pairs and
+  cancels each by its snapshotted attempt token (`cancel-snapshotted-entry!`,
+  never re-reading). Nothing can destroy or reseat the restored frame under
+  it: it runs inside `perform-restore!`'s serialized section, where a
+  cross-thread `destroy-frame!` waits on the `:drain-lock` and each
+  `/cancelled` reaches listeners only once the section ends."
   [frame-id]
-  (let [owner-gone? (successor-published?-fn frame-id)]
-    (loop [pairs (vec (get @after-timers frame-id))]
-      (when (and (seq pairs) (not (owner-gone?)))
-        (let [[k entry] (first pairs)]
-          (cancel-snapshotted-entry! frame-id k entry :on-restore))
-        (recur (subvec pairs 1)))))
+  (doseq [[k entry] (vec (get @after-timers frame-id))]
+    (cancel-snapshotted-entry! frame-id k entry :on-restore))
   nil)
