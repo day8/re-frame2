@@ -65,14 +65,31 @@
     @a
     {}))
 
+(declare claim-output-marks! flow-declares-marks?)
+
 (defn ^:no-doc reset-frame-last-inputs-to!
   "Replace `frame-id`'s memo rows with `prior`. The `:flows/restore-last-inputs!`
   hook: the router restores a snapshot when an event does not commit, and
   epoch passes `{}` after a tool write so the next event evaluates every flow
-  against the installed state."
+  against the installed state.
+
+  A pass rewrites a flow's output claims when it evaluates a new definition or
+  vacates a departed flow, in the live elision registry, ahead of the commit.
+  Each restored row whose definition the pass replaced or dropped gets its
+  claims back, so the claims keep covering the output the frame still holds.
+  Claims a restored row does not account for stay: they cover a path no
+  committed output occupies, which over-classifies and leaks nothing."
   [frame-id prior]
   (when-let [a (frame-memo-atom frame-id)]
-    (reset! a prior))
+    (let [current @a]
+      (reset! a prior)
+      (doseq [[id row] prior
+              :let [restored (:flow row)
+                    replaced (:flow (get current id))]
+              :when (and (not (identical? restored replaced))
+                         (or (flow-declares-marks? restored)
+                             (some-> replaced flow-declares-marks?)))]
+        (claim-output-marks! frame-id restored))))
   nil)
 
 (defn ^:no-doc last-inputs-snapshot
@@ -246,7 +263,8 @@
 ;;
 ;; A frame claims a flow's output paths in its elision registry when it first
 ;; evaluates the definition, before that evaluation emits anything, and drops
-;; the claims when the flow leaves the frame. The registry governs flow traces
+;; the claims when the flow leaves the frame; an event that does not commit
+;; puts back the claims of the rows it restores. The registry governs flow traces
 ;; and observation of the materialized app-db slot. The owner identity names
 ;; the flow, so replacing or dropping one flow's claims leaves every other
 ;; claim on the same path standing.
@@ -364,7 +382,10 @@
            "frame that runs it, e.g. (rf/make-frame {:id :my/app :flows ["
            flow-id "]}).")
       (:frame metadata)))
-  (assoc metadata :id flow-id :derive derive-fn))
+  ;; `:executable-key` names `:derive` as the definition's executable identity,
+  ;; so a re-registration's `:rf.registry/handler-replaced` reports
+  ;; `:different-fn?` from the derive rather than from an absent `:handler-fn`.
+  (assoc metadata :id flow-id :derive derive-fn :executable-key :derive))
 
 (defn reg-flow
   "Register the flow definition `flow-id`:
