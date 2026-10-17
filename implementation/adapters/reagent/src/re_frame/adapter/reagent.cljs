@@ -211,11 +211,13 @@
   `^:dev/after-load` hook. `mount-point` is read on the first call only.
 
   A hydrating first call also reads two more `opts` keys.
-  `:on-recoverable-error` is called with each error React recovers from;
-  in a development build a hydration mismatch React recovers from emits
-  `:rf.ssr/hydration-mismatch` before reaching it (or React's default
-  report). `:identifier-prefix` is passed to React as `identifierPrefix`,
-  and must be the prefix the server rendered under (Spec 004C §3).
+  `:on-recoverable-error` is called with each error React recovers from.
+  In every build, a hydration mismatch React recovers from is reported
+  first as an always-on `:rf.ssr/hydration-mismatch` error record that
+  reaches the error sinks, and in a development build also as the trace
+  of the same id; then the callback runs (or React's default report).
+  `:identifier-prefix` is passed to React as `identifierPrefix`, and must
+  be the prefix the server rendered under (Spec 004C §3).
 
   Backed by the adapter's active-root ownership: `rf/destroy-adapter!`
   releases a Root this handle still holds, exactly once, and a `render!`
