@@ -9,6 +9,9 @@
             [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            ;; The self-destroying event's record below comes off an
+            ;; `:epoch` listener, which this artefact backs.
+            [re-frame.epoch]
             ;; The producer-driven schema-violation rows below
             ;; drive a real flow, a real machine and the `:sub-overrides`
             ;; seam, and read each registration back through its own door.
@@ -2337,45 +2340,78 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
           "the 'no :db (returned no :db)' placeholder does NOT render"))))
 
-(deftest halted-destroy-record-renders-a-discarded-result-test
-  (testing "a `:halted-destroy` record whose handler destroyed its
-            own frame renders no card, a HANDLER that RAN, and a :db line
-            saying its result was discarded, never 'returned no :db'. The
-            record is the producer's shape for that case (see
-            halted-destroy-cljs-test, which drives the real producer)."
+(deftest halted-destroy-record-renders-dropped-work-test
+  (testing "a `:halted-destroy` record — queued work a destroy dropped at the
+            event boundary — renders the dropped event's DISPATCH with a muted
+            dropped line and no card, and a HANDLER body worded as never run,
+            never 'returned no :db'. The record is the producer's shape (no
+            trace; see halted-destroy-cljs-test, which drives the real
+            producer)."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [record {:epoch-id      3
                   :outcome       :halted-destroy
-                  :halt-reason   {:operation :rf.frame/destroyed-mid-drain}
-                  :event-id      :user/leave
-                  :trigger-event [:user/leave]
-                  :db-before     {}
-                  :db-after      {}
-                  :trace-events  [{:op-type   :rf.event
-                                   :operation :rf.event/dispatched
-                                   :tags      {:rf.event/v [:user/leave]
-                                               :frame      :user/page}}
-                                  {:op-type   :rf.event
-                                   :operation :rf.event/run-start
-                                   :tags      {:rf.trace/event-id :user/leave
-                                               :rf.event/v        [:user/leave]
-                                               :frame             :user/page
-                                               :rf.trace/phase    :run-start}}
-                                  {:op-type   :rf.frame
-                                   :operation :rf.frame/destroyed
-                                   :tags      {:frame :user/page}}]}
+                  :halt-reason   {:operation     :rf.frame/drain-interrupted
+                                  :dropped-count 2
+                                  :last-event-id :user/leave}
+                  :event-id      :user/next
+                  :trigger-event [:user/next]
+                  :db-before     {:n 1}
+                  :db-after      {:n 1}
+                  :trace-events  []}
           tree   (rf/with-frame :rf/xray
                    (view/pipeline-view (proj/project-numbered record)))]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-errors-dispatch"))
-          "no Exception card: a destroy is a lifecycle stop, not an error")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-skipped"))
-          "HANDLER is not rendered as skipped — it ran")
-      (is (string/includes? (str (text-of tree "rf-xray-epoch-handler-db-discarded"))
-                            "result was discarded because the frame was destroyed")
-          "the :db line says the result was discarded")
+      (is (some? (find-by-testid tree "rf-xray-epoch-dispatch-event"))
+          "DISPATCH shows the dropped event")
+      (is (nil? (find-by-testid tree "rf-xray-epoch-error-dispatch-0"))
+          "no card: a destroy is a lifecycle stop, not an error")
+      (is (= (str "Dropped — the frame was destroyed at the event boundary after"
+                  " :user/leave settled, so this queued event never ran; 2 queued"
+                  " event(s) dropped.")
+             (text-of tree "rf-xray-epoch-dispatch-dropped"))
+          "DISPATCH says the event was dropped at the destroy boundary")
+      (is (string/includes? (str (text-of tree "rf-xray-epoch-handler-skipped"))
+                            "dropped this queued event")
+          "the HANDLER body is the SKIPPED body, worded for the destroy")
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
           "the 'returned no :db' placeholder does NOT render"))))
+
+(deftest self-destroying-event-renders-as-an-ordinary-event-test
+  (testing "a handler that destroys its own frame still commits, so its `:ok`
+            record — taken from the real producer — renders HANDLER's :db
+            write and the SIDE EFFECTS ledger, with no skipped or dropped
+            wording"
+    (rf/reg-fx ::log (fn [_ _] nil))
+    (rf/reg-event ::destroy-self
+      (fn [{:keys [db]} _]
+        (rf/destroy-frame! ::self-destroying)
+        {:db (assoc db :written? true)
+         :fx [[::log :after-destroy]]}))
+    (let [records (atom [])]
+      (rf/register-listener! :epoch ::records (fn [r] (swap! records conj r)))
+      (try
+        (rf/make-frame {:id ::self-destroying})
+        (rf/dispatch-sync [::destroy-self] {:frame ::self-destroying})
+        (finally
+          (rf/unregister-listener! :epoch ::records)))
+      (epoch-orchestrator/install!)
+      (rf/make-frame {:id :rf/xray})
+      (let [[record] @records
+            tree     (rf/with-frame :rf/xray
+                       (view/pipeline-view (proj/project-numbered record)))]
+        (is (= [:ok] (mapv :outcome @records))
+            "nothing was queued, so the destroy dropped nothing")
+        (is (some? (find-by-testid tree "rf-xray-epoch-handler-db-full-with-diff"))
+            "HANDLER renders its :db write")
+        (is (= [true true]
+               (mapv #(some? (find-by-testid tree (str "rf-xray-epoch-fx-row-" %))) [0 1]))
+            "SIDE EFFECTS lists the :db commit and the effect after the destroy request")
+        (is (= [nil nil nil]
+               (mapv #(find-by-testid tree %)
+                     ["rf-xray-epoch-handler-skipped"
+                      "rf-xray-epoch-side-effects-skipped"
+                      "rf-xray-epoch-dispatch-dropped"]))
+            "nothing is worded as skipped or dropped")))))
 
 ;; ---- machine HANDLER step: no source block, no `:db` sub-section ----------
 

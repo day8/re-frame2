@@ -6,7 +6,8 @@
   boundary (Spec 002 §Destroy): the destroying event finishes as an ordinary
   event, so it projects as an ordinary `:ok` epoch with every effect it ran.
   A `:halted-destroy` record exists only when the boundary dropped queued work;
-  it names the event the drain would have run next, and the framework's
+  it names the event the drain would have run next, which never ran, so it
+  projects as that event's DISPATCH with HANDLER skipped. The framework's
   consumer-facing mapping sends it to `:blocked` — a deliberate lifecycle stop,
   not an error, so no card.
 
@@ -53,8 +54,8 @@
 
 (deftest destroy-in-the-handler-body
   (testing "the handler destroys its own frame and returns :db + :fx: the event
-            commits as an ordinary :ok epoch, HANDLER's result is not
-            discarded, and SIDE EFFECTS lists everything it ran"
+            commits as an ordinary :ok epoch, HANDLER shows its :db write, and
+            SIDE EFFECTS lists everything it ran"
     (reg-log-fx!)
     (rf/reg-event ::destroy-in-body
       (fn [{:keys [db]} _]
@@ -68,8 +69,8 @@
       (is (= [:ok] (mapv :outcome records))
           "one ordinary record: nothing was queued, so the boundary dropped nothing and wrote no :halted-destroy")
       (is (= :ok (proj/epoch-outcome steps)))
-      (is (nil? (:result-discarded? (:handler by)))
-          "a committed result is not called discarded")
+      (is (= [:ok true] ((juxt proj/step-status :db-write?) (:handler by)))
+          "HANDLER ran and its :db write committed")
       (is (= [[:db nil] [::log :after-destroy]]
              (mapv (juxt :fx-id :args) (:rows (:side-effects by))))
           "SIDE EFFECTS lists the :db commit and the effect that ran after the destroy request"))))
@@ -87,8 +88,8 @@
               [::log :after]]}))
     (let [[record] (capture-records! ::fx-frame [::destroy-in-fx])
           by       (by-step (proj/project record))]
-      (is (nil? (:result-discarded? (:handler by)))
-          "a committed result is not called discarded")
+      (is (= [:ok true] ((juxt proj/step-status :db-write?) (:handler by)))
+          "HANDLER ran and its :db write committed")
       (is (= [[:db nil] [::log :before] [::destroy-frame ::fx-frame] [::log :after]]
              (mapv (juxt :fx-id :args) (:rows (:side-effects by))))
           "SIDE EFFECTS lists every effect, the one after the destroy included"))))
@@ -103,8 +104,22 @@
       (fn [_ _]
         (rf/destroy-frame! ::queued-frame)
         {:fx [[:dispatch [::never-runs]]]}))
-    (let [records (capture-records! ::queued-frame [::destroy-with-queued-work])]
+    (let [records (capture-records! ::queued-frame [::destroy-with-queued-work])
+          [destroying dropped] records
+          steps   (proj/project dropped)
+          by      (by-step steps)]
       (is (= [[::destroy-with-queued-work :ok] [::never-runs :halted-destroy]]
              (mapv (juxt :event-id :outcome) records)))
-      (is (empty? (:trace-events (second records)))
-          "the dropped event ran nothing, so its record carries no trace"))))
+      (is (empty? (:trace-events dropped))
+          "the dropped event ran nothing, so its record carries no trace")
+      (is (= :ok (proj/epoch-outcome (proj/project destroying)))
+          "the destroying event itself projects as an ordinary :ok epoch")
+      (is (= [:dispatch :handler] (mapv :step steps))
+          "the dropped record projects from its boundary evidence: the dropped
+           event's DISPATCH and the HANDLER that never ran, no effects")
+      (is (= [[::never-runs] :halted-destroy nil]
+             ((juxt :event :halted :errors) (:dispatch by)))
+          "DISPATCH names the dropped event and carries the halt, with no card")
+      (is (= [:skipped :halted-destroy] ((juxt :status :skip-reason) (:handler by))))
+      (is (= :blocked (proj/epoch-outcome steps))
+          "a destroy is a deliberate lifecycle stop: :blocked, not :ok or :error"))))

@@ -86,7 +86,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
     - `frame-target` is a frame-id keyword or the frame value `rf/make-frame` returns.
     - Returns `[]` for an unknown or destroyed frame, for a frame that has recorded no epochs, when recording is off (`:depth` 0), and when the `day8/re-frame2-epoch` artefact is not loaded. Destroying a frame drops its history, so a new frame created under the same id starts empty.
     - A record is added when each handled event runs to completion, not once per drain. A drain that handles a parent event and a child it queued with `:fx [[:dispatch …]]` adds two records; a machine macrostep stays one.
-    - A `replace-frame-state!` write adds a record, and so does a drain that stops at its depth limit. An event interrupted by its frame's destruction adds none: its `:halted-destroy` record goes to [listeners](#epoch-listeners) only.
+    - A `replace-frame-state!` write adds a record, and so does a drain that stops at its depth limit. Work a destroy drops at the event boundary adds none: its `:halted-destroy` record goes to [listeners](#epoch-listeners) only.
     - The ring keeps the newest `:depth` records per frame (default 50); see [Configuration](#configuration).
 - **Example**:
   ```clojure
@@ -123,7 +123,7 @@ Listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `
 - **Outcomes**:
     - `:ok`: the event ran to completion. A handler that throws does not halt the drain: its record is `:ok`, with the error trace in `:trace-events`.
     - `:halted-depth`: the event a drain refused at its depth limit. It never ran, so its before and after frame-states are the same value. `:halt-reason` is `{:operation :rf.error/drain-depth-exceeded :depth … :queue-size … :last-event-id …}`.
-    - `:halted-destroy`: the frame was destroyed while the event ran. The record reaches listeners only and is never kept. `:halt-reason` is `{:operation :rf.frame/destroyed-mid-drain}`.
+    - `:halted-destroy`: a destroy requested during the frame's drain ran at the destroying event's boundary and dropped work still queued. The destroying event itself settles `:ok`; this record names the event the drain would have run next, which never ran, so its before and after frame-states are both the committed value. It exists only when something was dropped, reaches listeners only and is never kept. `:halt-reason` is `{:operation :rf.frame/drain-interrupted :dropped-count … :last-event-id …}`, where `:last-event-id` names the destroying event.
 - **`:effects` rows**: one `{:fx-id … :args … :outcome …}` per effect the event emitted. `:outcome` is `:ok`, `:skipped-on-platform`, or `:error` for an effect that threw or has no registered handler; an `:error` row adds `:error-trace`, the `:id` of the matching error trace event.
 - **`:sub-runs` rows**: one per subscription that re-ran, with `:sub-id`, `:query-v`, `:value-changed?`, `:prev-value`, `:value`, `:cascade?` and `:cause-sub`. A subscription answered from its cache has no row.
 - **`:renders` rows**: one per render, with `:render-key` (`[view-id instance]`, or `[:rf.view/anonymous nil]` for a view not made with `reg-view`), `:mount?`, `:triggered-by` and `:elapsed-ms`. `:sub-runs` and `:renders` rows can also carry `:cause-event-id`.
@@ -241,7 +241,7 @@ Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-liste
 - `callback-fn` is called with the fully assembled, unprojected `:rf/epoch-record` each time a record is published, which is not always once per event:
     - An ordinary event publishes one record when it settles. The same record, with the same `:epoch-id`, is published again when a later render, sub-run or unmount fills in more of that settled epoch.
     - Each `replace-frame-state!` write publishes its `:rf.epoch/db-replaced` record, and a drain that hits the depth ceiling publishes a `:halted-depth` record. Both are kept in the ring when `:depth` allows.
-    - An event already running when its frame is destroyed publishes a terminal `:halted-destroy` record. It goes to listeners only and is never kept, because the destroyed frame's history is already gone.
+    - A destroy requested while the frame's drain runs waits for the event boundary, so the destroying event publishes its ordinary `:ok` record. When the boundary drops work still queued, teardown then publishes one terminal `:halted-destroy` record naming the event that would have run next. It goes to listeners only and is never kept, because the destroyed frame's history is already gone.
     - A dequeued event rejected before it runs (it has no handler) publishes nothing.
 - Listeners are process-global, but `:epoch-id` is unique only within one frame's history. Key records on `[(:frame record) (:epoch-id record)]` and replace the entry when a record is published again, so a filled-in record corrects your copy rather than counting twice.
 - `:outcome` (`:ok`, `:halted-depth` or `:halted-destroy`) is state read off the record, not part of its identity. Listeners receive every record, whatever its `:outcome`.

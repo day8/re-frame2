@@ -1709,6 +1709,42 @@
              (mapv proj/step-status (proj/mark-halted steps (halted-depth-record)))))
       (is (= steps (proj/mark-halted steps {:outcome :ok}))))))
 
+;; -- HALTED-DESTROY record -------------------------------------------------
+
+(defn- halted-destroy-record
+  "The producer's shape: built from the boundary's dropped-work evidence, with
+  no trace, naming the event the drain would have run next."
+  []
+  {:outcome       :halted-destroy
+   :halt-reason   {:operation     :rf.frame/drain-interrupted
+                   :dropped-count 2
+                   :last-event-id :user/leave}
+   :event-id      :user/next
+   :trigger-event [:user/next]
+   :trace-events  []})
+
+(deftest halted-destroy-record-projects-dropped-work-test
+  (testing "a destroy's dropped work reads as never run: DISPATCH names the
+            dropped event and carries the halt with no card, HANDLER is
+            SKIPPED with the destroy as its reason, and the outcome is
+            :blocked"
+    (let [steps (proj/project (halted-destroy-record))
+          by    (into {} (map (juxt :step identity)) steps)]
+      (is (= [:dispatch :handler] (mapv :step steps)))
+      (is (= [[:user/next] :halted-destroy nil]
+             ((juxt :event :halted :errors) (:dispatch by))))
+      (is (= {:operation :rf.frame/drain-interrupted :dropped-count 2 :last-event-id :user/leave}
+             (:halt-reason (:dispatch by)))
+          "the halt's descriptor rides DISPATCH for the view to word")
+      (is (= [:skipped :halted-destroy] ((juxt :status :skip-reason) (:handler by))))
+      (is (= :blocked (proj/epoch-outcome steps)))))
+  (testing "mark-halted stamps HANDLER + SIDE EFFECTS skipped and attaches no
+            card"
+    (let [steps [{:step :dispatch} {:step :handler}
+                 {:step :side-effects} {:step :subscriptions}]]
+      (is (= [:ok :skipped :skipped :ok]
+             (mapv proj/step-status (proj/mark-halted steps (halted-destroy-record))))))))
+
 ;; ============================================================================
 ;; HISTORY restore / record projection (spec/009 §History trace)
 ;; ============================================================================
