@@ -387,8 +387,10 @@ in §5. The two can land in either order.
   id keyword, raises on nil with the layer-routed recovery text. Roughly ten lines
   plus a docstring, in the var's own namespace or the collector-grammar home the
   implementer judges — the same file family as the planned `h/ikey` door.
-- **No core edits.** The hook, `resolve-current-frame` and the hook router stay
-  untouched. The ambient-door question belongs to the sibling bead.
+- **No core edits.** The `:adapter/current-frame` hook — the adapter map's
+  `:current-frame` key, which `install-adapter!` publishes into that slot — and
+  `resolve-current-frame` stay untouched. The ambient-door question belongs to
+  the sibling bead.
 - **No codec, shell or collector changes.** If a seam choice appears to need one,
   that is the signal it is the wrong seam.
 - **Witnesses** W1–W9 above, plus the **inverted** W10 and re-grounded W11.
