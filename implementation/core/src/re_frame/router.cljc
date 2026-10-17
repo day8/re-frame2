@@ -1133,10 +1133,7 @@
   (in-band `false` → reject), and keeps validating the frame's sibling
   schemas."
   [db-before db-after runtime-db-after app-effect? rt-effect? event-id frame]
-  (let [;; The validators take a liveness thunk. The event's frame stays live
-        ;; for the whole event (a destroy it requests waits for its boundary).
-        live? (constantly true)
-        emit-throw-reject!
+  (let [emit-throw-reject!
         ;; Surface a validator-machinery throw AND reject (fail closed).
         ;; DCE-gated inside `rf.trace/emit-error!`.
         ;;
@@ -1214,7 +1211,7 @@
           (if effect?
             (if-let [validate (rf.late-bind/get-fn-cached hook-key)]
               (try
-                (let [result (apply validate partition-value event-id frame live? before)]
+                (let [result (apply validate partition-value event-id frame before)]
                   (if (nil? result) true result))
                 (catch #?(:clj Throwable :cljs :default) ex
                   (emit-throw-reject! where ex)

@@ -323,7 +323,7 @@
   Per Spec 009 §Production builds the body lives inside a
   `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
-  ([runtime-db _event-id frame-id]
+  [runtime-db _event-id frame-id]
   ;; `event-id` is accepted but unused at this boundary — the per-snapshot
   ;; emit names the MACHINE, which is the failing id here; the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
@@ -355,11 +355,6 @@
             true
             (get-in runtime-db (rf.machines.paths/snapshot-path)))
     true))
-  ([runtime-db event-id frame-id _live?]
-   ;; The router invokes every candidate-partition validator with
-   ;; `validate-app-schema!`'s argument shape; this boundary does not read
-   ;; the trailing predicate.
-   (validate-machine-data! runtime-db event-id frame-id)))
 
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install
