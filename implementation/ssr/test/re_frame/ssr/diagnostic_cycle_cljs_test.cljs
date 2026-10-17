@@ -10,7 +10,7 @@
   instead of the error. Every site therefore crosses the value through
   `re-frame.error/safe-form` (or prints it with `re-frame.error/pr-form`),
   or describes it by its shape and prints none of it, as the emitter's head
-  errors do with the element around the head.
+  errors do with a malformed head and with the element around any head.
 
   Each guarded site must show that a cyclic input yields the site's OWN
   error id and that the thrown ex-data survives `pr-str` at a downstream

@@ -576,8 +576,8 @@
   rendered — app-db values, `:sensitive` ones included, and a subtree of
   any size — and a thrown diagnostic reaches server logs and error sinks
   before egress projection can classify anything (Spec 015, the
-  exception-path residual). The head is the structural identifier and
-  travels in its own `:head` slot.
+  exception-path residual). The head travels in its own `:head` slot: a
+  reserved `:rf/*` head as itself, a malformed head as its own summary.
 
   Content-free, so the element needs no `error/safe-form` crossing: a
   cyclic foreign value among its children is counted, never printed."
@@ -643,19 +643,25 @@
   mirroring `validate-tag-name!` and the `:>` throw — never stringify an
   unescaped hiccup form to the wire.
 
-  THIS ARM IS WHERE A FOREIGN HEAD LANDS: a React context provider is
+  The head is described by its shape, `re-frame.error/diag-value-summary`,
+  in the message and in `:head` alike — never printed. A head that lands
+  here is the OFFENDING VALUE, not a structural identifier: a string, map
+  or vector in head position is whatever the view rendered, `:sensitive`
+  app-db values included, and Spec 015 keeps a value in a framework
+  render diagnostic only when it is an identifier the site controls. The
+  reserved `:rf/*` arm keeps its keyword head for exactly that reason.
+
+  The summary also makes the arm total. A React context provider is
   neither `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and
-  `pr-str` of a self-referential JS object would blow the stack —
+  `pr-str` of that self-referential JS object would blow the stack —
   `RangeError` instead of the message this function exists to produce.
-  So the head crosses `error/safe-form` before it is printed or put in
-  ex-data. The element is described by its shape (`element-shape`), so
-  the head is the only value printed."
+  The summary types the head without descending into it."
   [element]
-  (let [head (rf.error/safe-form (first element))]
+  (let [head (rf.error/diag-value-summary (first element))]
     (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
       're-frame.ssr.emit
-      (str "hiccup vector head " (pr-str head)
+      (str "hiccup vector head of shape " (pr-str head)
            " " (in-element element) " is not a valid hiccup head — a head"
            " must be a keyword (DOM tag / :<> / :>) or a callable"
            " component (fn / Var). A"
