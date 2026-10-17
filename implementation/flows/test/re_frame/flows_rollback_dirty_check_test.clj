@@ -6,9 +6,14 @@
   advanced would make the next same-input drain skip the flow, so its output
   would never materialise; a dropped departure row would lose its vacation.
 
+  A pass also rewrites its flows' output claims in the live elision registry
+  ahead of the commit, so a pass that throws hands them back to the outputs
+  the frame still holds.
+
   A predicate validator stands in for Malli (Spec 010 §Non-Malli validators)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -101,3 +106,42 @@
   (is (= {:n 4} (db)))
   (rf/dispatch-sync [:seed])
   (is (= {:n 4 :out 40} (db))))
+
+;; ---- output claims -------------------------------------------------------
+;;
+;; The commit-boundary rejection of a pass that succeeded is pinned by
+;; `re-frame.partitioned-commit-test/schema-rejection-keeps-flow-claims-on-the-committed-output`.
+
+(defn- a-throwing-replacement
+  "Run `:secret`, whose whole output at `[:old]` is classified, beside an
+  effect's claim on `[:note]`. Then re-register it with `metadata` and a
+  `:derive` that throws, and dispatch an event that changes nothing. Returns
+  `[before after]`, each the app-db, the frame's sensitive claims and the
+  committed output as the wire walker elides it."
+  [metadata]
+  (rf/reg-event :seed (fn [_ _] {:db {:n 3 :note "public"} :sensitive [[:note]]}))
+  (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
+  (rf/reg-flow :secret {:inputs [[:n]] :output-path [:old] :sensitive [[]]}
+    (fn [_] "flow-secret"))
+  (run-flows! :secret)
+  (rf/dispatch-sync [:seed])
+  (let [observe (fn []
+                  {:db     (db)
+                   :claims (rf.elision/sensitive-declarations :rf/default)
+                   :old    (rf.elision/elide-wire-value
+                             (:old (db)) {:frame :rf/default :path [:old]})})
+        before  (observe)]
+    (rf/reg-flow :secret metadata (fn [_] (throw (ex-info "derive fails" {}))))
+    (rf/dispatch-sync [:touch])
+    [before (observe)]))
+
+(deftest a-throwing-replacement-that-moves-the-output-keeps-the-committed-claims
+  (let [[before after] (a-throwing-replacement
+                         {:inputs [[:n]] :output-path [:new] :sensitive [[]]})]
+    (is (= :rf/redacted (:old before)) "precondition: the committed output is classified")
+    (is (= before after) "app-db, the claims and the redaction stay as committed")))
+
+(deftest a-throwing-replacement-that-drops-the-mark-keeps-the-committed-claims
+  (let [[before after] (a-throwing-replacement {:inputs [[:n]] :output-path [:old]})]
+    (is (= :rf/redacted (:old before)) "precondition: the committed output is classified")
+    (is (= before after) "app-db, the claims and the redaction stay as committed")))
