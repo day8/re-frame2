@@ -42,8 +42,8 @@
            (select-keys tags (cons :reason reply-keys))))))
 
 ;; A region `:after` is scheduled under a region-PREFIXED invoke-id. Its
-;; :cancelled row must strip the region head exactly as its :fired row does,
-;; or one logical timer splits across two work/reply ledger rows.
+;; :cancelled row must build the same region-qualified work-id its :fired row
+;; does, or one logical timer splits across two work/reply ledger rows.
 (deftest region-after-fired-and-cancelled-share-one-work-id
   (rf/reg-machine :cttpk4-tw/timer
     {:type    :parallel
@@ -64,7 +64,7 @@
                      (filter #(true? (:fired? (:tags %))))
                      first)
           cancelled-wid (:rf.reply/work-id (first-tags :rf.machine.timer/cancelled))]
-      (is (= [:rf.work/timer [:cttpk4-tw/timer :working] epoch] cancelled-wid))
+      (is (= [:rf.work/timer [:cttpk4-tw/timer :loader :working] epoch] cancelled-wid))
       (is (= (:rf.reply/work-id (:tags fired)) cancelled-wid)))))
 
 ;; A parallel-ROOT `:after` has decl-path `[]`; its :scheduled and :cancelled

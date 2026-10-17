@@ -4117,6 +4117,7 @@
                            :state           (:state match)
                            :delay           (:delay match)
                            :decl-path       (:decl-path match)
+                           :region          (:region match)
                            :scheduled-epoch (:scheduled-epoch match)
                            :current-epoch   (:current-epoch match)
                            :frame           frame-id
@@ -4172,6 +4173,7 @@
                            :state             (:state match)
                            :delay             (:delay match)
                            :decl-path         (:decl-path match)
+                           :region            (:region match)
                            :epoch             (:epoch match)
                            :frame             frame-id
                            :guard-suppressed? true
@@ -4215,6 +4217,7 @@
                            :state        fired-state
                            :delay        (:delay match)
                            :decl-path    (:decl-path match)
+                           :region       (:region match)
                            :epoch        (:epoch match)
                            :frame        frame-id
                            :completed-at completed-at})
