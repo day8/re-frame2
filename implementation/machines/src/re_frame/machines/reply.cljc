@@ -439,7 +439,9 @@
   SCHEDULED in, which discriminates one timer attempt from a re-armed one on
   node re-entry (one attempt has one work id — EP-0007). `=`-comparable and
   EDN-serializable. `decl-path` nil (the node was exited — no live
-  counterpart) yields `[:rf.work/timer nil epoch]`, a valid distinct id.
+  counterpart) yields `[:rf.work/timer actor-id epoch]`, and
+  `[:rf.work/timer nil epoch]` when no `actor-id` is known either; each is a
+  valid distinct id.
 
   The machine `:after` timer completions (`:rf.machine.timer/fired` /
   `:rf.machine.timer/stale-after`) carry this `:rf.reply/work-id` so they join into
