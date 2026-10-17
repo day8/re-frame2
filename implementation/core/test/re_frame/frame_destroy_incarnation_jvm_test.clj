@@ -818,7 +818,8 @@
         (when (rf.frame/frame id) (rf.frame/destroy-frame! id))))))
 
 (deftest depth-halt-fans-and-commits-normally-when-a-retains-ownership
-  ;; the control: with A live, an always-false predicate would silence both
+  ;; the control: no listener destroys A, so every corpus listener sees the
+  ;; depth record and A's :halted-depth record lands in A's own history
   (let [id            :drain.incarnation/depth-live
         depth-records (atom [])
         sibling-runs  (atom 0)]

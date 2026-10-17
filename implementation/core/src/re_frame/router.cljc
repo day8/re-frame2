@@ -3045,11 +3045,11 @@
   ONLY; the human `:reason` prose stays on the dev-only `rf.trace/emit-error!`
   path (elided in production), per the elision discipline.
 
-  `owner-token` is the frame record's `:drain-lock`, threaded into
-  `commit-halt-record!`. The halt runs on the drain, so a listener that
-  destroys the frame here records a pending destroy, which the drain finds at
-  its next boundary."
-  [frame-id owner-token router depth last-event tail-event-ids]
+  The halt runs on the drain, so a listener that destroys the frame here
+  records a pending destroy, which the drain finds at its next boundary; the
+  halt record therefore commits into the halted incarnation's own history
+  without an ownership check."
+  [frame-id router depth last-event tail-event-ids]
   (let [{queue :internal} @router
         queue-size      (count queue)
         ;; The halting event — the family's next event, at the head of the
@@ -3189,7 +3189,7 @@
                         frame-id #(redact halting-event))
                       halting-event)]
         (commit-halt! frame-id fs-now halting-time-ms :halted-depth
-                      halt-reason trigger owner-token)))))
+                      halt-reason trigger)))))
 
 (defn- settle-event-epoch!
   "Commit the just-completed event's epoch (Tool-Pair §Time-travel). Per
@@ -3524,13 +3524,10 @@
       ;; fallback).
       (and (>= depth drain-depth)
            (seq (:internal @router)))
-      ;; Thread A's EXACT owner token (`:drain-lock`) so the halt
-      ;; fanout, frame route, dev trace, and terminal commit all bind to A's
-      ;; incarnation and are fenced from a same-id B a depth-error listener may
-      ;; publish. The pass then continues: the destruction check above runs
-      ;; before the next dequeue, so a listener that destroyed A still stops it.
-      (do (handle-depth-exceeded! frame-id (:drain-lock frame-record) router
-                                  depth last-event tail-ring)
+      ;; The pass then continues: the destruction check above runs before the
+      ;; next dequeue, so a depth-error listener that destroyed the frame
+      ;; still stops it.
+      (do (handle-depth-exceeded! frame-id router depth last-event tail-ring)
           (recur 0 nil []))
 
       :else

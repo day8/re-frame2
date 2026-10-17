@@ -225,48 +225,37 @@
 
   Raw storage is required for replay. Projection happens only at off-box
   egress. `committed-at` is the causal
-  token's `:rf/time-ms`, not an assembly-time clock read."
+  token's `:rf/time-ms`, not an assembly-time clock read.
+
+  Both callers run on the frame's drain, where a destroy requested by the
+  digest hook, a trace listener or an epoch listener stays pending until the
+  drain's next event boundary. The incarnation therefore stays live from the
+  claim to the last listener, and no step rechecks it."
   [frame-id frame-state-before frame-state-after events committed-at outcome
-   halt-reason trigger-event exact-owner-token]
-  (let [owner-token (or exact-owner-token
-                        (rf.frame/frame-incarnation-token frame-id))
-        continue?  #(or (nil? exact-owner-token)
-                        (rf.frame/event-continuation-live?
-                          frame-id exact-owner-token))]
-    ;; Claim rechecks liveness under the same owner lock used by terminal
-    ;; cleanup; a check-then-claim race cannot resurrect stale A ownership.
+   halt-reason trigger-event]
+  (let [owner-token (rf.frame/frame-incarnation-token frame-id)]
     (when (and owner-token
-               (rf.epoch.state/claim-frame-owner! frame-id owner-token continue?))
-      ;; Resolve the only callback-bearing assembly input before building. A
-      ;; digest hook that destroys A (whether it returns or throws) fences every
-      ;; state write below.
-      (when (continue?)
-        (let [schema-digest (rf.epoch.assembly/current-schema-digest frame-id continue?)]
-          (when (continue?)
-            ;; Whole-frame snapshots are restore units; app-db slots are
-            ;; projections. The supplied digest keeps build-record data-only.
-            (let [base-record (rf.epoch.assembly/build-record
-                                frame-id frame-state-before frame-state-after events
-                                committed-at outcome halt-reason schema-digest)
-                  ;; Pin the explicit trigger only when the buffer did not
-                  ;; resolve one (a halting event that never reached run-start).
-                  record (cond-> base-record
-                           (and trigger-event (not (:event-id base-record)))
-                           (assoc :event-id      (first trigger-event)
-                                  :trigger-event trigger-event))
-                  ;; Record + async anchor publish as one exact-owner
-                  ;; transaction. Cleanup-before-commit and B-before-commit
-                  ;; reject; commit-before-cleanup is erased by cleanup.
-                  published? (and (continue?)
-                                  (rf.epoch.state/commit-frame-owner-record!
-                                    frame-id owner-token record))]
-              ;; Each trailer is inert after owner loss.
-              (when (and published? (continue?))
-                (rf.epoch.assembly/emit-snapshotted+outcome!
-                  frame-id (:epoch-id record) (:event-id record) outcome continue?))
-              (when (and published? (continue?))
-                (rf.epoch.listeners/notify-listeners! record continue?))
-              (when (and published? (continue?)) record))))))))
+               (rf.epoch.state/claim-frame-owner! frame-id owner-token))
+      ;; Resolve the only callback-bearing assembly input before building, so
+      ;; build-record stays data-only. Whole-frame snapshots are restore units;
+      ;; app-db slots are projections.
+      (let [schema-digest (rf.epoch.assembly/current-schema-digest frame-id)
+            base-record   (rf.epoch.assembly/build-record
+                            frame-id frame-state-before frame-state-after events
+                            committed-at outcome halt-reason schema-digest)
+            ;; Pin the explicit trigger only when the buffer did not
+            ;; resolve one (a halting event that never reached run-start).
+            record        (cond-> base-record
+                            (and trigger-event (not (:event-id base-record)))
+                            (assoc :event-id      (first trigger-event)
+                                   :trigger-event trigger-event))]
+        ;; Record + last-settled anchor publish as one transaction under the
+        ;; epoch stores' owner lock; the trailers follow only a publish.
+        (when (rf.epoch.state/commit-frame-owner-record! frame-id owner-token record)
+          (rf.epoch.assembly/emit-snapshotted+outcome!
+            frame-id (:epoch-id record) (:event-id record) outcome)
+          (rf.epoch.listeners/notify-listeners! record)
+          record)))))
 
 (defn settle!
   "Settle one dequeued event, not an entire drain.
@@ -300,7 +289,7 @@
        ;; suppressed here; never-run depth halts use `commit-halt-record!`.
        (when (seq events)
          (commit-record! frame-id frame-state-before frame-state-after events
-                         committed-at outcome halt-reason nil nil))))))
+                         committed-at outcome halt-reason nil))))))
 
 (defn- commit-halt-record!
   "Commit a halt record for an event that never ran.
@@ -319,43 +308,34 @@
   from this fallback). A second slot could only ever carry a value this path
   discards, so a pair would imply two meaningful snapshots the halt never has.
 
-  EXACT-INCARNATION halt commit. `exact-owner-token` is A's
-  event-owner token (its `:drain-lock`); the router threads it so a depth-error
-  listener that destroyed A and published a same-id B cannot have this terminal
-  commit steal B's stores. The buffer harvest AND the record build/commit are
-  gated on A's live continuation, and `commit-record!` claims A's exact token
-  rather than resolving the current bare-id owner. Once A is lost the commit
-  neither harvests B's capture buffer nor commits into B's history; when A
-  retains ownership (the ordinary depth halt) the commit proceeds as usual. A
-  nil token selects the bare-id contract for any non-exact caller.
+  The router's depth halt calls it on the frame's drain, so a depth-error
+  listener that destroys the frame leaves the destroy pending until the drain's
+  next event boundary: the capture buffer, history and stores this commit
+  touches are still the halted incarnation's own.
   Single-arity (not multi-arity) with the `(when interop/debug-enabled? …)`
   outermost so the epoch's trace-event-projection keyword references stay DCE-
   able in production (multi-arity perturbs Closure's `:advanced` reachability
   and defeats that elision)."
-  [frame-id frame-state-after committed-at outcome halt-reason
-   trigger-event exact-owner-token]
+  [frame-id frame-state-after committed-at outcome halt-reason trigger-event]
   (when rf.interop/debug-enabled?
-    (when (or (nil? exact-owner-token)
-              (rf.frame/event-continuation-live? frame-id exact-owner-token))
-      (let [events (rf.epoch.state/harvest-buffer! frame-id)
-            ;; Source the durable value from the same snapshot restore uses,
-            ;; rather than trusting the router's live re-read. Fall back to
-            ;; the router-passed value when no `:ok` epoch has landed yet
-            ;; (depth-exceed on the first cascade).
-            last-id     (rf.epoch.state/last-settled-epoch-id frame-id)
-            last-record (when last-id
-                          (->> (rf.epoch.state/history-for frame-id)
-                               (some (fn [r] (when (= last-id (:epoch-id r)) r)))))
-            fs          (if last-record
-                          (:frame-state-after last-record)
-                          frame-state-after)]
-        ;; The halting event never ran, so the harvested buffer resolves no
-        ;; trigger of its own and `trigger-event` — the halting event's vector
-        ;; — names what the record is about. The harvest also clears residual
-        ;; capture, which would otherwise drift into the NEXT event's epoch.
-        (commit-record! frame-id fs fs events
-                        committed-at outcome halt-reason trigger-event
-                        exact-owner-token)))))
+    (let [events (rf.epoch.state/harvest-buffer! frame-id)
+          ;; Source the durable value from the same snapshot restore uses,
+          ;; rather than trusting the router's live re-read. Fall back to
+          ;; the router-passed value when no `:ok` epoch has landed yet
+          ;; (depth-exceed on the first cascade).
+          last-id     (rf.epoch.state/last-settled-epoch-id frame-id)
+          last-record (when last-id
+                        (->> (rf.epoch.state/history-for frame-id)
+                             (some (fn [r] (when (= last-id (:epoch-id r)) r)))))
+          fs          (if last-record
+                        (:frame-state-after last-record)
+                        frame-state-after)]
+      ;; The halting event never ran, so the harvested buffer resolves no
+      ;; trigger of its own and `trigger-event` — the halting event's vector
+      ;; — names what the record is about. The harvest also clears residual
+      ;; capture, which would otherwise drift into the NEXT event's epoch.
+      (commit-record! frame-id fs fs events
+                      committed-at outcome halt-reason trigger-event))))
 
 ;; ---- restore --------------------------------------------------------------
 ;;
@@ -517,8 +497,9 @@
 (defn- record-synthetic-replace-epoch!
   "Record and fan out one synthetic pair-tool epoch, as an EXACT-incarnation
   transaction keyed on `incarnation-token` — the token the replace's
-  preconditions resolved and its physical write already committed under
-  (following the `commit-record!` pattern above). Claiming
+  preconditions resolved and its physical write already committed under.
+  Unlike `commit-record!`, this runs outside any drain, so a callback's
+  destroy is immediate rather than pending. Claiming
   whichever same-id token happens to be CURRENT is the defect this guards
   against: after A's write has linearized, a same-id successor B seated at
   any callback boundary must never inherit A's synthetic record, ring entry,
