@@ -142,10 +142,8 @@
   `:rf.error/no-adapter-installed` until a reactive adapter is installed
   (Spec 006 §Adapter selection at boot). This is an INTERACTIVE mount — a
   keystroke dispatches an event, app-db changes, and the boundary
-  re-renders — so the adapter has to bridge reactive change into React's
-  re-render, which the headless plain-atom adapter does not: its derived
-  value is not `IWatchable`, and a moving subscription under it would
-  notify nothing at all.
+  re-renders — so it takes a view adapter, not the headless plain-atom
+  one, which has no live render path: it renders only to a string.
 
   Then the frame, seeded; then [[mount!]], which is where a container, a
   frame id and a hiccup tree meet. There is no root state to keep here:

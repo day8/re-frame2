@@ -28,8 +28,8 @@
   at boot). It has to be a REACTIVE one here: a keystroke moves `app-db`
   and the boundary that read it must re-render, so the adapter's job is
   to bridge reactive change into React's re-render. The headless
-  plain-atom adapter cannot — its derived value is not `IWatchable`, so a
-  moving subscription under it notifies nothing at all.
+  plain-atom adapter cannot — it has no live render path, only
+  `render-to-string`.
 
   ## Why the handle is a `defonce`
 

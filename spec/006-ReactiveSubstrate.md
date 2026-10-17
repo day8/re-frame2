@@ -1769,9 +1769,28 @@ How it differs from the Reagent adapter:
 ;; No Reaction — derived values are computed on every read. SSR runs each
 ;; sub once, so caching wouldn't help. Tests that want caching swap in the
 ;; Reagent adapter via the reagent-cljs-jvm interop layer.
+;; It still takes a watch, so subscribe-container works on it: each observer
+;; watches the sources while attached and is called when the value moves by =.
+;; (CLJS reifies IWatchable; disposal and IRef's other methods are elided.)
 (defn make-derived-value [source-containers compute-fn]
-  (reify clojure.lang.IDeref
-    (deref [_] (apply compute-fn (map deref source-containers)))))
+  (let [compute  #(apply compute-fn (map deref source-containers))
+        watching (atom {})]                           ;; observer key -> its unwatch thunk
+    (reify
+      clojure.lang.IDeref
+      (deref [_] (compute))
+      clojure.lang.IRef
+      (addWatch [this k f]
+        (let [sk   (gensym "rf-derived-")
+              seen (atom (compute))]                  ;; this observer's baseline
+          (doseq [s source-containers]
+            (add-watch s sk (fn [_ _ _ _]
+                              (let [nu (compute) [old _] (swap-vals! seen (constantly nu))]
+                                (when (not= old nu) (f k this old nu))))))
+          (swap! watching assoc k #(doseq [s source-containers] (remove-watch s sk)))
+          this))
+      (removeWatch [this k]
+        (when-let [unwatch (get @watching k)] (unwatch) (swap! watching dissoc k))
+        this))))
 
 ;; render is not used on the JVM — render-to-string is the only path.
 (defn render [_ _ _]
