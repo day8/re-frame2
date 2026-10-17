@@ -2010,16 +2010,16 @@
   The 6-arity is the EXACT-INCARNATION variant behind
   `swap-runtime-db-exact!`, used by the writes an event issues under its
   owner token (machine spawn and destroy). It resolves the write through
-  `owner-token`'s own frame record, writes nothing unless that token names the
-  live incarnation, and checks continuation liveness around each host-adapter
-  callback (`read-container`, `replace-container!`): an install that lost its
-  owner stands in A's captured container but bumps no commit epoch. Those
-  writes run in one of A's events, with A's drain on the stack, so no same-id
-  successor can be seated mid-install: a destroy that a synchronous container
-  watch requests there takes the id's reservation at once but cannot begin A's
-  teardown before the event ends, so a same-id `make-frame` fails fast.
-  Returns the new slice, or nil on owner loss (the caller treats a nil as a
-  no-op and rechecks liveness before its own later actions)."
+  `owner-token`'s own frame record and writes nothing unless that token names
+  the live incarnation. The token is the router-bound owner of whichever event
+  is on the stack, which need not be `id`'s: a destroy of frame A run inside
+  frame B's event runs A's machine `:exit` effects under B's token, and those
+  writes are refused. Once the token matches, the write runs in one of A's own
+  events, so nothing can take the incarnation away mid-install: a destroy that
+  a synchronous container watch requests there cannot flip A's liveness before
+  the event ends, and the id's reservation makes a same-id `make-frame` fail
+  fast. Returns the new slice, or nil when `owner-token` does not name the live
+  record (the caller treats a nil as a no-op)."
   ([id pk f args] (swap-partition! id pk f args nil false))
   ([id pk f args owner-token exact-owner?]
    (if-not exact-owner?
@@ -2035,25 +2035,12 @@
      ;; write binds to A's own container.
      (when-let [frame-record (frame id)]
        (when (identical? owner-token (:drain-lock frame-record))
-         (let [container   (:frame-state frame-record)
-               read-result (call-exact-frame-callback
-                             id owner-token true
-                             #(rf.substrate.adapter/read-container container))]
-           (when-not (= stale-exact-callback read-result)
-             (let [current   (second read-result)
-                   new-slice (apply f (get current pk) args)]
-               ;; Recheck after the read callback, before the physical install.
-               (when (event-continuation-live? id owner-token)
-                 (let [replace-result
-                       (call-exact-frame-callback
-                         id owner-token true
-                         #(rf.substrate.adapter/replace-container!
-                            container (assoc current pk new-slice)))]
-                   ;; An install that lost its owner stands in A's captured
-                   ;; container but bumps no id-keyed commit epoch.
-                   (when-not (= stale-exact-callback replace-result)
-                     (bump-commit-epoch! id)
-                     new-slice)))))))))))
+         (let [container (:frame-state frame-record)
+               current   (rf.substrate.adapter/read-container container)
+               new-slice (apply f (get current pk) args)]
+           (rf.substrate.adapter/replace-container! container (assoc current pk new-slice))
+           (bump-commit-epoch! id)
+           new-slice))))))
 
 (defn swap-frame-db!
   "Mutate the frame's app-db PARTITION: read the current app-db value,
