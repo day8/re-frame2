@@ -32,9 +32,10 @@
 ;;     :ok                       → :ok       (the cascade settled cleanly)
 ;;     :halted-depth             → :blocked  (the drain hit the depth limit;
 ;;                                            the halting event never ran)
-;;     :halted-destroy           → :blocked  (the frame was destroyed mid-
-;;                                            drain — a deliberate lifecycle
-;;                                            stop, not an error)
+;;     :halted-destroy           → :blocked  (a destroy requested during the
+;;                                            drain dropped queued work at the
+;;                                            event boundary — a deliberate
+;;                                            lifecycle stop, not an error)
 ;;     :halted-handler-exception → :error    (schema-reserved cause; the
 ;;                                            reference runtime
 ;;                                            does NOT emit this — the
