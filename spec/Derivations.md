@@ -706,7 +706,7 @@ This exposure is *internal registration metadata*, consistent with this doc's sc
 
 ## Flows expose algebra views
 
-Flows are the subscription's exact policy twin: the *same* whole-value function, materialized instead of ephemeral (the [§Worked equivalence](#worked-equivalence--one-function-two-policies) above). Every `reg-flow` registration projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The registrar-derived discipline](#the-registrar-derived-discipline)): [013](013-Flows.md) keeps the per-frame registry, the topological-sort engine, the dirty-check, and the drain-integration semantics; the algebra view is assembled from the flow-map metadata, never from re-running the `:derive` function.
+Flows are the subscription's exact policy twin: the *same* whole-value function, materialized instead of ephemeral (the [§Worked equivalence](#worked-equivalence--one-function-two-policies) above). Every `reg-flow` registration projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The registrar-derived discipline](#the-registrar-derived-discipline)): each definition is an ordinary `:flow` registrar row, which an image selects like any other kind, and [013](013-Flows.md) keeps frame activation through `:flows` ([013 §Activation](013-Flows.md#activation)), the per-frame evaluation memo, the topological-sort engine, the dirty-check, and the drain-integration semantics; the algebra view is assembled from the flow-map metadata, never from re-running the `:derive` function.
 
 A flow is always a **`:derivation`** (never a process — [§Derivation](#derivation)), and every flow node carries the same five fixed classifications, because a flow is the canonical *materialized* member of the algebra:
 
@@ -834,7 +834,7 @@ This exposure is *internal registration metadata*, consistent with this doc's sc
 
 The algebra view is **registrar-derived** — assembled from the registration metadata at the surface that registers each source form, never from re-executing the source form. The static graph is projected from registrations; the live graph reads the runtime cache entries a frame already holds. Every per-family projection ([subscriptions](#subscriptions-expose-algebra-views), [flows](#flows-expose-algebra-views), [resources](#resources-expose-process-nodes), [routes](#routes-expose-algebra-views), [machines](#machines-expose-algebra-views)) and the [graph-assembly composer](#the-graph-assembly-composer-ep-0014-slice-7) that stitches them obey this rule: they add no new fact identity and run no `:derive`, `:request`, transition, param, or scope function (the [don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition)).
 
-This keeps the algebra view a pure **projection of one registry** — there is one registration registry per frame, and every accessor (static, live, and the composer) is a view over it, never a second authoritative home. The composition model the registry lives under is `image → frame → event stream` ([002-Frames](002-Frames.md)): an [`rf/image`](API.md) selects the registration sources, a frame holds the resolved registrar, and the algebra view is the normalized projection of what that registrar carries.
+This keeps the algebra view a pure **projection of one registry** — the one process-global source store every registration goes into — and every accessor (static, live, and the composer) is a view over it, never a second authoritative home. The composition model the registry lives under is `image → frame → event stream` ([002-Frames](002-Frames.md)): an [`rf/image`](API.md) selects the registration sources, a frame resolves them through its own view — its sealed image generation, or the whole store live for a frame made without `:images` ([002 §Image resolution and composition](002-Frames.md#image-resolution-and-composition)) — and the algebra view is the normalized projection of what that view carries.
 
 ## Conformance
 
@@ -868,7 +868,7 @@ The node/fact/edge/storage-class/evaluation-policy/lifecycle Malli shapes are in
 - [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md) — one-name-per-fact, applied graph-wide to fact identity.
 - [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the reply envelope `:on-reply` processes consume.
 - [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) — canonical path/node identity rules.
-- [002-Frames](002-Frames.md) — the `image → frame → event stream` composition model the registrar-derived algebra view projects over (the registry a frame holds).
+- [002-Frames](002-Frames.md) — the `image → frame → event stream` composition model the registrar-derived algebra view projects over (the registration view a frame resolves through).
 - [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the frame-owned egress posture the redaction metadata composes through.
 - [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014) — the projected Malli shapes.
 - [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra) — the path shape node/fact identity normalizes to.
