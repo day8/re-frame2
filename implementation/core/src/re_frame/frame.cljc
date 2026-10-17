@@ -4240,9 +4240,6 @@
   "Fire the epoch destroy hook (step 10): publish the terminal evidence the
   pre-dissoc snapshot bound and drop the frame's epoch stores.
 
-  `owner-token` is the destroyed frame's stable incarnation identity; the epoch
-  artefact cleans only the id-keyed state that incarnation owns.
-
   `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
   BEFORE dissoc — the epoch surface publishes the incarnation's terminal facts
   from it rather than re-reading its id-keyed stores after the dissoc.
@@ -4259,10 +4256,10 @@
   gone, which nothing frees and a later same-id incarnation would inherit. The
   hooks before step 8 keep ordinary delivery, and the ring release clears what
   they push."
-  [id owner-token terminal-evidence]
+  [id terminal-evidence]
   (when-let [f (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (try
-      (f id owner-token terminal-evidence)
+      (f id terminal-evidence)
       (catch #?(:clj Throwable :cljs :default) ex
         (rf.trace/call-with-structural-delivery
           #(record-teardown-failure! :epoch/on-frame-destroyed
@@ -4720,8 +4717,7 @@
              ;; Idempotent no-op for application frames (the common case).
              (rf.trace/clear-frame-no-emit-for! id)))
           (dissoc-frame! id)
-          (notify-epoch-listeners! id expected-incarnation-token
-                                   terminal-evidence))
+          (notify-epoch-listeners! id terminal-evidence))
         nil)
         (finally
           ;; EP-0008 R1 — FINALLY-shaped flush of the always-on
