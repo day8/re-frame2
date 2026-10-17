@@ -1,7 +1,8 @@
 (ns re-frame.cross-frame-destroy-exit-cljs-test
   "A frame's machine teardown behaves the same whichever stack destroys the
-  frame: at top level, from another frame's effect, or at the boundary of the
-  frame's own event when another frame's effect `dispatch-sync`ed into it.
+  frame: at top level, at the boundary of the frame's own event, from another
+  frame's effect, or at the boundary of the frame's own event when another
+  frame's effect `dispatch-sync`ed into it.
 
   Frame A holds two spawned actors: a sibling, then a killer whose `:exit`
   destroys the sibling. The frame-destroy walker tears the killer down first
@@ -66,6 +67,9 @@
   (rf/make-frame {:id :xfd/b})
   (doseq [[frame-a destroy!]
           [[:xfd/a-top-level #(rf/destroy-frame! :xfd/a-top-level)]
+           ;; A's own effect destroys A: a pending destroy whose boundary is
+           ;; reached in A's own drain, with no other frame's event on the stack.
+           [:xfd/a-own-drain #(rf/dispatch-sync [:xfd/destroy :xfd/a-own-drain] {:frame :xfd/a-own-drain})]
            ;; B's effect destroys A: an immediate destroy inside B's event.
            [:xfd/a-from-b    #(rf/dispatch-sync [:xfd/destroy :xfd/a-from-b] {:frame :xfd/b})]
            ;; B's effect runs an A event that destroys A: a pending destroy whose
