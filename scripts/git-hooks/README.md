@@ -251,6 +251,28 @@ artefacts that do not exist yet (`.beads/events.jsonl` when events-export
 is enabled, `.beads/dolt/**`, `.beads/*.db`). That is the point of an
 allow-list: nobody has to remember to extend a deny-list.
 
+### Concluding a merge of main
+
+The hook lists staged paths against `HEAD`, the branch's first parent. A
+merge of `origin/main` that stops on a conflict is concluded by `git commit`,
+so the tracker export the merge took from main arrives looking staged although
+the branch never touched it. A conflict-free merge never reaches the hook at
+all: git runs `pre-merge-commit` there, not `pre-commit`.
+
+Taking main's export is exactly what a worker merge should do — the pull
+request's diff, graded from the merge base, then carries no tracker change. So
+while `MERGE_HEAD` exists, a database path whose staged blob is `MERGE_HEAD`'s
+passes, and one equal to neither parent is refused. The refusal then names
+`git restore --source=MERGE_HEAD --staged --worktree -- <path>` for each path,
+never `git checkout HEAD -- .beads`: `HEAD`'s copy is the branch's stale
+snapshot, and keeping it would make the PR diff revert main's tracker changes.
+That is not the `--theirs`/`--ours` case CLAUDE.md rules out, which is a merge
+where both exports carry beads — the mayor's.
+
+The comparison lives in `lib/check-beads-boundary.sh`, which the installed
+hook sources from the committing worktree, so it reaches every checkout with
+the change and needs no reinstall.
+
 ### Why not `git update-index --skip-worktree`?
 
 The bead originally proposed setting `--skip-worktree` on
@@ -699,6 +721,16 @@ The MCP-staleness block in `post-merge`, through `post-merge-hook-test.cjs`:
 38. A changed path inside an MCP server's source surface warns, naming the
     server and its rebuild command, and any other path is silent — both
     through the library and through the hook over a real `ORIG_HEAD` diff
+
+The worker beads boundary concluding a conflicted merge of main, the one merge
+path that reaches `pre-commit`:
+
+39. The merge took main's tracker export → passes, and the PR diff carries no
+    tracker change
+40. A staged tracker equal to neither parent → refused, the remedy takes
+    `MERGE_HEAD`'s copy and never `HEAD`'s, and running it concludes the merge
+41. Outside a merge, staging main's very export is still refused with the
+    ordinary remedy — only `MERGE_HEAD` makes main's blob acceptable
 
 ## Discovery context
 
