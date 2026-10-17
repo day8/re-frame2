@@ -253,6 +253,129 @@ else
   cat "$SMOKE_ERR" >&2 || true
 fi
 
+# (m1)-(m3): concluding a CONFLICTED merge of main. A conflict-free merge never
+# runs pre-commit (git runs pre-merge-commit there), so only a merge that needs
+# resolving reaches this block — and the hook lists staged paths against HEAD,
+# the branch's FIRST parent, so the tracker export the merge takes from main
+# arrives looking staged.
+#
+# Main checkpoints a tracker the worker branch never saw, and both sides add
+# conflict.txt, so `git merge main` stops for resolution. The main commit uses
+# --no-verify: the mayor block refuses source in the primary worktree.
+MAIN_TRACKER='{"id":"main","title":"checkpointed on main after the fork"}'
+REMEDY_LINE='git restore --source=MERGE_HEAD --staged --worktree -- .beads/issues.jsonl'
+merge_setup_ok=1
+(
+  cd "$MAYOR"
+  printf '%s\n' "$MAIN_TRACKER" > .beads/issues.jsonl
+  printf 'main\n' > conflict.txt
+  git add .beads/issues.jsonl conflict.txt
+  git commit -q --no-verify -m 'main: checkpoint + source'
+) >/dev/null 2>&1 || merge_setup_ok=0
+(
+  cd "$WORKER"
+  printf 'worker\n' > conflict.txt
+  git add conflict.txt
+  git commit -q -m 'worker: source'
+) >/dev/null 2>&1 || merge_setup_ok=0
+MAIN_TRACKER_BLOB=$(git -C "$MAYOR" rev-parse main:.beads/issues.jsonl)
+PRE_MERGE=$(git -C "$WORKER" rev-parse HEAD)
+# Without a tracker that differs between the two parents, every case below
+# passes vacuously.
+if [ "$(git -C "$WORKER" rev-parse HEAD:.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ]; then
+  merge_setup_ok=0
+fi
+[ "$merge_setup_ok" = "1" ] || fail "(m-setup) could not build a main whose tracker the worker branch lacks"
+
+# start_conflicted_merge — from PRE_MERGE, merge main and resolve conflict.txt
+# alone, leaving the tracker as the merge took it. Fails unless the merge
+# stopped on exactly that conflict and the index carries main's tracker.
+start_conflicted_merge() {
+  cd "$WORKER"
+  git reset -q --hard "$PRE_MERGE"
+  if git merge -q --no-edit main >/dev/null 2>&1; then return 1; fi
+  [ "$(git ls-files -u | awk '{print $4}' | sort -u)" = "conflict.txt" ] || return 1
+  printf 'resolved\n' > conflict.txt
+  git add conflict.txt
+  git rev-parse -q --verify MERGE_HEAD >/dev/null || return 1
+  [ "$(git rev-parse :.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ]
+}
+
+# (m1): the merge took main's export, as a worker merge should -> passes, and
+# the PR diff (main...HEAD) then carries no tracker change at all.
+scenario_m1() {
+  start_conflicted_merge || return 97
+  git commit -q --no-edit
+}
+rc=$(scenario_rc scenario_m1)
+if [ "$rc" = "0" ] \
+   && [ "$(git -C "$WORKER" rev-list --parents -n 1 HEAD | wc -w | tr -d ' ')" = "3" ] \
+   && [ "$(git -C "$WORKER" rev-parse HEAD:.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ] \
+   && [ -z "$(git -C "$WORKER" diff --name-only main...HEAD -- .beads)" ]; then
+  pass "(m1) worker concludes a conflicted merge of main, tracker as main has it -> passed"
+else
+  fail "(m1) conflicted merge taking main's tracker was NOT committed cleanly (exit $rc)"
+  cat "$SMOKE_ERR" >&2 || true
+fi
+
+# (m2): a merge staging a tracker equal to NEITHER parent -> refused. The
+# remedy takes MERGE_HEAD's copy, never HEAD's: HEAD's is the stale snapshot,
+# and keeping it would make the PR diff revert main's tracker changes. The
+# printed remedy then concludes the merge.
+scenario_m2() {
+  start_conflicted_merge || return 97
+  printf '{"id":"hand","title":"hand-resolved"}\n' > .beads/issues.jsonl
+  git add .beads/issues.jsonl
+  git commit -q --no-edit
+}
+rc=$(scenario_rc scenario_m2)
+if [ "$rc" != "0" ] && [ "$rc" != "97" ] \
+   && grep -q '\.beads/issues\.jsonl' "$SMOKE_ERR" \
+   && grep -qF "$REMEDY_LINE" "$SMOKE_ERR" \
+   && ! grep -q 'git checkout HEAD -- .beads' "$SMOKE_ERR" \
+   && git -C "$WORKER" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  pass "(m2) merge staging a tracker equal to neither parent -> refused, remedy takes MERGE_HEAD's copy (exit $rc)"
+else
+  fail "(m2) merge staging a hand-made tracker was NOT refused as specified (exit $rc)"
+  cat "$SMOKE_ERR" >&2 || true
+fi
+scenario_m2_remedy() {
+  cd "$WORKER"
+  sh -c "$REMEDY_LINE"
+  git commit -q --no-edit
+}
+rc=$(scenario_rc scenario_m2_remedy)
+if [ "$rc" = "0" ] \
+   && [ "$(git -C "$WORKER" rev-parse HEAD:.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ]; then
+  pass "(m2) the printed remedy concludes that merge with main's tracker"
+else
+  fail "(m2) the printed remedy did not conclude the merge (exit $rc)"
+  cat "$SMOKE_ERR" >&2 || true
+fi
+
+# (m3): OUTSIDE a merge, staging main's very export is still refused, with the
+# ordinary remedy. Only MERGE_HEAD makes main's blob acceptable, so a fix that
+# compared against main itself would fail here.
+scenario_m3() {
+  cd "$WORKER"
+  git reset -q --hard "$PRE_MERGE"
+  git checkout -q main -- .beads/issues.jsonl
+  [ "$(git rev-parse :.beads/issues.jsonl)" = "$MAIN_TRACKER_BLOB" ] || return 97
+  git commit -q -m 'worker: main tracker, outside any merge'
+}
+rc=$(scenario_rc scenario_m3)
+if [ "$rc" != "0" ] && [ "$rc" != "97" ] \
+   && grep -q '\.beads/issues\.jsonl' "$SMOKE_ERR" \
+   && grep -q 'git checkout HEAD -- .beads' "$SMOKE_ERR" \
+   && ! grep -q 'MERGE_HEAD' "$SMOKE_ERR" \
+   && [ "$(git -C "$WORKER" rev-parse HEAD)" = "$PRE_MERGE" ]; then
+  pass "(m3) ordinary worker commit staging main's tracker -> still refused, ordinary remedy (exit $rc)"
+else
+  fail "(m3) ordinary commit staging main's tracker was NOT refused as specified (exit $rc)"
+  cat "$SMOKE_ERR" >&2 || true
+fi
+( cd "$WORKER" && git reset -q --hard "$PRE_MERGE" ) || true
+
 # ----------------------------------------------------------------------------
 # Layer 5: the CI arm, on DIVERGED HISTORY.
 #
