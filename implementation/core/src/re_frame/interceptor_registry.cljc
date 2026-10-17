@@ -530,32 +530,8 @@
   are built.
 
   Refs resolve through the active (realm-aware) registrar — see the ns docstring."
-  ([chain]
-   (resolve-chain chain (constantly true)))
-  ([chain continue?]
-   ;; `continue?` is the router's exact-incarnation fence. Parameterized
-   ;; interceptor factories are authored callbacks; if factory N destroys the
-   ;; dequeued event's frame, factory N+1 must never run and N's returned
-   ;; interceptor is inert. The 1-arity supplies an always-true predicate.
-   (if-not (seq chain)
-     (vec chain)
-     (loop [entries (seq chain)
-            resolved []]
-       (cond
-         (not (continue?)) nil
-         (nil? entries) resolved
-         :else
-         (let [entry (first entries)
-               value (try
-                       (chain-entry entry resolve-ref)
-                       (catch #?(:clj Throwable :cljs :default) e
-                         ;; A factory may destroy its owner and then throw. Once
-                         ;; ownership is gone, even that returned failure is
-                         ;; inert; while live, rethrow the hard error.
-                         (if (continue?) (throw e) nil)))]
-           (if (continue?)
-             (recur (next entries) (conj resolved value))
-             nil)))))))
+  [chain]
+  (mapv #(chain-entry % resolve-ref) chain))
 
 (defn chain-needs-resolution?
   "True when `chain` carries at least one interceptor REFERENCE for
