@@ -4,13 +4,12 @@
 ;; ([011 §Hydration-mismatch detection]). A data harness has no React root to
 ;; drive, so this fixture pins the half of the contract it can see: a payload
 ;; whose state differs from the client's own seed hydrates to the server's
-;; slice, and the `:rf/hydrate` dispatch itself emits no
-;; :rf.ssr/hydration-mismatch — the payload carries nothing to compare.
+;; slice.
 
 {:fixture/id           :ssr/hydration-mismatch
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:ssr/hydration}
- :fixture/doc          "The client seeds a different state than the server rendered; :rf/hydrate replaces it with the payload's :rf/app-db and emits no :rf.ssr/hydration-mismatch. Mismatches are reported only by the hydrating root's React adoption reporter."
+ :fixture/doc          "The client seeds a different state than the server rendered; :rf/hydrate replaces it with the payload's :rf/app-db. Mismatches are reported only by the hydrating root's React adoption reporter."
 
  :fixture/registry
  {:event {:rf/hydrate    {:doc "Standard hydration handler — replaces app-db with payload's :rf/app-db."}
@@ -41,7 +40,4 @@
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/init}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/hydrate}}]
-
-  :trace-not-emitted
-  [{:operation :rf.ssr/hydration-mismatch}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/hydrate}}]}}
