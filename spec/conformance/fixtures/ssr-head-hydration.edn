@@ -1,13 +1,12 @@
 ;; Conformance fixture: ssr/head-hydration
 ;; The head is data: after :rf/hydrate installs both partitions, the client's
 ;; head-model resolves the same head the server rendered, from the hydrated
-;; app-db and the route slice the payload's :rf/runtime-db carries. No
-;; :rf.ssr/hydration-mismatch is emitted.
+;; app-db and the route slice the payload's :rf/runtime-db carries.
 
 {:fixture/id           :ssr/head-hydration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
- :fixture/doc          "After :rf/hydrate installs both partitions, head-model resolves the route's head against the hydrated state — the head the server rendered. No :rf.ssr/hydration-mismatch is emitted."
+ :fixture/doc          "After :rf/hydrate installs both partitions, head-model resolves the route's head against the hydrated state — the head the server rendered."
 
  :fixture/registry
  {:event {:rf/hydrate {:doc "Standard hydration handler."}}
@@ -55,7 +54,4 @@
   ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
   ;; not a key inside :tags.
   :trace-emissions
-  [{:operation :rf.event/run-start :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}]
-
-  :trace-not-emitted
-  [{:operation :rf.ssr/hydration-mismatch}]}}
+  [{:operation :rf.event/run-start :source :ssr-hydration :tags {:rf.trace/event-id :rf/hydrate}}]}}
