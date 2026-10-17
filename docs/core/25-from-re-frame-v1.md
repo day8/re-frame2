@@ -318,16 +318,18 @@ Where one handler should receive both outcomes, `:reply-to [:some/event]` replac
 
 ### `on-changes` becomes flows
 
-v1's `on-changes` interceptor said "when these input paths change, compute a value and write it to that output path." v2's [**flows**](glossary.md#flow) do the same, but instead of adding `on-changes` to each event's interceptor chain, you register a flow once per frame and it runs after every event handler in that frame, before the new `:db` is committed. Flows can also be added and removed at runtime.
+v1's `on-changes` interceptor said "when these input paths change, compute a value and write it to that output path." v2's [**flows**](glossary.md#flow) do the same, but instead of adding `on-changes` to each event's interceptor chain, you register a flow once, at the top level, and name it in the `:flows` config of each frame that runs it. It runs after every event handler in that frame, before the new `:db` is committed.
 
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
-   :frame       :rf/default       ;; a flow belongs to one frame
    :doc         "Open todos, for handlers that need the count."}
   (fn [todos]
     (count (remove :done? (vals todos)))))
+
+[rf/frame-root {:id :rf/default :flows [:todo/remaining-count]}  ;; this frame runs it
+ [app-root]]
 ```
 
 Flows don't replace subscriptions. Use a flow for a derived value that is part of application state: read by other event handlers, carried through SSR hydration, covered by registered schemas, visible in the app-db inspector. If only views use the value, use a [subscription](glossary.md#subscription), which involves no `app-db` write. A typical app has dozens of subscriptions and a handful of flows.
@@ -336,9 +338,9 @@ Flows don't replace subscriptions. Use a flow for a derived value that is part o
 
     Does anything other than a view need this value? Only views → subscription. An event handler reads it, it must be in app-db for SSR hydration, or a schema checks it → flow. When in doubt, use a subscription. [Where should this value live?](where-state-lives.md) covers the full decision.
 
-`on-changes` was attached to specific events when they were registered, so a derivation that should run only sometimes (while a wizard step is active, behind a feature flag) had no clean form. Flows can be registered and cleared at runtime with the `:rf.fx/reg-flow` and `:rf.fx/clear-flow` effects, so migration is a chance to make an always-on derivation conditional.
+`on-changes` was attached to specific events when they were registered, so a derivation that should run only sometimes (while a wizard step is active, behind a feature flag) had no clean form. In v2 the condition is data: the flow reads a switch from app-db as one of its `:inputs`, and events set and clear it ([Gating a derivation on state](flows.md#gating-a-derivation-on-state)). Migration is a chance to make an always-on derivation conditional that way.
 
-The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path :frame frame-id} f)`; the skill asks you for the `flow-id` (suggesting `:legacy/<event-id>`) and whether the flow should be conditional.
+The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)`, with `flow-id` added to the `:flows` of the frame the app mounts; the skill asks you for the `flow-id` (suggesting `:legacy/<event-id>`) and whether the flow should be conditional.
 
 ## Growing into images and frames
 

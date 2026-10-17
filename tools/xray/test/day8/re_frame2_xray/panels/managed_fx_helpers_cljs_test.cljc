@@ -221,7 +221,7 @@
         comp (surface-ev :rf.flow/computed {:flow-id :flow/cart-subtotal :output 42})]
     (is (= [:flow :ok :flow/cart-subtotal 42]
            ((juxt :surface :status :correlation-id :res)
-            (h/flow-adapter (fx-handled :rf.fx/reg-flow args) [comp]))))))
+            (h/flow-adapter (fx-handled :rf.flow/sample args) [comp]))))))
 
 (deftest non-http-adapters-read-a-failure-row-as-an-error
   (are [adapter fx-id args fail-op fail-tags]
@@ -232,7 +232,7 @@
                              :rf.machine/invoke-failed     {:invoke-id :inv-2 :reason :no-such-machine}
     h/ssr-fx-adapter         :rf.server/set-status {:status 500}
                              :rf.ssr/render-failed         {:request-id :ssr-1 :message "boom"}
-    h/flow-adapter           :rf.fx/reg-flow       {:flow-id :flow/x}
+    h/flow-adapter           :rf.flow/sample       {:flow-id :flow/x}
                              :rf.error/flow-eval-exception {:flow-id :flow/x :message "div by zero"}))
 
 ;; ---- (3) the event-bundle walker -----------------------------------------
@@ -245,9 +245,9 @@
                              (fx-handled :db {:foo 1})
                              (fx-handled :user/persist {:bar 2})
                              (fx-handled :rf.server/set-header {:name "X" :value "Y"})
-                             (fx-handled :rf.fx/reg-flow {:flow-id :flow/x})]
+                             (fx-handled :rf.flow/sample {:flow-id :flow/x})]
                    :other []}]
-      (is (= [[:http :rf.http/managed] [:ssr-fx :rf.server/set-header] [:flow :rf.fx/reg-flow]]
+      (is (= [[:http :rf.http/managed] [:ssr-fx :rf.server/set-header] [:flow :rf.flow/sample]]
              (mapv (juxt :surface :fx-id) (h/event-bundle->managed-fx-records cascade)))))))
 
 (deftest cascade-walker-paths-untracked-without-diff-feed

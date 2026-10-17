@@ -36,7 +36,7 @@
  :aliases
  {:test {:extra-paths ["test"]
          ;; The schemas JVM test's reset-runtime fixture touches
-         ;; `re-frame.flows/flows` (the reset matrix is defensive;
+         ;; `re-frame.flows/reset-flows!` (the reset matrix is defensive;
          ;; flows might not be on the classpath in production but is
          ;; during development). Pull flows in as a test-only dependency so
          ;; the fixture loads cleanly.

@@ -105,6 +105,7 @@
     (fn []
       (rf/reg-event :flow/seed (fn [_ _] {:db {:in failing-sensitive-value}}))
       (rf/reg-flow :flow/secret {:inputs [[:in]] :output-path [:derived] :schema sensitive-map-schema} (fn [in] in))
+      (rf/make-frame {:id :rf/default :flows [:flow/secret]})
       (let [trace (capture-failure #(rf/dispatch-sync [:flow/seed]))]
         (is (= [true false :flow-output :rf/redacted :rf/redacted]
                (redaction trace :where :value :explain)))))))

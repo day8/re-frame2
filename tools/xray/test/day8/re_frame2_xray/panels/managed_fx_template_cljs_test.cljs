@@ -92,10 +92,10 @@
             rides the `:section` attribute map, which Reagent reads via props
             and Fresco's codec reads as a literal `:key`."
     (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
-                (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
+                (record {:surface :flow :fx-id :rf.flow/sample :status :ok})]
           kids (record-panel-nodes (template/records-list recs))
           ks   (mapv react-key kids)]
-      (is (= [":http-99-:rf.http/managed" ":flow-99-:rf.fx/reg-flow"] ks))
+      (is (= [":http-99-:rf.http/managed" ":flow-99-:rf.flow/sample"] ks))
       (is (= ks (mapv #(:key (second %)) kids))))))
 
 ;; ---- hiccup heads ----------------------------------------------------------
@@ -248,7 +248,7 @@
             the record identity."
     (let [a         (record {:surface :http :fx-id :rf.http/managed
                              :status :ok :http-status 200})
-          b         (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
+          b         (record {:surface :flow :fx-id :rf.flow/sample :status :ok})
           overrides {(h/expansion-key (h/record-key a) :request) true}]
       (is (some #{(:req a)} (tree-nodes (template/record-panel noop-dispatch overrides a)))
           "the request payload reaches the tree once the section is open")
@@ -515,7 +515,7 @@
             operator's open sections"
     (let [recs    [(record {:surface :http :fx-id :rf.http/managed
                             :status :ok :http-status 200})
-                   (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
+                   (record {:surface :flow :fx-id :rf.flow/sample :status :ok})]
           plain   (template/records-list noop-dispatch nil nil recs)
           named   (template/records-list noop-dispatch nil "left" recs)
           keys-of #(mapv react-key (record-panel-nodes %))]

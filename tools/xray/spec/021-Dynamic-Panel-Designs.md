@@ -3361,7 +3361,7 @@ carrying, top to bottom:
    the door that registration lives behind (rf2-1t8fn): `:app-db` reads
    `(re-frame.schemas/app-schema-meta {:frame f :path registered-path})`, at the
    registration ROOT rather than the failing leaf (per rf2-mg6ya and rf2-tspmp);
-   `:flow-output` reads `re-frame.flows/flow-meta`; every other emitted `:where`
+   `:flow-output` reads `rf/handler-meta` for the `:flow` kind; every other emitted `:where`
    reads `rf/handler-meta` under the failing registration's own kind (see
    **Inline link → coord resolution** below for the full mapping). Missing coord →
    the link degrades to plain inline text inside the sentence
@@ -3464,9 +3464,8 @@ behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
   names a registration (rf2-tspmp). At the root the two are equal. A row
   without `:registered-path` falls back to `:path`. The row's `:failing-id`
   names the HANDLER whose write failed, so it is never consulted here.
-- `:flow-output` → `(re-frame.flows/flow-meta {:frame f :id failing-id})` under the
-  violation's frame: flows live in the per-frame flow store, and the
-  registrar's `:flow` slot is reserved-but-empty, so `handler-meta` refuses it.
+- `:flow-output` → `(rf/handler-meta {:frame f :kind :flow :id failing-id})` under
+  the violation's frame.
 - Every other emitted `:where` →
   `(rf/handler-meta {:source :store :kind <kind> :id failing-id})` under the kind of the
   registration the violation names: `:event` → `:event`; `:fx-args` → `:fx`;
@@ -4044,12 +4043,9 @@ The accompanying view-layer chrome:
 
 - **Header** — `:FLOW` badge + flow-id button to the right of
   the badge. The button is clickable when
-  `(re-frame.flows/flow-meta {:frame <frame-id> :id <id>})` returns a
-  coordinate (the `(rf/handler-meta {:source :store :kind :flow :id id})` replacement after framework
-  rf2-en00bk made the per-frame flows atom the sole store and emptied the
-  registrar `:flow` slot; the flow's frame rides the `:rf.flow/computed`
-  trace's `:frame` tag and flows are frame-divergent-per-id, so the lookup
-  is frame-scoped). Click-to-source jumps through the shared
+  `(rf/handler-meta {:frame <frame-id> :kind :flow :id <id>})` returns a
+  coordinate (the flow's frame rides the `:rf.flow/computed` trace's
+  `:frame` tag, so the lookup resolves through that frame's view). Click-to-source jumps through the shared
   `:rf.xray/open-in-editor` scheme denylist — see §9.1.11; otherwise the id
   renders as a plain coloured span. An external-link glyph trails the id
   when source-jump is wired.

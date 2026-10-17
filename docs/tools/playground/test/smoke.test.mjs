@@ -115,12 +115,13 @@ const PAGE = `<!DOCTYPE html>
   (fn [{:keys [db]} _] {:db (assoc db :fval 0)}))
 (rf/reg-event :rf2smoke/flow-inc
   (fn [{:keys [db]} _] {:db (update db :fval inc)}))
-(rf/make-frame {:id :rf2smoke/flowframe :initial-events [[:rf2smoke/flow-init]]})
 (rf/reg-flow :rf2smoke/parity
   {:inputs [[:fval]]
-   :output-path [:fparity]
-   :frame :rf2smoke/flowframe}
+   :output-path [:fparity]}
   (fn [n] (if (odd? n) "odd" "even")))
+(rf/make-frame {:id :rf2smoke/flowframe
+                :flows [:rf2smoke/parity]
+                :initial-events [[:rf2smoke/flow-init]]})
 (rf/reg-sub :rf2smoke/fparity (fn [db _] (:fparity db)))
 (rf/reg-view flow-view []
   [:div
@@ -464,8 +465,8 @@ await page.waitForFunction(
 
 await page.waitForSelector(".cljs-cell--rf2 #rf2-flow", { timeout: 20000 });
 const flowBefore = (await page.locator("#rf2-flow").innerText()).trim();
-assert(flowBefore === "parity:",
-  `flow blank before first input change (got ${JSON.stringify(flowBefore)})`);
+assert(flowBefore === "parity: even",
+  `flow computed by the frame's seed event (got ${JSON.stringify(flowBefore)})`);
 await page.click("#rf2-flow-btn");
 await page.waitForFunction(
   () => document.querySelector("#rf2-flow")?.innerText.trim() === "parity: odd",

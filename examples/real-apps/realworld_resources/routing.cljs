@@ -152,7 +152,7 @@
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth). `:on-match` resets the editor
-               slice and registers the can-submit flow; `:can-leave` blocks a
+               slice; `:can-leave` blocks a
                navigate-away while the draft is dirty (see route guard,
                ../../../docs/routing/glossary.md#route-guard). No route
                `:resources` here — you're starting from a blank draft, so there's

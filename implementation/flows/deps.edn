@@ -7,9 +7,9 @@
 ;;   {:deps {day8/re-frame2       {:mvn/version "..."}
 ;;           day8/re-frame2-flows {:mvn/version "..."}}}
 ;;
-;; Require `re-frame.flows` in any namespace that calls
-;; `rf/reg-flow` / `(rf/clear :flow id)` or relies on the `:rf.fx/reg-flow`
-;; / `:rf.fx/clear-flow` effects; loading the namespace publishes the hooks.
+;; Require `re-frame.flows` in any namespace that calls `rf/reg-flow` /
+;; `(rf/clear :flow id)` or makes a frame whose `:flows` names a flow; loading
+;; the namespace publishes the hooks.
 ;; The `late-bind/set-fn!` calls in that namespace are the authoritative hook
 ;; list and are checked against `re-frame.late-bind.directory/hooks`.
 {:paths ["src"]

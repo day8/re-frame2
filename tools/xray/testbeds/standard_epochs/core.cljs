@@ -272,26 +272,19 @@
 ;; changed. Button #5 bumps `:base`; App-db shows `:derived` recompute
 ;; and Trace shows the flow run.
 
-;; The `:standard-epochs/derived` flow is registered from `run`. A flow is
-;; EP-0002 context-required frame-local AND requires its frame to be LIVE: a
-;; bare ns-load `(with-frame :rf/default …)` runs at REQUIRE time — before
-;; `run` registers `:rf/default` — and throws `:rf.error/flow-frame-not-live`.
-;; `register-frame-local-features!` installs the flow into `frame-id`. It is
-;; the single per-frame feature-registration point: the standalone deck calls
-;; it with `:rf/default`; the two-frame deck installs the same flow into its
-;; own `:above` / `:below` frames so the flow rung fires there too. Run at the
-;; TOP LEVEL, AFTER `make-frame`, never inside a handler cascade.
-(defn register-frame-local-features!
-  "Register the `:standard-epochs/derived` flow INTO `frame-id` (a live
-  frame). A flow is EP-0002 context-required frame-local; the `with-frame`
-  scope names the frame it installs into."
-  [frame-id]
-  (rf/with-frame frame-id
-    (rf/reg-flow :standard-epochs/derived
-      {:inputs      [[:base]]
-       :output-path [:derived]
-       :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}
-      (fn [base] (* 2 (or base 0))))))
+;; The flow is a top-level registration, and a frame runs it when its `:flows`
+;; config names it. `flows` is that config value: the standalone deck makes its
+;; host frame with it, and the two-frame deck makes its `:above` / `:below`
+;; frames with it, so the flow rung fires in each.
+(rf/reg-flow :standard-epochs/derived
+  {:inputs      [[:base]]
+   :output-path [:derived]
+   :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}
+  (fn [base] (* 2 (or base 0))))
+
+(def flows
+  "The `:flows` config of every frame that hosts this deck."
+  [:standard-epochs/derived])
 
 ;; ============================================================================
 ;; EVENTS — the button ladder
@@ -820,11 +813,9 @@
   ;; register the host frame, scope the boot dispatch, and wrap the render
   ;; in a `frame-provider` (scope-only — the host frame is
   ;; already `make-frame`'d; the carried invariant).
-  (rf/make-frame {:id host-frame})
-  ;; Register the frame-local FLOW now the host frame is LIVE (reg-flow
-  ;; rejects a non-live frame, so this cannot run at ns-load). Do it BEFORE the seed dispatch so the `:standard-epochs/derived`
-  ;; flow computes `:derived` on the reset drain's flows pass.
-  (register-frame-local-features! host-frame)
+  ;; The frame runs the `:standard-epochs/derived` flow from its first event,
+  ;; so the seed dispatch's flows pass computes `:derived`.
+  (rf/make-frame {:id host-frame :flows flows})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:standard-epochs/reset]))
   (rdc/render react-root [rf/frame-provider {:frame host-frame} [standalone]]))

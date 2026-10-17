@@ -147,14 +147,11 @@ const ARTEFACTS = [
       { source: 're-frame.flows reg-flow (flow-bad-inputs)',
         sentinel: 'rf.error/flow-bad-inputs' },
     ],
-    // Two consumer-side strings:
+    // One consumer-side string:
     //   `flows/reg-flow`     — late-bind hook key core publishes for
-    //                          the flows artefact's reg-flow surface;
-    //                          the public API and the fx side share it.
-    //   `rf.fx/reg-flow`     — reserved fx-id in core's reserved-fx
-    //                          table; its body calls the
-    //                          `:flows/reg-flow` hook.
-    consumerAllowList: /flows\/reg-flow|rf\.fx\/reg-flow/g,
+    //                          the flows artefact's reg-flow surface,
+    //                          also the feature registry's probe key.
+    consumerAllowList: /flows\/reg-flow/g,
     expectedAllowListHits: 2,
   },
 

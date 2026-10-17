@@ -106,8 +106,8 @@ and produces enough trace shape to assert the whole abort signature.
 
 - no `:on-error` policy. The atomicity contract is what the
   default recovery does; an `:on-error` override would mask it
-- no `:rf.fx/clear-flow` on the failing flow. Clearing
-  `::flow-b` mid-cascade is a separate contract; this surface
+- no clearing of the failing flow. Clearing `::flow-b`
+  mid-cascade is a separate contract; this surface
   stays on the canonical "let it keep re-throwing" path so the
   abort evidence accumulates over multiple ticks
 - no retry logic on `:tick`. Every tick fires unconditionally;

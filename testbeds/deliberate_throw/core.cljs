@@ -72,12 +72,8 @@
 ;; Button C — throw inside flow :derive
 ;; ----------------------------------------------------------------------------
 ;;
-;; The flow is registered once at boot, inside `run` AFTER `rf/make-frame`
-;; has made the `:rf/default` frame live (registration order relative to the
-;; events/fx/subs above doesn't matter — the runtime topsorts before the
-;; first drain). `reg-flow` targets the current frame and rejects a
-;; non-live frame, so it must NOT run at ns-load — no frame is live
-;; there. Button C's handler bumps :flow-input; on
+;; The flow is a top-level registration, and `run` makes `:rf/default` with
+;; it in the frame's `:flows`. Button C's handler bumps :flow-input; on
 ;; the post-handler flows pass, the runtime walks this flow, calls
 ;; :derive with the new input, and the throw fires there.
 ;;
@@ -87,26 +83,13 @@
 ;; `:db` is preserved (prior writes survive); the failing flow's
 ;; `last-inputs` is NOT advanced.
 
-;; reg-flow runs from `run` via this fn rather than at ns-load — a frame
-;; must be live or `reg-flow` rejects with :rf.error/flow-frame-not-live.
-;; Per EP-0002, reg-flow is context-required frame-local;
-;; it needs a CARRIED frame stamp. `run` calls this inside a
-;; `(with-frame :rf/default …)` scope so the flow registers against the
-;; explicitly-registered `:rf/default` frame (the runtime never synthesises
-;; one from absence).
-(defn- register-throwing-flow!
-  "Register the Button-C flow against the live `:rf/default` frame.
-  Called from `run` after `rf/init!` and `rf/make-frame` (and inside a
-  `with-frame :rf/default` scope) — a frame must be live or `reg-flow`
-  rejects with :rf.error/flow-frame-not-live."
-  []
-  (rf/reg-flow ::throws
-    {:inputs      [[:flow-input]]
-     :output-path [:flow-output]
-     :doc         "Flow :derive that throws every recompute."}
-    (fn [_input]
-      ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
-      (throw (ex-info "deliberate-throw / flow" {:where :flow})))))
+(rf/reg-flow ::throws
+  {:inputs      [[:flow-input]]
+   :output-path [:flow-output]
+   :doc         "Flow :derive that throws every recompute."}
+  (fn [_input]
+    ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
+    (throw (ex-info "deliberate-throw / flow" {:where :flow}))))
 
 (rf/reg-event ::throw-in-flow
   (fn [{:keys [db]} _ev]
@@ -183,14 +166,13 @@
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   ;; Per EP-0002, the runtime never synthesises a frame from
-  ;; absence — `:rf/default` is this testbed's app frame, registered
-  ;; explicitly here (init! installs only the adapter, no frame).
-  (rf/make-frame {:id :rf/default})
-  ;; Both the Button-C flow registration (reg-flow must run against a live
-  ;; frame) and the boot dispatch run inside the
-  ;; carried `:rf/default` scope. The render is wrapped in a `frame-provider`
-  ;; so in-tree dispatch/subscribe resolve to `:rf/default`.
+  ;; absence — `:rf/default` is this testbed's app frame, made explicitly
+  ;; here (init! installs only the adapter, no frame), and it runs the
+  ;; Button-C flow its `:flows` names.
+  (rf/make-frame {:id :rf/default :flows [::throws]})
+  ;; The boot dispatch runs inside the carried `:rf/default` scope. The
+  ;; render is wrapped in a `frame-provider` so in-tree dispatch/subscribe
+  ;; resolve to `:rf/default`.
   (rf/with-frame :rf/default
-    (register-throwing-flow!)
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

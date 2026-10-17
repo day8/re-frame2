@@ -44,7 +44,7 @@
  :aliases
  {:test {:extra-paths ["test"]
          ;; The ssr JVM tests' reset-runtime fixture touches
-         ;; `re-frame.flows/flows` and `re-frame.schemas`
+         ;; `re-frame.flows/reset-flows!` and `re-frame.schemas`
          ;; AND reloads `re-frame.routing` / `re-frame.machines` so
          ;; their ns-load-time registrations resurrect after
          ;; `(registrar/clear-all!)`. The ssr_end_to_end test also

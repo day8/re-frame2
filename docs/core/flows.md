@@ -27,7 +27,7 @@ handler can forget.
 ```clojure
 ;; Flows ship in the day8/re-frame2-flows artefact: require re-frame.flows
 ;; once, anywhere in your app. You still call reg-flow through rf.
-;; a flow registers into one frame: see "A flow belongs to a frame" below
+;; a frame runs it once its :flows names it: see "A frame runs the flows it names" below
 (rf/reg-flow :todo/remaining-count
   {:doc         "How many todos are not done, kept in app-db."
    :inputs      [[:todos]]               ;; app-db paths to watch
@@ -62,15 +62,14 @@ Here it is running:
                      (reduce-kv (fn [m id t] (assoc m id (assoc t :done? done?)))
                                 {} todos)))})))
 
-;; create the frame first; the flow below is registered into it
-(rf/make-frame {:id :rf/default})
-
 ;; the new idea: a derived value written INTO app-db
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
-   :output-path [:remaining-count]
-   :frame       :rf/default}              ;; a flow belongs to one frame
+   :output-path [:remaining-count]}
   (fn [todos] (count (remove :done? (vals todos)))))
+
+;; the frame runs the flows its :flows names
+(rf/make-frame {:id :rf/default :flows [:todo/remaining-count]})
 
 (rf/dispatch-sync [:todo/initialise] {:frame :rf/default})
 
@@ -122,9 +121,10 @@ same `:todos` back doesn't run it.
 ??? info "From re-frame v1"
 
     A flow replaces `on-changes`: the same recompute-on-input-change behaviour, but
-    registered with the runtime instead of added to particular events' interceptor
-    chains. Because it is registered separately, a flow can be switched on and off at
-    runtime ([Toggling a derivation at runtime](#toggling-a-derivation-at-runtime)).
+    registered once and run on every event of the frames that name it, instead of
+    added to particular events' interceptor chains. A derivation that should run only
+    sometimes reads a switch from app-db
+    ([Gating a derivation on state](#gating-a-derivation-on-state)).
 
 ??? info "Coming from SQL?"
 
@@ -132,38 +132,26 @@ same `:todos` back doesn't run it.
     run `REFRESH MATERIALIZED VIEW`, the flow re-runs whenever its inputs change, as
     part of the write that changed them, so it is never stale.
 
-### A flow belongs to a frame
+### A frame runs the flows it names
 
-Unlike a subscription, a flow belongs to one [frame](glossary.md#frame), because it
-writes that frame's app-db. That is why the example passes `:frame :rf/default`. You can
-instead register it inside a frame scope (`with-frame`, see
-[Frames](frames.md#scoping-a-frame-in-a-test-or-at-the-repl)), or from an event
-handler with the `:rf.fx/reg-flow` effect
-([below](#toggling-a-derivation-at-runtime)), which uses the handler's frame. With
-neither a scope nor `:frame`, `reg-flow` raises `:rf.error/no-frame-context`.
-
-In an app mounted with `frame-root`, the frame doesn't exist yet when your namespaces
-load. Register the flow from the seed event, which runs inside the frame:
+A flow is registered once, at the top level, like an event handler. But it writes
+app-db, and each [frame](glossary.md#frame) has its own, so a frame runs only the
+flows its `:flows` config names. A frame that names none runs none. That is why the
+example makes its frame with `:flows [:todo/remaining-count]`. An app mounted with
+`frame-root` names them there:
 
 ```clojure
-(def remaining-count-flow
-  [:todo/remaining-count
-   {:doc         "How many todos are not done, kept in app-db."
-    :inputs      [[:todos]]
-    :output-path [:remaining-count]}
-   (fn [todos] (count (remove :done? (vals todos))))])
-
-(rf/reg-event :todo/initialise
-  (fn [_ _]
-    {:db {:todos {} :showing :all}
-     :fx [[:rf.fx/reg-flow remaining-count-flow]]}))
+[rf/frame-root {:id             :rf/default
+                :flows          [:todo/remaining-count]
+                :initial-events [[:todo/initialise]]}
+ [todo-app]]
 ```
 
-`[rf/frame-root {:id :rf/default :initial-events [[:todo/initialise]]} …]` then mounts the
-app as on every earlier page.
-
-A flow registered directly first computes on the next event in its frame, which is
-why the live example registers it before dispatching `:todo/initialise`.
+A frame runs its flows from its first event, so the seed's own write already carries
+`:remaining-count`. Making the frame checks its `:flows`: an id nothing registered
+raises `:rf.error/unregistered-flow`, and two flows that would loop or overwrite
+each other are refused ([below](#when-the-framework-refuses-the-activation-errors)).
+`(:flows (rf/frame-meta f))` returns the ids a frame runs.
 
 In Xray, a toggle's event row shows the handler's change and, in the same commit,
 the flow's write to `[:remaining-count]`. Restore an older [epoch](glossary.md#epoch)
@@ -183,13 +171,14 @@ The **metadata map** holds the rest; `:inputs` and `:output-path` are required:
 | `:inputs` | yes | A vector of paths to watch. A plain path reads app-db; a path starting with `:rf.db/runtime` reads [runtime-db](glossary.md#runtime-db) ([below](#deriving-from-route-or-machine-state)). Values reach the derive fn in this order. |
 | `:output-path` | yes | The app-db path the result is written to. A flow never writes runtime-db. |
 | `:doc` | no | One sentence on what and why. Shown in Xray and other tools. |
-| `:frame` | no | The target frame, when registering outside any frame scope. |
 | `:schema` | no | A Malli [schema](glossary.md#schema) for the output, checked in dev on every recompute ([Validating a flow's output](#validating-a-flows-output)). |
 | `:sensitive` | no | Output subpaths to redact in traces ([Classifying a flow's output](#classifying-a-flows-output)). |
 | `:large` / `:large?` | no | Output subpaths, or with `:large? true` the whole output, too big to send to off-box tools. |
 
-The `reg-flow` macro records the source location for you. It returns the flow id,
-like the rest of the `reg-*` family.
+A `:frame` key is a registration error too: which frames run a flow is each
+frame's own `:flows`, never the registration's. The `reg-flow` macro records the
+source location for you. It returns the flow id, like the rest of the `reg-*`
+family.
 
 ## When a derivation earns app-db
 
@@ -205,8 +194,8 @@ Use a flow only when all of these hold:
   single handler.
 
 Flows may read each other's outputs. The runtime orders dependent flows and rejects
-cycles and overlapping output paths at registration
-([below](#when-the-framework-refuses-the-registration-time-errors)).
+cycles and overlapping output paths when a frame is made to run them
+([below](#when-the-framework-refuses-the-activation-errors)).
 
 A typical app has dozens of subscriptions and a handful of flows at most:
 
@@ -228,91 +217,64 @@ A typical app has dozens of subscriptions and a handful of flows at most:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/flows-artefact-missing` on the first flow call | The flows artefact isn't loaded | Add `day8/re-frame2-flows` and require `re-frame.flows` once |
-| `:rf.error/no-frame-context` from `reg-flow` | Registered outside any frame scope | Pass `:frame`, wrap in `with-frame`, or use `:rf.fx/reg-flow` from a handler |
-| `:rf.error/flow-frame-not-live` from a top-level `reg-flow` | `:frame` names a frame `frame-root` hasn't created yet | Register it from the seed event with `:rf.fx/reg-flow` |
-| Output path is `nil` right after registering | A directly registered flow first computes on the next event in its frame | Dispatch an event after registering, or use `:rf.fx/reg-flow` |
-| `:rf.error/flow-path-overlap` | Two flows write the same path, or one path is a prefix of the other | Give each flow its own output path |
+| `:rf.error/flows-artefact-missing` from `reg-flow`, or from a frame naming flows | The flows artefact isn't loaded | Add `day8/re-frame2-flows` and require `re-frame.flows` once |
+| `:rf.error/unregistered-flow` from `make-frame` or `frame-root` | The frame's `:flows` names an id nothing registered, or the namespace that registers it hasn't loaded | Fix the id, or require that namespace |
+| Output path is absent | The frame's `:flows` doesn't name the flow, or no event has run in the frame yet | Name it in `:flows`; seed the frame with `:initial-events` |
+| `:rf.warning/unregistered-flow` | A flow the frame runs lost its registration (`rf/clear :flow`, or a hot reload that deleted it); its output was removed | Register it again, or re-make the frame without it |
+| `:rf.error/flow-path-overlap` | Two flows in one frame's `:flows` write the same path, or one path is a prefix of the other | Give each flow its own output path, or run them in different frames |
 | `:rf.error/flow-eval-exception` and the event is dropped | The derive fn threw, or its result can't be written at `:output-path` | Read the record's `:phase` ([below](#what-happens-when-a-derive-throws)) |
 
 ## Advanced
 
-### Toggling a derivation at runtime
+### Gating a derivation on state
 
-Flows can be registered and removed while the app runs, with two built-in
-[effects](effects.md): `:rf.fx/reg-flow`, given the same `[id metadata derive-fn]`
-triple, and `:rf.fx/clear-flow`, given an id. Use them for derivations that should
-run only while something is switched on, like an optional progress bar:
+A derivation that should run only while something is switched on, like an optional
+progress bar, reads the switch as an input. The switch is ordinary app-db state that
+events set and clear:
 
 ```clojure
-(def progress-flow
-  [:todo/progress
-   {:inputs      [[:todos]]
-    :output-path [:progress]}
-   (fn [todos]
-     (if (empty? todos)
-       0
-       (/ (count (filter :done? (vals todos))) (count todos))))])
+(rf/reg-flow :todo/progress
+  {:inputs      [[:todos] [:show-progress?]]
+   :output-path [:progress]}
+  (fn [todos show?]
+    (when (and show? (seq todos))
+      (/ (count (filter :done? (vals todos))) (count todos)))))
 
 (rf/reg-event :todo/show-progress
-  (fn [_ _] {:fx [[:rf.fx/reg-flow progress-flow]]}))
+  (fn [{:keys [db]} _] {:db (assoc db :show-progress? true)}))
 
 (rf/reg-event :todo/hide-progress
-  (fn [_ _] {:fx [[:rf.fx/clear-flow :todo/progress]]}))
+  (fn [{:keys [db]} _] {:db (dissoc db :show-progress?)}))
 ```
 
-Notes:
+Each click is one event and one commit: the switch and the flow's output change
+together. Because the switch is app-db, it goes back with everything else when you
+restore an [epoch](glossary.md#epoch), and it reaches the client with the rest of
+app-db over SSR.
 
-1. `:rf.fx/clear-flow` removes the registration **and the value at `:output-path`**,
-   so no stale value is left behind. Copy it elsewhere first if you need it.
-2. After the effect vector finishes, the runtime queues one `[:rf/settle-flows]`
-   event ahead of ordinary follow-up events. It writes the new outputs or removes
-   cleared ones before the drain finishes, so `dispatch-sync` returns with them
-   settled. `dispatch` itself returns before the queued work runs.
-3. Unlike a direct `reg-flow` call, the effect schedules that first evaluation.
-   Inputs must already be in app-db or be written by the registering event.
-   The settle is a separate commit: if its derive throws, it cannot undo the
-   registering event's already-committed state.
-
-Outside a handler, in boot code, a test, or per-tenant setup, use the functions
-directly:
-
-```clojure
-(require '[re-frame.flows :as flows])
-
-;; progress-flow is a [id metadata derive-fn] triple, so apply it:
-(rf/with-frame :todos/work
-  (apply flows/reg-flow progress-flow))
-
-;; or name the frame in the metadata:
-(let [[id metadata derive-fn] progress-flow]
-  (rf/reg-flow id (assoc metadata :frame :todos/work) derive-fn))
-
-(rf/clear :flow :todo/progress {:frame :todos/work})
-```
-
-`flows/reg-flow` is the function form of the `rf/reg-flow` macro; a macro can't be
-`apply`d on the JVM. `rf/clear :flow` returns after removing the output path and
-recomputing anything that read it, so the next line sees current app-db. On an
-absent frame it does nothing, so teardown can be repeated safely. Its options
-map accepts only `:frame`; a misspelled key throws `:rf.error/registrar-clear-bad-request`.
-There is no `flows/clear-flow`.
+To stop a frame running a flow at all, re-make the frame without it
+([below](#re-registering-a-flow-and-hot-reload)). To remove a definition from every
+frame, `(rf/clear :flow :todo/progress)`: each frame naming it removes the value at
+its `:output-path` on its next event and warns `:rf.warning/unregistered-flow`. Copy
+the value elsewhere first if you need it.
 
 ### Re-registering a flow (and hot reload)
 
-Calling `reg-flow` again with a registered id, on the same frame, replaces the
-definition. The flow re-runs on the next event even if its inputs didn't change, and
-the dependency order is recomputed. Hot reload relies on this, so an edited derive fn
-reaches the running app only when its `reg-flow` call runs again. A top-level
-`reg-flow` does: saving its namespace re-runs it. A flow registered from a
-`frame-root` seed event does not, because a reload remounts `frame-root` without
-re-running `:initial-events` ([frame-root's lifetime](frames.md#frame-roots-lifetime)).
-To pick up the edit, dispatch an event that returns the same `:rf.fx/reg-flow` effect
-from your `^:dev/after-load` hook ([Hot reload](how-to/boot-and-mount-an-app.md#hot-reload)),
-or reload the page.
+Calling `reg-flow` again with a registered id replaces the definition, as for every
+`reg-*`. Each frame running it uses the new definition from its next event,
+recomputing even if its inputs didn't change, and the dependency order is
+recomputed. Hot reload relies on this: `reg-flow` is a top-level form, so saving its
+namespace re-runs it, and the edited derive fn reaches the running app on the next
+event. No reload hook is needed.
 
-If the replacement moves `:output-path`, the old path is removed from app-db. Keep
-the same path and the next recompute overwrites it in place.
+If the replacement moves `:output-path`, the next event removes the old path from
+app-db. Keep the same path and the recompute overwrites it in place.
+
+A frame's `:flows` changes by re-making the frame: `rf/make-frame` with the same
+`:id` updates it in place, keeping its state. A flow the new vector adds runs from
+the next event, and one it drops has its output removed on that event. A mounted
+`frame-root` refuses a changed `:flows` with `:rf.error/frame-root-reconfigured`;
+call `rf/make-frame` with the same `:id` instead.
 
 ### Deriving from route or machine state
 
@@ -426,59 +388,66 @@ Test a flow in two parts:
 - **The derive fn is a pure function.** Lift it into a named `defn` and call it with
   literal inputs, as you would [test a handler](testing/event-handlers.md).
 - **The wiring**, meaning inputs watched, output written, same-commit timing, tests
-  through a real frame: register the flow, dispatch an event that writes an input,
-  and read the output path.
+  through a real frame: make a frame that runs the flow, dispatch an event that
+  writes an input, and read the output path.
 
 ```clojure
+;; registered at the top level, as in the app
+(rf/reg-flow :todo/remaining-count
+  {:inputs      [[:todos]]
+   :output-path [:remaining-count]}
+  (fn [todos] (count (remove :done? (vals todos)))))
+
 (deftest remaining-count-updates-with-the-write
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/reg-flow :todo/remaining-count      ;; the frame comes from with-new-frame
-                 {:inputs      [[:todos]]
-                  :output-path [:remaining-count]}
-                 (fn [todos] (count (remove :done? (vals todos)))))
+  (rf/with-new-frame [f (rf/make-frame {:flows [:todo/remaining-count]})]
     (rf/dispatch-sync [:rf/set-db {:todos {1 {:id 1 :title "Buy milk" :done? false}}}])
     (is (= 1 (:remaining-count (rf/app-db-value f))))))
 ```
 
-`with-new-frame` makes the frame current for the body, so `reg-flow` needs no
-`:frame`, and destroys it on exit so nothing leaks into the next test. There is
-nothing to wait for: the flow computes in the dispatched event's commit.
+`with-new-frame` makes the frame current for the body and destroys it on exit, so
+nothing leaks into the next test. There is nothing to wait for: the flow computes in
+the dispatched event's commit.
 
-### When the framework refuses: the registration-time errors
+### When the framework refuses: the activation errors
 
-A direct `reg-flow` call throws before installing an invalid registration.
-Through `:rf.fx/reg-flow`, the same failure is reported as an effect failure and
-that entry is skipped; the event's prior commit stands and later effects still run.
-Common registration errors are:
+A malformed registration throws when `reg-flow` runs, naming the argument: a `nil` or
+non-keyword id, bad `:inputs` or `:output-path`, a `:derive` or `:frame` key in the
+metadata, or a malformed classification. The
+[`reg-flow` reference](../api/re-frame.flows.md#reg-flow) lists each id.
 
+Whether flows fit together depends on which ones a frame runs, so that is checked
+when a frame is made with its `:flows`, and the frame is not made:
+
+- **`:rf.error/unregistered-flow`**: the frame's `:flows` names an id nothing
+  registered. The `ex-data` carries `:frame` and `:flow-id`.
 - **`:rf.error/flow-cycle`**: flow A reads B's output and B reads A's, directly or
   through a chain. The `ex-data` carries `:cycle`, the loop as a vector of ids:
 
     ```clojure
     (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
     (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
+    (rf/make-frame {:id :app/main :flows [:a :b]})
     ;; throws; (ex-data e) includes {:rf.error/id :rf.error/flow-cycle :cycle [:a :b :a]}
     ```
 
-- **`:rf.error/flow-path-overlap`**: two flows in one frame whose output paths are
-  equal or one is a prefix of the other. They would overwrite each other in no
-  defined order, so the second is rejected. Sibling paths such as `[:x :y]` and
-  `[:x :z]` are fine.
+- **`:rf.error/flow-path-overlap`**: two flows in the frame's `:flows` whose output
+  paths are equal or one is a prefix of the other. They would overwrite each other in
+  no defined order. Sibling paths such as `[:x :y]` and `[:x :z]` are fine, and so
+  are two flows writing one path as long as no frame runs both.
 
     ```clojure
     (rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
     (rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
+    (rf/make-frame {:id :app/main :flows [:a :b]})
     ;; throws; (ex-data e) includes {:rf.error/id :rf.error/flow-path-overlap}
     ```
 
-A malformed registration throws an error naming the argument: a `nil` or
-non-keyword id, bad `:inputs` or `:output-path`, a `:derive` key in the metadata, or
-a malformed classification. The [`reg-flow` reference](../api/re-frame.flows.md#reg-flow)
-lists each id.
+A re-registration that creates a cycle or an overlap in a running frame's set is
+caught on that frame's next event, which aborts like any failure before the commit
+([above](#what-happens-when-a-derive-throws)); every later event in the frame does
+the same until a further registration repairs the set.
 
 Without the `day8/re-frame2-flows` artefact, or if nothing has required
-`re-frame.flows`, the first `reg-flow` or `rf/clear :flow` throws
-`:rf.error/flows-artefact-missing`, naming the calling function; the schemas,
-machines, and routing artefacts work the same way. The `:rf.fx/reg-flow` and
-`:rf.fx/clear-flow` effects raise the same error as an effect failure: the event's
-commit stands and later effects still run.
+`re-frame.flows`, `reg-flow`, `rf/clear :flow`, and making a frame whose `:flows` is
+not empty each throw `:rf.error/flows-artefact-missing`, naming the calling
+function; the schemas, machines, and routing artefacts work the same way.

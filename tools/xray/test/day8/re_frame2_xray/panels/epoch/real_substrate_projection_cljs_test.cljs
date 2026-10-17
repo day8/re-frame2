@@ -135,7 +135,8 @@
   (rf/reg-flow :rf.tyivx/derived
     {:inputs      [[:base]]
      :output-path [:derived]}
-    (fn [base] (* 2 (or base 0)))))
+    (fn [base] (* 2 (or base 0))))
+  (rf/make-frame {:id :rf/default :flows [:rf.tyivx/derived]}))
 
 (deftest real-substrate-emits-t1-t2-for-handler-vs-flow-attribution
   (testing "a LIVE flow-bearing cascade emits t1

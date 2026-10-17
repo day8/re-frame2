@@ -126,10 +126,11 @@ site". A where-sym that names nothing reachable sends the author who reads the
 message to a door that is not there. Dead doors accrue one site at a time,
 which is what makes it a gate's job rather than a fix's.
 
-  * THE RULE IS RESOLVABILITY, NOT A SPELLING. `re-frame.core`'s own
-    `not-queryable-kinds` map writes `re-frame.flows/flows` fully qualified
-    beside `rf/frame-ids` under the façade alias, in the same map, and both are
-    right — the discriminator is whether the namespace exports the name. A
+  * THE RULE IS RESOLVABILITY, NOT A SPELLING. The flows artefact names one
+    refusal `'rf/make-frame` under the façade alias at activation and
+    `'re-frame.flows/run-flows-on-db` fully qualified in the per-event pass,
+    and both are right — the discriminator is whether the namespace exports
+    the name. A
     fully-qualified symbol still fails when the var is private, which is the
     live `'re-frame.router/build-envelope` (a `defn-`) shape.
   * THE ORACLE IS THE PUBLIC VAR SET, NOT `spec/api-manifest.edn`, which rows
@@ -953,11 +954,11 @@ class Finding(NamedTuple):
 # sends them to a door that is not there. Such doors accrue one site at a
 # time; this section is what stops the next one being written.
 #
-# THE RULE IS RESOLVABILITY, NOT A SPELLING. `re-frame.core`'s own
-# `not-queryable-kinds` map writes `re-frame.flows/flows` fully qualified
-# BESIDE `rf/frame-ids` under the façade alias, in the same map, and both are
-# right — the discriminator is whether the façade exports the name, not how the
-# symbol is spelled. So a check that demanded fully-qualified symbols would be
+# THE RULE IS RESOLVABILITY, NOT A SPELLING. The flows artefact names one
+# refusal `'rf/make-frame` under the façade alias at activation and
+# `'re-frame.flows/run-flows-on-db` fully qualified in the per-event pass, and
+# both are right — the discriminator is whether the namespace exports the name,
+# not how the symbol is spelled. So a check that demanded fully-qualified symbols would be
 # wrong about live, correct code. What is asserted here is only that the symbol
 # NAMES SOMETHING REACHABLE.
 #
@@ -2326,10 +2327,10 @@ _WHERE_SYM_FIX_HINT = (
     "         inventing an entry point. Spell it FULLY — `'rf.ssr.emit` is the\n"
     "         require-alias spelling, quoting does not expand an alias, and it\n"
     "         is graded as a defect.\n"
-    "  * Within form 1 the rule is RESOLVABILITY, not a spelling. `rf/reg-flow`\n"
-    "    and `re-frame.flows/flows` are BOTH right — `re-frame.core`'s own\n"
-    "    `not-queryable-kinds` map writes one of each, side by side — because\n"
-    "    the discriminator is whether the namespace exports the name.\n"
+    "  * Within form 1 the rule is RESOLVABILITY, not a spelling. `rf/make-frame`\n"
+    "    and `re-frame.flows/run-flows-on-db` are BOTH right — the flows\n"
+    "    artefact writes one of each for the same refusal — because the\n"
+    "    discriminator is whether the namespace exports the name.\n"
     "  * So the fix is whichever of these is true of the site:\n"
     "      - the façade DOES export it: keep `'rf/<name>`;\n"
     "      - the owning namespace exports it but the façade does not: spell it\n"

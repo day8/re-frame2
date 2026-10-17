@@ -85,7 +85,6 @@
       attribute map; keep it that way."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.flows :as rf.flows]
             [re-frame.fresco :as rf.fresco]
             [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.panels.common-helpers :as common]
@@ -4370,17 +4369,15 @@
   ([step] (render-flow-step step nil))
   ([{:keys [flow-id frame path before after duration-ms step-number
             db-pre-flow db-post-flow errors]} instance]
-  (let [;; Flows are FRAME-DIVERGENT-per-id (Spec 013), so the
-        ;; source-coord lookup reads the per-frame `rf.flows/flow-meta`
-        ;; (the registrar's `:flow` slot is empty, so
-        ;; `(handler-meta :flow id)` finds nothing). The flow's OWN frame rides
-        ;; the `:rf.flow/computed` event's `:frame` tag (threaded through
-        ;; the projection's flow-step map), so we pass it as the EXPLICIT
-        ;; `:frame` override rather than resolving the carried scope — the
-        ;; latter would resolve Xray's OWN `:rf/xray` frame, not the host
-        ;; frame whose flow this is. nil frame degrades to no source link.
+  (let [;; A flow definition is a registrar `:flow` registration, resolved
+        ;; through the view of the frame that ran it. That frame rides the
+        ;; `:rf.flow/computed` event's `:frame` tag (threaded through the
+        ;; projection's flow-step map), so we pass it as the EXPLICIT
+        ;; `:frame` rather than resolving the carried scope — the latter
+        ;; would resolve Xray's OWN `:rf/xray` frame, not the host frame
+        ;; whose flow this is. nil frame degrades to no source link.
         flow-meta  (when (and (keyword? flow-id) (keyword? frame))
-                     (try (rf.flows/flow-meta {:frame frame :id flow-id})
+                     (try (rf/handler-meta {:frame frame :kind :flow :id flow-id})
                           (catch :default _ nil)))
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
@@ -5523,10 +5520,8 @@
       no registration. A row without `:registered-path` falls back to
       `:path`. The row's `:failing-id` names the HANDLER whose write
       failed, not the schema, so it is never consulted here.
-    - `:flow-output` — flows live in the per-frame flow store, not the
-      registrar (whose `:flow` slot is reserved-but-empty), so the read is
-      `rf.flows/flow-meta` under the violation's frame, the same door
-      `render-flow-step` uses.
+    - `:flow-output` — `handler-meta` for the `:flow` kind under the
+      violation's frame, the same read `render-flow-step` uses.
     - every other `:where` — `handler-meta` under the kind
       `violation-registration-kind` names.
 
@@ -5538,7 +5533,7 @@
                    (when (and (sequential? anchor) (keyword? frame))
                      (meta-coord #(rf.schemas/app-schema-meta {:frame frame :path anchor}))))
     :flow-output (when (and (keyword? failing-id) (keyword? frame))
-                   (meta-coord #(rf.flows/flow-meta {:frame frame :id failing-id})))
+                   (meta-coord #(rf/handler-meta {:frame frame :kind :flow :id failing-id})))
     (when-let [kind (get violation-registration-kind where)]
       (violation-kind-coord kind failing-id))))
 

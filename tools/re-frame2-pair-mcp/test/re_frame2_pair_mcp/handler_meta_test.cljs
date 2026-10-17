@@ -84,18 +84,15 @@
                          (is (= :missing-id (:reason (extract-edn r)))))))
             done)))
 
-(deftest list-handlers-refuses-reserved-empty-kinds
-  ;; Querying `flow` / `frame` throws at the framework and the preload does
-  ;; not catch, so offering either would answer with a throw, not an envelope.
+(deftest list-handlers-refuses-the-reserved-empty-frame-kind
+  ;; Querying `frame` throws at the framework and the preload does not
+  ;; catch, so offering it would answer with a throw, not an envelope.
   (async done
-    (settle (js/Promise.all
-              (into-array
-                (for [k ["flow" "frame"]]
-                  (-> (hm/list-handlers-tool nil (args-js {:kind k}))
-                      (.then (fn [r]
-                               (is (is-error? r) k)
-                               (is (= {:ok? false :reason :invalid-kind :kind k}
-                                      (dissoc (extract-edn r) :hint)))))))))
+    (settle (-> (hm/list-handlers-tool nil (args-js {:kind "frame"}))
+                (.then (fn [r]
+                         (is (is-error? r))
+                         (is (= {:ok? false :reason :invalid-kind :kind "frame"}
+                                (dissoc (extract-edn r) :hint))))))
             done)))
 
 (deftest both-tools-refuse-a-frame-with-machine

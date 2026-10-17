@@ -268,13 +268,13 @@ the output path, and a pure function:
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
-   :output-path [:remaining-count]
-   :frame       :rf/default}
+   :output-path [:remaining-count]}
   (fn [todos] (count (remove :done? (vals todos)))))
+
+(rf/make-frame {:id :rf/default :flows [:todo/remaining-count]})
 ```
 
-A flow belongs to one frame. Flows can also be added and removed at run time through
-effects.
+A flow is registered once, and a frame runs the flows its `:flows` config names.
 
 Related: [Flows](flows.md).
 
@@ -411,11 +411,11 @@ the runtime looks up later. An app's behaviour is the set of registrations it ma
 | `reg-interceptor` | an [interceptor](#interceptor) |
 | `reg-view` / `reg-view*` | a [view](#view) |
 
-`reg-flow` is different: it registers into one frame (the one in scope, or
-`:frame` in its metadata), not the registrar. Other artefacts add their own
-registrations: `reg-app-schema` (an app-db [schema](#schema), keyed by its
-path), `reg-machine` ([machines](../machines/concepts.md)), `reg-route`
-(routing), `reg-resource` and `reg-mutation`
+Other artefacts add their own registrations: `reg-flow` ([flows](flows.md),
+run by each frame that names it in `:flows`), `reg-app-schema` (an app-db
+[schema](#schema), keyed by its path), `reg-machine`
+([machines](../machines/concepts.md)), `reg-route` (routing), `reg-resource`
+and `reg-mutation`
 ([resources](../api/re-frame.resources.md)), `reg-http-interceptor` (managed
 HTTP, run by each frame that names it in `:http-interceptors`), and `reg-head`
 and `reg-error-projector` (SSR). A frame is not a registration; you

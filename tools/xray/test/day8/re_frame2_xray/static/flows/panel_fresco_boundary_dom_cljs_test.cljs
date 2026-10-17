@@ -346,16 +346,17 @@
               section (q container "[data-testid=\"rf-xray-static-flows\"]")
               probe?  (fn [] (some? (row-node container "probe/late-flow")))]
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
-          ;; The panel's `registered-flows` sub reads the process-global
-          ;; per-frame flows store and is gated on `:rf.xray/trace-buffer`.
-          ;; Registering a real flow changes what the read WOULD compute
+          ;; The panel's `registered-flows` sub reads each frame's `:flows`
+          ;; and the registrar's `:flow` definitions, and is gated on
+          ;; `:rf.xray/trace-buffer`. Registering a real flow and naming it
+          ;; in the app frame's `:flows` changes what the read WOULD compute
           ;; while invalidating nothing it watches.
           (rf/reg-flow :probe/late-flow
                        {:inputs      [[:probe :in]]
                         :output-path [:probe :out]
-                        :doc         "W2's late registration"
-                        :frame       app-frame}
+                        :doc         "W2's late registration"}
                        (fn [_] 0))
+          (rf/make-frame {:id app-frame :flows [:probe/late-flow]})
           (-> (settle)
               (.then
                 (fn [_]

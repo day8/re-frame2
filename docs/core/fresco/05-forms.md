@@ -346,32 +346,26 @@ rather than maintaining two validation paths. A [flow](../flows.md) can
 materialise it into app-db:
 
 ```clojure
-(def can-submit-flow
-  [:todo.editor/can-submit?
-   {:doc         "Valid AND different from the loaded baseline."
-    :inputs      [[:todo.editor :draft]
-                  [:todo.editor :baseline]]
-    :output-path [:todo.editor :can-submit?]}
-   (fn [draft baseline]
-     (and (empty? (validate draft))
-          (not= draft baseline)))])
-
-(rf/reg-event :todo.editor/register-flow
-  (fn [_ _]
-    {:fx [[:rf.fx/reg-flow can-submit-flow]]}))
+(rf/reg-flow :todo.editor/can-submit?
+  {:doc         "Valid AND different from the loaded baseline."
+   :inputs      [[:todo.editor :draft]
+                 [:todo.editor :baseline]]
+   :output-path [:todo.editor :can-submit?]}
+  (fn [draft baseline]
+    (and (empty? (validate draft))
+         (not= draft baseline))))
 
 (rf/reg-sub :todo.editor/can-submit?
   (fn [db _]
     (boolean (get-in db [:todo.editor :can-submit?]))))
 ```
 
-Register the flow once, when the frame is created, by listing
-`:todo.editor/register-flow` in the frame's `:initial-events`:
+The frame runs the flow because its `:flows` names it:
 
 ```clojure
 [h/frame-root {:id             :rf/default
-               :initial-events [[:todo/initialise]
-                                [:todo.editor/register-flow]]}
+               :flows          [:todo.editor/can-submit?]
+               :initial-events [[:todo/initialise]]}
  [editor-form]]
 ```
 

@@ -1329,13 +1329,13 @@
     ;; thrown-error shape) carrying a keyword category, route it
     ;; through the always-on `error-emit` substrate so prod monitors
     ;; get the typed signal; ex-data is preserved verbatim including
-    ;; any reserved-fx-specific slots (e.g. `:cycle`). Reached via
+    ;; any reserved-fx-specific slots. Reached via
     ;; the late-bind hook `:error-emit/dispatch-on-error` (fx.cljc
     ;; cannot statically require error-emit — would form a load
     ;; cycle). Untyped throws re-throw to keep the crash-loud
     ;; contract. Routing generically keeps reserved-fx-specific
-    ;; error keywords (e.g. flow-cycle) out of core/fx.cljc so they
-    ;; DCE from consumer bundles that don't use the offending fx.
+    ;; error keywords out of core/fx.cljc so they DCE from consumer
+    ;; bundles that don't use the offending fx.
     (try
       ;; Wall-clock the reserved-fx body (dev-only) so
       ;; `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The `now-ms`
@@ -1364,7 +1364,7 @@
             ;; (`:rf.error/no-such-fx`, `:rf.error/fx-handler-exception`,
             ;; `:rf.error/override-fallthrough`) route through. The typed
             ;; category + reserved-fx-specific ex-data slots ride verbatim
-            ;; (e.g. flow-cycle's `:cycle`) via the merged trace-payload.
+            ;; via the merged trace-payload.
             (emit-fx-error! category origin-event origin-event-id frame-id e
                             (merge {:failing-id        fx-id
                                     :rf.fx/id          fx-id

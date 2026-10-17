@@ -26,17 +26,20 @@
       (another flow's output) and `[:cart :discount-rate]`. The runtime sees
       the shared path, sorts the two so `:cart/subtotal` always runs first,
       and both settle in one walk.
-   3. A derivation you can toggle at runtime — the discount is a feature
-      gate. The `:rf.fx/reg-flow` / `:rf.fx/clear-flow` effects register and
-      clear the `:cart/discount-rate` flow from a handler, mid-flight, while
-      the app is running.
+   3. A discount that is just data — the discount rate is an ordinary app-db
+      value that two events set and remove. `:cart/total` reads it like any
+      other input, so one click is one event, and the total that depends on
+      the rate lands in that event's own commit.
 
-   The guide has the full registration map, the topological sort, and the
-   failure semantics."
+   Both flows are top-level registrations, like the events and subs below,
+   and the frame runs them because its `:flows` config names them (MOUNT,
+   further down). The guide has the full registration map, the topological
+   sort, and the failure semantics."
   (:require [re-frame.core :as rf]
             ;; Flows live in their own artefact, so you opt in. Requiring
-            ;; re-frame.flows once wires up the flow API; leave it out and the
-            ;; reg-flow calls below raise :rf.error/flows-artefact-missing.
+            ;; re-frame.flows once wires up the flow API; leave it out and a
+            ;; frame naming flows in its `:flows` config raises
+            ;; :rf.error/flows-artefact-missing when it is made.
             [re-frame.flows]
             ;; Turns on Malli validation, so the `:schema` keys the two
             ;; quantity events declare below actually run. Leave it out and the
@@ -54,59 +57,37 @@
 ;; `:derive` gets the values at those paths, in order, and returns the value
 ;; written to `:output-path`. That's the whole contract; the full map is in
 ;; docs/core/flows.md.
+;;
+;; `reg-flow` registers a definition, the way `reg-event` does: it names no
+;; frame and needs none, so these are plain top-level forms. A frame runs a
+;; flow only when its `:flows` config names it — see MOUNT, below.
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
 
-;; `reg-flow` needs a LIVE frame to register against (docs/core/flows.md,
-;; Spec 013 §Frame-scoping), and `:rf/default` doesn't exist at ns-load —
-;; constructing a frame itself needs the substrate adapter installed first
-;; (`rf/init!`), and that only happens once `run` (MOUNT, further down)
-;; fires. So the two flows below don't register here directly; `install-
-;; flows!` wraps the registration and is called from `run`, right after
-;; `rf/init!` and `rf/make-frame` have made `:rf/default` a real, live frame —
-;; the same point every other example that constructs a frame outside a
-;; `frame-root` uses (see e.g.
-;; examples/patterns/nine_states/stories_host.cljs's `install-live-frame!`).
-;; Every flow belongs to a frame, so `reg-flow` needs a frame in scope; the
-;; toggleable `:cart/discount-rate` flow (further down) doesn't need this
-;; treatment — it registers later, via `:rf.fx/reg-flow` from inside a
-;; handler, and that route carries the dispatching frame along for you.
-;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
+(rf/reg-flow :cart/subtotal
+  {:doc    "Every line item's price × qty, summed. Materialised into app-db
+            so the checkout handler can read it as ordinary data."
+   :inputs [[:cart :items]]
+   :output-path [:cart :subtotal]}
+  (fn [items] (reduce + 0 (map line-total items))))
+
+;; Here's the cascade. `:cart/total` reads another flow's output
+;; (`[:cart :subtotal]`) alongside the discount rate. The runtime spots that
+;; shared path, works out that `:cart/subtotal` feeds `:cart/total`, and runs
+;; them in that order — both settle in a single walk. You never wire the
+;; ordering by hand; the dependency graph falls out of the paths.
 ;;
-;; Two callers: `run` (MOUNT, below) installs the flows at boot, before the
-;; cart is seeded; `reload!` re-invokes the CURRENT definition on every
-;; Shadow watch rebuild, swapping edited derives into the live frame.
-(defn install-flows! []
-  (rf/with-frame :rf/default
-
-    (rf/reg-flow :cart/subtotal
-      {:doc    "Every line item's price × qty, summed. Materialised into app-db
-                so the checkout handler can read it as ordinary data."
-       :inputs [[:cart :items]]
-       :output-path [:cart :subtotal]}
-      (fn [items] (reduce + 0 (map line-total items))))
-
-    ;; Here's the cascade. `:cart/total` reads another flow's output
-    ;; (`[:cart :subtotal]`) alongside the discount rate. The runtime spots that
-    ;; shared path, works out that `:cart/subtotal` feeds `:cart/total`, and runs
-    ;; them in that order — both settle in a single walk. You never wire the
-    ;; ordering by hand; the dependency graph falls out of the paths.
-    ;;
-    ;; The discount starts switched off. `:cart/discount-rate` has no flow yet,
-    ;; so its path reads nil and this `:derive` treats that as 0% off. "Apply 10%
-    ;; discount" registers the flow; "Remove discount" clears it. While it's
-    ;; live, it derives a flat 10% off the current subtotal. And because it reads
-    ;; `[:cart :subtotal]`, the rate stays fresh as the cart changes — a tiered
-    ;; "5% over $50" rule would drop straight in.
-    (rf/reg-flow :cart/total
-      {:doc    "Subtotal less the active discount. Reads :cart/subtotal's output
-                and the discount rate you can toggle at runtime."
-       :inputs [[:cart :subtotal] [:cart :discount-rate]]
-       :output-path [:cart :total]}
-      (fn [subtotal discount-rate]
-        (let [rate (or discount-rate 0)]
-          (Math/round (* subtotal (- 1 rate))))))))
+;; The discount rate is plain state: absent until "Apply 10% discount" sets
+;; it, so this `:derive` reads nil as 0% off.
+(rf/reg-flow :cart/total
+  {:doc    "Subtotal less the active discount. Reads :cart/subtotal's output
+            and the discount rate the two discount events set and remove."
+   :inputs [[:cart :subtotal] [:cart :discount-rate]]
+   :output-path [:cart :total]}
+  (fn [subtotal discount-rate]
+    (let [rate (or discount-rate 0)]
+      (Math/round (* subtotal (- 1 rate))))))
 
 ;; ============================================================================
 ;; EVENTS
@@ -118,11 +99,10 @@
    {:sku "RF2-STKR"  :name "Sticker pack"       :price 500  :qty 3}])
 
 (rf/reg-event :cart/initialise
-  {:doc "Seed the cart. `run` (MOUNT, below) dispatches this only after
-         `install-flows!` has registered :cart/subtotal and :cart/total, so
-         those flows fire on the heels of this handler and materialise their
-         outputs in the same write — the totals exist before the first
-         render."}
+  {:doc "Seed the cart. The frame's `:initial-events` run it once, when the
+         frame is made, and the frame already runs :cart/subtotal and
+         :cart/total by then — so their outputs materialise in this handler's
+         own write, and the totals exist before the first render."}
   (fn handler-cart-initialise [{:keys [db]} _]
     {:db (assoc db :cart {:items seed-items})}))
 
@@ -150,37 +130,21 @@
                            (= sku (:sku item)) (update :qty #(max 1 (dec %)))))
                        items)))}))
 
-;; Now the toggleable derivation. The discount flow gets registered and
-;; cleared while the app runs, through the two reserved effects — and both
-;; carry the dispatching frame along for you.
-;;
-;; Both effects settle on the dispatch that emits them. Registering the
-;; discount-rate flow materialises `[:cart :discount-rate]` — and the
-;; `[:cart :total]` that depends on it — before `:cart/apply-discount`
-;; returns; clearing it vacates both by the same boundary. There is no
-;; follow-up event to write and none to remember.
-;; Guide: docs/core/flows.md#toggling-a-derivation-at-runtime.
+;; The discount. Engaging it writes a rate into app-db and removing it takes
+;; the rate out; `:cart/total` has `[:cart :discount-rate]` among its inputs,
+;; so it recomputes in the same event, before the commit. One click, one
+;; event, one write. Guide: docs/core/flows.md#gating-a-derivation-on-state.
 (rf/reg-event :cart/apply-discount
-  {:doc "Engage the 10%-off feature gate: register a flow that writes the
-         discount rate. :cart/total recomputes on this same dispatch."}
-  (fn handler-cart-apply-discount [_ _]
-    {:fx [[:rf.fx/reg-flow
-           [:cart/discount-rate
-            {:doc    "The active discount rate — feature-gated, so it only
-                      exists while the discount is engaged. It reads the live
-                      subtotal so the rule has room to grow; for now it's a
-                      flat 10% off."
-             :inputs [[:cart :subtotal]]
-             :output-path [:cart :discount-rate]}
-            (fn [_subtotal] 0.10)]]]}))
+  {:doc "Engage the 10%-off discount. :cart/total recomputes in this same
+         event."}
+  (fn handler-cart-apply-discount [{:keys [db]} _]
+    {:db (assoc-in db [:cart :discount-rate] 0.10)}))
 
 (rf/reg-event :cart/remove-discount
-  {:doc "Disengage the feature gate. `:rf.fx/clear-flow` removes the flow and
-         `dissoc-in`s its [:cart :discount-rate] output path (per spec 013 —
-         the key is removed, not set to nil), so :cart/total climbs back to
-         full price on this same dispatch."}
-  (fn handler-cart-remove-discount [_ _]
-    {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
+  {:doc "Disengage the discount. The rate leaves app-db, so :cart/total
+         climbs back to full price in this same event."}
+  (fn handler-cart-remove-discount [{:keys [db]} _]
+    {:db (update db :cart dissoc :discount-rate)}))
 
 ;; And here's the payoff — a handler reading a flow's output. This one reads
 ;; [:cart :total] as plain app-db data, alongside the items it summarises.
@@ -221,8 +185,7 @@
   (fn [db _] (get-in db [:cart :total])))
 
 (rf/reg-sub :cart/discount-active?
-  {:doc "True while the discount feature gate is engaged. When the flow is
-         cleared its output path reads nil, so a present value means it's on."}
+  {:doc "True while a discount rate is in app-db."}
   (fn [db _] (some? (get-in db [:cart :discount-rate]))))
 
 ;; ============================================================================
@@ -281,61 +244,36 @@
 ;; the shared `#app`.
 (defonce app-root (rf.adapter.reagent/client-root))
 
-;; `frame-root` (ENSURE, `{:id …}`) would normally be where
-;; `:rf/default` gets created — but by the time it mounts below, `run` has
-;; already created the frame itself (`rf/make-frame`), registered the two
-;; named flows against it (`install-flows!`), and dispatched the cart's seed
-;; — in that order, so the seeding dispatch's own `:db` write is the one the
-;; flow walk sees, and `:cart/subtotal` / `:cart/total` materialise in that
-;; SAME write. So this mount just REUSES the frame; there's nothing left to
-;; seed here. The id is `:rf/default`, the very same one `run` uses below.
-(def app-frame :rf/default)
+;; The frame's config. `:flows` names the flows this frame runs: a flow
+;; registered but not named here never runs in it. `:initial-events` seed the
+;; cart once, when the frame is made — and because the frame runs both flows
+;; from its first event, the seed's own write already carries the subtotal
+;; and total.
+(def cart-frame
+  {:id             :rf/default
+   :doc            "Cart-with-flows demo frame."
+   :flows          [:cart/subtotal :cart/total]
+   :initial-events [[:cart/initialise]]})
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-root. Re-running it re-renders into the same root and —
-;; since the ENSURE root reuses the frame `run` already created — the same
-;; frame. It's the same mount shape the counter and todomvc examples spell
-;; (see `docs/core/how-to/boot-and-mount-an-app.md`), with one difference: the
-;; `^:dev/after-load` marker is NOT on `mount!` here — it's on `reload!`,
-;; below, because this example has more to do on a hot reload than re-render.
-(defn mount! []
+;; inside the frame-root, which makes the frame on first mount and reuses it
+;; afterwards. `^:dev/after-load` is shadow's cue to re-run it on each reload.
+;; That is all a hot reload needs here: the reloaded namespace re-registers
+;; every flow, event and sub at the top level, and the live frame computes
+;; with an edited `:derive` from its next event — cart state intact, no
+;; re-seed. It's the same mount shape the counter and todomvc examples spell
+;; (see `docs/core/how-to/boot-and-mount-an-app.md`).
+(defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (rf.adapter.reagent/render! app-root
-      [rf/frame-root {:id app-frame}
+      [rf/frame-root cart-frame
        [cart-app]]
       el)))
 
-;; The hot-reload seam. Most examples mark `mount!` itself `^:dev/after-load`:
-;; all their registrations are top-level forms, so reloading the namespace
-;; re-registers everything and re-rendering is the only work left. This
-;; example's two named flows are different. They live inside `install-flows!`
-;; (they need a live frame — see FLOWS, above), and a Shadow watch rebuild
-;; only REPLACES that function; nothing calls the new one. Re-render alone and
-;; the live frame keeps computing with the PREVIOUS build's `:derive` fns —
-;; exactly the stale split the flows guide's hot-reload contract rules out.
-;;
-;; So the after-load work here is: re-register the CURRENT flow definitions
-;; into the live frame, then re-render. Same-id `reg-flow` against the same
-;; frame is a surgical replace (docs/core/flows.md, Spec 013): the frame and
-;; its app-db stay put — no re-seed, no frame teardown — and the next cart
-;; event computes with the fresh derives.
-(defn ^:dev/after-load reload! []
-  (install-flows!)
-  (mount!))
-
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through —
-  ;; here, Reagent. It has to come before any frame is constructed: a
-  ;; frame's state container is substrate-specific, so `rf/make-frame` (next)
-  ;; would raise :rf.error/no-adapter-installed without this first.
+  ;; here, Reagent. It has to come before any frame is made: a frame's state
+  ;; container is substrate-specific.
   (rf/init! rf.adapter.reagent/adapter)
-  ;; Create the frame explicitly, here, rather than leaving it to
-  ;; `frame-root` in `mount!`. `reg-flow` (inside `install-flows!`) needs a
-  ;; LIVE frame to register against, and the render tree — where
-  ;; `frame-root` would otherwise create one — doesn't exist yet at this
-  ;; point in `run`.
-  (rf/make-frame {:id app-frame :doc "Cart-with-flows demo frame."})
-  (install-flows!)
-  (rf/with-frame app-frame (rf/dispatch-sync [:cart/initialise]))
   (mount!))

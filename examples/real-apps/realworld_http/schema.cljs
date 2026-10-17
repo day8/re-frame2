@@ -223,10 +223,6 @@
    [:errors :map]
    [:touched [:set :keyword]]
    [:submit-attempted? {:optional true} :boolean]
-   ;; Where the :editor/can-submit? flow parks its output. Optional because the
-   ;; flow is registered at boot, so the key is absent in any editor state built
-   ;; before `:editor/register-flow` runs — not because of any lag afterwards.
-   [:can-submit? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
 ;; ----------------------------------------------------------------------------

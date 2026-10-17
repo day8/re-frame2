@@ -5,8 +5,8 @@
   correct code the rule must not report. Above all, the rule demands
   resolvability, never a SPELLING. `rf.fixture/known-public` and
   `re-frame.fixture/known-public` are the same var written two ways and both
-  are right, exactly as `re-frame.core`'s own `not-queryable-kinds` map writes
-  `re-frame.flows/flows` beside `rf/frame-ids`. Which definition shapes make a
+  are right, exactly as the flows artefact writes `'rf/make-frame` and
+  `'re-frame.flows/run-flows-on-db` for one refusal. Which definition shapes make a
   var public is the oracle's question, pinned by the self-test's exact public
   set."
   (:require [re-frame.error :as rf.error]))

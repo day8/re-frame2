@@ -44,7 +44,6 @@ The reserved fx-ids the core runtime handles directly (listed in the same docstr
 | `:dispatch` | event-vector | Enqueue at back of frame's router |
 | `:dispatch-later` | `{:ms n :event ev}` | Enqueue after `n` ms |
 | `:raise` | event-vector | Machine-internal: re-enter the machine locally as a pre-commit microstep in the same macrostep (state-machines leaves) |
-| `:rf.fx/reg-flow` / `:rf.fx/clear-flow` | flow spec | (Flows artefact; Spec 013) |
 
 Machine fx-ids (`:rf.machine/spawn`, `:rf.machine/destroy`) ship in `day8/re-frame2-machines`; they register through the same `reg-fx` path when that artefact is loaded.
 

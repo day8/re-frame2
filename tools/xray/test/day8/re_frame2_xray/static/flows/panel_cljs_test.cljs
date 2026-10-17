@@ -18,12 +18,9 @@
     5. **Search filter** — substring across flow-id + path + doc."
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Load-time hook so `reg-flow` / `flows-snapshot`
-            ;; resolve. The Static Flows panel reads the PRODUCTION data
-            ;; source `rf.flows/flows-snapshot` (the per-frame flows atom is the
-            ;; sole store; the registrar `:flow` slot is
-            ;; reserved-but-empty), so the live-source regression below
-            ;; registers real flows through `rf/reg-flow`.
+            ;; Load-time hooks so `reg-flow` and a frame's `:flows`
+            ;; resolve: the live-source regression below registers real
+            ;; flows and makes frames that run them.
             [re-frame.flows]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
@@ -261,23 +258,27 @@
 ;; (5) LIVE production data source regression
 ;; -------------------------------------------------------------------------
 ;;
-;; No override seam: the production sub reads `re-frame.flows/flows-snapshot`
-;; against a REAL `reg-flow`. The registrar's `:flow` slot is reserved and
-;; empty, so a registrar read would show nothing while every override-based
-;; test above stays green.
+;; No override seam: the production sub reads each frame's `:flows` and the
+;; registrar's `:flow` definitions against REAL registrations and frames, which
+;; every override-based test above bypasses.
 
-(deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
+(deftest live-source-lists-the-flows-each-frame-runs
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
-  (rf/make-frame {:id :flows-test/frame-a})
   (rf/reg-flow :user/full-name
                {:inputs      [[:user :first] [:user :last]]
-                :output-path [:derived :full-name]
-                :frame       :flows-test/frame-a}
+                :output-path [:derived :full-name]}
                (fn [first* last*] (str first* " " last*)))
+  (rf/reg-flow :user/initials
+               {:inputs      [[:user :first]]
+                :output-path [:derived :initials]}
+               (fn [first*] (subs (str first*) 0 1)))
+  (rf/make-frame {:id :flows-test/frame-a :flows [:user/full-name]})
+  (rf/make-frame {:id :flows-test/frame-b})
   ;; nil picker frame → list every frame's flows (see scope-to-frame).
   (rf/with-frame :rf/xray
-    (is (= [[:user/full-name :flows-test/frame-a]]
-           (mapv (juxt :flow-id :frame)
+    (is (= [[:user/full-name :flows-test/frame-a [:derived :full-name]]]
+           (mapv (juxt :flow-id :frame :output-path)
                  (:flows @(rf/subscribe [:rf.xray.static.flows/tab-data]))))
-        "the real flow reaches the view-facing composite, keyed by its frame")))
+        "a frame's flow reaches the view-facing composite, keyed by that frame;
+         a registered flow no frame runs, and a frame running none, list nothing")))

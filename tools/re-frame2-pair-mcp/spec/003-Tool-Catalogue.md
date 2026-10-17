@@ -3303,22 +3303,25 @@ bound it:
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
 `fx` / `cofx` / `interceptor` / `view` / `route` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
-`app-schema` / `machine`), `id` (string, **required** — EDN-encoded
+`app-schema` / `flow` / `machine`), `id` (string, **required** — EDN-encoded
 keyword, composite vector, or `app-schema` path vector), `frame` (string, optional — a frame id keyword;
 the EP-0023 forward direction, see below), `build` (string, optional).
 
-**`flow` and `frame` are NOT on that enum** (rf2-zhef). Both are
-reserved-but-EMPTY registrar slots: nothing is ever written to either, so
-a registrar query could only ever answer `{}` — which reads as an
-authoritative empty catalogue while the real store sits elsewhere. Since
-rf2-kuky.30 the framework refuses such a query outright
-(`:rf.error/registrar-kind-not-queryable`), and this tool now refuses it
-one layer earlier with the ordinary
+**`frame` is NOT on that enum.** It is a reserved-but-EMPTY registrar
+slot: nothing is ever written to it, so a registrar query could only ever
+answer `{}` — which reads as an authoritative empty catalogue while the
+real store sits elsewhere. The framework refuses such a query outright
+(`:rf.error/registrar-kind-not-queryable`), and this tool refuses it one
+layer earlier with the ordinary
 `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` envelope
-rather than propagating the framework throw. Read flows through
-`re-frame.flows/flows-snapshot` / `flow-meta`, and frames through
+rather than propagating the framework throw. Read frames through
 `rf/frame-ids` / `rf/frame-meta` (`discover-app` surfaces the frame
 roster over the wire).
+
+`flow` is a flow definition (Spec 013): its meta carries `:inputs` and
+`:output-path`, with the `:derive` fn riding as the `:rf/fn` sentinel.
+Which flows a frame runs is that frame's `:flows` config,
+`(:flows (rf/frame-meta f))`.
 
 **No realm coordinate** (EP-0023 / EP-0024). The public model is
 `image -> frame -> event stream`. The EP-0013 realm / app-value / install
@@ -3362,7 +3365,7 @@ the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
 surfaces the registered `:rf/interceptor-descriptor`), and the
 `:app-schema` kind (Spec 010 — `reg-app-schema`; its id is the canonical
 path vector, and its meta carries `:path` and the registered `:schema`).
-The thirteen registrar kinds route through
+The fourteen registrar kinds route through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
 `:inputs` map + `:whole-db?` cost (the EP-0016 disposition-2
@@ -3472,7 +3475,7 @@ There is no `realm` arg — the EP-0013 realm substrate was deleted in full
 (including the resources-artefact `:resource` / `:mutation` /
 `:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — the `:interceptor`
 kind — EP-0022 — and the `:app-schema` kind; plus
-the virtual `:machine` kind). The thirteen
+the virtual `:machine` kind). The fourteen
 registrar kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's

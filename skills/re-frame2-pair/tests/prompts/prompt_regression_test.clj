@@ -262,7 +262,7 @@
     (is (= server skill)
         (str "ops.md's list-handlers kinds must match the server's. Only in ops.md: "
              (pr-str (sort (remove server skill))) "; only in the manifest: " (pr-str (sort (remove skill server)))))
-    (is (str/includes? @ops-md "flows-snapshot") "ops.md must name the flow door where it declines the kind")))
+    (is (str/includes? @ops-md "rf/frame-ids") "ops.md must name the frame door where it declines the kind")))
 
 (let [{:keys [fail error]} (run-tests 'prompt-regression-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

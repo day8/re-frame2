@@ -198,16 +198,14 @@
     - `:rf.ws/*`       → `:websocket`   (Pattern-WebSocket)
     - `:rf.machine/*`  → `:machine-invoke` (Spec 005 `:spawn`)
     - `:rf.server/*`   → `:ssr-fx`      (Spec 011)
-    - `:rf.flow/*` / `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
-                       → `:flow`        (Spec 013)
+    - `:rf.flow/*`     → `:flow`        (Spec 013)
 
   Pure fn. Idempotent. Returns nil for `:db`, `:dispatch`, `:fx`, and
   every user-registered fx — those don't satisfy the eight-property
   contract."
   [fx-id]
   (when (keyword? fx-id)
-    (let [n (namespace fx-id)
-          base-name (name fx-id)]
+    (let [n (namespace fx-id)]
       (cond
         (or (= n "rf.http")
             (str/starts-with? (or n "") "rf.http."))
@@ -227,12 +225,6 @@
 
         (or (= n "rf.flow")
             (str/starts-with? (or n "") "rf.flow."))
-        :flow
-
-        ;; `:rf.fx/reg-flow` + `:rf.fx/clear-flow` are flow lifecycle fxs
-        ;; per spec/013 §`:rf.fx/reg-flow`.
-        (and (= n "rf.fx")
-             (contains? #{"reg-flow" "clear-flow"} base-name))
         :flow
 
         :else nil))))
@@ -1123,9 +1115,8 @@
            :res args)))
 
 (defn flow-adapter
-  "Managed-flow adapter. The fx-args carry the registration (for
-  `:rf.fx/reg-flow`) or the flow-id (`:rf.fx/clear-flow`); surface
-  events carry per-flow computation / failure traces."
+  "Managed-flow adapter. The fx-args carry the flow-id; surface events
+  carry per-flow computation / failure traces."
   [fx-ev event-bundle-other]
   (let [surface-events (surface-events-for event-bundle-other :flow)
         args           (fx-args-of fx-ev)
