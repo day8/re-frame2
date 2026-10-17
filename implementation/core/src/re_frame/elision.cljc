@@ -360,11 +360,10 @@
   elision registry is durable framework state and lives in runtime-db.
 
   The 3-arity is the EXACT-INCARNATION variant the machine lifecycle writes
-  issue while an event owns the frame: it routes through `rf.frame/swap-runtime-db-exact!` so a synchronous
-  container watch that destroys A and publishes same-id B during this durable-
-  registry write cannot bump B's commit epoch or write B's runtime-db. The
-  2-arity is the bare-id write (EP-0025 classification effects, flow output
-  claims, routing subsystem claims)."
+  issue while an event owns the frame: it routes through
+  `rf.frame/swap-runtime-db-exact!`, which writes only while `owner-token`
+  names the frame's live incarnation. The 2-arity is the bare-id write (EP-0025
+  classification effects, flow output claims, routing subsystem claims)."
   ([frame-id f]
    (rf.frame/swap-runtime-db! frame-id #(apply-elision-transform f %))
    nil)

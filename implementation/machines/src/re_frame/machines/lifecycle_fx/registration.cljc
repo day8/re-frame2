@@ -1092,12 +1092,11 @@
                 ;; Value-independent + idempotent, dropped at destroy / finalize.
                 ;; A spec declaring no classification is a no-op. The
                 ;; singleton first-boot classification lowering rides the EXACT
-                ;; elision write: `maybe-boot` above fired the initial-entry
-                ;; `:entry` actions (authored callbacks that can destroy A /
-                ;; publish same-id B), so a mid-write container watch must not
-                ;; re-root this singleton's `:sensitive` / `:large` declarations
-                ;; onto B or bump B's commit epoch. nil token (no event owner)
-                ;; falls back to the bare write.
+                ;; elision write under the event's owner token. The
+                ;; initial-entry `:entry` actions `maybe-boot` fired above may
+                ;; request a destroy of A, but no destroy can finish before this
+                ;; event ends, so the write still lands on A. nil token (no
+                ;; event owner) falls back to the bare write.
                 (when boot?
                   (rf.machines.classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
                                                   (:machine ctx)
