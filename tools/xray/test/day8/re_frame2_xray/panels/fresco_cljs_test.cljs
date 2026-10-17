@@ -65,11 +65,9 @@
 ;; The UIx adapter, not the Xray suite's plain-atom default — and RESTORED
 ;; at the end of the namespace.
 ;;
-;; It is not a preference. Fresco's cell wiring calls `add-watch` on the
-;; substrate's derived value, and plain-atom's is not `IWatchable`, so a
-;; boundary mounted under it throws `No protocol method IWatchable.-add-watch`
-;; before any projection exists to assert on. A Fresco witness needs a
-;; reactive substrate, which is why the package's own suites take one too.
+;; A Fresco witness mounts a live boundary, and the headless plain-atom
+;; adapter has no live render path, only `render-to-string`, so this
+;; namespace takes a view adapter, as the package's own suites do.
 ;;
 ;; THE `:once` RESTORE IS LOAD-BEARING. `install-adapter!` is process-global
 ;; and the `:each` fixture never puts back what it found, so leaving UIx

@@ -75,8 +75,8 @@
   `rf/init!` first: `make-frame` raises `:rf.error/no-adapter-installed`
   until a reactive adapter is installed (Spec 006 §Adapter selection at
   boot), and this is an interactive mount, so the headless plain-atom
-  adapter will not do — its derived value is not `IWatchable` and a
-  moving subscription under it would notify nothing."
+  adapter will not do — it has no live render path, only
+  `render-to-string`."
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events initial-events})

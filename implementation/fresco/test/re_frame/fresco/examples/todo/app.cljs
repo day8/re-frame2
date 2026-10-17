@@ -29,8 +29,7 @@
   already do for Reagent or UIx views (Spec 006 §Adapter selection at
   boot). It has to be a REACTIVE one: a keystroke moves `app-db` and the
   boundary that read it must re-render, and the headless plain-atom
-  adapter's derived value is not `IWatchable`, so a moving subscription
-  under it notifies nothing at all."
+  adapter has no live render path, only `render-to-string`."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]

@@ -113,11 +113,8 @@
 
   ## Substrate
 
-  The Reagent adapter, because a real React commit is the whole point and
-  because Fresco's cell wiring calls `add-watch` on the substrate's
-  derived value — under the ratom family that value IS a
-  `reagent.ratom/Reaction` (`impl/collector.cljs` §`wire-cell!`), while
-  plain-atom's is not `IWatchable`.
+  The Reagent adapter, because a real React commit is the whole point, and
+  the headless plain-atom adapter has no live render path.
 
   `:ambient-frame nil` is load-bearing: the panel's `rf.fresco/sub` calls
   must resolve `:rf/xray` through the React-context tier the
